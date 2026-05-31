@@ -47,15 +47,23 @@ risk_changed = django.dispatch.Signal()
 # Enterprise receivers must use transaction.on_commit() for any I/O side-effects.
 task_status_changed = django.dispatch.Signal()
 
-# Sent after a SprintScopeChange row is created (ADR-0060 #308).
-# Fires when a subtask is added to a task that belongs to an active sprint.
+# Sent after a SprintScopeChange row is created (ADR-0060 #308, generalized in
+# ADR-0101 §5 / ADR-0102). Fires when *any* task is linked to a task's ACTIVE
+# sprint mid-sprint — the original subtask-spawn path, plus the direct
+# "assign existing task to the active sprint" path. The row enters the pending
+# state (ADR-0102): excluded from commitment/burndown until a team member with
+# the sprint-lifecycle gate accepts or rejects it.
 #
 # Keyword arguments:
 #   sender          — the SprintScopeChange class
 #   scope_change    — the SprintScopeChange instance (post-save)
-#   parent_task     — the parent Task instance
+#   task            — the Task whose sprint membership changed (the injected item)
 #
 # OSS only emits; Enterprise registers receivers via AppConfig.ready().
 # Receivers that perform I/O must use transaction.on_commit() to avoid
 # blocking the transaction or writing on rollback.
-subtask_sprint_scope_changed = django.dispatch.Signal()
+#
+# ADR-0102 §3 invariant: this signal is *notify-only*. No receiver may flip a
+# SprintScopeChange.status away from PENDING — accept/reject are exclusively the
+# human-invoked service functions (accept_scope_change / reject_scope_change).
+sprint_scope_changed = django.dispatch.Signal()

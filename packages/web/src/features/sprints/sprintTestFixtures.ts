@@ -21,6 +21,7 @@ export function makeSprint(overrides: Partial<ApiSprint> = {}): ApiSprint {
     capacity_points: null,
     committed_points: null,
     committed_task_count: null,
+    pending_count: 0,
     completed_points: null,
     completed_task_count: null,
     completion_ratio_points: null,

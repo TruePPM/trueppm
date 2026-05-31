@@ -52,6 +52,10 @@ export interface ApiTask {
   server_version?: number;
   // Sprint membership (issue #317) — null/absent when not in a sprint.
   sprint?: string | null;
+  // Sprint scope-injection pending flag (ADR-0102 §5) — snake_case on the wire
+  // (TaskSerializer does not camelCase). Read-only; true ⇔ injected post-activation
+  // and not yet accepted into the commitment.
+  sprint_pending?: boolean;
   // Agile estimate (ADR-0037) — original commitment. Null for non-agile tasks.
   story_points?: number | null;
   // Live burndown signal (issue #366) — remaining effort; null = fall back to story_points.
@@ -62,11 +66,15 @@ export interface ApiTask {
   is_subtask?: boolean;
   // Sprint scope-change audit rows (ADR-0060 #308) — non-empty when subtasks were added after sprint start.
   sprint_scope_changes?: Array<{
+    // ADR-0102 — scope-change row id; targets the single accept/reject endpoints.
+    id?: string;
     subtask_name: string;
     item_name?: string;
     added_by_name: string | null;
     added_at: string;
     goal_impact?: boolean;
+    // ADR-0102 §5 — decision status; lowercase wire string. Absent on legacy rows.
+    status?: 'pending' | 'accepted' | 'rejected';
   }>;
   // Sprint→milestone rollup payload (ADR-0074) — non-null only on milestone tasks with linked sprints.
   milestone_rollup?: {
@@ -205,17 +213,22 @@ export function mapTask(t: ApiTask): Task {
     assigneeIsOverallocated: t.assignee_is_overallocated ?? false,
     serverVersion: t.server_version,
     sprintId: t.sprint ?? null,
+    sprintPending: t.sprint_pending ?? false,
     storyPoints: t.story_points ?? null,
     remainingPoints: t.remaining_points ?? null,
     plannedStart: t.planned_start,
     notes: t.notes ?? '',
     isSubtask: t.is_subtask ?? false,
     sprintScopeChanges: t.sprint_scope_changes?.map((s) => ({
+      id: s.id,
       subtaskName: s.subtask_name,
       itemName: s.item_name ?? s.subtask_name,
       addedByName: s.added_by_name,
       addedAt: s.added_at,
       goalImpact: s.goal_impact ?? false,
+      // Legacy rows (pre-ADR-0102) carry no status; treat them as accepted so
+      // they never resurface as a pending-review item.
+      status: s.status ?? 'accepted',
     })),
     milestoneRollup: t.milestone_rollup ?? null,
     shortId: t.short_id,

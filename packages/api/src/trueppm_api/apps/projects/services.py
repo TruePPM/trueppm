@@ -85,6 +85,7 @@ def enqueue_sprint_close(
     sprint_id: str | uuid.UUID,
     *,
     carry_over_to: str = "backlog",
+    pending_disposition: str = "carry",
     requested_by: Any | None = None,
 ) -> Any:
     """Insert a SprintCloseRequest outbox row and best-effort dispatch.
@@ -99,6 +100,8 @@ def enqueue_sprint_close(
         carry_over_to: Either ``"backlog"`` (default), ``"none"``, or a
             sprint UUID string. The drain task interprets this when
             reassigning incomplete tasks.
+        pending_disposition: ADR-0102 §7 — ``"carry"`` (default) or ``"reject"``;
+            how to dispose of tasks still pending acceptance at close.
         requested_by: User instance who initiated the close (nullable).
 
     Returns:
@@ -109,6 +112,7 @@ def enqueue_sprint_close(
     req = SprintCloseRequest.objects.create(
         sprint_id=sprint_id,
         carry_over_to=carry_over_to,
+        pending_disposition=pending_disposition,
         requested_by=requested_by,
     )
 
@@ -327,17 +331,18 @@ def upsert_burndown_for_sprint(sprint: Any, snapshot_date: date | None = None) -
 
     from trueppm_api.apps.projects.models import (
         SprintBurnSnapshot,
-        Task,
         TaskStatus,
+        committed_sprint_tasks,
     )
 
     if snapshot_date is None:
         snapshot_date = timezone.localdate()
 
+    # ADR-0102 §2: exclude pending mid-sprint injections — a pending task
+    # contributes ZERO to remaining/completed/scope-change points. The burndown
+    # line moves only when a task is accepted into the commitment.
     tasks = list(
-        Task.objects.filter(sprint_id=sprint.pk, is_deleted=False).values_list(
-            "status", "story_points", "remaining_points"
-        )
+        committed_sprint_tasks(sprint.pk).values_list("status", "story_points", "remaining_points")
     )
     completed_points = sum(sp or 0 for s, sp, _rp in tasks if s == TaskStatus.COMPLETE)
     completed_count = sum(1 for s, _sp, _rp in tasks if s == TaskStatus.COMPLETE)
@@ -735,9 +740,12 @@ def snapshot_committed_metrics(sprint: Any) -> None:
     backlog as the commitment baseline; subsequent scope changes are tracked
     via ``SprintBurnSnapshot.scope_change_*``.
     """
-    from trueppm_api.apps.projects.models import Task
+    from trueppm_api.apps.projects.models import committed_sprint_tasks
 
-    committed_qs = Task.objects.filter(sprint_id=sprint.pk, is_deleted=False)
+    # ADR-0102 §2: exclude pending injections from the activation snapshot for
+    # symmetry with the recompute-on-accept path (at activation there are no
+    # pending tasks, but the filter keeps the helper correct under reuse).
+    committed_qs = committed_sprint_tasks(sprint.pk)
     committed_points = sum(
         p for p in committed_qs.values_list("story_points", flat=True) if p is not None
     )
@@ -753,6 +761,377 @@ def all_active_sprint_ids(project_id: str | uuid.UUID) -> Iterable[Any]:
     return Sprint.objects.filter(
         project_id=project_id, state=SprintState.ACTIVE, is_deleted=False
     ).values_list("pk", flat=True)
+
+
+# ---------------------------------------------------------------------------
+# Sprint scope-injection approve-gate (ADR-0102, #881)
+# ---------------------------------------------------------------------------
+
+
+class ScopeAcceptForbidden(Exception):
+    """Raised when an actor without the team-owned accept gate attempts a
+    scope-change accept/reject (ADR-0102 §3, VoC 🔴 #1 — the Enterprise back-door).
+
+    Carries the stable ``code`` ``scope_accept_forbidden`` so the viewset emits a
+    structured 403 the frontend maps without scraping the message. Raised
+    *regardless of role ordinal* when the actor is not a real ProjectMembership
+    holder at role>=ADMIN on the task's project — so a high-ordinal Enterprise
+    custom role (ADR-0072) that is not a project member cannot force-accept.
+    """
+
+    code = "scope_accept_forbidden"
+    detail = "Sprint scope acceptance is team-owned."
+
+
+def assert_scope_gate_for_project(project_id: Any, by: Any) -> None:
+    """Enforce the team-owned scope accept/reject gate (ADR-0102 §3) for a project.
+
+    The actor must be an authenticated user holding a real, non-soft-deleted
+    ``ProjectMembership`` at role>=ADMIN on the project. This is the structural
+    close of the management/PMO back-door: an org-level principal arrives with no
+    project ``ProjectMembership`` row and is rejected here independent of any role
+    ordinal they may hold elsewhere.
+    """
+    from trueppm_api.apps.access.models import ProjectMembership, Role
+
+    if by is None or not getattr(by, "is_authenticated", False):
+        raise ScopeAcceptForbidden
+    role = (
+        ProjectMembership.objects.filter(project_id=project_id, user=by, is_deleted=False)
+        .values_list("role", flat=True)
+        .first()
+    )
+    if role is None or role < Role.ADMIN:
+        raise ScopeAcceptForbidden
+
+
+def _assert_scope_gate(scope_change: Any, by: Any) -> None:
+    """Enforce the team-owned accept/reject gate (ADR-0102 §3) for a scope change."""
+    assert_scope_gate_for_project(scope_change.task.project_id, by)
+
+
+def record_sprint_scope_change(
+    task: Any,
+    sprint: Any,
+    by: Any,
+    goal_impact: bool = False,
+    *,
+    item_name: str | None = None,
+    flag_pending: bool = True,
+) -> Any:
+    """Record a mid-sprint scope injection (ADR-0101 §5 / ADR-0102 §4).
+
+    The single write path for scope injection: a row is recorded whenever a task
+    is linked to an ACTIVE sprint after activation — subtask spawn, direct
+    assignment, drawer, or API.
+
+    ``flag_pending`` controls the pending-acceptance gate (ADR-0102 §1):
+
+    - **Direct link** (``flag_pending=True``, default): ``task`` IS the injected
+      item now linked to ``sprint``. Sets ``status=PENDING`` on the audit row AND
+      ``task.sprint_pending=True`` atomically (one transaction) so the two never
+      disagree and the task is excluded from commitment/burndown until accepted.
+    - **Subtask spawn** (``flag_pending=False``): the audit row is recorded
+      against the already-committed parent ``task`` (display continuity for the
+      drawer chip) but the parent is NOT flagged pending — flagging the parent
+      would wrongly drop the whole parent from the burndown. ``item_name`` carries
+      the spawned subtask's name.
+
+    Fires the ``sprint_scope_changed`` notify-only signal. Pre-activation links
+    never call this (they are baseline commitment). Returns the SprintScopeChange.
+    """
+    from trueppm_api.apps.projects.models import ScopeChangeStatus, SprintScopeChange
+    from trueppm_api.apps.projects.signals import sprint_scope_changed
+
+    with transaction.atomic():
+        scope_change = SprintScopeChange.objects.create(
+            task=task,
+            sprint=sprint,
+            subtask_name=item_name if item_name is not None else task.name,
+            added_by=by if (by is not None and getattr(by, "is_authenticated", False)) else None,
+            goal_impact=goal_impact,
+            status=ScopeChangeStatus.PENDING,
+        )
+        if flag_pending:
+            # Flag the task pending via .save() so VersionedModel bumps
+            # server_version (mobile sync sees the new pending state) — never a
+            # bulk .update().
+            task.sprint_pending = True
+            task.save(update_fields=["sprint_pending"])
+
+    sprint_scope_changed.send(
+        sender=SprintScopeChange,
+        scope_change=scope_change,
+        task=task,
+    )
+    return scope_change
+
+
+def maybe_record_scope_injection(task: Any, old_sprint_id: Any, by: Any) -> Any | None:
+    """Record a PENDING scope injection if ``task`` was just linked to an ACTIVE sprint.
+
+    The single shared detector for the generalized scope-injection write path
+    (ADR-0102 §4), called by BOTH the REST ``TaskViewSet.perform_update`` and the
+    mobile ``sync`` upload after they save through ``TaskSerializer`` — keeping the
+    detection in one place so the two surfaces cannot drift (a divergence here was
+    how the sync path originally bypassed the gate). A task whose sprint link
+    changed to an ACTIVE sprint enters pending-acceptance; subtasks, unchanged
+    links, already-pending tasks, and PLANNED/COMPLETED targets are skipped.
+
+    Args:
+        task: the just-saved Task (its ``sprint_id`` is the new value).
+        old_sprint_id: the task's ``sprint_id`` before the save (str or None).
+        by: the acting user (recorded as the injection's ``added_by``).
+
+    Returns the created SprintScopeChange, or ``None`` if no injection applied.
+    """
+    from trueppm_api.apps.projects.models import Sprint, SprintState
+
+    new_sprint_id = str(task.sprint_id) if task.sprint_id else None
+    if (
+        new_sprint_id is None
+        or new_sprint_id == (str(old_sprint_id) if old_sprint_id else None)
+        or task.is_subtask
+        or task.sprint_pending
+    ):
+        return None
+    target_sprint = Sprint.objects.filter(pk=new_sprint_id).first()
+    if target_sprint is None or target_sprint.state != SprintState.ACTIVE:
+        return None
+    return record_sprint_scope_change(task=task, sprint=target_sprint, by=by)
+
+
+def accept_scope_change(scope_change: Any, by: Any) -> Any:
+    """Promote a pending scope injection into the sprint commitment (ADR-0102 §4).
+
+    Team-owned gate (role>=ADMIN + project membership). Sets ``status=ACCEPTED``
+    and ``task.sprint_pending=False`` in one transaction, writes
+    ``history_change_reason``, and — inside ``transaction.on_commit`` — rides the
+    existing scope-change recompute path (``upsert_burndown_for_sprint``) plus a
+    board broadcast. Idempotent: re-accepting an already-ACCEPTED row is a no-op
+    (the status field is the idempotency key; the row is locked for update).
+
+    The ONLY writer of ACCEPTED besides the bulk variant — no auto-accept path.
+    """
+    from trueppm_api.apps.projects.models import ScopeChangeStatus, SprintScopeChange, Task
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+    _assert_scope_gate(scope_change, by)
+
+    with transaction.atomic():
+        locked = (
+            SprintScopeChange.objects.select_for_update()
+            .select_related("task", "sprint")
+            .get(pk=scope_change.pk)
+        )
+        if locked.status != ScopeChangeStatus.PENDING:
+            return locked  # idempotent no-op on an already-decided row
+        task = Task.objects.select_for_update().get(pk=locked.task_id)
+        locked.status = ScopeChangeStatus.ACCEPTED
+        locked.save(update_fields=["status"])
+        task.sprint_pending = False
+        task._change_reason = "scope accepted into sprint"  # type: ignore[attr-defined]
+        task.save(update_fields=["sprint_pending"])
+
+        sprint = locked.sprint
+        project_id_str = str(task.project_id)
+        sprint_id_str = str(sprint.pk)
+        task_id_str = str(task.pk)
+
+        def _on_commit(
+            s: Any = sprint,
+            pid: str = project_id_str,
+            sid: str = sprint_id_str,
+            tid: str = task_id_str,
+        ) -> None:
+            upsert_burndown_for_sprint(s)
+            broadcast_board_event(pid, "sprint_scope_changed", {"sprint_id": sid, "task_id": tid})
+
+        transaction.on_commit(_on_commit)
+    return locked
+
+
+def reject_scope_change(scope_change: Any, by: Any) -> Any:
+    """Reject a pending scope injection, removing the task from the sprint (ADR-0102 §4).
+
+    Team-owned gate (role>=ADMIN + project membership). Sets ``status=REJECTED``,
+    clears ``task.sprint`` (removes from sprint) and forces ``sprint_pending=False``
+    in one transaction, writes ``history_change_reason`` (ADR-0098 — so the
+    timeline shows "removed from sprint" not a bare "Updated" pill), and rides the
+    recompute + broadcast on commit. The REJECTED row is retained for the audit
+    trail (cleared on sprint close like every other row). Idempotent.
+    """
+    from trueppm_api.apps.projects.models import ScopeChangeStatus, SprintScopeChange, Task
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+    _assert_scope_gate(scope_change, by)
+
+    with transaction.atomic():
+        locked = (
+            SprintScopeChange.objects.select_for_update()
+            .select_related("task", "sprint")
+            .get(pk=scope_change.pk)
+        )
+        if locked.status != ScopeChangeStatus.PENDING:
+            return locked  # idempotent no-op
+        task = Task.objects.select_for_update().get(pk=locked.task_id)
+        sprint = locked.sprint
+        locked.status = ScopeChangeStatus.REJECTED
+        locked.save(update_fields=["status"])
+        task.sprint = None
+        task.sprint_pending = False
+        task._change_reason = "scope rejected — removed from sprint"  # type: ignore[attr-defined]
+        task.save(update_fields=["sprint", "sprint_pending"])
+
+        project_id_str = str(task.project_id)
+        sprint_id_str = str(sprint.pk)
+        task_id_str = str(task.pk)
+
+        def _on_commit(
+            s: Any = sprint,
+            pid: str = project_id_str,
+            sid: str = sprint_id_str,
+            tid: str = task_id_str,
+        ) -> None:
+            upsert_burndown_for_sprint(s)
+            broadcast_board_event(pid, "sprint_scope_changed", {"sprint_id": sid, "task_id": tid})
+
+        transaction.on_commit(_on_commit)
+    return locked
+
+
+def pending_scope_advisory(sprint: Any) -> dict[str, Any] | None:
+    """Return the close-time pending-scope advisory, or None (ADR-0102 §7).
+
+    A *non-blocking* advisory listing the items still pending acceptance at
+    close. Closing is NEVER blocked by this — the team owns its own close
+    (sprint sovereignty). Returns None when there is nothing pending.
+    """
+    from trueppm_api.apps.projects.models import ScopeChangeStatus, SprintScopeChange
+
+    rows = list(
+        SprintScopeChange.objects.filter(
+            sprint_id=sprint.pk, status=ScopeChangeStatus.PENDING
+        ).select_related("task")
+    )
+    if not rows:
+        return None
+    return {
+        "code": "scope_pending_on_close",
+        "detail": (
+            f"{len(rows)} item(s) are still pending acceptance. They will be carried "
+            "over to the next sprint (still pending) unless you reject them."
+        ),
+        "pending_count": len(rows),
+        "items": [
+            {"id": str(r.pk), "task": str(r.task_id), "item_name": r.item_name} for r in rows
+        ],
+        "default_disposition": "carry",
+    }
+
+
+def apply_pending_disposition(sprint: Any, disposition: str, by: Any = None) -> None:
+    """Dispose of tasks still pending acceptance at sprint close (ADR-0102 §7).
+
+    Called from inside ``close_sprint`` after carry-over. Never blocks the close.
+
+    - ``"reject"``: reject every pending row (removes the task from the sprint,
+      writes history_change_reason) via ``reject_scope_change``.
+    - ``"carry"`` (default): the close carry-over already moved incomplete tasks
+      to the incoming sprint; for any carried task that was still pending, re-flag
+      it ``sprint_pending=True`` on its NEW sprint and record a fresh PENDING
+      SprintScopeChange against that sprint, so the injection stays gated in the
+      next sprint rather than being silently committed. Tasks carried to backlog
+      (sprint=None) or to "none" have their pending flag cleared (no sprint to be
+      pending in). The closing sprint's PENDING rows clear with all other rows on
+      close.
+    """
+    from trueppm_api.apps.projects.models import (
+        ScopeChangeStatus,
+        SprintScopeChange,
+        Task,
+    )
+
+    pending_rows = list(
+        SprintScopeChange.objects.filter(
+            sprint_id=sprint.pk, status=ScopeChangeStatus.PENDING
+        ).select_related("task")
+    )
+    if not pending_rows:
+        return
+
+    if disposition == "reject":
+        for row in pending_rows:
+            # The team-owned ADMIN gate for reject-on-close is enforced
+            # synchronously at the close endpoint (SprintViewSet.close) BEFORE the
+            # close is enqueued — a MEMBER who can close a sprint cannot use the
+            # reject disposition to bypass ADR-0102 §3. By the time this drains we
+            # are system-initiated, so the per-row reject is done inline (a None
+            # actor would 403 in reject_scope_change's gate).
+            task = Task.objects.select_for_update().filter(pk=row.task_id).first()
+            row.status = ScopeChangeStatus.REJECTED
+            row.save(update_fields=["status"])
+            if task is None:
+                continue
+            # Reject means the injection never joins the commitment — clear the
+            # pending flag regardless of where carry-over already left the task
+            # (e.g. carry_over_to="backlog" moved it off this sprint *before* this
+            # disposition runs, so a `sprint_id == sprint.pk` guard would strand
+            # the flag True). If the task is still on the closing sprint, also
+            # remove it from the sprint.
+            update_fields: list[str] = []
+            if task.sprint_pending:
+                task.sprint_pending = False
+                update_fields.append("sprint_pending")
+            if task.sprint_id == sprint.pk:
+                task.sprint = None
+                update_fields.append("sprint")
+            if update_fields:
+                task._change_reason = "scope rejected at sprint close"  # type: ignore[attr-defined]
+                task.save(update_fields=update_fields)
+        return
+
+    # carry (default): re-flag the carried task in its NEW sprint and record a
+    # fresh PENDING row there. The original closing-sprint row clears on close.
+    for row in pending_rows:
+        task = Task.objects.filter(pk=row.task_id, is_deleted=False).first()
+        if task is None:
+            continue
+        new_sprint_id = task.sprint_id
+        if new_sprint_id is None or new_sprint_id == sprint.pk:
+            # Carried to backlog / "none" / still on the closing sprint → no sprint
+            # to be pending in; clear the flag so it does not strand True.
+            if task.sprint_pending:
+                task.sprint_pending = False
+                task.save(update_fields=["sprint_pending"])
+            continue
+        from trueppm_api.apps.projects.models import Sprint
+
+        new_sprint = Sprint.objects.filter(pk=new_sprint_id).first()
+        if new_sprint is None:
+            continue
+        # Keep the task flagged pending in the incoming sprint and record a fresh
+        # PENDING audit row against it (flag_pending re-asserts True idempotently).
+        record_sprint_scope_change(
+            task=task,
+            sprint=new_sprint,
+            by=by,
+            goal_impact=row.goal_impact,
+            item_name=row.item_name,
+            flag_pending=True,
+        )
+
+
+def sprint_pending_count(sprint_id: str | uuid.UUID) -> int:
+    """Return the count of tasks pending acceptance in a sprint (ADR-0102 §5).
+
+    Used by the accept/reject endpoints to return the fresh ``pending_count``.
+    The list endpoint uses an annotation instead (avoids N+1); this helper is for
+    the single-sprint action responses.
+    """
+    from trueppm_api.apps.projects.models import Task
+
+    return Task.objects.filter(sprint_id=sprint_id, sprint_pending=True, is_deleted=False).count()
 
 
 # ---------------------------------------------------------------------------
@@ -781,7 +1160,12 @@ def compute_milestone_rollup_payload(milestone: Any) -> dict[str, Any] | None:
     backlog-points sum diverges from its activation-snapshot ``committed_points``
     — surfaced so the % can be trusted even when scope has shifted mid-sprint.
     """
-    from trueppm_api.apps.projects.models import Sprint, SprintState, Task, TaskStatus
+    from trueppm_api.apps.projects.models import (
+        Sprint,
+        SprintState,
+        TaskStatus,
+        committed_sprint_tasks,
+    )
 
     targeting = list(
         Sprint.objects.filter(target_milestone_id=milestone.pk, is_deleted=False).only(
@@ -822,21 +1206,24 @@ def compute_milestone_rollup_payload(milestone: Any) -> dict[str, Any] | None:
             completed_tasks += sprint.completed_task_count or 0
         elif sprint.state == SprintState.ACTIVE:
             # Live: count current COMPLETE tasks; the snapshot only fires on close.
+            # ADR-0102 §2: exclude pending injections so a pending task neither
+            # inflates the numerator nor trips ``scope_changed`` prematurely.
             live = list(
-                Task.objects.filter(
-                    sprint_id=sprint.pk, status=TaskStatus.COMPLETE, is_deleted=False
-                ).values_list("story_points", flat=True)
+                committed_sprint_tasks(sprint.pk)
+                .filter(status=TaskStatus.COMPLETE)
+                .values_list("story_points", flat=True)
             )
             completed_points += sum(p for p in live if p is not None)
             completed_tasks += len(live)
 
-            # Scope-change detection: compare current backlog points to the
-            # activation-time snapshot. Diverges when the PM adds or removes
-            # tasks from the sprint after activation.
+            # Scope-change detection: compare current ACCEPTED backlog points to
+            # the activation-time snapshot. Diverges when the PM adds or removes
+            # *accepted* tasks after activation — a pending injection is excluded
+            # so it does not trip the flag before the team accepts it.
             if sprint.committed_points is not None:
                 current_points = sum(
                     p
-                    for p in Task.objects.filter(sprint_id=sprint.pk, is_deleted=False).values_list(
+                    for p in committed_sprint_tasks(sprint.pk).values_list(
                         "story_points", flat=True
                     )
                     if p is not None

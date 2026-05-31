@@ -40,6 +40,7 @@ from trueppm_api.apps.projects.views import (
     ProjectViewSet,
     RiskCommentViewSet,
     RiskViewSet,
+    SprintScopeChangeViewSet,
     SprintViewSet,
     TaskAttachmentViewSet,
     TaskBaselineDetailView,
@@ -264,6 +265,27 @@ urlpatterns = [
         "sprints/<pk>/burndown/",
         SprintViewSet.as_view({"get": "burndown"}),
         name="sprints-burndown",
+    ),
+    # Mid-sprint scope-injection approve-gate (ADR-0102 §5)
+    path(
+        "sprints/<pk>/scope-changes/accept/",
+        SprintViewSet.as_view({"post": "scope_changes_accept"}),
+        name="sprints-scope-changes-accept",
+    ),
+    path(
+        "sprints/<pk>/scope-changes/reject/",
+        SprintViewSet.as_view({"post": "scope_changes_reject"}),
+        name="sprints-scope-changes-reject",
+    ),
+    path(
+        "scope-changes/<pk>/accept/",
+        SprintScopeChangeViewSet.as_view({"post": "accept"}),
+        name="scope-changes-accept",
+    ),
+    path(
+        "scope-changes/<pk>/reject/",
+        SprintScopeChangeViewSet.as_view({"post": "reject"}),
+        name="scope-changes-reject",
     ),
     path(
         "sprints/<pk>/capacity/",

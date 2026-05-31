@@ -12500,6 +12500,74 @@
                 }
             }
         },
+        "/api/v1/scope-changes/{id}/accept/": {
+            "post": {
+                "operationId": "v1_scope_changes_accept_create",
+                "description": "Accept a single pending scope injection into the sprint commitment.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint scope change.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/scope-changes/{id}/reject/": {
+            "post": {
+                "operationId": "v1_scope_changes_reject_create",
+                "description": "Reject a single pending scope injection, removing the task from the sprint.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint scope change.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/skills/": {
             "get": {
                 "operationId": "v1_skills_list",
@@ -13567,6 +13635,128 @@
                 "tags": [
                     "v1"
                 ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Sprint"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sprints/{id}/scope-changes/accept/": {
+            "post": {
+                "operationId": "v1_sprints_scope_changes_accept_create",
+                "description": "Bulk-accept pending scope injections in a sprint (ADR-0102 §5).\n\nBody ``{\"ids\": [uuid, ...]}`` — omit or empty to accept *all* pending.\nReturns ``{\"accepted\": [...], \"pending_count\": N}``.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Sprint"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sprints/{id}/scope-changes/reject/": {
+            "post": {
+                "operationId": "v1_sprints_scope_changes_reject_create",
+                "description": "Bulk-reject pending scope injections in a sprint (ADR-0102 §5).\n\nBody ``{\"ids\": [uuid, ...]}`` — omit or empty to reject *all* pending.\nReturns ``{\"rejected\": [...], \"pending_count\": N}``.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
                 "security": [
                     {
                         "jwtAuth": []
@@ -17659,6 +17849,10 @@
                         "nullable": true,
                         "readOnly": true
                     },
+                    "sprint_pending": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
                     "status": {
                         "type": "string",
                         "readOnly": true
@@ -17709,6 +17903,7 @@
                     "short_id",
                     "sprint_id",
                     "sprint_name",
+                    "sprint_pending",
                     "status",
                     "story_points",
                     "url"
@@ -21972,6 +22167,11 @@
                         "nullable": true,
                         "readOnly": true
                     },
+                    "pending_count": {
+                        "type": "integer",
+                        "description": "Number of tasks pending acceptance in this sprint (ADR-0102 §5).\n\nDrives the \"Forecast reflects accepted scope only — N items pending\"\ncopy. Prefers the ``pending_count`` annotation set on the list/detail\nqueryset (SprintViewSet.get_queryset) to avoid an N+1; falls back to a\nsingle COUNT for callers that build the sprint outside that queryset\n(the activate/close/cancel actions construct the instance directly).",
+                        "readOnly": true
+                    },
                     "activated_at": {
                         "type": "string",
                         "format": "date-time",
@@ -22014,6 +22214,7 @@
                     "finish_date",
                     "id",
                     "name",
+                    "pending_count",
                     "project",
                     "server_version",
                     "short_id",
@@ -22382,6 +22583,10 @@
                         "format": "uuid",
                         "nullable": true
                     },
+                    "sprint_pending": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
                     "story_points": {
                         "type": "integer",
                         "maximum": 32767,
@@ -22440,6 +22645,7 @@
                     "schedule_variance_days",
                     "server_version",
                     "short_id",
+                    "sprint_pending",
                     "sprint_scope_changes",
                     "status_changed_at",
                     "total_float"

@@ -197,6 +197,47 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
   });
 
+  // ADR-0102 — a peer accepting/rejecting a pending scope injection must also
+  // refetch the affected sprint's burndown (a separate query key from the
+  // sprint list), or a peer with the chart open keeps the pre-decision curve.
+
+  it('invalidates the targeted burndown on sprint_scope_changed when the payload carries sprint_id', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    act(() => {
+      MockWebSocket.instances[0].dispatch('message', {
+        data: JSON.stringify({
+          event_type: 'sprint_scope_changed',
+          payload: { sprint_id: 's1', task_id: 't1' },
+        }),
+      });
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['sprints', 'proj-1'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['sprint', 's1', 'burndown'] });
+    flushDebounce();
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
+  });
+
+  it('invalidates all burndown queries on sprint_scope_changed when sprint_id is absent', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    act(() => {
+      MockWebSocket.instances[0].dispatch('message', {
+        data: JSON.stringify({ event_type: 'sprint_scope_changed', payload: {} }),
+      });
+    });
+
+    // No exact sprint id → fall back to the predicate form that matches any
+    // ['sprint', <id>, 'burndown'] key.
+    const predicateCall = invalidateSpy.mock.calls.find(
+      ([arg]) => typeof (arg as { predicate?: unknown }).predicate === 'function',
+    );
+    expect(predicateCall).toBeDefined();
+  });
+
   // --- Trailing-debounce coalescing (#773) ------------------------------
 
   it('coalesces a burst of task events into a single tasks invalidation', () => {

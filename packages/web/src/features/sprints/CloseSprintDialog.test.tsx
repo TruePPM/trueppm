@@ -101,7 +101,8 @@ describe('CloseSprintDialog', () => {
       />,
     );
     await user.click(screen.getByRole('button', { name: 'Close sprint' }));
-    expect(onConfirm).toHaveBeenCalledWith('sp-next-uuid');
+    // ADR-0102: 2nd arg (pendingDisposition) is undefined when nothing is pending.
+    expect(onConfirm).toHaveBeenCalledWith('sp-next-uuid', undefined);
   });
 
   it('confirm with "backlog" selection passes "backlog"', async () => {
@@ -119,7 +120,7 @@ describe('CloseSprintDialog', () => {
       />,
     );
     await user.click(screen.getByRole('button', { name: 'Close sprint' }));
-    expect(onConfirm).toHaveBeenCalledWith('backlog');
+    expect(onConfirm).toHaveBeenCalledWith('backlog', undefined);
   });
 
   it('selecting "Leave on this sprint" passes "none"', async () => {
@@ -138,7 +139,49 @@ describe('CloseSprintDialog', () => {
     );
     await user.click(screen.getByRole('radio', { name: /Leave on this sprint/ }));
     await user.click(screen.getByRole('button', { name: 'Close sprint' }));
-    expect(onConfirm).toHaveBeenCalledWith('none');
+    expect(onConfirm).toHaveBeenCalledWith('none', undefined);
+  });
+
+  it('shows the pending-scope advisory and passes the disposition when pending > 0 (ADR-0102 §7)', async () => {
+    const onConfirm = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <CloseSprintDialog
+        sprint={makeSprint({ state: 'ACTIVE', pending_count: 2 })}
+        nextPlannedSprintId={null}
+        nextPlannedSprintName={null}
+        backlogTasks={[]}
+        isClosing={false}
+        onCancel={() => {}}
+        onConfirm={onConfirm}
+      />,
+    );
+    // Advisory surfaces but never blocks the close. (The count is in a
+    // tppm-mono span, so match on the surrounding label text.)
+    expect(screen.getByText(/items? pending acceptance/)).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /Carry them to the next sprint/ })).toBeChecked();
+    // Default disposition is carry-over.
+    await user.click(screen.getByRole('button', { name: 'Close sprint' }));
+    expect(onConfirm).toHaveBeenLastCalledWith('backlog', 'carry');
+  });
+
+  it('passes reject when the pending advisory reject option is chosen', async () => {
+    const onConfirm = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <CloseSprintDialog
+        sprint={makeSprint({ state: 'ACTIVE', pending_count: 1 })}
+        nextPlannedSprintId={null}
+        nextPlannedSprintName={null}
+        backlogTasks={[]}
+        isClosing={false}
+        onCancel={() => {}}
+        onConfirm={onConfirm}
+      />,
+    );
+    await user.click(screen.getByRole('radio', { name: /Reject them/ }));
+    await user.click(screen.getByRole('button', { name: 'Close sprint' }));
+    expect(onConfirm).toHaveBeenLastCalledWith('backlog', 'reject');
   });
 
   it('Cancel calls onCancel and is disabled while closing', async () => {

@@ -773,6 +773,22 @@ class CommittedTaskManager(models.Manager["Task"]):
         )
 
 
+def committed_sprint_tasks(sprint_id: Any) -> models.QuerySet[Task]:
+    """Return the tasks that count toward a sprint's committed scope (ADR-0102).
+
+    The single source of truth for "which of a sprint's tasks are in the
+    commitment" — non-soft-deleted tasks linked to the sprint, *excluding*
+    pending mid-sprint injections (``sprint_pending=True``). Every commitment /
+    burndown / rollup aggregate routes through this helper so a future query
+    author cannot forget the ``sprint_pending=False`` filter and silently
+    re-inflate the math with un-accepted scope (the ADR-0102 §Risk #2 mitigation).
+
+    Pending tasks remain queryable for the board/My-Work surfaces via the plain
+    ``Task.objects.filter(sprint_id=...)`` — only the *math* excludes them.
+    """
+    return Task.objects.filter(sprint_id=sprint_id, is_deleted=False, sprint_pending=False)
+
+
 class Task(VersionedModel):
     """A schedulable unit of work within a project.
 
@@ -912,6 +928,27 @@ class Task(VersionedModel):
         related_name="tasks",
         db_index=True,
     )
+    # Mid-sprint scope-injection pending-acceptance flag (ADR-0102). True ⇔ the
+    # task is linked to its sprint but NOT yet accepted into the commitment —
+    # set automatically when a task is linked to an ACTIVE sprint *after*
+    # activation, cleared on accept, forced False on reject (which also nulls
+    # ``sprint``). The flag is meaningless (and must stay False) whenever
+    # ``sprint_id`` is null or the sprint is PLANNED — pre-activation links are
+    # part of the commitment baseline by definition; only post-activation
+    # injection is gated.
+    #
+    # This is the LOAD-BEARING math-exclusion key (ADR-0102 §2): the three
+    # sprint-math paths (snapshot_committed_metrics, upsert_burndown_for_sprint,
+    # compute_milestone_rollup_payload) all query Task directly and exclude
+    # ``sprint_pending=True`` via the ``committed_in_sprint`` queryset helper, so
+    # a pending task contributes ZERO to committed_points / burndown / rollup
+    # until accepted. Indexed so the exclusion is a cheap index range scan.
+    #
+    # NOT client-writable (read-only on TaskSerializer): the only writers are the
+    # accept_scope_change / reject_scope_change services, so a contributor cannot
+    # self-accept by PATCHing the field. Rides VersionedModel sync to the mobile
+    # client for free (the exclusion is offline-evaluable).
+    sprint_pending = models.BooleanField(default=False, db_index=True)
     # Agile estimate (ADR-0037 Q1).  Nullable — story_points is fully optional
     # so non-agile projects do not see a "0 pts" badge on every card.
     story_points = models.PositiveSmallIntegerField(null=True, blank=True)
@@ -1853,6 +1890,17 @@ class SprintCloseRequest(models.Model):
         default="backlog",
         help_text="Either 'backlog', 'none', or a sprint UUID string.",
     )
+    # ADR-0102 §7: how to dispose of tasks still pending acceptance at close.
+    # 'carry' (default) re-flags carried-over pending tasks sprint_pending=True
+    # into the incoming sprint and records a fresh PENDING SprintScopeChange
+    # against it; 'reject' rejects them (removes from the sprint). Closing is
+    # never blocked by pending items — pending was never in committed_points, so
+    # velocity is correct either way.
+    pending_disposition = models.CharField(
+        max_length=8,
+        default="carry",
+        help_text="'carry' (default) or 'reject' — pending-scope disposition at close.",
+    )
     requested_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -2099,11 +2147,37 @@ class TaskSuggestedAssignee(VersionedModel):
 # ---------------------------------------------------------------------------
 
 
-class SprintScopeChange(models.Model):
-    """Records each subtask added to a task that belongs to an active sprint.
+class ScopeChangeStatus(models.TextChoices):
+    """Decision outcome for a mid-sprint scope injection (ADR-0102 §1).
 
-    Written atomically with subtask creation in TaskViewSet.perform_create when
-    the parent task has a non-null sprint_id.  A single row per subtask-add event.
+    The *audit* record of the accept-gate decision (who, when, outcome). It is
+    NOT the source of truth for the commitment/burndown math — that is
+    ``Task.sprint_pending`` (the three math paths query Task, not this audit
+    row). The two are written together in one transaction by the accept/reject
+    service functions and can never disagree.
+
+    ADR-0102 §3 invariant — *no policy input*: the PENDING→ACCEPTED/REJECTED
+    transition has zero policy/extension hook. The ONLY writers of ACCEPTED /
+    REJECTED are the human-invoked ``accept_scope_change`` / ``reject_scope_change``
+    services behind the role>=ADMIN + project-membership gated endpoints. The
+    ``sprint_scope_changed`` signal is notify-only; the ``guardrail_policy_resolving``
+    resolver supplies policy, never actions. Enterprise authors must not mistake
+    this for an extensible hook — there is no auto-accept path by design (the
+    sprint-sovereignty back-door close, VoC 🔴 #1).
+    """
+
+    PENDING = "pending", "Pending acceptance"
+    ACCEPTED = "accepted", "Accepted into commitment"
+    REJECTED = "rejected", "Rejected — removed from sprint"
+
+
+class SprintScopeChange(models.Model):
+    """Records each item injected into a task's ACTIVE sprint mid-sprint.
+
+    Generalized in ADR-0101 §5 / ADR-0102 beyond the original subtask-spawn
+    path: a row is now written whenever *any* task is linked to an ACTIVE sprint
+    after activation (subtask spawn, direct assignment, drawer, API), all routed
+    through the ``record_sprint_scope_change`` service helper.
 
     Rows are the canonical source for the scope-change indicator surfaced in the
     parent task's drawer SprintSection.  They survive subtask deletion (subtask_name
@@ -2111,8 +2185,12 @@ class SprintScopeChange(models.Model):
     removed.  Rows are cleared when the sprint closes (SprintCloseRequest drain
     deletes rows for the sprint on completion).
 
-    The ``subtask_sprint_scope_changed`` signal is fired after the row is saved so
-    that Enterprise audit receivers can capture the event without modifying OSS code.
+    The ``sprint_scope_changed`` signal is fired after the row is saved so that
+    Enterprise audit receivers can capture the event without modifying OSS code.
+
+    ADR-0102: ``status`` is the audit of the accept-gate decision; the math
+    exclusion lives on ``Task.sprint_pending``. See ``ScopeChangeStatus`` for the
+    no-auto-accept invariant.
 
     Plain models.Model (not VersionedModel): scope-change rows are not synced to
     mobile; they are display metadata for the scope-change indicator chip only.
@@ -2150,12 +2228,24 @@ class SprintScopeChange(models.Model):
     # banner and the drawer scope-change rows so the team can see at a glance
     # whether the late addition threatens the Sprint Goal, not just the count.
     goal_impact = models.BooleanField(default=False)
+    # ADR-0102 §1: audit of the accept-gate decision. Default PENDING; flipped to
+    # ACCEPTED/REJECTED only by the accept/reject services (no auto-accept path).
+    # Indexed so the per-sprint pending list / pending_count are cheap.
+    status = models.CharField(
+        max_length=12,
+        choices=ScopeChangeStatus.choices,
+        default=ScopeChangeStatus.PENDING,
+        db_index=True,
+    )
 
     class Meta:
         db_table = "projects_sprintscopechange"
         ordering = ["added_at"]
         indexes = [
             models.Index(fields=["task", "sprint"], name="scope_change_task_sprint_idx"),
+            # Per-sprint pending list (bulk accept/reject body resolution) and the
+            # sprint.pending_count annotation filter on (sprint, status).
+            models.Index(fields=["sprint", "status"], name="scope_change_sprint_status_idx"),
         ]
 
     def __str__(self) -> str:

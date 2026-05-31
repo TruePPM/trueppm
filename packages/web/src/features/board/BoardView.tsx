@@ -85,6 +85,11 @@ import { CalmToolbar } from './CalmToolbar';
 import { SprintPanel } from './SprintPanel';
 import { useBoardToolbarPrefs } from '@/hooks/useBoardToolbarPrefs';
 import { useProject } from '@/hooks/useProject';
+import { useActiveSprint } from '@/hooks/useSprints';
+import { useCanManageScope } from '@/hooks/useCanManageScope';
+import { useScopeChangeActions } from '@/hooks/useScopeChangeActions';
+import { ScopePendingReviewPanel } from '@/features/sprints/ScopePendingReviewPanel';
+import type { BoardCardScopeActions } from './BoardCard';
 
 // ---------------------------------------------------------------------------
 // Sort helper
@@ -337,6 +342,8 @@ interface BoardCellProps {
   onCardClick: (task: Task, anchor: HTMLElement) => void;
   showEvm: EvmMode;
   showCost: boolean;
+  /** Sprint scope-injection accept/reject affordance (ADR-0102). */
+  scopeActions: BoardCardScopeActions;
 }
 
 // Subtle status tints per column (issue #211).
@@ -388,6 +395,7 @@ function BoardCell({
   onCardClick,
   showEvm,
   showCost,
+  scopeActions,
 }: BoardCellProps) {
   const droppableId = `${phaseId}:${status}`;
   const { setNodeRef } = useDroppable({ id: droppableId });
@@ -450,6 +458,7 @@ function BoardCell({
             onCardClick={onCardClick}
             showEvm={showEvm}
             showCost={showCost}
+            scopeActions={scopeActions}
           />
         </div>
       ))}
@@ -492,6 +501,8 @@ interface PhaseLaneProps {
   onOpenMilestone: (task: Task) => void;
   showEvm: EvmMode;
   showCost: boolean;
+  /** Sprint scope-injection accept/reject affordance (ADR-0102). */
+  scopeActions: BoardCardScopeActions;
   /** Workshop mode: editable names, drag handle, tinted bg. */
   workshop?: boolean;
   onPhaseRename?: (phaseId: string, newName: string) => void;
@@ -523,6 +534,7 @@ function PhaseLane({
   onOpenMilestone,
   showEvm,
   showCost,
+  scopeActions,
   workshop = false,
   onPhaseRename,
   dragHandleListeners,
@@ -663,6 +675,7 @@ function PhaseLane({
                 onCardClick={onCardClick}
                 showEvm={showEvm}
                 showCost={showCost}
+                scopeActions={scopeActions}
               />
             ))}
       </div>
@@ -952,6 +965,39 @@ export function BoardView() {
   const { density, setDensity, isMobile } = useBoardDensity();
   const toolbarPrefs = useBoardToolbarPrefs();
   const { data: projectDetail } = useProject(projectId || null);
+
+  // Sprint scope-injection approve-gate (ADR-0102). The active sprint carries
+  // `pending_count`; a team-owned actor (role >= ADMIN) can open the review
+  // slide-over. The server is the real gate — this only hides the affordance.
+  const { sprint: activeSprint } = useActiveSprint(projectId || null);
+  const canManageScope = useCanManageScope(projectId || undefined);
+  const [scopeReviewOpen, setScopeReviewOpen] = useState(false);
+  const { acceptOne: acceptScope, rejectOne: rejectScope } = useScopeChangeActions(
+    projectId || null,
+    activeSprint?.id ?? null,
+  );
+  // Map a pending card to its latest pending scope-change row id (the
+  // accept/reject target) before firing the mutation. ADR-0102.
+  const pendingScopeChangeId = useCallback((task: Task): string | undefined => {
+    return (task.sprintScopeChanges ?? [])
+      .filter((sc) => sc.status === 'pending' && sc.id)
+      .at(-1)?.id;
+  }, []);
+  const scopeActions: BoardCardScopeActions = useMemo(
+    () => ({
+      canManage: canManageScope,
+      offline: typeof navigator !== 'undefined' && !navigator.onLine,
+      onAccept: (task: Task) => {
+        const id = pendingScopeChangeId(task);
+        if (id) acceptScope.mutate(id);
+      },
+      onReject: (task: Task) => {
+        const id = pendingScopeChangeId(task);
+        if (id) rejectScope.mutate(id);
+      },
+    }),
+    [canManageScope, pendingScopeChangeId, acceptScope, rejectScope],
+  );
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -1583,7 +1629,12 @@ export function BoardView() {
           {/* Mid-sprint scope-injection banner (ADR-0101 §5) — team-visible
               record that tasks were added to the active sprint after it
               started. Self-hides when there's nothing to report. */}
-          <BoardScopeInjectionBanner tasks={tasks ?? []} />
+          <BoardScopeInjectionBanner
+            tasks={tasks ?? []}
+            pendingCount={activeSprint?.pending_count ?? 0}
+            canManageScope={canManageScope}
+            onReview={() => setScopeReviewOpen(true)}
+          />
 
           {/* "My tasks" active chip (issue #198) — keeps the filter state
               inescapable so users don't think the board has lost data. */}
@@ -1772,6 +1823,7 @@ export function BoardView() {
                     },
                     showEvm: evmMode,
                     showCost,
+                    scopeActions,
                     workshop: workshopMode,
                     onPhaseRename: workshopMode ? handlePhaseRename : undefined,
                   });
@@ -2107,6 +2159,21 @@ export function BoardView() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Sprint scope-injection review slide-over (ADR-0102 §5). Mounted only
+          for a team-owned actor (canManageScope); offline disables the
+          accept/reject controls — chips still render but no action queues
+          (ADR-0102 §6 / frontend rule 152: a stale accept could re-commit
+          rejected work, so we never queue these). */}
+      {scopeReviewOpen && projectId && activeSprint && canManageScope && (
+        <ScopePendingReviewPanel
+          projectId={projectId}
+          sprintId={activeSprint.id}
+          tasks={tasks ?? []}
+          offline={typeof navigator !== 'undefined' && !navigator.onLine}
+          onClose={() => setScopeReviewOpen(false)}
+        />
       )}
     </>
   );

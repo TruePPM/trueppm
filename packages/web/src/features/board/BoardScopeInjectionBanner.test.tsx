@@ -77,6 +77,75 @@ describe('BoardScopeInjectionBanner', () => {
     expect(screen.getByText(/1 affects the sprint goal/)).toBeInTheDocument();
   });
 
+  it('adds a pending-acceptance line when pendingCount > 0 (ADR-0102)', () => {
+    render(
+      <BoardScopeInjectionBanner
+        tasks={[
+          task({
+            id: 't1',
+            sprintScopeChanges: [
+              { id: 'sc1', subtaskName: 'a', itemName: 'a', addedByName: 'PM', addedAt: '2026-01-02', goalImpact: false, status: 'pending' },
+            ],
+          }),
+        ]}
+        pendingCount={2}
+      />,
+    );
+    expect(screen.getByText(/2 pending acceptance/)).toBeInTheDocument();
+  });
+
+  it('shows the Review button only for a team-owned actor (canManageScope)', () => {
+    const tasks = [
+      task({
+        id: 't1',
+        sprintScopeChanges: [
+          { id: 'sc1', subtaskName: 'a', itemName: 'a', addedByName: 'PM', addedAt: '2026-01-02', goalImpact: false, status: 'pending' },
+        ],
+      }),
+    ];
+    // Not a manager → no Review button even with pending items.
+    const { unmount } = render(
+      <BoardScopeInjectionBanner tasks={tasks} pendingCount={1} canManageScope={false} onReview={() => {}} />,
+    );
+    expect(screen.queryByRole('button', { name: /review/i })).not.toBeInTheDocument();
+    unmount();
+    sessionStorage.clear();
+
+    // Manager → Review (N) button fires onReview.
+    let clicked = false;
+    render(
+      <BoardScopeInjectionBanner
+        tasks={tasks}
+        pendingCount={1}
+        canManageScope
+        onReview={() => {
+          clicked = true;
+        }}
+      />,
+    );
+    const btn = screen.getByRole('button', { name: /review \(1\)/i });
+    fireEvent.click(btn);
+    expect(clicked).toBe(true);
+  });
+
+  it('stays a status region (notice, never an alert) even with pending items', () => {
+    render(
+      <BoardScopeInjectionBanner
+        tasks={[
+          task({
+            id: 't1',
+            sprintScopeChanges: [
+              { id: 'sc1', subtaskName: 'a', itemName: 'a', addedByName: 'PM', addedAt: '2026-01-02', goalImpact: false, status: 'pending' },
+            ],
+          }),
+        ]}
+        pendingCount={1}
+      />,
+    );
+    expect(screen.getByRole('status')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('dismisses for the session and stays dismissed across re-mount with same counts', () => {
     const tasks = [
       task({

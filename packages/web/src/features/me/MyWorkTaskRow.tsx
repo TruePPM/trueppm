@@ -16,6 +16,7 @@ import type { TaskStatus } from '@/types';
 import { useMyWorkStatusUpdate, type MyWorkTask } from '@/hooks/useMyWork';
 import { formatDueLabel } from './dueLabel';
 import { StatusPicker } from './StatusPicker';
+import { PendingAcceptanceChip } from '@/features/board/PendingAcceptanceChip';
 
 const STATUS_LABEL: Record<TaskStatus, string> = {
   BACKLOG: 'Backlog',
@@ -100,6 +101,16 @@ export function MyWorkTaskRow({ task }: Props) {
             <>
               <span aria-hidden="true"> · </span>
               {task.sprint_name}
+            </>
+          )}
+          {/* ADR-0102 §6: a task injected into its active sprint shows the
+              passive pending chip here so the assignee sees what's heading their
+              way — but NO accept/reject controls ever render in the me tree
+              (the decision is team-owned, frontend rule 144). */}
+          {task.sprint_pending && (
+            <>
+              <span aria-hidden="true"> · </span>
+              <PendingAcceptanceChip />
             </>
           )}
         </p>

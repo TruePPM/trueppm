@@ -62,6 +62,7 @@ function renderCard(props: Partial<ComponentProps<typeof BoardCard>>) {
         showEvm={props.showEvm}
         showCost={props.showCost}
         onCardClick={props.onCardClick}
+        scopeActions={props.scopeActions}
       />
     </Wrapper>,
   );
@@ -826,6 +827,76 @@ describe('BoardCard', () => {
       const card = getCardRoot();
       fireEvent.click(card);
       expect(onCardClick).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('sprint scope-injection pending state (ADR-0102)', () => {
+    const pendingTask: Task = {
+      ...baseTask,
+      sprintPending: true,
+      isCritical: true,
+      sprintScopeChanges: [
+        {
+          id: 'sc-1',
+          subtaskName: 'Backend Implementation',
+          itemName: 'Backend Implementation',
+          addedByName: 'PM',
+          addedAt: '2026-01-10',
+          goalImpact: false,
+          status: 'pending',
+        },
+      ],
+    };
+
+    const scopeActions = {
+      canManage: true,
+      offline: false,
+      onAccept: vi.fn(),
+      onReject: vi.fn(),
+    };
+
+    beforeEach(() => {
+      scopeActions.onAccept.mockClear();
+      scopeActions.onReject.mockClear();
+    });
+
+    it('renders the pending chip and suppresses the CP badge while pending', () => {
+      renderCard({ task: pendingTask, scopeActions });
+      expect(screen.getByLabelText('Pending acceptance')).toBeInTheDocument();
+      // CP is suppressed for pending injections (not yet committed).
+      expect(screen.queryByText('CP')).not.toBeInTheDocument();
+    });
+
+    it('single-tap ✓ accept fires onAccept (additive, no confirm)', () => {
+      renderCard({ task: pendingTask, scopeActions });
+      fireEvent.click(screen.getByRole('button', { name: /Accept Backend Implementation into the sprint/ }));
+      expect(scopeActions.onAccept).toHaveBeenCalledTimes(1);
+    });
+
+    it('hides the accept ✓ and reject menu item when the user cannot manage scope', () => {
+      renderCard({ task: pendingTask, scopeActions: { ...scopeActions, canManage: false } });
+      expect(
+        screen.queryByRole('button', { name: /Accept Backend Implementation into the sprint/ }),
+      ).not.toBeInTheDocument();
+      // Open the overflow menu — no "Reject from sprint" item for a non-manager.
+      fireEvent.click(screen.getByRole('button', { name: /Actions for/ }));
+      expect(screen.queryByRole('menuitem', { name: /Reject from sprint/ })).not.toBeInTheDocument();
+    });
+
+    it('offline hides the accept ✓ and reject item (never queue a stale decision)', () => {
+      renderCard({ task: pendingTask, scopeActions: { ...scopeActions, offline: true } });
+      expect(
+        screen.queryByRole('button', { name: /Accept Backend Implementation into the sprint/ }),
+      ).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: /Actions for/ }));
+      expect(screen.queryByRole('menuitem', { name: /Reject from sprint/ })).not.toBeInTheDocument();
+    });
+
+    it('reject is in the overflow menu and fires onReject', () => {
+      renderCard({ task: pendingTask, scopeActions });
+      fireEvent.click(screen.getByRole('button', { name: /Actions for/ }));
+      fireEvent.click(screen.getByRole('menuitem', { name: /Reject from sprint/ }));
+      expect(scopeActions.onReject).toHaveBeenCalledTimes(1);
     });
   });
 });

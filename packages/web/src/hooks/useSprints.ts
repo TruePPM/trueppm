@@ -113,11 +113,28 @@ export interface CloseSprintPayload {
    *  - `<sprint-id>`: reassign incomplete tasks to that sprint
    */
   carry_over_to: string;
+  /**
+   * Disposition for tasks still pending acceptance at close (ADR-0102 §7).
+   *  - `'carry'` (default): carry pending tasks to the next sprint, still
+   *    flagged pending; a fresh PENDING scope-change row is recorded.
+   *  - `'reject'`: reject all pending tasks (remove from sprint).
+   * Advisory only — close is never blocked. Omit when nothing is pending. */
+  pending_disposition?: 'carry' | 'reject';
 }
 
 interface CloseSprintResponse {
   queued: true;
   request_id: string;
+  /**
+   * Advisory present only when the sprint had pending scope changes at close
+   * (ADR-0102 §7). Close is NEVER blocked by this. */
+  scope_pending_on_close?: {
+    code: 'scope_pending_on_close';
+    detail: string;
+    pending_count: number;
+    items: Array<{ id: string; task: string; item_name: string }>;
+    default_disposition: 'carry';
+  };
 }
 
 export interface UpdateSprintPayload {

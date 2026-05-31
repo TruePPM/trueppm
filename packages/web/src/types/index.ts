@@ -12,6 +12,15 @@ export type ZoomLevel = 'day' | 'week' | 'month' | 'quarter' | 'year';
 
 export type TaskReadiness = 'idea' | 'estimated' | 'ready' | 'baselined';
 
+/**
+ * Sprint scope-change decision status (ADR-0102 §1, `ScopeChangeStatus`).
+ *
+ * Lowercase wire strings (plain CharField, no generated Enum component — see
+ * the backend contract). `pending` = injected mid-sprint, visible but excluded
+ * from commitment/burndown until a team-owned actor accepts or rejects it.
+ */
+export type ScopeChangeStatus = 'pending' | 'accepted' | 'rejected';
+
 export interface TaskAssignee {
   resourceId: string;
   name: string;
@@ -99,6 +108,16 @@ export interface Task {
    * (issue #317). Null/undefined for tasks not assigned to a sprint.
    */
   sprintId?: string | null;
+  /**
+   * Sprint scope-injection pending-acceptance flag (ADR-0102 §1).
+   *
+   * `true` ⇔ the task was linked to its ACTIVE sprint post-activation and has
+   * not yet been accepted into the commitment — it is visible on the board but
+   * excluded from `committed_points`/burndown. Read-only: the only way to clear
+   * it is the accept/reject endpoints (a contributor cannot self-accept by
+   * PATCHing the field). Wire key is snake_case `sprint_pending`; mapped to
+   * this camelCase field in `mapTask`. Absent/false for non-pending tasks. */
+  sprintPending?: boolean;
   /** Original sprint commitment estimate in story points. Null for non-agile tasks. */
   storyPoints?: number | null;
   /**
@@ -119,6 +138,9 @@ export interface Task {
   shortId?: string;
   /** Sprint scope-change audit rows — populated when subtasks are added to an in-sprint task (ADR-0060). */
   sprintScopeChanges?: Array<{
+    /** ADR-0102: scope-change row id — targets the single accept/reject
+     *  endpoints. Absent on rows from legacy payloads. */
+    id?: string;
     subtaskName: string;
     /** ADR-0101: forward-looking name (generalized beyond subtasks). */
     itemName: string;
@@ -126,6 +148,11 @@ export interface Task {
     addedAt: string;
     /** ADR-0101: does this late addition threaten the Sprint Goal? */
     goalImpact: boolean;
+    /** ADR-0102: decision status of this scope change. `pending` until a
+     *  team-owned actor accepts (joins commitment) or rejects (removes).
+     *  Optional in the type so legacy fixtures need not set it; `mapTask`
+     *  defaults absent rows to `'accepted'`. */
+    status?: ScopeChangeStatus;
   }>;
   /**
    * Sprint→milestone rollup payload (ADR-0074). Populated only on milestone
@@ -270,6 +297,15 @@ export interface ApiSprint {
   capacity_points: number | null;
   committed_points: number | null;
   committed_task_count: number | null;
+  /**
+   * Count of tasks linked to this sprint that are still pending acceptance
+   * (ADR-0102 §5) — `Task.sprint_pending=True`. Annotated on every sprint
+   * payload (list/detail/activate/close/burndown). Drives the
+   * "forecast reflects accepted scope only — N pending" transparency copy and
+   * the board banner's pending line. `0` when nothing is pending. Optional in
+   * the type (so legacy fixtures need not set it); the API always sends it and
+   * consumers read it with `?? 0`. */
+  pending_count?: number;
   completed_points: number | null;
   completed_task_count: number | null;
   completion_ratio_points: number | null;

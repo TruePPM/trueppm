@@ -14,7 +14,7 @@ import {
 } from 'recharts';
 import { useSprintBurndown } from '@/hooks/useSprints';
 import type { ApiSprint } from '@/types';
-import { daysBetween, sprintDayOf } from '@/features/sprints/sprintMath';
+import { daysBetween, forecastScopeCaption, sprintDayOf } from '@/features/sprints/sprintMath';
 import { useBurnChart, type BurnVariant, type BurnMetric, type BurnPoint, type CombinedPoint } from './hooks/useBurnChart';
 
 // ---------------------------------------------------------------------------
@@ -265,6 +265,13 @@ export function BurnChart({ projectId, sprintId, defaultVariant = 'burndown' }: 
     if (!isSprintCtx || !sprintQuery.data) return null;
     return deriveSprintSeries(sprintQuery.data.sprint, sprintQuery.data.snapshots, sprintMetric);
   }, [isSprintCtx, sprintQuery.data, sprintMetric]);
+
+  // Forecast transparency (ADR-0102 §2): when the sprint has pending
+  // (un-accepted) injections, the burn series reflects accepted scope only.
+  // Shared copy so it can't word differently from the SprintPanel caption.
+  const scopeCaption = isSprintCtx
+    ? forecastScopeCaption(sprintQuery.data?.sprint.pending_count ?? 0)
+    : null;
 
   // --- Project data ---
   const burnQuery = useBurnChart(isSprintCtx ? null : projectId, variant, metric, since, until);
@@ -644,6 +651,14 @@ export function BurnChart({ projectId, sprintId, defaultVariant = 'burndown' }: 
               Forecast close: <span className="tppm-mono">{forecastDate}</span>
             </span>
           )}
+        </p>
+      )}
+
+      {/* Pending-scope forecast caveat (ADR-0102 §2) — shown whenever the sprint
+          has un-accepted injections, regardless of trend/empty state. */}
+      {isSprintCtx && scopeCaption && !isLoading && (
+        <p className="px-4 py-2 border-t border-neutral-border text-xs text-neutral-text-secondary">
+          <span aria-hidden="true">○</span> {scopeCaption}
         </p>
       )}
 
