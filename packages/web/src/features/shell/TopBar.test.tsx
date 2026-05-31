@@ -84,7 +84,8 @@ beforeEach(() => {
 describe('TopBar', () => {
   it('renders the logo', () => {
     renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
-    expect(screen.getByText('TruePPM')).toBeInTheDocument();
+    // Two-color wordmark splits the text across spans; assert the accessible name.
+    expect(screen.getByLabelText('TruePPM')).toBeInTheDocument();
   });
 
   it('renders view tabs navigation with the canonical view set', () => {

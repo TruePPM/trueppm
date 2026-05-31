@@ -268,20 +268,39 @@ export function BarChartIcon({ className, ...rest }: IconProps) {
   );
 }
 
-/** Logo mark — mini Gantt bars forming a "T" silhouette */
-export function LogoMark({ className, ...rest }: IconProps) {
+/**
+ * TruePPM brand mark — the duotone dependency arrow (brand v1.0, ADR-0102).
+ * Two task nodes joined by the sage critical-path arrow: navy nodes, sage arrow.
+ * Duotone, so it does NOT use `currentColor` — nodes and arrow are themed
+ * independently. Nodes reverse to pale on dark (`navy reverses to pale`); the
+ * sage arrow holds in both modes. Below ~24px the arrowhead degrades — use the
+ * favicon build instead. Geometry mirrors brand/assets/mark.svg (64×64).
+ */
+export function LogoMark({ size = 24, className, ...rest }: IconProps & { size?: number }) {
   return (
     <svg
-      width="18"
-      height="14"
-      viewBox="0 0 18 14"
-      fill="currentColor"
+      width={size}
+      height={size}
+      viewBox="0 0 64 64"
+      fill="none"
       className={className}
+      aria-hidden="true"
       {...rest}
     >
-      <rect x="0" y="0" width="10" height="3" rx="1.5" />
-      <rect x="3" y="5.5" width="15" height="3" rx="1.5" />
-      <rect x="0" y="11" width="7" height="3" rx="1.5" />
+      {/* sage critical-path arrow — holds in both modes */}
+      <line
+        x1="19"
+        y1="45"
+        x2="35"
+        y2="31"
+        className="stroke-sage-500"
+        strokeWidth="7"
+        strokeLinecap="round"
+      />
+      <polygon points="42,23 39.67,36.44 28.53,24.96" className="fill-sage-500" />
+      {/* navy nodes — reverse to pale on dark */}
+      <circle cx="15" cy="49" r="7" className="fill-navy-700 dark:fill-reversed" />
+      <circle cx="49" cy="16" r="9.5" className="fill-navy-700 dark:fill-reversed" />
     </svg>
   );
 }

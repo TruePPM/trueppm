@@ -25,6 +25,22 @@ const config: Config = {
           'accent-dark': '#C17A10',
           'accent-light': '#FFF3CD',
         },
+        // ── Brand v1.0 identity scales (ADR-0102) ───────────────────────────
+        // True Navy (ink/identity), Truth Sage (action/path), Reversed Ink.
+        // Static scales for explicit identity/accent use (mark, wordmark,
+        // button fills). The mode-aware `brand-primary` swap lives in
+        // globals.css (Stage 2); these scales are the raw source values.
+        navy: {
+          50: '#EEF1F7', 100: '#D8DFEC', 200: '#B0BDD3', 300: '#8194B5',
+          400: '#556C94', 500: '#344A72', 600: '#243A5E', 700: '#1B2A4A',
+          800: '#15223C', 900: '#0E1626',
+        },
+        sage: {
+          50: '#EDF7F2', 100: '#D3ECE0', 200: '#AEDCC8', 300: '#84CBAC',
+          400: '#66B998', 500: '#4FA884', 600: '#3E8C6D', 700: '#316F57',
+          800: '#275844', 900: '#1B3D2F',
+        },
+        reversed: '#E9EDF3',
         // Neutral content surface tokens — driven by CSS custom properties in
         // globals.css so a single .dark class on <html> swaps all values.
         neutral: {
@@ -96,6 +112,8 @@ const config: Config = {
         },
       },
       fontFamily: {
+        // Space Grotesk = display / wordmark / big numbers (brand v1.0 §06).
+        display: ['Space Grotesk', 'ui-sans-serif', 'system-ui', 'sans-serif'],
         sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
         mono: ["'JetBrains Mono'", 'ui-monospace', 'monospace'],
       },
