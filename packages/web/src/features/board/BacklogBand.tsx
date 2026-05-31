@@ -109,7 +109,7 @@ function ReadinessChip({ readiness }: ReadinessChipProps) {
   // mapping cleanly to a single class; render with inline backgroundColor so
   // the brand-primary-light token from the design tokens is applied without
   // a Tailwind class round-trip.
-  const inlineBg = readiness === 'ready' ? 'var(--brand-primary-light, #D4EDDA)' : undefined;
+  const inlineBg = readiness === 'ready' ? 'rgb(var(--brand-primary-light))' : undefined;
   return (
     <span
       className={`inline-flex items-center rounded-sm uppercase tracking-wider font-semibold ${styles[readiness]}`}

@@ -18,9 +18,13 @@ const config: Config = {
     extend: {
       colors: {
         brand: {
-          primary: '#1C6B3A',
-          'primary-dark': '#145229',
-          'primary-light': '#D4EDDA',
+          // Mode-aware via CSS custom properties in globals.css (ADR-0102):
+          // sage-600/sage-400 (light/dark). Channel-triple form preserves the
+          // pervasive `/N` alpha modifier usage (bg-brand-primary/10, etc.).
+          primary: 'rgb(var(--brand-primary) / <alpha-value>)',
+          'primary-dark': 'rgb(var(--brand-primary-dark) / <alpha-value>)',
+          'primary-light': 'rgb(var(--brand-primary-light) / <alpha-value>)',
+          // Secondary accent (amber) — unchanged; dark handled per-class (rule 86).
           accent: '#E8A020',
           'accent-dark': '#C17A10',
           'accent-light': '#FFF3CD',

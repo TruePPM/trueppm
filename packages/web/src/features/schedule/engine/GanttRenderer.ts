@@ -70,12 +70,12 @@ export const COLOR = {
   rowBandAlt:     'rgba(0,0,0,0.02)',
   weekend:        'rgba(0,0,0,0.03)',
   gridLine:       'rgba(0,0,0,0.08)',
-  todayLine:      '#1C6B3A',
+  todayLine:      '#3E8C6D',   // sage-600 — the "now" on the path (ADR-0102)
   text:           '#1A1917',   // neutral-text-primary — dark text on light surface
   textSecondary:  '#6B6965',   // neutral-text-secondary
   barNormal:      '#3B82F6',   // blue-500 — non-CP task
   barCritical:    '#B91C1C',   // semantic-critical — dark red, WCAG on light surface
-  barComplete:    '#166534',   // semantic-on-track — dark green
+  barComplete:    '#3E8C6D',   // semantic on-track = sage-600 (brand v1.0, ADR-0102)
   barSummary:     '#374151',   // gray-700 — visible on white
   milestone:      '#E8A020',   // brand-accent
   // Dependency arrows are charcoal regardless of critical-path state.
@@ -84,7 +84,10 @@ export const COLOR = {
   // bars where they crossed (issue #466 gap analysis P0-1).
   arrowNormal:    '#444441',
   arrowCritical:  '#444441',
-  selectionRing:  '#1C6B3A',   // brand-primary
+  // Selection ring is navy INK (not sage) so it stays visible on a sage
+  // complete bar — distinguishability triad (ADR-0102 D4): complete=sage fill,
+  // selected=navy ring, today=sage line. navy/white = 12.6:1.
+  selectionRing:  '#1B2A4A',   // navy-700
   ghostFill:      'rgba(100,116,139,0.12)',
   ghostBorder:    'rgba(100,116,139,0.55)',
   // Chip text tokens (ADR-0040 #212): named so a future high-contrast theme
@@ -102,18 +105,18 @@ export const COLOR_DARK: ColorPalette = {
   rowBandAlt:     'rgba(255,255,255,0.025)',
   weekend:        'rgba(255,255,255,0.03)',
   gridLine:       'rgba(255,255,255,0.08)',
-  todayLine:      '#4ADE80',   // semantic-on-track dark — Green-400, 5.28:1 on #12141E
+  todayLine:      '#66B998',   // sage-400 — the "now" on the path, holds on dark (ADR-0102)
   text:           '#E8E8E8',   // neutral-text-primary dark
   textSecondary:  '#94A3B8',   // Slate-400 — neutral-text-secondary dark
   barNormal:      '#60A5FA',   // Blue-400 — readable on dark surface
   barCritical:    '#F87171',   // Red-400 — semantic-critical dark, 4.87:1 on #12141E
-  barComplete:    '#4ADE80',   // Green-400 — semantic-on-track dark
+  barComplete:    '#66B998',   // sage-400 — semantic on-track, holds on dark (ADR-0102)
   barSummary:     '#94A3B8',   // Slate-400
   milestone:      '#E8A020',   // brand-accent — unchanged
   // Light charcoal for arrows on the dark surface. Unified — no red variant.
   arrowNormal:    '#B8B5AE',
   arrowCritical:  '#B8B5AE',
-  selectionRing:  '#4ADE80',   // Green-400, 5.28:1 on dark surface
+  selectionRing:  '#E9EDF3',   // reversed ink — pale ring, distinct from sage bars on dark (ADR-0102)
   ghostFill:      'rgba(100,116,139,0.12)',
   ghostBorder:    'rgba(100,116,139,0.55)',
   chipTextOnCritical: '#FFFFFF',
@@ -222,7 +225,7 @@ export function drawGridLines(
 
 /**
  * Draw the "today" vertical line on canvas-bg.
- * Uses brand-primary green (#1C6B3A) at full height.
+ * Uses the sage path color (todayLine: sage-600 light / sage-400 dark) at full height.
  */
 export function drawTodayLine(
   ctx: CanvasRenderingContext2D,
