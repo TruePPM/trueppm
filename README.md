@@ -13,8 +13,8 @@ Most project management tools force a choice: Jira speaks Agile and translates p
 
 TruePPM is an open-core Project, Program, and Portfolio Management (P3M) platform — built scheduling-first, with a fully native agile surface layered on top. CPM is the engine, not a bolt-on. Agile boards and sprints are an overlay on the schedule, not a parallel system.
 
-> **Status: 0.1-alpha — first public alpha. Not ready for production use.**
-> The core engine and API are solid. The UI is functional but rough. Expect breaking API changes between alpha and beta. **Hold off on deploying for real teams until the first beta release** — we don't know yet what needs to change based on early feedback, and locking in users before we do will make that harder.
+> **Status: 0.2-alpha — pre-GA. Not ready for production use.**
+> The core engine and API are solid; the UI is functional but still maturing. 0.2 has shipped as the `0.2.0-alpha.1` pre-release; the stable 0.2.0 release targets June 2026. Expect breaking API changes between alpha and beta. **Hold off on deploying for real teams until the first beta release** — we don't know yet what needs to change based on early feedback, and locking in users before we do will make that harder.
 
 ## Why TruePPM?
 
@@ -32,7 +32,7 @@ TruePPM is an open-core Project, Program, and Portfolio Management (P3M) platfor
 
 **Built for collaboration.** Real-time WebSocket pushes, 5-role RBAC (Owner / Admin / Scheduler / Member / Viewer), and an offline-first sync protocol designed for mobile clients.
 
-## What's in 0.1-alpha
+## What's in 0.2
 
 | Component | Status | Notes |
 |-----------|--------|-------|
@@ -47,7 +47,7 @@ TruePPM is an open-core Project, Program, and Portfolio Management (P3M) platfor
 | **Monte Carlo UI** | ✅ Wired | P50/P80/P95 distribution, live rerun, freshness indicator, burn-up and burn-down charts. |
 | **Helm chart** | ✅ Functional | Kubernetes deployment with Bitnami sub-charts for PostgreSQL and Valkey (BSD-licensed Redis fork). Published to GHCR OCI registry. |
 
-**Coming in 0.2:** a settings & administration platform, the Program entity (OSS), MS Project (.mpp) and CSV/Excel import-export, and board + schedule depth.
+**Added in 0.2:** a settings & administration platform, the Program entity (OSS) with program backlog, MS Project XML import/export UI, recurring tasks, board + schedule depth, durable-execution hardening, and Slack/email notifications. **Coming in 0.3** (the agile-team release): a first-class sprint container, velocity-with-range, sprint→schedule reforecast, and git PR→card auto-move. CSV/Excel and MS Project `.mpp` import are sequenced for 0.6.
 
 ## Published Artifacts
 
@@ -129,7 +129,7 @@ chmod +x init-prod.sh
 
 ```bash
 helm install trueppm oci://ghcr.io/trueppm/charts/trueppm \
-  --version 0.1.0 \
+  --version 0.2.0 \
   --namespace trueppm --create-namespace \
   -f my-values.yaml
 ```
@@ -201,7 +201,6 @@ Public milestones: [gitlab.com/trueppm/trueppm/-/milestones](https://gitlab.com/
 
 From 0.3 onward each release **lands one primary persona** while the hybrid agile/waterfall bridge deepens underneath. The sequence expands by org scope; everything is OSS, with portfolio governance reserved for the enterprise edition after 1.0.
 
-- **0.2** — broad consolidation: settings & administration platform, the Program entity (OSS), MS Project / CSV / Excel import-export, board + schedule depth, durable-execution hardening
 - **0.3 — the agile team**: real sprint container, velocity-with-range, sprint sovereignty (audited scope changes, team-owned velocity), sprint→schedule reforecast, git PR→card auto-move, sample-data launch demo
 - **0.4 — mobile & the field PM**: native React Native editor (Android-first), iOS PWA fallback, basic client-ready PDF, ongoing one-way Jira sync, offline hardening
 - **0.5 — plan & people**: partial resource allocation + pre-commit conflict warning, timesheets, baselines, deep CPM-aware bridge, durable-execution default backend
