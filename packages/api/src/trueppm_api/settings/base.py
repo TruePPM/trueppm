@@ -38,6 +38,11 @@ DJANGO_APPS = [
 THIRD_PARTY_APPS = [
     "rest_framework",
     "rest_framework_simplejwt",
+    # Refresh-token revocation (#910): provides OutstandingToken + BlacklistedToken
+    # so refresh-token rotation (BLACKLIST_AFTER_ROTATION) and logout actually
+    # revoke the old token instead of letting it live out its full TTL. The
+    # auth_views blacklist() calls are no-ops without this app installed.
+    "rest_framework_simplejwt.token_blacklist",
     "allauth",
     "allauth.account",
     "channels",
@@ -314,6 +319,14 @@ CELERY_BEAT_SCHEDULE = {
         "task": "projects.generate_recurring_occurrences",
         "schedule": crontab(minute=0),
     },
+    # Nightly: flush expired OutstandingToken/BlacklistedToken rows so the JWT
+    # blacklist tables stay bounded to roughly the active-session window (#910).
+    # No-ops when the token_blacklist app is not installed.
+    "flush-expired-blacklisted-tokens": {
+        "task": "access.flush_expired_blacklisted_tokens",
+        # 04:30 UTC — after the other nightly purge jobs.
+        "schedule": crontab(hour=4, minute=30),
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -340,10 +353,11 @@ SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "ROTATE_REFRESH_TOKENS": True,
-    # Blacklisting requires the token_blacklist app + its migrations. It is NOT
-    # installed in OSS by default, so this is a no-op until an operator adds the
-    # app; the refresh view tolerates its absence. Left True so enabling the app
-    # is the only step needed to get revocation-on-rotation.
+    # Blacklisting requires the token_blacklist app + its migrations, now shipped
+    # in INSTALLED_APPS by default (#910), so rotation actually revokes the prior
+    # refresh token. The refresh/logout views still tolerate the app's absence so
+    # an operator who removes it (lean OSS deploy) degrades gracefully to
+    # TTL-only expiry rather than erroring.
     "BLACKLIST_AFTER_ROTATION": True,
 }
 

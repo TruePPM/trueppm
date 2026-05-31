@@ -170,10 +170,10 @@ class CookieTokenRefreshView(APIView):
         if rotate:
             # Blacklist the just-used refresh token before issuing a new one, so a
             # leaked token cannot be replayed once the legitimate client rotates.
-            # blacklist() is only available when the token_blacklist app is
-            # installed; tolerate its absence so OSS deploys without it still work.
+            # The token_blacklist app is installed by default (#910); the
+            # AttributeError suppression is belt-and-braces for a lean deploy that
+            # removes it, in which case rotation degrades to TTL-only expiry.
             if settings.SIMPLE_JWT.get("BLACKLIST_AFTER_ROTATION", False):
-                # pragma: no cover - blacklist app may not be installed (OSS default)
                 with contextlib.suppress(AttributeError):
                     refresh.blacklist()
             refresh.set_jti()

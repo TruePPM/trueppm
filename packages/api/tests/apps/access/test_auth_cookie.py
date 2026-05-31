@@ -123,3 +123,65 @@ def test_logout_clears_refresh_cookie(user) -> None:
     cleared = resp.cookies[_COOKIE]
     assert cleared.value == ""
     assert cleared["path"] == settings.AUTH_REFRESH_COOKIE_PATH
+
+
+# ---------------------------------------------------------------------------
+# Refresh-token revocation (#910) — requires the token_blacklist app, now
+# installed by default. Rotation and logout must reject the prior refresh token
+# rather than letting it live out its 7-day TTL.
+# ---------------------------------------------------------------------------
+
+
+def _login(client: APIClient) -> str:
+    """Log in and return the refresh token set in the httpOnly cookie."""
+    resp = client.post(
+        _LOGIN_URL,
+        {"username": "cookie_user", "password": "correct-horse-battery"},
+        format="json",
+    )
+    assert resp.status_code == 200
+    return resp.cookies[_COOKIE].value
+
+
+@pytest.mark.django_db
+def test_rotated_refresh_token_is_rejected_on_replay(user) -> None:
+    """After rotation the previous refresh token is blacklisted and replay → 401."""
+    client = APIClient()
+    old_refresh = _login(client)
+
+    # Rotate: the client carries the cookie forward; the old token is blacklisted.
+    rotated = client.post(_REFRESH_URL, {}, format="json")
+    assert rotated.status_code == 200
+
+    # Replay the pre-rotation token from a fresh client that only has the old cookie.
+    replay = APIClient()
+    replay.cookies[_COOKIE] = old_refresh
+    resp = replay.post(_REFRESH_URL, {}, format="json")
+    assert resp.status_code == 401
+
+
+@pytest.mark.django_db
+def test_logged_out_refresh_token_is_rejected_on_replay(user) -> None:
+    """After logout the cleared refresh token is blacklisted and replay → 401."""
+    client = APIClient()
+    old_refresh = _login(client)
+
+    logout = client.post(_LOGOUT_URL, {}, format="json")
+    assert logout.status_code == 205
+
+    replay = APIClient()
+    replay.cookies[_COOKIE] = old_refresh
+    resp = replay.post(_REFRESH_URL, {}, format="json")
+    assert resp.status_code == 401
+
+
+@pytest.mark.django_db
+def test_flush_expired_blacklisted_tokens_task_runs(user) -> None:
+    """The nightly flush task runs cleanly when the blacklist app is installed."""
+    from trueppm_api.apps.access.tasks import flush_expired_blacklisted_tokens
+
+    # A login mints an OutstandingToken; the task flushes only *expired* rows, so
+    # with a freshly-issued (unexpired) token it succeeds without deleting it.
+    _login(APIClient())
+    result = flush_expired_blacklisted_tokens()
+    assert result["status"] == "ok"

@@ -15,13 +15,29 @@ TruePPM uses JWT (JSON Web Tokens) via `djangorestframework-simplejwt`:
   Secure, SameSite=Strict cookie** — never in `localStorage` and never readable
   by JavaScript, so an XSS bug cannot exfiltrate it. The refresh endpoint reads
   the token from the cookie.
-- **Rotation** — refresh tokens rotate on every use (`ROTATE_REFRESH_TOKENS`).
-  Token revocation-on-rotation (`BLACKLIST_AFTER_ROTATION`) is wired but is a
-  no-op until an operator adds the `token_blacklist` app and its migrations; the
-  refresh endpoint tolerates its absence.
+- **Rotation and revocation** — refresh tokens rotate on every use
+  (`ROTATE_REFRESH_TOKENS`). The `token_blacklist` app ships in `INSTALLED_APPS`
+  by default, so revocation-on-rotation (`BLACKLIST_AFTER_ROTATION`) is active:
+  once a refresh token is rotated, the previous token is **rejected on replay**
+  rather than living out its 7-day TTL. Logging out (`POST /api/v1/auth/logout/`)
+  likewise blacklists the presented refresh token. A lean deployment that removes
+  the `token_blacklist` app degrades gracefully to TTL-only expiry — the
+  refresh/logout endpoints tolerate its absence.
 
 Token lifetimes and the cookie attributes are configurable — see
 [Configuration](/administration/configuration/) for `AUTH_REFRESH_COOKIE_*`.
+
+### Blacklist tables and cleanup
+
+With the `token_blacklist` app installed, every issued refresh token is recorded
+in an `OutstandingToken` row, and rotated/revoked tokens add a `BlacklistedToken`
+row. To stop these tables growing unbounded, a Celery Beat job
+(`access.flush_expired_blacklisted_tokens`, nightly at 04:30 UTC) deletes rows
+whose tokens have already expired — bounding the tables to roughly the active
+refresh-token window. The job requires a running **Celery Beat** scheduler (the
+same one that drives retention and outbox-drain jobs); deployments that run the
+API without Beat should schedule the `flushexpiredtokens` management command
+out-of-band instead. See [Management commands](/administration/management-commands/).
 
 WebSocket connections authenticate via `?token=<jwt>` on the connection URL.
 
