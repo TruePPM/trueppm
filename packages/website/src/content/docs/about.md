@@ -41,7 +41,7 @@ The scheduling engine (`trueppm-scheduler`) ships separately on [PyPI](https://p
 
 ## License
 
-Apache 2.0 — see [LICENSE](https://gitlab.com/trueppm/trueppm/-/blob/main/LICENSE).
+The Community Edition is Apache 2.0 — see [LICENSE](https://gitlab.com/trueppm/trueppm/-/blob/main/LICENSE). For the full picture — the enterprise boundary, the CI-enforced dependency-license policy, and third-party attribution — see [License & Third-Party Attribution](/license/).
 
 ## Support and issues
 
