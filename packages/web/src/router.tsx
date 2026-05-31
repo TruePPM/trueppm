@@ -121,6 +121,11 @@ const ProjectMethodologyPage = lazy(() =>
     default: m.ProjectMethodologyPage,
   })),
 );
+const ProjectGuardrailsPage = lazy(() =>
+  import('@/features/settings/project/ProjectGuardrailsPage').then((m) => ({
+    default: m.ProjectGuardrailsPage,
+  })),
+);
 const ProjectWorkflowPage = lazy(() =>
   import('@/features/settings/project/ProjectWorkflowPage').then((m) => ({
     default: m.ProjectWorkflowPage,
@@ -454,6 +459,14 @@ export const router = createBrowserRouter([
                     element: (
                       <Suspense fallback={<RouteLoadingFallback />}>
                         <ProjectWorkflowPage />
+                      </Suspense>
+                    ),
+                  },
+                  {
+                    path: 'guardrails',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <ProjectGuardrailsPage />
                       </Suspense>
                     ),
                   },

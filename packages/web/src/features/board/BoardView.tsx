@@ -66,6 +66,7 @@ import type { Task, TaskStatus } from '@/types';
 import { BoardCard, type BoardDensity, type EvmMode } from './BoardCard';
 import { LaneMeta } from './LaneMeta';
 import { WorkshopBanner } from './WorkshopBanner';
+import { BoardScopeInjectionBanner } from './BoardScopeInjectionBanner';
 import { TaskFormModal } from './TaskFormModal';
 import { PhaseMilestoneRail } from './PhaseMilestoneRail';
 import { KeyboardCheatsheet } from './KeyboardCheatsheet';
@@ -1579,6 +1580,10 @@ export function BoardView() {
               isEnding={endWorkshop.isPending}
             />
           )}
+          {/* Mid-sprint scope-injection banner (ADR-0101 §5) — team-visible
+              record that tasks were added to the active sprint after it
+              started. Self-hides when there's nothing to report. */}
+          <BoardScopeInjectionBanner tasks={tasks ?? []} />
 
           {/* "My tasks" active chip (issue #198) — keeps the filter state
               inescapable so users don't think the board has lost data. */}
