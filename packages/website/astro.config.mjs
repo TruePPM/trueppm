@@ -219,7 +219,7 @@ export default defineConfig({
         // --- About ---
         {
           label: "About",
-          items: [{ slug: "about" }],
+          items: [{ slug: "about" }, { slug: "license" }],
         },
       ],
     }),
