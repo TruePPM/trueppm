@@ -31,6 +31,8 @@ import {
   type SprintFilterValue,
 } from './SprintFilterPopover';
 import { CloseSprintDialog } from './CloseSprintDialog';
+import { ScopePendingReviewPanel } from './ScopePendingReviewPanel';
+import { useCanManageScope } from '@/hooks/useCanManageScope';
 import { RetroPanel } from './RetroPanel';
 import { useSprintBacklog } from '@/hooks/useSprintBacklog';
 import { useMyActiveSprints } from '@/hooks/useMyActiveSprints';
@@ -140,6 +142,10 @@ export function SprintsView() {
   const [editSprintId, setEditSprintId] = useState<string | null>(null);
   // Close-sprint dialog (#299) replaces the old direct closeSprint.mutate call.
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
+  // Scope-injection review slide-over (ADR-0102 §5) — alt entry to the board
+  // banner's Review button. Gated by useCanManageScope (render-gate only).
+  const [scopeReviewOpen, setScopeReviewOpen] = useState(false);
+  const canManageScope = useCanManageScope(projectId ?? undefined);
   // Task create modal — opens with the target sprint pre-populated.
   // null = modal closed; a sprint id string = modal open targeting that sprint.
   const [addTaskForSprintId, setAddTaskForSprintId] = useState<string | null>(null);
@@ -214,12 +220,18 @@ export function SprintsView() {
     setCloseDialogOpen(true);
   }
 
-  function handleConfirmClose(carryOverTo: string) {
+  function handleConfirmClose(
+    carryOverTo: string,
+    pendingDisposition?: 'carry' | 'reject',
+  ) {
     if (!activeSprint) return;
     closeSprint.mutate(
       {
         sprintId: activeSprint.id,
-        payload: { carry_over_to: carryOverTo },
+        payload: {
+          carry_over_to: carryOverTo,
+          ...(pendingDisposition ? { pending_disposition: pendingDisposition } : {}),
+        },
       },
       {
         onSuccess: () => setCloseDialogOpen(false),
@@ -332,8 +344,23 @@ export function SprintsView() {
       {/* Tier-3 health badges (ADR-0101 §4) — read-only signals computed
           client-side from `projectTasks`; renders nothing when all counts
           are zero so the surface fades away on healthy projects. */}
-      <div className="mx-6 mt-2">
+      <div className="mx-6 mt-2 flex items-center justify-between gap-2 flex-wrap">
         <GuardrailHealthBadges tasks={projectTasks ?? []} activeSprint={activeSprint} />
+        {/* Alt entry to the scope-injection review (ADR-0102 §5) — mirrors the
+            board banner's Review button. Render-gated by canManageScope; the
+            server is the real gate. */}
+        {activeSprint && (activeSprint.pending_count ?? 0) > 0 && canManageScope && (
+          <button
+            type="button"
+            onClick={() => setScopeReviewOpen(true)}
+            className="shrink-0 h-7 px-2 rounded text-xs font-medium
+              border border-neutral-border bg-neutral-surface text-neutral-text-primary
+              hover:bg-neutral-surface-raised
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          >
+            <span aria-hidden="true">○</span> Review pending ({activeSprint.pending_count})
+          </button>
+        )}
       </div>
 
       {capacityWarnings.length > 0 && (
@@ -513,6 +540,16 @@ export function SprintsView() {
           isClosing={closeSprint.isPending}
           onCancel={() => setCloseDialogOpen(false)}
           onConfirm={handleConfirmClose}
+        />
+      )}
+
+      {scopeReviewOpen && projectId && activeSprint && canManageScope && (
+        <ScopePendingReviewPanel
+          projectId={projectId}
+          sprintId={activeSprint.id}
+          tasks={projectTasks ?? []}
+          offline={typeof navigator !== 'undefined' && !navigator.onLine}
+          onClose={() => setScopeReviewOpen(false)}
         />
       )}
 

@@ -12,8 +12,26 @@ import { BoardProgressRing } from './BoardProgressRing';
 import { formatShortDate } from '@/features/schedule/scheduleUtils';
 import { severityRagBand } from '@/hooks/useTaskDependencies';
 import { isTaskScheduled } from '@/lib/task';
+import { PendingAcceptanceChip } from './PendingAcceptanceChip';
 
 export type BoardDensity = 'compact' | 'comfortable' | 'detailed';
+
+/**
+ * Sprint scope-injection accept/reject affordance bundle (ADR-0102).
+ *
+ * Threaded from `BoardView` (which owns the project/sprint context and the
+ * mutations) so a pending card can offer a single-tap accept (✓) and a reject
+ * in the overflow menu. `canManage` is the render-gate (`useCanManageScope`,
+ * role >= ADMIN) — the server is the real gate. `offline` disables the
+ * controls without queueing (frontend rule 152). Absent → no controls (e.g.
+ * the drag overlay, or a non-pending card).
+ */
+export interface BoardCardScopeActions {
+  canManage: boolean;
+  offline: boolean;
+  onAccept: (task: Task) => void;
+  onReject: (task: Task) => void;
+}
 
 /** Which EVM performance indicators to show on cards (issue #185). */
 export type EvmMode = 'spi' | 'cpi' | 'both' | 'off';
@@ -51,6 +69,11 @@ interface BoardCardProps {
    * element is the card root — used by `BoardView` to position the popover.
    */
   onCardClick?: (task: Task, anchor: HTMLElement) => void;
+  /** Sprint scope-injection accept/reject affordance (ADR-0102). When the task
+   *  is pending (`task.sprintPending`) and this is supplied, the card renders
+   *  muted with a single-tap ✓ accept (gated by `canManage`) and a reject in
+   *  the overflow menu. */
+  scopeActions?: BoardCardScopeActions;
 }
 
 /**
@@ -202,6 +225,7 @@ export function BoardCard({
   showEvm = 'off',
   showCost = false,
   onCardClick,
+  scopeActions,
 }: BoardCardProps) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: task.id,
@@ -304,7 +328,14 @@ export function BoardCard({
   // issue #332. The CPM data is still passed through unchanged; only the
   // display gates on commitment.
   const isScheduled = isTaskScheduled(task);
-  const showCriticalState = task.isCritical && isScheduled;
+
+  // ADR-0102: a pending-acceptance injection is visible but not yet committed.
+  // The card is muted and — per the ux-design — the red CP signal is suppressed
+  // while pending (the task isn't part of the commitment, so its critical-path
+  // status is not yet a team concern; it reappears on accept). The neutral
+  // PendingAcceptanceChip carries the read-state instead.
+  const isPending = task.sprintPending === true;
+  const showCriticalState = task.isCritical && isScheduled && !isPending;
 
   // EVM indicators (issue #185): SPI computed client-side from baseline; CPI from API field.
   const spi = computeTaskSpi(task);
@@ -432,6 +463,26 @@ export function BoardCard({
           className="absolute right-0 top-7 z-20 bg-neutral-surface border border-neutral-border
             rounded-md py-1 min-w-[160px] focus:outline-none"
         >
+          {/* Reject scope injection (ADR-0102) — critical text, gated. The
+              additive accept is the single-tap ✓; reject (destructive) lives
+              here. Hidden offline (rule 152: never queue a stale decision). */}
+          {isPending && scopeActions?.canManage && !scopeActions.offline && (
+            <button
+              type="button"
+              role="menuitem"
+              className="w-full text-left px-3 py-2 text-sm text-semantic-critical
+                hover:bg-semantic-critical-bg
+                focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-inset"
+              onClick={(e) => {
+                e.stopPropagation();
+                setMenuOpen(false);
+                setMoveOpen(false);
+                scopeActions.onReject(task);
+              }}
+            >
+              Reject from sprint
+            </button>
+          )}
           <button
             type="button"
             role="menuitem"
@@ -475,6 +526,29 @@ export function BoardCard({
     </div>
   );
 
+  // Single-tap accept ✓ for a pending scope injection (ADR-0102 §5). Additive
+  // action → no confirm (frontend rule 150). Sits left of the ··· menu. Gated
+  // by canManage; hidden offline (rule 152). Reject is in the overflow menu.
+  const acceptIcon =
+    isPending && scopeActions?.canManage && !scopeActions.offline ? (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          scopeActions.onAccept(task);
+        }}
+        aria-label={`Accept ${task.name} into the sprint`}
+        title="Accept into the sprint"
+        className="absolute top-2 right-9 w-6 h-6 flex items-center justify-center rounded
+          text-brand-primary hover:bg-brand-primary/10
+          before:absolute before:inset-[-10px] before:content-['']
+          focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-brand-primary
+          focus-visible:ring-offset-1 focus-visible:outline-none"
+      >
+        <span aria-hidden="true">✓</span>
+      </button>
+    ) : null;
+
   // Shared card container class
   const containerClass = [
     'bg-neutral-surface border rounded-md cursor-grab active:cursor-grabbing relative group',
@@ -489,6 +563,9 @@ export function BoardCard({
       ? 'ring-2 ring-brand-primary ring-offset-1 ring-offset-neutral-surface-sunken'
       : '',
     isDimmed ? 'opacity-40' : '',
+    // Pending injections are de-emphasized (ADR-0102 §6) — but not as faint as
+    // a dimmed/dep-highlight card, so the chip + accept tick stay legible.
+    isPending && !isDimmed ? 'opacity-70' : '',
   ].join(' ');
 
   // Overlay card — the floating drag copy (rule 102)
@@ -564,6 +641,7 @@ export function BoardCard({
           >
             {task.name}
           </span>
+          {isPending && <PendingAcceptanceChip compact className="shrink-0" />}
           {showCriticalState && (
             <span
               className="shrink-0 inline-block px-1 py-px rounded text-xs text-white bg-semantic-critical font-bold"
@@ -580,7 +658,7 @@ export function BoardCard({
         >
           <div className={`h-full ${progressColor}`} style={{ width: `${effectiveProgress}%` }} />
         </div>
-        {signalIcons}
+        {acceptIcon ?? signalIcons}
         {menuButton}
       </div>
     );
@@ -675,9 +753,10 @@ export function BoardCard({
           </span>
         </div>
 
-        {/* Badge row — CP, assignee initials (or ? placeholder for idea cards) */}
-        {(showCriticalState || task.assignees.length > 0 || isIdea) && (
+        {/* Badge row — CP, pending-acceptance chip, assignee initials */}
+        {(showCriticalState || isPending || task.assignees.length > 0 || isIdea) && (
           <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+            {isPending && <PendingAcceptanceChip />}
             {showCriticalState && (
               <span
                 className="inline-block px-1 py-px rounded text-xs text-white bg-semantic-critical font-bold"
@@ -892,7 +971,10 @@ export function BoardCard({
       </div>
       {/* end padding wrapper */}
 
-      {signalIcons}
+      {/* A pending card shows the single-tap ✓ accept in the right-9 slot;
+          its signal icons (chain/risk) are suppressed there to avoid overlap
+          (they remain reachable via the card detail). */}
+      {acceptIcon ?? signalIcons}
       {menuButton}
     </div>
   );

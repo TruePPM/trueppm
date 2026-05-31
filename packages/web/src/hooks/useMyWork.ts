@@ -36,6 +36,13 @@ export interface MyWorkTask {
   is_critical: boolean;
   server_version: number;
   url: string;
+  /**
+   * Sprint scope-injection pending flag (ADR-0102 §6). When `true`, the task
+   * was injected into its active sprint and is awaiting team acceptance — the
+   * row renders a muted "Pending acceptance" chip and NO accept/reject controls
+   * (the decision is team-owned and never surfaces in the contributor me tree).
+   * Snake_case wire key (`MeWorkTaskSerializer.sprint_pending`). */
+  sprint_pending?: boolean;
 }
 
 export interface MyWorkActiveSprint {

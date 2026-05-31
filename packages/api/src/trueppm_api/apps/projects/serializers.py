@@ -1122,6 +1122,10 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             rows = SprintScopeChange.objects.filter(task_id=obj.pk).select_related("added_by")
         return [
             {
+                # ADR-0102: the row id lets the client target the single
+                # accept/reject endpoints (POST /scope-changes/{id}/accept|reject/)
+                # for a per-item affordance on the board card and review panel.
+                "id": str(r.pk),
                 # ADR-0101: `item_name` is the forward-looking key; `subtask_name`
                 # is kept as a deprecated alias for one release so existing clients
                 # don't break. Both carry the same value.

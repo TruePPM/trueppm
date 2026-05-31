@@ -60,3 +60,19 @@ export function formatShortDate(iso: string): string {
 export function formatDateRange(startIso: string, finishIso: string): string {
   return `${formatShortDate(startIso)} – ${formatShortDate(finishIso)}`;
 }
+
+/**
+ * Forecast-transparency copy for any commitment/forecast surface (ADR-0102 §2,
+ * #882 rule 153). When a sprint has pending (un-accepted) scope changes, every
+ * planning surface that shows a forecast must state that the forecast reflects
+ * only what the team has accepted — derived from the server's `pending_count`
+ * so the client never recomputes the number, and shared so the burndown
+ * caption and the sprint panel can never word it differently.
+ *
+ * Returns `null` when `pendingCount <= 0` — callers render nothing in that case
+ * (no "0 pending" noise on a clean sprint).
+ */
+export function forecastScopeCaption(pendingCount: number): string | null {
+  if (pendingCount <= 0) return null;
+  return `Forecast reflects accepted scope only — ${pendingCount} pending acceptance`;
+}

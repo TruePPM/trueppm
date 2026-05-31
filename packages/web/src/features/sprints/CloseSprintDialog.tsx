@@ -5,6 +5,9 @@ import { sprintDayOf } from './sprintMath';
 
 export type CarryOverChoice = 'next' | 'backlog' | 'none';
 
+/** Disposition for pending scope-changes at close (ADR-0102 §7). */
+export type PendingDisposition = 'carry' | 'reject';
+
 interface Props {
   sprint: ApiSprint;
   /** The next planned sprint, when one exists — preselects "next" carry-over. */
@@ -14,7 +17,12 @@ interface Props {
   backlogTasks: SprintBacklogTask[];
   isClosing: boolean;
   onCancel: () => void;
-  onConfirm: (carryOverTo: string) => void;
+  /**
+   * Close confirmed. `pendingDisposition` is supplied only when the sprint had
+   * pending scope changes (ADR-0102 §7) — `'carry'` (default) or `'reject'`.
+   * Close is NEVER blocked by pending items; this advisory just lets the team
+   * choose what happens to them. */
+  onConfirm: (carryOverTo: string, pendingDisposition?: PendingDisposition) => void;
 }
 
 /**
@@ -37,6 +45,11 @@ export function CloseSprintDialog({
 }: Props) {
   const defaultChoice: CarryOverChoice = nextPlannedSprintId ? 'next' : 'backlog';
   const [choice, setChoice] = useState<CarryOverChoice>(defaultChoice);
+  // Pending-scope disposition (ADR-0102 §7). Defaults to carry-over — never
+  // auto-discards, never blocks the close.
+  const pendingCount = sprint.pending_count ?? 0;
+  const [pendingDisposition, setPendingDisposition] =
+    useState<PendingDisposition>('carry');
 
   // Esc to cancel.
   useEffect(() => {
@@ -57,7 +70,7 @@ export function CloseSprintDialog({
   function handleConfirm() {
     const carryOverTo =
       choice === 'next' && nextPlannedSprintId ? nextPlannedSprintId : choice;
-    onConfirm(carryOverTo);
+    onConfirm(carryOverTo, pendingCount > 0 ? pendingDisposition : undefined);
   }
 
   return (
@@ -150,6 +163,67 @@ export function CloseSprintDialog({
             </span>
           </label>
         </fieldset>
+
+        {/* Pending-scope advisory (ADR-0102 §7) — surfaced only when the sprint
+            still has un-accepted injections. This NEVER blocks the close; it
+            offers a disposition (carry over by default, or reject). role=status
+            (not alert) — it is informational, consistent with warn-never-block. */}
+        {pendingCount > 0 && (
+          <fieldset
+            role="status"
+            className="flex flex-col gap-2 text-sm rounded-md border border-neutral-border bg-neutral-surface-sunken p-3"
+          >
+            <legend className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary px-1">
+              <span aria-hidden="true">○</span>{' '}
+              <span className="tppm-mono">{pendingCount}</span> item
+              {pendingCount === 1 ? '' : 's'} pending acceptance
+            </legend>
+            <p className="text-xs text-neutral-text-secondary">
+              These were added after the sprint started and were never counted in the
+              commitment, so closing now keeps this sprint&apos;s velocity correct either way.
+            </p>
+            <label
+              htmlFor="close-sprint-pending-carry"
+              className="flex items-start gap-2 cursor-pointer"
+            >
+              <input
+                id="close-sprint-pending-carry"
+                aria-label="Carry them to the next sprint"
+                type="radio"
+                name="close-sprint-pending"
+                checked={pendingDisposition === 'carry'}
+                onChange={() => setPendingDisposition('carry')}
+                className="mt-0.5 accent-brand-primary"
+              />
+              <span>
+                <span className="font-medium">Carry them to the next sprint</span>
+                <span className="block text-xs text-neutral-text-secondary">
+                  They stay pending acceptance on the incoming sprint.
+                </span>
+              </span>
+            </label>
+            <label
+              htmlFor="close-sprint-pending-reject"
+              className="flex items-start gap-2 cursor-pointer"
+            >
+              <input
+                id="close-sprint-pending-reject"
+                aria-label="Reject them"
+                type="radio"
+                name="close-sprint-pending"
+                checked={pendingDisposition === 'reject'}
+                onChange={() => setPendingDisposition('reject')}
+                className="mt-0.5 accent-brand-primary"
+              />
+              <span>
+                <span className="font-medium">Reject them</span>
+                <span className="block text-xs text-neutral-text-secondary">
+                  They are removed from the sprint.
+                </span>
+              </span>
+            </label>
+          </fieldset>
+        )}
 
         <div className="flex items-center justify-end gap-2 pt-2 border-t border-neutral-border">
           <button

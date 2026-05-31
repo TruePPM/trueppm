@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type SVGProps } from 'react';
 import { BurnChart } from '@/features/reports/BurnChart';
 import {
   daysUntil,
+  forecastScopeCaption,
   formatShortDate,
   sprintDayOf,
 } from '@/features/sprints/sprintMath';
@@ -150,6 +151,15 @@ function Header({ sprint, isOpen, onToggle }: HeaderProps) {
             </>
           )}
         </p>
+        {/* Forecast transparency (ADR-0102 §2): when pending injections exist,
+            state that the committed points reflect accepted scope only. Shared
+            copy (forecastScopeCaption) so the burndown caption can't word it
+            differently. Neutral tone — pending is a read-state, not a warning. */}
+        {forecastScopeCaption(sprint.pending_count ?? 0) && (
+          <p className="mt-0.5 text-xs text-neutral-text-secondary">
+            <span aria-hidden="true">○</span> {forecastScopeCaption(sprint.pending_count ?? 0)}
+          </p>
+        )}
       </div>
       <button
         type="button"
