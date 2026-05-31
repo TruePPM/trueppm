@@ -101,7 +101,7 @@ export type ColorPalette = Record<keyof typeof COLOR, string>;
 
 /** Dark-surface palette — light tokens for readability on neutral-surface dark (#12141E). */
 export const COLOR_DARK: ColorPalette = {
-  surface:        '#12141E',   // neutral-surface dark
+  surface:        '#15223C',   // neutral-surface dark — navy-800 (brand v1.0, ADR-0102)
   rowBandAlt:     'rgba(255,255,255,0.025)',
   weekend:        'rgba(255,255,255,0.03)',
   gridLine:       'rgba(255,255,255,0.08)',

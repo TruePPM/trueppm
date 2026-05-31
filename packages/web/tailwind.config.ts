@@ -89,9 +89,9 @@ const config: Config = {
         // component references bg-gantt-surface or gantt-text-* — Tailwind silently
         // emits no CSS for undefined tokens.
         gantt: {
-          surface:             '#0F1117',
-          'text-primary':      '#E8E8E8',   // 15.3:1 on gantt-surface
-          'text-secondary':    '#94A3B8',   // Slate-400; 7.45:1 on #0F1117
+          surface:             '#0E1626',   // navy-900 (brand dark chrome, ADR-0102)
+          'text-primary':      '#E9EDF3',   // reversed ink; ~14:1 on gantt-surface
+          'text-secondary':    '#94A3B8',   // Slate-400; ~6.9:1 on #0E1626
           'semantic-critical': '#F87171',   // Red-400; 4.87:1 on #0F1117 (rule 41)
           'semantic-at-risk':  '#FB923C',   // Orange-400; 5.96:1 on #0F1117 (rule 41)
           'semantic-on-track': '#4ADE80',   // Green-400; 5.28:1 on #0F1117 (rule 41)

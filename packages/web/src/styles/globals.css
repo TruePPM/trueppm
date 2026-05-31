@@ -27,18 +27,18 @@
     --neutral-surface-raised:  245 245 240;   /* #F5F5F0 */
     --neutral-surface-sunken:  235 235 235;   /* #EBEBEB */
     --neutral-border:          212 210 206;   /* #D4D2CE */
-    --neutral-text-primary:    26 25 23;      /* #1A1917 */
+    --neutral-text-primary:    27 42 74;      /* #1B2A4A — navy ink (brand v1.0); ~12.6:1 on white */
     --neutral-text-secondary:  107 105 101;   /* #6B6965 — 4.63:1 on white */
     --neutral-text-disabled:   160 157 153;   /* #A09D99 */
     --neutral-text-inverse:    255 255 255;   /* #FFFFFF */
   }
 
   .dark {
-    --neutral-surface:         18 20 30;      /* #12141E */
-    --neutral-surface-raised:  26 29 42;      /* #1A1D2A */
-    --neutral-surface-sunken:  12 14 22;      /* #0C0E16 */
-    --neutral-border:          50 55 80;      /* #323750 */
-    --neutral-text-primary:    232 232 232;   /* #E8E8E8 — 15.3:1 on surface */
+    --neutral-surface:         21 34 60;      /* #15223C — navy-800 (brand dark surface) */
+    --neutral-surface-raised:  27 42 74;      /* #1B2A4A — navy-700 */
+    --neutral-surface-sunken:  11 18 32;      /* #0B1220 */
+    --neutral-border:          42 58 87;      /* #2A3A57 — navy border */
+    --neutral-text-primary:    233 237 243;   /* #E9EDF3 — reversed ink, 12.1:1 on #15223C */
     --neutral-text-secondary:  148 163 184;   /* #94A3B8 — 7.45:1 on surface */
     --neutral-text-disabled:   100 116 139;   /* #64748B */
     --neutral-text-inverse:    26 25 23;      /* #1A1917 */
@@ -120,8 +120,8 @@
   }
 
   .dark {
-    --chrome-surface:             15 17 23;      /* #0F1117 — legacy gantt-surface */
-    --chrome-surface-raised:      22 25 36;
+    --chrome-surface:             14 22 38;      /* #0E1626 — navy-900 (brand dark chrome) */
+    --chrome-surface-raised:      21 34 60;      /* #15223C — navy-800 */
     --chrome-border:              255 255 255;
     --chrome-border-opacity:      0.08;
     --chrome-text-primary:        232 232 232;   /* #E8E8E8 — 15.3:1 on chrome-surface */
