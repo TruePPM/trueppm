@@ -112,13 +112,23 @@ def _do_drain_invite_emails() -> None:
         else:
             from django.db.models import F
 
+            from .models import InviteStatus
+
             new_attempts = invite.email_attempts + 1
             update_fields: dict[str, object] = {
                 "email_attempts": F("email_attempts") + 1,
                 "email_failed_at": timezone.now(),
             }
             if new_attempts >= EMAIL_MAX_RETRIES:
+                # Terminal failure: stop draining, clear the raw token regardless so
+                # it does not linger at rest once the send path has given up, and
+                # mark the invite FAILED so it is visibly dead (an admin re-invites).
+                # The previous code left email_token populated forever on a row that
+                # would never send — exactly the at-rest retention the hash design
+                # exists to avoid (ADR-0087 §4).
                 update_fields["email_pending"] = False
+                update_fields["email_token"] = ""
+                update_fields["status"] = InviteStatus.FAILED
             WorkspaceInvite.objects.filter(pk=invite.pk).update(**update_fields)
             failed += 1
 
@@ -339,7 +349,12 @@ def _do_purge_stale_invites() -> None:
 
     cutoff = now - timedelta(days=INVITE_RETENTION_DAYS)
     deleted, _ = WorkspaceInvite.objects.filter(
-        status__in=[InviteStatus.ACCEPTED, InviteStatus.REVOKED, InviteStatus.EXPIRED],
+        status__in=[
+            InviteStatus.ACCEPTED,
+            InviteStatus.REVOKED,
+            InviteStatus.EXPIRED,
+            InviteStatus.FAILED,
+        ],
         created_at__lt=cutoff,
     ).delete()
     if expired or deleted:

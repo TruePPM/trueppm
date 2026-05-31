@@ -1,0 +1,69 @@
+{{- if .Values.networkPolicy.enabled }}
+{{/*
+Opt-in NetworkPolicy: restrict ingress to the bundled datastores so that ONLY
+the API and Celery worker pods can reach PostgreSQL (5432) and Valkey (6379).
+Requires a CNI that enforces NetworkPolicy (Calico, Cilium, Antrea, etc.); on a
+cluster without one these objects are accepted but silently unenforced.
+
+Only rendered for the datastores the chart actually bundles — when postgresql /
+valkey are disabled (managed-service path) the corresponding policy is skipped.
+*/}}
+{{- if .Values.postgresql.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "trueppm.fullname" . }}-postgresql
+  labels:
+    {{- include "trueppm.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: postgresql
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "trueppm.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: api
+        - podSelector:
+            matchLabels:
+              {{- include "trueppm.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: celery-worker
+      ports:
+        - protocol: TCP
+          port: 5432
+{{- end }}
+{{- if .Values.valkey.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "trueppm.fullname" . }}-valkey
+  labels:
+    {{- include "trueppm.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: valkey
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "trueppm.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: api
+        - podSelector:
+            matchLabels:
+              {{- include "trueppm.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: celery-worker
+      ports:
+        - protocol: TCP
+          port: 6379
+{{- end }}
+{{- end }}

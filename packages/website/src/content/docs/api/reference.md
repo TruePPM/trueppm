@@ -21,6 +21,19 @@ http://localhost:8000/api/v1/
 
 ## Authentication
 
+TruePPM uses JWT auth with a split-token model: the short-lived **access** token
+is returned in the JSON body and held in memory by the client, while the
+long-lived **refresh** token is delivered in an `httpOnly`, `Secure`,
+`SameSite=Strict` cookie that JavaScript can never read. This protects the
+high-value refresh credential from theft via XSS — an injected script can ride
+the current session but cannot exfiltrate the refresh token.
+
+Because the refresh token lives in a cookie, browser clients **must** send
+credentials on the auth requests (`fetch(..., { credentials: "include" })` or
+`xhr.withCredentials = true`).
+
+### Log in
+
 ```http
 POST /api/v1/auth/token/
 Content-Type: application/json
@@ -28,13 +41,63 @@ Content-Type: application/json
 {"username": "...", "password": "..."}
 ```
 
-Returns `{"access": "<jwt>", "refresh": "<jwt>"}`. Pass the access token on all subsequent requests:
+Returns **only** the access token in the body:
+
+```json
+{"access": "<jwt>"}
+```
+
+The refresh token is set in a response cookie (default name `trueppm_refresh`),
+scoped to `Path=/api/v1/auth/token/refresh/` so it is sent only on the refresh
+request and never on ordinary API calls:
+
+```http
+Set-Cookie: trueppm_refresh=<jwt>; HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth/token/refresh/
+```
+
+Pass the access token on all subsequent requests:
 
 ```http
 Authorization: Bearer <access_token>
 ```
 
-Refresh via `POST /api/v1/auth/token/refresh/` with `{"refresh": "<token>"}`.
+### Refresh the access token
+
+```http
+POST /api/v1/auth/token/refresh/
+```
+
+The refresh endpoint reads the refresh token **from the cookie** — it is no
+longer accepted in the request body, so the request has no body. It returns a
+new access token:
+
+```json
+{"access": "<jwt>"}
+```
+
+A request that arrives without a valid refresh cookie returns `401`. When refresh
+rotation is enabled the cookie is re-issued (rotated) on each successful refresh;
+the previous token is blacklisted if the blacklist app is installed.
+
+> The `TokenRefresh` / `TokenRefreshRequest` body schemas are intentionally gone
+> from the OpenAPI document — the refresh endpoint takes no request body.
+
+### Log out
+
+```http
+POST /api/v1/auth/logout/
+```
+
+Clears the refresh cookie and best-effort blacklists the presented refresh token
+(when the blacklist app is installed). Idempotent — always returns `205 Reset
+Content`, whether or not a cookie was present.
+
+| Setting | Default | Purpose |
+|---------|---------|---------|
+| `AUTH_REFRESH_COOKIE_NAME` | `trueppm_refresh` | Cookie name for the refresh token. |
+| `AUTH_REFRESH_COOKIE_PATH` | `/api/v1/auth/token/refresh/` | Restricts the cookie to the refresh endpoint. |
+| `AUTH_REFRESH_COOKIE_SAMESITE` | `Strict` | CSRF posture — the cookie is never sent cross-site. |
+| `AUTH_REFRESH_COOKIE_SECURE` | `True` | HTTPS-only cookie. Set `False` only for non-TLS local development. |
 
 ## Endpoints
 
@@ -98,11 +161,19 @@ Predecessor and successor must belong to the same project — cross-project edge
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/v1/resources/` | List |
+| GET | `/api/v1/resources/` | List (per-user throttle: 60 req/min) |
 | POST | `/api/v1/resources/` | Create |
 | GET | `/api/v1/resources/{id}/` | Retrieve |
 | PUT / PATCH | `/api/v1/resources/{id}/` | Update |
 | DELETE | `/api/v1/resources/{id}/` | Soft-delete |
+
+The resource catalog is readable by any authenticated user, so the `email` field
+is **gated** to prevent org-wide address harvesting: org admins (Project Manager
+/ Owner on any project, or superusers) receive `email` on every row, and a caller
+always sees their own email (`is_me: true`). For all other callers the `email`
+field is **omitted** from the payload entirely. A per-user throttle of **60 req/min**
+applies to the list endpoint to bound bulk scraping; exceeding it returns
+`429 Too Many Requests`.
 
 ### Task-resource assignments
 
@@ -154,13 +225,56 @@ See [Workspace Settings](/administration/workspace-settings/) for invite token s
 | POST | `/api/v1/workspace/groups/{id}/projects/` | Admin+ | Link group to a project with a conferred role (triggers cascade). |
 | DELETE | `/api/v1/workspace/groups/{id}/projects/{project_id}/` | Admin+ | Unlink group from a project (removes group-conferred memberships). |
 
+### Webhooks
+
+Webhooks are scoped to a project or a program:
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/projects/{id}/webhooks/` | List (also `/programs/{id}/webhooks/`) |
+| POST | `/api/v1/projects/{id}/webhooks/` | Create |
+| GET | `/api/v1/projects/{id}/webhooks/{wid}/` | Retrieve |
+| PUT / PATCH | `/api/v1/projects/{id}/webhooks/{wid}/` | Update |
+| DELETE | `/api/v1/projects/{id}/webhooks/{wid}/` | Delete |
+
+The signing `secret` (used to HMAC-sign delivered payloads) is **write-only** and
+follows a one-time-secret model:
+
+- It is **never** returned on `GET`, list, or update responses.
+- It is echoed back **exactly once**, in the `201 Created` response body, so the
+  caller can record it. Refetching the webhook afterward never exposes it again —
+  if the secret is lost it must be rotated by supplying a new one.
+- If omitted or left blank on create, a cryptographically strong secret is
+  **auto-generated** (`token_urlsafe(32)`, ~43 URL-safe characters) and returned
+  in that one-time create response.
+- A supplied secret must be at least **32 characters**. A whitespace-only value
+  is rejected; blank is treated as "auto-generate". Validation failures return
+  `400`.
+
 ### Sync
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/v1/projects/{id}/sync/` | Pull delta changes |
+| POST | `/api/v1/projects/{id}/sync/` | Push a batch of offline changes |
 
 See [Offline Sync](/features/offline-sync/).
+
+The push endpoint accepts a batch of `created` / `updated` / `deleted` task rows
+with a client-generated `client_batch_id` for idempotent replay. Two boundary
+rules:
+
+- **Idempotency replay is scoped per actor.** A repeated batch with the same
+  `client_batch_id` from the **same** authenticated user replays the original
+  stored response. A **different** user who reuses the same `client_batch_id`
+  gets a **fresh** batch — never the original actor's response — because the
+  stored response carries that actor's task ids, server versions, and sync
+  watermark. Replay never crosses the project *or* the user boundary.
+- **Cross-project id collisions return `409`.** A `created` row whose
+  client-generated `id` collides with a task that lives in **another** project
+  returns `409 Conflict` (code `sync_id_collision`). The client must regenerate
+  the id and re-upload — the server will not silently mutate a task in a project
+  the caller's URL scope does not own.
 
 ## Pagination
 
@@ -181,4 +295,5 @@ Default page size: 50. Response envelope:
 | 401 | Missing or invalid token |
 | 403 | Insufficient role |
 | 404 | Not found or soft-deleted |
-| 409 | Conflict (e.g. duplicate membership) |
+| 409 | Conflict (e.g. duplicate membership, sync id collision) |
+| 429 | Rate limit exceeded (e.g. resource catalog throttle) |

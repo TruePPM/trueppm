@@ -211,14 +211,21 @@ def _delta_call(mock_broadcast: object) -> dict[str, object]:
 
 @pytest.mark.django_db
 def test_run_schedule_broadcasts_per_task_date_deltas(
-    project: Project, chain: tuple[Task, Task, Task, Task]
+    project: Project,
+    chain: tuple[Task, Task, Task, Task],
+    django_capture_on_commit_callbacks: object,
 ) -> None:
     """_run_schedule must emit a batched task_dates_updated event carrying the
-    moved tasks' CPM fields, so collaborators' bars slide without a re-fetch."""
+    moved tasks' CPM fields, so collaborators' bars slide without a re-fetch.
+
+    The broadcast is deferred to transaction.on_commit (#896), so the test
+    captures and executes the on-commit callbacks to observe it.
+    """
     a, b, c, d = chain
     with (
         patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_broadcast,
         patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
+        django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
     ):
         _run_schedule(str(project.pk))
 
@@ -250,7 +257,9 @@ def test_run_schedule_broadcasts_per_task_date_deltas(
 
 @pytest.mark.django_db
 def test_run_schedule_truncates_delta_above_cap(
-    project: Project, chain: tuple[Task, Task, Task, Task]
+    project: Project,
+    chain: tuple[Task, Task, Task, Task],
+    django_capture_on_commit_callbacks: object,
 ) -> None:
     """Above CPM_DELTA_BROADCAST_CAP the event carries a truncated flag and no
     task array, so the WS frame stays bounded and the client re-fetches."""
@@ -258,6 +267,7 @@ def test_run_schedule_truncates_delta_above_cap(
         patch("trueppm_api.apps.scheduling.tasks.CPM_DELTA_BROADCAST_CAP", 2),
         patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_broadcast,
         patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
+        django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
     ):
         _run_schedule(str(project.pk))  # 4 tasks > cap of 2
 
@@ -265,3 +275,38 @@ def test_run_schedule_truncates_delta_above_cap(
     assert payload["truncated"] is True
     assert payload["count"] == 4
     assert "tasks" not in payload
+
+
+@pytest.mark.django_db
+def test_run_schedule_defers_broadcasts_to_commit(
+    project: Project,
+    chain: tuple[Task, Task, Task, Task],
+    django_capture_on_commit_callbacks: object,
+) -> None:
+    """CPM broadcasts must be deferred to transaction.on_commit, not fire eagerly (#896).
+
+    Regression: cpm_complete / task_dates_updated were broadcast immediately after
+    bulk_update — *before* the ScheduleRequest status write — so a later failure
+    left clients showing dates that never persisted. We now register them with
+    transaction.on_commit. Capturing without executing proves nothing broadcasts
+    until the enclosing transaction commits; executing then fires them.
+    """
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_broadcast,
+        patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
+    ):
+        # execute=False: callbacks are collected but NOT run. If _run_schedule
+        # broadcast eagerly, mock_broadcast would already have been called here.
+        with django_capture_on_commit_callbacks(execute=False) as callbacks:  # type: ignore[operator]
+            _run_schedule(str(project.pk))
+            assert mock_broadcast.call_count == 0, "broadcast fired before commit"
+
+        # Two deferred board broadcasts were registered (cpm_complete + dates).
+        assert len(callbacks) >= 2  # type: ignore[arg-type]
+
+        # Now run the captured callbacks (simulating commit) — broadcasts fire.
+        for cb in callbacks:  # type: ignore[attr-defined]
+            cb()
+        event_types = {c.kwargs.get("event_type") for c in mock_broadcast.call_args_list}
+        assert "cpm_complete" in event_types
+        assert "task_dates_updated" in event_types

@@ -1,5 +1,15 @@
 replicaCount: 1
 
+# Global values propagate to the bundled postgresql / valkey subcharts. The
+# presence of this block tells those subcharts they are running under the parent
+# TruePPM chart, so they should source their password from the parent's
+# connection Secret (the single credential source of truth) rather than minting
+# their own. Leave connectionSecretName empty to use the default name derived
+# from the release name; override only if you renamed the connection Secret.
+global:
+  trueppm:
+    connectionSecretName: ""
+
 image:
   repository: registry.gitlab.com/trueppm/trueppm/api
   # Empty by default so the chart pins itself to its own appVersion
@@ -18,21 +28,72 @@ postgresql:
   enabled: true
   auth:
     username: trueppm
-    password: trueppm
+    # Leave password empty to have the chart generate a strong random password
+    # (randAlphaNum 32) on first install and persist it in the chart-owned
+    # connection Secret (helm.sh/resource-policy: keep), so re-renders never
+    # churn it. Set an explicit value only if you must control the credential;
+    # in that case the chart honors it verbatim.
+    password: ""
     database: trueppm
 
 valkey:
+  # Auth is ON by default. Leave password empty to have the chart generate and
+  # persist a strong random password (same pattern as postgresql.auth.password).
   enabled: true
   auth:
-    enabled: false
+    enabled: true
+    password: ""
+
+# NetworkPolicy is opt-in. When enabled, the chart restricts ingress to the
+# bundled PostgreSQL and Valkey pods so that ONLY the API and Celery worker pods
+# (matched by their selector labels) can reach the database and cache. Off by
+# default because some clusters lack a CNI that enforces NetworkPolicy and a
+# silently-unenforced policy is worse than an explicit opt-in.
+networkPolicy:
+  enabled: false
+
+# Pod-level and container-level security hardening applied to the API and Celery
+# worker pods. Defaults follow the restricted Pod Security Standard.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault
+
+# Default resource requests/limits for the API and Celery worker containers.
+# Tune for your workload; these are conservative single-team defaults.
+resources:
+  api:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+  worker:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 2Gi
 
 env:
   DJANGO_SETTINGS_MODULE: trueppm_api.settings.prod
-  DATABASE_URL: postgres://trueppm:trueppm@trueppm-postgresql:5432/trueppm
-  # Valkey is wire-compatible with Redis 7.2; the `redis://` URL scheme works
-  # against the Valkey service. The env var name is intentionally kept as
-  # REDIS_URL (deferred to 1.0; see ADR-0040 / CHANGELOG #316).
-  REDIS_URL: redis://trueppm-valkey-primary:6379
+  # DATABASE_URL and REDIS_URL are NOT set here. The chart builds them
+  # server-side from the generated credentials and injects them via
+  # secretKeyRef against the chart-owned connection Secret, so no password is
+  # ever rendered in plaintext into a Deployment manifest. When postgresql /
+  # valkey are disabled (managed-DB / production path), set DATABASE_URL /
+  # REDIS_URL here (or via an override) to point at your managed services.
+  #
   # SECRET_KEY and ALLOWED_HOSTS must be set via a Kubernetes Secret — do NOT
   # store them here in plaintext. Create a Secret and mount it as env vars:
   #

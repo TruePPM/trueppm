@@ -15,6 +15,7 @@
 import { useState } from 'react';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
 import { detectProvider } from '@/lib/detectProvider';
+import { safeExternalHref } from '@/lib/safeExternalHref';
 import { formatRelative } from '@/lib/formatRelative';
 import {
   useCreateTaskLink,
@@ -107,6 +108,10 @@ function ExternalLinkRow({ link, projectId, taskId, canEdit }: ExternalLinkRowPr
 
   const title = link.title || link.url;
   const ts = link.fetched_at ? formatRelative(new Date(link.fetched_at)) : 'never refreshed';
+  // Only bind the URL to an href if it is a safe http(s) link. A stored
+  // javascript:/data:/malformed URL would otherwise execute on click (#898);
+  // when it is unsafe we render the title as inert text instead of an anchor.
+  const safeHref = safeExternalHref(link.url);
 
   function handleRefresh() {
     setConnectPrompt(null);
@@ -143,16 +148,26 @@ function ExternalLinkRow({ link, projectId, taskId, canEdit }: ExternalLinkRowPr
         <span className="text-base flex-shrink-0" aria-hidden="true">
           {providerIcon(link.provider)}
         </span>
-        <a
-          href={link.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-sm font-medium text-neutral-text-primary truncate hover:underline
-            focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none rounded"
-        >
-          {title}
-          <span className="sr-only"> (opens in new tab)</span>
-        </a>
+        {safeHref ? (
+          <a
+            href={safeHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm font-medium text-neutral-text-primary truncate hover:underline
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none rounded"
+          >
+            {title}
+            <span className="sr-only"> (opens in new tab)</span>
+          </a>
+        ) : (
+          <span
+            className="text-sm font-medium text-neutral-text-secondary truncate"
+            title="This link can't be opened — it isn't a valid web address."
+          >
+            {title}
+            <span className="sr-only"> (invalid link — not opened)</span>
+          </span>
+        )}
         <span className={`ml-auto flex-shrink-0 ${refresh.isPending ? 'opacity-60' : ''}`}>
           <StatusBadge status={link.status} provider={link.provider} />
         </span>

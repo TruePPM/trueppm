@@ -5,8 +5,9 @@ import { useAuthStore } from '@/stores/authStore';
 import { queryClient } from '@/lib/queryClient';
 
 interface TokenResponse {
+  // The refresh token is no longer returned in the body — it is set as an
+  // httpOnly, Secure, SameSite=Strict cookie by the login endpoint (#897).
   access: string;
-  refresh: string;
 }
 
 /**
@@ -15,8 +16,21 @@ interface TokenResponse {
  * of "logged out from board, log back in" should land on Overview instead.
  * Other deep links (risk, schedule, sprints, resources, etc.) pass through
  * untouched so shared URLs still work after a re-auth.
+ *
+ * `next` is attacker-controllable via the query string, so it is validated as
+ * a same-origin relative path before use to prevent an open redirect (#899):
+ * anything not starting with a single `/`, any protocol-relative (`//`) or
+ * backslash-smuggled (`/\`) value, and anything that resolves off-origin falls
+ * back to the root path.
  */
 export function loginRedirectDest(next: string): string {
+  if (!next.startsWith('/') || next.startsWith('//') || next.startsWith('/\\')) return '/';
+  try {
+    const u = new URL(next, window.location.origin);
+    if (u.origin !== window.location.origin) return '/';
+  } catch {
+    return '/';
+  }
   return next.replace(/^(\/projects\/[^/]+)\/board(\/.*)?$/, '$1/overview');
 }
 
@@ -24,16 +38,16 @@ export function loginRedirectDest(next: string): string {
 const GANTT_ROWS = [
   { label: 'Engine integration', widthPct: 70, offsetPct: 10, variant: 'critical' as const },
   { label: 'Telemetry firmware', widthPct: 55, offsetPct: 18, variant: 'at-risk' as const },
-  { label: 'Avionics PCBA',      widthPct: 65, offsetPct: 25, variant: 'on-track' as const },
-  { label: 'FAT review',         widthPct: 4,  offsetPct: 70, variant: 'milestone' as const },
+  { label: 'Avionics PCBA', widthPct: 65, offsetPct: 25, variant: 'on-track' as const },
+  { label: 'FAT review', widthPct: 4, offsetPct: 70, variant: 'milestone' as const },
 ] as const;
 
 const MONTH_LABELS = ['MAY', 'JUN', 'JUL', 'AUG'];
 
-const BAR_COLOR: Record<typeof GANTT_ROWS[number]['variant'], string> = {
-  critical:  'bg-semantic-critical',
+const BAR_COLOR: Record<(typeof GANTT_ROWS)[number]['variant'], string> = {
+  critical: 'bg-semantic-critical',
   'at-risk': 'bg-semantic-at-risk',
-  'on-track':'bg-semantic-on-track',
+  'on-track': 'bg-semantic-on-track',
   milestone: '',
 };
 
@@ -56,10 +70,7 @@ function MiniGantt() {
                 style={{ left: `${row.offsetPct}%`, transform: 'translateX(-50%)' }}
               >
                 {/* Milestone diamond */}
-                <div
-                  className="w-3 h-3 rotate-45"
-                  style={{ backgroundColor: '#FCD34D' }}
-                />
+                <div className="w-3 h-3 rotate-45" style={{ backgroundColor: '#FCD34D' }} />
               </div>
             ) : (
               <div
@@ -99,7 +110,7 @@ export function LoginPage() {
   const passwordId = useId();
   const rememberMeId = useId();
 
-  const setTokens = useAuthStore((s) => s.setTokens);
+  const setAccessToken = useAuthStore((s) => s.setAccessToken);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
@@ -114,7 +125,7 @@ export function LoginPage() {
         password,
         remember_me: rememberMe,
       });
-      setTokens(response.data.access, response.data.refresh);
+      setAccessToken(response.data.access);
       queryClient.clear();
       const next = searchParams.get('next') ?? '/';
       void navigate(loginRedirectDest(next), { replace: true });
@@ -159,7 +170,13 @@ export function LoginPage() {
         </div>
 
         {/* Form */}
-        <form onSubmit={(e) => { void handleSubmit(e); }} noValidate className="flex flex-col gap-4">
+        <form
+          onSubmit={(e) => {
+            void handleSubmit(e);
+          }}
+          noValidate
+          className="flex flex-col gap-4"
+        >
           {/* Email */}
           <div className="flex flex-col gap-1">
             <label htmlFor={emailId} className="text-sm font-medium text-neutral-text-primary">
@@ -236,7 +253,10 @@ export function LoginPage() {
                 "
               />
             </div>
-            <label htmlFor={rememberMeId} className="text-xs text-neutral-text-secondary cursor-pointer select-none">
+            <label
+              htmlFor={rememberMeId}
+              className="text-xs text-neutral-text-secondary cursor-pointer select-none"
+            >
               Keep me signed in for 30 days
             </label>
           </div>
@@ -308,7 +328,10 @@ export function LoginPage() {
         {/* Footer link */}
         <p className="text-xs text-neutral-text-disabled">
           New to TruePPM?{' '}
-          <a href="/signup" className="font-medium text-brand-primary hover:text-brand-primary-dark">
+          <a
+            href="/signup"
+            className="font-medium text-brand-primary hover:text-brand-primary-dark"
+          >
             Request access
           </a>
         </p>
@@ -324,7 +347,13 @@ export function LoginPage() {
         >
           <defs>
             <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
-              <path d="M 32 0 L 0 0 0 32" fill="none" stroke="currentColor" strokeWidth="0.5" className="text-chrome-text-secondary" />
+              <path
+                d="M 32 0 L 0 0 0 32"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="0.5"
+                className="text-chrome-text-secondary"
+              />
             </pattern>
           </defs>
           <rect width="100%" height="100%" fill="url(#grid)" />
@@ -353,8 +382,8 @@ export function LoginPage() {
               Schedules that hold under pressure.
             </h2>
             <p className="text-sm text-chrome-text-secondary leading-relaxed max-w-sm">
-              Critical-path scheduling, three-point estimates, and Monte Carlo
-              forecasting — built for teams that ship to a launch window.
+              Critical-path scheduling, three-point estimates, and Monte Carlo forecasting — built
+              for teams that ship to a launch window.
             </p>
           </div>
 

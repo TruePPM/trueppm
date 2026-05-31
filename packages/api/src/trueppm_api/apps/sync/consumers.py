@@ -180,7 +180,12 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
             try:
                 access = AccessToken(tok)  # type: ignore[arg-type]
                 user_id = access["user_id"]
-                return User.objects.get(pk=user_id)
+                # is_active filter (#888): a deactivated user may still hold a
+                # JWT that has not yet expired. Without this, a disabled account
+                # keeps receiving real-time board events until its token lifetime
+                # runs out. Treat an inactive user as a failed resolve (4001),
+                # mirroring DRF's JWTAuthentication, which rejects inactive users.
+                return User.objects.get(pk=user_id, is_active=True)
             except (TokenError, InvalidToken, User.DoesNotExist):
                 return None
 

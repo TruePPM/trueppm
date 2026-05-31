@@ -6,6 +6,7 @@ from decimal import Decimal
 
 from rest_framework import serializers
 
+from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.resources.models import (
     ProjectResource,
     Resource,
@@ -65,6 +66,14 @@ class ResourceSerializer(serializers.ModelSerializer[Resource]):
     is_me is a request-scoped boolean — true when the resource is linked to the
     current user (Resource.user FK or, for legacy rows, an exact email match).
     Drives the "My tasks" Board filter (#198) without leaking other users' IDs.
+
+    Email exposure is gated on org-admin (#891, mirrors #815's UserSearchView
+    fix): the resource catalog is readable by any authenticated user, so echoing
+    ``email`` on every row let a single low-privilege account paginate the
+    catalog to harvest the whole org's email list. ``to_representation`` strips
+    ``email`` for callers below ADMIN on every project, while still letting the
+    caller see their own email (is_me) so self-view is unaffected. Org admins —
+    who legitimately manage the catalog — continue to receive it.
     """
 
     skills = ResourceSkillSerializer(many=True, read_only=True)
@@ -97,6 +106,57 @@ class ResourceSerializer(serializers.ModelSerializer[Resource]):
             user_email = (getattr(request.user, "email", "") or "").strip().lower()
             return bool(user_email) and obj.email.strip().lower() == user_email
         return False
+
+    def _caller_is_org_admin(self) -> bool:
+        """Return True if the requesting user is an org admin (ADMIN+ on any project).
+
+        Mirrors :class:`~trueppm_api.apps.access.permissions.IsOrgAdmin`: OSS has
+        no separate org-admin entity, so admin authority is derived from holding
+        Project Manager (ADMIN) or Owner on at least one project. Superusers
+        bypass. Used to gate email exposure in ``to_representation`` (#891).
+
+        The result is memoized on the serializer instance: org-admin status is
+        request-scoped and constant across rows, so a list serialization must not
+        re-run the ProjectMembership EXISTS query per row (N+1, #perf). The cache
+        lives for the lifetime of one serializer instance (one request).
+        """
+        cached: bool | None = getattr(self, "_org_admin_cache", None)
+        if cached is not None:
+            return cached
+        request = self.context.get("request")
+        result: bool
+        if request is None or not getattr(request.user, "is_authenticated", False):
+            result = False
+        elif request.user.is_superuser:
+            result = True
+        else:
+            result = ProjectMembership.objects.filter(
+                user=request.user,
+                role__gte=Role.ADMIN,
+                is_deleted=False,
+            ).exists()
+        self._org_admin_cache = result
+        return result
+
+    def to_representation(self, instance: Resource) -> dict[str, object]:
+        """Strip ``email`` for non-admin callers to prevent org-wide harvest (#891).
+
+        The catalog is readable by any authenticated user; only org admins (who
+        manage it) and the resource's own user (self-view) should see email. For
+        everyone else the field is dropped from the payload entirely rather than
+        nulled, so it cannot be reconstructed.
+
+        Self-rows (``is_me``) short-circuit before the org-admin check so a
+        contributor viewing their own row never pays for the org-admin EXISTS
+        query (#perf); the admin status is otherwise memoized across rows.
+        """
+        data = super().to_representation(instance)
+        if "email" not in data:
+            return data
+        if data.get("is_me") or self._caller_is_org_admin():
+            return data
+        data.pop("email", None)
+        return data
 
 
 class ProjectResourceSerializer(serializers.ModelSerializer[ProjectResource]):

@@ -195,14 +195,16 @@ def test_duplicate_batch_is_noop(admin_client: APIClient, project: Project) -> N
 
 
 @pytest.mark.django_db
-def test_expired_batch_reruns(admin_client: APIClient, project: Project) -> None:
+def test_expired_batch_reruns(admin_client: APIClient, project: Project, user: Any) -> None:
     """A duplicate of an *expired* batch re-runs rather than replaying."""
     batch_id = uuid.uuid4()
     # Simulate a completed batch from >24h ago that has aged out of the dedup
-    # window (and whose applied task was since removed).
+    # window (and whose applied task was since removed). actor_user is set to the
+    # same uploading user so the expired-row collision path is exercised (#894).
     stale = SyncBatch.objects.create(
         client_batch_id=batch_id,
         project=project,
+        actor_user=user,
         status=SyncBatchStatus.COMPLETED,
         response_body={"stale": True},
     )
@@ -521,6 +523,136 @@ def test_existing_row_lookup_is_a_single_bulk_fetch(
 
     bulk_fetches = [q for q in ctx.captured_queries if '"projects_task"."id" IN (' in q["sql"]]
     assert len(bulk_fetches) == 1
+
+
+# ---------------------------------------------------------------------------
+# Cross-project IDOR in the created (upsert) bucket (#887)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_created_bucket_cross_project_collision_is_409(
+    admin_client: APIClient, project: Project, user: Any
+) -> None:
+    """A created-row id colliding with a task in another project is a 409, not a write.
+
+    Regression for #887: the created-bucket upsert used to bulk-fetch existing
+    rows unscoped by project, so a user who is ADMIN on project A but a
+    non-member of project B could push created:[{id: <task in B>}] to A and have
+    its content applied to B's task under A's role. The lookup is now scoped to
+    the URL project; a foreign id collision forces a 409 (regenerate the id).
+    """
+    # A second project the uploading user has NO membership on.
+    other = Project.objects.create(name="Foreign", start_date=date(2026, 1, 1))
+    victim = Task.objects.create(project=other, name="Untouched", notes="original")
+
+    resp = admin_client.post(
+        _url(project),
+        _payload(created=[{"id": str(victim.pk), "name": "hijacked", "notes": "pwned"}]),
+        format="json",
+    )
+
+    assert resp.status_code == 409
+    # The foreign task must be completely unchanged.
+    victim.refresh_from_db()
+    assert victim.name == "Untouched"
+    assert victim.notes == "original"
+    assert victim.project_id == other.pk
+    # And no batch envelope committed (the whole transaction rolled back).
+    assert not SyncBatch.objects.exists()
+
+
+@pytest.mark.django_db
+def test_created_bucket_same_project_recreate_still_idempotent(
+    admin_client: APIClient, project: Project
+) -> None:
+    """A created-row id that already exists *in the same project* still upserts.
+
+    Guards that the #887 fix did not break the legitimate idempotent re-create
+    path (a row that landed in a prior batch and is re-pushed on reconnect).
+    """
+    task = Task.objects.create(project=project, name="Orig", notes="")
+    resp = admin_client.post(
+        _url(project),
+        _payload(created=[{"id": str(task.pk), "name": "Orig", "notes": "re-created"}]),
+        format="json",
+    )
+    assert resp.status_code == 200
+    task.refresh_from_db()
+    assert task.notes == "re-created"
+
+
+# ---------------------------------------------------------------------------
+# Cross-actor SyncBatch replay leak (#894)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_batch_replay_is_isolated_per_actor(project: Project) -> None:
+    """One user cannot replay another user's batch response by reusing its id.
+
+    Regression for #894: SyncBatch was keyed by (project, client_batch_id) only,
+    so a second member reusing the same client_batch_id received the first user's
+    stored response body (task ids, server_versions, watermark) — an information
+    leak across actors. Dedup is now scoped to (project, actor_user,
+    client_batch_id): the reused id is a distinct batch and applies fresh.
+    """
+    admin = User.objects.create_user(username="actor_admin", password="pw")
+    _make_membership(project, admin, Role.ADMIN)
+    member = User.objects.create_user(username="actor_member", password="pw")
+    _make_membership(project, member, Role.MEMBER)
+
+    batch_id = str(uuid.uuid4())
+
+    admin_c = APIClient()
+    admin_c.force_authenticate(user=admin)
+    admin_task = str(uuid.uuid4())
+    r_admin = admin_c.post(
+        _url(project),
+        _payload(client_batch_id=batch_id, created=[{"id": admin_task, "name": "AdminRow"}]),
+        format="json",
+    )
+    assert r_admin.status_code == 200
+
+    # The member reuses the *same* client_batch_id. It must NOT replay the
+    # admin's stored body — it applies the member's own batch.
+    member_c = APIClient()
+    member_c.force_authenticate(user=member)
+    member_task = str(uuid.uuid4())
+    r_member = member_c.post(
+        _url(project),
+        _payload(client_batch_id=batch_id, created=[{"id": member_task, "name": "MemberRow"}]),
+        format="json",
+    )
+    assert r_member.status_code == 200
+    # Crucially, the member did not receive the admin's response body.
+    assert r_member.json() != r_admin.json()
+    assert r_member.json()["applied"]["tasks"]["created"][0]["id"] == member_task
+    # Two distinct batch rows, one per actor.
+    assert SyncBatch.objects.filter(client_batch_id=batch_id).count() == 2
+    assert SyncBatch.objects.filter(client_batch_id=batch_id, actor_user=admin).count() == 1
+    assert SyncBatch.objects.filter(client_batch_id=batch_id, actor_user=member).count() == 1
+
+
+@pytest.mark.django_db
+def test_same_actor_replay_still_idempotent(
+    admin_client: APIClient, project: Project, user: Any
+) -> None:
+    """The same user replaying their own batch id still gets the stored response.
+
+    Guards that actor-scoping (#894) did not break the legitimate lost-ACK retry.
+    """
+    batch_id = str(uuid.uuid4())
+    task_id = str(uuid.uuid4())
+    payload = _payload(client_batch_id=batch_id, created=[{"id": task_id, "name": "Once"}])
+
+    first = admin_client.post(_url(project), payload, format="json")
+    assert first.status_code == 200
+    second = admin_client.post(_url(project), payload, format="json")
+    assert second.status_code == 200
+    assert second.json() == first.json()
+    assert Task.objects.filter(pk=task_id).count() == 1
+    assert SyncBatch.objects.filter(client_batch_id=batch_id, actor_user=user).count() == 1
 
 
 @pytest.mark.django_db

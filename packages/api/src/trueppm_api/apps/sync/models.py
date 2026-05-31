@@ -12,6 +12,7 @@ from __future__ import annotations
 import uuid
 from datetime import timedelta
 
+from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
@@ -47,15 +48,33 @@ class SyncBatch(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     # Client-generated dedup key. Uniqueness (and every lookup) is scoped to
-    # the project: a retry always targets the same project endpoint, so the
-    # per-project unique index is a sufficient concurrency backstop, while
-    # scoping prevents one project replaying another project's stored response
-    # (the dedup lookup must never cross the project boundary — see views.post).
+    # (project, actor_user): a retry always targets the same project endpoint as
+    # the same authenticated user, so that composite unique index is a sufficient
+    # concurrency backstop, while scoping prevents one project — or one user —
+    # replaying another's stored response (the dedup lookup must never cross the
+    # project or actor boundary — see views.post, #887/#894).
     client_batch_id = models.UUIDField()
     project = models.ForeignKey(
         "projects.Project",
         on_delete=models.CASCADE,
         related_name="sync_batches",
+    )
+    # Actor scoping (#894): the stored response body carries task ids,
+    # server_versions, and the sync watermark for the rows *this user* pushed.
+    # Keying dedup on (project, client_batch_id) alone let any project member
+    # replay another member's batch by reusing its client_batch_id and read back
+    # that user's response — an information leak across actors. Scoping
+    # uniqueness and the replay lookup to the actor closes it: a reused id from a
+    # different user is a distinct batch, never a replay of someone else's.
+    # Nullable so the migration is backfill-safe for rows written before this
+    # field existed (those legacy rows simply never match a new actor-scoped
+    # lookup and age out of the freshness window).
+    actor_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="sync_batches",
+        null=True,
+        blank=True,
     )
     status = models.CharField(
         max_length=12,
@@ -73,9 +92,13 @@ class SyncBatch(models.Model):
     class Meta:
         ordering = ["created_at"]
         constraints = [
+            # Actor-scoped uniqueness (#894): two different users may legitimately
+            # reuse the same client_batch_id; only a same-(project, actor) duplicate
+            # is a replay. Scoping the constraint to the actor prevents one user's
+            # batch from blocking — or being replayed by — another's.
             models.UniqueConstraint(
-                fields=["project", "client_batch_id"],
-                name="syncbatch_project_client_batch_uniq",
+                fields=["project", "actor_user", "client_batch_id"],
+                name="syncbatch_project_actor_client_batch_uniq",
             ),
         ]
         indexes = [

@@ -26,10 +26,35 @@ spec:
         - name: postgresql
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # readOnlyRootFilesystem is intentionally NOT set: the postgres image
+          # writes runtime sockets/locks to /var/run/postgresql and /tmp at the
+          # root filesystem. The remaining hardening (no privilege escalation,
+          # all capabilities dropped, seccomp) is safe for this image.
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
           envFrom:
+            # POSTGRES_USER / POSTGRES_DB (non-secret).
             - secretRef:
                 name: {{ include "postgresql.fullname" . }}
           env:
+            # POSTGRES_PASSWORD: sourced from the parent chart's connection
+            # Secret when rendered as a subchart (single source of truth shared
+            # with DATABASE_URL); falls back to this subchart's own Secret for
+            # standalone rendering.
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  {{- if include "postgresql.hasParent" . }}
+                  name: {{ include "postgresql.parentConnectionSecret" . }}
+                  {{- else }}
+                  name: {{ include "postgresql.fullname" . }}
+                  {{- end }}
+                  key: POSTGRES_PASSWORD
             # Use a sub-directory so initdb doesn't trip over the volume's
             # lost+found at the mount root.
             - name: PGDATA

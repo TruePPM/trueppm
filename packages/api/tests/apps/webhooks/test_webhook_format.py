@@ -228,7 +228,7 @@ def test_create_webhook_with_slack_format(admin_client: APIClient, project: Proj
         f"/api/v1/projects/{project.pk}/webhooks/",
         {
             "url": "https://hooks.slack.com/services/x",
-            "secret": "s3cret",
+            "secret": "s" * 32,  # >= 32-char minimum (#893)
             "events": ["task.assigned"],
             "format": "slack",
         },
@@ -242,7 +242,7 @@ def test_create_webhook_with_slack_format(admin_client: APIClient, project: Proj
 def test_create_webhook_defaults_to_generic(admin_client: APIClient, project: Project) -> None:
     resp = admin_client.post(
         f"/api/v1/projects/{project.pk}/webhooks/",
-        {"url": "https://example.com/hook", "secret": "s", "events": ["task.created"]},
+        {"url": "https://example.com/hook", "secret": "s" * 32, "events": ["task.created"]},
         format="json",
     )
     assert resp.status_code == 201, resp.data
@@ -272,7 +272,7 @@ def test_create_webhook_accepts_new_event_types(admin_client: APIClient, project
         f"/api/v1/projects/{project.pk}/webhooks/",
         {
             "url": "https://example.com/hook",
-            "secret": "s",
+            "secret": "s" * 32,  # >= 32-char minimum (#893)
             "events": [
                 WebhookEventType.TASK_ASSIGNED,
                 WebhookEventType.TASK_ASSIGNEE_CHANGED,

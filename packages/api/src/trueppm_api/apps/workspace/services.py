@@ -27,6 +27,10 @@ import uuid
 from typing import Any
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
+
+# ``ValidationError`` here is Django's (used for the ownership-transfer guards and
+# the password-policy check) — distinct from DRF's ValidationError raised in views.
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.utils import timezone
@@ -514,6 +518,14 @@ def accept_invite(*, token: str, username: str = "", password: str = "") -> Any:
             raise InviteError("This invitation link is invalid or has expired.")
 
         if user is None:
+            # create_user hashes but does NOT run AUTH_PASSWORD_VALIDATORS, and the
+            # serializer accepts any non-empty string — so enforce the configured
+            # password policy here before minting the account. Without this an
+            # unauthenticated invitee could set a trivially-guessable password.
+            try:
+                validate_password(password)
+            except ValidationError as exc:
+                raise InviteError(" ".join(exc.messages)) from exc
             try:
                 user = User.objects.create_user(
                     username=username, email=invite.email.lower(), password=password
@@ -528,10 +540,16 @@ def accept_invite(*, token: str, username: str = "", password: str = "") -> Any:
             defaults={"role": invite.role, "status": MemberStatus.ACTIVE},
         )
         if not created:
-            changed = False
+            # A deactivated member must NOT be silently reactivated (or re-elevated)
+            # by replaying a pending invite — that would let an admin's deactivation
+            # be undone without admin consent. Reactivation is an explicit admin
+            # action; refuse the invite instead.
             if membership.status == MemberStatus.DEACTIVATED:
-                membership.status = MemberStatus.ACTIVE
-                changed = True
+                raise InviteError(
+                    "Membership is deactivated; an admin must reactivate it "
+                    "before this invite can be used."
+                )
+            changed = False
             if invite.role > membership.role:
                 membership.role = invite.role
                 membership.role_changed_at = now

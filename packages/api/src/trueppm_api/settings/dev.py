@@ -80,6 +80,10 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.AllowAny"],
 }
 
+# The refresh cookie must work over plain HTTP on localhost — a Secure cookie is
+# dropped by the browser on http://. Production keeps the base default (True).
+AUTH_REFRESH_COOKIE_SECURE = False
+
 
 # Detailed SQL logging in dev
 LOGGING = {

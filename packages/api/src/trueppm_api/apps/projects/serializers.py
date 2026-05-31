@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import uuid
 from datetime import date
@@ -2960,6 +2961,32 @@ class _MentionAuthorMiniSerializer(serializers.Serializer[Any]):
         return name
 
 
+# Stored-XSS / header-injection guard for attachment filenames (#892).
+# Replicated from trueppm_api.apps.msproject.views._sanitize_filename (#816):
+# kept in-app rather than imported to avoid a projects->msproject module-load
+# coupling (msproject.views imports projects lazily; the reverse at module load
+# would be fragile). Allow-list is [A-Za-z0-9._\- ()]; anything else is replaced.
+_ATTACHMENT_FILENAME_BANNED = re.compile(r"[^A-Za-z0-9._\- ()]")
+
+
+def _sanitize_attachment_filename(raw: str) -> str:
+    """Return a safe stored form of an attachment filename.
+
+    ``file_name`` is echoed back verbatim in API responses (and ultimately the
+    UI / Content-Disposition headers on download), so an unsanitized value lets
+    an uploader smuggle HTML (stored XSS) or CRLF (header injection) through the
+    original filename. Strips path components, replaces anything outside the
+    printable-ASCII allow-list — which removes ``<>"`` and control characters
+    including ``\\r``/``\\n`` — collapses whitespace runs, caps at 255 chars, and
+    falls back to ``"upload"`` so the stored value is never empty.
+    """
+    name = os.path.basename(raw or "")
+    name = _ATTACHMENT_FILENAME_BANNED.sub("_", name)
+    name = re.sub(r"\s+", " ", name).strip()
+    name = name[:255]
+    return name or "upload"
+
+
 class TaskAttachmentSerializer(serializers.ModelSerializer[TaskAttachment]):
     """File-XOR-URL attachment on a task.
 
@@ -3032,6 +3059,13 @@ class TaskAttachmentSerializer(serializers.ModelSerializer[TaskAttachment]):
             attrs["file_mime"] = mime
             if not attrs.get("file_name"):
                 attrs["file_name"] = getattr(file, "name", "")
+
+        # Sanitize the stored filename regardless of source (#892). file_name is
+        # writable and echoed back verbatim, so both the client-supplied value
+        # and the file.name fallback above are scrubbed of HTML/control chars
+        # before they reach the DB and any download Content-Disposition header.
+        if attrs.get("file_name"):
+            attrs["file_name"] = _sanitize_attachment_filename(str(attrs["file_name"]))
 
         # External URL must be http(s) — reject javascript:, file://, etc.
         if has_url:

@@ -69,7 +69,11 @@ def test_create_webhook_allows_public_url(admin_client: APIClient, project: Proj
     """A public (or not-yet-resolvable) URL passes registration validation."""
     resp = admin_client.post(
         f"/api/v1/projects/{project.pk}/webhooks/",
-        {"url": "https://hooks.example.com/x", "secret": "s3cret", "events": ["task.created"]},
+        {
+            "url": "https://hooks.example.com/x",
+            "secret": "s" * 32,  # >= 32-char minimum (#893)
+            "events": ["task.created"],
+        },
         format="json",
     )
     assert resp.status_code == 201

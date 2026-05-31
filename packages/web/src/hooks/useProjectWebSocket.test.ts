@@ -70,7 +70,6 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
     act(() => {
       useAuthStore.setState({
         accessToken: 'tok-abc',
-        refreshToken: 'r-abc',
         isAuthenticated: true,
       });
     });
@@ -85,7 +84,6 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
     act(() => {
       useAuthStore.setState({
         accessToken: null,
-        refreshToken: null,
         isAuthenticated: false,
       });
     });
@@ -268,7 +266,6 @@ describe('useProjectWebSocket — auth close-code handling (#352)', () => {
     act(() => {
       useAuthStore.setState({
         accessToken: 'tok-abc',
-        refreshToken: 'r-abc',
         isAuthenticated: true,
         sessionExpired: false,
       });
@@ -283,7 +280,6 @@ describe('useProjectWebSocket — auth close-code handling (#352)', () => {
     act(() => {
       useAuthStore.setState({
         accessToken: null,
-        refreshToken: null,
         isAuthenticated: false,
         sessionExpired: false,
       });
@@ -365,7 +361,7 @@ describe('useProjectWebSocket — task_dates_updated splice (ADR-0091)', () => {
     // @ts-expect-error — overriding WebSocket for the test environment
     globalThis.WebSocket = MockWebSocket;
     act(() => {
-      useAuthStore.setState({ accessToken: 'tok', refreshToken: 'r', isAuthenticated: true });
+      useAuthStore.setState({ accessToken: 'tok', isAuthenticated: true });
     });
     qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   });
@@ -374,7 +370,7 @@ describe('useProjectWebSocket — task_dates_updated splice (ADR-0091)', () => {
     vi.useRealTimers();
     globalThis.WebSocket = originalWebSocket;
     act(() => {
-      useAuthStore.setState({ accessToken: null, refreshToken: null, isAuthenticated: false });
+      useAuthStore.setState({ accessToken: null, isAuthenticated: false });
     });
   });
 
@@ -442,7 +438,6 @@ describe('useProjectWebSocket — wave-2 missing handlers (#835)', () => {
     act(() => {
       useAuthStore.setState({
         accessToken: 'tok-abc',
-        refreshToken: 'r-abc',
         isAuthenticated: true,
       });
     });
@@ -457,7 +452,6 @@ describe('useProjectWebSocket — wave-2 missing handlers (#835)', () => {
     act(() => {
       useAuthStore.setState({
         accessToken: null,
-        refreshToken: null,
         isAuthenticated: false,
       });
     });

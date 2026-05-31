@@ -333,6 +333,29 @@ class WorkspaceMemberDetailView(IdempotencyMixin, APIView):
                 },
             )
 
+            # Peer/higher-role guard: an actor may only change the role or change
+            # the active status of a member whose CURRENT role is strictly below
+            # their own (mirrors access.views.ProjectMembershipViewSet.destroy).
+            # Without this an Admin could deactivate a peer Admin, or — with two
+            # Owners — an Owner could be deactivated by an Admin. REACTIVATION
+            # (status→ACTIVE) is gated too (#901): otherwise a lower-role Admin
+            # could flip a deactivated Owner/peer-Admin back to ACTIVE, restoring
+            # their login. Self-edits are exempt so an actor can still change their
+            # own row (e.g. step down).
+            mutating = new_role is not None or new_status in (
+                MemberStatus.DEACTIVATED,
+                MemberStatus.ACTIVE,
+            )
+            if (
+                mutating
+                and target.pk != request.user.pk
+                and actor_role is not None
+                and membership.role >= actor_role
+            ):
+                raise PermissionDenied(
+                    "You can only modify members with a role lower than your own."
+                )
+
             if new_role is not None:
                 # An actor cannot grant a role above their own.
                 if actor_role is not None and new_role > actor_role:
@@ -372,9 +395,8 @@ class WorkspaceMemberDetailView(IdempotencyMixin, APIView):
 
     def delete(self, request: Request, user_id: str) -> Response:
         target = self._get_user_or_404(user_id)
+        actor_role = _workspace_membership_role(request)
         with transaction.atomic():
-            if services.would_strand_workspace(target.pk):
-                raise ValidationError({"detail": "Cannot remove the last Owner of the workspace."})
             membership, _ = WorkspaceMembership.objects.select_for_update().get_or_create(
                 workspace=Workspace.load(),
                 user=target,
@@ -385,6 +407,26 @@ class WorkspaceMemberDetailView(IdempotencyMixin, APIView):
                     "status": MemberStatus.ACTIVE,
                 },
             )
+            # Peer/higher-role guard (mirrors PATCH and access.views): an actor may
+            # only deactivate a member whose role is strictly below their own, so an
+            # Admin cannot deactivate a peer Admin or an Owner. Self-removal is exempt.
+            # This runs BEFORE the strand check so a forbidden peer/owner removal
+            # returns 403, not a 400 about ownership.
+            if (
+                target.pk != request.user.pk
+                and actor_role is not None
+                and membership.role >= actor_role
+            ):
+                raise PermissionDenied(
+                    "You can only remove members with a role lower than your own."
+                )
+            # Only an Owner removal can strand the workspace — gate the check on the
+            # target's role (mirrors PATCH) so deactivating a Member/Admin in an
+            # owner-less workspace is not spuriously blocked with a 400.
+            if membership.role == WorkspaceRole.OWNER and services.would_strand_workspace(
+                target.pk
+            ):
+                raise ValidationError({"detail": "Cannot remove the last Owner of the workspace."})
             membership.status = MemberStatus.DEACTIVATED
             membership.save()
             target.is_active = False

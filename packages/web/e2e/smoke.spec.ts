@@ -9,13 +9,20 @@ import { test, expect } from '@playwright/test';
  * is intercepted with fixture data because useProjects calls the real API.
  */
 
-/** Seed auth state so RequireAuth lets the test through. */
+/**
+ * Seed auth state so RequireAuth lets the test through.
+ *
+ * Since #897 the store's `partialize` persists ONLY `isAuthenticated` — the
+ * access token is in-memory and the refresh token is an httpOnly cookie. We
+ * seed just `isAuthenticated: true`, which is all RequireAuth gates on; this
+ * spec route-mocks its API calls, so no token is needed.
+ */
 function seedAuth(page: import('@playwright/test').Page) {
   return page.addInitScript(() => {
     localStorage.setItem(
       'trueppm-auth',
       JSON.stringify({
-        state: { accessToken: 'e2e-token', refreshToken: 'e2e-refresh', isAuthenticated: true },
+        state: { isAuthenticated: true },
         version: 0,
       }),
     );
@@ -24,14 +31,30 @@ function seedAuth(page: import('@playwright/test').Page) {
 
 /** Minimal API-format projects matching what useProjects expects. */
 const FIXTURE_API_PROJECTS = [
-  { id: '1', name: 'Alpha Platform Upgrade', description: '', start_date: '2026-01-01', calendar: 'default' },
-  { id: '2', name: 'Beta Data Migration',    description: '', start_date: '2026-02-01', calendar: 'default' },
+  {
+    id: '1',
+    name: 'Alpha Platform Upgrade',
+    description: '',
+    start_date: '2026-01-01',
+    calendar: 'default',
+  },
+  {
+    id: '2',
+    name: 'Beta Data Migration',
+    description: '',
+    start_date: '2026-02-01',
+    calendar: 'default',
+  },
 ];
 
 test.beforeEach(async ({ page }) => {
   await seedAuth(page);
   await page.route('**/api/v1/projects/**', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(FIXTURE_API_PROJECTS) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(FIXTURE_API_PROJECTS),
+    }),
   );
   await page.route('**/api/v1/projects/*/presence/', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
@@ -94,8 +117,6 @@ test('no console errors on load', async ({ page }) => {
   });
   await page.goto('/');
   // Allow React DevTools message but no real errors
-  const realErrors = errors.filter(
-    (e) => !e.includes('Download the React DevTools'),
-  );
+  const realErrors = errors.filter((e) => !e.includes('Download the React DevTools'));
   expect(realErrors).toHaveLength(0);
 });

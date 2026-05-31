@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from pathlib import Path
 
 import environ
@@ -71,6 +72,9 @@ INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # CSP header on every response (#897). Placed high so the header is attached
+    # even for early short-circuit responses (redirects, errors).
+    "trueppm_api.core.csp.ContentSecurityPolicyMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -322,6 +326,63 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
+
+# ---------------------------------------------------------------------------
+# SimpleJWT token lifetimes + httpOnly refresh-cookie migration (#897)
+# ---------------------------------------------------------------------------
+
+# Short access-token TTL bounds the blast radius of a leaked in-memory access
+# token; the SPA transparently refreshes via the httpOnly cookie on 401. A
+# 7-day refresh TTL is the session length — long enough to avoid daily re-login,
+# short enough that a stolen refresh token (cookie) self-expires within a week.
+# Rotation + (optional) blacklist further limit replay of a leaked refresh token.
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    "ROTATE_REFRESH_TOKENS": True,
+    # Blacklisting requires the token_blacklist app + its migrations. It is NOT
+    # installed in OSS by default, so this is a no-op until an operator adds the
+    # app; the refresh view tolerates its absence. Left True so enabling the app
+    # is the only step needed to get revocation-on-rotation.
+    "BLACKLIST_AFTER_ROTATION": True,
+}
+
+# httpOnly refresh-cookie attributes (#897). The refresh token rides in this
+# cookie instead of the JSON body so JavaScript (and therefore XSS) cannot read
+# it. Attributes are env-overridable so a non-HTTPS local dev server can still
+# complete the flow.
+#
+# SameSite=Strict is safe here: the refresh request is a same-origin XHR from the
+# SPA, which Strict permits, while it blocks the cookie on any cross-site request
+# — the CSRF mitigation for this path (see core/auth_views.py).
+AUTH_REFRESH_COOKIE_NAME = env("AUTH_REFRESH_COOKIE_NAME", default="trueppm_refresh")
+AUTH_REFRESH_COOKIE_PATH = env("AUTH_REFRESH_COOKIE_PATH", default="/api/v1/auth/token/refresh/")
+AUTH_REFRESH_COOKIE_SAMESITE = env("AUTH_REFRESH_COOKIE_SAMESITE", default="Strict")
+# Default Secure=True; dev settings flip this to False for plain-HTTP localhost.
+AUTH_REFRESH_COOKIE_SECURE = env.bool("AUTH_REFRESH_COOKIE_SECURE", default=True)
+
+# ---------------------------------------------------------------------------
+# Content-Security-Policy (#897)
+# ---------------------------------------------------------------------------
+
+# Strict CSP, assembled into a header by core.csp.ContentSecurityPolicyMiddleware.
+# script-src 'self' (no inline / no hash) is possible because the theme-init
+# script was moved to an external file (web/public/theme-init.js). connect-src
+# carries wss: for the WebSocket collaboration channel; the host is overridable
+# per deploy. style-src keeps 'unsafe-inline' because the SPA emits inline style
+# attributes (Tailwind/JS-driven) — tightening this is tracked separately.
+CSP_CONNECT_SRC = env.list("CSP_CONNECT_SRC", default=["'self'", "wss:"])
+CSP_DIRECTIVES: dict[str, list[str]] = {
+    "default-src": ["'self'"],
+    "script-src": ["'self'"],
+    "style-src": ["'self'", "'unsafe-inline'", "fonts.googleapis.com"],
+    "font-src": ["fonts.gstatic.com"],
+    "img-src": ["'self'", "data:"],
+    "connect-src": CSP_CONNECT_SRC,
+    "frame-ancestors": ["'none'"],
+    "base-uri": ["'none'"],
+    "form-action": ["'self'"],
+}
 
 # ---------------------------------------------------------------------------
 # Internationalization

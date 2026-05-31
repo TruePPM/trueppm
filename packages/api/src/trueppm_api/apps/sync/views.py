@@ -235,10 +235,12 @@ class ProjectSyncView(IdempotencyMixin, APIView):
         ttl = getattr(settings, "TRUEPPM_SYNC_BATCH_RETENTION_HOURS", 24)
 
         # Fast path: a fresh, completed duplicate replays its stored response.
-        # Scoped to the project so a member can never replay another project's
-        # batch by reusing its client_batch_id (IDOR guard).
-        existing = SyncBatch.objects.filter(
-            project=project, client_batch_id=client_batch_id
+        # Scoped to (project, actor) so a member can never replay another
+        # project's — or another *user's* — batch by reusing its client_batch_id.
+        # The stored response carries that actor's task ids, server_versions, and
+        # watermark; cross-actor replay would leak it (#894, #887 IDOR guard).
+        existing = SyncBatch.objects.filter(  # type: ignore[misc]
+            project=project, actor_user=request.user, client_batch_id=client_batch_id
         ).first()
         if (
             existing is not None
@@ -251,9 +253,9 @@ class ProjectSyncView(IdempotencyMixin, APIView):
             return self._apply_and_record(request, project, role, client_batch_id, changes)
         except IntegrityError:
             # A concurrent duplicate committed between our check and create, or a
-            # stale row exists. Re-fetch (project-scoped) and resolve.
-            existing = SyncBatch.objects.filter(
-                project=project, client_batch_id=client_batch_id
+            # stale row exists. Re-fetch (project + actor-scoped) and resolve.
+            existing = SyncBatch.objects.filter(  # type: ignore[misc]
+                project=project, actor_user=request.user, client_batch_id=client_batch_id
             ).first()
             if existing is None:
                 raise  # genuinely unexpected — surface it
@@ -296,6 +298,7 @@ class ProjectSyncView(IdempotencyMixin, APIView):
             batch = SyncBatch.objects.create(
                 client_batch_id=client_batch_id,
                 project=project,
+                actor_user=request.user,  # type: ignore[misc]
                 status=SyncBatchStatus.PENDING,
             )
             applied = apply_task_changes(

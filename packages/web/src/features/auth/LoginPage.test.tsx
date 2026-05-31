@@ -127,7 +127,9 @@ describe('loginRedirectDest — post-login destination transform', () => {
   });
 
   it('redirects nested board paths (e.g. /board?view=foo) to overview, dropping board children', () => {
-    expect(loginRedirectDest('/projects/abc-123/board/anything')).toBe('/projects/abc-123/overview');
+    expect(loginRedirectDest('/projects/abc-123/board/anything')).toBe(
+      '/projects/abc-123/overview',
+    );
   });
 
   it('preserves the project id with hyphens and uuids', () => {
@@ -139,7 +141,9 @@ describe('loginRedirectDest — post-login destination transform', () => {
     expect(loginRedirectDest('/projects/abc-123/risk')).toBe('/projects/abc-123/risk');
     expect(loginRedirectDest('/projects/abc-123/schedule')).toBe('/projects/abc-123/schedule');
     expect(loginRedirectDest('/projects/abc-123/sprints')).toBe('/projects/abc-123/sprints');
-    expect(loginRedirectDest('/projects/abc-123/resources/roster')).toBe('/projects/abc-123/resources/roster');
+    expect(loginRedirectDest('/projects/abc-123/resources/roster')).toBe(
+      '/projects/abc-123/resources/roster',
+    );
   });
 
   it('passes through the root path untouched', () => {
@@ -150,5 +154,34 @@ describe('loginRedirectDest — post-login destination transform', () => {
     // "/dashboard" or "/projects/abc/dashboards" must not be rewritten.
     expect(loginRedirectDest('/dashboard')).toBe('/dashboard');
     expect(loginRedirectDest('/projects/abc/dashboards')).toBe('/projects/abc/dashboards');
+  });
+});
+
+describe('loginRedirectDest — open redirect hardening (#899)', () => {
+  it('rejects a protocol-relative URL (//evil.com)', () => {
+    expect(loginRedirectDest('//evil.com/')).toBe('/');
+    expect(loginRedirectDest('//evil.com/projects/abc/board')).toBe('/');
+  });
+
+  it('rejects a backslash-smuggled URL (/\\evil.com)', () => {
+    expect(loginRedirectDest('/\\evil.com')).toBe('/');
+    expect(loginRedirectDest('/\\/evil.com')).toBe('/');
+  });
+
+  it('rejects an absolute off-origin URL', () => {
+    expect(loginRedirectDest('https://evil.com')).toBe('/');
+    expect(loginRedirectDest('http://evil.com/projects/abc/board')).toBe('/');
+  });
+
+  it('rejects a javascript: scheme', () => {
+    expect(loginRedirectDest('javascript:alert(1)')).toBe('/');
+  });
+
+  it('still applies the board→overview rewrite for safe same-origin paths', () => {
+    expect(loginRedirectDest('/projects/abc-123/board')).toBe('/projects/abc-123/overview');
+  });
+
+  it('passes a normal same-origin relative path through untouched', () => {
+    expect(loginRedirectDest('/projects/x/tasks')).toBe('/projects/x/tasks');
   });
 });

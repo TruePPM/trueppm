@@ -12,3 +12,11 @@
 /api/v1/tasks/{id}/suggestions/accept/
 /api/v1/tasks/{id}/suggestions/decline/
 /api/v1/tasks/{id}/suggestions/revoke/
+
+# #897 — httpOnly refresh-cookie migration: the token-refresh endpoint no longer
+# accepts/returns the refresh token in the request/response body (it is read
+# from, and rotated into, an httpOnly Secure SameSite=Strict cookie). The
+# SimpleJWT TokenRefreshView (which generated these body schemas) was replaced
+# by CookieTokenRefreshView. The /api/v1/auth/token/refresh/ path is unchanged.
+schema:TokenRefresh
+schema:TokenRefreshRequest

@@ -94,15 +94,34 @@ def test_actor_cannot_assign_role_above_own(member: object) -> None:
 
 
 @pytest.mark.django_db
-def test_last_owner_cannot_be_demoted(member: object) -> None:
+def test_admin_cannot_demote_owner(member: object) -> None:
     ws = Workspace.load()
     # member is an explicit ADMIN actor; sole_owner is the only owner; no superusers.
     WorkspaceMembership.objects.create(workspace=ws, user=member, role=WorkspaceRole.ADMIN)
     sole_owner = User.objects.create_user(username="owner", password="pw")
     WorkspaceMembership.objects.create(workspace=ws, user=sole_owner, role=WorkspaceRole.OWNER)
     resp = _client(member).patch(_detail(sole_owner), {"role": WorkspaceRole.MEMBER}, format="json")
-    assert resp.status_code == 400
+    # The peer/higher-role guard (#890) blocks an Admin touching an Owner at all —
+    # a 403, ahead of (and stronger than) the last-Owner stranding guard's 400.
+    assert resp.status_code == 403
     assert WorkspaceMembership.objects.get(user=sole_owner).role == WorkspaceRole.OWNER
+
+
+@pytest.mark.django_db
+def test_owner_cannot_demote_last_owner(db: object) -> None:
+    """The last-Owner stranding guard still fires for an Owner-on-Owner demote (#890)."""
+    ws = Workspace.load()
+    # An explicit OWNER actor demoting the sole owner (themselves is excluded from
+    # the role guard via self-edit, but here a second owner row is the target).
+    owner_actor = User.objects.create_user(username="own_actor", password="pw")
+    WorkspaceMembership.objects.create(workspace=ws, user=owner_actor, role=WorkspaceRole.OWNER)
+    # Demoting themselves would strand the workspace (no other owner). Self-edit is
+    # exempt from the role guard, so the stranding guard is what must catch this.
+    resp = _client(owner_actor).patch(
+        _detail(owner_actor), {"role": WorkspaceRole.MEMBER}, format="json"
+    )
+    assert resp.status_code == 400
+    assert WorkspaceMembership.objects.get(user=owner_actor).role == WorkspaceRole.OWNER
 
 
 @pytest.mark.django_db
@@ -123,3 +142,126 @@ def test_deactivate_revokes_workspace_access(superadmin: object, member: object)
     # A deactivated member resolves to no role → cannot even read.
     resp = _client(member).get(LIST_URL)
     assert resp.status_code == 403
+
+
+# --- #890: peer/higher-role guard on deactivate + role change ---------------
+
+
+@pytest.mark.django_db
+def test_admin_cannot_deactivate_peer_admin_via_patch(db: object) -> None:
+    """An Admin must not deactivate another Admin (#890)."""
+    ws = Workspace.load()
+    actor = User.objects.create_user(username="adm_a", password="pw")
+    peer = User.objects.create_user(username="adm_b", password="pw")
+    WorkspaceMembership.objects.create(workspace=ws, user=actor, role=WorkspaceRole.ADMIN)
+    WorkspaceMembership.objects.create(workspace=ws, user=peer, role=WorkspaceRole.ADMIN)
+    resp = _client(actor).patch(_detail(peer), {"status": MemberStatus.DEACTIVATED}, format="json")
+    assert resp.status_code == 403
+    assert WorkspaceMembership.objects.get(user=peer).status == MemberStatus.ACTIVE
+
+
+@pytest.mark.django_db
+def test_admin_cannot_deactivate_peer_admin_via_delete(db: object) -> None:
+    ws = Workspace.load()
+    actor = User.objects.create_user(username="adm_c", password="pw")
+    peer = User.objects.create_user(username="adm_d", password="pw")
+    WorkspaceMembership.objects.create(workspace=ws, user=actor, role=WorkspaceRole.ADMIN)
+    WorkspaceMembership.objects.create(workspace=ws, user=peer, role=WorkspaceRole.ADMIN)
+    resp = _client(actor).delete(_detail(peer))
+    assert resp.status_code == 403
+    assert WorkspaceMembership.objects.get(user=peer).status == MemberStatus.ACTIVE
+
+
+@pytest.mark.django_db
+def test_admin_cannot_deactivate_owner(db: object) -> None:
+    """An Admin must not deactivate an Owner, even when a second Owner exists (#890)."""
+    ws = Workspace.load()
+    actor = User.objects.create_user(username="adm_e", password="pw")
+    owner_one = User.objects.create_user(username="own_1", password="pw")
+    owner_two = User.objects.create_user(username="own_2", password="pw")
+    WorkspaceMembership.objects.create(workspace=ws, user=actor, role=WorkspaceRole.ADMIN)
+    # Two owners so the last-owner guard would NOT block — only the role guard does.
+    WorkspaceMembership.objects.create(workspace=ws, user=owner_one, role=WorkspaceRole.OWNER)
+    WorkspaceMembership.objects.create(workspace=ws, user=owner_two, role=WorkspaceRole.OWNER)
+    resp = _client(actor).delete(_detail(owner_one))
+    assert resp.status_code == 403
+    assert WorkspaceMembership.objects.get(user=owner_one).status == MemberStatus.ACTIVE
+
+
+@pytest.mark.django_db
+def test_admin_cannot_change_role_of_peer_admin(db: object) -> None:
+    ws = Workspace.load()
+    actor = User.objects.create_user(username="adm_f", password="pw")
+    peer = User.objects.create_user(username="adm_g", password="pw")
+    WorkspaceMembership.objects.create(workspace=ws, user=actor, role=WorkspaceRole.ADMIN)
+    WorkspaceMembership.objects.create(workspace=ws, user=peer, role=WorkspaceRole.ADMIN)
+    resp = _client(actor).patch(_detail(peer), {"role": WorkspaceRole.MEMBER}, format="json")
+    assert resp.status_code == 403
+    assert WorkspaceMembership.objects.get(user=peer).role == WorkspaceRole.ADMIN
+
+
+@pytest.mark.django_db
+def test_admin_cannot_reactivate_deactivated_owner(db: object) -> None:
+    """A non-owner Admin must not reactivate a deactivated Owner (#901).
+
+    Reactivation (status→ACTIVE) is a privilege change just like deactivation, so
+    it is gated by the same peer/higher-role guard — otherwise a lower-role Admin
+    could flip a deactivated Owner back to ACTIVE and restore their login.
+    """
+    ws = Workspace.load()
+    actor = User.objects.create_user(username="adm_react", password="pw")
+    owner = User.objects.create_user(username="own_deact", password="pw", is_active=False)
+    WorkspaceMembership.objects.create(workspace=ws, user=actor, role=WorkspaceRole.ADMIN)
+    WorkspaceMembership.objects.create(
+        workspace=ws, user=owner, role=WorkspaceRole.OWNER, status=MemberStatus.DEACTIVATED
+    )
+    resp = _client(actor).patch(_detail(owner), {"status": MemberStatus.ACTIVE}, format="json")
+    assert resp.status_code == 403
+    owner.refresh_from_db()
+    assert owner.is_active is False
+    assert WorkspaceMembership.objects.get(user=owner).status == MemberStatus.DEACTIVATED
+
+
+@pytest.mark.django_db
+def test_admin_cannot_reactivate_deactivated_peer_admin(db: object) -> None:
+    """A non-owner Admin must not reactivate a deactivated peer Admin (#901)."""
+    ws = Workspace.load()
+    actor = User.objects.create_user(username="adm_react2", password="pw")
+    peer = User.objects.create_user(username="adm_deact", password="pw", is_active=False)
+    WorkspaceMembership.objects.create(workspace=ws, user=actor, role=WorkspaceRole.ADMIN)
+    WorkspaceMembership.objects.create(
+        workspace=ws, user=peer, role=WorkspaceRole.ADMIN, status=MemberStatus.DEACTIVATED
+    )
+    resp = _client(actor).patch(_detail(peer), {"status": MemberStatus.ACTIVE}, format="json")
+    assert resp.status_code == 403
+    assert WorkspaceMembership.objects.get(user=peer).status == MemberStatus.DEACTIVATED
+
+
+@pytest.mark.django_db
+def test_admin_can_reactivate_lower_member(db: object) -> None:
+    """The reactivation guard must not over-block: an Admin can reactivate a Member (#901)."""
+    ws = Workspace.load()
+    actor = User.objects.create_user(username="adm_react3", password="pw")
+    target = User.objects.create_user(username="mem_deact", password="pw", is_active=False)
+    WorkspaceMembership.objects.create(workspace=ws, user=actor, role=WorkspaceRole.ADMIN)
+    WorkspaceMembership.objects.create(
+        workspace=ws, user=target, role=WorkspaceRole.MEMBER, status=MemberStatus.DEACTIVATED
+    )
+    resp = _client(actor).patch(_detail(target), {"status": MemberStatus.ACTIVE}, format="json")
+    assert resp.status_code == 200, resp.data
+    target.refresh_from_db()
+    assert target.is_active is True
+    assert WorkspaceMembership.objects.get(user=target).status == MemberStatus.ACTIVE
+
+
+@pytest.mark.django_db
+def test_admin_can_still_deactivate_lower_member(db: object) -> None:
+    """The guard must not over-block: an Admin can deactivate a Member (#890)."""
+    ws = Workspace.load()
+    actor = User.objects.create_user(username="adm_h", password="pw")
+    target = User.objects.create_user(username="mem_low", password="pw")
+    WorkspaceMembership.objects.create(workspace=ws, user=actor, role=WorkspaceRole.ADMIN)
+    WorkspaceMembership.objects.create(workspace=ws, user=target, role=WorkspaceRole.MEMBER)
+    resp = _client(actor).delete(_detail(target))
+    assert resp.status_code == 204
+    assert WorkspaceMembership.objects.get(user=target).status == MemberStatus.DEACTIVATED

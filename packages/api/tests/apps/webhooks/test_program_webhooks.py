@@ -55,7 +55,7 @@ def test_program_admin_can_create_webhook(admin_client: APIClient, program: Prog
         _url(program),
         {
             "url": "https://hooks.slack.com/services/x",
-            "secret": "s3cret",
+            "secret": "s" * 32,  # >= 32-char minimum (#893)
             "events": ["task.assigned"],
             "format": "slack",
         },

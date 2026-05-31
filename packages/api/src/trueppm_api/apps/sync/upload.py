@@ -22,7 +22,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework import status
+from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 
 from trueppm_api.apps.access.models import Role
 from trueppm_api.apps.projects.models import Task
@@ -50,6 +51,25 @@ _STRIPPED_ROW_KEYS = frozenset({"id", "project", "wbs_path"})
 # per-user request throttle limits frequency, not payload size — this limits
 # size. Overridable via settings.TRUEPPM_SYNC_BATCH_MAX_ROWS.
 DEFAULT_MAX_BATCH_ROWS = 500
+
+
+class SyncIdCollision(APIException):
+    """A client-generated id in the ``created`` bucket already exists in another project.
+
+    Raised when the upserted row's id resolves to a task the caller's URL-scoped
+    project does not own. This is an IDOR guard (#887): without it the upsert
+    would treat the foreign row as an idempotent re-create and apply the caller's
+    content using their role on the *URL* project, not the project that actually
+    owns the row. A 409 forces the offline client to regenerate the id and retry,
+    rather than silently mutating a task in a project it cannot see.
+    """
+
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = (
+        "A task with this client-generated id already exists in another project. "
+        "Regenerate the id and re-upload."
+    )
+    default_code = "sync_id_collision"
 
 
 @dataclass
@@ -147,10 +167,18 @@ def apply_task_changes(
     # below is a dict lookup, not a per-row SELECT (#809). A 500-row batch
     # previously issued up to 500 Task.objects.filter(...).first() round-trips.
     # Keyed by str(pk) because in_bulk()'s UUID keys won't match the string ids in
-    # the JSON payload. Fetched unscoped by project so the created-bucket's
-    # idempotent re-create check still finds a cross-project id collision (same
-    # semantics as the original ``filter(pk=row_id).first()``); the updated and
-    # deleted loops re-apply their project + is_deleted predicate in Python.
+    # the JSON payload.
+    #
+    # SECURITY (#887): this lookup is scoped to ``project``. The created-bucket
+    # upsert treats a hit as an idempotent re-create and applies content after a
+    # role check on the *URL-scoped* project; if the lookup were unscoped a client
+    # could land a created row whose id collides with a task in a different
+    # project and mutate it using their role here, not their (possibly absent)
+    # role there — a cross-project IDOR. Scoping the fetch means a foreign id
+    # simply isn't in ``existing_by_id``; the created loop then probes
+    # project-unscoped *only* to distinguish a genuine cross-project collision
+    # (→ 409, regenerate) from a fresh id (→ create). The updated and deleted
+    # loops re-apply their project + is_deleted predicate in Python as a backstop.
     _batch_ids = {
         str(rid)
         for bucket in ("created", "updated")
@@ -158,14 +186,34 @@ def apply_task_changes(
         if (rid := row.get("id"))
     } | {str(del_id) for del_id in (tasks.get("deleted", []) or []) if del_id}
     existing_by_id: dict[str, Task] = (
-        {str(t.pk): t for t in Task.objects.filter(pk__in=_batch_ids)} if _batch_ids else {}
+        {str(t.pk): t for t in Task.objects.filter(pk__in=_batch_ids, project=project)}
+        if _batch_ids
+        else {}
     )
 
     # --- created (upsert by client-generated id) ------------------------------
+    # Pre-compute which created ids resolve to a task in *another* project so a
+    # collision is a 409 rather than a silent foreign-row mutation (#887).
+    created_ids = {str(rid) for row in (tasks.get("created", []) or []) if (rid := row.get("id"))}
+    cross_project_ids: set[str] = set()
+    if created_ids:
+        # Only ids absent from the project-scoped fetch can be foreign; probe just
+        # those, so the common (all-local) batch issues no extra query.
+        unknown_ids = created_ids - set(existing_by_id)
+        if unknown_ids:
+            cross_project_ids = {
+                str(pk)
+                for pk in Task.objects.filter(pk__in=unknown_ids)
+                .exclude(project=project)
+                .values_list("pk", flat=True)
+            }
+
     for row in tasks.get("created", []) or []:
         row_id = row.get("id")
         if not row_id:
             raise ValidationError({"tasks.created": "Each created row requires an 'id'."})
+        if str(row_id) in cross_project_ids:
+            raise SyncIdCollision()
         existing = existing_by_id.get(str(row_id))
         if existing is not None:
             # Idempotent re-create (the row already landed in a prior batch) —

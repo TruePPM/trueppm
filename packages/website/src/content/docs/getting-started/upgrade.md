@@ -73,6 +73,49 @@ kubectl logs -n trueppm job/trueppm-migrate
 
 ---
 
+## Upgrading to the hardened Helm chart
+
+The Helm chart now installs secure by default: it generates the PostgreSQL and
+Valkey passwords and stores them in a chart-owned **connection Secret**
+(`<release>-trueppm-connection`, annotated `helm.sh/resource-policy: keep`),
+injects `DATABASE_URL` / `REDIS_URL` via `secretKeyRef`, enables Valkey auth by
+default, and applies restricted container security contexts. A few notes when
+upgrading **from a pre-hardening release**:
+
+- **Rotate the old default password.** Earlier chart versions shipped a default
+  database/cache password of `trueppm`. If you ran with that default, rotate it.
+  The simplest path is to set explicit, strong passwords on the upgrade so the
+  chart writes them into the connection Secret and the bundled datastores pick
+  them up:
+  ```bash
+  helm upgrade trueppm oci://ghcr.io/trueppm/charts/trueppm \
+    --namespace trueppm \
+    -f my-values.yaml \
+    --set postgresql.auth.password="<new-strong-password>" \
+    --set valkey.auth.password="<new-strong-password>"
+  ```
+  Prefer supplying these through an external Secret over `--set`. After the
+  rollout settles you can clear the explicit values and let the chart manage the
+  password from the connection Secret going forward.
+- **Leave the passwords blank to keep the generated ones.** On an upgrade where a
+  connection Secret already exists, leaving `postgresql.auth.password` /
+  `valkey.auth.password` empty makes the chart **read the existing password back**
+  rather than minting a new one — so re-running `helm upgrade` never churns the
+  credential or orphans the database PVC.
+- **The connection Secret survives `helm uninstall`.** The `resource-policy: keep`
+  annotation means an accidental uninstall/reinstall reuses the same password and
+  keeps the existing data reachable. If you intend a clean wipe, delete the Secret
+  and the PersistentVolumeClaims explicitly.
+- **Using managed datastores?** When `postgresql.enabled` / `valkey.enabled` are
+  `false`, `env.DATABASE_URL` and `env.REDIS_URL` are now **required** — the chart
+  fails the render if either is missing. Add them (ideally via an external Secret)
+  before upgrading.
+- **App-side auth/CSP defaults.** The refresh token now rides an httpOnly Secure
+  cookie and a strict CSP header is sent on every response. A standard same-origin
+  deploy needs no changes. Split-origin deploys must set
+  `AUTH_REFRESH_COOKIE_SAMESITE` and `CSP_CONNECT_SRC` — see
+  [Configuration](/administration/configuration/#split-origin-deploys).
+
 ## Rollback
 
 :::caution

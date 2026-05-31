@@ -17,18 +17,30 @@ const EMAIL = process.env['INTEGRATION_USER_EMAIL'] ?? 'ci@trueppm.test';
 const PASSWORD = process.env['INTEGRATION_USER_PASSWORD'] ?? 'ci-integration-pw';
 const PROJECT_NAME = 'CI Integration Project';
 
+/**
+ * Log in via the UI and return the JWT access token.
+ *
+ * Since #897 the access token is in-memory only (never persisted to
+ * localStorage) and the refresh token is an httpOnly cookie, so the token
+ * can no longer be scraped from localStorage. We drive the real login form
+ * and capture the access token from the token endpoint's response body. The
+ * UI login also lands the refresh cookie in the page context, keeping the
+ * page authenticated for the WebSocket connection this spec relies on.
+ */
 async function loginAndGetToken(page: import('@playwright/test').Page): Promise<string> {
   await page.goto('/login');
   await page.getByLabel('Email').fill(EMAIL);
   await page.getByLabel('Password', { exact: true }).fill(PASSWORD);
+
+  const tokenResponsePromise = page.waitForResponse(
+    (res) => res.url().includes('/api/v1/auth/token/') && res.request().method() === 'POST',
+  );
   await page.getByRole('button', { name: 'Sign in' }).click();
+  const tokenResponse = await tokenResponsePromise;
   await expect(page).not.toHaveURL(/\/login/, { timeout: 15_000 });
 
-  return page.evaluate<string>(() => {
-    const raw = localStorage.getItem('trueppm-auth') ?? '{}';
-    const parsed = JSON.parse(raw) as { state?: { accessToken?: string } };
-    return parsed?.state?.accessToken ?? '';
-  });
+  const body = (await tokenResponse.json()) as { access?: string };
+  return body.access ?? '';
 }
 
 async function getProjectId(page: import('@playwright/test').Page, token: string): Promise<string> {
@@ -45,50 +57,51 @@ async function getProjectId(page: import('@playwright/test').Page, token: string
 }
 
 test.describe('Integration — WebSocket broadcast', () => {
-  test(
-    'task created in one context appears in another without reload',
-    async ({ browser }: { browser: Browser }) => {
-      // --- Observer context ---
-      const ctx1 = await browser.newContext();
-      const observer = await ctx1.newPage();
-      const token1 = await loginAndGetToken(observer);
-      const projectId = await getProjectId(observer, token1);
-      expect(projectId, `Project "${PROJECT_NAME}" not found`).toBeTruthy();
+  test('task created in one context appears in another without reload', async ({
+    browser,
+  }: {
+    browser: Browser;
+  }) => {
+    // --- Observer context ---
+    const ctx1 = await browser.newContext();
+    const observer = await ctx1.newPage();
+    const token1 = await loginAndGetToken(observer);
+    const projectId = await getProjectId(observer, token1);
+    expect(projectId, `Project "${PROJECT_NAME}" not found`).toBeTruthy();
 
-      await observer.goto(`/projects/${projectId}/schedule`);
-      // Wait for the seed task to confirm the schedule loaded and WS connected.
-      // The seed task name appears in both the schedule list and the unscheduled
-      // gutter, so .first() avoids a strict-mode locator collision.
-      await expect(observer.getByText('CI Seed Task').first()).toBeVisible({ timeout: 15_000 });
+    await observer.goto(`/projects/${projectId}/schedule`);
+    // Wait for the seed task to confirm the schedule loaded and WS connected.
+    // The seed task name appears in both the schedule list and the unscheduled
+    // gutter, so .first() avoids a strict-mode locator collision.
+    await expect(observer.getByText('CI Seed Task').first()).toBeVisible({ timeout: 15_000 });
 
-      // --- Mutator context ---
-      const ctx2 = await browser.newContext();
-      const mutator = await ctx2.newPage();
-      const token2 = await loginAndGetToken(mutator);
+    // --- Mutator context ---
+    const ctx2 = await browser.newContext();
+    const mutator = await ctx2.newPage();
+    const token2 = await loginAndGetToken(mutator);
 
-      const broadcastTaskName = `ws-broadcast-${Date.now()}`;
+    const broadcastTaskName = `ws-broadcast-${Date.now()}`;
 
-      await mutator.evaluate<void>(
-        async ([tk, pid, tname]) => {
-          await fetch(`/api/v1/tasks/`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${tk}`,
-            },
-            body: JSON.stringify({ name: tname, duration: 1, project: pid }),
-          });
-        },
-        [token2, projectId, broadcastTaskName] as [string, string, string],
-      );
+    await mutator.evaluate<void>(
+      async ([tk, pid, tname]) => {
+        await fetch(`/api/v1/tasks/`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${tk}`,
+          },
+          body: JSON.stringify({ name: tname, duration: 1, project: pid }),
+        });
+      },
+      [token2, projectId, broadcastTaskName] as [string, string, string],
+    );
 
-      // Observer should receive the broadcast and re-render without a reload.
-      // .first() guards against the same name appearing in the schedule row and
-      // the unscheduled gutter (per the same broadcast event hydrating both).
-      await expect(observer.getByText(broadcastTaskName).first()).toBeVisible({ timeout: 15_000 });
+    // Observer should receive the broadcast and re-render without a reload.
+    // .first() guards against the same name appearing in the schedule row and
+    // the unscheduled gutter (per the same broadcast event hydrating both).
+    await expect(observer.getByText(broadcastTaskName).first()).toBeVisible({ timeout: 15_000 });
 
-      await ctx1.close();
-      await ctx2.close();
-    },
-  );
+    await ctx1.close();
+    await ctx2.close();
+  });
 });

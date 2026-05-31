@@ -175,6 +175,45 @@ describe('AttachmentSection — upload + delete actions', () => {
     openSpy.mockRestore();
   });
 
+  it('does not open a javascript: external URL and renders without crashing (#898)', () => {
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+    useListMock.mockReturnValue({
+      attachments: [
+        attachment({
+          file_name: '',
+          file_mime: '',
+          external_url: 'javascript:alert(1)',
+          external_title: 'Evil link',
+        }),
+      ],
+      isLoading: false,
+      error: null,
+    });
+    render(<AttachmentSection taskId="t1" projectId="p1" />);
+    fireEvent.click(screen.getByLabelText('Open Evil link'));
+    expect(openSpy).not.toHaveBeenCalled();
+    openSpy.mockRestore();
+  });
+
+  it('renders a row with a malformed external URL without throwing (#898)', () => {
+    useListMock.mockReturnValue({
+      attachments: [
+        attachment({
+          file_name: '',
+          file_mime: '',
+          external_url: 'http://[malformed',
+          external_title: 'Bad host',
+        }),
+      ],
+      isLoading: false,
+      error: null,
+    });
+    // Would throw at `new URL(...).host` before the fix, crashing the render.
+    render(<AttachmentSection taskId="t1" projectId="p1" />);
+    expect(screen.getByText('Bad host')).toBeInTheDocument();
+    expect(screen.getByText(/external link/)).toBeInTheDocument();
+  });
+
   it('opens external link in a new tab without minting a signed URL', () => {
     const mintMutate = vi.fn();
     useSignedUrlMock.mockReturnValue({ mutate: mintMutate, isPending: false });
