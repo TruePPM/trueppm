@@ -5,13 +5,29 @@
 [![CI](https://gitlab.com/trueppm/trueppm/badges/main/pipeline.svg)](https://gitlab.com/trueppm/trueppm/-/pipelines)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 
-Pure-Python CPM scheduling engine for TruePPM. Ships independently on PyPI — no Django dependency.
+**Project-schedule math as a library — critical path and delivery-risk forecasting, without a 500 MB desktop app or a SaaS subscription.**
+
+Answer the two questions every plan has to answer:
+
+- **"What's the earliest this can finish, and which tasks can't slip?"** — a full forward/backward critical-path pass computes early/late dates, total and free float, and flags the tasks on the critical path.
+- **"How confident are we in that date?"** — Monte Carlo simulation turns three-point estimates into a P50/P80/P95 forecast, so you can commit to a date you'll actually hit instead of the best-case one.
+
+It's pure Python with just `networkx` and `numpy` underneath — no Django, no web server, no GUI. Drop it into a backend, a data pipeline, a Jupyter notebook, or a CLI and get the same engine that powers the [TruePPM](https://trueppm.com) platform.
+
+### Why reach for this
+
+- **Real scheduling semantics, not a toy.** All four dependency types (finish-to-start, start-to-start, finish-to-finish, start-to-finish) with calendar-aware lag — most lightweight schedulers only do finish-to-start and count raw calendar days, which silently overruns any plan with a weekend in it.
+- **Working-time aware.** A built-in working-day calendar skips weekends and honors holiday exceptions, so durations resolve to real delivery dates.
+- **Risk forecasting built in.** PERT-Beta Monte Carlo, numpy-vectorized at ~10k runs/sec — the difference between "due March 3" and "70% likely by March 3, 95% by March 14."
+- **Fails loud on bad input.** Cycle detection that names the offending task IDs, plus up-front validation of durations, lag, and project span — no silent wrong answers, no spinning on a degenerate graph.
+- **Embeds anywhere.** Two dependencies, no framework. Serialize a plan to JSON, schedule it, and read back structured results.
 
 ## Features
 
-- Forward/backward CPM pass with all four dependency types (FS, SS, FF, SF)
+- Forward/backward CPM pass with all four dependency types (FS, SS, FF, SF), total/free float, and critical-path flagging
 - Calendar-aware working-day arithmetic (weekend skip + holiday exceptions)
-- Monte Carlo simulation via PERT-Beta distributions (numpy-vectorised, ~10k runs/sec)
+- Monte Carlo schedule-risk simulation via PERT-Beta distributions (numpy-vectorized, ~10k runs/sec) → P50/P80/P95 completion dates
+- JSON round-tripping for plans (`Project.from_json()` / `Project.to_json()`)
 - CLI: `trueppm-scheduler schedule` / `trueppm-scheduler monte-carlo`
 
 ## Install
