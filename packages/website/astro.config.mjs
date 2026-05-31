@@ -156,6 +156,7 @@ export default defineConfig({
               items: [
                 { slug: "features/burn-charts" },
                 { slug: "features/risk-register" },
+                { slug: "features/monte-carlo" },
               ],
             },
             {
@@ -168,6 +169,7 @@ export default defineConfig({
                 { slug: "features/offline-sync" },
                 { slug: "features/webhooks" },
                 { slug: "features/inbound-task-sync" },
+                { slug: "features/connected-accounts" },
                 { slug: "features/msproject-import-export" },
               ],
             },
