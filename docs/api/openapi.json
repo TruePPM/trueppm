@@ -20181,12 +20181,25 @@
                     "role_label": {
                         "type": "string",
                         "readOnly": true
+                    },
+                    "joined_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "role_changed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
                     }
                 },
                 "required": [
                     "id",
+                    "joined_at",
                     "program",
                     "role",
+                    "role_changed_at",
                     "role_label",
                     "server_version",
                     "user",

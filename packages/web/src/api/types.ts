@@ -142,6 +142,10 @@ export interface ProgramMembership {
   user_detail: UserSummary;
   role: number;
   role_label: string;
+  /** ISO 8601 timestamp of when the member was added to the program (#878). */
+  joined_at: string;
+  /** ISO 8601 timestamp of the last role change, or null if unchanged since joining (#878). */
+  role_changed_at: string | null;
 }
 
 // ---------------------------------------------------------------------------
