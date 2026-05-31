@@ -3,7 +3,7 @@ title: MS Project import & export
 description: Create a project from a Microsoft Project file, import tasks into an existing project, export to MS Project XML, round-trip three-point / PERT estimates, and review import history.
 ---
 
-:::note[0.1 shipped · 0.2 in alpha]
+:::note[Added in 0.2 (alpha)]
 The import/export REST endpoints shipped in 0.1. The in-app create-from-import
 flow (with the format picker), the import-into-existing dialog,
 three-point / PERT round-trip, and the project import-history surface were all
