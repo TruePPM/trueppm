@@ -44,7 +44,7 @@
     --neutral-text-inverse:    26 25 23;      /* #1A1917 */
   }
 
-  /* ── Brand tokens — navy/sage rebrand (ADR-0102) ──────────────────────────
+  /* ── Brand tokens — navy/sage rebrand (ADR-0103) ──────────────────────────
      `brand-primary` is the action/affordance token. It maps to the brand's
      prescribed FOREGROUND/ring sage shade so every existing text-/border-/
      ring-/bg-brand-primary usage (incl. /N alpha forms) stays WCAG AA after the
@@ -80,7 +80,7 @@
   .dark {
     --semantic-critical:  248 113 113;  /* #F87171 — Red-400, 4.87:1 on dark surface */
     --semantic-warning:   251 146 60;   /* #FB923C — Orange-400 */
-    --semantic-on-track:  102 185 152;  /* #66B998 — sage-400, on-track holds on dark (ADR-0102) */
+    --semantic-on-track:  102 185 152;  /* #66B998 — sage-400, on-track holds on dark (ADR-0103) */
     --semantic-at-risk:   251 146 60;   /* #FB923C — Orange-400 */
   }
 

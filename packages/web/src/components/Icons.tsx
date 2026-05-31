@@ -269,7 +269,7 @@ export function BarChartIcon({ className, ...rest }: IconProps) {
 }
 
 /**
- * TruePPM brand mark — the duotone dependency arrow (brand v1.0, ADR-0102).
+ * TruePPM brand mark — the duotone dependency arrow (brand v1.0, ADR-0103).
  * Two task nodes joined by the sage critical-path arrow: navy nodes, sage arrow.
  * Duotone, so it does NOT use `currentColor` — nodes and arrow are themed
  * independently. Nodes reverse to pale on dark (`navy reverses to pale`); the

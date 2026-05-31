@@ -70,12 +70,12 @@ export const COLOR = {
   rowBandAlt:     'rgba(0,0,0,0.02)',
   weekend:        'rgba(0,0,0,0.03)',
   gridLine:       'rgba(0,0,0,0.08)',
-  todayLine:      '#3E8C6D',   // sage-600 — the "now" on the path (ADR-0102)
+  todayLine:      '#3E8C6D',   // sage-600 — the "now" on the path (ADR-0103)
   text:           '#1A1917',   // neutral-text-primary — dark text on light surface
   textSecondary:  '#6B6965',   // neutral-text-secondary
   barNormal:      '#3B82F6',   // blue-500 — non-CP task
   barCritical:    '#B91C1C',   // semantic-critical — dark red, WCAG on light surface
-  barComplete:    '#3E8C6D',   // semantic on-track = sage-600 (brand v1.0, ADR-0102)
+  barComplete:    '#3E8C6D',   // semantic on-track = sage-600 (brand v1.0, ADR-0103)
   barSummary:     '#374151',   // gray-700 — visible on white
   milestone:      '#E8A020',   // brand-accent
   // Dependency arrows are charcoal regardless of critical-path state.
@@ -85,7 +85,7 @@ export const COLOR = {
   arrowNormal:    '#444441',
   arrowCritical:  '#444441',
   // Selection ring is navy INK (not sage) so it stays visible on a sage
-  // complete bar — distinguishability triad (ADR-0102 D4): complete=sage fill,
+  // complete bar — distinguishability triad (ADR-0103 D4): complete=sage fill,
   // selected=navy ring, today=sage line. navy/white = 12.6:1.
   selectionRing:  '#1B2A4A',   // navy-700
   ghostFill:      'rgba(100,116,139,0.12)',
@@ -101,22 +101,22 @@ export type ColorPalette = Record<keyof typeof COLOR, string>;
 
 /** Dark-surface palette — light tokens for readability on neutral-surface dark (#12141E). */
 export const COLOR_DARK: ColorPalette = {
-  surface:        '#15223C',   // neutral-surface dark — navy-800 (brand v1.0, ADR-0102)
+  surface:        '#15223C',   // neutral-surface dark — navy-800 (brand v1.0, ADR-0103)
   rowBandAlt:     'rgba(255,255,255,0.025)',
   weekend:        'rgba(255,255,255,0.03)',
   gridLine:       'rgba(255,255,255,0.08)',
-  todayLine:      '#66B998',   // sage-400 — the "now" on the path, holds on dark (ADR-0102)
+  todayLine:      '#66B998',   // sage-400 — the "now" on the path, holds on dark (ADR-0103)
   text:           '#E8E8E8',   // neutral-text-primary dark
   textSecondary:  '#94A3B8',   // Slate-400 — neutral-text-secondary dark
   barNormal:      '#60A5FA',   // Blue-400 — readable on dark surface
   barCritical:    '#F87171',   // Red-400 — semantic-critical dark, 4.87:1 on #12141E
-  barComplete:    '#66B998',   // sage-400 — semantic on-track, holds on dark (ADR-0102)
+  barComplete:    '#66B998',   // sage-400 — semantic on-track, holds on dark (ADR-0103)
   barSummary:     '#94A3B8',   // Slate-400
   milestone:      '#E8A020',   // brand-accent — unchanged
   // Light charcoal for arrows on the dark surface. Unified — no red variant.
   arrowNormal:    '#B8B5AE',
   arrowCritical:  '#B8B5AE',
-  selectionRing:  '#E9EDF3',   // reversed ink — pale ring, distinct from sage bars on dark (ADR-0102)
+  selectionRing:  '#E9EDF3',   // reversed ink — pale ring, distinct from sage bars on dark (ADR-0103)
   ghostFill:      'rgba(100,116,139,0.12)',
   ghostBorder:    'rgba(100,116,139,0.55)',
   chipTextOnCritical: '#FFFFFF',

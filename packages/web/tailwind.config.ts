@@ -18,7 +18,7 @@ const config: Config = {
     extend: {
       colors: {
         brand: {
-          // Mode-aware via CSS custom properties in globals.css (ADR-0102):
+          // Mode-aware via CSS custom properties in globals.css (ADR-0103):
           // sage-600/sage-400 (light/dark). Channel-triple form preserves the
           // pervasive `/N` alpha modifier usage (bg-brand-primary/10, etc.).
           primary: 'rgb(var(--brand-primary) / <alpha-value>)',
@@ -29,7 +29,7 @@ const config: Config = {
           'accent-dark': '#C17A10',
           'accent-light': '#FFF3CD',
         },
-        // ── Brand v1.0 identity scales (ADR-0102) ───────────────────────────
+        // ── Brand v1.0 identity scales (ADR-0103) ───────────────────────────
         // True Navy (ink/identity), Truth Sage (action/path), Reversed Ink.
         // Static scales for explicit identity/accent use (mark, wordmark,
         // button fills). The mode-aware `brand-primary` swap lives in
@@ -89,7 +89,7 @@ const config: Config = {
         // component references bg-gantt-surface or gantt-text-* — Tailwind silently
         // emits no CSS for undefined tokens.
         gantt: {
-          surface:             '#0E1626',   // navy-900 (brand dark chrome, ADR-0102)
+          surface:             '#0E1626',   // navy-900 (brand dark chrome, ADR-0103)
           'text-primary':      '#E9EDF3',   // reversed ink; ~14:1 on gantt-surface
           'text-secondary':    '#94A3B8',   // Slate-400; ~6.9:1 on #0E1626
           'semantic-critical': '#F87171',   // Red-400; 4.87:1 on #0F1117 (rule 41)

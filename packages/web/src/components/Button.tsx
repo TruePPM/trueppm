@@ -2,7 +2,7 @@ import { forwardRef } from 'react';
 import type { ButtonHTMLAttributes } from 'react';
 
 /**
- * Shared button (Design System v2.0, ADR-0102). One place owns the brand recipe
+ * Shared button (Design System v2.0, ADR-0103). One place owns the brand recipe
  * so the next rebrand is a single-file change rather than an 89-site sweep.
  *
  * Primary uses the brand `btn-primary` recipe — **sage-500 fill + navy-900 text**

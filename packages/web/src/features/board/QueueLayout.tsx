@@ -211,7 +211,7 @@ function ReadinessChip({ readiness }: { readiness: TaskReadiness }) {
     ready: 'text-brand-primary-dark dark:text-brand-primary',
     baselined: 'bg-neutral-surface-sunken text-neutral-text-secondary',
   };
-  // brand-primary-light is now a channel-triple CSS var (ADR-0102); wrap in rgb().
+  // brand-primary-light is now a channel-triple CSS var (ADR-0103); wrap in rgb().
   const inlineBg = readiness === 'ready' ? 'rgb(var(--brand-primary-light))' : undefined;
   return (
     <span

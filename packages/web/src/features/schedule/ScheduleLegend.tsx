@@ -153,7 +153,7 @@ function MilestoneSwatch() {
 }
 
 function TaskSwatch() {
-  // brand-primary is sage (sage-600 light / sage-400 dark, ADR-0102) and is AA in
+  // brand-primary is sage (sage-600 light / sage-400 dark, ADR-0103) and is AA in
   // both modes, so no dark escape hatch is needed — the token reverses itself.
   return (
     <span className="relative block w-full h-2 border border-neutral-border bg-neutral-surface rounded-[2px] overflow-hidden">

@@ -17,7 +17,7 @@
 .schedule-root {
   --wx-font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
   --wx-font-size: 13px;
-  --wx-color-primary: #3e8c6d;       /* brand.primary — sage-600 (ADR-0102) */
+  --wx-color-primary: #3e8c6d;       /* brand.primary — sage-600 (ADR-0103) */
   --wx-color-secondary: #f5f5f0;     /* neutral.surface-raised */
   --wx-border-color: #d4d2ce;        /* neutral.border */
   --wx-color-font: #1a1917;          /* neutral.text-primary */
@@ -37,7 +37,7 @@
   --wx-gantt-baseline-background: #d1d5db;    /* Gray 300 */
   --wx-gantt-baseline-opacity: 0.4;
 
-  /* Selection ring — navy ink, distinct from sage complete/today (ADR-0102 D4) */
+  /* Selection ring — navy ink, distinct from sage complete/today (ADR-0103 D4) */
   --wx-gantt-selected-border: #1b2a4a;
 }
 

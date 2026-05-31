@@ -147,7 +147,7 @@ export function LoginPage() {
     <div className="min-h-screen grid grid-cols-1 md:grid-cols-2 bg-neutral-surface">
       {/* ── Left column: form ── */}
       <div className="flex flex-col justify-center px-10 py-16 md:px-20 gap-8">
-        {/* Brand — duotone mark + two-color wordmark (brand v1.0, ADR-0102) */}
+        {/* Brand — duotone mark + two-color wordmark (brand v1.0, ADR-0103) */}
         <div className="flex items-center gap-2.5" aria-label="TruePPM">
           <LogoMark size={36} className="flex-shrink-0" />
           <span className="font-display text-2xl font-bold tracking-[-0.02em] leading-none">

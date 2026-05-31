@@ -1,4 +1,4 @@
-# ADR-0102: Design System v2.0 — Navy/Sage Rebrand and Brand Token Architecture
+# ADR-0103: Design System v2.0 — Navy/Sage Rebrand and Brand Token Architecture
 
 ## Status
 Proposed

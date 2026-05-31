@@ -1,7 +1,7 @@
 import { LogoMark } from '@/components/Icons';
 
 /**
- * TruePPM logo lockup (brand v1.0, ADR-0102): the duotone dependency-arrow mark
+ * TruePPM logo lockup (brand v1.0, ADR-0103): the duotone dependency-arrow mark
  * + the two-color wordmark. Per the brand wordmark spec, "True" is navy ink
  * (reversing to pale on dark) and "PPM" is Truth Sage, set solid with no space,
  * in Space Grotesk Bold at -0.02em tracking.
