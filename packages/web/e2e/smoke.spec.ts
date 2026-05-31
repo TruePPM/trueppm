@@ -12,17 +12,20 @@ import { test, expect } from '@playwright/test';
 /**
  * Seed auth state so RequireAuth lets the test through.
  *
- * Since #897 the store's `partialize` persists ONLY `isAuthenticated` — the
- * access token is in-memory and the refresh token is an httpOnly cookie. We
- * seed just `isAuthenticated: true`, which is all RequireAuth gates on; this
- * spec route-mocks its API calls, so no token is needed.
+ * Since #897 the access token is in-memory and the refresh token is an httpOnly
+ * cookie, and the store's `partialize` persists only `isAuthenticated`. Since
+ * #911 RequireAuth, on a load with no in-memory token, mints one from the
+ * refresh cookie before rendering. This spec route-mocks its API calls and has
+ * no refresh backend, so we seed a token directly (the persisted JSON is merged
+ * back into the store on hydration) to represent an already-live session — the
+ * bootstrap path is exercised by the full-stack web:integration job instead.
  */
 function seedAuth(page: import('@playwright/test').Page) {
   return page.addInitScript(() => {
     localStorage.setItem(
       'trueppm-auth',
       JSON.stringify({
-        state: { isAuthenticated: true },
+        state: { accessToken: 'e2e-token', isAuthenticated: true },
         version: 0,
       }),
     );

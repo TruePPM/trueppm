@@ -1195,8 +1195,12 @@ web:integration:
   #   2. Task CRUD write contract against the live database
   #   3. WebSocket broadcast — mutation in one context, assertion in another
   #
-  # Main-only: runs after every merge to verify end-to-end stack health.
-  # Does not block MR pipelines (those rely on the mocked web:e2e job).
+  # Runs after every merge to verify end-to-end stack health, and on MRs that
+  # touch auth or real-time surfaces (see rules below). The mocked web:e2e job
+  # cannot see this class of bug: this is the only job that exercises the full
+  # stack across a real page reload, where the in-memory access token, the
+  # cookie-based refresh, and WebSocket auth interact (#911 — a reload-only auth
+  # regression that slipped through because this job was previously main-only).
   #
   # Uses the custom ci-integration image (built by `ci:build-integration-image`)
   # which pre-bakes Python 3 + libpq-dev + gcc + uvicorn + scheduler[dev] +
@@ -1227,6 +1231,20 @@ web:integration:
     PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
+    # Block MRs that change an auth or real-time surface — the interacting
+    # in-memory-token / cookie-refresh / WebSocket-auth paths only break under a
+    # real reload against the live stack, which web:e2e (mocked) cannot reach.
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/web/src/api/client.ts
+        - packages/web/src/stores/authStore.ts
+        - packages/web/src/features/auth/**/*
+        - packages/web/src/hooks/useProjectWebSocket.ts
+        - packages/web/src/hooks/useWorkshopSocket.ts
+        - packages/web/e2e/integration/**/*
+        - packages/api/src/trueppm_api/core/auth_views.py
+        - packages/api/src/trueppm_api/apps/sync/consumers.py
+        - packages/api/src/trueppm_api/apps/workshops/consumers.py
   cache:
     - key:
         files:

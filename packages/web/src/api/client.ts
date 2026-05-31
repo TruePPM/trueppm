@@ -62,6 +62,38 @@ async function refreshAccessToken(): Promise<string> {
   return newAccessToken;
 }
 
+/**
+ * Mint an access token from the httpOnly refresh cookie on app bootstrap.
+ *
+ * Since #897 the access token is in memory only, so on a fresh page load,
+ * reload, or deep-link it starts null even when `isAuthenticated` is true (the
+ * persisted hint). Without this, the first wave of data queries would all fire
+ * unauthenticated, take a 401, and recover only via the reactive per-request
+ * refresh-retry — a 401 storm that also thrashes the WebSocket as the token
+ * flips null→fresh, and that does not reliably hydrate a page within a normal
+ * timeout (#911). Calling this once before the protected app renders restores
+ * the pre-#897 invariant that a valid token is present after hydration.
+ *
+ * Shares the single-flight `refreshPromise` with the 401 interceptor so a
+ * concurrent reactive refresh and this bootstrap refresh coalesce into one
+ * network call. Returns true on success; on failure marks the session expired
+ * (mirroring the interceptor's terminal path) and returns false.
+ */
+export async function bootstrapAccessToken(): Promise<boolean> {
+  try {
+    if (!refreshPromise) {
+      refreshPromise = refreshAccessToken().finally(() => {
+        refreshPromise = null;
+      });
+    }
+    await refreshPromise;
+    return true;
+  } catch {
+    expireSession();
+    return false;
+  }
+}
+
 // 401 interceptor with single-flight token refresh and original request retry
 apiClient.interceptors.response.use(
   (response) => response,
