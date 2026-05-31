@@ -55,3 +55,9 @@ These exist for specific operational situations and are not part of routine use:
   the affected rows without writing. It is idempotent and transaction-safe.
 - **`seed_integration_fixtures`** — seeds stable fixtures for the integration-test CI
   job. It is intended for CI and local test runs, not production.
+- **`flushexpiredtokens`** — deletes expired `OutstandingToken`/`BlacklistedToken`
+  rows created by JWT refresh-token rotation and logout (provided by the
+  `token_blacklist` app). TruePPM runs this automatically via the
+  `access.flush_expired_blacklisted_tokens` Celery Beat job (nightly, 04:30 UTC);
+  run it manually only if you operate the API without Beat. See
+  [Security → Blacklist tables and cleanup](/administration/security/#blacklist-tables-and-cleanup).
