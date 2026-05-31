@@ -53,8 +53,11 @@
      navy text) are an explicit recipe applied to primary buttons in Stage 3,
      not this token. brand-accent (amber) stays static in tailwind.config.ts.   */
   :root {
-    --brand-primary:        62 140 109;   /* sage-600 #3E8C6D — foreground/ring, 4.6:1 on white */
-    --brand-primary-dark:   49 111 87;    /* sage-700 #316F57 — hover/pressed */
+    /* sage-700 (not sage-600): the WCAG re-validation found sage-600 is 4.06:1
+       on white — fails AA for normal-weight text. sage-700 = 5.93:1 (also fixes
+       white-on-fill buttons). The brand doc's "4.6:1" figure is an error. */
+    --brand-primary:        49 111 87;    /* sage-700 #316F57 — foreground/ring/border, 5.93:1 */
+    --brand-primary-dark:   39 88 68;     /* sage-800 #275844 — hover/pressed */
     --brand-primary-light:  211 236 224;  /* sage-100 #D3ECE0 — tint surfaces / chart fills */
   }
 
@@ -70,7 +73,7 @@
   :root {
     --semantic-critical:  185 28 28;    /* #B91C1C — AA text/border; brand fill #CF4438 via -bg */
     --semantic-warning:   217 119 6;    /* #D97706 */
-    --semantic-on-track:  62 140 109;   /* #3E8C6D — brand on-track = sage-600, 4.6:1 (ADR-0102) */
+    --semantic-on-track:  49 111 87;    /* sage-700 #316F57 — on-track text, 5.93:1 AA (brand fill #3E8C6D via -bg) */
     --semantic-at-risk:   146 64 14;    /* #92400E — AA text/border; brand fill #DE9326 via -bg */
   }
 
