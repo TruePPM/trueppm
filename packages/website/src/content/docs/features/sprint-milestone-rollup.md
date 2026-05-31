@@ -1,24 +1,24 @@
 ---
 title: Sprint → milestone rollup
-description: Sprints linked to a Gantt milestone now propagate their progress live — the milestone's percent complete and date variance reflect sprint state without a status meeting or spreadsheet reconciliation.
+description: Sprints linked to a Schedule-view milestone now propagate their progress live — the milestone's percent complete and date variance reflect sprint state without a status meeting or spreadsheet reconciliation.
 ---
 
-Linking a sprint to a Gantt milestone via `Sprint.target_milestone` makes that
-milestone's `percent_complete` *live*. The number a PM sees on the Gantt and the
+Linking a sprint to a Schedule-view milestone via `Sprint.target_milestone` makes that
+milestone's `percent_complete` *live*. The number a PM sees on the Schedule view and the
 number a Scrum Master sees on the Sprints view are the same number, computed
 from the same sprint state, with no manual reconciliation step.
 
 This closes the longest-standing gap between TruePPM's agile and waterfall
 views: before this change, the link was display-only — the AdvancingToMilestone
 card showed the milestone's name and date, but its progress drifted from the
-sprint's real state until someone updated the Gantt by hand.
+sprint's real state until someone updated the Schedule view by hand.
 
 ## What changes
 
 When at least one sprint targets a milestone task:
 
 - The milestone's **percent complete** rolls up live from sprint
-  `committed_*` / `completed_*` snapshots and current task state. The Gantt
+  `committed_*` / `completed_*` snapshots and current task state. The Schedule-view
   task list shows the rolled-up value with a 🔒 lock indicator and the
   AdvancingToMilestone card shows the same number.
 - A **sprint plan variance** (positive = slip past the milestone, negative =
@@ -112,7 +112,7 @@ is gone.
   Program B cannot be linked. Cross-program milestone aggregation is an
   Enterprise concern.
 - Variance is **display only** — there is no "shift the milestone" button.
-  The PM owns the Gantt; the rollup advises but never mutates dates.
+  The PM owns the Schedule view; the rollup advises but never mutates dates.
 - Portfolio-level milestone health rollup (across many projects, for a PMO
   dashboard) is part of `trueppm-enterprise`.
 

@@ -51,5 +51,5 @@ Calendars are managed via the REST API (a visual settings editor is planned):
 | `PATCH /api/v1/calendars/{id}/` | Update |
 | `DELETE /api/v1/calendars/{id}/` | Delete |
 
-Any authenticated project member can read calendars; creating and editing them requires an
-organization admin.
+Any authenticated project member can read calendars; creating and editing them requires a
+Workspace admin.

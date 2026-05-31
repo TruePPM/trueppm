@@ -118,7 +118,7 @@ Two structurally distinct signals sit on every comment:
   notification — they're soft signals, not pings.
 
 The 0.2 reaction allow-list (shipping Jun 8, 2026) is `{"👍"}` only; the full
-emoji picker lands in 0.3.
+emoji picker will land in 0.3.
 
 ## Notifications
 
