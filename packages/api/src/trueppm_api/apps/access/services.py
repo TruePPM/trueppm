@@ -248,11 +248,17 @@ def transfer_program_sponsorship(
         ) from exc
 
     if new_owner != actor:
+        # role_changed_at is stamped alongside role on both rows so the
+        # per-program access-evidence timestamp (#878) stays accurate on this
+        # path too, not just on the partial_update endpoint.
+        now = timezone.now()
         actor_row.role = Role.ADMIN
-        actor_row.save(update_fields=["role"])
+        actor_row.role_changed_at = now
+        actor_row.save(update_fields=["role", "role_changed_at"])
 
         target.role = Role.OWNER
-        target.save(update_fields=["role"])
+        target.role_changed_at = now
+        target.save(update_fields=["role", "role_changed_at"])
 
     if new_lead is not None:
         program.lead = new_lead

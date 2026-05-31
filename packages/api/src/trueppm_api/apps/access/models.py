@@ -137,6 +137,17 @@ class ProgramMembership(VersionedModel):
         related_name="program_memberships",
     )
     role = models.IntegerField(choices=Role.choices)
+    # Per-program access evidence (#878): mirrors ProjectMembership exactly so
+    # ADR-0070's "mirrors ProjectMembership" claim holds and the program members
+    # view can answer "who has access and since when". VersionedModel omits
+    # created_at/updated_at (sync uses server_version), so these are explicit.
+    # joined_at uses default=timezone.now (not auto_now_add) so the AddField
+    # migration backfills existing rows non-interactively at migration time.
+    joined_at = models.DateTimeField(default=timezone.now, editable=False)
+    # NULL means the role has never changed since the member joined; it is
+    # stamped with timezone.now() only on an actual role change (the viewset
+    # partial_update and transfer_program_sponsorship).
+    role_changed_at = models.DateTimeField(null=True, blank=True, editable=False)
 
     class Meta:
         db_table = "access_program_membership"

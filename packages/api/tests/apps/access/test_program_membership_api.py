@@ -231,3 +231,88 @@ def test_last_owner_cannot_self_remove(program: Program, owner: object) -> None:
     m = ProgramMembership.objects.get(program=program, user=owner)
     resp = _client(owner).delete(f"/api/v1/programs/{program.pk}/members/{m.pk}/")
     assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# #878: per-program access evidence (joined_at / role_changed_at) — mirrors the
+# #590 ProjectMembership coverage in test_membership_api.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_new_membership_backfills_joined_at_and_null_role_changed_at(
+    program: Program, member: object
+) -> None:
+    """A freshly created membership has joined_at set and role_changed_at NULL."""
+    m = ProgramMembership.objects.create(program=program, user=member, role=Role.MEMBER)
+    assert m.joined_at is not None
+    assert m.role_changed_at is None
+
+
+@pytest.mark.django_db
+def test_list_includes_access_evidence_fields(program: Program, owner: object) -> None:
+    owner_membership = ProgramMembership.objects.get(program=program, user=owner)
+    resp = _client(owner).get(f"/api/v1/programs/{program.pk}/members/")
+    assert resp.status_code == 200
+    row = next(m for m in resp.data if m["id"] == str(owner_membership.pk))
+    assert row["joined_at"] is not None
+    assert row["role_changed_at"] is None
+
+
+@pytest.mark.django_db
+def test_partial_update_stamps_role_changed_at(
+    program: Program, owner: object, member: object
+) -> None:
+    """An actual role change stamps role_changed_at at/after the join time."""
+    m = ProgramMembership.objects.create(program=program, user=member, role=Role.MEMBER)
+    assert m.role_changed_at is None
+    resp = _client(owner).patch(
+        f"/api/v1/programs/{program.pk}/members/{m.pk}/",
+        {"role": Role.SCHEDULER},
+        format="json",
+    )
+    assert resp.status_code == 200
+    assert resp.data["role_changed_at"] is not None
+    m.refresh_from_db()
+    assert m.role_changed_at is not None
+    assert m.role_changed_at >= m.joined_at
+
+
+@pytest.mark.django_db
+def test_partial_update_same_role_does_not_stamp(
+    program: Program, owner: object, member: object
+) -> None:
+    """A no-op PATCH that re-sends the current role must not advance role_changed_at."""
+    m = ProgramMembership.objects.create(program=program, user=member, role=Role.MEMBER)
+    resp = _client(owner).patch(
+        f"/api/v1/programs/{program.pk}/members/{m.pk}/",
+        {"role": Role.MEMBER},
+        format="json",
+    )
+    assert resp.status_code == 200
+    m.refresh_from_db()
+    assert m.role_changed_at is None
+
+
+@pytest.mark.django_db
+def test_transfer_program_sponsorship_stamps_both_rows(
+    program: Program, owner: object, member: object
+) -> None:
+    """The sponsorship-transfer service stamps role_changed_at on both rows.
+
+    This is the second role-change path (alongside the PATCH endpoint); without
+    stamping here the access-evidence timestamp would silently miss transfers.
+    """
+    from trueppm_api.apps.access.services import transfer_program_sponsorship
+
+    owner_membership = ProgramMembership.objects.get(program=program, user=owner)
+    target = ProgramMembership.objects.create(program=program, user=member, role=Role.ADMIN)
+
+    transfer_program_sponsorship(program=program, new_owner=member, actor=owner)
+
+    owner_membership.refresh_from_db()
+    target.refresh_from_db()
+    assert owner_membership.role == Role.ADMIN
+    assert target.role == Role.OWNER
+    assert owner_membership.role_changed_at is not None
+    assert target.role_changed_at is not None

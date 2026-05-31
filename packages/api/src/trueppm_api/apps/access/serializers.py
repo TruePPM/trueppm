@@ -133,8 +133,19 @@ class ProgramMembershipReadSerializer(serializers.ModelSerializer[ProgramMembers
             "user_detail",
             "role",
             "role_label",
+            "joined_at",
+            "role_changed_at",
         ]
-        read_only_fields = ["id", "server_version", "program", "user", "user_detail", "role_label"]
+        read_only_fields = [
+            "id",
+            "server_version",
+            "program",
+            "user",
+            "user_detail",
+            "role_label",
+            "joined_at",
+            "role_changed_at",
+        ]
 
 
 class ProgramMembershipWriteSerializer(serializers.ModelSerializer[ProgramMembership]):
