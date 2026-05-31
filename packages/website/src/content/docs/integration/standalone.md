@@ -70,13 +70,13 @@ The `trueppm-scheduler` command provides a minimal CLI:
 
 ```bash
 # Schedule from a JSON file
-trueppm-scheduler schedule --input project.json
+trueppm-scheduler schedule project.json
 
 # JSON output
-trueppm-scheduler schedule --input project.json --json
+trueppm-scheduler schedule project.json --json
 
 # Monte Carlo
-trueppm-scheduler monte-carlo --input project.json --runs 10000 --json
+trueppm-scheduler monte-carlo project.json --runs 10000 --json
 ```
 
 Use `--help` on any subcommand for full options:

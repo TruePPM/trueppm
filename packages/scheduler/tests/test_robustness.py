@@ -83,6 +83,87 @@ class TestDegenerateCalendar:
         with pytest.raises(InvalidScheduleInput, match="no working day within"):
             schedule(p)
 
+    def test_exceptions_blanketing_every_day_rejected_in_monte_carlo(self) -> None:
+        """The Monte Carlo path must reject a blanket calendar too (#749 regression).
+
+        Before the validation-layer reachability probe, monte_carlo() had no
+        calendar snap ahead of its working-day-index build, so a blanket-exceptions
+        calendar drove that build past the representable date range and raised an
+        uncaught OverflowError — where schedule() raised a clean
+        InvalidScheduleInput. The two engine entry points must reject identically.
+        """
+        cal = Calendar(exceptions=[DateRange(date(1900, 1, 1), date(9999, 12, 31))])
+        p = make_project(
+            [
+                task(
+                    "A",
+                    2,
+                    optimistic_duration=timedelta(days=1),
+                    most_likely_duration=timedelta(days=2),
+                    pessimistic_duration=timedelta(days=4),
+                )
+            ],
+            calendar=cal,
+        )
+        with pytest.raises(InvalidScheduleInput, match="no working day within"):
+            monte_carlo(p, runs=50)
+
+    def test_working_day_at_start_then_blanket_rejected(self) -> None:
+        """A single working day at the start followed by a blanket gap must not spin.
+
+        The reachability probe only checks the project start, so this case slips
+        past it: the start IS a working day, but no second working day exists for
+        a multi-day task to expand into. The guarded inner walk
+        (_finish_from_start / _build_working_day_index) is the backstop that keeps
+        both engines from walking the date off its ceiling (OverflowError).
+        """
+        cal = Calendar(exceptions=[DateRange(date(2026, 3, 3), date(9999, 12, 31))])
+        p = make_project([task("A", 3)], calendar=cal)
+        with pytest.raises(InvalidScheduleInput, match="no working day within"):
+            schedule(p)
+
+    def test_working_day_at_start_then_blanket_rejected_in_monte_carlo(self) -> None:
+        cal = Calendar(exceptions=[DateRange(date(2026, 3, 3), date(9999, 12, 31))])
+        p = make_project(
+            [
+                task(
+                    "A",
+                    3,
+                    optimistic_duration=timedelta(days=2),
+                    most_likely_duration=timedelta(days=3),
+                    pessimistic_duration=timedelta(days=5),
+                )
+            ],
+            calendar=cal,
+        )
+        with pytest.raises(InvalidScheduleInput, match="no working day within"):
+            monte_carlo(p, runs=50)
+
+
+class TestDuplicateTaskIds:
+    """Duplicate task ids must be rejected, not silently shadowed (#749).
+
+    The engine keys task_map / the graph / every result on Task.id, so a
+    duplicate id leaves the shadowed task with all-None CPM fields in the
+    result — a corrupt ScheduleResult that crashes naive consumers.
+    """
+
+    def test_duplicate_id_rejected_in_schedule(self) -> None:
+        p = make_project([task("A", 3), task("A", 2)])
+        with pytest.raises(InvalidScheduleInput, match="Duplicate task id"):
+            schedule(p)
+
+    def test_duplicate_id_rejected_in_monte_carlo(self) -> None:
+        p = make_project([task("A", 3), task("A", 2)])
+        with pytest.raises(InvalidScheduleInput, match="Duplicate task id"):
+            monte_carlo(p, runs=10)
+
+    def test_unique_ids_accepted(self) -> None:
+        result = schedule(make_project([task("A", 3), task("B", 2)]))
+        assert {t.id for t in result.tasks} == {"A", "B"}
+        # No task may carry an uncomputed (None) early_start.
+        assert all(t.early_start is not None for t in result.tasks)
+
 
 class TestDurationBounds:
     def test_duration_over_max_rejected(self) -> None:

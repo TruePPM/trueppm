@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from trueppm_scheduler import InvalidScheduleInput
-from trueppm_scheduler.engine import schedule
+from trueppm_scheduler.engine import monte_carlo, schedule
 from trueppm_scheduler.models import Project
 
 FIXTURES_DIR = Path(__file__).resolve().parent.parent.parent / "wasm-scheduler" / "fixtures"
@@ -118,3 +118,12 @@ def test_invalid_fixture_rejected(invalid_name: str) -> None:
     project = Project.from_dict(data)
     with pytest.raises(InvalidScheduleInput):
         schedule(project)
+    # Also assert the Monte Carlo entry point rejects every adversarial fixture.
+    # Both public entry points share _validate_project, but monte_carlo() has its
+    # own post-validation calendar walk (the working-day index build), so a fixture
+    # that schedule() rejects could still have spun the MC path. This is exactly
+    # how the blanket-exceptions OverflowError hid (#749): the invalid suite never
+    # exercised monte_carlo(). max_tasks=None keeps the span fixture from tripping
+    # the task-count cap before _validate_project can raise.
+    with pytest.raises(InvalidScheduleInput):
+        monte_carlo(project, runs=10, max_runs=None, max_tasks=None)

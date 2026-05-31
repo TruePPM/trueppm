@@ -59,6 +59,10 @@ Lag is in **calendar working days**. Negative lag (lead) is supported.
 
 Working-day arithmetic skips weekends and any dates listed in `Calendar.exceptions` (`DateRange` entries). Applied to all lag calculations and task duration expansions.
 
+:::note
+Scheduling is in **whole working-day units**. `Calendar.hours_per_day` and `Calendar.timezone` round-trip through serialization for API parity but are not consumed by the CPM or Monte Carlo passes — they do not change any computed date. Sub-day scheduling is a future change.
+:::
+
 ### Cycle detection
 
 `schedule()` raises `CyclicDependencyError` if the graph contains a cycle. The `.cycle` attribute contains the list of task IDs forming the cycle.
@@ -136,8 +140,8 @@ result_rt = schedule(project_rt)
 ### CLI
 
 ```bash
-trueppm-scheduler schedule --input project.json
-trueppm-scheduler schedule --input project.json --json
+trueppm-scheduler schedule project.json
+trueppm-scheduler schedule project.json --json
 ```
 
 ## Monte Carlo Simulation
@@ -228,10 +232,10 @@ The CPM deterministic finish is typically close to P50 — meaning there is only
 
 ```bash
 # Summary output
-trueppm-scheduler monte-carlo --input project.json
+trueppm-scheduler monte-carlo project.json
 
 # JSON output with full weekly distribution (for frontend histograms)
-trueppm-scheduler monte-carlo --input project.json --json --distribution
+trueppm-scheduler monte-carlo project.json --json --distribution
 ```
 
 ## Errors and input limits

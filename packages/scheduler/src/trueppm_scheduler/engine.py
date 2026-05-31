@@ -187,6 +187,36 @@ def _prev_working_day(d: date, calendar: Calendar) -> date:
     return d
 
 
+def _scan_for_working_day(current: date, calendar: Calendar, *, forward: bool) -> date:
+    """Step one day from ``current`` (forward/backward) to the next working day.
+
+    Unlike :func:`_next_working_day` / :func:`_prev_working_day` — which return
+    ``current`` itself when it is already a working day — this always *advances*
+    at least one day, so it is the primitive for walking off a known working day
+    to the next one (duration expansion, working-day indexing).
+
+    Guarded with the same :data:`MAX_CALENDAR_SCAN_DAYS` bound as the snap
+    helpers: a calendar whose ``exceptions`` blanket the window *after* a valid
+    start day (e.g. a single working day followed by a century of holidays) would
+    otherwise walk the date past its representable ceiling and raise an opaque
+    ``OverflowError`` mid-pass. Bailing here keeps every calendar walk — in both
+    :func:`schedule` and :func:`monte_carlo` — bounded and surfacing one
+    documented :class:`InvalidScheduleInput` instead.
+    """
+    step = timedelta(days=1) if forward else timedelta(days=-1)
+    scanned = 0
+    while True:
+        current += step
+        scanned += 1
+        if calendar.is_working_day(current):
+            return current
+        if scanned >= MAX_CALENDAR_SCAN_DAYS:
+            raise InvalidScheduleInput(
+                f"Calendar has no working day within {MAX_CALENDAR_SCAN_DAYS} days "
+                "of the requested date; check the working_days bitmask and exceptions."
+            )
+
+
 def _finish_from_start(start: date, duration_days: int, calendar: Calendar) -> date:
     """Return the last working day of a task given its start and working-day duration.
 
@@ -198,9 +228,8 @@ def _finish_from_start(start: date, duration_days: int, calendar: Calendar) -> d
     remaining = duration_days - 1
     current = start
     while remaining > 0:
-        current += timedelta(days=1)
-        if calendar.is_working_day(current):
-            remaining -= 1
+        current = _scan_for_working_day(current, calendar, forward=True)
+        remaining -= 1
     return current
 
 
@@ -214,9 +243,8 @@ def _start_from_finish(finish: date, duration_days: int, calendar: Calendar) -> 
     remaining = duration_days - 1
     current = finish
     while remaining > 0:
-        current -= timedelta(days=1)
-        if calendar.is_working_day(current):
-            remaining -= 1
+        current = _scan_for_working_day(current, calendar, forward=False)
+        remaining -= 1
     return current
 
 
@@ -648,11 +676,36 @@ def _validate_project(project: Project) -> None:
     project from tying up the caller (notably the synchronous Monte Carlo
     request path in the TruePPM API).
     """
+    # Unique task IDs: the engine keys task_map, the graph, and every per-task
+    # result on Task.id, so a duplicate id silently shadows one task — the loser
+    # never gets CPM fields computed and surfaces in the result with all-None
+    # early/late dates, crashing any consumer that reads them. Reject it as the
+    # structural error it is rather than emitting a corrupt ScheduleResult.
+    seen_ids: set[str] = set()
+    for t in project.tasks:
+        if t.id in seen_ids:
+            raise InvalidScheduleInput(
+                f"Duplicate task id {t.id!r}; every task must have a unique id."
+            )
+        seen_ids.add(t.id)
+
     if project.calendar.working_days & 0b111_1111 == 0:
         raise InvalidScheduleInput(
             "Calendar has no working weekday set (working_days bitmask is empty); "
             "at least one of Mon-Sun must be a working day."
         )
+
+    # Reachability probe: a working day must exist within MAX_CALENDAR_SCAN_DAYS
+    # of the project start. Catches a valid weekday mask whose `exceptions`
+    # blanket the schedule — the common degenerate case — eagerly and with the
+    # same message on every entry point, rather than relying on whichever pass
+    # happens to hit a snap helper first. schedule()'s forward pass snaps the
+    # start anyway, but monte_carlo() builds its working-day index without a prior
+    # snap, so before this probe a blanket-exceptions calendar drove the MC path
+    # into an uncaught OverflowError. Mirrors the Rust engine's validate_project
+    # (#749) so both engines reject identically at the validation layer.
+    _next_working_day(project.start_date, project.calendar)
+
     for t in project.tasks:
         _check_duration(t.duration, f"Task {t.id!r} duration")
         for field_name, value in (
@@ -805,13 +858,22 @@ def _build_working_day_index(start: date, calendar: Calendar, n_working_days: in
     """Build a lookup list: working_day_index[k] = the k-th working day from start.
 
     Used to convert integer working-day offsets (from MC simulation) back to dates.
+
+    Both the initial snap and each subsequent step are guarded against a
+    degenerate calendar (see :func:`_scan_for_working_day`), so a Monte Carlo run
+    on a project whose ``exceptions`` blanket the schedule raises a documented
+    :class:`InvalidScheduleInput` rather than spinning to an ``OverflowError``.
+    This is the Monte Carlo counterpart to the snap that guards :func:`schedule`'s
+    forward pass — without it the MC path had no calendar-reachability guard.
     """
     result: list[date] = []
-    current = start
+    if n_working_days <= 0:
+        return result
+    current = _next_working_day(start, calendar)
+    result.append(current)
     while len(result) < n_working_days:
-        if calendar.is_working_day(current):
-            result.append(current)
-        current += timedelta(days=1)
+        current = _scan_for_working_day(current, calendar, forward=True)
+        result.append(current)
     return result
 
 

@@ -1,0 +1,17 @@
+{
+  "id": "inv-blanket-exceptions",
+  "name": "Exceptions blanket the schedule",
+  "start_date": "2026-04-01",
+  "tasks": [
+    {"id": "A", "name": "Task A", "duration": 432000.0}
+  ],
+  "dependencies": [],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [
+      {"start": "1900-01-01", "end": "9999-12-31"}
+    ],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}
