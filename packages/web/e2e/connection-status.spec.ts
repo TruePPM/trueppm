@@ -37,7 +37,11 @@ const FIXTURE_TASKS = [
 ];
 
 async function setup(page: import('@playwright/test').Page) {
-  await setupAuth(page);
+  // The project WebSocket only connects when an access token is in memory
+  // (#897 moved it out of localStorage). All API calls here are route-mocked,
+  // so the lazy 401→refresh that normally re-mints the token never fires —
+  // seed one explicitly so the connection can go Live.
+  await setupAuth(page, { accessToken: 'e2e-ws-token' });
   await setupCatchAll(page);
   await setupApiMocks(page, {
     projects: FIXTURE_PROJECTS,

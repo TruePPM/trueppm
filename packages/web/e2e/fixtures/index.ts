@@ -1,4 +1,4 @@
-export { setupAuth } from './auth';
+export { setupAuth, type SetupAuthOptions } from './auth';
 export {
   setupApiMocks,
   setupCatchAll,
