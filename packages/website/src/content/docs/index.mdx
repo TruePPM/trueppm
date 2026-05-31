@@ -52,6 +52,8 @@ Or use the scheduling engine standalone — no server required:
 pip install trueppm-scheduler
 ```
 
+[View `trueppm-scheduler` on PyPI →](https://pypi.org/project/trueppm-scheduler/)
+
 ```python
 from datetime import date, timedelta
 from trueppm_scheduler import schedule, Calendar, Project, Task, Dependency
@@ -106,7 +108,7 @@ print(result.critical_path)           # ['t-1', 't-2']
 
 | Component | Status | Description |
 |-----------|--------|-------------|
-| Scheduling engine | **0.1** | CPM + Monte Carlo. Ships standalone as `trueppm-scheduler` on PyPI. |
+| Scheduling engine | **0.1** | CPM + Monte Carlo. Ships standalone as [`trueppm-scheduler`](https://pypi.org/project/trueppm-scheduler/) on PyPI. |
 | REST API | **0.1** | Full CRUD for projects, tasks, dependencies, resources, calendars, members, sprints. OpenAPI 3.1 schema. |
 | RBAC | **0.1** | 5-role per-project permissions (Owner / Admin / Scheduler / Member / Viewer) on every endpoint. |
 | Real-time | **0.1** | WebSocket broadcasts for all mutations, deferred to transaction commit. |

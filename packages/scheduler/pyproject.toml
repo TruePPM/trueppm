@@ -65,9 +65,11 @@ dev = [
 trueppm-scheduler = "trueppm_scheduler.cli:main"
 
 [project.urls]
-Homepage = "https://gitlab.com/trueppm/trueppm"
+Homepage = "https://trueppm.com"
+Documentation = "https://docs.trueppm.com/features/scheduler"
 Repository = "https://gitlab.com/trueppm/trueppm"
 Issues = "https://gitlab.com/trueppm/trueppm/-/issues"
+Changelog = "https://gitlab.com/trueppm/trueppm/-/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/trueppm_scheduler"]
