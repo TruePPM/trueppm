@@ -1798,20 +1798,22 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
                     server_version=db_models.F("server_version") + 1
                 )
                 if parent.sprint_id is not None:
-                    from trueppm_api.apps.projects.models import SprintScopeChange
-                    from trueppm_api.apps.projects.signals import subtask_sprint_scope_changed
+                    from trueppm_api.apps.projects.models import Sprint
+                    from trueppm_api.apps.projects.services import record_sprint_scope_change
 
-                    scope_change = SprintScopeChange.objects.create(
-                        task=parent,
-                        sprint_id=parent.sprint_id,
-                        subtask_name=instance.name,
-                        added_by=self.request.user if self.request.user.is_authenticated else None,
-                    )
-                    subtask_sprint_scope_changed.send(
-                        sender=SprintScopeChange,
-                        scope_change=scope_change,
-                        parent_task=parent,
-                    )
+                    parent_sprint = Sprint.objects.filter(pk=parent.sprint_id).first()
+                    if parent_sprint is not None:
+                        # Subtask spawn: record the audit row against the already-
+                        # committed parent for the drawer chip (flag_pending=False —
+                        # the parent stays in the commitment; flagging it pending
+                        # would wrongly drop the whole parent from the burndown).
+                        record_sprint_scope_change(
+                            task=parent,
+                            sprint=parent_sprint,
+                            by=self.request.user,
+                            item_name=instance.name,
+                            flag_pending=False,
+                        )
 
         project_id = str(instance.project_id)
         task_id = str(instance.pk)
@@ -1849,10 +1851,41 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
             if serializer.instance and serializer.instance.planned_start
             else None
         )
+        # ADR-0102 §4: capture the prior sprint link so a *direct* task→sprint
+        # link can be detected after save and routed through the scope-injection
+        # approve-gate when the new sprint is ACTIVE (post-activation injection).
+        old_sprint_id = (
+            str(serializer.instance.sprint_id)
+            if serializer.instance and serializer.instance.sprint_id
+            else None
+        )
 
         instance = serializer.save()
         project_id = str(instance.project_id)
         task_id = str(instance.pk)
+
+        # ADR-0102 §4 — generalized scope-injection write path. A task newly
+        # linked to an ACTIVE sprint (the link changed and the target sprint is
+        # ACTIVE) enters the pending-acceptance state: a PENDING SprintScopeChange
+        # is recorded and ``sprint_pending`` is flipped True, excluding it from
+        # commitment/burndown until a team member accepts. Subtasks (sprint=None,
+        # parent carries membership) and pre-activation/PLANNED links are skipped.
+        new_sprint_id = str(instance.sprint_id) if instance.sprint_id else None
+        if (
+            new_sprint_id is not None
+            and new_sprint_id != old_sprint_id
+            and not instance.is_subtask
+            and not instance.sprint_pending
+        ):
+            target_sprint = Sprint.objects.filter(pk=new_sprint_id).first()
+            if target_sprint is not None and target_sprint.state == SprintState.ACTIVE:
+                from trueppm_api.apps.projects.services import record_sprint_scope_change
+
+                record_sprint_scope_change(
+                    task=instance,
+                    sprint=target_sprint,
+                    by=self.request.user,
+                )
         transaction.on_commit(lambda: _enqueue_recalculate(project_id))
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "task_updated", {"id": task_id})
@@ -4855,6 +4888,12 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
             return [IsAuthenticated(), IsProjectScheduler(), IsProjectNotArchived()]
         if self.action == "destroy":
             return [IsAuthenticated(), IsProjectAdmin(), IsProjectNotArchived()]
+        # ADR-0102 §3: the scope-injection accept-gate is team-owned (role>=ADMIN,
+        # the PM/Scrum-Master/PO hat — the same gate as activate/close). The
+        # service layer re-checks project membership at role>=ADMIN regardless of
+        # role ordinal so a non-member high-ordinal Enterprise role is still 403.
+        if self.action in ("scope_changes_accept", "scope_changes_reject"):
+            return [IsAuthenticated(), IsProjectAdmin(), IsProjectNotArchived()]
         return [IsAuthenticated(), IsProjectMemberWrite(), IsProjectNotArchived()]
 
     def get_queryset(self) -> QuerySet[Sprint]:
@@ -4865,7 +4904,16 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         state_filter = self.request.query_params.get("state")
         if state_filter:
             qs = qs.filter(state=state_filter)
-        return qs
+        # ADR-0102 §5/§8: annotate pending_count so SprintSerializer reads it
+        # without an N+1 COUNT per row (the serializer falls back to a single
+        # COUNT only for actions that build a sprint outside this queryset).
+        qs = qs.annotate(
+            pending_count=db_models.Count(
+                "tasks",
+                filter=db_models.Q(tasks__sprint_pending=True, tasks__is_deleted=False),
+            )
+        )
+        return cast(QuerySet[Sprint], qs)
 
     def perform_create(self, serializer: BaseSerializer[Sprint]) -> None:
         from trueppm_api.apps.projects.services import recompute_milestone_rollup
@@ -5015,7 +5063,10 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         Returns 202 Accepted with the SprintCloseRequest id. The frontend
         polls retrieve or subscribes via WebSocket to observe ``state=COMPLETED``.
         """
-        from trueppm_api.apps.projects.services import enqueue_sprint_close
+        from trueppm_api.apps.projects.services import (
+            enqueue_sprint_close,
+            pending_scope_advisory,
+        )
 
         sprint = get_object_or_404(Sprint, pk=pk, is_deleted=False)
         self.check_object_permissions(request, sprint)
@@ -5027,6 +5078,7 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         body = SprintCloseRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
         carry_over_to = body.validated_data["carry_over_to"]
+        pending_disposition = body.validated_data["pending_disposition"]
 
         if carry_over_to not in {"backlog", "none"}:
             target = Sprint.objects.filter(
@@ -5045,16 +5097,22 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
+        # ADR-0102 §7: surface the non-blocking pending-scope advisory in the
+        # close response so the frontend can confirm the disposition. Closing is
+        # NEVER blocked by pending items — this is informational only.
+        advisory = pending_scope_advisory(sprint)
+
         with transaction.atomic():
             req = enqueue_sprint_close(
                 sprint_id=sprint.pk,
                 carry_over_to=carry_over_to,
+                pending_disposition=pending_disposition,
                 requested_by=request.user,
             )
-        return Response(
-            {"queued": True, "request_id": str(req.id)},
-            status=status.HTTP_202_ACCEPTED,
-        )
+        payload: dict[str, Any] = {"queued": True, "request_id": str(req.id)}
+        if advisory is not None:
+            payload["scope_pending_on_close"] = advisory
+        return Response(payload, status=status.HTTP_202_ACCEPTED)
 
     @action(detail=True, methods=["post"])
     def cancel(self, request: Request, pk: str | None = None) -> Response:
@@ -5098,6 +5156,85 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
 
                 recompute_milestone_rollup(sprint.target_milestone_id)
         return Response(SprintSerializer(sprint).data, status=status.HTTP_200_OK)
+
+    def _bulk_scope_change(self, request: Request, pk: str | None, *, accept: bool) -> Response:
+        """Shared body for the bulk accept/reject scope-change actions (ADR-0102 §5).
+
+        Resolves the target PENDING SprintScopeChange rows (explicit ``ids`` or all
+        pending in the sprint), applies the gated service per row, and returns
+        ``{"accepted"|"rejected": [...], "pending_count": N}``. Tolerates partial
+        failure: a row that errors (e.g. concurrently decided) is skipped and the
+        rest still apply — the response lists only the rows that succeeded.
+        """
+        from trueppm_api.apps.projects.models import ScopeChangeStatus, SprintScopeChange
+        from trueppm_api.apps.projects.serializers import (
+            ScopeChangeBulkSerializer,
+            SprintScopeChangeSerializer,
+        )
+        from trueppm_api.apps.projects.services import (
+            ScopeAcceptForbidden,
+            accept_scope_change,
+            reject_scope_change,
+            sprint_pending_count,
+        )
+
+        sprint = get_object_or_404(Sprint, pk=pk, is_deleted=False)
+        self.check_object_permissions(request, sprint)
+        body = ScopeChangeBulkSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        ids = body.validated_data["ids"]
+
+        pending_qs = SprintScopeChange.objects.filter(
+            sprint_id=sprint.pk, status=ScopeChangeStatus.PENDING
+        ).select_related("task")
+        if ids:
+            pending_qs = pending_qs.filter(pk__in=ids)
+
+        service = accept_scope_change if accept else reject_scope_change
+        done: list[Any] = []
+        for sc in pending_qs:
+            try:
+                result = service(sc, request.user)
+            except ScopeAcceptForbidden:
+                # The gate is checked at the viewset layer too; reaching here means
+                # the actor lost membership mid-request — fail the whole call closed.
+                return Response(
+                    {"code": ScopeAcceptForbidden.code, "detail": ScopeAcceptForbidden.detail},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            except Exception:
+                # Tolerate partial failure per row — one row that errors (e.g.
+                # decided concurrently) is skipped; the rest still apply.
+                logger.exception("bulk scope-change failed for %s", sc.pk)
+                continue
+            done.append(result)
+
+        key = "accepted" if accept else "rejected"
+        return Response(
+            {
+                key: [SprintScopeChangeSerializer(row).data for row in done],
+                "pending_count": sprint_pending_count(sprint.pk),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=["post"], url_path="scope-changes/accept")
+    def scope_changes_accept(self, request: Request, pk: str | None = None) -> Response:
+        """Bulk-accept pending scope injections in a sprint (ADR-0102 §5).
+
+        Body ``{"ids": [uuid, ...]}`` — omit or empty to accept *all* pending.
+        Returns ``{"accepted": [...], "pending_count": N}``.
+        """
+        return self._bulk_scope_change(request, pk, accept=True)
+
+    @action(detail=True, methods=["post"], url_path="scope-changes/reject")
+    def scope_changes_reject(self, request: Request, pk: str | None = None) -> Response:
+        """Bulk-reject pending scope injections in a sprint (ADR-0102 §5).
+
+        Body ``{"ids": [uuid, ...]}`` — omit or empty to reject *all* pending.
+        Returns ``{"rejected": [...], "pending_count": N}``.
+        """
+        return self._bulk_scope_change(request, pk, accept=False)
 
     @action(detail=True, methods=["get"])
     def burndown(self, request: Request, pk: str | None = None) -> Response:
@@ -5506,6 +5643,60 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
             )
         task = Task.objects.select_related("project", "assignee", "sprint").get(pk=task.pk)
         return Response({"task": TaskSerializer(task).data}, status=status.HTTP_200_OK)
+
+
+class SprintScopeChangeViewSet(viewsets.GenericViewSet[Any]):
+    """Single-item accept/reject for mid-sprint scope injections (ADR-0102 §5).
+
+    ``POST /api/v1/scope-changes/{id}/accept/`` and ``/reject/``. Permission is
+    enforced entirely in the service layer (``_assert_scope_gate``): the actor
+    must hold a real ProjectMembership at role>=ADMIN on the scope-change's task's
+    project. A non-member (the only way an org/PMO principal arrives) is 403
+    ``scope_accept_forbidden`` *regardless of role ordinal* — closing the
+    Enterprise back-door (VoC 🔴 #1) at the OSS boundary. There is no auto-accept
+    path: these two actions are the only writers of ACCEPTED/REJECTED.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self) -> QuerySet[Any]:
+        from trueppm_api.apps.projects.models import SprintScopeChange
+
+        return SprintScopeChange.objects.select_related("task", "sprint").all()
+
+    def _act(self, request: Request, pk: str | None, *, accept: bool) -> Response:
+        from trueppm_api.apps.projects.serializers import SprintScopeChangeSerializer
+        from trueppm_api.apps.projects.services import (
+            ScopeAcceptForbidden,
+            accept_scope_change,
+            reject_scope_change,
+            sprint_pending_count,
+        )
+
+        scope_change = get_object_or_404(self.get_queryset(), pk=pk)
+        service = accept_scope_change if accept else reject_scope_change
+        try:
+            result = service(scope_change, request.user)
+        except ScopeAcceptForbidden:
+            return Response(
+                {"code": ScopeAcceptForbidden.code, "detail": ScopeAcceptForbidden.detail},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        data = SprintScopeChangeSerializer(result).data
+        # The sprint may be null after a reject only on the task; the scope-change
+        # row retains sprint_id, so pending_count resolves against it.
+        data["pending_count"] = sprint_pending_count(result.sprint_id)
+        return Response(data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post"])
+    def accept(self, request: Request, pk: str | None = None) -> Response:
+        """Accept a single pending scope injection into the sprint commitment."""
+        return self._act(request, pk, accept=True)
+
+    @action(detail=True, methods=["post"])
+    def reject(self, request: Request, pk: str | None = None) -> Response:
+        """Reject a single pending scope injection, removing the task from the sprint."""
+        return self._act(request, pk, accept=False)
 
 
 class MeActiveSprintsView(APIView):

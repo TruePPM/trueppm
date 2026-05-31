@@ -667,5 +667,11 @@ SPECTACULAR_SETTINGS = {
         "PurgeRunTriggerEnum": "trueppm_api.apps.observability.models.PurgeRun.Trigger",
         "FrequencyEnum": "trueppm_api.apps.observability.models.RetentionSchedule.Frequency",
         "RecurrenceFrequencyEnum": "trueppm_api.apps.projects.models.TaskRecurrenceFrequency",
+        # ADR-0102: SprintScopeChange.status (pending|accepted|rejected) introduces
+        # a new "status" choice set; without a pin drf-spectacular disambiguates
+        # every "status" field by model prefix and renames existing stable
+        # components (a schema-drift regression — project memory
+        # project_drf_enum_name_collision). Pin ours to a stable name.
+        "ScopeChangeStatusEnum": "trueppm_api.apps.projects.models.ScopeChangeStatus",
     },
 }

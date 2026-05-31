@@ -66,6 +66,7 @@ def close_sprint(self: object, request_id: str) -> None:
     )
     from trueppm_api.apps.projects.services import (
         apply_carry_over,
+        apply_pending_disposition,
         snapshot_completed_metrics,
     )
     from trueppm_api.apps.scheduling.models import (
@@ -137,6 +138,12 @@ def close_sprint(self: object, request_id: str) -> None:
             )
 
             carried_task_ids = apply_carry_over(sprint, req.carry_over_to)
+
+            # ADR-0102 §7: dispose of tasks still pending acceptance at close.
+            # Runs AFTER carry-over (so a carried task's new sprint_id is set) and
+            # never blocks the close. 'carry' re-flags pending tasks in the
+            # incoming sprint; 'reject' removes them from the sprint.
+            apply_pending_disposition(sprint, req.pending_disposition, by=req.requested_by)
 
             # ADR-0074: recompute the milestone rollup with the final
             # completed_* snapshot. Runs here (inside the drain transaction,

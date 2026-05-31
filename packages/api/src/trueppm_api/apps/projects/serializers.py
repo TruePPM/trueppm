@@ -832,6 +832,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "priority_rank",
             "assignee_is_overallocated",
             "sprint",
+            "sprint_pending",
             "story_points",
             "remaining_points",
             "is_subtask",
@@ -862,6 +863,9 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "linked_risks_max_severity",
             "status_changed_at",
             "assignee_is_overallocated",
+            # ADR-0102: only the accept/reject services may change this — never a
+            # client PATCH (so a contributor cannot self-accept by writing it).
+            "sprint_pending",
             "sprint_scope_changes",
             "milestone_rollup",
         ]
@@ -1126,6 +1130,8 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                 "added_by_name": r.added_by.get_full_name() if r.added_by else None,
                 "added_at": r.added_at.isoformat(),
                 "goal_impact": r.goal_impact,
+                # ADR-0102: the accept-gate decision outcome (pending|accepted|rejected).
+                "status": r.status,
             }
             for r in rows
         ]
@@ -2236,10 +2242,27 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
     completion_ratio_points = serializers.SerializerMethodField()
     completion_ratio_tasks = serializers.SerializerMethodField()
     target_milestone_detail = serializers.SerializerMethodField()
+    pending_count = serializers.SerializerMethodField()
 
     def get_short_id_display(self, obj: Sprint) -> str:
         """Return the human-facing form ``SP-XXXXXXXX`` of the short id."""
         return f"SP-{obj.short_id}" if obj.short_id else ""
+
+    def get_pending_count(self, obj: Sprint) -> int:
+        """Number of tasks pending acceptance in this sprint (ADR-0102 §5).
+
+        Drives the "Forecast reflects accepted scope only — N items pending"
+        copy. Prefers the ``pending_count`` annotation set on the list/detail
+        queryset (SprintViewSet.get_queryset) to avoid an N+1; falls back to a
+        single COUNT for callers that build the sprint outside that queryset
+        (the activate/close/cancel actions construct the instance directly).
+        """
+        annotated = getattr(obj, "pending_count", None)
+        if annotated is not None:
+            return int(annotated)
+        from trueppm_api.apps.projects.models import Task
+
+        return Task.objects.filter(sprint_id=obj.pk, sprint_pending=True, is_deleted=False).count()
 
     def get_completion_ratio_points(self, obj: Sprint) -> float | None:
         committed = obj.committed_points or 0
@@ -2353,6 +2376,7 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
             "completed_task_count",
             "completion_ratio_points",
             "completion_ratio_tasks",
+            "pending_count",
             "activated_at",
             "closed_at",
             "created_by",
@@ -2373,6 +2397,7 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
             "completed_task_count",
             "completion_ratio_points",
             "completion_ratio_tasks",
+            "pending_count",
             "activated_at",
             "closed_at",
             "created_by",
@@ -2414,6 +2439,10 @@ class SprintCloseRequestSerializer(serializers.Serializer[dict[str, Any]]):
     """Validate the body for ``POST /api/sprints/{id}/close/``."""
 
     carry_over_to = serializers.CharField(default="backlog")
+    # ADR-0102 §7: how to dispose of tasks still pending acceptance at close.
+    # 'carry' (default) keeps them pending in the carry-over target; 'reject'
+    # removes them from the sprint. Closing is never blocked by pending items.
+    pending_disposition = serializers.ChoiceField(choices=["carry", "reject"], default="carry")
 
     def validate_carry_over_to(self, value: str) -> str:
         if value in {"backlog", "none"}:
@@ -2426,6 +2455,34 @@ class SprintCloseRequestSerializer(serializers.Serializer[dict[str, Any]]):
                 "carry_over_to must be 'backlog', 'none', or a sprint UUID."
             ) from exc
         return value
+
+
+class SprintScopeChangeSerializer(serializers.Serializer[dict[str, Any]]):
+    """Read-only response shape for an accept/reject scope-change action (ADR-0102 §5).
+
+    Mirrors the row dict TaskSerializer.get_sprint_scope_changes emits so the
+    frontend has one shape for both the drawer list and the action responses.
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    task = serializers.UUIDField(source="task_id", read_only=True)
+    sprint = serializers.UUIDField(source="sprint_id", read_only=True)
+    item_name = serializers.CharField(read_only=True)
+    status = serializers.CharField(read_only=True)
+    goal_impact = serializers.BooleanField(read_only=True)
+    added_at = serializers.DateTimeField(read_only=True)
+
+
+class ScopeChangeBulkSerializer(serializers.Serializer[dict[str, Any]]):
+    """Validate the body for the bulk accept/reject endpoints (ADR-0102 §5).
+
+    ``ids`` is the list of SprintScopeChange UUIDs to act on; omit or pass an
+    empty list to act on *all* PENDING scope changes in the sprint.
+    """
+
+    ids = serializers.ListField(
+        child=serializers.UUIDField(), required=False, default=list, allow_empty=True
+    )
 
 
 class ProjectVelocitySerializer(serializers.Serializer[dict[str, Any]]):
@@ -2636,6 +2693,10 @@ class MeWorkTaskSerializer(serializers.Serializer[Any]):
     project_name = serializers.SerializerMethodField()
     sprint_id = serializers.UUIDField(read_only=True, allow_null=True)
     sprint_name = serializers.SerializerMethodField()
+    # ADR-0102 §6: a pending injection SHOWS in My Work (the contributor needs to
+    # see what is heading their way) with a muted "Pending acceptance" chip. The
+    # me tree carries the read-state only — never accept/reject controls.
+    sprint_pending = serializers.BooleanField(read_only=True)
     status = serializers.CharField(read_only=True)
     story_points = serializers.IntegerField(read_only=True, allow_null=True)
     remaining_points = serializers.IntegerField(read_only=True, allow_null=True)
