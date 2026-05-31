@@ -6,7 +6,7 @@ import { useWsConnectionStore } from '@/stores/wsConnectionStore';
 
 vi.mock('@/hooks/useProjects', () => ({
   useProjects: () => ({
-    data: [{ id: 'p1', name: 'Alpha Platform Upgrade', healthState: 'on-track', colorDot: '#1C6B3A', methodology: 'HYBRID' }],
+    data: [{ id: 'p1', name: 'Alpha Platform Upgrade', healthState: 'on-track', colorDot: '#3E8C6D', methodology: 'HYBRID' }],
     isLoading: false,
     error: null,
   }),

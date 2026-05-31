@@ -33,8 +33,10 @@ describe('App', () => {
     expect(screen.getByRole('main')).toBeInTheDocument();
   });
 
-  it('renders the TruePPM logo text', () => {
+  it('renders the TruePPM logo', () => {
     renderWithRouter(<AppShell />);
-    expect(screen.getByText('TruePPM')).toBeInTheDocument();
+    // Wordmark is two-color ("True" navy + "PPM" sage) so the text is split
+    // across spans; the accessible name lives on the lockup's aria-label.
+    expect(screen.getByLabelText('TruePPM')).toBeInTheDocument();
   });
 });

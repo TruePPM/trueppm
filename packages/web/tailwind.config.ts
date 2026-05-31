@@ -18,13 +18,33 @@ const config: Config = {
     extend: {
       colors: {
         brand: {
-          primary: '#1C6B3A',
-          'primary-dark': '#145229',
-          'primary-light': '#D4EDDA',
+          // Mode-aware via CSS custom properties in globals.css (ADR-0103):
+          // sage-600/sage-400 (light/dark). Channel-triple form preserves the
+          // pervasive `/N` alpha modifier usage (bg-brand-primary/10, etc.).
+          primary: 'rgb(var(--brand-primary) / <alpha-value>)',
+          'primary-dark': 'rgb(var(--brand-primary-dark) / <alpha-value>)',
+          'primary-light': 'rgb(var(--brand-primary-light) / <alpha-value>)',
+          // Secondary accent (amber) — unchanged; dark handled per-class (rule 86).
           accent: '#E8A020',
           'accent-dark': '#C17A10',
           'accent-light': '#FFF3CD',
         },
+        // ── Brand v1.0 identity scales (ADR-0103) ───────────────────────────
+        // True Navy (ink/identity), Truth Sage (action/path), Reversed Ink.
+        // Static scales for explicit identity/accent use (mark, wordmark,
+        // button fills). The mode-aware `brand-primary` swap lives in
+        // globals.css (Stage 2); these scales are the raw source values.
+        navy: {
+          50: '#EEF1F7', 100: '#D8DFEC', 200: '#B0BDD3', 300: '#8194B5',
+          400: '#556C94', 500: '#344A72', 600: '#243A5E', 700: '#1B2A4A',
+          800: '#15223C', 900: '#0E1626',
+        },
+        sage: {
+          50: '#EDF7F2', 100: '#D3ECE0', 200: '#AEDCC8', 300: '#84CBAC',
+          400: '#66B998', 500: '#4FA884', 600: '#3E8C6D', 700: '#316F57',
+          800: '#275844', 900: '#1B3D2F',
+        },
+        reversed: '#E9EDF3',
         // Neutral content surface tokens — driven by CSS custom properties in
         // globals.css so a single .dark class on <html> swaps all values.
         neutral: {
@@ -69,9 +89,9 @@ const config: Config = {
         // component references bg-gantt-surface or gantt-text-* — Tailwind silently
         // emits no CSS for undefined tokens.
         gantt: {
-          surface:             '#0F1117',
-          'text-primary':      '#E8E8E8',   // 15.3:1 on gantt-surface
-          'text-secondary':    '#94A3B8',   // Slate-400; 7.45:1 on #0F1117
+          surface:             '#0E1626',   // navy-900 (brand dark chrome, ADR-0103)
+          'text-primary':      '#E9EDF3',   // reversed ink; ~14:1 on gantt-surface
+          'text-secondary':    '#94A3B8',   // Slate-400; ~6.9:1 on #0E1626
           'semantic-critical': '#F87171',   // Red-400; 4.87:1 on #0F1117 (rule 41)
           'semantic-at-risk':  '#FB923C',   // Orange-400; 5.96:1 on #0F1117 (rule 41)
           'semantic-on-track': '#4ADE80',   // Green-400; 5.28:1 on #0F1117 (rule 41)
@@ -96,6 +116,8 @@ const config: Config = {
         },
       },
       fontFamily: {
+        // Space Grotesk = display / wordmark / big numbers (brand v1.0 §06).
+        display: ['Space Grotesk', 'ui-sans-serif', 'system-ui', 'sans-serif'],
         sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
         mono: ["'JetBrains Mono'", 'ui-monospace', 'monospace'],
       },

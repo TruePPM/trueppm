@@ -25,8 +25,8 @@ const METHODS: Array<{
     id: 'waterfall',
     label: 'Waterfall',
     tagline: 'Phases, gates, baselines, CPM. No sprints.',
-    accent: '#1C6B3A',
-    accentBg: '#D4EDDA',
+    accent: '#3E8C6D',
+    accentBg: '#D3ECE0',
     features: ['WBS → Schedule → Baseline', 'CPM with all 4 dependency types', 'Earned value metrics'],
   },
   {

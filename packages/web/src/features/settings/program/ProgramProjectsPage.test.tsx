@@ -64,8 +64,8 @@ describe('ProgramProjectsPage (settings)', () => {
     useProgram.mockReturnValue({ data: { id: 'p-1', name: 'Phase 2', my_role: 400 } });
     useProgramProjects.mockReturnValue({
       data: [
-        { id: 'pr-1', name: 'Artemis IV', healthState: 'unknown', colorDot: '#1C6B3A', methodology: 'WATERFALL', programId: 'p-1' },
-        { id: 'pr-2', name: 'Launch Control', healthState: 'unknown', colorDot: '#1C6B3A', methodology: 'AGILE', programId: 'p-1' },
+        { id: 'pr-1', name: 'Artemis IV', healthState: 'unknown', colorDot: '#3E8C6D', methodology: 'WATERFALL', programId: 'p-1' },
+        { id: 'pr-2', name: 'Launch Control', healthState: 'unknown', colorDot: '#3E8C6D', methodology: 'AGILE', programId: 'p-1' },
       ],
       isLoading: false,
       error: null,

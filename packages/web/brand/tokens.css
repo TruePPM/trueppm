@@ -1,0 +1,177 @@
+/* ============================================================================
+   TruePPM — Brand Design Tokens
+   v1.0 · Locked palette: True Navy · Truth Sage · Reversed Ink
+   ----------------------------------------------------------------------------
+   Drop-in CSS custom properties. Light mode on :root, dark mode under
+   [data-theme="dark"] (or .dark). All values are also available as JSON in
+   tokens.json and as a Tailwind theme in tailwind.config.snippet.js.
+   ============================================================================ */
+
+:root {
+  /* ---- Core brand (locked) ------------------------------------------------ */
+  --tp-brand-navy:     #1B2A4A;   /* True Navy   — primary ink / brand */
+  --tp-brand-sage:     #4FA884;   /* Truth Sage  — accent / path / action */
+  --tp-brand-reversed: #E9EDF3;   /* Reversed Ink — navy reverses to this on dark */
+
+  /* ---- Navy scale --------------------------------------------------------- */
+  --tp-navy-50:  #EEF1F7;
+  --tp-navy-100: #D8DFEC;
+  --tp-navy-200: #B0BDD3;
+  --tp-navy-300: #8194B5;
+  --tp-navy-400: #556C94;
+  --tp-navy-500: #344A72;
+  --tp-navy-600: #243A5E;
+  --tp-navy-700: #1B2A4A;   /* = brand navy */
+  --tp-navy-800: #15223C;
+  --tp-navy-900: #0E1626;
+
+  /* ---- Sage scale --------------------------------------------------------- */
+  --tp-sage-50:  #EDF7F2;
+  --tp-sage-100: #D3ECE0;
+  --tp-sage-200: #AEDCC8;
+  --tp-sage-300: #84CBAC;
+  --tp-sage-400: #66B998;
+  --tp-sage-500: #4FA884;   /* = brand sage */
+  --tp-sage-600: #3E8C6D;
+  --tp-sage-700: #316F57;
+  --tp-sage-800: #275844;
+  --tp-sage-900: #1B3D2F;
+
+  /* ---- Neutral / slate (cool, tuned to sit beside navy) ------------------- */
+  --tp-slate-50:  #F7F8FA;
+  --tp-slate-100: #EFF1F4;
+  --tp-slate-200: #E2E6EC;
+  --tp-slate-300: #CBD2DB;
+  --tp-slate-400: #9AA4B2;
+  --tp-slate-500: #6B7585;
+  --tp-slate-600: #4D5765;
+  --tp-slate-700: #353E4B;
+  --tp-slate-800: #232A34;
+  --tp-slate-900: #141921;
+
+  /* ---- Semantic (PPM health) ---------------------------------------------- */
+  --tp-success:      #3E8C6D;   /* on-track */
+  --tp-success-bg:   #E7F3EC;
+  --tp-info:         #2F6FD1;   /* informational */
+  --tp-info-bg:      #E5EEFB;
+  --tp-warning:      #DE9326;   /* at-risk */
+  --tp-warning-bg:   #FBF0DC;
+  --tp-critical:     #CF4438;   /* blocked / over budget / on critical path */
+  --tp-critical-bg:  #FBE6E4;
+
+  /* ---- Surfaces & text (light) -------------------------------------------- */
+  --tp-bg:             #F6F7F9;
+  --tp-surface:        #FFFFFF;
+  --tp-surface-raised: #FBFCFD;
+  --tp-surface-sunken: #F2F4F7;
+  --tp-border:         #E2E6EC;
+  --tp-border-strong:  #CBD2DB;
+
+  --tp-text-primary:   #1B2A4A;   /* navy */
+  --tp-text-secondary: #5A6473;
+  --tp-text-tertiary:  #8A94A3;
+  --tp-text-inverse:   #FFFFFF;
+  --tp-text-link:      #3E8C6D;
+
+  /* ---- Typography --------------------------------------------------------- */
+  --tp-font-display: "Space Grotesk", system-ui, sans-serif;
+  --tp-font-sans:    "Inter", system-ui, sans-serif;
+  --tp-font-mono:    "JetBrains Mono", ui-monospace, monospace;
+
+  --tp-text-display-xl: 3.75rem;  /* 60 */
+  --tp-text-display-l:  2.75rem;  /* 44 */
+  --tp-text-h1:         2.125rem; /* 34 */
+  --tp-text-h2:         1.625rem; /* 26 */
+  --tp-text-h3:         1.25rem;  /* 20 */
+  --tp-text-body-lg:    1.125rem; /* 18 */
+  --tp-text-body:       1rem;     /* 16 */
+  --tp-text-body-sm:    0.875rem; /* 14 */
+  --tp-text-caption:    0.8125rem;/* 13 */
+  --tp-text-overline:   0.75rem;  /* 12 */
+
+  --tp-weight-regular:  400;
+  --tp-weight-medium:   500;
+  --tp-weight-semibold: 600;
+  --tp-weight-bold:     700;
+
+  --tp-leading-tight:   1.1;
+  --tp-leading-snug:    1.3;
+  --tp-leading-normal:  1.55;
+
+  --tp-tracking-tight:  -0.02em;
+  --tp-tracking-normal: 0;
+  --tp-tracking-wide:   0.14em;   /* overlines */
+
+  /* ---- Spacing (4px base) ------------------------------------------------- */
+  --tp-space-0:   0;
+  --tp-space-1:   0.25rem;  /* 4  */
+  --tp-space-2:   0.5rem;   /* 8  */
+  --tp-space-3:   0.75rem;  /* 12 */
+  --tp-space-4:   1rem;     /* 16 */
+  --tp-space-5:   1.25rem;  /* 20 */
+  --tp-space-6:   1.5rem;   /* 24 */
+  --tp-space-8:   2rem;     /* 32 */
+  --tp-space-10:  2.5rem;   /* 40 */
+  --tp-space-12:  3rem;     /* 48 */
+  --tp-space-16:  4rem;     /* 64 */
+  --tp-space-20:  5rem;     /* 80 */
+  --tp-space-24:  6rem;     /* 96 */
+
+  /* ---- Radius ------------------------------------------------------------- */
+  --tp-radius-xs:   4px;
+  --tp-radius-sm:   6px;
+  --tp-radius-md:   8px;
+  --tp-radius-lg:   12px;
+  --tp-radius-xl:   16px;
+  --tp-radius-2xl:  20px;
+  --tp-radius-full: 9999px;
+
+  /* ---- Elevation (borders first; shadows sparingly) ----------------------- */
+  --tp-shadow-sm: 0 1px 2px rgba(20,25,33,0.06);
+  --tp-shadow-md: 0 4px 16px rgba(20,25,33,0.08);
+  --tp-shadow-lg: 0 12px 32px -8px rgba(20,25,33,0.14);
+
+  /* ---- Motion ------------------------------------------------------------- */
+  --tp-dur-fast:  120ms;
+  --tp-dur:       200ms;
+  --tp-dur-slow:  320ms;
+  --tp-ease-standard: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --tp-ease-in:       cubic-bezier(0.4, 0, 1, 1);
+  --tp-ease-out:      cubic-bezier(0, 0, 0.2, 1);
+
+  /* ---- Brand mark colors (semantic aliases for SVG fills) ----------------- */
+  --tp-mark-node:  var(--tp-brand-navy);
+  --tp-mark-arrow: var(--tp-brand-sage);
+}
+
+/* ============================================================================
+   Dark mode — "navy ink reverses to pale; sage holds in both modes"
+   ============================================================================ */
+[data-theme="dark"], .dark {
+  --tp-bg:             #0E1626;   /* navy-900 */
+  --tp-surface:        #15223C;   /* navy-800 */
+  --tp-surface-raised: #1B2A4A;   /* navy-700 */
+  --tp-surface-sunken: #0B1220;
+  --tp-border:         #2A3A57;
+  --tp-border-strong:  #3A4D70;
+
+  --tp-text-primary:   #E9EDF3;   /* reversed ink */
+  --tp-text-secondary: #9BAAC6;
+  --tp-text-tertiary:  #6E7E9A;
+  --tp-text-inverse:   #1B2A4A;
+  --tp-text-link:      #66B998;   /* sage-400 for AA on dark */
+
+  /* health colors lifted for dark surfaces */
+  --tp-success:      #66B998;
+  --tp-success-bg:   rgba(102,185,152,0.14);
+  --tp-info:         #6FA0E8;
+  --tp-info-bg:      rgba(111,160,232,0.14);
+  --tp-warning:      #E9B35A;
+  --tp-warning-bg:   rgba(233,179,90,0.14);
+  --tp-critical:     #E8645A;
+  --tp-critical-bg:  rgba(232,100,90,0.14);
+
+  /* mark: nodes go pale, sage holds */
+  --tp-mark-node:  var(--tp-brand-reversed);
+  --tp-mark-arrow: var(--tp-brand-sage);
+}

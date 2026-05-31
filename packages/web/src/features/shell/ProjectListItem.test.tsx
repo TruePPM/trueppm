@@ -30,7 +30,7 @@ function renderWithProjectRoute(
 const PROJECT: Project = {
   id: 'proj-1',
   name: 'Alpha Platform',
-  colorDot: '#1C6B3A',
+  colorDot: '#3E8C6D',
   healthState: 'on-track',
   methodology: 'HYBRID',
   programId: null,

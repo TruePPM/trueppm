@@ -8,7 +8,7 @@
 
 /** The six selectable program accent colors, as #RRGGBB hex. */
 export const PROGRAM_ACCENT_SWATCHES = [
-  '#1C6B3A',
+  '#3E8C6D',
   '#0EA5E9',
   '#C17A10',
   '#7C3AED',

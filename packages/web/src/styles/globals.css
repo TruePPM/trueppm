@@ -27,37 +27,60 @@
     --neutral-surface-raised:  245 245 240;   /* #F5F5F0 */
     --neutral-surface-sunken:  235 235 235;   /* #EBEBEB */
     --neutral-border:          212 210 206;   /* #D4D2CE */
-    --neutral-text-primary:    26 25 23;      /* #1A1917 */
+    --neutral-text-primary:    27 42 74;      /* #1B2A4A — navy ink (brand v1.0); ~12.6:1 on white */
     --neutral-text-secondary:  107 105 101;   /* #6B6965 — 4.63:1 on white */
     --neutral-text-disabled:   160 157 153;   /* #A09D99 */
     --neutral-text-inverse:    255 255 255;   /* #FFFFFF */
   }
 
   .dark {
-    --neutral-surface:         18 20 30;      /* #12141E */
-    --neutral-surface-raised:  26 29 42;      /* #1A1D2A */
-    --neutral-surface-sunken:  12 14 22;      /* #0C0E16 */
-    --neutral-border:          50 55 80;      /* #323750 */
-    --neutral-text-primary:    232 232 232;   /* #E8E8E8 — 15.3:1 on surface */
+    --neutral-surface:         21 34 60;      /* #15223C — navy-800 (brand dark surface) */
+    --neutral-surface-raised:  27 42 74;      /* #1B2A4A — navy-700 */
+    --neutral-surface-sunken:  11 18 32;      /* #0B1220 */
+    --neutral-border:          42 58 87;      /* #2A3A57 — navy border */
+    --neutral-text-primary:    233 237 243;   /* #E9EDF3 — reversed ink, 12.1:1 on #15223C */
     --neutral-text-secondary:  148 163 184;   /* #94A3B8 — 7.45:1 on surface */
     --neutral-text-disabled:   100 116 139;   /* #64748B */
     --neutral-text-inverse:    26 25 23;      /* #1A1917 */
+  }
+
+  /* ── Brand tokens — navy/sage rebrand (ADR-0103) ──────────────────────────
+     `brand-primary` is the action/affordance token. It maps to the brand's
+     prescribed FOREGROUND/ring sage shade so every existing text-/border-/
+     ring-/bg-brand-primary usage (incl. /N alpha forms) stays WCAG AA after the
+     swap: sage-600 #3E8C6D on white = 4.6:1 (brand-tested). Dark reverses to
+     sage-400 #66B998 ("sage holds in both modes"). Vivid sage-500 FILLS (with
+     navy text) are an explicit recipe applied to primary buttons in Stage 3,
+     not this token. brand-accent (amber) stays static in tailwind.config.ts.   */
+  :root {
+    /* sage-700 (not sage-600): the WCAG re-validation found sage-600 is 4.06:1
+       on white — fails AA for normal-weight text. sage-700 = 5.93:1 (also fixes
+       white-on-fill buttons). The brand doc's "4.6:1" figure is an error. */
+    --brand-primary:        49 111 87;    /* sage-700 #316F57 — foreground/ring/border, 5.93:1 */
+    --brand-primary-dark:   39 88 68;     /* sage-800 #275844 — hover/pressed */
+    --brand-primary-light:  211 236 224;  /* sage-100 #D3ECE0 — tint surfaces / chart fills */
+  }
+
+  .dark {
+    --brand-primary:        102 185 152;  /* sage-400 #66B998 — affordance on dark */
+    --brand-primary-dark:   79 168 132;   /* sage-500 #4FA884 */
+    --brand-primary-light:  39 88 68;     /* sage-800 #275844 */
   }
 
   /* ── Semantic status tokens ───────────────────────────────────────────────
      Light values are WCAG AA on white. Dark values use the lighter palette
      (matching gantt-semantic-*) required for WCAG AA on the dark surface.   */
   :root {
-    --semantic-critical:  185 28 28;    /* #B91C1C */
+    --semantic-critical:  185 28 28;    /* #B91C1C — AA text/border; brand fill #CF4438 via -bg */
     --semantic-warning:   217 119 6;    /* #D97706 */
-    --semantic-on-track:  22 101 52;    /* #166534 */
-    --semantic-at-risk:   146 64 14;    /* #92400E */
+    --semantic-on-track:  49 111 87;    /* sage-700 #316F57 — on-track text, 5.93:1 AA (brand fill #3E8C6D via -bg) */
+    --semantic-at-risk:   146 64 14;    /* #92400E — AA text/border; brand fill #DE9326 via -bg */
   }
 
   .dark {
     --semantic-critical:  248 113 113;  /* #F87171 — Red-400, 4.87:1 on dark surface */
     --semantic-warning:   251 146 60;   /* #FB923C — Orange-400 */
-    --semantic-on-track:  74 222 128;   /* #4ADE80 — Green-400, 5.28:1 on dark surface */
+    --semantic-on-track:  102 185 152;  /* #66B998 — sage-400, on-track holds on dark (ADR-0103) */
     --semantic-at-risk:   251 146 60;   /* #FB923C — Orange-400 */
   }
 
@@ -95,13 +118,13 @@
     --chrome-text-primary:        26 25 23;      /* #1A1917 — 16.1:1 on chrome-surface */
     --chrome-text-secondary:      107 105 101;   /* #6B6965 — 4.63:1 on chrome-surface */
     --chrome-row-hover:           rgba(0, 0, 0, 0.04);
-    --chrome-row-active:          rgba(28, 107, 58, 0.10);   /* brand-primary at 10% */
+    --chrome-row-active:          rgba(62, 140, 109, 0.10);  /* brand-primary (sage-600) at 10% */
     --chrome-grid:                rgba(0, 0, 0, 0.06);
   }
 
   .dark {
-    --chrome-surface:             15 17 23;      /* #0F1117 — legacy gantt-surface */
-    --chrome-surface-raised:      22 25 36;
+    --chrome-surface:             14 22 38;      /* #0E1626 — navy-900 (brand dark chrome) */
+    --chrome-surface-raised:      21 34 60;      /* #15223C — navy-800 */
     --chrome-border:              255 255 255;
     --chrome-border-opacity:      0.08;
     --chrome-text-primary:        232 232 232;   /* #E8E8E8 — 15.3:1 on chrome-surface */
@@ -117,14 +140,14 @@
   :root {
     --sem-critical-bg: rgba(185, 28, 28, 0.08);
     --sem-at-risk-bg:  rgba(146, 64, 14, 0.10);
-    --sem-on-track-bg: rgba(22, 101, 52, 0.10);
+    --sem-on-track-bg: rgba(62, 140, 109, 0.10);
     --sem-warning-bg:  rgba(217, 119, 6, 0.10);
   }
 
   .dark {
     --sem-critical-bg: rgba(248, 113, 113, 0.15);
     --sem-at-risk-bg:  rgba(251, 146, 60, 0.15);
-    --sem-on-track-bg: rgba(74, 222, 128, 0.15);
+    --sem-on-track-bg: rgba(102, 185, 152, 0.15);
     --sem-warning-bg:  rgba(251, 146, 60, 0.15);
   }
 
@@ -134,7 +157,7 @@
      Dark-mode values use the same hues at slightly higher lightness so they
      remain legible against dark surfaces without blowing out to pastel.     */
   :root {
-    --avatar-color-0: #1C6B3A;  /* brand-primary */
+    --avatar-color-0: #3E8C6D;  /* brand-primary (sage-600) */
     --avatar-color-1: #2563EB;  /* blue-600 */
     --avatar-color-2: #9333EA;  /* purple-600 */
     --avatar-color-3: #D97706;  /* amber-600 */
@@ -145,7 +168,7 @@
   }
 
   .dark {
-    --avatar-color-0: #4ADE80;  /* green-400 */
+    --avatar-color-0: #66B998;  /* brand-primary (sage-400) */
     --avatar-color-1: #60A5FA;  /* blue-400 */
     --avatar-color-2: #C084FC;  /* purple-400 */
     --avatar-color-3: #FCD34D;  /* amber-300 */

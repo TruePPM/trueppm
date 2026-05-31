@@ -137,7 +137,7 @@ export function groupTasksForQueue(tasks: Task[], now: Date = new Date()): Queue
 // status, duration + owner avatar, overflow menu.
 // ---------------------------------------------------------------------------
 
-const RESOURCE_COLOR_PALETTE = ['#1C6B3A', '#C17A10', '#0EA5E9', '#7C3AED', '#DC2626', '#0891B2'];
+const RESOURCE_COLOR_PALETTE = ['#3E8C6D', '#C17A10', '#0EA5E9', '#7C3AED', '#DC2626', '#0891B2'];
 
 function colorForInitials(initials: string): string {
   let hash = 0;
@@ -211,7 +211,8 @@ function ReadinessChip({ readiness }: { readiness: TaskReadiness }) {
     ready: 'text-brand-primary-dark dark:text-brand-primary',
     baselined: 'bg-neutral-surface-sunken text-neutral-text-secondary',
   };
-  const inlineBg = readiness === 'ready' ? 'var(--brand-primary-light, #D4EDDA)' : undefined;
+  // brand-primary-light is now a channel-triple CSS var (ADR-0103); wrap in rgb().
+  const inlineBg = readiness === 'ready' ? 'rgb(var(--brand-primary-light))' : undefined;
   return (
     <span
       className={`inline-flex items-center rounded-sm uppercase tracking-wider font-semibold ${styles[readiness]}`}

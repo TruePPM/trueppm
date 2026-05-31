@@ -24,11 +24,11 @@ interface ApiProject {
 // Values are Design System hex literals kept here as the canonical definition
 // (components must not reference this array directly — they consume Project.colorDot).
 const COLOR_PALETTE: ReadonlyArray<string> = [
-  '#1C6B3A',
+  '#3E8C6D',
   '#E8A020',
   '#B91C1C',
   '#6B6965',
-  '#145229',
+  '#316F57',
   '#1D4ED8',
   '#7C3AED',
   '#0E7490',
@@ -41,7 +41,7 @@ function mapProject(p: ApiProject, index: number): Project {
     // healthState is not computed server-side yet; default to unknown
     healthState: 'unknown',
     // The modulo guarantees index is in bounds; fallback keeps TS happy on the readonly array type
-    colorDot: COLOR_PALETTE[index % COLOR_PALETTE.length] ?? '#1C6B3A',
+    colorDot: COLOR_PALETTE[index % COLOR_PALETTE.length] ?? '#3E8C6D',
     // Default to HYBRID for projects created before ADR-0041 landed (preserves
     // pre-methodology behavior — all tabs visible).
     methodology: p.methodology ?? 'HYBRID',

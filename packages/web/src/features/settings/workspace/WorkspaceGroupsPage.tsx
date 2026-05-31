@@ -4,7 +4,7 @@ import { useWorkspaceGroups, type WorkspaceGroup } from '../hooks/useWorkspaceGr
 import { useCreateGroup, useDeleteGroup } from '../hooks/useWorkspaceGroupMutations';
 import { EnterpriseBadge } from '../components/EnterpriseBadge';
 
-const MEMBER_COLORS = ['#1C6B3A', '#C17A10', '#7C3AED', '#0EA5E9', '#DC2626', '#0F766E'];
+const MEMBER_COLORS = ['#3E8C6D', '#C17A10', '#7C3AED', '#0EA5E9', '#DC2626', '#0F766E'];
 
 interface GroupCardProps {
   group: WorkspaceGroup;

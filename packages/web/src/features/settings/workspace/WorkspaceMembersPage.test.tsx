@@ -23,7 +23,7 @@ vi.mock('@/api/client', () => ({
 }));
 
 const MEMBERS = [
-  { id: '1', name: 'Anika Krishnan', initials: 'AK', color: '#1C6B3A', email: 'anika.k@truescope.io', role: 'Admin',  role_value: 300, groups: ['Propulsion', 'Leadership'], project_count: 5, last_active: '2m ago',    status: 'active',      sso: true,  two_fa: true  },
+  { id: '1', name: 'Anika Krishnan', initials: 'AK', color: '#3E8C6D', email: 'anika.k@truescope.io', role: 'Admin',  role_value: 300, groups: ['Propulsion', 'Leadership'], project_count: 5, last_active: '2m ago',    status: 'active',      sso: true,  two_fa: true  },
   { id: '2', name: 'Jordan Mehta',   initials: 'JM', color: '#C17A10', email: 'j.mehta@truescope.io', role: 'PM',     role_value: 100, groups: ['Stage'],                  project_count: 3, last_active: '12m ago',   status: 'active',      sso: true,  two_fa: true  },
   { id: '3', name: 'Sam Reyes',      initials: 'SR', color: '#7C3AED', email: 'sam@truescope.io',      role: 'Lead',   role_value: 100, groups: ['Avionics'],               project_count: 2, last_active: '26m ago',   status: 'active',      sso: true,  two_fa: false },
   { id: '4', name: 'Erin Lai',       initials: 'EL', color: '#0EA5E9', email: 'elai@truescope.io',     role: 'Lead',   role_value: 100, groups: ['Ground Ops'],             project_count: 2, last_active: '1h ago',    status: 'active',      sso: true,  two_fa: true  },
@@ -32,7 +32,7 @@ const MEMBERS = [
   { id: '7', name: 'Riya Kapoor',    initials: 'RK', color: '#92400E', email: 'rk@truescope.io',       role: 'PM',     role_value: 100, groups: ['Ops', 'Leadership'],      project_count: 4, last_active: 'Yesterday', status: 'active',      sso: true,  two_fa: true  },
   { id: '8', name: 'Theo Vasquez',   initials: 'TV', color: '#475569', email: 'theo@truescope.io',     role: 'Member', role_value: 100, groups: ['Ops'],                    project_count: 2, last_active: '3d ago',    status: 'active',      sso: false, two_fa: false },
   { id: '9', name: 'Park Choi',      initials: 'PC', color: '#7C3AED', email: 'pchoi@vendor.x',        role: 'Viewer', role_value: 100, groups: ['Vendor: ValveCo'],        project_count: 1, last_active: '1w ago',    status: 'guest',       sso: false, two_fa: false },
-  { id: '10', name: 'Lin Mae',       initials: 'LM', color: '#1C6B3A', email: 'linmae@truescope.io',   role: 'Member', role_value: 100, groups: ['Avionics'],               project_count: 1, last_active: '2w ago',    status: 'deactivated', sso: true,  two_fa: true  },
+  { id: '10', name: 'Lin Mae',       initials: 'LM', color: '#3E8C6D', email: 'linmae@truescope.io',   role: 'Member', role_value: 100, groups: ['Avionics'],               project_count: 1, last_active: '2w ago',    status: 'deactivated', sso: true,  two_fa: true  },
 ];
 
 function makeWrapper() {

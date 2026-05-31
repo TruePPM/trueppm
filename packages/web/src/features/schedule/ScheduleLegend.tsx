@@ -153,12 +153,11 @@ function MilestoneSwatch() {
 }
 
 function TaskSwatch() {
-  // Dark-mode fill switches to semantic-on-track because brand-primary (#1C6B3A) is
-  // 2.81:1 on the dark surface (#12141E) and fails WCAG 1.4.11 — same escape hatch
-  // used for the dark-mode focus-ring per global rule 4.
+  // brand-primary is sage (sage-600 light / sage-400 dark, ADR-0103) and is AA in
+  // both modes, so no dark escape hatch is needed — the token reverses itself.
   return (
     <span className="relative block w-full h-2 border border-neutral-border bg-neutral-surface rounded-[2px] overflow-hidden">
-      <span className="absolute inset-y-0 left-0 w-3/5 bg-brand-primary dark:bg-semantic-on-track" />
+      <span className="absolute inset-y-0 left-0 w-3/5 bg-brand-primary" />
     </span>
   );
 }
@@ -172,12 +171,9 @@ function CriticalSwatch() {
 }
 
 function TodaySwatch() {
-  // Vertical line, brand-primary on light; same dark-mode WCAG escape as TaskSwatch.
-  // The canvas today-line is brand-primary (#1C6B3A) light / semantic-on-track dark
-  // per GanttRenderer.ts.
-  return (
-    <span className="block h-full w-[2px] mx-auto bg-brand-primary dark:bg-semantic-on-track" />
-  );
+  // Vertical sage line — matches the canvas today-line (sage-600 light /
+  // sage-400 dark) in GanttRenderer.ts. brand-primary reverses itself by mode.
+  return <span className="block h-full w-[2px] mx-auto bg-brand-primary" />;
 }
 
 function BaselineSwatch() {

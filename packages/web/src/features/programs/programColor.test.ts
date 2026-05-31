@@ -3,7 +3,7 @@ import { PROGRAM_ACCENT_SWATCHES, contrastText } from './programColor';
 
 describe('contrastText', () => {
   it('returns white for dark accents', () => {
-    expect(contrastText('#1C6B3A')).toBe('#FFFFFF'); // dark green
+    expect(contrastText('#1B2A4A')).toBe('#FFFFFF'); // navy ink
     expect(contrastText('#7C3AED')).toBe('#FFFFFF'); // violet
     expect(contrastText('#000000')).toBe('#FFFFFF');
   });
