@@ -269,3 +269,19 @@ than re-deciding:
   not hue — distinguishes complete/selected/today (D4/D5).
 
 No open 🔴 blocking questions. Proceeding to ux-design (Stage 1–4 implementation gate).
+
+## Erratum — WCAG re-validation correction (Stage 4)
+
+The Stage-4 accessibility re-validation (the step this ADR mandated) found the brand
+guideline's "sage-600 on white = 4.6:1" figure to be **wrong**: sage-600 `#3E8C6D` is
+**4.06:1** on white (3.78:1 even on the brand's own off-white `#F6F7F9`), failing WCAG 1.4.3
+for normal-weight text. Per CLAUDE.md, WCAG AA is mandatory and overrides the guideline's
+erroneous figure.
+
+**Correction:** the light-mode **foreground** shade (the value `--brand-primary` and
+`--semantic-on-track` resolve to in light mode) is **sage-700 `#316F57` (5.93:1)**, not
+sage-600. sage-600 survives only as a *fill/dot* weight (e.g. the on-track `-bg` tint) and as
+the canvas today-line / complete-bar fill (UI elements, 3:1 threshold, where 4.06:1 passes).
+This supersedes the sage-600 figure wherever D2/D3/Q3/Q4 say "foreground = sage-600". The
+sage-500-fill + navy-text button recipe and all dark-mode (sage-400) values are unchanged and
+verified PASS. Codified in web-rule 143.
