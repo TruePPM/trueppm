@@ -1,6 +1,11 @@
+import { useState } from 'react';
 import { Link } from 'react-router';
 import type { ApiSprint, MilestoneRollup } from '@/types';
+import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
+import { ROLE_SCHEDULER } from '@/lib/roles';
+import { Button } from '@/components/Button';
 import { daysUntil, formatShortDate } from './sprintMath';
+import { PromoteMilestoneDialog } from './PromoteMilestoneDialog';
 
 interface Props {
   sprint: ApiSprint;
@@ -26,6 +31,13 @@ interface Props {
 export function AdvancingToMilestoneCard({ sprint, projectId }: Props) {
   const detail = sprint.target_milestone_detail;
   const rollup = detail?.rollup ?? null;
+
+  // Promote affordance (DA-02 / ADR-0106): binding a milestone is a
+  // schedule-authoring write, so only SCHEDULER+ sees the entry point. The
+  // server enforces the same gate; this is render-gate only.
+  const { role } = useCurrentUserRole(projectId);
+  const canPromote = role !== null && role >= ROLE_SCHEDULER;
+  const [promoting, setPromoting] = useState(false);
 
   return (
     <section
@@ -69,9 +81,24 @@ export function AdvancingToMilestoneCard({ sprint, projectId }: Props) {
           </Link>
         </>
       ) : (
-        <p className="text-sm italic text-neutral-text-disabled">
-          No milestone linked to this sprint.
-        </p>
+        <div className="flex flex-col items-start gap-2">
+          <p className="text-sm italic text-neutral-text-disabled">
+            No milestone linked to this sprint.
+          </p>
+          {canPromote && (
+            <Button variant="secondary" size="sm" onClick={() => setPromoting(true)}>
+              Promote to milestone
+            </Button>
+          )}
+        </div>
+      )}
+
+      {promoting && (
+        <PromoteMilestoneDialog
+          projectId={projectId}
+          sprint={sprint}
+          onClose={() => setPromoting(false)}
+        />
       )}
     </section>
   );
