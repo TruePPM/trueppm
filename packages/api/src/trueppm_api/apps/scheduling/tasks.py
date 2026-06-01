@@ -287,7 +287,7 @@ def _run_schedule(
     from trueppm_scheduler.models import Project as SchedProject
     from trueppm_scheduler.models import Task as SchedTask
 
-    from trueppm_api.apps.projects.models import Dependency, Project, Task
+    from trueppm_api.apps.projects.models import Dependency, Project, Task, TaskType
 
     def _update(pct: int, msg: str) -> None:
         if tracker is not None:
@@ -310,8 +310,12 @@ def _run_schedule(
     # scheduling engine would corrupt float, the critical path, and Monte Carlo
     # P50/P80/P95. is_recurring is the single load-bearing exclusion key (ADR-0090);
     # CommittedTaskManager applies the same filter for Monte Carlo / capacity / PDF.
+    #
+    # type=EPIC is excluded for the same reason (ADR-0105): an epic is a grouping
+    # node, not schedulable work — its rollup dates are computed from child stories, not
+    # fed to CPM. CommittedTaskManager applies the matching exclusion at its boundary.
     # Filtered in Python so the prefetch cache from the queryset above is reused.
-    db_tasks = [t for t in db_project.tasks.all() if not t.is_recurring]
+    db_tasks = [t for t in db_project.tasks.all() if not t.is_recurring and t.type != TaskType.EPIC]
     if not db_tasks:
         logger.info("recalculate_schedule: project %s has no tasks, skipping", project_id)
         return

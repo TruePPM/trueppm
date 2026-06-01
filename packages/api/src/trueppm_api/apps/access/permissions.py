@@ -256,6 +256,40 @@ class IsProjectAdmin(BasePermission):
         return role is not None and role >= Role.ADMIN
 
 
+def can_manage_backlog(role: int | None) -> bool:
+    """Whether ``role`` may perform structural product-backlog actions (ADR-0105).
+
+    Structural = auto-rank, scoring-model / auto-rank toggle, epic create/delete,
+    priority reorder. Maps to ADMIN+ today. This is the single seam ADR-0088's
+    Product Owner role drops into: when the PO role lands, widen this predicate
+    (e.g. ``role >= Role.ADMIN or has_capability(role, "backlog:manage")``) instead
+    of editing every call site. Story-field grooming (AC, dor, points, scoring
+    inputs on a story) is NOT gated here — that rides the normal Member+ task-write
+    permission so contributors can refine their own stories.
+    """
+    return role is not None and role >= Role.ADMIN
+
+
+class IsProjectBacklogManager(BasePermission):
+    """Gate structural product-backlog actions on ``can_manage_backlog`` (ADR-0105)."""
+
+    message = "You need at least Project Manager role to manage the product backlog."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        if not (request.user and request.user.is_authenticated):
+            return False
+        project_pk = _project_pk_from_view(view)
+        if project_pk is not None:
+            return can_manage_backlog(_membership_role(request, project_pk))
+        return True
+
+    def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
+        project_id = _get_project_id_from_obj(obj)
+        if project_id is None:
+            return False
+        return can_manage_backlog(_membership_role(request, project_id))
+
+
 class IsProjectOwner(BasePermission):
     """Allow only Project Admin (Owner, 4).
 

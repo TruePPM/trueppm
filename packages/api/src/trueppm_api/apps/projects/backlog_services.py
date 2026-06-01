@@ -21,10 +21,20 @@ from django.utils import timezone
 from trueppm_api.apps.projects.models import (
     BacklogItem,
     BacklogItemStatus,
+    BacklogItemType,
     Project,
     Task,
     TaskStatus,
+    TaskType,
 )
+
+# Map the program intake taxonomy (ADR-0069) onto the project work-item taxonomy
+# (ADR-0105). ``feature`` has no Task analogue and falls back to TASK at the call site.
+_ITEM_TYPE_TO_TASK_TYPE: dict[str, TaskType] = {
+    BacklogItemType.EPIC: TaskType.EPIC,
+    BacklogItemType.STORY: TaskType.STORY,
+    BacklogItemType.TASK: TaskType.TASK,
+}
 
 
 class BacklogItemNotPullable(Exception):
@@ -107,6 +117,10 @@ def pull_to_project_backlog(
             story_points=item.story_points,
             status=TaskStatus.BACKLOG,
             sprint=None,
+            # ADR-0105: carry the intake item's type into the project work-item
+            # taxonomy so a pulled story/epic keeps its kind. ``feature`` has no Task
+            # equivalent and maps to the default TASK.
+            type=_ITEM_TYPE_TO_TASK_TYPE.get(item.item_type, TaskType.TASK),
         )
 
         item.status = BacklogItemStatus.PULLED

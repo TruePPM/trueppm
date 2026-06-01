@@ -6,6 +6,301 @@
         "description": "REST API for the TruePPM project scheduling platform."
     },
     "paths": {
+        "/api/v1/acceptance-criteria/": {
+            "get": {
+                "operationId": "v1_acceptance_criteria_list",
+                "description": "CRUD for a story's acceptance criteria (ADR-0105 §2).\n\nAcceptance criteria are a collaborative refinement + sprint-review artifact — the PO\ndrafts them during grooming and the team ticks them met at review — so writes are\ngated at Member+ (``IsProjectMemberWrite``), not the Admin+ ``can_manage_backlog``\ngate that guards the *structural* backlog actions (auto-rank, epic management, split).\nThe review trail (``met_by``/``met_at``) is stamped here when ``met`` flips; it is\nsurfaced as the criterion's status with attribution only on drill-down and is never\naggregated to a PMO surface (ADR-0105 §2 privacy guard).\n\nFlat route ``/api/v1/acceptance-criteria/`` with a ``?task=`` list filter. Soft-delete\nkeeps sync tombstones (the model is a ``VersionedModel``).",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedAcceptanceCriterionList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_acceptance_criteria_create",
+                "description": "CRUD for a story's acceptance criteria (ADR-0105 §2).\n\nAcceptance criteria are a collaborative refinement + sprint-review artifact — the PO\ndrafts them during grooming and the team ticks them met at review — so writes are\ngated at Member+ (``IsProjectMemberWrite``), not the Admin+ ``can_manage_backlog``\ngate that guards the *structural* backlog actions (auto-rank, epic management, split).\nThe review trail (``met_by``/``met_at``) is stamped here when ``met`` flips; it is\nsurfaced as the criterion's status with attribution only on drill-down and is never\naggregated to a PMO surface (ADR-0105 §2 privacy guard).\n\nFlat route ``/api/v1/acceptance-criteria/`` with a ``?task=`` list filter. Soft-delete\nkeeps sync tombstones (the model is a ``VersionedModel``).",
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AcceptanceCriterionRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AcceptanceCriterionRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AcceptanceCriterionRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AcceptanceCriterion"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/acceptance-criteria/{id}/": {
+            "get": {
+                "operationId": "v1_acceptance_criteria_retrieve",
+                "description": "CRUD for a story's acceptance criteria (ADR-0105 §2).\n\nAcceptance criteria are a collaborative refinement + sprint-review artifact — the PO\ndrafts them during grooming and the team ticks them met at review — so writes are\ngated at Member+ (``IsProjectMemberWrite``), not the Admin+ ``can_manage_backlog``\ngate that guards the *structural* backlog actions (auto-rank, epic management, split).\nThe review trail (``met_by``/``met_at``) is stamped here when ``met`` flips; it is\nsurfaced as the criterion's status with attribution only on drill-down and is never\naggregated to a PMO surface (ADR-0105 §2 privacy guard).\n\nFlat route ``/api/v1/acceptance-criteria/`` with a ``?task=`` list filter. Soft-delete\nkeeps sync tombstones (the model is a ``VersionedModel``).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this acceptance criterion.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AcceptanceCriterion"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "put": {
+                "operationId": "v1_acceptance_criteria_update",
+                "description": "CRUD for a story's acceptance criteria (ADR-0105 §2).\n\nAcceptance criteria are a collaborative refinement + sprint-review artifact — the PO\ndrafts them during grooming and the team ticks them met at review — so writes are\ngated at Member+ (``IsProjectMemberWrite``), not the Admin+ ``can_manage_backlog``\ngate that guards the *structural* backlog actions (auto-rank, epic management, split).\nThe review trail (``met_by``/``met_at``) is stamped here when ``met`` flips; it is\nsurfaced as the criterion's status with attribution only on drill-down and is never\naggregated to a PMO surface (ADR-0105 §2 privacy guard).\n\nFlat route ``/api/v1/acceptance-criteria/`` with a ``?task=`` list filter. Soft-delete\nkeeps sync tombstones (the model is a ``VersionedModel``).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this acceptance criterion.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AcceptanceCriterionRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AcceptanceCriterionRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AcceptanceCriterionRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AcceptanceCriterion"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "v1_acceptance_criteria_partial_update",
+                "description": "CRUD for a story's acceptance criteria (ADR-0105 §2).\n\nAcceptance criteria are a collaborative refinement + sprint-review artifact — the PO\ndrafts them during grooming and the team ticks them met at review — so writes are\ngated at Member+ (``IsProjectMemberWrite``), not the Admin+ ``can_manage_backlog``\ngate that guards the *structural* backlog actions (auto-rank, epic management, split).\nThe review trail (``met_by``/``met_at``) is stamped here when ``met`` flips; it is\nsurfaced as the criterion's status with attribution only on drill-down and is never\naggregated to a PMO surface (ADR-0105 §2 privacy guard).\n\nFlat route ``/api/v1/acceptance-criteria/`` with a ``?task=`` list filter. Soft-delete\nkeeps sync tombstones (the model is a ``VersionedModel``).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this acceptance criterion.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedAcceptanceCriterionRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedAcceptanceCriterionRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedAcceptanceCriterionRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AcceptanceCriterion"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "v1_acceptance_criteria_destroy",
+                "description": "CRUD for a story's acceptance criteria (ADR-0105 §2).\n\nAcceptance criteria are a collaborative refinement + sprint-review artifact — the PO\ndrafts them during grooming and the team ticks them met at review — so writes are\ngated at Member+ (``IsProjectMemberWrite``), not the Admin+ ``can_manage_backlog``\ngate that guards the *structural* backlog actions (auto-rank, epic management, split).\nThe review trail (``met_by``/``met_at``) is stamped here when ``met`` flips; it is\nsurfaced as the criterion's status with attribution only on drill-down and is never\naggregated to a PMO surface (ADR-0105 §2 privacy guard).\n\nFlat route ``/api/v1/acceptance-criteria/`` with a ``?task=`` list filter. Soft-delete\nkeeps sync tombstones (the model is a ``VersionedModel``).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this acceptance criterion.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/admin/failed-tasks/": {
             "get": {
                 "operationId": "v1_admin_failed_tasks_list",
@@ -6048,6 +6343,108 @@
                 "responses": {
                     "200": {
                         "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/product-backlog/": {
+            "get": {
+                "operationId": "v1_projects_product_backlog_retrieve",
+                "description": "Grooming view payload (ADR-0105 DA-10): epics with nested stories + health.\n\nOne query for the project's backlog stories (status=BACKLOG, sprint-less,\nnon-epic) plus its epics, assembled into epic groups with rollups and a\ngrooming-health summary. The active scoring model is passed into each\nTaskSerializer via context so the computed ``score`` needs no per-row query.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this project.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Project"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/product-backlog/auto-rank/": {
+            "post": {
+                "operationId": "v1_projects_product_backlog_auto_rank_create",
+                "description": "One-shot recompute of priority_rank from the active model (ADR-0105 DA-11).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this project.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Project"
+                                }
+                            }
+                        },
+                        "description": ""
                     }
                 }
             }
@@ -14955,6 +15352,67 @@
                 }
             }
         },
+        "/api/v1/tasks/{id}/split/": {
+            "post": {
+                "operationId": "v1_tasks_split_create",
+                "description": "Split a story into a sibling under the same epic (ADR-0105 DA-13).\n\nThe child carries over only the unmet acceptance criteria and inherits the\nparent's epic so the split stays grouped; points are not auto-divided (the PO\nre-estimates both halves, so velocity is never double-counted — Alex's VoC\nnote). Returns the new child task. Permission: Admin+ via can_manage_backlog —\nsplitting restructures the backlog, so it rides the same gate as auto-rank /\nepic management rather than the assignee-scoped task-write class (rbac-check 🟡).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Task"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/tasks/{id}/suggestions/{suggestion_pk}/accept/": {
             "post": {
                 "operationId": "v1_tasks_suggestions_accept_create",
@@ -16563,6 +17021,107 @@
     },
     "components": {
         "schemas": {
+            "AcceptanceCriterion": {
+                "type": "object",
+                "description": "Read/write serializer for a story's acceptance criteria (ADR-0105 §2).\n\nThe review trail (``met_by``/``met_at``) is read-only and exposed as the criterion's\nstatus with attribution; it is never aggregated to a PMO surface and never rendered as\na per-person column (the VoC privacy guard). ``met`` is set by ticking the criterion;\nthe service layer stamps ``met_by``/``met_at`` when that happens.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "task": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "text": {
+                        "type": "string",
+                        "maxLength": 1000
+                    },
+                    "given": {
+                        "type": "string",
+                        "maxLength": 1000
+                    },
+                    "when": {
+                        "type": "string",
+                        "maxLength": 1000
+                    },
+                    "then": {
+                        "type": "string",
+                        "maxLength": 1000
+                    },
+                    "met": {
+                        "type": "boolean"
+                    },
+                    "position": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0
+                    },
+                    "met_by_name": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "met_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "server_version": {
+                        "type": "integer",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "id",
+                    "met_at",
+                    "met_by_name",
+                    "server_version",
+                    "task",
+                    "text"
+                ]
+            },
+            "AcceptanceCriterionRequest": {
+                "type": "object",
+                "description": "Read/write serializer for a story's acceptance criteria (ADR-0105 §2).\n\nThe review trail (``met_by``/``met_at``) is read-only and exposed as the criterion's\nstatus with attribution; it is never aggregated to a PMO surface and never rendered as\na per-person column (the VoC privacy guard). ``met`` is set by ticking the criterion;\nthe service layer stamps ``met_by``/``met_at`` when that happens.",
+                "properties": {
+                    "task": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1000
+                    },
+                    "given": {
+                        "type": "string",
+                        "maxLength": 1000
+                    },
+                    "when": {
+                        "type": "string",
+                        "maxLength": 1000
+                    },
+                    "then": {
+                        "type": "string",
+                        "maxLength": 1000
+                    },
+                    "met": {
+                        "type": "boolean"
+                    },
+                    "position": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0
+                    }
+                },
+                "required": [
+                    "task",
+                    "text"
+                ]
+            },
             "ActionEnum": {
                 "enum": [
                     "minted",
@@ -17458,6 +18017,15 @@
                     "successor"
                 ]
             },
+            "DorStateEnum": {
+                "enum": [
+                    "idea",
+                    "refine",
+                    "ready"
+                ],
+                "type": "string",
+                "description": "* `idea` - Idea\n* `refine` - Refine\n* `ready` - Ready"
+            },
             "EditionResponse": {
                 "type": "object",
                 "properties": {
@@ -18132,6 +18700,37 @@
                 ],
                 "type": "string",
                 "description": "* `continue` - Continue and flag the failed table\n* `stop` - Stop the run on first error"
+            },
+            "PaginatedAcceptanceCriterionList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AcceptanceCriterion"
+                        }
+                    }
+                }
             },
             "PaginatedApiTokenAuditEntryList": {
                 "type": "object",
@@ -19187,6 +19786,41 @@
                     }
                 }
             },
+            "PatchedAcceptanceCriterionRequest": {
+                "type": "object",
+                "description": "Read/write serializer for a story's acceptance criteria (ADR-0105 §2).\n\nThe review trail (``met_by``/``met_at``) is read-only and exposed as the criterion's\nstatus with attribution; it is never aggregated to a PMO surface and never rendered as\na per-person column (the VoC privacy guard). ``met`` is set by ticking the criterion;\nthe service layer stamps ``met_by``/``met_at`` when that happens.",
+                "properties": {
+                    "task": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1000
+                    },
+                    "given": {
+                        "type": "string",
+                        "maxLength": 1000
+                    },
+                    "when": {
+                        "type": "string",
+                        "maxLength": 1000
+                    },
+                    "then": {
+                        "type": "string",
+                        "maxLength": 1000
+                    },
+                    "met": {
+                        "type": "boolean"
+                    },
+                    "position": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0
+                    }
+                }
+            },
             "PatchedBacklogItemRequest": {
                 "type": "object",
                 "description": "Read/write serializer for program backlog items (ADR-0069, #737).\n\n``program`` is bound by URL (set in the view's ``perform_create``) and is\nread-only here so a client cannot retarget an item to another program by\npayload. ``pulled_*`` are read-only — they are written only by the ``pull``\naction via ``backlog_services``. ``status`` is writable for archive /\nun-archive (PROPOSED ↔ ARCHIVED) but ``validate_status`` rejects a direct\nset to ``PULLED``: the only PROPOSED→PULLED path is the ``pull`` action.\n``tags`` is a free-form list of short strings.",
@@ -19535,6 +20169,9 @@
                     },
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"
+                    },
+                    "prioritization_model": {
+                        "$ref": "#/components/schemas/PrioritizationModelEnum"
                     },
                     "program": {
                         "type": "string",
@@ -19967,6 +20604,79 @@
                     "is_subtask": {
                         "type": "boolean",
                         "description": "True for tasks created via the drawer subtask action (ADR-0060)."
+                    },
+                    "type": {
+                        "$ref": "#/components/schemas/TaskTypeEnum"
+                    },
+                    "parent_epic": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "dor": {
+                        "$ref": "#/components/schemas/DorStateEnum"
+                    },
+                    "sprint_rank": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "business_value": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "time_criticality": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "risk_reduction": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "job_size": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "reach": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "impact": {
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true
+                    },
+                    "confidence": {
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true
+                    },
+                    "effort": {
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true
+                    },
+                    "value": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "effort_estimate": {
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true
                     }
                 }
             },
@@ -20205,6 +20915,16 @@
                 "required": [
                     "name"
                 ]
+            },
+            "PrioritizationModelEnum": {
+                "enum": [
+                    "none",
+                    "wsjf",
+                    "rice",
+                    "value_effort"
+                ],
+                "type": "string",
+                "description": "* `none` - None\n* `wsjf` - WSJF\n* `rice` - RICE\n* `value_effort` - Value / Effort"
             },
             "ProficiencyEnum": {
                 "enum": [
@@ -20540,6 +21260,9 @@
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"
                     },
+                    "prioritization_model": {
+                        "$ref": "#/components/schemas/PrioritizationModelEnum"
+                    },
                     "program": {
                         "type": "string",
                         "format": "uuid",
@@ -20796,6 +21519,9 @@
                     },
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"
+                    },
+                    "prioritization_model": {
+                        "$ref": "#/components/schemas/PrioritizationModelEnum"
                     },
                     "program": {
                         "type": "string",
@@ -21064,6 +21790,9 @@
                     },
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"
+                    },
+                    "prioritization_model": {
+                        "$ref": "#/components/schemas/PrioritizationModelEnum"
                     },
                     "program": {
                         "type": "string",
@@ -22618,13 +23347,118 @@
                         "nullable": true,
                         "description": "Sprint-driven rollup payload for milestone tasks (ADR-0074).\n\nReturns ``None`` for non-milestone tasks and for milestones with no\nlive targeting sprints — both cases let the manual ``percent_complete``\napply unchanged. Aggregated only — never includes per-assignee task\nlists or raw point counts (Morgan VoC guardrail, ADR-0074 §Broadcast\npayload shape).",
                         "readOnly": true
+                    },
+                    "type": {
+                        "$ref": "#/components/schemas/TaskTypeEnum"
+                    },
+                    "parent_epic": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "dor": {
+                        "$ref": "#/components/schemas/DorStateEnum"
+                    },
+                    "sprint_rank": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "business_value": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "time_criticality": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "risk_reduction": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "job_size": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "reach": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "impact": {
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true
+                    },
+                    "confidence": {
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true
+                    },
+                    "effort": {
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true
+                    },
+                    "value": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "effort_estimate": {
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true
+                    },
+                    "acceptance_criteria": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AcceptanceCriterion"
+                        },
+                        "readOnly": true
+                    },
+                    "prioritization_score": {
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "criteria_met_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "criteria_total": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "dor_blockers": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "readOnly": true
                     }
                 },
                 "required": [
+                    "acceptance_criteria",
                     "assignee_is_overallocated",
                     "assignments",
                     "baseline_finish",
                     "baseline_start",
+                    "criteria_met_count",
+                    "criteria_total",
+                    "dor_blockers",
                     "early_finish",
                     "early_start",
                     "free_float",
@@ -22640,6 +23474,7 @@
                     "name",
                     "parent_id",
                     "predecessor_count",
+                    "prioritization_score",
                     "project",
                     "readiness",
                     "schedule_variance_days",
@@ -23277,6 +24112,79 @@
                     "is_subtask": {
                         "type": "boolean",
                         "description": "True for tasks created via the drawer subtask action (ADR-0060)."
+                    },
+                    "type": {
+                        "$ref": "#/components/schemas/TaskTypeEnum"
+                    },
+                    "parent_epic": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "dor": {
+                        "$ref": "#/components/schemas/DorStateEnum"
+                    },
+                    "sprint_rank": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "business_value": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "time_criticality": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "risk_reduction": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "job_size": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "reach": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "impact": {
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true
+                    },
+                    "confidence": {
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true
+                    },
+                    "effort": {
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true
+                    },
+                    "value": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "effort_estimate": {
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true
                     }
                 },
                 "required": [
@@ -23509,6 +24417,17 @@
                 ],
                 "type": "string",
                 "description": "* `BACKLOG` - Backlog\n* `NOT_STARTED` - Not started\n* `IN_PROGRESS` - In progress\n* `REVIEW` - Review\n* `ON_HOLD` - On hold\n* `COMPLETE` - Complete"
+            },
+            "TaskTypeEnum": {
+                "enum": [
+                    "epic",
+                    "story",
+                    "task",
+                    "bug",
+                    "spike"
+                ],
+                "type": "string",
+                "description": "* `epic` - Epic\n* `story` - Story\n* `task` - Task\n* `bug` - Bug\n* `spike` - Spike"
             },
             "TokenObtainPair": {
                 "type": "object",

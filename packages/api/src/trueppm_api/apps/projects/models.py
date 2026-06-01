@@ -585,6 +585,24 @@ class EstimationMode(models.TextChoices):
     PM_ONLY = "pm_only", "PM Only"
 
 
+class PrioritizationModel(models.TextChoices):
+    """Prioritization scoring model for a project's product backlog (ADR-0105, #922).
+
+    Per-project setting (``Project.prioritization_model``). Drives which distinct input
+    columns on ``Task`` are read and how the computed ``prioritization_score`` is derived:
+    WSJF = (business_value+time_criticality+risk_reduction)/job_size,
+    RICE = (reach*impact*confidence)/effort, VALUE_EFFORT = value/effort_estimate.
+    The score is computed on read (never stored) so it cannot go stale; the one-shot
+    auto-rank action writes the *resulting order* into the shared ``priority_rank``.
+    NONE (default) hides the scoring surface — pure manual drag until a PM/PO opts in.
+    """
+
+    NONE = "none", "None"
+    WSJF = "wsjf", "WSJF"
+    RICE = "rice", "RICE"
+    VALUE_EFFORT = "value_effort", "Value / Effort"
+
+
 class Project(VersionedModel):
     """A project — the top-level container for tasks and scheduling."""
 
@@ -657,6 +675,16 @@ class Project(VersionedModel):
         max_length=16,
         choices=Methodology.choices,
         default=Methodology.HYBRID,
+    )
+    # Product-backlog prioritization model (ADR-0105, #922). Drives which distinct input
+    # columns on ``Task`` are read for the computed score. Scalar column (matches
+    # ``methodology`` / ``estimation_mode``) — no settings side table needed. NONE hides
+    # the scoring surface (pure manual drag); auto-rank is a one-shot PO action, not a
+    # persistent lock — manual drag always wins afterward.
+    prioritization_model = models.CharField(
+        max_length=16,
+        choices=PrioritizationModel.choices,
+        default=PrioritizationModel.NONE,
     )
     # Optional grouping into a Program (ADR-0070). NULL = standalone project.
     # SET_NULL on program delete so projects survive the cascade as standalone.
@@ -747,6 +775,44 @@ class TaskStatus(models.TextChoices):
     COMPLETE = "COMPLETE", "Complete"
 
 
+class TaskType(models.TextChoices):
+    """Work-item taxonomy for a task (ADR-0105, #363).
+
+    Default is TASK so every pre-existing row keeps its current semantics — the
+    field is purely additive. EPIC is special: an epic is a *grouping* node, not
+    schedulable work. Epics are excluded from CPM input and every committed-delivery
+    aggregate (see ``CommittedTaskManager`` and ``scheduling/tasks.py::_run_schedule``),
+    exactly as ``is_recurring`` templates are. The epic→story link is the ``Task.epic``
+    self-FK, deliberately parallel to (and independent of) the WBS ``wbs_path`` (#364).
+    """
+
+    EPIC = "epic", "Epic"
+    STORY = "story", "Story"
+    TASK = "task", "Task"
+    BUG = "bug", "Bug"
+    SPIKE = "spike", "Spike"
+
+
+class DorState(models.TextChoices):
+    """Definition-of-Ready signal for a backlog story (ADR-0105, #731).
+
+    Named ``dor`` (not ``readiness``) on the model because ``TaskSerializer`` already
+    exposes a *computed* ``readiness`` field — the board-card ReadinessChip signal
+    {idea/estimated/ready/baselined} from ADR-0057 — which is a different concept (a
+    derived board affordance, not settable PO intent). This is the PO's stored DoR
+    intent, set via the story drawer (Mark ready / Send to refine).
+
+    The READY transition is gated server-side — see ``Task.dor_blockers`` and the
+    serializer: a story may only become READY when it is estimated (``story_points``
+    set) and every acceptance criterion has ``status == "met"``. A failing or pending
+    AC, or an unestimated story, blocks Ready. IDEA is the default for new stories.
+    """
+
+    IDEA = "idea", "Idea"
+    REFINE = "refine", "Refine"
+    READY = "ready", "Ready"
+
+
 class CommittedTaskManager(models.Manager["Task"]):
     """Tasks that represent committed delivery: not BACKLOG and not soft-deleted.
 
@@ -765,10 +831,16 @@ class CommittedTaskManager(models.Manager["Task"]):
         # inputs would corrupt float, the critical path, and Monte Carlo P50/P80/P95.
         # The CPM feed (scheduling/tasks.py::_run_schedule) applies the same exclusion
         # at its own boundary. See ADR-0090.
+        #
+        # type=EPIC is excluded for the same reason (ADR-0105): an epic is a grouping
+        # node, not schedulable work. Its dates/points in the rollup card are query-time
+        # annotations computed from child stories — admitting an epic to CPM input,
+        # capacity, or Monte Carlo would corrupt float and the P50/P80/P95 bands.
         return (
             super()
             .get_queryset()
             .exclude(status=TaskStatus.BACKLOG)
+            .exclude(type=TaskType.EPIC)
             .filter(is_deleted=False, is_recurring=False)
         )
 
@@ -957,6 +1029,60 @@ class Task(VersionedModel):
     # Null means "not separately estimated" — burndown falls back to story_points.
     remaining_points = models.PositiveSmallIntegerField(null=True, blank=True)
 
+    # ── Product-backlog / PO grooming (ADR-0105) ────────────────────────────────
+    # Work-item taxonomy (#363). Default TASK keeps every pre-existing row's
+    # semantics. EPIC is excluded from CPM/capacity (see CommittedTaskManager).
+    # Field name ``type`` matches ADR-0088's committed shape.
+    type = models.CharField(
+        max_length=8,
+        choices=TaskType.choices,
+        default=TaskType.TASK,
+        db_index=True,
+    )
+    # Epic grouping (#364): the parent epic for a story, a self-FK parallel to — and
+    # independent of — the WBS ``wbs_path``. Only a ``type=EPIC`` task may be referenced
+    # here (serializer-validated); epics do not nest in 0.3. SET_NULL so a story
+    # survives epic deletion as ungrouped.
+    parent_epic = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="epic_children",
+        db_index=True,
+    )
+    # Definition-of-Ready signal (#731). Stored PO intent; the READY transition is gated
+    # server-side but advisory (see DorState docstring). Named ``dor`` to avoid colliding
+    # with the existing computed ``readiness`` serializer field (ADR-0057). Acceptance
+    # criteria (the AcceptanceCriterion child model) inform Ready but never auto-flip it.
+    dor = models.CharField(
+        max_length=8,
+        choices=DorState.choices,
+        default=DorState.IDEA,
+        db_index=True,
+    )
+    # Sprint-scoped execution order (#365). Meaningful only when ``sprint`` is non-null:
+    # the team's within-sprint sequence, seeded from ``priority_rank`` at sprint commit
+    # and freely reorderable (Member+) WITHOUT writing back to ``priority_rank`` — the
+    # product backlog is never mutated by in-sprint sequencing (ADR-0105 §5).
+    sprint_rank = models.PositiveIntegerField(null=True, blank=True)
+    # ── Prioritization scoring inputs (#922) — distinct per model so switching the
+    # project's active model is non-destructive and reversible (ADR-0105 §3). All
+    # nullable; the computed score is derived on read (never stored). ──
+    # WSJF
+    business_value = models.PositiveSmallIntegerField(null=True, blank=True)
+    time_criticality = models.PositiveSmallIntegerField(null=True, blank=True)
+    risk_reduction = models.PositiveSmallIntegerField(null=True, blank=True)
+    job_size = models.PositiveSmallIntegerField(null=True, blank=True)
+    # RICE
+    reach = models.PositiveIntegerField(null=True, blank=True)
+    impact = models.FloatField(null=True, blank=True)
+    confidence = models.FloatField(null=True, blank=True)
+    effort = models.FloatField(null=True, blank=True)
+    # Value / Effort
+    value = models.PositiveSmallIntegerField(null=True, blank=True)
+    effort_estimate = models.FloatField(null=True, blank=True)
+
     # Subtask discriminator (ADR-0060 #308).  True only for tasks created via the
     # drawer subtask action.  Distinguishes drawer-created decomposition children
     # from WBS phase/milestone children created via indent/reparent.
@@ -1126,6 +1252,55 @@ class Task(VersionedModel):
             for child in list(subtask_children):
                 child.soft_delete()
         super().soft_delete()
+
+
+class AcceptanceCriterion(VersionedModel):
+    """A single tickable acceptance criterion on a story (ADR-0105 §2, #493/#731).
+
+    First-class child rows (not a JSONField) so criteria have stable manual ordering,
+    a per-item sprint-review pass/fail trail, and a queryable met-count for
+    release-readiness. ``met_by``/``met_at`` are the review trail — surfaced as the
+    *criterion's* team-level status with attribution only on drill-down inside the
+    sprint/story context; never a per-person column and never aggregated to a PMO
+    surface (the VoC privacy guard, same posture as ADR-0104).
+
+    Decoupled from ``percent_complete`` and any CPM percent: a story may be
+    schedule-complete with unmet criteria and vice versa. Criteria drive sprint-review
+    pass/fail and the PO's Mark-ready gate, not the schedule.
+    """
+
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="acceptance_criteria")
+    text = models.CharField(max_length=1000)
+    # Optional structured Given/When/Then (DA-13). Blank when the team uses plain text.
+    given = models.CharField(max_length=1000, blank=True, default="")
+    when = models.CharField(max_length=1000, blank=True, default="")
+    then = models.CharField(max_length=1000, blank=True, default="")
+    met = models.BooleanField(default=False)
+    # Stable manual ordering within a story (drag to reorder).
+    position = models.PositiveIntegerField(default=0)
+    # Review trail — who marked it met and when (privacy-guarded; see docstring).
+    met_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    met_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "projects_acceptance_criterion"
+        ordering = ["task", "position"]
+        indexes = [models.Index(fields=["task", "position"])]
+
+    def __str__(self) -> str:
+        return f"{'✓' if self.met else '○'} {self.text[:60]}"
+
+    @property
+    def project_id(self) -> Any:
+        """Expose the owning project so the RBAC object-permission helpers
+        (`_get_project_id_from_obj`) resolve criteria to their project."""
+        return self.task.project_id
 
 
 # ---------------------------------------------------------------------------

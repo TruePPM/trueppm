@@ -673,5 +673,12 @@ SPECTACULAR_SETTINGS = {
         # components (a schema-drift regression — project memory
         # project_drf_enum_name_collision). Pin ours to a stable name.
         "ScopeChangeStatusEnum": "trueppm_api.apps.projects.models.ScopeChangeStatus",
+        # ADR-0105: Task gains task_type / readiness and Project gains
+        # backlog_scoring_model. Each is a new choice set on a *_type / status-adjacent
+        # field; pin to model-prefixed names so drf-spectacular does not rename the
+        # existing stable enums (same regression class as ScopeChangeStatus above).
+        "TaskTypeEnum": "trueppm_api.apps.projects.models.TaskType",
+        "DorStateEnum": "trueppm_api.apps.projects.models.DorState",
+        "PrioritizationModelEnum": "trueppm_api.apps.projects.models.PrioritizationModel",
     },
 }

@@ -53,6 +53,7 @@ from trueppm_api.apps.access.permissions import (
     IsProgramMember,
     IsProgramNotClosed,
     IsProjectAdmin,
+    IsProjectBacklogManager,
     IsProjectMember,
     IsProjectMemberWrite,
     IsProjectMemberWriteOrOwn,
@@ -65,6 +66,7 @@ from trueppm_api.apps.access.permissions import (
 from trueppm_api.apps.access.services import transfer_project_ownership
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import (
+    AcceptanceCriterion,
     ApiToken,
     Baseline,
     BaselineTask,
@@ -92,6 +94,7 @@ from trueppm_api.apps.projects.models import (
 )
 from trueppm_api.apps.projects.serializers import (
     _DEFAULT_COLUMNS,
+    AcceptanceCriterionSerializer,
     ApiTokenAuditEntrySerializer,
     BaselineDetailSerializer,
     BaselineSerializer,
@@ -241,6 +244,12 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
             return [IsAuthenticated(), IsProjectScheduler(), IsProjectNotArchived()]
         if self.action in ("utilization", "resource_allocation", "heatmap", "resources_summary"):
             return [IsAuthenticated(), IsProjectScheduler(), IsProjectNotArchived()]
+        # ADR-0105: reading the grooming view is any-member; auto-rank is a structural
+        # backlog action gated on can_manage_backlog (Admin+ today, PO-role seam).
+        if self.action == "product_backlog":
+            return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
+        if self.action == "product_backlog_auto_rank":
+            return [IsAuthenticated(), IsProjectBacklogManager(), IsProjectNotArchived()]
         return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
 
     queryset = Project.objects.select_related("calendar").order_by("start_date", "name")
@@ -391,6 +400,120 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "project_deleted", {"id": project_id})
         )
+
+    @action(detail=True, methods=["get"], url_path="product-backlog")
+    def product_backlog(self, request: Request, pk: str | None = None) -> Response:
+        """Grooming view payload (ADR-0105 DA-10): epics with nested stories + health.
+
+        One query for the project's backlog stories (status=BACKLOG, sprint-less,
+        non-epic) plus its epics, assembled into epic groups with rollups and a
+        grooming-health summary. The active scoring model is passed into each
+        TaskSerializer via context so the computed ``score`` needs no per-row query.
+        """
+        from trueppm_api.apps.projects.models import (
+            DorState,
+            Sprint,
+            SprintScopeChange,
+            TaskStatus,
+            TaskType,
+        )
+        from trueppm_api.apps.projects.product_backlog_services import ac_counts
+
+        project = self.get_object()
+        model = project.prioritization_model
+        ctx = {**self.get_serializer_context(), "prioritization_model": model}
+
+        # Prefetch what TaskSerializer reads per row so the grooming view stays O(1) in
+        # queries rather than O(stories): assignments (+resource), acceptance criteria
+        # (the AC meter + nested read), and the ADR-0060 sprint scope-change rows. Without
+        # these the serializer N+1s on every story/epic (perf-check 🔴).
+        def _backlog_qs() -> Any:
+            return Task.objects.filter(project=project, is_deleted=False).prefetch_related(
+                "assignments__resource",
+                "acceptance_criteria",
+                db_models.Prefetch(
+                    "sprint_scope_changes",
+                    queryset=SprintScopeChange.objects.select_related("added_by"),
+                    to_attr="_prefetched_sprint_scope_changes",
+                ),
+            )
+
+        epics = list(_backlog_qs().filter(type=TaskType.EPIC).order_by("priority_rank", "name"))
+        stories = list(
+            _backlog_qs()
+            .filter(status=TaskStatus.BACKLOG, sprint__isnull=True)
+            .exclude(type=TaskType.EPIC)
+            .order_by("priority_rank", "short_id")
+        )
+
+        def ser(task: Task) -> dict[str, Any]:
+            return TaskSerializer(task, context=ctx).data
+
+        grouped: dict[Any, list[Task]] = {}
+        ungrouped: list[Task] = []
+        for s in stories:
+            if s.parent_epic_id:
+                grouped.setdefault(s.parent_epic_id, []).append(s)
+            else:
+                ungrouped.append(s)
+
+        epic_payload = []
+        for e in epics:
+            children = grouped.get(e.id, [])
+            pts = sum(c.story_points or 0 for c in children)
+            done = sum((c.story_points or 0) for c in children if c.status == TaskStatus.COMPLETE)
+            epic_payload.append(
+                {
+                    "epic": ser(e),
+                    "stories": [ser(c) for c in children],
+                    "rollup": {
+                        "story_count": len(children),
+                        "points_total": pts,
+                        "points_done": done,
+                    },
+                }
+            )
+
+        # Grooming health (DA-10 strip). ready-line capacity reads the active sprint
+        # (ADR-0073) — advisory only (ADR-0105 §F).
+        total = len(stories)
+        ready = sum(1 for s in stories if s.dor == DorState.READY)
+        unestimated = sum(1 for s in stories if s.story_points is None)
+        ac_met_total = sum(ac_counts(s)[0] for s in stories)
+        ac_all = sum(ac_counts(s)[1] for s in stories)
+        active_sprint = (
+            Sprint.objects.filter(project=project, state="ACTIVE", is_deleted=False)
+            .order_by("-start_date")
+            .first()
+        )
+        ready_points = sum((s.story_points or 0) for s in stories if s.dor == DorState.READY)
+
+        return Response(
+            {
+                "epics": epic_payload,
+                "ungrouped": [ser(s) for s in ungrouped],
+                "health": {
+                    "dor_pct": round(100 * ready / total) if total else 0,
+                    "ready_count": ready,
+                    "ready_points": ready_points,
+                    "capacity_points": getattr(active_sprint, "capacity_points", None),
+                    "unestimated": unestimated,
+                    "ac_met": ac_met_total,
+                    "ac_total": ac_all,
+                    "story_count": total,
+                },
+                "scoring": {"model": model},
+            }
+        )
+
+    @action(detail=True, methods=["post"], url_path="product-backlog/auto-rank")
+    def product_backlog_auto_rank(self, request: Request, pk: str | None = None) -> Response:
+        """One-shot recompute of priority_rank from the active model (ADR-0105 DA-11)."""
+        from trueppm_api.apps.projects.product_backlog_services import auto_rank
+
+        project = self.get_object()
+        changed = auto_rank(project, request.user)
+        return Response({"reranked": changed, "model": project.prioritization_model})
 
     @action(detail=True, methods=["post"], url_path="archive")
     def archive(self, request: Request, pk: str | None = None) -> Response:
@@ -1480,6 +1603,12 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
             return [IsAuthenticated(), IsProjectMemberWrite(), IsProjectNotArchived()]
         if self.action == "approve_estimates":
             return [IsAuthenticated(), IsProjectScheduler(), IsProjectNotArchived()]
+        # ADR-0105: splitting a story restructures the backlog → can_manage_backlog
+        # (Admin+), the same gate as auto-rank / epic management. The custom
+        # get_permissions here overrides the @action's inline permission_classes, so
+        # the gate must be declared in this branch to take effect (rbac-check 🟡).
+        if self.action == "split":
+            return [IsAuthenticated(), IsProjectBacklogManager(), IsProjectNotArchived()]
         return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
 
     serializer_class = TaskSerializer
@@ -2054,6 +2183,30 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
     @action(
         detail=True,
         methods=["post"],
+        url_path="split",
+        permission_classes=[IsAuthenticated, IsProjectBacklogManager, IsProjectNotArchived],
+    )
+    def split(self, request: Request, **kwargs: Any) -> Response:
+        """Split a story into a sibling under the same epic (ADR-0105 DA-13).
+
+        The child carries over only the unmet acceptance criteria and inherits the
+        parent's epic so the split stays grouped; points are not auto-divided (the PO
+        re-estimates both halves, so velocity is never double-counted — Alex's VoC
+        note). Returns the new child task. Permission: Admin+ via can_manage_backlog —
+        splitting restructures the backlog, so it rides the same gate as auto-rank /
+        epic management rather than the assignee-scoped task-write class (rbac-check 🟡).
+        """
+        parent: Task = self.get_object()
+        from trueppm_api.apps.projects.product_backlog_services import split_story
+
+        name = request.data.get("name") if isinstance(request.data, dict) else None
+        child = split_story(parent, request.user, name=name)
+        serializer = self.get_serializer(child)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(
+        detail=True,
+        methods=["post"],
         url_path="approve-estimates",
         permission_classes=[IsAuthenticated, IsProjectScheduler, IsProjectNotArchived],
     )
@@ -2319,6 +2472,93 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
             {"id": str(suggestion.pk), "state": suggestion.state},
             status=status.HTTP_200_OK,
         )
+
+
+class AcceptanceCriterionViewSet(viewsets.ModelViewSet[AcceptanceCriterion]):
+    """CRUD for a story's acceptance criteria (ADR-0105 §2).
+
+    Acceptance criteria are a collaborative refinement + sprint-review artifact — the PO
+    drafts them during grooming and the team ticks them met at review — so writes are
+    gated at Member+ (``IsProjectMemberWrite``), not the Admin+ ``can_manage_backlog``
+    gate that guards the *structural* backlog actions (auto-rank, epic management, split).
+    The review trail (``met_by``/``met_at``) is stamped here when ``met`` flips; it is
+    surfaced as the criterion's status with attribution only on drill-down and is never
+    aggregated to a PMO surface (ADR-0105 §2 privacy guard).
+
+    Flat route ``/api/v1/acceptance-criteria/`` with a ``?task=`` list filter. Soft-delete
+    keeps sync tombstones (the model is a ``VersionedModel``).
+    """
+
+    serializer_class = AcceptanceCriterionSerializer
+    queryset = AcceptanceCriterion.objects.select_related("task", "met_by").filter(
+        is_deleted=False, task__is_deleted=False
+    )
+
+    def get_permissions(self) -> list[BasePermission]:
+        return [IsAuthenticated(), IsProjectMemberWrite(), IsProjectNotArchived()]
+
+    def get_queryset(self) -> QuerySet[AcceptanceCriterion]:
+        qs = (
+            super()
+            .get_queryset()
+            .filter(
+                task__project__memberships__user=self.request.user,  # type: ignore[misc]
+                task__project__memberships__is_deleted=False,
+            )
+        )
+        task_id = self.request.query_params.get("task")
+        if task_id:
+            qs = qs.filter(task_id=task_id)
+        return qs.distinct().order_by("task", "position")
+
+    def _require_member_write(self, project_id: Any) -> None:
+        from rest_framework.exceptions import PermissionDenied
+
+        from trueppm_api.apps.access.permissions import _membership_role
+
+        role = _membership_role(self.request, project_id)
+        if role is None or role < Role.MEMBER:
+            raise PermissionDenied(
+                "You need at least Team Member role to edit acceptance criteria."
+            )
+
+    def perform_create(self, serializer: BaseSerializer[AcceptanceCriterion]) -> None:
+        # Flat route carries no project_pk, so IsProjectMemberWrite.has_permission can't
+        # gate create — enforce membership on the target task's project here.
+        task = serializer.validated_data["task"]
+        self._require_member_write(task.project_id)
+        criterion = serializer.save()
+        # If created already-met, stamp the review trail so a met criterion never has
+        # null attribution (and dor_blockers' all-met check has a real author).
+        if criterion.met and criterion.met_by_id is None:
+            criterion.met_by = self.request.user  # type: ignore[assignment]
+            criterion.met_at = timezone.now()
+            criterion.save(update_fields=["met_by", "met_at", "server_version"])
+        self._broadcast(criterion)
+
+    def perform_update(self, serializer: BaseSerializer[AcceptanceCriterion]) -> None:
+        was_met = serializer.instance.met if serializer.instance else False
+        criterion = serializer.save()
+        # Stamp / clear the review trail when met flips.
+        if criterion.met and not was_met:
+            criterion.met_by = self.request.user  # type: ignore[assignment]
+            criterion.met_at = timezone.now()
+            criterion.save(update_fields=["met_by", "met_at", "server_version"])
+        elif not criterion.met and was_met:
+            criterion.met_by = None
+            criterion.met_at = None
+            criterion.save(update_fields=["met_by", "met_at", "server_version"])
+        self._broadcast(criterion)
+
+    def perform_destroy(self, instance: AcceptanceCriterion) -> None:
+        instance.soft_delete()
+        self._broadcast(instance)
+
+    def _broadcast(self, criterion: AcceptanceCriterion) -> None:
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        pid, tid = str(criterion.task.project_id), str(criterion.task_id)
+        transaction.on_commit(lambda: broadcast_board_event(pid, "task_updated", {"id": tid}))
 
 
 class BaselineViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Baseline]):
@@ -4979,6 +5219,7 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         non-blocking ``warnings`` array for over-allocated members
         (ADR-0037 Q2 amendment).
         """
+        from trueppm_api.apps.projects.product_backlog_services import seed_sprint_rank
         from trueppm_api.apps.projects.services import (
             capacity_check,
             recompute_milestone_rollup,
@@ -5025,6 +5266,10 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
                     status=status.HTTP_409_CONFLICT,
                 )
             snapshot_committed_metrics(sprint)
+            # ADR-0105 §5: seed the within-sprint execution order (sprint_rank) from
+            # product-backlog priority at commit. The sprint_activated broadcast below
+            # covers the resulting ordering change (no separate event needed).
+            seed_sprint_rank(sprint)
             sprint.state = SprintState.ACTIVE
             sprint.activated_at = timezone.now()
             sprint.save(
