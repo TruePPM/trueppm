@@ -213,6 +213,11 @@ test.describe('Calendar view (#206)', () => {
   });
 
   test('milestone diamond button is visible for Phase 1 Gate', async ({ page }) => {
+    // Pin the calendar to the milestone's month. useCalendarFilter defaults the
+    // anchor to "today", so on any run date outside April 2026 the fixture's
+    // 2026-04-28 milestone renders off-screen and the diamond never mounts
+    // (date-rot — passed only while "today" was still in April).
+    await page.goto(`${BASE_URL}/calendar?calAnchor=2026-04-15`);
     await expect(page.getByRole('button', { name: /Milestone: Phase 1 Gate/i })).toBeVisible();
   });
 
