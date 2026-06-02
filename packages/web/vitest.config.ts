@@ -38,9 +38,12 @@ export default defineConfig({
     coverage: {
       provider: 'istanbul',
       // Only report coverage for files actually loaded during the test run.
-      // all:true (the default) would instrument every file in src/ outside the
-      // module graph and inflate the coverage denominator with uncollected files.
-      all: false,
+      // Vitest 4 removed the `all` option: setting `coverage.include` now opts
+      // into instrumenting every matching file outside the module graph (the old
+      // `all: true` behavior), which would inflate the coverage denominator with
+      // uncollected files. Leaving `include` unset reproduces the old `all: false`
+      // — only files imported during the run are reported — with `exclude` below
+      // still filtering that loaded set.
       // 'text' prints to stdout for the package-total CI gate; 'lcov' writes
       // coverage/lcov.info which `diff-cover` consumes for the diff-coverage
       // gate (see Makefile coverage-diff-web). 'json' writes coverage-final.json,
@@ -49,7 +52,6 @@ export default defineConfig({
       // cheaper than the GNU lcov install (perl + binutils, ~5 min) it replaced.
       reporter: ['text', 'lcov', 'json'],
       reportsDirectory: './coverage',
-      include: ['src/**/*.{ts,tsx}'],
       // Merge with the vitest defaults so node_modules, dist, etc. stay excluded.
       // A custom exclude list replaces (not extends) the defaults, so we must
       // spread coverageConfigDefaults.exclude explicitly.
