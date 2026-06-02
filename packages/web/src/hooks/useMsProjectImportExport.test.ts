@@ -1,6 +1,6 @@
 import { renderHook, waitFor, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach, type MockInstance } from 'vitest';
 import type { ReactNode } from 'react';
 import { createElement } from 'react';
 import { useImportMsProject, useExportMsProject } from './useMsProjectImportExport';
@@ -83,7 +83,9 @@ describe('useImportMsProject', () => {
 
 describe('useExportMsProject', () => {
   let qc: QueryClient;
-  let clickSpy: ReturnType<typeof vi.spyOn>;
+  // Vitest 4 widens ReturnType<typeof vi.spyOn> to an any-typed MockInstance,
+  // which trips no-unsafe-call on clickSpy.mockRestore(); type the spy explicitly.
+  let clickSpy: MockInstance<() => void>;
 
   beforeEach(() => {
     qc = new QueryClient();

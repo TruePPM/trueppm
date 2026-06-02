@@ -30,8 +30,11 @@ export default defineConfig({
     // Run all tests in a single forked process — avoids spawning multiple workers
     // that each inflate their own jsdom + RTL heap, which caused OOM on the default
     // multi-fork pool when the suite grew past ~20 test files.
+    // Vitest 4 removed `poolOptions`; `fileParallelism: false` is the documented
+    // replacement for the old `forks.singleFork` (every test file runs sequentially
+    // in one worker — same single-process heap profile).
     pool: 'forks',
-    poolOptions: { forks: { singleFork: true } },
+    fileParallelism: false,
     coverage: {
       provider: 'istanbul',
       // Only report coverage for files actually loaded during the test run.

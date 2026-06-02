@@ -1,5 +1,5 @@
 import { render, screen, fireEvent } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { WorkspaceRolesPage, buildRolesMatrixCsv } from './WorkspaceRolesPage';
 
 // Mock the edition hook so the page renders without a QueryClientProvider and
@@ -29,11 +29,13 @@ describe('buildRolesMatrixCsv', () => {
 describe('WorkspaceRolesPage', () => {
   // Captured so assertions reference the local mock, not URL.createObjectURL
   // as an unbound method (eslint @typescript-eslint/unbound-method).
-  let createObjectURL: ReturnType<typeof vi.fn>;
+  // Vitest 4 narrows `vi.fn()` to `Mock<Procedure | Constructable>`, which no longer
+  // assigns to URL.createObjectURL's `(obj) => string` signature — type the mock.
+  let createObjectURL: Mock<(obj: Blob | MediaSource) => string>;
 
   beforeEach(() => {
     // jsdom implements neither createObjectURL nor anchor navigation; stub both.
-    createObjectURL = vi.fn(() => 'blob:mock');
+    createObjectURL = vi.fn((_obj: Blob | MediaSource) => 'blob:mock');
     URL.createObjectURL = createObjectURL;
     URL.revokeObjectURL = vi.fn();
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});

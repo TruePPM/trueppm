@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
 import { generateRisksCSV, exportRisksToCSV } from './riskExport';
 import type { Risk } from '@/api/types';
 
@@ -162,7 +162,8 @@ describe('generateRisksCSV — row content', () => {
 describe('exportRisksToCSV — download trigger', () => {
   let capturedFilename: string | null = null;
   let capturedBlobType: string | null = null;
-  let clickSpy: ReturnType<typeof vi.spyOn>;
+  // Vitest 4 widens ReturnType<typeof vi.spyOn> to an any-typed MockInstance; type explicitly.
+  let clickSpy: MockInstance<() => void>;
 
   beforeEach(() => {
     capturedFilename = null;
