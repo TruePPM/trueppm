@@ -84,6 +84,42 @@ class EgressResponse:
             return None
 
 
+# RFC6052 well-known NAT64 prefix. ``64:ff9b::/96`` embeds an IPv4 address in
+# its low 32 bits; a NAT64 gateway (common on dual-stack k8s) translates it back
+# to that IPv4 on the wire. Python reports the wrapper as ``is_global`` True, so
+# without unwrapping it a user-supplied ``[64:ff9b::a9fe:a9fe]`` URL would reach
+# cloud metadata (169.254.169.254) straight through the guard (#900).
+_NAT64_WELLKNOWN = ipaddress.ip_network("64:ff9b::/96")
+
+
+def _embedded_ipv4(ip: ipaddress.IPv6Address) -> ipaddress.IPv4Address | None:
+    """Extract the IPv4 address tunneled inside a transition-format IPv6 address.
+
+    Covers the forms whose ``is_global`` reflects the *wrapper* rather than the
+    embedded target, so a private/metadata IPv4 can be smuggled past the guard:
+    IPv4-mapped (``::ffff:0:0/96``), 6to4 (``2002::/16``), Teredo, the RFC6052
+    NAT64 well-known prefix, and the deprecated IPv4-compatible form
+    (``::a.b.c.d``, ``::/96``). Returns ``None`` for a native IPv6 address.
+    """
+    if ip.ipv4_mapped is not None:
+        return ip.ipv4_mapped
+    if ip.sixtofour is not None:
+        return ip.sixtofour
+    if ip.teredo is not None:
+        return ip.teredo[1]
+    if ip in _NAT64_WELLKNOWN:
+        return ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
+    # IPv4-compatible (deprecated, RFC4291 ``::/96``). No stdlib accessor: the
+    # high 96 bits are zero and the low 32 are the embedded IPv4. ``is_global``
+    # is True on the wrapper, so ``[::169.254.169.254]`` would otherwise reach
+    # metadata. Exclude ``::`` (unspecified) and ``::1`` (loopback) — those are
+    # native IPv6 that ``is_global`` already blocks, not tunneled IPv4.
+    as_int = int(ip)
+    if as_int >> 32 == 0 and as_int > 1:
+        return ipaddress.IPv4Address(as_int & 0xFFFFFFFF)
+    return None
+
+
 def _is_blocked_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     """Return ``True`` for any address an outbound integration call must not reach.
 
@@ -92,7 +128,16 @@ def _is_blocked_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     reserved, multicast, and unspecified — so the single negated check covers
     every SSRF target the ADR-0049 deny-list enumerates without maintaining a
     hand-rolled CIDR table that drifts from the IANA registry.
+
+    IPv6 transition formats are unwrapped first: ``is_global`` is computed on the
+    wrapper, so a metadata/RFC1918 IPv4 tunneled via NAT64, 6to4, Teredo, or an
+    IPv4-mapped address would otherwise pass. The embedded IPv4 is re-checked
+    through this same guard (#900).
     """
+    if isinstance(ip, ipaddress.IPv6Address):
+        embedded = _embedded_ipv4(ip)
+        if embedded is not None:
+            return _is_blocked_ip(embedded)
     return not ip.is_global
 
 

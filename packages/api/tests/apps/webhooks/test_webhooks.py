@@ -171,6 +171,42 @@ def test_delete_webhook_as_admin(
 
 
 # ---------------------------------------------------------------------------
+# deliveries audit log — payload is Admin-only (#903)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_deliveries_payload_denied_to_member(
+    member_client: APIClient, project: Project, webhook: Webhook
+) -> None:
+    """A plain project Member must not read the delivery audit log: its payloads
+    carry task notes / comment snippets / assignee emails (#903)."""
+    WebhookDelivery.objects.create(
+        webhook=webhook,
+        event_type="task.updated",
+        payload={"task": {"notes": "secret internal note", "assignee_email": "a@b.example"}},
+    )
+    resp = member_client.get(f"/api/v1/projects/{project.pk}/webhooks/{webhook.pk}/deliveries/")
+    assert resp.status_code == 403
+
+
+@pytest.mark.django_db
+def test_deliveries_payload_readable_by_admin(
+    admin_client: APIClient, project: Project, webhook: Webhook
+) -> None:
+    """An Admin can read the deliveries (and their payloads)."""
+    WebhookDelivery.objects.create(
+        webhook=webhook,
+        event_type="task.updated",
+        payload={"task": {"notes": "secret internal note"}},
+    )
+    resp = admin_client.get(f"/api/v1/projects/{project.pk}/webhooks/{webhook.pk}/deliveries/")
+    assert resp.status_code == 200
+    assert len(resp.json()) == 1
+    assert resp.json()[0]["payload"]["task"]["notes"] == "secret internal note"
+
+
+# ---------------------------------------------------------------------------
 # Secret validation + one-time echo (#893)
 # ---------------------------------------------------------------------------
 

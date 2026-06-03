@@ -24,6 +24,8 @@ import re
 from typing import Any, ClassVar, cast
 from urllib.parse import quote, urlparse
 
+from django.conf import settings
+
 from . import http
 from .encryption import decrypt_secret
 from .registry import (
@@ -37,6 +39,62 @@ from .registry import (
     TaskLinkProvider,
     VerifyResult,
 )
+
+
+class BaseUrlNotAllowed(ValueError):
+    """Raised when a credential's ``base_url`` host is not permitted for its
+    provider (#902). The message is user-facing."""
+
+
+# Per-provider SaaS hosts a ``base_url`` may target without operator opt-in.
+# An empty base_url uses the provider's built-in SaaS default and is always
+# allowed; any other host must be one of these, match the provider's self-hosted
+# shape (Jira Cloud ``*.atlassian.net``), or be listed in the operator-set
+# ``TRUEPPM_INTEGRATION_ALLOWED_HOSTS``.
+_PROVIDER_DEFAULT_HOSTS: dict[str, frozenset[str]] = {
+    "github": frozenset({"api.github.com", "github.com", "www.github.com"}),
+    "gitlab": frozenset({"gitlab.com", "www.gitlab.com"}),
+}
+
+
+def assert_base_url_allowed(provider_key: str, base_url: str) -> None:
+    """Reject a ``base_url`` host the provider must never ship its PAT to (#902).
+
+    Without this, a user could register e.g. ``provider="github",
+    base_url="https://attacker.example.com"`` — the github.com PAT is then sent
+    in an ``Authorization`` header to the attacker host on the very first verify.
+    The SSRF guard only blocks private/internal hosts; a public attacker host
+    passes it. So restrict ``base_url`` to known SaaS hosts plus an
+    operator-controlled allowlist for self-hosted GitHub Enterprise / GitLab CE.
+
+    Raises:
+        BaseUrlNotAllowed: the host is not permitted for ``provider_key``.
+    """
+    if not base_url:
+        return
+    # ``generic`` is a link-only provider — it stores no secret and sends no PAT,
+    # so an arbitrary base_url carries no exfiltration risk.
+    if provider_key == "generic":
+        return
+    host = (urlparse(base_url).hostname or "").lower()
+    if not host:
+        raise BaseUrlNotAllowed("Host URL must include a hostname.")
+    operator_allow = {
+        h.lower() for h in (getattr(settings, "TRUEPPM_INTEGRATION_ALLOWED_HOSTS", None) or [])
+    }
+    if host in operator_allow:
+        return
+    if provider_key == "jira":
+        # Jira Cloud (ADR-0097): only the tenant's atlassian.net host.
+        if host == "atlassian.net" or host.endswith(".atlassian.net"):
+            return
+    elif host in _PROVIDER_DEFAULT_HOSTS.get(provider_key, frozenset()):
+        return
+    raise BaseUrlNotAllowed(
+        f"Host URL {host!r} is not an allowed host for the {provider_key!r} provider. "
+        "A self-hosted instance must be added to TRUEPPM_INTEGRATION_ALLOWED_HOSTS by an operator."
+    )
+
 
 # GitLab resource segments that carry a fetchable open/closed/merged state.
 # commit / tree (branch) URLs are valid links but have no such lifecycle, so

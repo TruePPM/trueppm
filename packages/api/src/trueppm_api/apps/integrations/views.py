@@ -147,6 +147,17 @@ class IntegrationCredentialViewSet(
         secret = serializer.validated_data["secret"]
         base_url = serializer.validated_data.get("base_url", "")
 
+        # Gate the host BEFORE verify_token: verify ships the PAT to base_url, so
+        # an attacker-controlled host must be rejected before the token is on the
+        # wire (#902), not merely have its 422 surfaced after exfiltration.
+        try:
+            providers.assert_base_url_allowed(provider, base_url)
+        except providers.BaseUrlNotAllowed as exc:
+            return Response(
+                {"detail": str(exc), "code": "base_url_not_allowed"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         provider_handler = cast("type[TaskLinkProvider]", provider_cls)
         result = provider_handler.verify_token(secret, base_url=base_url or None)
         if not result.ok:
