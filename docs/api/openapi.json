@@ -11434,6 +11434,73 @@
                 }
             }
         },
+        "/api/v1/projects/{project_pk}/teams/": {
+            "get": {
+                "operationId": "v1_projects_teams_list",
+                "description": "Read-only team access, nested under a project and as a top-level detail route.",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedTeamList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{project_pk}/webhooks/": {
             "get": {
                 "operationId": "v1_projects_webhooks_list",
@@ -15745,6 +15812,181 @@
                 }
             }
         },
+        "/api/v1/teams/{id}/": {
+            "get": {
+                "operationId": "v1_teams_retrieve",
+                "description": "Read-only team access, nested under a project and as a top-level detail route.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Team"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/teams/{team_pk}/members/": {
+            "get": {
+                "operationId": "v1_teams_members_list",
+                "description": "Roster list + role/facet assignment.\n\nURL: /api/v1/teams/{team_pk}/members/\n     /api/v1/teams/{team_pk}/members/{pk}/   (PATCH only)\n\nThe facets are soft-singletons: setting a facet on one member clears it from\nwhichever member currently holds it on the same team, in a single transaction\n(reassign-moves-the-facet — ADR-0078's \"transitional state during handoff\" is\nrealized as an atomic move rather than a tolerated double-holder).",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "team_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedTeamMembershipReadList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/teams/{team_pk}/members/{id}/": {
+            "patch": {
+                "operationId": "v1_teams_members_partial_update",
+                "description": "Roster list + role/facet assignment.\n\nURL: /api/v1/teams/{team_pk}/members/\n     /api/v1/teams/{team_pk}/members/{pk}/   (PATCH only)\n\nThe facets are soft-singletons: setting a facet on one member clears it from\nwhichever member currently holds it on the same team, in a single transaction\n(reassign-moves-the-facet — ADR-0078's \"transitional state during handoff\" is\nrealized as an atomic move rather than a tolerated double-holder).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "team_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedTeamMembershipWriteRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedTeamMembershipWriteRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedTeamMembershipWriteRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TeamMembershipWrite"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/users/search/": {
             "get": {
                 "operationId": "v1_users_search_list",
@@ -19846,6 +20088,68 @@
                     }
                 }
             },
+            "PaginatedTeamList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Team"
+                        }
+                    }
+                }
+            },
+            "PaginatedTeamMembershipReadList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TeamMembershipRead"
+                        }
+                    }
+                }
+            },
             "PaginatedVelocitySuggestionList": {
                 "type": "object",
                 "required": [
@@ -20841,6 +21145,21 @@
                         ],
                         "minimum": -2147483648,
                         "maximum": 2147483647
+                    }
+                }
+            },
+            "PatchedTeamMembershipWriteRequest": {
+                "type": "object",
+                "description": "Write serializer for role and facet assignment (PATCH only in 0.3).\n\nAll three fields are optional so a partial update can flip a single facet\nwithout re-sending the role. The single-holder reassignment for the facets is\napplied in the viewset inside the write transaction, not here, because it\nmutates *other* rows.",
+                "properties": {
+                    "role": {
+                        "$ref": "#/components/schemas/TeamRoleEnum"
+                    },
+                    "is_scrum_master": {
+                        "type": "boolean"
+                    },
+                    "is_product_owner": {
+                        "type": "boolean"
                     }
                 }
             },
@@ -24570,6 +24889,148 @@
                 "type": "string",
                 "description": "* `epic` - Epic\n* `story` - Story\n* `task` - Task\n* `bug` - Bug\n* `spike` - Spike"
             },
+            "Team": {
+                "type": "object",
+                "description": "Read serializer for a team. ``member_count`` drives the roster header.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "project": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "short_id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "description": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "is_default": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "member_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "server_version": {
+                        "type": "integer",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "description",
+                    "id",
+                    "is_default",
+                    "member_count",
+                    "name",
+                    "project",
+                    "server_version",
+                    "short_id"
+                ]
+            },
+            "TeamMembershipRead": {
+                "type": "object",
+                "description": "Roster row: identity plus the role and the two facet flags.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "team": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "user": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "user_detail": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/_TeamUserSummary"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "role": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/TeamRoleEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "role_label": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "is_scrum_master": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "is_product_owner": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "server_version": {
+                        "type": "integer",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "created_at",
+                    "id",
+                    "is_product_owner",
+                    "is_scrum_master",
+                    "role",
+                    "role_label",
+                    "server_version",
+                    "team",
+                    "user",
+                    "user_detail"
+                ]
+            },
+            "TeamMembershipWrite": {
+                "type": "object",
+                "description": "Write serializer for role and facet assignment (PATCH only in 0.3).\n\nAll three fields are optional so a partial update can flip a single facet\nwithout re-sending the role. The single-holder reassignment for the facets is\napplied in the viewset inside the write transaction, not here, because it\nmutates *other* rows.",
+                "properties": {
+                    "role": {
+                        "$ref": "#/components/schemas/TeamRoleEnum"
+                    },
+                    "is_scrum_master": {
+                        "type": "boolean"
+                    },
+                    "is_product_owner": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "TeamRoleEnum": {
+                "enum": [
+                    "member",
+                    "admin"
+                ],
+                "type": "string",
+                "description": "* `member` - Member\n* `admin` - Admin"
+            },
             "TokenObtainPair": {
                 "type": "object",
                 "properties": {
@@ -25233,6 +25694,31 @@
                 },
                 "required": [
                     "display_name",
+                    "id",
+                    "username"
+                ]
+            },
+            "_TeamUserSummary": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "username": {
+                        "type": "string",
+                        "description": "Required. 150 characters or fewer. Letters, digits and @/./+/-/_ only.",
+                        "pattern": "^[\\w.@+-]+$",
+                        "maxLength": 150
+                    },
+                    "email": {
+                        "type": "string",
+                        "format": "email",
+                        "title": "Email address",
+                        "maxLength": 254
+                    }
+                },
+                "required": [
                     "id",
                     "username"
                 ]

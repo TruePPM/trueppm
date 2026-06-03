@@ -58,6 +58,12 @@ export function ProjectSettingsPage() {
   }));
   const activeProjectHealth = projects?.find((p) => p.id === projectId)?.healthState;
 
+  // Team facet-assignment tab is methodology-gated (ADR-0078, #927): agile/hybrid
+  // only. The §F single-team-invisibility rule governs multi-team chrome, not this
+  // tab, so it is gated by methodology rather than team count in 0.3 (waterfall
+  // projects never see Team UI). HYBRID is the default for pre-methodology rows.
+  const showTeamTab = project?.methodology === 'AGILE' || project?.methodology === 'HYBRID';
+
   const navGroups: SettingsNavGroup[] = [
     {
       label: 'Setup',
@@ -65,6 +71,9 @@ export function ProjectSettingsPage() {
         { id: 'general',     label: 'General',        to: `/projects/${projectId}/settings/general`,      icon: <NavIcon><OverviewIcon aria-hidden="true" /></NavIcon> },
         { id: 'access',      label: 'Access',         to: `/projects/${projectId}/settings/access`,       icon: <NavIcon><ResourcesIcon aria-hidden="true" /></NavIcon> },
         { id: 'methodology', label: 'Methodology',    to: `/projects/${projectId}/settings/methodology`,  icon: <NavIcon><SprintIcon aria-hidden="true" /></NavIcon> },
+        ...(showTeamTab
+          ? [{ id: 'team', label: 'Team', to: `/projects/${projectId}/settings/team`, icon: <NavIcon><ResourcesIcon aria-hidden="true" /></NavIcon> }]
+          : []),
       ],
     },
     {
