@@ -1858,7 +1858,18 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
                 "sprint_scope_changes",
                 queryset=SprintScopeChange.objects.select_related("added_by"),
                 to_attr="_prefetched_sprint_scope_changes",
-            )
+            ),
+            # Prefetch acceptance criteria (ADR-0105) into the default related
+            # cache so the nested AcceptanceCriterionSerializer and all three
+            # ac_counts-backed method fields (criteria_met_count / criteria_total
+            # / dor_blockers) reuse a single set per task instead of re-querying
+            # per row — without this the four accesses are an N+1 over the task
+            # list (#922). select_related("met_by") collapses the review-trail
+            # name lookup so each criterion's met_by_name costs no extra query.
+            db_models.Prefetch(
+                "acceptance_criteria",
+                queryset=AcceptanceCriterion.objects.select_related("met_by"),
+            ),
         )
 
         return cast("QuerySet[Task]", qs)
