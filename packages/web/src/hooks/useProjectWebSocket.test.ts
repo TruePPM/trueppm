@@ -570,4 +570,31 @@ describe('useProjectWebSocket — wave-2 missing handlers (#835)', () => {
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['task-comments', 'task-7'] });
   });
+
+  // #927 (ADR-0078) — a facet/role reassign broadcasts team_member_changed.
+  // The roster query is keyed by team id (the payload carries team_id, not
+  // project_id), so a second admin viewing the Team tab sees it live.
+  it('invalidates the team roster on team_member_changed (keyed by team_id)', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('team_member_changed', {
+      team_id: 'team-1',
+      membership_id: 'm-1',
+      is_scrum_master: true,
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['team-members', 'team-1'] });
+  });
+
+  it('does not invalidate the roster on team_member_changed without a team_id', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('team_member_changed', { membership_id: 'm-1' });
+
+    expect(invalidateSpy).not.toHaveBeenCalledWith({
+      queryKey: ['team-members', undefined],
+    });
+  });
 });
