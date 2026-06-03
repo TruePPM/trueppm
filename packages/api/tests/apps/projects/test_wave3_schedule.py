@@ -3,10 +3,11 @@ and promote-unscheduled-task endpoint (#213)."""
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
@@ -161,13 +162,18 @@ class TestPromoteUnscheduledTask:
             duration=3,
             status=TaskStatus.NOT_STARTED,
         )
+        # Use a future planned_start: a *past* date would (correctly) trip the
+        # #336 date-gated NOT_STARTED → IN_PROGRESS auto-transition, which is not
+        # what this test asserts. Computed relative to today so it never rots
+        # (the prior hardcoded 2026-06-01 silently became a past date).
+        future_start = timezone.localdate() + timedelta(days=30)
         resp = client.patch(
             f"/api/v1/tasks/{task.id}/",
-            {"planned_start": "2026-06-01"},
+            {"planned_start": future_start.isoformat()},
             format="json",
         )
         assert resp.status_code == 200
-        assert resp.data["planned_start"] == "2026-06-01"
+        assert resp.data["planned_start"] == future_start.isoformat()
         assert resp.data["status"] == TaskStatus.NOT_STARTED
 
     def test_patch_requires_authentication(self, project: Project) -> None:
