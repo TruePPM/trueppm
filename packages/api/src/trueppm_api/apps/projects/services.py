@@ -1388,18 +1388,30 @@ def current_committed_points(sprint_pk: str | uuid.UUID) -> int:
     )
 
 
-def _create_milestone_for_sprint(sprint: Any) -> Any:
+def _create_milestone_for_sprint(
+    sprint: Any,
+    *,
+    name: str | None = None,
+    target_date: Any = None,
+) -> Any:
     """Mint a ``Task(is_milestone=True)`` for a ``{}``-body promote (ADR-0106 §2).
 
-    Named from the sprint goal (fallback ``"<sprint name> milestone"``), dated at
-    the sprint ``finish_date`` (planned_start = SNET floor), zero duration,
-    appended at the WBS root. The root-count SELECT is locked to stop two
-    concurrent root creates racing to the same ``wbs_path`` — mirrors
+    Defaults: named from the sprint goal (fallback ``"<sprint name> milestone"``),
+    dated at the sprint ``finish_date`` (planned_start = SNET floor). Optional
+    create overrides (§E1.3, #928): a blank/absent ``name`` falls back to the
+    goal-derived default; an absent ``target_date`` falls back to ``finish_date``.
+    Any valid ``target_date`` is accepted — ``planned_start`` is a
+    start-no-earlier-than floor the existing CPM/project-start guards reconcile.
+
+    Zero duration, appended at the WBS root. The root-count SELECT is locked to
+    stop two concurrent root creates racing to the same ``wbs_path`` — mirrors
     ``TaskViewSet.perform_create``. The caller already holds the sprint row lock.
     """
     from trueppm_api.apps.projects.models import Task, TaskStatus
 
-    name = ((sprint.goal or "").strip() or f"{sprint.name} milestone")[:255]
+    default_name = (sprint.goal or "").strip() or f"{sprint.name} milestone"
+    resolved_name = ((name or "").strip() or default_name)[:255]
+    planned_start = target_date or sprint.finish_date
     root_count = (
         Task.objects.select_for_update()
         .filter(project_id=sprint.project_id, is_deleted=False, wbs_path__regex=r"^\d+$")
@@ -1407,11 +1419,11 @@ def _create_milestone_for_sprint(sprint: Any) -> Any:
     )
     return Task.objects.create(
         project_id=sprint.project_id,
-        name=name,
+        name=resolved_name,
         is_milestone=True,
         duration=0,
         status=TaskStatus.NOT_STARTED,
-        planned_start=sprint.finish_date,
+        planned_start=planned_start,
         wbs_path=str(root_count + 1),
     )
 
@@ -1421,12 +1433,16 @@ def promote_sprint_to_milestone(
     *,
     milestone_id: str | uuid.UUID | None,
     actor: Any,
+    name: str | None = None,
+    target_date: Any = None,
 ) -> tuple[Any, bool]:
     """Bind a sprint to a schedule milestone with provenance (ADR-0106 §2).
 
     ``milestone_id`` set → bind an existing milestone task in the same project
-    (validated ``is_milestone`` + not deleted). ``milestone_id`` None → create a
-    new milestone from the sprint goal/finish and bind it.
+    (validated ``is_milestone`` + not deleted); ``name``/``target_date`` are
+    ignored on this path. ``milestone_id`` None → create a new milestone from the
+    sprint goal/finish and bind it, honoring the optional ``name``/``target_date``
+    create overrides (§E1.3, #928).
 
     Idempotent and non-re-pointing under the caller's ``select_for_update`` lock:
     re-binding the *same* milestone is a no-op; any other milestone (or a create
@@ -1461,7 +1477,7 @@ def promote_sprint_to_milestone(
         if milestone is None:
             raise MilestoneNotFound
     else:
-        milestone = _create_milestone_for_sprint(sprint)
+        milestone = _create_milestone_for_sprint(sprint, name=name, target_date=target_date)
         created = True
 
     sprint.target_milestone = milestone
@@ -1527,6 +1543,146 @@ def unbind_sprint_milestone(sprint: Any) -> Any:
     )
     recompute_milestone_rollup(old_milestone_id)
     return sprint
+
+
+def _unmodeled_predecessors(milestone: Any) -> list[str]:
+    """IDs of the milestone's CPM predecessors that this forecast can't see.
+
+    ADR-0106 §4 cheap heuristic (NOT the #372 feasibility engine): a predecessor
+    is "unmodeled" when it carries no sprint commitment (``sprint_id`` NULL) or
+    belongs to a sprint that is **not** itself targeting this milestone — so the
+    velocity-based reforecast has no completion signal for it and may read
+    optimistically. A single predecessor scan over the dependency rows; no graph
+    walk, no cross-project read.
+    """
+    from trueppm_api.apps.projects.models import Dependency, Sprint
+
+    targeting_sprint_ids = set(
+        Sprint.objects.filter(target_milestone_id=milestone.pk, is_deleted=False).values_list(
+            "pk", flat=True
+        )
+    )
+    unmodeled: list[str] = []
+    for dep in (
+        Dependency.objects.filter(successor_id=milestone.pk, predecessor__is_deleted=False)
+        .select_related("predecessor")
+        .only("predecessor__id", "predecessor__sprint_id")
+    ):
+        pred = dep.predecessor
+        if pred.sprint_id is None or pred.sprint_id not in targeting_sprint_ids:
+            unmodeled.append(str(pred.pk))
+    return unmodeled
+
+
+def reforecast_preview(
+    sprint: Any,
+    *,
+    milestone_id: str | uuid.UUID | None,
+) -> dict[str, Any]:
+    """Dry-run reforecast for the promote dialog (ADR-0106 §E1.1, #928).
+
+    Computes the same dates+band shape the on-close reforecast (§3) will, **live
+    and persisting nothing** — there is no ``ForecastSnapshot`` write. Until the
+    agile-aware Monte Carlo (#411) lands this is **velocity-band only**, so
+    ``basis`` is always ``"velocity_band"``.
+
+    ``milestone_id`` set → preview against that existing milestone (its CPM
+    ``early_finish`` is the spine; its out-of-sprint predecessors set the
+    unmodeled-dependency flag). ``milestone_id`` None → create-mode preview for
+    the milestone the dialog is about to mint: the spine is the sprint
+    ``finish_date`` and there are no predecessors yet, so the flag is False.
+
+    Privacy (§3): emits only the team-pace **band** + dates — never the per-sprint
+    ``completed_points`` series. Raises ``MilestoneNotFound`` if ``milestone_id``
+    does not resolve to a milestone task in the sprint's project (no cross-project
+    read).
+    """
+    from datetime import timedelta
+
+    from trueppm_api.apps.projects.models import Task
+
+    milestone = None
+    if milestone_id is not None:
+        milestone = (
+            Task.objects.filter(
+                pk=milestone_id,
+                project_id=sprint.project_id,
+                is_milestone=True,
+                is_deleted=False,
+            )
+            .only("pk", "early_finish")
+            .first()
+        )
+        if milestone is None:
+            raise MilestoneNotFound
+
+    # cpm_finish is the deterministic spine: an existing milestone's recomputed
+    # early_finish, or — in create mode, or before the freshly minted milestone's
+    # first CPM pass — the sprint finish_date the milestone will be dated at.
+    cpm_finish = milestone.early_finish if milestone is not None else None
+    if cpm_finish is None:
+        cpm_finish = sprint.finish_date
+
+    vel = velocity_summary(sprint.project_id)
+    velocity_low = vel["forecast_range_low"]
+    velocity_high = vel["forecast_range_high"]
+    avg = vel["rolling_avg_points"]
+
+    # Band→percentile derivation (coarse velocity-band fallback; the true
+    # percentiles arrive with #411 MC). The 1-σ slow-pace day penalty is the
+    # remaining committed work re-paced from the team's average to its slow-tail
+    # velocity; p80 takes 0.6 of it, p95 the whole tail. Below the 2-closed-sprint
+    # floor (band null) it collapses to cpm_finish. Monotonic: p50 ≤ p80 ≤ p95.
+    p50 = p80 = p95 = cpm_finish
+    if velocity_low and avg and cpm_finish is not None:
+        remaining = current_committed_points(sprint.pk)
+        sprint_days = max(1, (sprint.finish_date - sprint.start_date).days)
+        penalty_days = round(remaining * (sprint_days / velocity_low - sprint_days / avg))
+        penalty_days = max(0, penalty_days)
+        p80 = cpm_finish + timedelta(days=round(penalty_days * 0.6))
+        p95 = cpm_finish + timedelta(days=penalty_days)
+    else:
+        # No usable band → no defensible spread; surface the band as absent.
+        velocity_low = None
+        velocity_high = None
+
+    unmodeled_ids = _unmodeled_predecessors(milestone) if milestone is not None else []
+
+    return {
+        "basis": "velocity_band",
+        "cpm_finish": cpm_finish,
+        "p50": p50,
+        "p80": p80,
+        "p95": p95,
+        "velocity_low": velocity_low,
+        "velocity_high": velocity_high,
+        "unmodeled_dependency": bool(unmodeled_ids),
+        "unmodeled_predecessor_ids": unmodeled_ids,
+    }
+
+
+def list_project_milestones(project_id: str | uuid.UUID, *, unbound_only: bool = False) -> Any:
+    """Slim milestone list for the promote dialog's bind-existing picker (§E1.3).
+
+    Returns the project's milestone tasks annotated with ``is_bound`` (True when
+    any non-deleted sprint targets the milestone) via a single ``Exists``
+    subquery — no N+1. ``unbound_only`` filters to milestones no sprint is bound
+    to yet. Ordered by ``early_finish, name`` to match the picker's date sort.
+    """
+    from django.db.models import Exists, OuterRef
+
+    from trueppm_api.apps.projects.models import Sprint, Task
+
+    bound = Sprint.objects.filter(target_milestone_id=OuterRef("pk"), is_deleted=False)
+    qs = (
+        Task.objects.filter(project_id=project_id, is_milestone=True, is_deleted=False)
+        .annotate(is_bound=Exists(bound))
+        .only("pk", "name", "wbs_path", "early_finish")
+        .order_by("early_finish", "name")
+    )
+    if unbound_only:
+        qs = qs.filter(is_bound=False)
+    return qs
 
 
 # ---------------------------------------------------------------------------

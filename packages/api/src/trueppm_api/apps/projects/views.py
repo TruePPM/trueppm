@@ -109,6 +109,7 @@ from trueppm_api.apps.projects.serializers import (
     InboundTaskSyncPayloadSerializer,
     MeWorkActiveSprintSerializer,
     MeWorkTaskSerializer,
+    MilestoneListItemSerializer,
     MilestoneRollupLockedError,
     PhaseSerializer,
     PlannedStartBeforeProjectStartError,
@@ -118,6 +119,7 @@ from trueppm_api.apps.projects.serializers import (
     ProjectCustomFieldSerializer,
     ProjectDetailSerializer,
     ProjectSerializer,
+    ReforecastPreviewSerializer,
     RiskCommentSerializer,
     RiskSerializer,
     SignedDownloadUrlSerializer,
@@ -5123,6 +5125,11 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
     def get_permissions(self) -> list[BasePermission]:
         if self.action in ("list", "retrieve", "burndown", "capacity"):
             return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
+        # ADR-0106 §E1.1/§E1.4 (#928): the reforecast preview is a read-only dry
+        # run (computes dates + the team-pace band, persists nothing, writes no
+        # schedule) — any project member, matching the §5 forecast-read posture.
+        if self.action == "reforecast_preview":
+            return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
         # `retro` accepts GET (read) / POST (write) / PATCH (partial write).
         # Read needs membership; writes need write role.
         if self.action == "retro" and self.request.method == "GET":
@@ -5444,12 +5451,15 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         """Bind this sprint to a schedule milestone (ADR-0106 §2).
 
         Body ``{}`` mints a new ``Task(is_milestone=True)`` from the sprint goal
-        (dated at finish), then binds it (``201``). Body ``{"milestone_id": uuid}``
-        binds an existing milestone in the same project (``200``). Re-binding the
-        same milestone is an idempotent no-op ``200``; binding a *different* one
-        while already bound is ``409 sprint_already_bound`` — the binding never
-        silently re-points. SCHEDULER+.
+        (dated at finish), then binds it (``201``). Optional create overrides
+        ``{"name": str, "target_date": date}`` rename/re-date the new milestone
+        (ADR-0106 §E1.2, #928); both are ignored when ``milestone_id`` is given.
+        Body ``{"milestone_id": uuid}`` binds an existing milestone in the same
+        project (``200``). Re-binding the same milestone is an idempotent no-op
+        ``200``; binding a *different* one while already bound is ``409
+        sprint_already_bound`` — the binding never silently re-points. SCHEDULER+.
         """
+        from trueppm_api.apps.projects.serializers import PromoteToMilestoneRequestSerializer
         from trueppm_api.apps.projects.services import (
             MilestoneNotFound,
             SprintAlreadyBound,
@@ -5458,7 +5468,11 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
 
         if pk is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-        milestone_id = request.data.get("milestone_id") if isinstance(request.data, dict) else None
+        body = PromoteToMilestoneRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        milestone_id = body.validated_data.get("milestone_id")
+        override_name = body.validated_data.get("name")
+        override_target_date = body.validated_data.get("target_date")
         with transaction.atomic():
             sprint = (
                 # NB: do not select_related the nullable target_milestone here —
@@ -5475,7 +5489,11 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
             self.check_object_permissions(request, sprint)
             try:
                 sprint, created = promote_sprint_to_milestone(
-                    sprint, milestone_id=milestone_id, actor=request.user
+                    sprint,
+                    milestone_id=milestone_id,
+                    actor=request.user,
+                    name=override_name,
+                    target_date=override_target_date,
                 )
             except SprintAlreadyBound as exc:
                 return Response(
@@ -5523,6 +5541,49 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
             self.check_object_permissions(request, sprint)
             sprint = unbind_sprint_milestone(sprint)
         return Response(SprintSerializer(sprint).data, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="milestone_id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Existing milestone to preview against. Omit for the create-mode "
+                    "preview of the milestone the dialog will mint (spine = sprint finish)."
+                ),
+            )
+        ],
+        responses=ReforecastPreviewSerializer,
+    )
+    @action(detail=True, methods=["get"], url_path="reforecast-preview")
+    def reforecast_preview(self, request: Request, pk: str | None = None) -> Response:
+        """Dry-run reforecast for the promote dialog (ADR-0106 §E1.1, #928).
+
+        Computes the same dates + team-pace band the on-close reforecast (§3)
+        will, but **live and persisting nothing**. Velocity-band only until #411
+        Monte Carlo lands (``basis="velocity_band"``). ``?milestone_id=<uuid>``
+        previews against an existing milestone (same project; ``404`` otherwise);
+        omitted previews the to-be-created milestone. Any project member.
+        """
+        from trueppm_api.apps.projects.services import MilestoneNotFound, reforecast_preview
+
+        if pk is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        sprint = Sprint.objects.select_related("project").filter(pk=pk, is_deleted=False).first()
+        if sprint is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        self.check_object_permissions(request, sprint)
+        milestone_id = request.query_params.get("milestone_id") or None
+        try:
+            payload = reforecast_preview(sprint, milestone_id=milestone_id)
+        except MilestoneNotFound:
+            return Response(
+                {"milestone_id": "Milestone not found in this project."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(ReforecastPreviewSerializer(payload).data, status=status.HTTP_200_OK)
 
     def _bulk_scope_change(self, request: Request, pk: str | None, *, accept: bool) -> Response:
         """Shared body for the bulk accept/reject scope-change actions (ADR-0102 §5).
@@ -6535,6 +6596,42 @@ class ProjectVelocityView(APIView):
         project = get_object_or_404(Project, pk=pk, is_deleted=False)
         self.check_object_permissions(request, project)
         return Response(velocity_summary(project.pk), status=status.HTTP_200_OK)
+
+
+class ProjectMilestonesView(APIView):
+    """``GET /api/v1/projects/<pk>/milestones/`` — slim milestone list (ADR-0106 §E1.3).
+
+    Feeds the promote dialog's bind-existing picker without loading the whole
+    task list. ``?unbound=true`` filters to milestones no sprint targets yet.
+    Each row carries ``is_bound`` (annotated via one ``Exists``). Any project
+    member; read-only.
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="unbound",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="When true, return only milestones no sprint is bound to yet.",
+            )
+        ],
+        responses=MilestoneListItemSerializer(many=True),
+    )
+    def get(self, request: Request, pk: str) -> Response:
+        from trueppm_api.apps.projects.services import list_project_milestones
+
+        project = get_object_or_404(Project, pk=pk, is_deleted=False)
+        self.check_object_permissions(request, project)
+        unbound_only = request.query_params.get("unbound", "").lower() in ("true", "1", "yes")
+        milestones = list_project_milestones(project.pk, unbound_only=unbound_only)
+        return Response(
+            MilestoneListItemSerializer(milestones, many=True).data,
+            status=status.HTTP_200_OK,
+        )
 
 
 class ProjectBurnView(APIView):
