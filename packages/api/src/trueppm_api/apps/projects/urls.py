@@ -34,6 +34,7 @@ from trueppm_api.apps.projects.views import (
     ProjectAttentionView,
     ProjectBurnView,
     ProjectCustomFieldViewSet,
+    ProjectMilestonesView,
     ProjectMyTasksView,
     ProjectOverviewView,
     ProjectPresenceView,
@@ -279,6 +280,12 @@ urlpatterns = [
         SprintViewSet.as_view({"post": "unbind_milestone"}),
         name="sprints-unbind-milestone",
     ),
+    # Dry-run reforecast preview for the promote dialog (ADR-0106 §E1.1, #928)
+    path(
+        "sprints/<pk>/reforecast-preview/",
+        SprintViewSet.as_view({"get": "reforecast_preview"}),
+        name="sprints-reforecast-preview",
+    ),
     # Mid-sprint scope-injection approve-gate (ADR-0102 §5)
     path(
         "sprints/<pk>/scope-changes/accept/",
@@ -351,6 +358,12 @@ urlpatterns = [
         "projects/<pk>/velocity/",
         ProjectVelocityView.as_view(),
         name="project-velocity",
+    ),
+    # Slim milestone list for the bind-existing picker (ADR-0106 §E1.3, #928)
+    path(
+        "projects/<pk>/milestones/",
+        ProjectMilestonesView.as_view(),
+        name="project-milestones",
     ),
     path(
         "projects/<pk>/burn/",
