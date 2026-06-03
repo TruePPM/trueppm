@@ -2485,7 +2485,7 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         )
 
 
-class AcceptanceCriterionViewSet(viewsets.ModelViewSet[AcceptanceCriterion]):
+class AcceptanceCriterionViewSet(IdempotencyMixin, viewsets.ModelViewSet[AcceptanceCriterion]):
     """CRUD for a story's acceptance criteria (ADR-0105 §2).
 
     Acceptance criteria are a collaborative refinement + sprint-review artifact — the PO
