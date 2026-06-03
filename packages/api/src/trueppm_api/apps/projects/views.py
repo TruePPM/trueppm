@@ -5142,6 +5142,13 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         # role ordinal so a non-member high-ordinal Enterprise role is still 403.
         if self.action in ("scope_changes_accept", "scope_changes_reject"):
             return [IsAuthenticated(), IsProjectAdmin(), IsProjectNotArchived()]
+        # ADR-0106 §2: promote/unbind write a *schedule* object (the milestone
+        # binding) onto the CPM line — a schedule-authoring action gated at
+        # SCHEDULER+ (Resource Manager and up, which includes the PM/ADMIN).
+        # Deliberately NOT the team sprint-lifecycle gate (>=ADMIN for
+        # activate/close): binding a milestone is not reshaping sprint scope.
+        if self.action in ("promote_to_milestone", "unbind_milestone"):
+            return [IsAuthenticated(), IsProjectScheduler(), IsProjectNotArchived()]
         return [IsAuthenticated(), IsProjectMemberWrite(), IsProjectNotArchived()]
 
     def get_queryset(self) -> QuerySet[Sprint]:
@@ -5430,6 +5437,91 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
                 from trueppm_api.apps.projects.services import recompute_milestone_rollup
 
                 recompute_milestone_rollup(sprint.target_milestone_id)
+        return Response(SprintSerializer(sprint).data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post"], url_path="promote-to-milestone")
+    def promote_to_milestone(self, request: Request, pk: str | None = None) -> Response:
+        """Bind this sprint to a schedule milestone (ADR-0106 §2).
+
+        Body ``{}`` mints a new ``Task(is_milestone=True)`` from the sprint goal
+        (dated at finish), then binds it (``201``). Body ``{"milestone_id": uuid}``
+        binds an existing milestone in the same project (``200``). Re-binding the
+        same milestone is an idempotent no-op ``200``; binding a *different* one
+        while already bound is ``409 sprint_already_bound`` — the binding never
+        silently re-points. SCHEDULER+.
+        """
+        from trueppm_api.apps.projects.services import (
+            MilestoneNotFound,
+            SprintAlreadyBound,
+            promote_sprint_to_milestone,
+        )
+
+        if pk is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        milestone_id = request.data.get("milestone_id") if isinstance(request.data, dict) else None
+        with transaction.atomic():
+            sprint = (
+                # NB: do not select_related the nullable target_milestone here —
+                # Postgres rejects FOR UPDATE on the nullable side of an outer
+                # join. The service reads target_milestone_id (no join) and
+                # assigns the bound object in-memory for the response serializer.
+                Sprint.objects.select_for_update()
+                .select_related("project")
+                .filter(pk=pk, is_deleted=False)
+                .first()
+            )
+            if sprint is None:
+                return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+            self.check_object_permissions(request, sprint)
+            try:
+                sprint, created = promote_sprint_to_milestone(
+                    sprint, milestone_id=milestone_id, actor=request.user
+                )
+            except SprintAlreadyBound as exc:
+                return Response(
+                    {
+                        "code": "sprint_already_bound",
+                        "detail": "Unbind before binding to a different milestone.",
+                        "current_milestone_id": str(exc.current_milestone_id),
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+            except MilestoneNotFound:
+                return Response(
+                    {"milestone_id": "Milestone not found in this project."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+        return Response(SprintSerializer(sprint).data, status=code)
+
+    @action(detail=True, methods=["post"], url_path="unbind-milestone")
+    def unbind_milestone(self, request: Request, pk: str | None = None) -> Response:
+        """Unbind this sprint from its milestone (ADR-0106 §2).
+
+        Clears the FK and all three provenance fields; the freed milestone's
+        rollup recomputes (clears if this was its last targeting sprint).
+        No-op-safe — an already-unbound sprint returns ``200`` unchanged.
+        SCHEDULER+.
+        """
+        from trueppm_api.apps.projects.services import unbind_sprint_milestone
+
+        if pk is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        with transaction.atomic():
+            sprint = (
+                # NB: do not select_related the nullable target_milestone here —
+                # Postgres rejects FOR UPDATE on the nullable side of an outer
+                # join. The service reads target_milestone_id (no join) and
+                # assigns the bound object in-memory for the response serializer.
+                Sprint.objects.select_for_update()
+                .select_related("project")
+                .filter(pk=pk, is_deleted=False)
+                .first()
+            )
+            if sprint is None:
+                return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+            self.check_object_permissions(request, sprint)
+            sprint = unbind_sprint_milestone(sprint)
         return Response(SprintSerializer(sprint).data, status=status.HTTP_200_OK)
 
     def _bulk_scope_change(self, request: Request, pk: str | None, *, accept: bool) -> Response:

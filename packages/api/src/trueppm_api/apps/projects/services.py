@@ -1176,6 +1176,7 @@ def compute_milestone_rollup_payload(milestone: Any) -> dict[str, Any] | None:
             "committed_task_count",
             "completed_points",
             "completed_task_count",
+            "binding_committed_snapshot",
         )
     )
     if not targeting:
@@ -1187,6 +1188,7 @@ def compute_milestone_rollup_payload(milestone: Any) -> dict[str, Any] | None:
     completed_tasks = 0
     latest_active_planned_finish: Any = None
     scope_changed = False
+    binding_drifted = False
 
     for sprint in targeting:
         # CANCELLED sprints are skipped entirely — they contribute nothing
@@ -1199,6 +1201,30 @@ def compute_milestone_rollup_payload(milestone: Any) -> dict[str, Any] | None:
 
         committed_points += sprint.committed_points or 0
         committed_tasks += sprint.committed_task_count or 0
+
+        # Current accepted (pending-excluded) committed points. Computed at most
+        # once per sprint and reused by both the binding-drift (ADR-0106 §1) and
+        # the scope-changed (ADR-0102) checks below, so an ACTIVE sprint that is
+        # also bound does not issue the same query twice.
+        current_committed: int | None = None
+        if sprint.binding_committed_snapshot is not None or (
+            sprint.state == SprintState.ACTIVE and sprint.committed_points is not None
+        ):
+            current_committed = sum(
+                p
+                for p in committed_sprint_tasks(sprint.pk).values_list("story_points", flat=True)
+                if p is not None
+            )
+
+        # ADR-0106 §1 — binding drift vs the baseline captured at promote time.
+        # Distinct from ``scope_changed`` (which diffs against the *activation*
+        # snapshot): a sprint can be promoted while PLANNED, before any
+        # activation snapshot exists, so drift has its own baseline.
+        if (
+            sprint.binding_committed_snapshot is not None
+            and current_committed != sprint.binding_committed_snapshot
+        ):
+            binding_drifted = True
 
         if sprint.state == SprintState.COMPLETED:
             # Closed: use the immutable snapshot.
@@ -1219,17 +1245,10 @@ def compute_milestone_rollup_payload(milestone: Any) -> dict[str, Any] | None:
             # Scope-change detection: compare current ACCEPTED backlog points to
             # the activation-time snapshot. Diverges when the PM adds or removes
             # *accepted* tasks after activation — a pending injection is excluded
-            # so it does not trip the flag before the team accepts it.
-            if sprint.committed_points is not None:
-                current_points = sum(
-                    p
-                    for p in committed_sprint_tasks(sprint.pk).values_list(
-                        "story_points", flat=True
-                    )
-                    if p is not None
-                )
-                if current_points != sprint.committed_points:
-                    scope_changed = True
+            # so it does not trip the flag before the team accepts it. Reuses the
+            # ``current_committed`` sum computed above.
+            if sprint.committed_points is not None and current_committed != sprint.committed_points:
+                scope_changed = True
 
             if sprint.finish_date is not None and (
                 latest_active_planned_finish is None
@@ -1268,6 +1287,7 @@ def compute_milestone_rollup_payload(milestone: Any) -> dict[str, Any] | None:
         "rollup_basis": rollup_basis,
         "variance_days": variance_days,
         "sprint_scope_changed": scope_changed,
+        "binding_drifted": binding_drifted,
         "sprint_count": len(targeting),
     }
 
@@ -1307,6 +1327,7 @@ def recompute_milestone_rollup(
             "rollup_basis": "none",
             "variance_days": None,
             "sprint_scope_changed": False,
+            "binding_drifted": False,
             "sprint_count": 0,
         }
 
@@ -1321,6 +1342,191 @@ def recompute_milestone_rollup(
         transaction.on_commit(_broadcast)
 
     return payload
+
+
+# ---------------------------------------------------------------------------
+# Sprint ↔ milestone binding (ADR-0106 §1/§2 — the agile/waterfall bridge)
+# ---------------------------------------------------------------------------
+
+
+class MilestoneBindingError(Exception):
+    """Base class for promote-to-milestone binding failures (ADR-0106 §2)."""
+
+
+class SprintAlreadyBound(MilestoneBindingError):
+    """The sprint is already bound to a *different* milestone.
+
+    ADR-0106 §2: the binding never silently re-points. The promote endpoint
+    translates this to ``409 {"code": "sprint_already_bound"}`` so the user
+    must explicitly unbind before binding elsewhere.
+    """
+
+    def __init__(self, current_milestone_id: Any) -> None:
+        self.current_milestone_id = current_milestone_id
+        super().__init__("sprint_already_bound")
+
+
+class MilestoneNotFound(MilestoneBindingError):
+    """``milestone_id`` did not resolve to a milestone task in the project."""
+
+
+def current_committed_points(sprint_pk: str | uuid.UUID) -> int:
+    """Live, pending-excluded sum of committed story points for a sprint.
+
+    This is the drift baseline (ADR-0106 §1). Unlike ``Sprint.committed_points``
+    (the immutable activation snapshot, null until the sprint activates) it
+    reflects the sprint's *current* accepted backlog in any state — so a sprint
+    promoted while still PLANNED gets a meaningful baseline. Pending injections
+    are excluded for symmetry with the rollup math (ADR-0102 §2).
+    """
+    from trueppm_api.apps.projects.models import committed_sprint_tasks
+
+    return sum(
+        p
+        for p in committed_sprint_tasks(sprint_pk).values_list("story_points", flat=True)
+        if p is not None
+    )
+
+
+def _create_milestone_for_sprint(sprint: Any) -> Any:
+    """Mint a ``Task(is_milestone=True)`` for a ``{}``-body promote (ADR-0106 §2).
+
+    Named from the sprint goal (fallback ``"<sprint name> milestone"``), dated at
+    the sprint ``finish_date`` (planned_start = SNET floor), zero duration,
+    appended at the WBS root. The root-count SELECT is locked to stop two
+    concurrent root creates racing to the same ``wbs_path`` — mirrors
+    ``TaskViewSet.perform_create``. The caller already holds the sprint row lock.
+    """
+    from trueppm_api.apps.projects.models import Task, TaskStatus
+
+    name = ((sprint.goal or "").strip() or f"{sprint.name} milestone")[:255]
+    root_count = (
+        Task.objects.select_for_update()
+        .filter(project_id=sprint.project_id, is_deleted=False, wbs_path__regex=r"^\d+$")
+        .count()
+    )
+    return Task.objects.create(
+        project_id=sprint.project_id,
+        name=name,
+        is_milestone=True,
+        duration=0,
+        status=TaskStatus.NOT_STARTED,
+        planned_start=sprint.finish_date,
+        wbs_path=str(root_count + 1),
+    )
+
+
+def promote_sprint_to_milestone(
+    sprint: Any,
+    *,
+    milestone_id: str | uuid.UUID | None,
+    actor: Any,
+) -> tuple[Any, bool]:
+    """Bind a sprint to a schedule milestone with provenance (ADR-0106 §2).
+
+    ``milestone_id`` set → bind an existing milestone task in the same project
+    (validated ``is_milestone`` + not deleted). ``milestone_id`` None → create a
+    new milestone from the sprint goal/finish and bind it.
+
+    Idempotent and non-re-pointing under the caller's ``select_for_update`` lock:
+    re-binding the *same* milestone is a no-op; any other milestone (or a create
+    request) while already bound raises ``SprintAlreadyBound``. Returns
+    ``(sprint, created)`` where ``created`` is True only when a milestone was
+    minted. The FK + the three provenance fields are written together so the
+    binding-consistency invariant (FK ⇔ provenance) holds.
+
+    Must be called inside a transaction with the sprint row locked — the view
+    owns that lock so the idempotency check and the write are atomic.
+    """
+    from trueppm_api.apps.scheduling.services import enqueue_recalculate
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+    # Already bound: only re-binding the identical milestone is allowed (no-op).
+    # Everything else is a conflict — the binding never silently re-points.
+    if sprint.target_milestone_id is not None:
+        if milestone_id is not None and str(milestone_id) == str(sprint.target_milestone_id):
+            return sprint, False
+        raise SprintAlreadyBound(sprint.target_milestone_id)
+
+    created = False
+    if milestone_id is not None:
+        from trueppm_api.apps.projects.models import Task
+
+        milestone = Task.objects.filter(
+            pk=milestone_id,
+            project_id=sprint.project_id,
+            is_milestone=True,
+            is_deleted=False,
+        ).first()
+        if milestone is None:
+            raise MilestoneNotFound
+    else:
+        milestone = _create_milestone_for_sprint(sprint)
+        created = True
+
+    sprint.target_milestone = milestone
+    sprint.milestone_bound_by = actor
+    sprint.milestone_bound_at = timezone.now()
+    sprint.binding_committed_snapshot = current_committed_points(sprint.pk)
+    # server_version is bumped by VersionedModel.save and excluded from
+    # update_fields automatically — do not list it here.
+    sprint.save(
+        update_fields=[
+            "target_milestone",
+            "milestone_bound_by",
+            "milestone_bound_at",
+            "binding_committed_snapshot",
+        ]
+    )
+
+    project_id_str = str(sprint.project_id)
+    sprint_id_str = str(sprint.pk)
+    transaction.on_commit(
+        lambda: broadcast_board_event(project_id_str, "sprint_updated", {"id": sprint_id_str})
+    )
+    # A freshly minted milestone is a new node on the CPM line — recompute the
+    # schedule so its early_finish materializes. Binding an existing milestone
+    # needs no CPM run (the task already has its dates).
+    if created:
+        transaction.on_commit(lambda: enqueue_recalculate(project_id_str))
+    # Reflect the new binding in the milestone rollup immediately (denominator).
+    recompute_milestone_rollup(milestone.pk)
+    return sprint, created
+
+
+def unbind_sprint_milestone(sprint: Any) -> Any:
+    """Clear the binding FK and all three provenance fields (ADR-0106 §1/§2).
+
+    No-op-safe: an already-unbound sprint is returned unchanged. The freed
+    milestone's rollup is recomputed (it clears if this was its last targeting
+    sprint). Caller holds the sprint row lock.
+    """
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+    old_milestone_id = sprint.target_milestone_id
+    if old_milestone_id is None:
+        return sprint
+
+    sprint.target_milestone = None
+    sprint.milestone_bound_by = None
+    sprint.milestone_bound_at = None
+    sprint.binding_committed_snapshot = None
+    sprint.save(
+        update_fields=[
+            "target_milestone",
+            "milestone_bound_by",
+            "milestone_bound_at",
+            "binding_committed_snapshot",
+        ]
+    )
+
+    project_id_str = str(sprint.project_id)
+    sprint_id_str = str(sprint.pk)
+    transaction.on_commit(
+        lambda: broadcast_board_event(project_id_str, "sprint_updated", {"id": sprint_id_str})
+    )
+    recompute_milestone_rollup(old_milestone_id)
+    return sprint
 
 
 # ---------------------------------------------------------------------------

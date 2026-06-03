@@ -429,6 +429,7 @@ def test_recompute_emits_broadcast_with_aggregated_payload_only(project: Project
         "rollup_basis",
         "variance_days",
         "sprint_scope_changed",
+        "binding_drifted",
         "sprint_count",
     }
     assert payload["percent_complete"] == 70.0

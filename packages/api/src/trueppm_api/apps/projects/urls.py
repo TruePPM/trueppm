@@ -268,6 +268,17 @@ urlpatterns = [
         SprintViewSet.as_view({"get": "burndown"}),
         name="sprints-burndown",
     ),
+    # Sprint↔milestone binding — the agile/waterfall bridge (ADR-0106 §2)
+    path(
+        "sprints/<pk>/promote-to-milestone/",
+        SprintViewSet.as_view({"post": "promote_to_milestone"}),
+        name="sprints-promote-to-milestone",
+    ),
+    path(
+        "sprints/<pk>/unbind-milestone/",
+        SprintViewSet.as_view({"post": "unbind_milestone"}),
+        name="sprints-unbind-milestone",
+    ),
     # Mid-sprint scope-injection approve-gate (ADR-0102 §5)
     path(
         "sprints/<pk>/scope-changes/accept/",
