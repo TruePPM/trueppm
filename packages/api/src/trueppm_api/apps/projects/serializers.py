@@ -20,6 +20,7 @@ from trueppm_api.apps.projects.models import (
     _VALID_SORT_KEYS,
     PROJECT_CUSTOM_FIELD_MAX,
     RESERVED_SCRUM_CEREMONY_NAMES,
+    AcceptanceCriterion,
     ApiTokenAuditEntry,
     BacklogItem,
     BacklogItemStatus,
@@ -147,6 +148,9 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "estimation_mode",
             "agile_features",
             "methodology",
+            # Product-backlog prioritization model (ADR-0105 §3). Admin+-gated write,
+            # enforced in ProjectViewSet alongside estimation_mode.
+            "prioritization_model",
             "program",
             "member_count",
             "percent_complete",
@@ -730,6 +734,56 @@ class TaskAssignmentSerializer(serializers.ModelSerializer[TaskResource]):
         read_only_fields = fields
 
 
+class AcceptanceCriterionSerializer(serializers.ModelSerializer[AcceptanceCriterion]):
+    """Read/write serializer for a story's acceptance criteria (ADR-0105 §2).
+
+    The review trail (``met_by``/``met_at``) is read-only and exposed as the criterion's
+    status with attribution; it is never aggregated to a PMO surface and never rendered as
+    a per-person column (the VoC privacy guard). ``met`` is set by ticking the criterion;
+    the service layer stamps ``met_by``/``met_at`` when that happens.
+    """
+
+    met_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AcceptanceCriterion
+        fields = [
+            "id",
+            "task",
+            "text",
+            "given",
+            "when",
+            "then",
+            "met",
+            "position",
+            "met_by_name",
+            "met_at",
+            "server_version",
+        ]
+        read_only_fields = ["id", "server_version", "met_at", "met_by_name"]
+
+    def get_met_by_name(self, obj: AcceptanceCriterion) -> str | None:
+        user = obj.met_by
+        if user is None:
+            return None
+        return user.get_full_name() or user.get_username()
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # A criterion may not be reparented to another task. Without this, the writable
+        # ``task`` FK is a cross-project write-IDOR: a member of project A could PATCH a
+        # criterion's ``task`` to a project-B task (object perms only check the *existing*
+        # task's project). Criteria never legitimately move tasks — split copies them.
+        if (
+            self.instance is not None
+            and "task" in attrs
+            and attrs["task"].pk != self.instance.task_id
+        ):
+            raise serializers.ValidationError(
+                {"task": "A criterion cannot be moved to another task."}
+            )
+        return attrs
+
+
 class TaskSerializer(serializers.ModelSerializer[Task]):
     # Duration round-trips as integer working days.
     # CPM output fields are read-only — written by the scheduling engine.
@@ -788,6 +842,18 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     # the single source of truth for milestone progress + variance.
     milestone_rollup = serializers.SerializerMethodField()
 
+    # ── Product-backlog / PO grooming (ADR-0105) ────────────────────────────────
+    # Read-only nested acceptance criteria (write via the AcceptanceCriterion endpoints).
+    acceptance_criteria = AcceptanceCriterionSerializer(many=True, read_only=True)
+    # Computed prioritization score under the project's active model (#922). Null when
+    # inputs are incomplete — see product_backlog_services.compute_score.
+    prioritization_score = serializers.SerializerMethodField()
+    # Acceptance-criteria meter (DA-10/DA-14): met / total.
+    criteria_met_count = serializers.SerializerMethodField()
+    criteria_total = serializers.SerializerMethodField()
+    # Definition-of-Ready blocker codes (#731). Empty ⇒ the story may be marked READY.
+    dor_blockers = serializers.SerializerMethodField()
+
     class Meta:
         model = Task
         fields = [
@@ -838,6 +904,28 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "is_subtask",
             "sprint_scope_changes",
             "milestone_rollup",
+            # ADR-0105 product backlog
+            "type",
+            "parent_epic",
+            "dor",
+            "sprint_rank",
+            # distinct per-model scoring inputs (writable)
+            "business_value",
+            "time_criticality",
+            "risk_reduction",
+            "job_size",
+            "reach",
+            "impact",
+            "confidence",
+            "effort",
+            "value",
+            "effort_estimate",
+            # computed / nested reads
+            "acceptance_criteria",
+            "prioritization_score",
+            "criteria_met_count",
+            "criteria_total",
+            "dor_blockers",
         ]
         read_only_fields = [
             "id",
@@ -868,6 +956,14 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "sprint_pending",
             "sprint_scope_changes",
             "milestone_rollup",
+            # Computed product-backlog reads (the writable backing fields type /
+            # parent_epic / dor / sprint_rank / scoring inputs stay editable; acceptance
+            # criteria are written via the AcceptanceCriterion endpoints).
+            "acceptance_criteria",
+            "prioritization_score",
+            "criteria_met_count",
+            "criteria_total",
+            "dor_blockers",
         ]
 
     def _get_caller_role(self, project: Project | None) -> int | None:
@@ -1024,7 +1120,107 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                 if new_planned_start < floor:
                     raise PlannedStartBeforeProjectStartError(project.start_date, floor)
 
+        self._validate_product_backlog(attrs)
+
         return attrs
+
+    def _validate_product_backlog(self, attrs: dict[str, Any]) -> None:
+        """Validate ADR-0105 fields: parent-epic membership and the DoR-gated READY move.
+
+        - ``parent_epic`` must be a ``type=EPIC`` task in the same project, not the task
+          itself, and not itself nested under another epic (epics don't nest in 0.3).
+        - Transitioning ``dor`` to READY is gated (advisory): the story must be estimated
+          with at least one acceptance criterion and all criteria met (#731). The gate
+          blocks the PO's *Ready* action only — it does not block sprint intake.
+
+        Structural backlog fields (work-item type→EPIC, parent_epic links, and the
+        per-model scoring inputs) are PO-owned per ADR-0105 §6 and gated to
+        ``can_manage_backlog`` (Admin+ today; the ADR-0078/#927 Product-Owner facet
+        slots into the same helper). Story-grooming fields the team shares (``dor``,
+        ``sprint_rank``, ``story_points``) and quick-add (``type`` among
+        story/task/bug/spike) stay at the normal task-write permission. Acceptance
+        criteria are written through the AcceptanceCriterion endpoints.
+        """
+        from rest_framework.exceptions import PermissionDenied
+
+        from trueppm_api.apps.access.permissions import can_manage_backlog
+        from trueppm_api.apps.projects.models import DorState, TaskType
+
+        # Structural-field gate (ADR-0105 §6). Only enforced when a structural field is
+        # actually being written, so it never interferes with quick-add (type=STORY) or
+        # ordinary story grooming.
+        _SCORING_FIELDS = {
+            "business_value",
+            "time_criticality",
+            "risk_reduction",
+            "job_size",
+            "reach",
+            "impact",
+            "confidence",
+            "effort",
+            "value",
+            "effort_estimate",
+        }
+        existing_type = getattr(self.instance, "type", None)
+        # Epic (de)classification: becoming an EPIC, or changing an existing EPIC away.
+        type_is_structural = "type" in attrs and (
+            attrs["type"] == TaskType.EPIC or existing_type == TaskType.EPIC
+        )
+        touches_structural = (
+            "parent_epic" in attrs or type_is_structural or bool(_SCORING_FIELDS & set(attrs))
+        )
+        if touches_structural:
+            project = self.instance.project if self.instance is not None else attrs.get("project")
+            if project is not None and not can_manage_backlog(self._get_caller_role(project)):
+                raise PermissionDenied(
+                    "Managing the product backlog (work-item type, epic links, and "
+                    "prioritization scoring) requires Project Manager role or above."
+                )
+
+        # parent-epic membership
+        parent_epic = attrs.get("parent_epic")
+        if "parent_epic" in attrs and parent_epic is not None:
+            task_project_id = (
+                self.instance.project_id
+                if self.instance is not None
+                else getattr(attrs.get("project"), "pk", None)
+            )
+            if parent_epic.type != TaskType.EPIC:
+                raise serializers.ValidationError(
+                    {"parent_epic": "Referenced task is not an epic."}
+                )
+            if task_project_id is not None and str(parent_epic.project_id) != str(task_project_id):
+                raise serializers.ValidationError(
+                    {"parent_epic": "Epic does not belong to this project."}
+                )
+            if self.instance is not None and parent_epic.pk == self.instance.pk:
+                raise serializers.ValidationError({"parent_epic": "A task cannot be its own epic."})
+            if parent_epic.parent_epic_id is not None:
+                raise serializers.ValidationError(
+                    {"parent_epic": "Epics cannot be nested (the parent already has an epic)."}
+                )
+
+        # DoR-gated READY transition (advisory). Criteria live on the saved instance (the
+        # AcceptanceCriterion child rows); story_points may be changed in the same PATCH.
+        if attrs.get("dor") == DorState.READY:
+            blockers: list[str] = []
+            if self.instance is not None:
+                eff_points = attrs.get("story_points", self.instance.story_points)
+                criteria = list(self.instance.acceptance_criteria.all())
+                met = sum(1 for c in criteria if c.met)
+                if eff_points is None:
+                    blockers.append("unestimated")
+                if not criteria:
+                    blockers.append("no_acceptance_criteria")
+                elif met < len(criteria):
+                    blockers.append("acceptance_criteria_unmet")
+            else:
+                # A brand-new task has no criteria yet — it cannot start out Ready.
+                blockers.append("no_acceptance_criteria")
+            if blockers:
+                raise serializers.ValidationError(
+                    {"dor": f"Cannot mark ready — unresolved: {', '.join(blockers)}."}
+                )
 
     def _evaluate_task_guardrails(self, task: Task, sprint: Any) -> list[str]:
         """Evaluate ADR-0101 guardrails for assigning ``task`` to ``sprint``.
@@ -1099,6 +1295,37 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                         suggested_action=GUARDRAIL_SUGGESTED_ACTION.get(rule, "remove_from_sprint"),
                     )
         return tripped
+
+    def _active_prioritization_model(self, obj: Task) -> str:
+        """The project's active prioritization model, preferring a context-supplied value.
+
+        The grooming-list view passes ``prioritization_model`` in context so the score for
+        every row is computed without a per-row Project query.
+        """
+        if "prioritization_model" in self.context:
+            return str(self.context["prioritization_model"])
+        project = getattr(obj, "project", None)
+        return getattr(project, "prioritization_model", "none") if project else "none"
+
+    def get_prioritization_score(self, obj: Task) -> float | None:
+        from trueppm_api.apps.projects.product_backlog_services import compute_score
+
+        return compute_score(obj, self._active_prioritization_model(obj))
+
+    def get_criteria_met_count(self, obj: Task) -> int:
+        from trueppm_api.apps.projects.product_backlog_services import ac_counts
+
+        return ac_counts(obj)[0]
+
+    def get_criteria_total(self, obj: Task) -> int:
+        from trueppm_api.apps.projects.product_backlog_services import ac_counts
+
+        return ac_counts(obj)[1]
+
+    def get_dor_blockers(self, obj: Task) -> list[str]:
+        from trueppm_api.apps.projects.product_backlog_services import dor_blockers
+
+        return dor_blockers(obj)
 
     def get_schedule_variance_days(self, obj: Task) -> int | None:
         """Compute schedule variance: actual_finish - baseline_finish in calendar days.

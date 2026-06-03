@@ -14,6 +14,7 @@ from trueppm_api.apps.projects.ceremony_views import (
 )
 from trueppm_api.apps.projects.program_views import ProgramViewSet
 from trueppm_api.apps.projects.views import (
+    AcceptanceCriterionViewSet,
     ApiTokenAuditView,
     BaselineActivateView,
     BaselineViewSet,
@@ -63,6 +64,7 @@ router.register(r"programs", ProgramViewSet, basename="program")
 router.register(r"tasks", TaskViewSet, basename="task")
 router.register(r"dependencies", DependencyViewSet, basename="dependency")
 router.register(r"recurrence-rules", TaskRecurrenceRuleViewSet, basename="recurrence-rule")
+router.register(r"acceptance-criteria", AcceptanceCriterionViewSet, basename="acceptance-criterion")
 
 urlpatterns = [
     *router.urls,
