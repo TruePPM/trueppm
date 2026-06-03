@@ -2556,6 +2556,30 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
             "rollup": compute_milestone_rollup_payload(milestone),
         }
 
+    def validate_target_milestone(self, value: Task | None) -> Task | None:
+        """Bind the FK only to a milestone task in the sprint's own project.
+
+        The provenance-aware promote/unbind endpoints (ADR-0106 §2) are the
+        richer binding path, but ADR-0074 still allows setting this FK directly
+        at planning time. Without this guard that direct write accepts any
+        task pk — including one in another project (an IDOR) or a non-milestone
+        task. Scope it to the sprint's project and require ``is_milestone``.
+        """
+        if value is None:
+            return value
+        # Project is in attrs on neither create nor update (it is set from the
+        # nested URL in perform_create); resolve it from the instance on update
+        # and from the view's ``project_pk`` kwarg on create.
+        project_id: Any = self.instance.project_id if self.instance is not None else None
+        if project_id is None:
+            view = self.context.get("view")
+            project_id = getattr(view, "kwargs", {}).get("project_pk") if view else None
+        if project_id is not None and str(value.project_id) != str(project_id):
+            raise serializers.ValidationError("Milestone must belong to the same project.")
+        if not value.is_milestone:
+            raise serializers.ValidationError("Target must be a milestone task.")
+        return value
+
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         start = attrs.get("start_date") or (self.instance.start_date if self.instance else None)
         finish = attrs.get("finish_date") or (self.instance.finish_date if self.instance else None)
@@ -2624,6 +2648,9 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
             "state",
             "target_milestone",
             "target_milestone_detail",
+            "milestone_bound_by",
+            "milestone_bound_at",
+            "binding_committed_snapshot",
             "capacity_points",
             "committed_points",
             "committed_task_count",
@@ -2638,6 +2665,8 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
             "created_at",
             "updated_at",
         ]
+        # ADR-0106 §1: provenance is written only by the promote/unbind
+        # endpoints — never via PATCH — so the FK ⇔ provenance invariant holds.
         read_only_fields = [
             "id",
             "server_version",
@@ -2646,6 +2675,9 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
             "project",
             "state",
             "target_milestone_detail",
+            "milestone_bound_by",
+            "milestone_bound_at",
+            "binding_committed_snapshot",
             "committed_points",
             "committed_task_count",
             "completed_points",

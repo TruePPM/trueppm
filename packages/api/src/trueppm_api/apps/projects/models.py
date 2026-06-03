@@ -1930,6 +1930,24 @@ class Sprint(VersionedModel):
         related_name="targeting_sprints",
         help_text="Optional milestone task this sprint progresses toward.",
     )
+    # ADR-0106 §1 — binding provenance. The FK above is the single binding
+    # edge; these three record WHO promoted, WHEN, and the committed-points
+    # baseline AT PROMOTE TIME. The baseline is what drift is measured against
+    # (binding_drifted = snapshot != current committed points), so a later
+    # scope change lights a "scope changed since this milestone was bound"
+    # caveat rather than silently moving the bound forecast underneath the PM.
+    # The FK + these fields are immutable except through the promote/unbind
+    # endpoints — that is the structural answer to "is the binding trustworthy?"
+    # All three are NULL whenever target_milestone is NULL (unbound).
+    milestone_bound_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    milestone_bound_at = models.DateTimeField(null=True, blank=True)
+    binding_committed_snapshot = models.PositiveIntegerField(null=True, blank=True)
     # Planning target — what the team thinks they can take on at planning
     # time, set pre-activation by SCHEDULER+ and revisable mid-sprint as
     # people join/leave or take PTO (ADR-0073). Distinct from

@@ -238,6 +238,11 @@ export interface MilestoneRollup {
    *  its activation-snapshot committed_points. The PM cap on % at 100% is
    *  honest when this flag is set. */
   sprint_scope_changed: boolean;
+  /** True when a bound sprint's current committed points diverge from the
+   *  snapshot captured at promote time (ADR-0106 §1) — the milestone chip /
+   *  bridge banner show a "scope changed since bound" caveat. Optional until
+   *  the drift caveat UI lands (#550). */
+  binding_drifted?: boolean;
   /** Total number of sprints targeting this milestone (any state). */
   sprint_count: number;
 }
@@ -287,6 +292,14 @@ export interface ApiSprint {
   target_milestone: string | null;
   /** Inline milestone detail returned by the serializer (read-only). */
   target_milestone_detail: SprintTargetMilestone | null;
+  /**
+   * Binding provenance (ADR-0106 §1) — written only by the promote/unbind
+   * endpoints, read-only here. `milestone_bound_by` is the user id; null
+   * whenever the sprint is unbound (or was bound via the legacy FK PATCH).
+   */
+  milestone_bound_by?: number | null;
+  milestone_bound_at?: string | null;
+  binding_committed_snapshot?: number | null;
   /**
    * Planning target — points the team thinks they can take on at planning
    * time (ADR-0073). Writable by SCHEDULER+ on PLANNED and ACTIVE sprints;

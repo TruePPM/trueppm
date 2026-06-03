@@ -13715,6 +13715,67 @@
                 }
             }
         },
+        "/api/v1/sprints/{id}/promote-to-milestone/": {
+            "post": {
+                "operationId": "v1_sprints_promote_to_milestone_create",
+                "description": "Bind this sprint to a schedule milestone (ADR-0106 §2).\n\nBody ``{}`` mints a new ``Task(is_milestone=True)`` from the sprint goal\n(dated at finish), then binds it (``201``). Body ``{\"milestone_id\": uuid}``\nbinds an existing milestone in the same project (``200``). Re-binding the\nsame milestone is an idempotent no-op ``200``; binding a *different* one\nwhile already bound is ``409 sprint_already_bound`` — the binding never\nsilently re-points. SCHEDULER+.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Sprint"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/sprints/{id}/retro/": {
             "get": {
                 "operationId": "v1_sprints_retro_retrieve",
@@ -14119,6 +14180,67 @@
             "post": {
                 "operationId": "v1_sprints_scope_changes_reject_create",
                 "description": "Bulk-reject pending scope injections in a sprint (ADR-0102 §5).\n\nBody ``{\"ids\": [uuid, ...]}`` — omit or empty to reject *all* pending.\nReturns ``{\"rejected\": [...], \"pending_count\": N}``.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Sprint"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sprints/{id}/unbind-milestone/": {
+            "post": {
+                "operationId": "v1_sprints_unbind_milestone_create",
+                "description": "Unbind this sprint from its milestone (ADR-0106 §2).\n\nClears the FK and all three provenance fields; the freed milestone's\nrollup recomputes (clears if this was its last targeting sprint).\nNo-op-safe — an already-unbound sprint returns ``200`` unchanged.\nSCHEDULER+.",
                 "parameters": [
                     {
                         "in": "path",
@@ -22858,6 +22980,22 @@
                         "description": "Inline the milestone task so the Sprints UI can render the\n\"Advancing to milestone\" card without a second round-trip.\n\nReturns ``None`` when no milestone is linked. The nested shape is\nread-only — writes still go through ``target_milestone`` (the FK id).\n\nIncludes ``rollup`` (ADR-0074): the same payload that appears on\n``TaskSerializer.milestone_rollup`` so the AdvancingToMilestoneCard\nand the Gantt show one number, not two.",
                         "readOnly": true
                     },
+                    "milestone_bound_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "milestone_bound_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "binding_committed_snapshot": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
                     "capacity_points": {
                         "type": "integer",
                         "maximum": 2147483647,
@@ -22931,6 +23069,7 @@
                 },
                 "required": [
                     "activated_at",
+                    "binding_committed_snapshot",
                     "closed_at",
                     "committed_points",
                     "committed_task_count",
@@ -22942,6 +23081,8 @@
                     "created_by",
                     "finish_date",
                     "id",
+                    "milestone_bound_at",
+                    "milestone_bound_by",
                     "name",
                     "pending_count",
                     "project",
