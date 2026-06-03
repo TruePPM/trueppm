@@ -154,3 +154,35 @@ This ADR is **Proposed**. The following choices encode a defensible default but 
 2. **MC fallback for the demo.** #411 (agile-aware Monte Carlo) and #388 (forecast snapshot) are in-flight 0.3 deps. If #411 slips, the reforecast ships velocity-band-only (`basis=velocity_band`) for the #860 demo. Confirm fallback-only is acceptable, or whether #860 blocks on #411.
 3. **Binding-drift granularity.** `binding_drifted` is currently a committed-points equality check (snapshot vs current) — swapping two equal-point tasks would not trip it. Confirm points-equality is sufficient for Sarah's trust signal, or whether drift should also fire on task-set change (more sensitive, noisier).
 4. **ForecastSnapshot retention.** Proposed nightly purge keeps latest-per-milestone + 90 days. Confirm 90 days, or whether the demo narrative ('P50 moved across the last K sprints') needs longer per-milestone history.
+
+## Erratum E1 — Contract additions for the promote dialog (#928, 2026-06-03)
+
+§1/§2 (the binding model + promote/unbind endpoints) shipped in #931 (commit `9262f67d2`). While building the DA-02 promote dialog three contract gaps surfaced where the shipped frontend needs more than §2 specifies. §3/§5 (reforecast-on-close + the persisted `ForecastSnapshot`) remain unbuilt and deferred (#388/#411/#487/#550). This erratum locks the contract for the three **read/light-write** additions in #928 so they can ship ahead of the §3/§5 storage layer. None of these add a model or a migration.
+
+**E1.1 — Dry-run reforecast preview.** `GET /api/v1/sprints/{id}/reforecast-preview/?milestone_id=<uuid>` (`milestone_id` **optional**). Computed live, **persists nothing** (no `ForecastSnapshot`). Until #411's agile-aware Monte Carlo lands the preview is **velocity-band only** — `basis` is always `"velocity_band"`. Response JSON (snake_case, the DRF convention; the `useReforecastPreview` hook maps to its camelCase `ReforecastPreview` type):
+
+```jsonc
+{
+  "basis": "velocity_band",          // string; "monte_carlo" reserved for #411. Plain CharField — NOT a TextChoices enum, to avoid a drf-spectacular enum-name collision (project memory: drf_enum_name_collision).
+  "cpm_finish": "YYYY-MM-DD|null",   // the milestone's current CPM early_finish (deterministic spine). Create-mode (no milestone_id): the sprint finish_date.
+  "p50": "YYYY-MM-DD|null",          // anchored on cpm_finish.
+  "p80": "YYYY-MM-DD|null",          // cpm_finish + 0.6 × the 1-σ slow-pace day penalty.
+  "p95": "YYYY-MM-DD|null",          // cpm_finish + the full 1-σ slow-pace day penalty.
+  "velocity_low": 21,                // int|null — the team-pace band (avg − 1σ) from velocity_summary. The band, NEVER the per-sprint series.
+  "velocity_high": 27,               // int|null — avg + 1σ.
+  "unmodeled_dependency": false,     // §4 cheap predecessor heuristic, computed live.
+  "unmodeled_predecessor_ids": []    // list[uuid] for the drawer caveat.
+}
+```
+
+- **Field-name decision (A):** the band is `velocity_low`/`velocity_high` at the API layer — matching the (unbuilt) `ForecastSnapshot.velocity_low/high` columns so the on-close reforecast can reuse one serializer later. The hook relabels them `teamPaceLow/High` for the VoC "team pace" framing; the privacy line is at the payload, not the label.
+- **`p95` decision (B):** the preview returns `p95` even though `ForecastSnapshot` (§5) stores only `p50`/`p80` — the preview is computed-not-stored, so the extra percentile costs no column. **Band→percentile derivation** (coarse, velocity-band fallback; the true percentiles arrive with #411 MC): let `avg = rolling_avg_points`, `sprint_days = (finish − start).days`, `remaining = current_committed_points(sprint)`. The 1-σ slow-pace day penalty is `remaining × (sprint_days/velocity_low − sprint_days/avg)`. `p50 = cpm_finish`; `p80 = cpm_finish + round(0.6 × penalty)`; `p95 = cpm_finish + penalty`. Below the 2-closed-sprint floor (`velocity_low/high` null) the band collapses: `p50 = p80 = p95 = cpm_finish`, `velocity_low = velocity_high = null`. Monotonic by construction (`p50 ≤ p80 ≤ p95`).
+- **Privacy:** the preview emits only the band + dates — never the per-sprint `completed_points` series — consistent with §3's velocity-privacy guarantee.
+
+**E1.2 — Create overrides (D).** `POST /sprints/{id}/promote-to-milestone/` accepts two **optional** fields on the create (`{}`) path: `name` (≤255 chars; blank/absent → the existing goal-derived default) and `target_date` (ISO date; absent → the existing `sprint.finish_date`). The created milestone's `planned_start` is set to `target_date`. **Any valid date is accepted** — a PM may set an aspirational target earlier or later than the sprint finish; `planned_start` is a start-no-earlier-than floor that CPM and the existing project-start guard (#868) already reconcile, so no extra floor check is added here. Both fields are **ignored** on the bind-existing (`{milestone_id}`) path. Idempotency, 409, and the synchronous-write/deferred-recompute semantics of §2 are unchanged.
+
+**E1.3 — Milestones list (F).** `GET /api/v1/projects/{id}/milestones/?unbound=<bool>` — a dedicated lightweight view (ADR §5 already names this path), **not** a `TaskViewSet` overload. Returns a slim list `{id, name, wbs_path, early_finish, is_bound}` ordered by `early_finish, name`; `is_bound` is a single `Exists` subquery (a milestone is bound when any non-deleted sprint targets it — no N+1). `?unbound=true` filters to `is_bound=false`; omitted/false returns all milestones with the flag.
+
+**E1.4 — RBAC (C).** Both new GETs are read-only and carry no schedule write: `[IsAuthenticated, IsProjectMember, IsProjectNotArchived]` (any project member, matching the §5 forecast-read posture and `ProjectVelocityView`). Promote/unbind stay `>= SCHEDULER` per §2. The preview is sprint-scoped; `milestone_id`, when supplied, is validated to the **same project** (404 otherwise) — no cross-project read.
+
+**E1.5 — Durability.** Both GETs are pure reads (no async, no broadcast — N/A). The create-override path inherits §2's durability verbatim (synchronous FK/provenance write; `enqueue_recalculate` + `milestone_rollup_updated`/`sprint_updated` broadcast deferred in `transaction.on_commit()`); overrides only change the new milestone's `name`/`planned_start` before that existing flow.

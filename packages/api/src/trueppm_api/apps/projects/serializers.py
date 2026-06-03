@@ -2787,6 +2787,58 @@ class ProjectVelocitySerializer(serializers.Serializer[dict[str, Any]]):
     team_velocity_per_day = serializers.FloatField(allow_null=True)
 
 
+class PromoteToMilestoneRequestSerializer(serializers.Serializer[dict[str, Any]]):
+    """Validate the body for ``POST /api/sprints/{id}/promote-to-milestone/``.
+
+    All fields optional. ``milestone_id`` set → bind an existing milestone
+    (``name``/``target_date`` are ignored). Omitted → create+bind a new milestone,
+    honoring the optional create overrides (ADR-0106 §E1.2, #928): a blank/absent
+    ``name`` falls back to the sprint-goal-derived default; an absent
+    ``target_date`` falls back to the sprint ``finish_date``.
+    """
+
+    milestone_id = serializers.UUIDField(required=False, allow_null=True)
+    name = serializers.CharField(
+        required=False, allow_blank=True, max_length=255, trim_whitespace=True
+    )
+    target_date = serializers.DateField(required=False, allow_null=True)
+
+
+class ReforecastPreviewSerializer(serializers.Serializer[dict[str, Any]]):
+    """Response shape for ``GET /api/sprints/{id}/reforecast-preview/`` (§E1.1, #928).
+
+    Computed-not-stored dry run. ``basis`` is a plain ``CharField`` (not a
+    ``ChoiceField``) on purpose — a ``TextChoices``-backed enum here would collide
+    with the ``ForecastBasis`` name drf-spectacular will mint when §5's
+    ``ForecastSnapshot`` lands (project memory: drf_enum_name_collision). Carries
+    only the team-pace **band** + dates, never the per-sprint velocity series.
+    """
+
+    basis = serializers.CharField()
+    cpm_finish = serializers.DateField(allow_null=True)
+    p50 = serializers.DateField(allow_null=True)
+    p80 = serializers.DateField(allow_null=True)
+    p95 = serializers.DateField(allow_null=True)
+    velocity_low = serializers.IntegerField(allow_null=True)
+    velocity_high = serializers.IntegerField(allow_null=True)
+    unmodeled_dependency = serializers.BooleanField()
+    unmodeled_predecessor_ids = serializers.ListField(child=serializers.UUIDField())
+
+
+class MilestoneListItemSerializer(serializers.Serializer[Any]):
+    """Slim milestone row for the bind-existing picker (§E1.3, #928).
+
+    ``is_bound`` is annotated on the queryset (an ``Exists`` over targeting
+    sprints) — read off the model instance, not the DB column.
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(read_only=True)
+    wbs_path = serializers.CharField(read_only=True)
+    early_finish = serializers.DateField(read_only=True, allow_null=True)
+    is_bound = serializers.BooleanField(read_only=True)
+
+
 # ---------------------------------------------------------------------------
 # Sprint retrospective (issue #231)
 # ---------------------------------------------------------------------------
