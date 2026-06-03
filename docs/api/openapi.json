@@ -5960,6 +5960,56 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/milestones/": {
+            "get": {
+                "operationId": "v1_projects_milestones_list",
+                "description": "``GET /api/v1/projects/<pk>/milestones/`` — slim milestone list (ADR-0106 §E1.3).\n\nFeeds the promote dialog's bind-existing picker without loading the whole\ntask list. ``?unbound=true`` filters to milestones no sprint targets yet.\nEach row carries ``is_bound`` (annotated via one ``Exists``). Any project\nmember; read-only.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "unbound",
+                        "schema": {
+                            "type": "boolean"
+                        },
+                        "description": "When true, return only milestones no sprint is bound to yet."
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/MilestoneListItem"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/monte-carlo/": {
             "post": {
                 "operationId": "v1_projects_monte_carlo_create",
@@ -13718,7 +13768,7 @@
         "/api/v1/sprints/{id}/promote-to-milestone/": {
             "post": {
                 "operationId": "v1_sprints_promote_to_milestone_create",
-                "description": "Bind this sprint to a schedule milestone (ADR-0106 §2).\n\nBody ``{}`` mints a new ``Task(is_milestone=True)`` from the sprint goal\n(dated at finish), then binds it (``201``). Body ``{\"milestone_id\": uuid}``\nbinds an existing milestone in the same project (``200``). Re-binding the\nsame milestone is an idempotent no-op ``200``; binding a *different* one\nwhile already bound is ``409 sprint_already_bound`` — the binding never\nsilently re-points. SCHEDULER+.",
+                "description": "Bind this sprint to a schedule milestone (ADR-0106 §2).\n\nBody ``{}`` mints a new ``Task(is_milestone=True)`` from the sprint goal\n(dated at finish), then binds it (``201``). Optional create overrides\n``{\"name\": str, \"target_date\": date}`` rename/re-date the new milestone\n(ADR-0106 §E1.2, #928); both are ignored when ``milestone_id`` is given.\nBody ``{\"milestone_id\": uuid}`` binds an existing milestone in the same\nproject (``200``). Re-binding the same milestone is an idempotent no-op\n``200``; binding a *different* one while already bound is ``409\nsprint_already_bound`` — the binding never silently re-points. SCHEDULER+.",
                 "parameters": [
                     {
                         "in": "path",
@@ -13768,6 +13818,56 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/Sprint"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sprints/{id}/reforecast-preview/": {
+            "get": {
+                "operationId": "v1_sprints_reforecast_preview_retrieve",
+                "description": "Dry-run reforecast for the promote dialog (ADR-0106 §E1.1, #928).\n\nComputes the same dates + team-pace band the on-close reforecast (§3)\nwill, but **live and persisting nothing**. Velocity-band only until #411\nMonte Carlo lands (``basis=\"velocity_band\"``). ``?milestone_id=<uuid>``\npreviews against an existing milestone (same project; ``404`` otherwise);\nomitted previews the to-be-created milestone. Any project member.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "milestone_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "Existing milestone to preview against. Omit for the create-mode preview of the milestone the dialog will mint (spine = sprint finish)."
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ReforecastPreview"
                                 }
                             }
                         },
@@ -18691,6 +18791,42 @@
                 "type": "string",
                 "description": "* `WATERFALL` - Waterfall\n* `AGILE` - Agile\n* `HYBRID` - Hybrid"
             },
+            "MilestoneListItem": {
+                "type": "object",
+                "description": "Slim milestone row for the bind-existing picker (§E1.3, #928).\n\n``is_bound`` is annotated on the queryset (an ``Exists`` over targeting\nsprints) — read off the model instance, not the DB column.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "wbs_path": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "early_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "is_bound": {
+                        "type": "boolean",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "early_finish",
+                    "id",
+                    "is_bound",
+                    "name",
+                    "wbs_path"
+                ]
+            },
             "MinProficiencyEnum": {
                 "enum": [
                     1,
@@ -22119,6 +22255,64 @@
                 ],
                 "type": "string",
                 "description": "* `DAILY` - Daily\n* `WEEKLY` - Weekly\n* `MONTHLY` - Monthly\n* `CUSTOM` - Custom"
+            },
+            "ReforecastPreview": {
+                "type": "object",
+                "description": "Response shape for ``GET /api/sprints/{id}/reforecast-preview/`` (§E1.1, #928).\n\nComputed-not-stored dry run. ``basis`` is a plain ``CharField`` (not a\n``ChoiceField``) on purpose — a ``TextChoices``-backed enum here would collide\nwith the ``ForecastBasis`` name drf-spectacular will mint when §5's\n``ForecastSnapshot`` lands (project memory: drf_enum_name_collision). Carries\nonly the team-pace **band** + dates, never the per-sprint velocity series.",
+                "properties": {
+                    "basis": {
+                        "type": "string"
+                    },
+                    "cpm_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "p50": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "p80": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "p95": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "velocity_low": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "velocity_high": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "unmodeled_dependency": {
+                        "type": "boolean"
+                    },
+                    "unmodeled_predecessor_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                },
+                "required": [
+                    "basis",
+                    "cpm_finish",
+                    "p50",
+                    "p80",
+                    "p95",
+                    "unmodeled_dependency",
+                    "unmodeled_predecessor_ids",
+                    "velocity_high",
+                    "velocity_low"
+                ]
             },
             "Resource": {
                 "type": "object",
