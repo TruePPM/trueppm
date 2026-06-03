@@ -12,7 +12,9 @@ fn fixtures_dir() -> PathBuf {
 
 fn load_and_check(fixture_name: &str) {
     let input_path = fixtures_dir().join(format!("{fixture_name}.json"));
-    let expected_path = fixtures_dir().join("expected").join(format!("{fixture_name}.json"));
+    let expected_path = fixtures_dir()
+        .join("expected")
+        .join(format!("{fixture_name}.json"));
 
     let input_json = fs::read_to_string(&input_path)
         .unwrap_or_else(|_| panic!("Failed to read fixture: {}", input_path.display()));
@@ -132,4 +134,12 @@ fn conformance_diamond_graph() {
 #[test]
 fn conformance_milestone_tasks() {
     load_and_check("milestone_tasks");
+}
+
+#[test]
+fn conformance_parallel_critical() {
+    // Two parallel critical tasks (A, B) feeding a join (C). critical_path
+    // ordering must be deterministic and identical to the Python engine
+    // regardless of the petgraph topological tie-break (#909).
+    load_and_check("parallel_critical");
 }

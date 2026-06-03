@@ -90,11 +90,9 @@ class ScheduleResult:
     """Output of a CPM schedule calculation.
 
     Each task in ``tasks`` carries early/late start and finish, total float, free
-    float, and an ``is_critical`` flag. ``free_float`` is computed only across
-    finish-to-start (FS) successors — SS/FF/SF links do not constrain it — so it is
-    not a complete free-float measure across all four dependency types. A task
-    whose only successors are non-FS reports ``free_float == total_float``.
-    ``total_float`` and ``is_critical`` account for all dependency types.
+    float, and an ``is_critical`` flag. ``free_float``, ``total_float``, and
+    ``is_critical`` all account for every dependency type (FS/SS/FF/SF) per the
+    PMI definitions.
     """
 
     project_id: str
@@ -510,14 +508,20 @@ def _compute_floats(
 ) -> None:
     """Compute total_float, free_float, and is_critical for every task (in-place).
 
-    ``free_float`` is computed **only across finish-to-start (FS) successors**:
-    it is the smallest gap between this task's early finish and the early start of
-    each FS successor, capped at the total float. Successor links of type SS, FF,
-    or SF do not constrain free float here and are intentionally ignored. Consumers
-    should not read ``free_float`` as covering all four dependency types — on a task
-    whose only successors are non-FS, ``free_float`` falls back to ``total_float``.
-    ``total_float`` and ``is_critical`` are dependency-type complete; only free
-    float carries this FS-only caveat.
+    ``total_float`` is the working-day span between a task's early and late start;
+    a task is ``is_critical`` when it is zero.
+
+    ``free_float`` is the number of working days a task can slip without delaying
+    the early start (FS/SS links) or the early finish (FF/SF links) of *any* of
+    its successors — the PMI definition of free float (PMBOK® Guide, "Critical
+    Path Method"), evaluated across **all four** dependency types. For each
+    successor link we take the early date this task imposes on the successor —
+    the *same* constraint the forward pass applies (see :func:`_forward_pass`) —
+    and measure the working-day slack to the successor's actual early date. Free
+    float is the minimum of those slacks, capped at total float; a task with no
+    successors falls back to its total float. (Earlier versions inspected FS
+    successors only and let SS/FF/SF tasks report ``free_float == total_float``;
+    that FS-only caveat is now removed — see issue #825.)
     """
     for node_id in topo_order:
         task = task_map[node_id]
@@ -531,20 +535,33 @@ def _compute_floats(
         task.total_float = timedelta(days=tf_days)
         task.is_critical = tf_days == 0
 
-        # Free float: how much a task can slip before delaying any immediate successor.
-        # NOTE: only FS successors are considered (see function docstring). SS/FF/SF
-        # links do not tighten free float; such tasks fall back to total_float.
-        # For FS successors: gap between this task's EF and the successor's ES.
-        ff_days = tf_days  # upper bound; for tasks with no successors this is tf
+        # Free float: the smallest slack to any successor, across every dependency
+        # type. ``imposed`` is the early date this task forces on the successor
+        # through the link (mirroring _forward_pass so the two can never disagree
+        # about when this task begins to push a successor); ``succ_date`` is the
+        # successor's matching early date. For a lag-free FS link with EF=Fri and
+        # succ.ES=Mon the slack is 0 (no room to slip). The upper bound is total
+        # float, which is also the value when a task has no successors.
+        ff_days = tf_days
         for succ_id in g.successors(node_id):
             succ = task_map[succ_id]
             dep: Dependency = g[node_id][succ_id]["dep"]
+            lag = dep.lag
+            assert succ.early_start is not None and succ.early_finish is not None
             if dep.dep_type == DependencyType.FS:
-                assert succ.early_start is not None
-                gap = _working_days_between(task.early_finish, succ.early_start, calendar)
-                # FS gap is the day after EF to succ.ES — subtract 1 because EF is inclusive.
-                # If EF = Friday and succ.ES = Monday: gap = 0 (no slack between them).
-                ff_days = min(ff_days, max(0, gap - 1))
+                imposed = _next_working_day(task.early_finish + timedelta(days=1) + lag, calendar)
+                succ_date = succ.early_start
+            elif dep.dep_type == DependencyType.SS:
+                imposed = _advance_calendar_days(task.early_start, lag, calendar)
+                succ_date = succ.early_start
+            elif dep.dep_type == DependencyType.FF:
+                imposed = _advance_calendar_days(task.early_finish, lag, calendar)
+                succ_date = succ.early_finish
+            else:  # SF: successor finish is bounded by this task's start + lag
+                imposed = _advance_calendar_days(task.early_start, lag, calendar)
+                succ_date = succ.early_finish
+            slack = _working_days_between(imposed, succ_date, calendar)
+            ff_days = min(ff_days, max(0, slack))
 
         task.free_float = timedelta(days=max(0, ff_days))
 
@@ -764,10 +781,9 @@ def schedule(project: Project) -> ScheduleResult:
         ScheduleResult with ES/EF/LS/LF/float computed for every task
         and the critical path identified.
 
-        Note: each task's ``free_float`` is computed only across finish-to-start
-        (FS) successors. SS/FF/SF successor links do not constrain free float, so
-        free float is *not* a complete measure across all four dependency types.
-        ``total_float`` and ``is_critical`` are dependency-type complete.
+        Note: ``free_float``, ``total_float``, and ``is_critical`` are all
+        dependency-type complete — each accounts for FS/SS/FF/SF links per the
+        PMI free-/total-float definitions.
 
     Raises:
         CyclicDependencyError: If the dependency graph contains a cycle.
@@ -795,7 +811,18 @@ def schedule(project: Project) -> ScheduleResult:
     _backward_pass(task_map, topo_order, g, project_finish, project.calendar)
     _compute_floats(task_map, topo_order, g, project.calendar)
 
-    critical_path = [tid for tid in topo_order if task_map[tid].is_critical]
+    # Order the critical path by (early_start, id). ``topo_order`` is only *a*
+    # valid topological order — its tie-break among parallel tasks is a networkx
+    # implementation detail (the dep cap is wide: networkx>=3,<4) and the Rust
+    # engine's petgraph tie-break differs again, so filtering topo_order directly
+    # would make ``critical_path`` ordering non-deterministic and cross-engine
+    # divergent (#909). Sorting by (early_start, id) is deterministic, engine-
+    # agnostic, and a valid topological order for the parallel critical tasks
+    # this disambiguates (they share no edge). The Rust engine sorts identically.
+    critical_path = sorted(
+        (tid for tid in topo_order if task_map[tid].is_critical),
+        key=lambda tid: (task_map[tid].early_start, tid),
+    )
 
     # Use min(early_start) across all tasks — topo_order[0] is arbitrary when
     # multiple parallel roots exist and may not be the earliest-starting one.
@@ -981,19 +1008,76 @@ def monte_carlo(
     es_mat = np.zeros((runs, n_tasks), dtype=np.float64)
     ef_mat = np.zeros((runs, n_tasks), dtype=np.float64)
 
-    # Pre-compute lag in working-day offsets for each edge using the project
-    # calendar. CPM treats dep.lag as calendar days (via _advance_calendar_days);
-    # using the same conversion here keeps MC consistent with CPM results.
-    ref = project.start_date
-    edge_lag_wd: dict[tuple[str, str], float] = {}
+    # Pre-compute a working-day index covering the whole simulation so a lag can
+    # be converted to working-day offsets against the predecessor's *actual* date
+    # in each run — matching deterministic CPM, which snaps ``predecessor date +
+    # lag`` to the next working day per task rather than against a single
+    # reference date (issue #824). Sizing: the longest possible completion offset
+    # is bounded by the sum of the largest per-task durations plus all positive
+    # lags; pad by the task count and a small buffer. The same index is reused for
+    # the offset→date conversion below.
+    dur_upper = 0
+    for t in task_map.values():
+        d_days = t.duration.days
+        if t.pessimistic_duration is not None:
+            d_days = max(d_days, t.pessimistic_duration.days)
+        dur_upper += max(0, d_days)
+    lag_upper = sum(
+        data["dep"].lag.days for _, _, data in g.edges(data=True) if data["dep"].lag.days > 0
+    )
+    index_size = dur_upper + lag_upper + n_tasks + 30
+    wd_index = _build_working_day_index(project.start_date, calendar, index_size)
+    offset_of = {d: i for i, d in enumerate(wd_index)}
+
+    def _offset_after(anchor_date: date, shift: timedelta) -> int:
+        """Working-day offset of ``next_working_day(anchor_date + shift)``."""
+        target = _next_working_day(anchor_date + shift, calendar)
+        off = offset_of.get(target)
+        if off is not None:
+            return off
+        # Target fell outside the index: a lead before project start floors to 0;
+        # a date past the end is clamped to the last representable offset.
+        return 0 if target < wd_index[0] else len(wd_index) - 1
+
+    # Per-edge lag delta arrays. ``edge_lag_delta[(u, v)]`` is indexed by the
+    # rounded working-day offset of the predecessor's anchor (exclusive EF for
+    # FS/FF, ES for SS/SF) and holds the *extra* working-day offset the lag adds
+    # relative to the lag-free baseline at that anchor. ``None`` means lag == 0,
+    # leaving the constraint as a plain offset add — so lag-free projects are
+    # byte-for-byte identical to the previous behaviour.
+    one_day = timedelta(days=1)
+    edge_lag_delta: dict[tuple[str, str], np.ndarray | None] = {}
     for u, v, data in g.edges(data=True):
-        d: Dependency = data["dep"]
-        if d.lag.days > 0:
-            edge_lag_wd[(u, v)] = float(_working_days_between(ref, ref + d.lag, calendar))
-        elif d.lag.days < 0:
-            edge_lag_wd[(u, v)] = -float(_working_days_between(ref + d.lag, ref, calendar))
-        else:
-            edge_lag_wd[(u, v)] = 0.0
+        d = data["dep"]
+        lag = d.lag
+        if lag == timedelta(0):
+            edge_lag_delta[(u, v)] = None
+            continue
+        arr = np.zeros(index_size, dtype=np.float64)
+        dt = d.dep_type
+        for k in range(index_size):
+            if dt == DependencyType.FS:
+                # k = exclusive EF offset; EF date = wd_index[k-1]; baseline = k.
+                if k == 0:
+                    continue
+                arr[k] = _offset_after(wd_index[k - 1], one_day + lag) - k
+            elif dt == DependencyType.FF:
+                if k == 0:
+                    continue
+                arr[k] = _offset_after(wd_index[k - 1], lag) - (k - 1)
+            else:  # SS / SF anchor on the predecessor's ES (offset k); baseline = k.
+                arr[k] = _offset_after(wd_index[k], lag) - k
+        edge_lag_delta[(u, v)] = arr
+
+    def _lag_term(delta_arr: np.ndarray | None, anchor: np.ndarray) -> np.ndarray:
+        """Per-run lag delta gathered at each run's (rounded) anchor offset.
+
+        Returns an all-zero vector for lag-free edges so the caller's offset add
+        is unchanged."""
+        if delta_arr is None:
+            return np.zeros_like(anchor)
+        idx = np.clip(np.rint(anchor).astype(np.int64), 0, len(delta_arr) - 1)
+        return np.asarray(delta_arr[idx], dtype=np.float64)
 
     for col, tid in enumerate(topo_order):
         es_constraints = np.zeros(runs)  # project start = offset 0
@@ -1002,18 +1086,22 @@ def monte_carlo(
 
         for pred_id in g.predecessors(tid):
             dep: Dependency = g[pred_id][tid]["dep"]
-            lag_wd = edge_lag_wd[(pred_id, tid)]
+            delta_arr = edge_lag_delta[(pred_id, tid)]
             p = task_idx[pred_id]
 
             if dep.dep_type == DependencyType.FS:
-                es_constraints = np.maximum(es_constraints, ef_mat[:, p] + lag_wd)
+                anchor = ef_mat[:, p]
+                es_constraints = np.maximum(es_constraints, anchor + _lag_term(delta_arr, anchor))
             elif dep.dep_type == DependencyType.SS:
-                es_constraints = np.maximum(es_constraints, es_mat[:, p] + lag_wd)
+                anchor = es_mat[:, p]
+                es_constraints = np.maximum(es_constraints, anchor + _lag_term(delta_arr, anchor))
             elif dep.dep_type == DependencyType.FF:
-                ef_constraints = np.maximum(ef_constraints, ef_mat[:, p] + lag_wd)
+                anchor = ef_mat[:, p]
+                ef_constraints = np.maximum(ef_constraints, anchor + _lag_term(delta_arr, anchor))
                 has_ef_constraint = True
             elif dep.dep_type == DependencyType.SF:
-                ef_constraints = np.maximum(ef_constraints, es_mat[:, p] + lag_wd)
+                anchor = es_mat[:, p]
+                ef_constraints = np.maximum(ef_constraints, anchor + _lag_term(delta_arr, anchor))
                 has_ef_constraint = True
 
         es = es_constraints
@@ -1031,11 +1119,10 @@ def monte_carlo(
     # --- Project completion offset = max EF across all tasks per run ---
     completion_offsets = ef_mat.max(axis=1)  # shape (runs,)
 
-    # --- Convert offsets back to dates using a working-day index ---
-    max_offset = int(np.ceil(completion_offsets.max())) + 1
-    # Add a safety buffer in case rounding pushes past the index.
-    wd_index = _build_working_day_index(project.start_date, calendar, max_offset + 30)
-
+    # --- Convert offsets back to dates using the working-day index ---
+    # ``wd_index`` was built above (sized to bound the longest completion offset
+    # plus all lags); reuse it rather than rebuilding. ``_offset_to_date`` clamps
+    # to the final index entry, so an offset at the very edge is still safe.
     def _offset_to_date(offset: float) -> date:
         # EF offsets are exclusive (EF=5 means working days 0..4). Subtract 1
         # to get the last working day of the task, matching CPM's inclusive EF.

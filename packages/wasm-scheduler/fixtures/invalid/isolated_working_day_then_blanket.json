@@ -1,0 +1,17 @@
+{
+  "id": "inv-isolated-working-day-then-blanket",
+  "name": "Isolated working day, then blanket exceptions",
+  "start_date": "2026-04-01",
+  "tasks": [
+    {"id": "A", "name": "Task A", "duration": 432000.0}
+  ],
+  "dependencies": [],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [
+      {"start": "2026-04-02", "end": "9999-12-31"}
+    ],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

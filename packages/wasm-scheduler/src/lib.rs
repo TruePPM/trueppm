@@ -83,7 +83,7 @@ pub fn schedule_impl(project: &Project) -> Result<ScheduleResult, String> {
         &project.dependencies,
         project.start_date,
         &project.calendar,
-    );
+    )?;
 
     let project_finish = task_map
         .values()
@@ -98,7 +98,7 @@ pub fn schedule_impl(project: &Project) -> Result<ScheduleResult, String> {
         &project.dependencies,
         project_finish,
         &project.calendar,
-    );
+    )?;
 
     compute_floats(
         &mut task_map,
@@ -106,14 +106,23 @@ pub fn schedule_impl(project: &Project) -> Result<ScheduleResult, String> {
         &pg,
         &project.dependencies,
         &project.calendar,
-    );
+    )?;
 
-    let critical_path: Vec<String> = pg
+    // Order by (early_start, id): deterministic and identical to the Python
+    // engine, independent of the petgraph topological tie-break (#909).
+    let mut critical_path: Vec<String> = pg
         .topo_order
         .iter()
         .filter(|id| task_map[*id].is_critical)
         .cloned()
         .collect();
+    critical_path.sort_by(|a, b| {
+        task_map[a]
+            .early_start
+            .unwrap()
+            .cmp(&task_map[b].early_start.unwrap())
+            .then_with(|| a.cmp(b))
+    });
 
     let project_start = task_map[&pg.topo_order[0]].early_start.unwrap();
 
@@ -202,12 +211,18 @@ mod tests {
         // B: ES=Apr 8 (Wed), EF=Apr 10 (Fri) — 3 working days
         let b = result.tasks.iter().find(|t| t.id == "B").unwrap();
         assert_eq!(b.early_start, NaiveDate::from_ymd_opt(2026, 4, 8).unwrap());
-        assert_eq!(b.early_finish, NaiveDate::from_ymd_opt(2026, 4, 10).unwrap());
+        assert_eq!(
+            b.early_finish,
+            NaiveDate::from_ymd_opt(2026, 4, 10).unwrap()
+        );
 
         // C: ES=Apr 13 (Mon), EF=Apr 14 (Tue) — 2 working days
         let c = result.tasks.iter().find(|t| t.id == "C").unwrap();
         assert_eq!(c.early_start, NaiveDate::from_ymd_opt(2026, 4, 13).unwrap());
-        assert_eq!(c.early_finish, NaiveDate::from_ymd_opt(2026, 4, 14).unwrap());
+        assert_eq!(
+            c.early_finish,
+            NaiveDate::from_ymd_opt(2026, 4, 14).unwrap()
+        );
 
         // All tasks on critical path (single chain)
         assert_eq!(result.critical_path, vec!["A", "B", "C"]);
