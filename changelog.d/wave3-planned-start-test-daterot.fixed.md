@@ -1,0 +1,1 @@
+Fixed a date-rot test (`test_patch_planned_start_without_status_change`) that turned `main` red: it hardcoded a `planned_start` of `2026-06-01`, which once past correctly triggered the #336 `NOT_STARTED → IN_PROGRESS` auto-transition and broke the test's "status unchanged" assertion. The date is now computed relative to today so the test stays stable.
