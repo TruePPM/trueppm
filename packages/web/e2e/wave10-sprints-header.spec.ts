@@ -143,7 +143,9 @@ async function setupCommon(page: import('@playwright/test').Page) {
       body: JSON.stringify({ id: 'e2e-user', username: 'e2e', display_name: 'E2E', initials: 'E', email: 'e2e@example.com' }),
     }),
   );
-  await page.route(`**/api/v1/projects/${PROJECT_ID}/members/`, (route) =>
+  // Trailing ** so the glob also matches useCurrentUserRole's
+  // /members/?self=true query (drives the SCHEDULER+ inline-edit gate).
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/members/**`, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id: 'mem-1', role: 300 }]) }),
   );
   // Sprints view fires queries for burndown / capacity / velocity / backlog.
@@ -232,6 +234,55 @@ test.describe('Wave 10 — Sprints view header', () => {
 
     // Close sprint enabled (sprint is ACTIVE)
     await expect(page.getByRole('button', { name: /Close active sprint/i })).toBeEnabled();
+  });
+
+  test('edits the sprint goal inline and shows the saved banner (DA-15, #920)', async ({
+    page,
+  }) => {
+    await setupCommon(page);
+
+    // The e2e user is role 300 (ADMIN) per setupCommon's members mock, so the
+    // inline Edit affordance renders. The list route reflects the latest goal.
+    let goal = ACTIVE_SPRINT.goal;
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/sprints/`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          count: 1,
+          next: null,
+          previous: null,
+          results: [{ ...ACTIVE_SPRINT, goal }],
+        }),
+      }),
+    );
+    await page.route('**/api/v1/sprints/sp-active/', (route) => {
+      if (route.request().method() === 'PATCH') {
+        goal = (route.request().postDataJSON() as { goal: string }).goal;
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ...ACTIVE_SPRINT, goal }),
+      });
+    });
+
+    await page.goto(BASE_URL);
+
+    const goalCard = page.getByRole('region', { name: /Sprint Goal/i });
+    await expect(goalCard.getByText(/Close out telemetry firmware/i)).toBeVisible();
+
+    await goalCard.getByRole('button', { name: /^Edit$/ }).click();
+    const textarea = goalCard.getByRole('textbox');
+    await expect(textarea).toBeVisible();
+    await expect(goalCard.getByText(/Describes an outcome, not a checklist/)).toBeVisible();
+
+    await textarea.fill('Telemetry failover is proven live end to end for the FAT demo.');
+    await goalCard.getByRole('button', { name: /Save goal/ }).click();
+
+    // Returns to the banner with the new goal; the editor is gone.
+    await expect(goalCard.getByText(/proven live end to end/i)).toBeVisible();
+    await expect(goalCard.getByRole('textbox')).toHaveCount(0);
   });
 
   test('schedule deep-link points at the milestone task hash', async ({ page }) => {

@@ -200,7 +200,10 @@ test.describe('Grid view — Outline mode (#334)', () => {
 test.describe('Calendar view (#206)', () => {
   test.beforeEach(async ({ page }) => {
     await setup(page);
-    await page.goto(`${BASE_URL}/calendar`);
+    // Pin the anchor to the fixture's month — the calendar defaults to today,
+    // so without this the Phase 1 Gate milestone (2026-04-28) scrolls out of
+    // the visible grid once the wall-clock month is no longer adjacent to April.
+    await page.goto(`${BASE_URL}/calendar?calAnchor=2026-04-15`);
     await expect(page.getByLabel('Calendar legend')).toBeVisible({ timeout: 10_000 });
   });
 
