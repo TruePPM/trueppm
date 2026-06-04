@@ -666,7 +666,18 @@ wasm:build:
     - apt-get update -qq && apt-get install -y -qq curl
     - rustup component add clippy
     - rustup target add wasm32-unknown-unknown
-    - curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+    # Install a pinned, checksum-verified wasm-pack release instead of piping the
+    # unpinned upstream installer through `sh` (#904 supply-chain hardening — the
+    # canonical OpenSSF Scorecard "Pinned-Dependencies" failure). Mirrors the
+    # cargo-deny install in wasm:license-check; the sha256 is the published
+    # v0.13.1 musl tarball. Bump version + hash together when upgrading.
+    - |
+      WASM_PACK_VERSION=0.13.1
+      WASM_PACK_SHA256=c539d91ccab2591a7e975bcf82c82e1911b03335c80aa83d67ad25ed2ad06539
+      WASM_PACK_TARBALL="wasm-pack-v${WASM_PACK_VERSION}-x86_64-unknown-linux-musl.tar.gz"
+      curl -sSfL "https://github.com/rustwasm/wasm-pack/releases/download/v${WASM_PACK_VERSION}/${WASM_PACK_TARBALL}" -o /tmp/wasm-pack.tar.gz
+      echo "${WASM_PACK_SHA256}  /tmp/wasm-pack.tar.gz" | sha256sum -c -
+      tar xzf /tmp/wasm-pack.tar.gz -C /usr/local/bin --strip-components=1 "wasm-pack-v${WASM_PACK_VERSION}-x86_64-unknown-linux-musl/wasm-pack"
     - cd packages/wasm-scheduler
   script:
     - wasm-pack build --target web --release
@@ -1404,6 +1415,25 @@ web:security:
         - .gitlab-ci.yml
   before_script:
     - cd packages/web
+  script:
+    - npm audit --audit-level=high
+
+website:security:
+  # CVE scan for the docs-site (packages/website) npm dependencies — the
+  # npm-audit gate that #904 found missing (web had one; website did not).
+  # The two HIGH advisories (devalue, fast-uri) were cleared in #905; this job
+  # guards against new HIGH/CRITICAL CVEs entering the docs build chain.
+  #
+  # allow_failure (report-first): the tree still carries moderate advisories
+  # that need the astro/starlight semver-major bump, and --audit-level=high can
+  # surface a transient transitive HIGH on a build runner. Flip to a hard gate
+  # (drop allow_failure) once the dependency tree is clean — mirrors the
+  # "adjust down to =moderate when stable" note on web:security.
+  extends: .website
+  stage: security
+  needs: ["website:build"]
+  <<: *rules-website
+  allow_failure: true
   script:
     - npm audit --audit-level=high
 
