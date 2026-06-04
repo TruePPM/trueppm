@@ -260,6 +260,78 @@ class TestScheduleFloat:
         assert set(r.critical_path) == {"A", "C"}
 
 
+class TestFreeFloatAllDependencyTypes:
+    """free_float reflects SS/FF/SF links, not only FS (#825).
+
+    Each case gives the predecessor more total float than its slack to the
+    successor through the non-FS link, so a correct free_float is strictly
+    *less* than total_float — the previous FS-only implementation reported them
+    equal because the non-FS successor never tightened free float.
+    """
+
+    def test_free_float_ss_link(self) -> None:
+        # A ─SS─► B (B held to Fri by SNET); E is a long parallel pole so A is
+        # not critical. A can slip 4 working days (Mon→Fri) before its SS link
+        # starts pushing B's start.
+        p = make_project(
+            tasks=[
+                task("A", "A", 2),
+                task("B", "B", 2, planned_start=date(2026, 3, 6)),
+                task("E", "E", 10),
+            ],
+            dependencies=[Dependency("A", "B", dep_type=DependencyType.SS)],
+        )
+        by_id = {t.id: t for t in schedule(p).tasks}
+        assert by_id["A"].free_float == timedelta(days=4)
+        assert by_id["A"].total_float > by_id["A"].free_float
+
+    def test_free_float_ff_link(self) -> None:
+        # A ─FF─► B: free float is A's working-day slack to B's finish (#825 AC).
+        # A finishes Tue 3-Mar; B finishes Tue 10-Mar → 5 working days of slack.
+        p = make_project(
+            tasks=[
+                task("A", "A", 2),
+                task("B", "B", 2, planned_start=date(2026, 3, 9)),
+                task("E", "E", 12),
+            ],
+            dependencies=[Dependency("A", "B", dep_type=DependencyType.FF)],
+        )
+        by_id = {t.id: t for t in schedule(p).tasks}
+        assert by_id["A"].free_float == timedelta(days=5)
+        assert by_id["A"].total_float > by_id["A"].free_float
+
+    def test_free_float_sf_link(self) -> None:
+        # A ─SF(lag=4)─► B: B must finish no earlier than A starts + 4 cal days
+        # (Fri 6-Mar). B finishes Wed 11-Mar → 3 working days of slack for A.
+        p = make_project(
+            tasks=[
+                task("A", "A", 1),
+                task("B", "B", 3, planned_start=date(2026, 3, 9)),
+                task("E", "E", 12),
+            ],
+            dependencies=[
+                Dependency("A", "B", dep_type=DependencyType.SF, lag=timedelta(days=4)),
+            ],
+        )
+        by_id = {t.id: t for t in schedule(p).tasks}
+        assert by_id["A"].free_float == timedelta(days=3)
+        assert by_id["A"].total_float > by_id["A"].free_float
+
+    def test_free_float_never_exceeds_total_float(self) -> None:
+        # Invariant across a mixed-dependency network.
+        p = make_project(
+            tasks=[task("A", "A", 3), task("B", "B", 2), task("C", "C", 4), task("D", "D", 1)],
+            dependencies=[
+                Dependency("A", "B", dep_type=DependencyType.FS),
+                Dependency("A", "C", dep_type=DependencyType.SS, lag=timedelta(days=1)),
+                Dependency("B", "D", dep_type=DependencyType.FF),
+                Dependency("C", "D", dep_type=DependencyType.FS),
+            ],
+        )
+        for t in schedule(p).tasks:
+            assert t.free_float <= t.total_float
+
+
 # ---------------------------------------------------------------------------
 # schedule() — cycle detection
 # ---------------------------------------------------------------------------
@@ -704,6 +776,35 @@ class TestMonteCarlo:
         p = make_project(
             tasks=[task("A", "A", 5), task("B", "B", 3)],
             dependencies=[Dependency("A", "B", lag=timedelta(days=7))],
+        )
+        cpm_result = schedule(p)
+        mc_result = monte_carlo(p, runs=100, seed=0)
+        assert mc_result.p50 == mc_result.p80 == mc_result.p95 == cpm_result.project_finish
+
+    def test_mc_fs_weekend_lag_matches_cpm(self) -> None:
+        """A 1-calendar-day FS lag off a Friday finish snaps Sat→Mon in CPM, adding
+        zero working days; MC must agree per run instead of adding a fixed
+        reference-based working-day offset (#824). A: Mon→Fri 6-Mar; B starts
+        Mon 9-Mar in both engines."""
+        p = make_project(
+            tasks=[task("A", "A", 5), task("B", "B", 3)],
+            dependencies=[Dependency("A", "B", lag=timedelta(days=1))],
+        )
+        cpm_result = schedule(p)
+        mc_result = monte_carlo(p, runs=100, seed=0)
+        assert mc_result.p50 == mc_result.p80 == mc_result.p95 == cpm_result.project_finish
+
+    def test_mc_ss_weekend_lag_matches_cpm(self) -> None:
+        """SS lag=3 off a Friday start (X→A lands A on Fri 6-Mar) snaps to Mon in
+        CPM; MC must convert the lag against A's actual Friday start, not the
+        project-start reference (#824). planned_start is avoided because the MC
+        forward pass does not model SNET."""
+        p = make_project(
+            tasks=[task("X", "X", 4), task("A", "A", 1), task("B", "B", 5)],
+            dependencies=[
+                Dependency("X", "A", dep_type=DependencyType.FS),
+                Dependency("A", "B", dep_type=DependencyType.SS, lag=timedelta(days=3)),
+            ],
         )
         cpm_result = schedule(p)
         mc_result = monte_carlo(p, runs=100, seed=0)

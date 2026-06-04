@@ -13,13 +13,15 @@ use trueppm_wasm_scheduler::models::Project;
 use trueppm_wasm_scheduler::schedule_impl;
 
 fn invalid_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures").join("invalid")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("fixtures")
+        .join("invalid")
 }
 
 fn assert_rejected(name: &str) {
     let path = invalid_dir().join(format!("{name}.json"));
-    let json = fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("{name}: failed to read fixture: {e}"));
+    let json =
+        fs::read_to_string(&path).unwrap_or_else(|e| panic!("{name}: failed to read fixture: {e}"));
     // Must parse — these are rejected at schedule time, not at parse time.
     let project: Project = serde_json::from_str(&json)
         .unwrap_or_else(|e| panic!("{name}: fixture should parse, got {e}"));
@@ -62,6 +64,18 @@ fn rejects_blanket_exceptions() {
     // (test_invalid_fixture_rejected) asserts the same fixture on both schedule()
     // and monte_carlo().
     assert_rejected("blanket_exceptions");
+}
+
+#[test]
+fn rejects_isolated_working_day_then_blanket() {
+    // The project start *is* a working day, so the validation reachability probe
+    // passes — but `exceptions` blanket every day after it, so the forward pass's
+    // first calendar walk past the start can never reach a second working day.
+    // Before #908 the unguarded `chrono` walk spun until `NaiveDate` overflowed
+    // and panicked (trapping the WASM module); now the bounded, fallible calendar
+    // primitives surface it as `Err`. The Python engine already rejects it via the
+    // `_scan_for_working_day` guard added in #749.
+    assert_rejected("isolated_working_day_then_blanket");
 }
 
 #[test]

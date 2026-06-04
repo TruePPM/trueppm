@@ -6,7 +6,9 @@ use std::collections::HashMap;
 
 use chrono::{Duration, NaiveDate};
 
-use crate::calendar::{finish_from_start, prev_working_day, retreat_calendar_days, start_from_finish};
+use crate::calendar::{
+    finish_from_start, prev_working_day, retreat_calendar_days, start_from_finish,
+};
 use crate::graph::{get_dependency, successors, ProjectGraph};
 use crate::models::{Calendar, Dependency, DependencyType, Task};
 
@@ -18,7 +20,7 @@ pub fn backward_pass(
     deps: &[Dependency],
     project_finish: NaiveDate,
     calendar: &Calendar,
-) {
+) -> Result<(), String> {
     for node_id in topo_order.iter().rev() {
         let duration_days = task_map[node_id].duration_days();
 
@@ -37,24 +39,26 @@ pub fn backward_pass(
             match dep.dep_type {
                 DependencyType::FS => {
                     // Predecessor must finish the day before successor's late start minus lag.
-                    lf_constraints
-                        .push(prev_working_day(succ_ls - Duration::days(1 + lag_days), calendar));
+                    lf_constraints.push(prev_working_day(
+                        succ_ls - Duration::days(1 + lag_days),
+                        calendar,
+                    )?);
                 }
                 DependencyType::SS => {
-                    ls_constraints.push(retreat_calendar_days(succ_ls, lag_days, calendar));
+                    ls_constraints.push(retreat_calendar_days(succ_ls, lag_days, calendar)?);
                 }
                 DependencyType::FF => {
-                    lf_constraints.push(retreat_calendar_days(succ_lf, lag_days, calendar));
+                    lf_constraints.push(retreat_calendar_days(succ_lf, lag_days, calendar)?);
                 }
                 DependencyType::SF => {
-                    ls_constraints.push(retreat_calendar_days(succ_lf, lag_days, calendar));
+                    ls_constraints.push(retreat_calendar_days(succ_lf, lag_days, calendar)?);
                 }
             }
         }
 
         // LF = earliest of all LF constraints.
         let lf = *lf_constraints.iter().min().unwrap();
-        let mut ls = start_from_finish(lf, duration_days, calendar);
+        let mut ls = start_from_finish(lf, duration_days, calendar)?;
 
         // Apply LS constraints (from SS/SF dependencies).
         let mut final_lf = lf;
@@ -62,7 +66,7 @@ pub fn backward_pass(
             let max_ls = *ls_constraints.iter().min().unwrap();
             if max_ls < ls {
                 ls = max_ls;
-                let fwd_finish = finish_from_start(ls, duration_days, calendar);
+                let fwd_finish = finish_from_start(ls, duration_days, calendar)?;
                 final_lf = fwd_finish.min(*lf_constraints.iter().min().unwrap());
             }
         } else {
@@ -73,4 +77,5 @@ pub fn backward_pass(
         task.late_start = Some(ls);
         task.late_finish = Some(final_lf);
     }
+    Ok(())
 }

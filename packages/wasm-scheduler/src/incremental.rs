@@ -5,11 +5,11 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use crate::graph::{build_graph, ProjectGraph};
-use crate::models::{Project, ScheduleResult, Task, TaskResult};
-use crate::forward::forward_pass;
 use crate::backward::backward_pass;
 use crate::floats::compute_floats;
+use crate::forward::forward_pass;
+use crate::graph::{build_graph, ProjectGraph};
+use crate::models::{Project, ScheduleResult, Task, TaskResult};
 
 /// Run an incremental update: override the changed task's start, then recompute
 /// the full CPM for the project (forward + backward + floats) and return only
@@ -45,7 +45,7 @@ pub fn incremental_update(
         &project.dependencies,
         project.start_date,
         &project.calendar,
-    );
+    )?;
 
     let project_finish = task_map
         .values()
@@ -60,7 +60,7 @@ pub fn incremental_update(
         &project.dependencies,
         project_finish,
         &project.calendar,
-    );
+    )?;
 
     compute_floats(
         &mut task_map,
@@ -68,7 +68,7 @@ pub fn incremental_update(
         &pg,
         &project.dependencies,
         &project.calendar,
-    );
+    )?;
 
     // Collect results for downstream tasks only
     let tasks: Vec<TaskResult> = pg
@@ -90,12 +90,21 @@ pub fn incremental_update(
         })
         .collect();
 
-    let critical_path: Vec<String> = pg
+    // Order by (early_start, id): deterministic and identical to the Python
+    // engine, independent of the petgraph topological tie-break (#909).
+    let mut critical_path: Vec<String> = pg
         .topo_order
         .iter()
         .filter(|id| task_map[*id].is_critical)
         .cloned()
         .collect();
+    critical_path.sort_by(|a, b| {
+        task_map[a]
+            .early_start
+            .unwrap()
+            .cmp(&task_map[b].early_start.unwrap())
+            .then_with(|| a.cmp(b))
+    });
 
     let project_start = task_map[&pg.topo_order[0]].early_start.unwrap();
 
