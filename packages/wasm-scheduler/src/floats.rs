@@ -4,9 +4,9 @@
 
 use std::collections::HashMap;
 
-use chrono::Duration;
-
-use crate::calendar::{advance_calendar_days, next_working_day, working_days_between};
+use crate::calendar::{
+    advance_calendar_days, checked_offset_days, next_working_day, working_days_between,
+};
 use crate::graph::{get_dependency, successors, ProjectGraph};
 use crate::models::{Calendar, Dependency, DependencyType, Task};
 
@@ -41,7 +41,7 @@ pub fn compute_floats(
             let succ_ef = task_map[succ_id].early_finish.unwrap();
             let (imposed, succ_date) = match dep.dep_type {
                 DependencyType::FS => (
-                    next_working_day(ef + Duration::days(1 + lag_days), calendar)?,
+                    next_working_day(checked_offset_days(ef, 1 + lag_days)?, calendar)?,
                     succ_es,
                 ),
                 DependencyType::SS => (advance_calendar_days(es, lag_days, calendar)?, succ_es),

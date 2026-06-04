@@ -811,18 +811,24 @@ def schedule(project: Project) -> ScheduleResult:
     _backward_pass(task_map, topo_order, g, project_finish, project.calendar)
     _compute_floats(task_map, topo_order, g, project.calendar)
 
-    # Order the critical path by (early_start, id). ``topo_order`` is only *a*
-    # valid topological order — its tie-break among parallel tasks is a networkx
-    # implementation detail (the dep cap is wide: networkx>=3,<4) and the Rust
-    # engine's petgraph tie-break differs again, so filtering topo_order directly
-    # would make ``critical_path`` ordering non-deterministic and cross-engine
-    # divergent (#909). Sorting by (early_start, id) is deterministic, engine-
-    # agnostic, and a valid topological order for the parallel critical tasks
-    # this disambiguates (they share no edge). The Rust engine sorts identically.
-    critical_path = sorted(
-        (tid for tid in topo_order if task_map[tid].is_critical),
-        key=lambda tid: (task_map[tid].early_start, tid),
-    )
+    # Order the critical path deterministically AND topologically. Filtering a
+    # topological order keeps every predecessor ahead of its successor; the catch
+    # is that plain ``nx.topological_sort`` resolves ties by a networkx-internal
+    # rule that the Rust engine's petgraph does not share, so the order would be
+    # non-deterministic and cross-engine divergent (#909). A *lexicographic*
+    # topological sort keyed by ``(early_start, id)`` is deterministic and
+    # engine-agnostic — and, unlike sorting the filtered list by ``(early_start,
+    # id)`` directly, it can never place a successor before its predecessor when
+    # the two share an equal early_start (e.g. an SS-lag-0 or FF-lag-0 critical
+    # pair, where a value-sort would invert them). The Rust engine runs the
+    # identical lexicographic Kahn ordering (lib.rs / incremental.rs).
+    critical_path = [
+        tid
+        for tid in nx.lexicographical_topological_sort(
+            g, key=lambda tid: (task_map[tid].early_start, tid)
+        )
+        if task_map[tid].is_critical
+    ]
 
     # Use min(early_start) across all tasks — topo_order[0] is arbitrary when
     # multiple parallel roots exist and may not be the earliest-starting one.
@@ -1041,20 +1047,24 @@ def monte_carlo(
 
     # Per-edge lag delta arrays. ``edge_lag_delta[(u, v)]`` is indexed by the
     # rounded working-day offset of the predecessor's anchor (exclusive EF for
-    # FS/FF, ES for SS/SF) and holds the *extra* working-day offset the lag adds
-    # relative to the lag-free baseline at that anchor. ``None`` means lag == 0,
-    # leaving the constraint as a plain offset add — so lag-free projects are
-    # byte-for-byte identical to the previous behaviour.
+    # FS/FF, ES for SS/SF) and holds the *extra* working-day offset the constraint
+    # adds relative to a plain offset add at that anchor. ``None`` means "no
+    # adjustment" (a plain offset add) — used for lag-free FS/SS/FF, which are then
+    # byte-for-byte identical to the previous behaviour. SF is the exception: it
+    # imposes an *exclusive* EF constraint anchored on the predecessor's
+    # *inclusive* start, so it needs a +1 interval conversion even at zero lag and
+    # therefore always carries a delta array (issue #824 — SF previously dropped
+    # that +1 and finished one working day early).
     one_day = timedelta(days=1)
     edge_lag_delta: dict[tuple[str, str], np.ndarray | None] = {}
     for u, v, data in g.edges(data=True):
         d = data["dep"]
         lag = d.lag
-        if lag == timedelta(0):
+        dt = d.dep_type
+        if lag == timedelta(0) and dt != DependencyType.SF:
             edge_lag_delta[(u, v)] = None
             continue
         arr = np.zeros(index_size, dtype=np.float64)
-        dt = d.dep_type
         for k in range(index_size):
             if dt == DependencyType.FS:
                 # k = exclusive EF offset; EF date = wd_index[k-1]; baseline = k.
@@ -1062,11 +1072,22 @@ def monte_carlo(
                     continue
                 arr[k] = _offset_after(wd_index[k - 1], one_day + lag) - k
             elif dt == DependencyType.FF:
+                # Anchor k is the exclusive EF offset (inclusive last day =
+                # wd_index[k-1]); the inclusive→exclusive +1 is folded into the
+                # -(k-1) baseline, so succ.EF >= snapped(pred.EF + lag).
                 if k == 0:
                     continue
                 arr[k] = _offset_after(wd_index[k - 1], lag) - (k - 1)
-            else:  # SS / SF anchor on the predecessor's ES (offset k); baseline = k.
+            elif dt == DependencyType.SS:
+                # Start-anchored ES constraint; both sides are inclusive starts.
                 arr[k] = _offset_after(wd_index[k], lag) - k
+            else:  # SF
+                # Start-anchored EF constraint: succ.EF (exclusive) must clear the
+                # snapped predecessor-start+lag day (inclusive), so +1 converts the
+                # inclusive constraint day to the exclusive EF offset. FF gets this
+                # +1 for free via its exclusive-EF anchor; SF does not, and dropping
+                # it finished SF successors one working day early (#824).
+                arr[k] = _offset_after(wd_index[k], lag) + 1 - k
         edge_lag_delta[(u, v)] = arr
 
     def _lag_term(delta_arr: np.ndarray | None, anchor: np.ndarray) -> np.ndarray:

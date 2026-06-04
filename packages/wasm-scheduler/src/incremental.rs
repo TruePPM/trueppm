@@ -90,21 +90,12 @@ pub fn incremental_update(
         })
         .collect();
 
-    // Order by (early_start, id): deterministic and identical to the Python
-    // engine, independent of the petgraph topological tie-break (#909).
-    let mut critical_path: Vec<String> = pg
-        .topo_order
-        .iter()
-        .filter(|id| task_map[*id].is_critical)
-        .cloned()
+    // Deterministic, topologically-valid critical-path order keyed by
+    // (early_start, id) — identical to the Python engine (#909).
+    let critical_path: Vec<String> = crate::graph::lexicographical_topo_order(&pg, &task_map)
+        .into_iter()
+        .filter(|id| task_map[id].is_critical)
         .collect();
-    critical_path.sort_by(|a, b| {
-        task_map[a]
-            .early_start
-            .unwrap()
-            .cmp(&task_map[b].early_start.unwrap())
-            .then_with(|| a.cmp(b))
-    });
 
     let project_start = task_map[&pg.topo_order[0]].early_start.unwrap();
 

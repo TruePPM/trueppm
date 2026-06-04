@@ -2,13 +2,15 @@
 //!
 //! Mirrors the Python `_build_graph` and `_check_cycles` functions.
 
-use std::collections::HashMap;
+use std::cmp::Reverse;
+use std::collections::{BinaryHeap, HashMap};
 
+use chrono::NaiveDate;
 use petgraph::algo::toposort;
 use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::Direction;
 
-use crate::models::{Dependency, Project};
+use crate::models::{Dependency, Project, Task};
 
 /// An error indicating a cycle was detected in the dependency graph.
 #[derive(Debug, Clone)]
@@ -111,6 +113,53 @@ pub fn successors(pg: &ProjectGraph, task_id: &str) -> Vec<String> {
         .neighbors_directed(idx, Direction::Outgoing)
         .map(|n| pg.graph[n].clone())
         .collect()
+}
+
+/// Critical-path order: a lexicographic topological sort keyed by
+/// `(early_start, id)` (#909).
+///
+/// Filtering any topological order already keeps a predecessor ahead of its
+/// successor, but petgraph's `toposort` tie-break differs from networkx's, so a
+/// plain filtered `topo_order` is cross-engine non-deterministic. Sorting the
+/// filtered list by `(early_start, id)` *value* restores determinism but can
+/// invert an edge-connected critical pair that shares an `early_start` (e.g. an
+/// SS-lag-0 link, where the successor starts the same day as its predecessor).
+/// A lexicographic Kahn — the ready set is a min-heap on `(early_start, id)` —
+/// is simultaneously deterministic AND a valid topological order. Because task
+/// ids are unique the key never ties, so the result depends only on
+/// `(early_start, id)` and is identical to the Python engine's
+/// `networkx.lexicographical_topological_sort(g, key=(early_start, id))`.
+pub fn lexicographical_topo_order(pg: &ProjectGraph, task_map: &HashMap<String, Task>) -> Vec<String> {
+    let es_of = |id: &str| -> NaiveDate {
+        task_map[id]
+            .early_start
+            .expect("early_start is set for every task after the forward pass")
+    };
+    let mut indegree: HashMap<String, usize> = pg
+        .topo_order
+        .iter()
+        .map(|id| (id.clone(), predecessors(pg, id).len()))
+        .collect();
+    let mut ready: BinaryHeap<Reverse<(NaiveDate, String)>> = pg
+        .topo_order
+        .iter()
+        .filter(|id| indegree[*id] == 0)
+        .map(|id| Reverse((es_of(id), id.clone())))
+        .collect();
+
+    let mut order = Vec::with_capacity(pg.topo_order.len());
+    while let Some(Reverse((_, id))) = ready.pop() {
+        for succ in successors(pg, &id) {
+            if let Some(d) = indegree.get_mut(&succ) {
+                *d -= 1;
+                if *d == 0 {
+                    ready.push(Reverse((es_of(&succ), succ)));
+                }
+            }
+        }
+        order.push(id);
+    }
+    order
 }
 
 #[cfg(test)]

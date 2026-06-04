@@ -108,21 +108,12 @@ pub fn schedule_impl(project: &Project) -> Result<ScheduleResult, String> {
         &project.calendar,
     )?;
 
-    // Order by (early_start, id): deterministic and identical to the Python
-    // engine, independent of the petgraph topological tie-break (#909).
-    let mut critical_path: Vec<String> = pg
-        .topo_order
-        .iter()
-        .filter(|id| task_map[*id].is_critical)
-        .cloned()
+    // Deterministic, topologically-valid critical-path order keyed by
+    // (early_start, id) — identical to the Python engine (#909).
+    let critical_path: Vec<String> = graph::lexicographical_topo_order(&pg, &task_map)
+        .into_iter()
+        .filter(|id| task_map[id].is_critical)
         .collect();
-    critical_path.sort_by(|a, b| {
-        task_map[a]
-            .early_start
-            .unwrap()
-            .cmp(&task_map[b].early_start.unwrap())
-            .then_with(|| a.cmp(b))
-    });
 
     let project_start = task_map[&pg.topo_order[0]].early_start.unwrap();
 
@@ -229,6 +220,59 @@ mod tests {
         assert!(a.is_critical);
         assert!(b.is_critical);
         assert!(c.is_critical);
+    }
+
+    #[test]
+    fn test_ss_connected_critical_keeps_predecessor_first() {
+        // #909: ZED --SS lag0--> ABE, both critical, share an early_start. A plain
+        // value-sort by (early_start, id) would place ABE before its predecessor
+        // ZED (id "ABE" < "ZED"); the lexicographic topological order must keep
+        // ZED first. MID joins both and sorts last by its later early_start.
+        let project = Project {
+            id: "p-ss".to_string(),
+            name: "ss".to_string(),
+            start_date: NaiveDate::from_ymd_opt(2026, 4, 6).unwrap(),
+            tasks: vec![make_task("ZED", 5), make_task("ABE", 5), make_task("MID", 5)],
+            dependencies: vec![
+                Dependency {
+                    predecessor_id: "ZED".to_string(),
+                    successor_id: "ABE".to_string(),
+                    dep_type: DependencyType::SS,
+                    lag: 0.0,
+                },
+                dep("ZED", "MID"),
+                dep("ABE", "MID"),
+            ],
+            calendar: Calendar::default(),
+        };
+
+        let result = schedule_impl(&project).unwrap();
+        assert_eq!(result.critical_path, vec!["ZED", "ABE", "MID"]);
+    }
+
+    #[test]
+    fn test_near_max_planned_start_with_large_lag_errors_not_panics() {
+        // #908: a planned_start near NaiveDate's representable maximum plus a large
+        // FS lag overflows the raw date arithmetic in the forward pass. It must
+        // surface a clean Err (via checked_offset_days), never panic and trap the
+        // WASM module. Before the fix this panicked at forward.rs.
+        let mut p = make_task("P", 1);
+        p.planned_start = Some(NaiveDate::MAX - chrono::Duration::days(5));
+        let project = Project {
+            id: "p-overflow".to_string(),
+            name: "overflow".to_string(),
+            start_date: NaiveDate::from_ymd_opt(2026, 4, 1).unwrap(),
+            tasks: vec![p, make_task("Q", 1)],
+            dependencies: vec![Dependency {
+                predecessor_id: "P".to_string(),
+                successor_id: "Q".to_string(),
+                dep_type: DependencyType::FS,
+                lag: 36525.0 * 86400.0,
+            }],
+            calendar: Calendar::default(),
+        };
+
+        assert!(schedule_impl(&project).is_err());
     }
 
     #[test]

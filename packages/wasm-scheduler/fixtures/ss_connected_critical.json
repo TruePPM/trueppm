@@ -1,0 +1,21 @@
+{
+  "id": "p-ss-connected-critical",
+  "name": "SS-lag-0 connected critical pair (topo-order guard, #909)",
+  "start_date": "2026-04-06",
+  "tasks": [
+    {"id": "ZED", "name": "Predecessor (SS source; id sorts last)", "duration": 432000.0},
+    {"id": "ABE", "name": "Successor (SS target; id sorts first)", "duration": 432000.0},
+    {"id": "MID", "name": "Join", "duration": 432000.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "ZED", "successor_id": "ABE", "dep_type": "SS", "lag": 0.0},
+    {"predecessor_id": "ZED", "successor_id": "MID", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "ABE", "successor_id": "MID", "dep_type": "FS", "lag": 0.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

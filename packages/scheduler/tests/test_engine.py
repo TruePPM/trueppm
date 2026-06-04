@@ -810,6 +810,69 @@ class TestMonteCarlo:
         mc_result = monte_carlo(p, runs=100, seed=0)
         assert mc_result.p50 == mc_result.p80 == mc_result.p95 == cpm_result.project_finish
 
+    def test_mc_sf_lag_matches_cpm(self) -> None:
+        """SF lag must finish a working day in step with CPM, not one day early.
+
+        SF means the successor's *finish* clears the predecessor's *start* + lag.
+        T0 starts Mon 2-Mar; +5 calendar days snaps Sat→Mon 9-Mar, so T1 must
+        finish Mon 9-Mar and drives the project finish. Before #824 MC dropped the
+        inclusive→exclusive +1 the FF branch already had and finished T1 on Fri
+        6-Mar — one working day early. MC must now equal CPM exactly.
+        """
+        p = make_project(
+            tasks=[task("T0", "T0", 2), task("T1", "T1", 2)],
+            dependencies=[
+                Dependency("T0", "T1", dep_type=DependencyType.SF, lag=timedelta(days=5)),
+            ],
+        )
+        cpm_result = schedule(p)
+        mc_result = monte_carlo(p, runs=100, seed=0)
+        assert mc_result.p50 == mc_result.p80 == mc_result.p95 == cpm_result.project_finish
+
+    def test_mc_sf_lag_free_matches_cpm(self) -> None:
+        """A lag-free SF carries the same +1 — observable here through a downstream task.
+
+        SF with lag 0 forces T1.finish >= P.start. P is pushed to Mon 9-Mar by the
+        A→P FS chain, so T1 finishes Mon 9-Mar; its FS successor Z then starts Tue
+        10-Mar, which drives the project finish. With the pre-#824 off-by-one T1
+        finished Fri 6-Mar and Z started Mon 9-Mar — a full working day early. The
+        predecessor alone never exposes this (P.finish >= P.start = T1.finish), so
+        the downstream Z is what makes the lag-free SF correction visible.
+        """
+        p = make_project(
+            tasks=[
+                task("A", "A", 5),
+                task("P", "P", 1),
+                task("T1", "T1", 2),
+                task("Z", "Z", 1),
+            ],
+            dependencies=[
+                Dependency("A", "P", dep_type=DependencyType.FS),
+                Dependency("P", "T1", dep_type=DependencyType.SF),
+                Dependency("T1", "Z", dep_type=DependencyType.FS),
+            ],
+        )
+        cpm_result = schedule(p)
+        mc_result = monte_carlo(p, runs=100, seed=0)
+        assert mc_result.p50 == mc_result.p80 == mc_result.p95 == cpm_result.project_finish
+
+    def test_mc_ff_lag_matches_cpm(self) -> None:
+        """FF lag parity guard — FF was already correct; lock it against regression.
+
+        FF means the successor's finish clears the predecessor's finish + lag. T0
+        finishes Tue 3-Mar; +5 calendar days snaps to Mon 9-Mar, so T1 finishes
+        Mon 9-Mar and drives the project finish. MC must equal CPM.
+        """
+        p = make_project(
+            tasks=[task("T0", "T0", 2), task("T1", "T1", 2)],
+            dependencies=[
+                Dependency("T0", "T1", dep_type=DependencyType.FF, lag=timedelta(days=5)),
+            ],
+        )
+        cpm_result = schedule(p)
+        mc_result = monte_carlo(p, runs=100, seed=0)
+        assert mc_result.p50 == mc_result.p80 == mc_result.p95 == cpm_result.project_finish
+
 
 # ---------------------------------------------------------------------------
 # schedule() — parallel roots

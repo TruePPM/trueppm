@@ -143,3 +143,12 @@ fn conformance_parallel_critical() {
     // regardless of the petgraph topological tie-break (#909).
     load_and_check("parallel_critical");
 }
+
+#[test]
+fn conformance_ss_connected_critical() {
+    // An SS-lag-0 critical pair (ZED→ABE) sharing an early_start, where the
+    // predecessor's id sorts after the successor's. critical_path must stay in
+    // topological order (ZED before ABE) and match the Python engine — a plain
+    // (early_start, id) value-sort would invert them (#909).
+    load_and_check("ss_connected_critical");
+}
