@@ -21,6 +21,24 @@ fn calendar_scan_error(anchor: NaiveDate, direction: &str) -> String {
     )
 }
 
+/// Offset `d` by `days` calendar days with overflow checking (#908).
+///
+/// The forward, backward, and free-float passes form a raw `predecessor_date ±
+/// (1 + lag)` before snapping to a working day. A task whose `planned_start` sits
+/// near `NaiveDate`'s representable maximum, combined with a large lag, overflows
+/// that addition — which used to panic and trap the entire WASM module. Routing
+/// the offset through this checked helper surfaces a clean `Err` to the WASM
+/// boundary instead, matching the bounded-scan guard the calendar walks already
+/// use.
+pub fn checked_offset_days(d: NaiveDate, days: i64) -> Result<NaiveDate, String> {
+    d.checked_add_signed(Duration::days(days)).ok_or_else(|| {
+        format!(
+            "Date arithmetic overflowed: {d} offset by {days} day(s) falls outside the \
+             representable calendar range — check the task's start date and dependency lag."
+        )
+    })
+}
+
 impl Calendar {
     /// Returns true if `d` is a working day (in the weekly mask and not an exception).
     pub fn is_working_day(&self, d: NaiveDate) -> bool {

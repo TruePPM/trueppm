@@ -4,10 +4,11 @@
 
 use std::collections::HashMap;
 
-use chrono::{Duration, NaiveDate};
+use chrono::NaiveDate;
 
 use crate::calendar::{
-    finish_from_start, prev_working_day, retreat_calendar_days, start_from_finish,
+    checked_offset_days, finish_from_start, prev_working_day, retreat_calendar_days,
+    start_from_finish,
 };
 use crate::graph::{get_dependency, successors, ProjectGraph};
 use crate::models::{Calendar, Dependency, DependencyType, Task};
@@ -40,7 +41,7 @@ pub fn backward_pass(
                 DependencyType::FS => {
                     // Predecessor must finish the day before successor's late start minus lag.
                     lf_constraints.push(prev_working_day(
-                        succ_ls - Duration::days(1 + lag_days),
+                        checked_offset_days(succ_ls, -(1 + lag_days))?,
                         calendar,
                     )?);
                 }

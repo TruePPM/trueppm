@@ -4,10 +4,11 @@
 
 use std::collections::HashMap;
 
-use chrono::{Duration, NaiveDate};
+use chrono::NaiveDate;
 
 use crate::calendar::{
-    advance_calendar_days, finish_from_start, next_working_day, start_from_finish,
+    advance_calendar_days, checked_offset_days, finish_from_start, next_working_day,
+    start_from_finish,
 };
 use crate::graph::{get_dependency, predecessors, ProjectGraph};
 use crate::models::{Calendar, Dependency, DependencyType, Task};
@@ -50,7 +51,7 @@ pub fn forward_pass(
                 DependencyType::FS => {
                     // Successor cannot start until the day after predecessor finishes + lag.
                     es_constraints.push(next_working_day(
-                        pred_ef + Duration::days(1 + lag_days),
+                        checked_offset_days(pred_ef, 1 + lag_days)?,
                         calendar,
                     )?);
                 }
