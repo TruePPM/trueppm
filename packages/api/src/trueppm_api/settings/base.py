@@ -703,5 +703,10 @@ SPECTACULAR_SETTINGS = {
         # project_drf_enum_name_collision).
         "ForecastBasisEnum": "trueppm_api.apps.projects.models.ForecastBasis",
         "ForecastConfidenceEnum": "trueppm_api.apps.projects.models.ForecastConfidence",
+        # ADR-0104 (#553): SignalAudience is a fresh ladder enum used in the
+        # signal-privacy serializer; pin it to a stable name so a future "audience"
+        # field cannot collide-and-rename it (project memory
+        # project_drf_enum_name_collision).
+        "SignalAudienceEnum": "trueppm_api.apps.projects.models.SignalAudience",
     },
 }

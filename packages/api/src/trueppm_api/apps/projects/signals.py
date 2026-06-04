@@ -89,3 +89,23 @@ sprint_scope_changed = django.dispatch.Signal()
 # Model — the Enterprise receiver must consult the consent record; OSS never does
 # the aggregation. Receivers performing I/O must use transaction.on_commit().
 milestone_forecast_recomputed = django.dispatch.Signal()
+
+
+# Emitted when a team changes how far one of its signals may travel — an audience
+# move or a ceiling raise/lower on ProjectSignalPrivacyPolicy (ADR-0104 §3).
+#
+# Keyword arguments:
+#   sender       — the ProjectSignalPrivacyPolicy class
+#   project_id   — the project whose policy changed
+#   signal_key   — the signal that moved ("velocity" / "throughput_rollup" / "pulse")
+#   change       — "audience" or "ceiling"
+#   old          — prior SignalAudience value
+#   new          — new SignalAudience value
+#
+# Supply-only extension point: OSS only emits. Enterprise registers a receiver in
+# AppConfig.ready() to invalidate its cross-team rollup cache / capture the upward-
+# share decision in its immutable audit. Receivers that perform I/O must use
+# transaction.on_commit(). No receiver may write signal_visibility — the only
+# writers are the human-invoked, member-gated services (set_signal_audience /
+# raise_signal_ceiling / ratchet_down_to_team).
+team_signal_consent_changed = django.dispatch.Signal()

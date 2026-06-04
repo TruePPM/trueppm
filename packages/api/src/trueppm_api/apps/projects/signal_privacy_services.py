@@ -1,0 +1,273 @@
+"""Team-signal privacy service layer (ADR-0104 §2–§4).
+
+Every read-suppression decision and every policy write goes through here so the
+gate lives in exactly one place (ADR-0104 risk #1: a forgotten gate on a future
+signal). The model exposes no bare field write — `set_signal_audience` and
+`raise_signal_ceiling` are the *only* writers of `signal_visibility`, which is the
+sprint-sovereignty contract: a non-team principal can never move a project's
+audience or ceiling.
+
+**Reader-gate direction (security-critical).** A requester reads a signal's gated
+detail iff their tier is **at or above** the signal's configured audience on the
+ladder — i.e. suppress when `tier < audience` (ADR-0104 §2 path 1, and the three
+authoritative tests in §Testing). At the `TEAM` default every project member's tier
+(`TEAM` or higher) is not below `TEAM`, so the read is byte-for-byte unchanged from
+today and only a non-member is denied; a team raising a signal's audience above
+`TEAM` is what suppresses a below-tier in-project member.
+
+(Note: ADR-0104 Decision-1's prose "the PM no longer reads velocity automatically"
+is inconsistent with §2's "every project member passes at the TEAM default,
+byte-for-byte unchanged"; §2 + the concrete tests are the contract and are what is
+implemented here. Flagged for confirmation at MR review.)
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
+from rest_framework.exceptions import ValidationError
+
+from trueppm_api.apps.access.models import Role
+from trueppm_api.apps.access.permissions import _membership_role
+from trueppm_api.apps.projects.models import (
+    SIGNAL_DEFAULTS,
+    ProjectSignalPrivacyPolicy,
+    SignalAudience,
+    signal_audience_rank,
+)
+from trueppm_api.apps.teams.services import has_team_facet
+
+if TYPE_CHECKING:
+    from rest_framework.request import Request
+
+    from trueppm_api.apps.projects.models import Project
+
+# The signal keys this policy governs — the iteration set for ratchet / sharing.
+SIGNAL_KEYS = tuple(SIGNAL_DEFAULTS.keys())
+
+
+# ---------------------------------------------------------------------------
+# Reader tier + the suppression gate (§2)
+# ---------------------------------------------------------------------------
+
+
+def requester_signal_tier(request: Request, project_id: Any) -> str | None:
+    """Resolve a requester's ladder tier for signal reads, or None (below TEAM).
+
+    ``None`` (non-member — the only way an org/PMO principal arrives) is **below
+    TEAM** and is denied every signal regardless of role ordinal: an Enterprise
+    custom role above OWNER that is not a project member has no ``ProjectMembership``
+    row, so it never passes (the back-door close, ADR-0104 §2). A project Admin (the
+    PM) is the top in-project tier; the Scrum-Master facet (ADR-0078 / #927) sits one
+    rung below; ordinary members and viewers are TEAM.
+    """
+    role = _membership_role(request, project_id)
+    if role is None:
+        return None
+    if role >= Role.ADMIN:
+        return SignalAudience.TEAM_SM_PM
+    # SM facet elevates a non-admin member to the SM rung (wires #927 directly,
+    # retiring ADR-0104's interim role>=ADMIN fallback).
+    if has_team_facet(request.user, project_id, "is_scrum_master"):
+        return SignalAudience.TEAM_SM
+    return SignalAudience.TEAM
+
+
+def audience_can_read(
+    policy: ProjectSignalPrivacyPolicy, signal_key: str, requester_tier: str | None
+) -> bool:
+    """Whether a requester at ``requester_tier`` may read ``signal_key``'s gated detail.
+
+    Read iff the tier is at or above the signal's audience on the ladder. A non-member
+    (``requester_tier is None``) is below every rung and never reads.
+    """
+    if requester_tier is None:
+        return False
+    return signal_audience_rank(requester_tier) >= signal_audience_rank(
+        policy.audience_of(signal_key)
+    )
+
+
+def can_read_signal(request: Request, project_id: Any, signal_key: str) -> bool:
+    """Convenience: resolve the requester's tier and apply the gate in one call."""
+    policy, _ = ProjectSignalPrivacyPolicy.objects.get_or_create(project_id=project_id)
+    return audience_can_read(policy, signal_key, requester_signal_tier(request, project_id))
+
+
+# ---------------------------------------------------------------------------
+# Writes — two gates (§1.1). Audience within [TEAM, ceiling]; ceiling team-owned.
+# ---------------------------------------------------------------------------
+
+
+def _validate_signal_key(signal_key: str) -> None:
+    if signal_key not in SIGNAL_DEFAULTS:
+        raise ValidationError({"signal": f"Unknown signal '{signal_key}'."})
+
+
+def _emit_consent_changed(
+    project_id: Any, signal_key: str, change: str, old: str, new: str
+) -> None:
+    """Fire the supply-only extension-point signal on commit (ADR-0104 §3)."""
+    from django.db import transaction
+
+    from trueppm_api.apps.projects.signals import team_signal_consent_changed
+
+    transaction.on_commit(
+        lambda: team_signal_consent_changed.send(
+            sender=ProjectSignalPrivacyPolicy,
+            project_id=str(project_id),
+            signal_key=signal_key,
+            change=change,
+            old=old,
+            new=new,
+        )
+    )
+
+
+def set_signal_audience(
+    policy: ProjectSignalPrivacyPolicy,
+    signal_key: str,
+    new_audience: str,
+    *,
+    actor: Any = None,
+) -> ProjectSignalPrivacyPolicy:
+    """Move a signal's *audience* within ``[TEAM, ceiling]`` — the day-to-day write.
+
+    This is the facilitator's dial. It is the **only** path that touches an
+    audience, and it **refuses to touch a ceiling** (ADR-0104 §1.1 + threat-model
+    🔴-1: a generic field PATCH that could write ``ceiling`` reopens the unilateral
+    PM-raise hole). Rejects an audience above the team-authorized ceiling with 400.
+    Idempotent: setting the current value writes no history row.
+    """
+    _validate_signal_key(signal_key)
+    if new_audience not in SignalAudience.values:
+        raise ValidationError({"audience": f"Invalid audience '{new_audience}'."})
+
+    resolved = policy.resolved(signal_key)
+    old_audience = resolved["audience"]
+    ceiling = resolved["ceiling"]
+    if signal_audience_rank(new_audience) > signal_audience_rank(ceiling):
+        raise ValidationError(
+            {
+                "audience": (
+                    f"Audience '{new_audience}' exceeds the team-authorized ceiling "
+                    f"'{ceiling}'. Raise the ceiling first (a team decision)."
+                )
+            }
+        )
+    if new_audience == old_audience:
+        return policy  # no-op — no history row (ADR-0104 §DE idempotency)
+
+    entry = dict(policy.signal_visibility.get(signal_key, {}))
+    entry["audience"] = new_audience
+    policy.signal_visibility = {**policy.signal_visibility, signal_key: entry}
+    policy._change_reason = f"{signal_key} audience: {old_audience} -> {new_audience}"  # type: ignore[attr-defined]
+    policy.save()
+    _emit_consent_changed(policy.project_id, signal_key, "audience", old_audience, new_audience)
+    return policy
+
+
+def raise_signal_ceiling(
+    policy: ProjectSignalPrivacyPolicy,
+    signal_key: str,
+    new_ceiling: str,
+    *,
+    actor: Any = None,
+) -> ProjectSignalPrivacyPolicy:
+    """Set a signal's *ceiling* — authorizing wider exposure (the team-owned act).
+
+    Raising a ceiling authorizes the facilitator to later move the audience that far;
+    it never moves the audience itself. **Lowering** a ceiling is always allowed
+    (more private) and clamps the audience down with it (ADR-0104 §1.1). Audited and
+    emitted as a team-visible consent event.
+    """
+    _validate_signal_key(signal_key)
+    if new_ceiling not in SignalAudience.values:
+        raise ValidationError({"ceiling": f"Invalid ceiling '{new_ceiling}'."})
+
+    resolved = policy.resolved(signal_key)
+    old_ceiling = resolved["ceiling"]
+    audience = resolved["audience"]
+    if new_ceiling == old_ceiling:
+        return policy
+
+    entry = dict(policy.signal_visibility.get(signal_key, {}))
+    entry["ceiling"] = new_ceiling
+    # Lowering the ceiling below the current audience clamps the audience down with
+    # it — the signal can never sit above what the team now authorizes.
+    clamped = audience
+    if signal_audience_rank(new_ceiling) < signal_audience_rank(audience):
+        clamped = new_ceiling
+        entry["audience"] = clamped
+    policy.signal_visibility = {**policy.signal_visibility, signal_key: entry}
+
+    direction = (
+        "raise"
+        if signal_audience_rank(new_ceiling) > signal_audience_rank(old_ceiling)
+        else "lower"
+    )
+    reason = f"{signal_key} ceiling: {old_ceiling} -> {new_ceiling} (team-owned {direction})"
+    policy._change_reason = reason  # type: ignore[attr-defined]
+    policy.save()
+    _emit_consent_changed(policy.project_id, signal_key, "ceiling", old_ceiling, new_ceiling)
+    if clamped != audience:
+        _emit_consent_changed(policy.project_id, signal_key, "audience", audience, clamped)
+    return policy
+
+
+def ratchet_down_to_team(
+    policy: ProjectSignalPrivacyPolicy, *, actor: Any = None
+) -> ProjectSignalPrivacyPolicy:
+    """Set every signal's audience to TEAM in one call — the SM panic button (§1).
+
+    Never touches ceilings (it is the convenience form of set-audience). Idempotent;
+    writes one audited history entry only for signals that actually changed.
+    """
+    changed = False
+    new_map = dict(policy.signal_visibility)
+    reasons: list[str] = []
+    moves: list[tuple[str, str]] = []
+    for signal_key in SIGNAL_KEYS:
+        old_audience = policy.audience_of(signal_key)
+        if old_audience == SignalAudience.TEAM:
+            continue
+        entry = dict(new_map.get(signal_key, {}))
+        entry["audience"] = SignalAudience.TEAM
+        new_map[signal_key] = entry
+        reasons.append(f"{signal_key} audience: {old_audience} -> team")
+        moves.append((signal_key, old_audience))
+        changed = True
+    if not changed:
+        return policy
+    policy.signal_visibility = new_map
+    policy._change_reason = "ratchet to team-only: " + "; ".join(reasons)  # type: ignore[attr-defined]
+    policy.save()
+    for signal_key, old_audience in moves:
+        _emit_consent_changed(
+            policy.project_id, signal_key, "audience", old_audience, SignalAudience.TEAM
+        )
+    return policy
+
+
+# ---------------------------------------------------------------------------
+# Enterprise extension point — supply-only, opt-in only (§3)
+# ---------------------------------------------------------------------------
+
+
+def get_shared_team_signals(project: Project) -> dict[str, str] | None:
+    """Return the signals a project has opted into the program rollup, or None.
+
+    Returns ``{signal_key: audience}`` for *only* the signals whose audience is
+    ``PROGRAM_SHARED`` (reachable only after a team raised the ceiling there and set
+    the audience there). Returns **None** when the project shared nothing — the
+    consumer skips a ``None`` rather than zero-filling, so a non-consenting team is
+    excluded from the aggregate, never inferred as a zero (ADR-0104 §3, Alternative
+    D rejected). Pure read; no side effects.
+    """
+    policy, _ = ProjectSignalPrivacyPolicy.objects.get_or_create(project=project)
+    shared = {
+        signal_key: policy.audience_of(signal_key)
+        for signal_key in SIGNAL_KEYS
+        if policy.audience_of(signal_key) == SignalAudience.PROGRAM_SHARED
+    }
+    return shared or None
