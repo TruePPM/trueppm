@@ -188,10 +188,19 @@ def test_provider_connection_error_is_unreachable(
         "http://192.168.1.1",  # RFC1918
     ],
 )
-def test_ssrf_base_url_is_blocked(client: APIClient, user: AbstractBaseUser, base_url: str) -> None:
-    """A self-hosted ``base_url`` pointing at an internal address is rejected by
-    the resolver-level SSRF guard with 422 blocked_host. The real ``http.get``
-    runs here (literal IPs need no DNS), so this exercises the guard end to end."""
+def test_ssrf_base_url_is_blocked(
+    client: APIClient,
+    user: AbstractBaseUser,
+    base_url: str,
+    settings: pytest.FixtureRequest,
+) -> None:
+    """Even when a host is operator-allowlisted (#902), the resolver-level SSRF
+    guard still rejects an internal address with 422 blocked_host — the two
+    controls compose as defense in depth. The allowlist is set here so the SSRF
+    guard, not the allowlist precheck, is what fires. The real ``http.get`` runs
+    (literal IPs need no DNS), exercising the guard end to end."""
+    host = base_url.split("://", 1)[1]
+    settings.TRUEPPM_INTEGRATION_ALLOWED_HOSTS = [host]  # type: ignore[attr-defined]
     response = client.post(
         "/api/v1/me/credentials/gitlab/",
         {"secret": "glpat-x", "base_url": base_url},
@@ -200,3 +209,62 @@ def test_ssrf_base_url_is_blocked(client: APIClient, user: AbstractBaseUser, bas
     assert response.status_code == 422
     assert response.json()["reason"] == "blocked_host"
     assert not IntegrationCredential.objects.filter(user=user).exists()
+
+
+# ---------------------------------------------------------------------------
+# base_url allowlist — PAT must never ship to a non-allowlisted host (#902)
+# ---------------------------------------------------------------------------
+
+
+def test_base_url_attacker_host_rejected_before_verify(
+    client: APIClient, user: AbstractBaseUser, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A github credential with an arbitrary public ``base_url`` is rejected with
+    400 *before* verify runs — the PAT must never reach attacker.example.com.
+    ``http.get`` is booby-trapped to prove no egress happens."""
+
+    def _boom(*args: object, **kwargs: object) -> object:
+        raise AssertionError("verify must not run for a disallowed base_url — PAT would leak")
+
+    monkeypatch.setattr(http, "get", _boom)
+    response = client.post(
+        "/api/v1/me/credentials/github/",
+        {"secret": "ghp_secret", "base_url": "https://attacker.example.com"},
+        format="json",
+    )
+    assert response.status_code == 400
+    assert response.json()["code"] == "base_url_not_allowed"
+    assert not IntegrationCredential.objects.filter(user=user).exists()
+
+
+def test_base_url_github_saas_host_allowed(
+    client: APIClient, user: AbstractBaseUser, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The github SaaS host passes the allowlist and is stored after verify."""
+    _stub_get(monkeypatch, status=200, body=b'{"login": "octocat"}')
+    response = client.post(
+        "/api/v1/me/credentials/github/",
+        {"secret": "ghp_good", "base_url": "https://api.github.com"},
+        format="json",
+    )
+    assert response.status_code == 200
+    assert IntegrationCredential.objects.filter(user=user, provider="github").exists()
+
+
+def test_base_url_self_hosted_allowed_via_operator_allowlist(
+    client: APIClient,
+    user: AbstractBaseUser,
+    monkeypatch: pytest.MonkeyPatch,
+    settings: pytest.FixtureRequest,
+) -> None:
+    """A self-hosted GitLab CE host is accepted only once an operator adds it to
+    TRUEPPM_INTEGRATION_ALLOWED_HOSTS (#902)."""
+    settings.TRUEPPM_INTEGRATION_ALLOWED_HOSTS = ["gitlab.mycorp.example"]  # type: ignore[attr-defined]
+    _stub_get(monkeypatch, status=200, body=b'{"username": "dev"}')
+    response = client.post(
+        "/api/v1/me/credentials/gitlab/",
+        {"secret": "glpat-good", "base_url": "https://gitlab.mycorp.example"},
+        format="json",
+    )
+    assert response.status_code == 200
+    assert IntegrationCredential.objects.filter(user=user, provider="gitlab").exists()

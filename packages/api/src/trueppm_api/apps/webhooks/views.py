@@ -63,7 +63,19 @@ class WebhookViewSet(
     serializer_class = WebhookSerializer
 
     def get_permissions(self) -> list[BasePermission]:
-        if self.action in ("create", "update", "partial_update", "destroy", "test_ping"):
+        # `deliveries` exposes the full event payload (task notes, comment
+        # snippets, assignee emails) of every event ever sent (#903). That is
+        # information disclosure beyond plain project membership, so it is
+        # Admin-only — consistent with webhook create/update/delete/test, which
+        # are already Admin-gated (only an Admin could have created the webhook).
+        if self.action in (
+            "create",
+            "update",
+            "partial_update",
+            "destroy",
+            "test_ping",
+            "deliveries",
+        ):
             return [IsAuthenticated(), IsProjectAdmin()]
         return [IsAuthenticated(), IsProjectMember()]
 
@@ -155,7 +167,19 @@ class ProgramWebhookViewSet(WebhookViewSet):
     """
 
     def get_permissions(self) -> list[BasePermission]:
-        if self.action in ("create", "update", "partial_update", "destroy", "test_ping"):
+        # `deliveries` exposes the full event payload (task notes, comment
+        # snippets, assignee emails) of every event ever sent (#903). That is
+        # information disclosure beyond plain project membership, so it is
+        # Admin-only — consistent with webhook create/update/delete/test, which
+        # are already Admin-gated (only an Admin could have created the webhook).
+        if self.action in (
+            "create",
+            "update",
+            "partial_update",
+            "destroy",
+            "test_ping",
+            "deliveries",
+        ):
             return [IsAuthenticated(), IsProgramAdmin()]
         return [IsAuthenticated(), IsProgramMember()]
 

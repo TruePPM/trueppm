@@ -106,7 +106,11 @@ def test_list_anonymous_is_rejected() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_create_stores_encrypted_secret(client: APIClient, user: AbstractBaseUser) -> None:
+def test_create_stores_encrypted_secret(
+    client: APIClient, user: AbstractBaseUser, settings: pytest.FixtureRequest
+) -> None:
+    # Self-hosted host must be operator-allowlisted (#902) before it can be saved.
+    settings.TRUEPPM_INTEGRATION_ALLOWED_HOSTS = ["gitlab.example.com"]  # type: ignore[attr-defined]
     response = client.post(
         "/api/v1/me/credentials/gitlab/",
         {"secret": "glpat-very-secret", "base_url": "https://gitlab.example.com"},

@@ -47,6 +47,10 @@ def test_rejects_missing_host() -> None:
         "http://172.16.5.5/",  # RFC1918
         "http://[::1]/",  # IPv6 loopback
         "http://0.0.0.0/",  # unspecified
+        # NAT64 well-known prefix wrapping cloud metadata (#900): a9fe:a9fe =
+        # 169.254.169.254. is_global is True for the wrapper, so this only blocks
+        # once the embedded IPv4 is unwrapped and re-checked.
+        "http://[64:ff9b::a9fe:a9fe]/latest/meta-data/",
     ],
 )
 def test_blocks_internal_addresses(url: str) -> None:
@@ -57,6 +61,35 @@ def test_blocks_internal_addresses(url: str) -> None:
 def test_allows_public_literal_ip() -> None:
     # Public, globally-routable literal — no DNS, no raise.
     http.assert_url_allowed("https://8.8.8.8/")
+
+
+@pytest.mark.parametrize(
+    "addr",
+    [
+        "64:ff9b::a9fe:a9fe",  # NAT64-wrapped 169.254.169.254 (metadata)
+        "64:ff9b::a00:5",  # NAT64-wrapped 10.0.0.5 (RFC1918)
+        "::ffff:169.254.169.254",  # IPv4-mapped metadata
+        "::ffff:10.0.0.5",  # IPv4-mapped RFC1918
+        "2002:a9fe:a9fe::",  # 6to4-wrapped 169.254.169.254
+        "::169.254.169.254",  # IPv4-compatible (deprecated ::/96) metadata
+        "::a9fe:a9fe",  # IPv4-compatible metadata, hex form
+        "::a00:5",  # IPv4-compatible RFC1918 (10.0.0.5)
+    ],
+)
+def test_blocks_ipv4_in_ipv6_transition_forms(addr: str) -> None:
+    # #900: each wrapper reports is_global True, but the embedded IPv4 is
+    # private/metadata — the guard must unwrap and reject it.
+    import ipaddress
+
+    assert http._is_blocked_ip(ipaddress.ip_address(addr)) is True
+
+
+def test_allows_nat64_wrapped_public_ipv4() -> None:
+    # NAT64-wrapping a *public* IPv4 (8.8.8.8) must still be allowed — the guard
+    # checks the embedded target, it does not blanket-block the prefix.
+    import ipaddress
+
+    assert http._is_blocked_ip(ipaddress.ip_address("64:ff9b::808:808")) is False
 
 
 def test_unresolvable_host_raises_egress_error(monkeypatch: pytest.MonkeyPatch) -> None:
