@@ -67,6 +67,7 @@ LOCAL_APPS = [
     "trueppm_api.apps.workflow_engine",
     "trueppm_api.apps.idempotency",
     "trueppm_api.apps.workspace",
+    "trueppm_api.apps.teams",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -680,5 +681,13 @@ SPECTACULAR_SETTINGS = {
         "TaskTypeEnum": "trueppm_api.apps.projects.models.TaskType",
         "DorStateEnum": "trueppm_api.apps.projects.models.DorState",
         "PrioritizationModelEnum": "trueppm_api.apps.projects.models.PrioritizationModel",
+        # ADR-0078 (#927): TeamMembership.role (member|admin) is a second "role"
+        # choice set sharing the field name with the access Role ordinal. Without
+        # a pin drf-spectacular disambiguates both by hash and renames the stable
+        # `RoleEnum` component (same regression class as ScopeChangeStatus above —
+        # project memory project_drf_enum_name_collision). Pin the access role back
+        # to `RoleEnum` and the team role to `TeamRoleEnum`.
+        "RoleEnum": "trueppm_api.apps.access.models.Role",
+        "TeamRoleEnum": "trueppm_api.apps.teams.models.TeamRole",
     },
 }

@@ -21,6 +21,7 @@
  *   sprint_created / sprint_updated / sprint_deleted / sprint_activated / sprint_cancelled / sprint_closed → invalidate sprints
  *   assignment_created / assignment_updated / assignment_deleted / roster_changed → invalidate tasks
  *   member_added / member_role_changed / member_removed → invalidate members
+ *   team_member_changed → invalidate team-members[teamId] (facet/role reassign, ADR-0078)
  *   board_config_updated → invalidate boardConfig
  *   board_view_created / board_view_updated / board_view_deleted → invalidate boardViews
  *   project_created / project_updated / project_deleted → invalidate project + projects
@@ -394,8 +395,7 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
           });
         } else {
           void queryClient.invalidateQueries({
-            predicate: (q) =>
-              q.queryKey[0] === 'sprint' && q.queryKey[2] === 'burndown',
+            predicate: (q) => q.queryKey[0] === 'sprint' && q.queryKey[2] === 'burndown',
           });
         }
       }
@@ -427,6 +427,19 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         event_type === 'member_removed'
       ) {
         void queryClient.invalidateQueries({ queryKey: ['members', projectIdRef.current] });
+      }
+
+      // --- Team facet / role events (ADR-0078) ---
+      // A peer flipping a Scrum Master / Product Owner facet or a team role on
+      // the Project Settings → Team tab broadcasts team_member_changed. A facet
+      // reassign is a soft-singleton, so the prior holder's row changed too; the
+      // payload carries team_id (not project_id), so invalidate that team's
+      // whole roster and let a second admin viewing the same tab see it live.
+      else if (event_type === 'team_member_changed') {
+        const teamId = payload?.team_id;
+        if (typeof teamId === 'string') {
+          void queryClient.invalidateQueries({ queryKey: ['team-members', teamId] });
+        }
       }
 
       // --- Board config and saved-view events ---
