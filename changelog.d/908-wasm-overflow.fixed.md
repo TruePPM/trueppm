@@ -1,0 +1,1 @@
+The Rust/WASM scheduler no longer panics (trapping the module) on a task whose start date is near the calendar's representable maximum combined with a large dependency lag — date arithmetic in the forward, backward, and free-float passes is now overflow-checked and surfaced as a clean error.

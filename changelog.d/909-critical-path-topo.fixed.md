@@ -1,0 +1,1 @@
+The critical path is now returned in a guaranteed topological order — a predecessor always precedes its successor — even when two critical tasks share an early start (e.g. a start-to-start link). Both the Python and Rust/WASM engines order it identically.
