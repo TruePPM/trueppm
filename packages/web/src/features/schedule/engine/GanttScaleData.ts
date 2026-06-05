@@ -403,6 +403,32 @@ export function dateToLeft(isoDate: string, scales: GanttScaleData): number {
   return ms * scales.pxPerMs;
 }
 
+/** Milliseconds in one calendar day. */
+const MS_PER_DAY = 86_400_000;
+
+/**
+ * Convert an INCLUSIVE finish date to the canvas x-coordinate of a bar's RIGHT
+ * edge.
+ *
+ * The scheduler's `early_finish` is inclusive — it is the last working day the
+ * task is being worked, not the morning after. A 2-day task starting Jun 7 has
+ * `finish = Jun 8` because it occupies all of BOTH Jun 7 and Jun 8 (scheduler
+ * `engine.py::_finish_from_start`: "a duration of 1 means the task occupies only
+ * the start day"). A bar must therefore paint through the END of the finish day
+ * — one full day past `dateToLeft(finish)` — or it renders one day short and a
+ * 2-day task collapses to a single column (#950).
+ *
+ * This is the exclusive right edge the resize/duration math already assumes
+ * (`useScheduleCommit`: `duration = round((right − start) / day)`), so it is the
+ * canonical right-edge utility for every non-milestone bar. Milestones
+ * (start == finish, drawn as a diamond) never use it.
+ *
+ * DST-safe: pure UTC-ms arithmetic on the same basis as {@link dateToLeft}.
+ */
+export function dateToRight(finishIso: string, scales: GanttScaleData): number {
+  return dateToLeft(finishIso, scales) + MS_PER_DAY * scales.pxPerMs;
+}
+
 /**
  * Convert a canvas x-coordinate to a UTC Date.
  *

@@ -39,13 +39,16 @@ const taskB = makeTask('b', '2026-04-14', '2026-04-21'); // row 1
 
 // Precompute expected bar positions for taskA (row 0)
 const barLeftA = scales.pxPerMs * (new Date('2026-04-07T00:00:00Z').getTime() - scales.start.getTime());
-const barRightA = scales.pxPerMs * (new Date('2026-04-14T00:00:00Z').getTime() - scales.start.getTime());
+// finish (Apr 14) is inclusive — the bar's right edge is the EXCLUSIVE end of
+// that day = Apr 15 (#950). Hit zones track this edge, not dateToLeft(finish).
+const barRightA = scales.pxPerMs * (new Date('2026-04-15T00:00:00Z').getTime() - scales.start.getTime());
 const barTopA = HEADER_HEIGHT + BAR_TOP_OFFSET;  // row 0: 0 * ROW_HEIGHT + HEADER_HEIGHT + BAR_TOP_OFFSET
 const barBottomA = barTopA + BAR_HEIGHT;
 
 // taskB (row 1)
 const barLeftB = scales.pxPerMs * (new Date('2026-04-14T00:00:00Z').getTime() - scales.start.getTime());
-const barRightB = scales.pxPerMs * (new Date('2026-04-21T00:00:00Z').getTime() - scales.start.getTime());
+// finish (Apr 21) inclusive → exclusive right edge Apr 22 (#950).
+const barRightB = scales.pxPerMs * (new Date('2026-04-22T00:00:00Z').getTime() - scales.start.getTime());
 const barTopB = HEADER_HEIGHT + ROW_HEIGHT + BAR_TOP_OFFSET; // row 1: 1 * ROW_HEIGHT + HEADER_HEIGHT + BAR_TOP_OFFSET
 
 // ---------------------------------------------------------------------------

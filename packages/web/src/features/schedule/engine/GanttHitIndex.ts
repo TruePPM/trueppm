@@ -13,7 +13,7 @@
 
 import type { Task } from '@/types';
 import type { GanttScaleData } from './GanttScaleData';
-import { dateToLeft } from './GanttScaleData';
+import { dateToLeft, dateToRight } from './GanttScaleData';
 import { HEADER_HEIGHT } from '../scheduleConstants';
 
 // ---------------------------------------------------------------------------
@@ -147,7 +147,9 @@ export function buildHitIndex(tasks: Task[], scales: GanttScaleData): HitIndex {
     // Skip unscheduled tasks — no valid bar position
     if (!task.start || !task.finish) continue;
     const barLeft = dateToLeft(task.start, scales);
-    const barRight = dateToLeft(task.finish, scales);
+    // finish is inclusive — hit zones must track the true (exclusive) edge so the
+    // resize handle and link-dot sit on the visible bar edge, not a day early (#950).
+    const barRight = dateToRight(task.finish, scales);
     const barTop = i * ROW_HEIGHT + HEADER_HEIGHT + BAR_TOP_OFFSET;
     const barBottom = barTop + BAR_HEIGHT;
     const rowTop = i * ROW_HEIGHT + HEADER_HEIGHT;

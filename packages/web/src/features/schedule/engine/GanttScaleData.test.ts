@@ -4,6 +4,7 @@ import {
   buildScaleDataFromPxPerDay,
   clampPxPerDay,
   dateToLeft,
+  dateToRight,
   deriveTier,
   fiscalQuarter,
   fiscalQuarterKey,
@@ -133,6 +134,37 @@ describe('dateToLeft', () => {
     const leftRef = dateToLeft(refDate.toISOString(), scales);
     const leftFar = dateToLeft(farDate.toISOString(), scales);
     expect(leftFar).toBeCloseTo(leftRef * 2, 5);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// dateToRight (#950 — inclusive finish → exclusive right edge)
+// ---------------------------------------------------------------------------
+
+describe('dateToRight', () => {
+  const scales = buildScaleData('day', '2026-04-01', '2026-05-01');
+
+  it('is exactly one day of pixels past dateToLeft(finish)', () => {
+    const oneDayPx = 86_400_000 * scales.pxPerMs;
+    const finish = '2026-04-14';
+    expect(dateToRight(finish, scales)).toBeCloseTo(dateToLeft(finish, scales) + oneDayPx, 5);
+  });
+
+  it('makes a 2-day task (start Jun 7, inclusive finish Jun 8) paint a 2-day-wide bar', () => {
+    // The exact regression from #950: a 2-day task whose finish is the SECOND
+    // (and last) working day must span two full day-columns, not one.
+    const s = buildScaleData('day', '2026-06-01', '2026-06-30');
+    const barLeft = dateToLeft('2026-06-07', s);
+    const barRight = dateToRight('2026-06-08', s);
+    const oneDayPx = 86_400_000 * s.pxPerMs;
+    expect(barRight - barLeft).toBeCloseTo(2 * oneDayPx, 5);
+  });
+
+  it('makes a 1-day task span exactly one day-column (start == finish)', () => {
+    const s = buildScaleData('day', '2026-06-01', '2026-06-30');
+    const oneDayPx = 86_400_000 * s.pxPerMs;
+    const width = dateToRight('2026-06-07', s) - dateToLeft('2026-06-07', s);
+    expect(width).toBeCloseTo(oneDayPx, 5);
   });
 });
 

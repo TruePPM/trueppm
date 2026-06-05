@@ -23,7 +23,7 @@ import {
 } from 'react';
 import type { Task } from '@/types';
 import type { GanttEngine } from './engine';
-import { dateToLeft } from './engine';
+import { dateToLeft, dateToRight } from './engine';
 import { ROW_HEIGHT, BAR_TOP_OFFSET, BAR_HEIGHT } from './engine/GanttHitIndex';
 import { HEADER_HEIGHT } from './scheduleConstants';
 
@@ -176,7 +176,12 @@ export function ScheduleAriaOverlay({ engine, tasks, containerRef }: ScheduleAri
         let barWidth = 0;
         if (scales) {
           barLeft = dateToLeft(task.start, scales) - (engine?.scrollLeft ?? 0);
-          const barRight = dateToLeft(task.finish, scales) - (engine?.scrollLeft ?? 0);
+          // finish is inclusive — match the canvas bar's true (exclusive) right
+          // edge so the focus ring frames the whole bar (#950). Milestones
+          // (start == finish, drawn as a diamond) keep their narrow ring.
+          const barRight = task.isMilestone
+            ? dateToLeft(task.finish, scales) - (engine?.scrollLeft ?? 0)
+            : dateToRight(task.finish, scales) - (engine?.scrollLeft ?? 0);
           barWidth = Math.max(2, barRight - barLeft);
         }
 

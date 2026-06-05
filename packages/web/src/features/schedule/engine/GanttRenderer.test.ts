@@ -14,7 +14,7 @@ import {
   MERGE_DOT_RADIUS,
   COLOR,
 } from './GanttRenderer';
-import { buildScaleData, dateToLeft } from './GanttScaleData';
+import { buildScaleData, dateToLeft, dateToRight } from './GanttScaleData';
 import { HEADER_HEIGHT } from '../scheduleConstants';
 import type { Task } from '@/types';
 
@@ -88,7 +88,8 @@ describe('drawSummaryBar — diamond end-caps (#71)', () => {
     for (const r of rotates) expect(r.args[0]).toBeCloseTo(Math.PI / 4);
 
     const expectedLeft = dateToLeft(SUMMARY_TASK.start, scales);
-    const expectedRight = dateToLeft(SUMMARY_TASK.finish, scales);
+    // finish is inclusive — the right endcap sits at the exclusive bar edge (#950).
+    const expectedRight = dateToRight(SUMMARY_TASK.finish, scales);
     const xs = translates.map((t) => t.args[0] as number).sort((a, b) => a - b);
     expect(xs[0]).toBeCloseTo(expectedLeft);
     expect(xs[1]).toBeCloseTo(expectedRight);
@@ -365,6 +366,25 @@ describe('drawTaskBar — % chip and outside name (#212)', () => {
     // The bar itself is also a roundRect — we just check at least two roundRects exist
     const roundRects = calls.filter((c) => c.name === 'roundRect');
     expect(roundRects.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('paints a 2-day-wide bar for a 2-day task (inclusive finish, #950)', () => {
+    // Regression for #950: a 2-day task (start Jun 7, inclusive finish Jun 8)
+    // must span TWO day-columns. The bar body is the first roundRect call;
+    // its width arg (args[2]) must equal two full days of pixels, not one.
+    const dayScales = buildScaleData('day', '2026-06-01', '2026-06-30');
+    const { ctx, calls } = makeCtxSpy();
+    const task = makeBarTask({
+      start: '2026-06-07',
+      plannedStart: '2026-06-07',
+      finish: '2026-06-08',
+      duration: 2,
+    });
+    drawTaskBar(ctx, task, 0, dayScales, 0, false, VIEWPORT_W);
+    const barBody = calls.find((c) => c.name === 'roundRect');
+    expect(barBody).toBeDefined();
+    const oneDayPx = 86_400_000 * dayScales.pxPerMs;
+    expect(barBody!.args[2] as number).toBeCloseTo(2 * oneDayPx, 1);
   });
 
   it('does not clip the task name inside bar bounds (name is outside)', () => {
@@ -825,8 +845,10 @@ describe('drawDependencyArrows — summary tasks are anchorable without plannedS
     const { ctx, calls } = makeArrowCtxSpy();
     drawDependencyArrows(ctx, tasks, links, scales, 0, 0);
 
-    // Rightmost predecessor 'b' ends Apr 12 → maxExitX = dateToLeft(Apr 12) + EXIT_STUB (5).
-    const maxExitX = dateToLeft('2026-04-12', scales) + 5;
+    // Rightmost predecessor 'b' has inclusive finish Apr 12 → its bar's right
+    // edge is the EXCLUSIVE end of that day = dateToRight(Apr 12) (#950), so the
+    // exit stub leaves from there: maxExitX = dateToRight(Apr 12) + EXIT_STUB (5).
+    const maxExitX = dateToRight('2026-04-12', scales) + 5;
     const arcs = calls.filter((c) => c.name === 'arc');
     expect(arcs[arcs.length - 1].args[0]).toBeCloseTo(maxExitX);
   });
