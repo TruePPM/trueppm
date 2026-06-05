@@ -13,6 +13,11 @@ from trueppm_api.apps.projects.ceremony_views import (
     ProjectGuardrailPolicyView,
 )
 from trueppm_api.apps.projects.program_views import ProgramViewSet
+from trueppm_api.apps.projects.signal_privacy_views import (
+    SignalPrivacyPolicyView,
+    SignalPrivacyRaiseCeilingView,
+    SignalPrivacyRatchetDownView,
+)
 from trueppm_api.apps.projects.views import (
     AcceptanceCriterionViewSet,
     ApiTokenAuditView,
@@ -231,6 +236,22 @@ urlpatterns = [
         "projects/<project_pk>/guardrail-policy/",
         ProjectGuardrailPolicyView.as_view(),
         name="project-guardrail-policy",
+    ),
+    # Team-signal privacy policy — singleton per project (ADR-0104).
+    path(
+        "projects/<project_pk>/signal-privacy/",
+        SignalPrivacyPolicyView.as_view(),
+        name="project-signal-privacy",
+    ),
+    path(
+        "projects/<project_pk>/signal-privacy/raise_ceiling/",
+        SignalPrivacyRaiseCeilingView.as_view(),
+        name="project-signal-privacy-raise-ceiling",
+    ),
+    path(
+        "projects/<project_pk>/signal-privacy/ratchet_down/",
+        SignalPrivacyRatchetDownView.as_view(),
+        name="project-signal-privacy-ratchet-down",
     ),
     # Sprint endpoints (ADR-0037)
     path(

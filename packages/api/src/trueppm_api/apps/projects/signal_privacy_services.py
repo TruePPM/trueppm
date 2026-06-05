@@ -23,6 +23,7 @@ implemented here. Flagged for confirmation at MR review.)
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from rest_framework.exceptions import ValidationError
@@ -44,6 +45,73 @@ if TYPE_CHECKING:
 
 # The signal keys this policy governs — the iteration set for ratchet / sharing.
 SIGNAL_KEYS = tuple(SIGNAL_DEFAULTS.keys())
+
+
+# ---------------------------------------------------------------------------
+# Default-posture seam — neutral OSS extension point (ADR-0029 slot; ADR-0104 §1)
+# ---------------------------------------------------------------------------
+#
+# When a project's policy is first created, its initial signal_visibility is
+# seeded from a registered provider. The OSS core registers NO provider, so the
+# community edition always falls back to the coded SIGNAL_DEFAULTS (all-TEAM,
+# unchanged behavior). trueppm-enterprise registers a provider in its
+# AppConfig.ready() to supply an org-governance default posture (which may open
+# signals) — see trueppm-enterprise#143. This is the integrations-registry idiom
+# (ADR-0049): OSS ships the neutral hook, Enterprise supplies the value; OSS never
+# imports enterprise. The seam runs ONLY at creation, so it can never reach down
+# and reopen a team's already-set ceiling (the G1 team-override guarantee holds
+# structurally — there is no override to clobber at create time).
+_DEFAULT_POSTURE_PROVIDER: Callable[[Project], dict[str, dict[str, str]]] | None = None
+
+
+def register_default_posture_provider(
+    provider: Callable[[Project], dict[str, dict[str, str]]] | None,
+) -> None:
+    """Register (or clear) the initial-posture provider. Enterprise calls this."""
+    global _DEFAULT_POSTURE_PROVIDER
+    _DEFAULT_POSTURE_PROVIDER = provider
+
+
+def _seed_initial_visibility(policy: ProjectSignalPrivacyPolicy, project: Project) -> None:
+    """Seed a freshly-created policy from the registered provider, if any.
+
+    Each provided ``{audience, ceiling}`` is clamped to the ladder and to the
+    ``audience <= ceiling`` invariant before it is stored, so a misconfigured
+    provider can never persist an inconsistent posture. No-op (coded defaults) when
+    no provider is registered — the OSS path.
+    """
+    if _DEFAULT_POSTURE_PROVIDER is None:
+        return
+    seed = _DEFAULT_POSTURE_PROVIDER(project) or {}
+    cleaned: dict[str, dict[str, str]] = {}
+    for signal_key, pair in seed.items():
+        if signal_key not in SIGNAL_DEFAULTS or not isinstance(pair, dict):
+            continue
+        default = SIGNAL_DEFAULTS[signal_key]
+        ceiling = pair.get("ceiling", default["ceiling"])
+        audience = pair.get("audience", default["audience"])
+        if ceiling not in SignalAudience.values or audience not in SignalAudience.values:
+            continue
+        # Enforce audience <= ceiling at the seam too (defense in depth).
+        if signal_audience_rank(audience) > signal_audience_rank(ceiling):
+            audience = ceiling
+        cleaned[signal_key] = {"audience": audience, "ceiling": ceiling}
+    if cleaned:
+        policy.signal_visibility = cleaned
+        policy._change_reason = "initial org-default posture"  # type: ignore[attr-defined]
+        policy.save(update_fields=["signal_visibility"])
+
+
+def get_or_create_policy(project: Project) -> ProjectSignalPrivacyPolicy:
+    """Get-or-create a project's privacy policy, seeding new rows via the seam.
+
+    The single entry point every read/write path uses to obtain the policy, so the
+    default-posture seam runs exactly once (at creation) and nowhere else.
+    """
+    policy, created = ProjectSignalPrivacyPolicy.objects.get_or_create(project=project)
+    if created:
+        _seed_initial_visibility(policy, project)
+    return policy
 
 
 # ---------------------------------------------------------------------------
@@ -92,6 +160,34 @@ def can_read_signal(request: Request, project_id: Any, signal_key: str) -> bool:
     """Convenience: resolve the requester's tier and apply the gate in one call."""
     policy, _ = ProjectSignalPrivacyPolicy.objects.get_or_create(project_id=project_id)
     return audience_can_read(policy, signal_key, requester_signal_tier(request, project_id))
+
+
+# Velocity_summary fields that are team-private detail (the series + the
+# point-based rolling/forecast numbers). Suppressed for a below-tier reader; the
+# task-count rollups and the keys themselves are retained so existing clients keep
+# a stable shape (ADR-0104 §2.1 — suppress, don't 403).
+_VELOCITY_GATED_FIELDS = (
+    "rolling_avg_points",
+    "rolling_stdev_points",
+    "forecast_range_low",
+    "forecast_range_high",
+    "team_velocity_per_day",
+)
+
+
+def suppress_velocity_summary(summary: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of a velocity_summary with the team-private detail stripped.
+
+    Empties the per-sprint ``sprints`` series, nulls the point-based rolling/forecast
+    numbers, and sets ``velocity_suppressed=True`` so the client can render the
+    gated empty-state. The milestone-health % and schedule confidence (computed
+    elsewhere) are never touched.
+    """
+    redacted = {**summary, "sprints": [], "velocity_suppressed": True}
+    for field in _VELOCITY_GATED_FIELDS:
+        if field in redacted:
+            redacted[field] = None
+    return redacted
 
 
 # ---------------------------------------------------------------------------
@@ -264,7 +360,7 @@ def get_shared_team_signals(project: Project) -> dict[str, str] | None:
     excluded from the aggregate, never inferred as a zero (ADR-0104 §3, Alternative
     D rejected). Pure read; no side effects.
     """
-    policy, _ = ProjectSignalPrivacyPolicy.objects.get_or_create(project=project)
+    policy = get_or_create_policy(project)
     shared = {
         signal_key: policy.audience_of(signal_key)
         for signal_key in SIGNAL_KEYS

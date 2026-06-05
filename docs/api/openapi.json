@@ -9959,6 +9959,199 @@
                 }
             }
         },
+        "/api/v1/projects/{project_pk}/signal-privacy/": {
+            "get": {
+                "operationId": "v1_projects_signal_privacy_retrieve",
+                "description": "GET the posture; PATCH one signal's audience (within its ceiling).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SignalPrivacyPolicy"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "v1_projects_signal_privacy_partial_update",
+                "description": "GET the posture; PATCH one signal's audience (within its ceiling).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedSetAudienceRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedSetAudienceRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedSetAudienceRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SignalPrivacyPolicy"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{project_pk}/signal-privacy/raise_ceiling/": {
+            "post": {
+                "operationId": "v1_projects_signal_privacy_raise_ceiling_create",
+                "description": "POST — raise (or lower) one signal's team-authorized ceiling.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/RaiseCeilingRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/RaiseCeilingRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/RaiseCeilingRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SignalPrivacyPolicy"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{project_pk}/signal-privacy/ratchet_down/": {
+            "post": {
+                "operationId": "v1_projects_signal_privacy_ratchet_down_create",
+                "description": "POST — set every signal's audience to TEAM in one call (the SM panic button).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SignalPrivacyPolicy"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{project_pk}/sprints/": {
             "get": {
                 "operationId": "v1_projects_sprints_list",
@@ -21081,6 +21274,18 @@
                     }
                 }
             },
+            "PatchedSetAudienceRequest": {
+                "type": "object",
+                "description": "PATCH body — move one signal's audience within [TEAM, ceiling].",
+                "properties": {
+                    "signal": {
+                        "$ref": "#/components/schemas/SignalEnum"
+                    },
+                    "audience": {
+                        "$ref": "#/components/schemas/SignalAudienceEnum"
+                    }
+                }
+            },
             "PatchedSkillRequest": {
                 "type": "object",
                 "description": "Read/write serializer for the org-level skill catalog.\n\nNormalises name to lower-case + stripped on write to prevent duplicate\nentries (\"React\" vs \"react\"). Returns the existing row (not a 201) when\nthe normalized_name already exists — callers should handle 200 vs 201.",
@@ -22773,6 +22978,22 @@
                 "type": "string",
                 "description": "* `scheduled` - Scheduled\n* `manual` - Manual\n* `dry_run` - Dry run"
             },
+            "RaiseCeilingRequest": {
+                "type": "object",
+                "description": "POST body — set one signal's ceiling (the team-owned authorization).",
+                "properties": {
+                    "signal": {
+                        "$ref": "#/components/schemas/SignalEnum"
+                    },
+                    "ceiling": {
+                        "$ref": "#/components/schemas/SignalAudienceEnum"
+                    }
+                },
+                "required": [
+                    "ceiling",
+                    "signal"
+                ]
+            },
             "RecurrenceFrequencyEnum": {
                 "enum": [
                     "DAILY",
@@ -23583,6 +23804,60 @@
                 ],
                 "type": "string",
                 "description": "* `project_visible` - Project visible\n* `team_only` - Team only\n* `private` - Private"
+            },
+            "SignalAudienceEnum": {
+                "enum": [
+                    "team",
+                    "team_sm",
+                    "team_sm_pm",
+                    "program_shared"
+                ],
+                "type": "string",
+                "description": "* `team` - Team only\n* `team_sm` - Team + Scrum Master\n* `team_sm_pm` - Team + SM + PM\n* `program_shared` - Shared to program rollup (opt-in)"
+            },
+            "SignalEnum": {
+                "enum": [
+                    "velocity",
+                    "throughput_rollup",
+                    "pulse"
+                ],
+                "type": "string",
+                "description": "* `velocity` - velocity\n* `throughput_rollup` - throughput_rollup\n* `pulse` - pulse"
+            },
+            "SignalPrivacyPolicy": {
+                "type": "object",
+                "description": "Read shape: the resolved per-signal posture + what the requester may do.",
+                "properties": {
+                    "signals": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "$ref": "#/components/schemas/_SignalPair"
+                        }
+                    },
+                    "requester_tier": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/SignalAudienceEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "can_set_audience": {
+                        "type": "boolean"
+                    },
+                    "can_raise_ceiling": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "can_raise_ceiling",
+                    "can_set_audience",
+                    "requester_tier",
+                    "signals"
+                ]
             },
             "Skill": {
                 "type": "object",
@@ -26116,6 +26391,21 @@
                     "display_name",
                     "id",
                     "username"
+                ]
+            },
+            "_SignalPair": {
+                "type": "object",
+                "properties": {
+                    "audience": {
+                        "$ref": "#/components/schemas/SignalAudienceEnum"
+                    },
+                    "ceiling": {
+                        "$ref": "#/components/schemas/SignalAudienceEnum"
+                    }
+                },
+                "required": [
+                    "audience",
+                    "ceiling"
                 ]
             },
             "_TeamUserSummary": {
