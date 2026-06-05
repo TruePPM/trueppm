@@ -82,7 +82,8 @@ test.describe('Signal privacy — golden path', () => {
         patchBody = r.request().postDataJSON();
         return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(policy()) });
       }
-      return r.continue();
+      // GET falls back to the setup handler (don't hit the network).
+      return r.fallback();
     });
     await page.goto(`/projects/${PROJECT_ID}/settings/signal-privacy`);
     // throughput's ceiling is program_shared, so its SM rung is unlocked.
@@ -101,9 +102,11 @@ test.describe('Signal privacy — golden path', () => {
     await page.goto(`/projects/${PROJECT_ID}/settings/signal-privacy`);
     const velocityRow = page.getByRole('radiogroup', { name: 'Velocity audience' }).locator('xpath=ancestor::li');
     await velocityRow.getByRole('button', { name: /Raise ceiling/ }).click();
-    await expect(page.getByRole('alertdialog')).toBeVisible();
+    const dialog = page.getByRole('alertdialog');
+    await expect(dialog).toBeVisible();
     expect(raiseDispatched).toBe(false);
-    await page.getByRole('button', { name: 'Raise ceiling' }).click();
+    // Scope to the dialog — the ladder's "↑ Raise ceiling…" also matches the name.
+    await dialog.getByRole('button', { name: 'Raise ceiling' }).click();
     await expect.poll(() => raiseDispatched).toBe(true);
   });
 });

@@ -157,9 +157,23 @@ def audience_can_read(
 
 
 def can_read_signal(request: Request, project_id: Any, signal_key: str) -> bool:
-    """Convenience: resolve the requester's tier and apply the gate in one call."""
-    policy, _ = ProjectSignalPrivacyPolicy.objects.get_or_create(project_id=project_id)
-    return audience_can_read(policy, signal_key, requester_signal_tier(request, project_id))
+    """Convenience: resolve the requester's tier and apply the gate in one call.
+
+    Read-only: a read path must never *create* a policy (that would be a write on a
+    GET, and would run the default-posture seam off a read request). When no policy
+    row exists yet the signal resolves to its coded default audience (TEAM), which
+    is exactly what an unseeded ``get_or_create`` would have produced.
+    """
+    tier = requester_signal_tier(request, project_id)
+    if tier is None:
+        return False
+    policy = ProjectSignalPrivacyPolicy.objects.filter(project_id=project_id).first()
+    audience = (
+        policy.audience_of(signal_key)
+        if policy is not None
+        else SIGNAL_DEFAULTS.get(signal_key, {"audience": SignalAudience.TEAM})["audience"]
+    )
+    return signal_audience_rank(tier) >= signal_audience_rank(audience)
 
 
 # Velocity_summary fields that are team-private detail (the series + the
