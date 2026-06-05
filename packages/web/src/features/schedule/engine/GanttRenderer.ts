@@ -22,6 +22,7 @@ import {
   CALENDAR_QUARTERS,
   ZOOM_CONFIGS,
   dateToLeft,
+  dateToRight,
   fiscalQuarterKey,
   fiscalQuarterLabel,
   fiscalYearKey,
@@ -588,7 +589,8 @@ export function drawTaskBar(
   // as a commitment.
   if (!task.plannedStart && !task.sprintId) return;
   const barLeft = dateToLeft(task.start, scales) - scrollLeft;
-  const barRight = dateToLeft(task.finish, scales) - scrollLeft;
+  // finish is inclusive — paint through the end of the finish day (#950).
+  const barRight = dateToRight(task.finish, scales) - scrollLeft;
   const barWidth = Math.max(2, barRight - barLeft);
   const barTop = rowIndex * ROW_HEIGHT + HEADER_HEIGHT + BAR_TOP_OFFSET;
 
@@ -671,7 +673,8 @@ export function drawTaskBarLabel(
   if (!task.start || !task.finish) return;
   if (!task.plannedStart && !task.sprintId) return;
   const barLeft = dateToLeft(task.start, scales) - scrollLeft;
-  const barRight = dateToLeft(task.finish, scales) - scrollLeft;
+  // finish is inclusive — the label hugs the true (exclusive) bar edge (#950).
+  const barRight = dateToRight(task.finish, scales) - scrollLeft;
   const barTop = rowIndex * ROW_HEIGHT + HEADER_HEIGHT + BAR_TOP_OFFSET;
 
   ctx.save();
@@ -728,7 +731,8 @@ export function drawActualDateBar(
   const drawEnd = task.actualFinish ?? task.finish;
 
   const left = dateToLeft(drawStart, scales) - scrollLeft;
-  const right = dateToLeft(drawEnd, scales) - scrollLeft;
+  // actual/early finish are inclusive — span through the end of that day (#950).
+  const right = dateToRight(drawEnd, scales) - scrollLeft;
   const width = Math.max(2, right - left);
 
   // Position: bottom of the planned bar (barTop + BAR_HEIGHT + 1px gap)
@@ -780,7 +784,8 @@ export function drawScheduleVarianceBadge(
   const variance = task.scheduleVarianceDays;
   if (variance === null || variance === undefined || variance === 0) return;
 
-  const barRight = dateToLeft(task.finish, scales) - scrollLeft;
+  // finish is inclusive — anchor the badge at the true (exclusive) edge (#950).
+  const barRight = dateToRight(task.finish, scales) - scrollLeft;
   if (barRight < 0 || barRight > viewportWidth) return;
 
   const barTop = rowIndex * ROW_HEIGHT + HEADER_HEIGHT + BAR_TOP_OFFSET;
@@ -820,7 +825,8 @@ export function drawSummaryBar(
   // `!task.start || !task.finish` guard above already covers the "no
   // children scheduled yet, rollup empty" case.
   const barLeft = dateToLeft(task.start, scales) - scrollLeft;
-  const barRight = dateToLeft(task.finish, scales) - scrollLeft;
+  // Rollup finish is inclusive — span through the end of the finish day (#950).
+  const barRight = dateToRight(task.finish, scales) - scrollLeft;
   const barWidth = Math.max(2, barRight - barLeft);
   const rowCenterY = rowIndex * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2;
   const barTop = rowCenterY - SUMMARY_BAR_HEIGHT / 2;
@@ -1361,7 +1367,8 @@ export function drawDependencyArrows(
     if (!t.start || !t.finish) continue;
     if (!t.isSummary && !t.plannedStart && !t.sprintId) continue;
     const cx = dateToLeft(t.start, scales) - scrollLeft;
-    const rectRight = dateToLeft(t.finish, scales) - scrollLeft;
+    // finish is inclusive — arrows attach at the true (exclusive) bar edge (#950).
+    const rectRight = dateToRight(t.finish, scales) - scrollLeft;
     let anchorLeft: number, anchorRight: number;
     if (t.isMilestone) {
       anchorLeft  = cx - milestoneHalfDiag;
@@ -1398,7 +1405,8 @@ export function drawDependencyArrows(
     if (!t.start || !t.finish) continue;
     const cx = dateToLeft(t.start, scales) - scrollLeft;
     const rectLeft  = t.isMilestone ? cx - milestoneHalfDiag : cx;
-    const rectRight = t.isMilestone ? cx + milestoneHalfDiag : dateToLeft(t.finish, scales) - scrollLeft;
+    // Non-milestone finish is inclusive — obstacle box ends at the true edge (#950).
+    const rectRight = t.isMilestone ? cx + milestoneHalfDiag : dateToRight(t.finish, scales) - scrollLeft;
     const rowCenterY = i * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2 - scrollTop;
     let boxLeft: number, boxRight: number, halfH: number;
     if (t.isMilestone) {

@@ -29,6 +29,7 @@ export {
   headerTierForPxPerDay,
   headerUnitsForPxPerDay,
   dateToLeft,
+  dateToRight,
   leftToDate,
   parseUTCDate,
 } from './GanttScaleData';
