@@ -3405,3 +3405,86 @@ class BacklogItem(VersionedModel):
 
     def __str__(self) -> str:
         return f"BacklogItem({self.program_id}, {self.title!r}, {self.status})"
+
+
+# ---------------------------------------------------------------------------
+# Forecast snapshot — the agile/waterfall bridge reforecast-on-close (ADR-0106 §5)
+# ---------------------------------------------------------------------------
+
+
+class ForecastBasis(models.TextChoices):
+    """Which engine produced a ``ForecastSnapshot`` range (ADR-0106 §5).
+
+    ``VELOCITY_BAND`` is the coarse fallback (avg ± 1σ re-paced to calendar days);
+    ``MONTE_CARLO`` is the agile-aware simulation (#411). The on-close reforecast
+    records the path it actually took so the UI can label the confidence honestly.
+    """
+
+    MONTE_CARLO = "monte_carlo", "Monte Carlo"
+    VELOCITY_BAND = "velocity_band", "Velocity band"
+
+
+class ForecastConfidence(models.TextChoices):
+    """Coarse confidence band emitted upward with a milestone forecast (ADR-0106 §5).
+
+    A *band*, never the raw velocity series — this is the only throughput-derived
+    signal the privacy model lets cross the team boundary (§3/§6).
+    """
+
+    HIGH = "high", "High"
+    MEDIUM = "medium", "Medium"
+    LOW = "low", "Low"
+
+
+class ForecastSnapshot(models.Model):
+    """One persisted milestone reforecast (ADR-0106 §5 / #860 / #388).
+
+    Written per reforecast-on-close and per explicit refresh; the forecast read
+    returns the latest row per milestone. A plain ``models.Model`` (not a
+    ``VersionedModel``) — display/forecast metadata, consistent with
+    ``SprintBurnSnapshot`` / ``SprintScopeChange``; not on the mobile sync surface.
+
+    **Velocity-privacy guarantee at rest (§3/§D):** stores only the derived
+    ``velocity_low``/``velocity_high`` *band*, never the per-sprint
+    ``completed_points`` series. The band — not the throughput — is the only
+    thing that crosses upward, at the broadcast, the signal, and here at rest.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(
+        Project, on_delete=models.CASCADE, related_name="forecast_snapshots"
+    )
+    # SET_NULL (not CASCADE): a deleted milestone leaves its forecast history
+    # readable for the demo narrative ("P50 moved across the last K sprints").
+    milestone = models.ForeignKey(
+        Task,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="forecast_snapshots",
+    )
+    taken_at = models.DateTimeField(auto_now_add=True)
+    basis = models.CharField(max_length=20, choices=ForecastBasis.choices)
+    # The deterministic CPM spine (the milestone's early_finish at reforecast
+    # time); p50/p80 are anchored on it. Nullable: a milestone with no CPM pass
+    # yet has no finish to anchor.
+    cpm_finish = models.DateField(null=True, blank=True)
+    p50 = models.DateField(null=True, blank=True)
+    p80 = models.DateField(null=True, blank=True)
+    # The band, NEVER the series (§3 privacy). Null below the 2-closed-sprint floor.
+    velocity_low = models.PositiveIntegerField(null=True, blank=True)
+    velocity_high = models.PositiveIntegerField(null=True, blank=True)
+    confidence = models.CharField(max_length=10, choices=ForecastConfidence.choices)
+    unmodeled_dependency = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "projects_forecastsnapshot"
+        ordering = ["-taken_at"]
+        indexes = [
+            # Latest-per-milestone read (the forecast endpoint + nightly purge).
+            models.Index(fields=["milestone", "-taken_at"], name="forecast_milestone_recent_idx"),
+            models.Index(fields=["project", "-taken_at"], name="forecast_project_recent_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"ForecastSnapshot({self.milestone_id} @ {self.taken_at:%Y-%m-%d} {self.basis})"

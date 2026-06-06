@@ -5919,6 +5919,45 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/forecast/": {
+            "get": {
+                "operationId": "v1_projects_forecast_retrieve",
+                "description": "``GET /api/v1/projects/<pk>/forecast/`` — the bridge forecast read (ADR-0106 §5).\n\nReturns the velocity range + per-sprint series, the remaining committed\nbacklog re-paced into a sprints-to-complete range, and the latest\n``ForecastSnapshot`` per bound milestone (cpm_finish + p50/p80 + confidence\nband). Any project member (matching ``ProjectVelocityView``); the\nprivacy-sensitive direction is upward (cross-team aggregation, Enterprise),\nnever downward to the team. The ``velocity`` payload is byte-identical to the\nexisting ``/velocity/`` read for the same VIEWER+ audience — the velocity\nprivacy gate (ADR-0104 / #553, not yet merged) will, when it lands, suppress\nthe per-sprint series for below-tier readers at the shared ``velocity_summary``\nsink so both endpoints inherit it.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProjectForecast"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/integrations-summary/": {
             "get": {
                 "operationId": "v1_projects_integrations_summary_retrieve",
@@ -18650,6 +18689,112 @@
                 "type": "string",
                 "description": "* `TEXT` - Text\n* `NUMBER` - Number\n* `DATE` - Date\n* `SINGLE_SELECT` - Single-select\n* `MULTI_SELECT` - Multi-select\n* `USER` - Person\n* `BOOLEAN` - Boolean"
             },
+            "ForecastBasisEnum": {
+                "enum": [
+                    "monte_carlo",
+                    "velocity_band"
+                ],
+                "type": "string",
+                "description": "* `monte_carlo` - Monte Carlo\n* `velocity_band` - Velocity band"
+            },
+            "ForecastConfidenceEnum": {
+                "enum": [
+                    "high",
+                    "medium",
+                    "low"
+                ],
+                "type": "string",
+                "description": "* `high` - High\n* `medium` - Medium\n* `low` - Low"
+            },
+            "ForecastSnapshot": {
+                "type": "object",
+                "description": "A persisted milestone reforecast row (ADR-0106 §5, #860).\n\nCarries the band + dates only — never the per-sprint velocity series (the\nat-rest half of the velocity-privacy guarantee, §3). ``milestone_name`` is\nsurfaced for the forecast list; the FK is SET_NULL so it may be absent for a\ndeleted milestone's lingering history.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "milestone_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "milestone_name": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "basis": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ForecastBasisEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "cpm_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "p50": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "p80": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "velocity_low": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "velocity_high": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "confidence": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ForecastConfidenceEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "unmodeled_dependency": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "taken_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "basis",
+                    "confidence",
+                    "cpm_finish",
+                    "id",
+                    "milestone_id",
+                    "milestone_name",
+                    "p50",
+                    "p80",
+                    "taken_at",
+                    "unmodeled_dependency",
+                    "velocity_high",
+                    "velocity_low"
+                ]
+            },
             "FrequencyEnum": {
                 "enum": [
                     "daily",
@@ -22183,6 +22328,41 @@
                     "start_date",
                     "start_floor",
                     "unresolved_assignee_count"
+                ]
+            },
+            "ProjectForecast": {
+                "type": "object",
+                "description": "Project forecast read response (ADR-0106 §5, #487/#860).\n\n``velocity`` is the full ``velocity_summary`` payload (avg ± 1σ + the\nper-sprint series — the velocity privacy gate of ADR-0104 / #553, not yet\nmerged, will suppress the series for below-tier readers once it lands).\n``sprints_to_complete_*`` is the remaining committed backlog re-paced by the\nvelocity band into a sprint count range; ``milestones`` is the latest snapshot\nper bound milestone.",
+                "properties": {
+                    "velocity": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    },
+                    "remaining_committed_points": {
+                        "type": "integer"
+                    },
+                    "sprints_to_complete_low": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "sprints_to_complete_high": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "milestones": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ForecastSnapshot"
+                        },
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "milestones",
+                    "remaining_committed_points",
+                    "sprints_to_complete_high",
+                    "sprints_to_complete_low",
+                    "velocity"
                 ]
             },
             "ProjectGuardrailPolicy": {

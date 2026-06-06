@@ -34,6 +34,7 @@ from trueppm_api.apps.projects.views import (
     ProjectAttentionView,
     ProjectBurnView,
     ProjectCustomFieldViewSet,
+    ProjectForecastView,
     ProjectMilestonesView,
     ProjectMyTasksView,
     ProjectOverviewView,
@@ -358,6 +359,13 @@ urlpatterns = [
         "projects/<pk>/velocity/",
         ProjectVelocityView.as_view(),
         name="project-velocity",
+    ),
+    # Bridge forecast read: velocity range + sprints-to-complete + per-milestone
+    # latest ForecastSnapshot (ADR-0106 §5, #487/#860).
+    path(
+        "projects/<pk>/forecast/",
+        ProjectForecastView.as_view(),
+        name="project-forecast",
     ),
     # Slim milestone list for the bind-existing picker (ADR-0106 §E1.3, #928)
     path(

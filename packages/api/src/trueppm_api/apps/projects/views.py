@@ -105,6 +105,7 @@ from trueppm_api.apps.projects.serializers import (
     CommentReactionSerializer,
     CycleDetectedError,
     DependencySerializer,
+    ForecastSnapshotSerializer,
     GuardrailBlockedError,
     InboundTaskSyncPayloadSerializer,
     MeWorkActiveSprintSerializer,
@@ -118,6 +119,7 @@ from trueppm_api.apps.projects.serializers import (
     ProjectApiTokenSerializer,
     ProjectCustomFieldSerializer,
     ProjectDetailSerializer,
+    ProjectForecastSerializer,
     ProjectSerializer,
     ReforecastPreviewSerializer,
     RiskCommentSerializer,
@@ -6596,6 +6598,42 @@ class ProjectVelocityView(APIView):
         project = get_object_or_404(Project, pk=pk, is_deleted=False)
         self.check_object_permissions(request, project)
         return Response(velocity_summary(project.pk), status=status.HTTP_200_OK)
+
+
+class ProjectForecastView(APIView):
+    """``GET /api/v1/projects/<pk>/forecast/`` — the bridge forecast read (ADR-0106 §5).
+
+    Returns the velocity range + per-sprint series, the remaining committed
+    backlog re-paced into a sprints-to-complete range, and the latest
+    ``ForecastSnapshot`` per bound milestone (cpm_finish + p50/p80 + confidence
+    band). Any project member (matching ``ProjectVelocityView``); the
+    privacy-sensitive direction is upward (cross-team aggregation, Enterprise),
+    never downward to the team. The ``velocity`` payload is byte-identical to the
+    existing ``/velocity/`` read for the same VIEWER+ audience — the velocity
+    privacy gate (ADR-0104 / #553, not yet merged) will, when it lands, suppress
+    the per-sprint series for below-tier readers at the shared ``velocity_summary``
+    sink so both endpoints inherit it.
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
+
+    @extend_schema(responses=ProjectForecastSerializer)
+    def get(self, request: Request, pk: str) -> Response:
+        from trueppm_api.apps.projects.services import project_forecast
+
+        project = get_object_or_404(Project, pk=pk, is_deleted=False)
+        self.check_object_permissions(request, project)
+        data = project_forecast(project.pk)
+        return Response(
+            {
+                "velocity": data["velocity"],
+                "remaining_committed_points": data["remaining_committed_points"],
+                "sprints_to_complete_low": data["sprints_to_complete_low"],
+                "sprints_to_complete_high": data["sprints_to_complete_high"],
+                "milestones": ForecastSnapshotSerializer(data["milestones"], many=True).data,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class ProjectMilestonesView(APIView):
