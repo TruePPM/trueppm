@@ -223,23 +223,24 @@ test.describe('Milestone drawer field suppression (#253)', () => {
     await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
   });
 
-  test('MetaRail shows "Date" row (not "Start") for a milestone', async ({ page }) => {
+  test('schedule strip shows "Date" cell (not "Start") for a milestone', async ({ page }) => {
     const drawer = await openDrawer(page, 'Phase Gate');
-    // "Date" group should be present; "Start" group should not
+    // "Date" group should be present; "Start" group should not (#962 strip)
     await expect(drawer.getByRole('group', { name: 'Date' })).toBeVisible();
     await expect(drawer.getByRole('group', { name: 'Start' })).not.toBeVisible();
   });
 
-  test('MetaRail hides "Finish" row for a milestone', async ({ page }) => {
+  test('schedule strip hides "Finish" cell for a milestone', async ({ page }) => {
     const drawer = await openDrawer(page, 'Phase Gate');
     await expect(drawer.getByRole('group', { name: 'Finish' })).not.toBeVisible();
   });
 
-  test('MetaRail shows "— (milestone)" in Duration row', async ({ page }) => {
+  test('schedule strip suppresses the "Duration" cell for a milestone', async ({ page }) => {
+    // A milestone is a single point in time with no span (ADR-0058), so the
+    // redesigned strip drops the Duration cell entirely rather than showing a
+    // placeholder.
     const drawer = await openDrawer(page, 'Phase Gate');
-    const durationGroup = drawer.getByRole('group', { name: 'Duration' });
-    await expect(durationGroup).toBeVisible();
-    await expect(durationGroup).toContainText('— (milestone)');
+    await expect(drawer.getByRole('group', { name: 'Duration' })).not.toBeVisible();
   });
 
   test('Estimates section is absent from the drawer section list for milestones', async ({ page }) => {

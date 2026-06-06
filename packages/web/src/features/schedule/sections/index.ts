@@ -48,6 +48,7 @@ export function registerOssDrawerSections(): void {
     title: 'Overview',
     component: OverviewSection,
     priority: 100,
+    tab: 'details',
   });
 
   registry.register('task_detail.section', {
@@ -55,6 +56,7 @@ export function registerOssDrawerSections(): void {
     title: 'Sprint',
     component: SprintSection,
     priority: 150,
+    tab: 'details',
     // Sprint assignment is not meaningful for summary or milestone tasks.
     canRender: (ctx) => {
       const t = (ctx as { task: Task }).task;
@@ -67,6 +69,7 @@ export function registerOssDrawerSections(): void {
     title: 'Subtasks',
     component: SubtasksSection,
     priority: 300,
+    tab: 'subtasks',
     // Milestones have no subtasks — duration is 0 and breaking them down is meaningless.
     canRender: (ctx) => !(ctx as { task: Task }).task.isMilestone,
   });
@@ -76,6 +79,7 @@ export function registerOssDrawerSections(): void {
     title: 'Dependencies',
     component: DependenciesSection,
     priority: 200,
+    tab: 'details',
   });
 
   registry.register('task_detail.section', {
@@ -83,6 +87,7 @@ export function registerOssDrawerSections(): void {
     title: 'Attachments',
     component: AttachmentSection,
     priority: 400,
+    tab: 'files',
   });
 
   registry.register('task_detail.section', {
@@ -90,6 +95,7 @@ export function registerOssDrawerSections(): void {
     title: 'External links',
     component: ExternalLinksSection,
     priority: 450,
+    tab: 'files',
   });
 
   registry.register('task_detail.section', {
@@ -97,6 +103,7 @@ export function registerOssDrawerSections(): void {
     title: 'Comments',
     component: CommentSection,
     priority: 500,
+    tab: 'activity',
   });
 
   registry.register('task_detail.section', {
@@ -104,6 +111,7 @@ export function registerOssDrawerSections(): void {
     title: 'Activity',
     component: ActivitySection,
     priority: 600,
+    tab: 'activity',
   });
 
   registry.register('task_detail.section', {
@@ -111,6 +119,7 @@ export function registerOssDrawerSections(): void {
     title: 'Recurrence',
     component: RecurrenceSection,
     priority: 700,
+    tab: 'details',
     // Recurrence is meaningless for summary tasks (WBS rollups) and milestones
     // (zero-duration markers) — both mirror SprintSection's gate (ADR-0090).
     canRender: (ctx) => {
@@ -124,9 +133,10 @@ export function registerOssDrawerSections(): void {
     title: 'Estimates',
     component: EstimatesSection,
     priority: 800,
+    tab: 'details',
     // Milestones have no PERT estimates — duration is always 0 and
     // the three-point fields are meaningless (ADR-0058).
-    canRender: (ctx) => !((ctx as { task: Task }).task.isMilestone),
+    canRender: (ctx) => !(ctx as { task: Task }).task.isMilestone,
   });
 
   registry.register('task_detail.section', {
@@ -134,6 +144,7 @@ export function registerOssDrawerSections(): void {
     title: 'History',
     component: HistorySection,
     priority: 900,
+    tab: 'activity',
   });
 
   registry.register('task_detail.section', {
@@ -141,5 +152,6 @@ export function registerOssDrawerSections(): void {
     title: 'Baseline',
     component: BaselineSection,
     priority: 1000,
+    tab: 'activity',
   });
 }

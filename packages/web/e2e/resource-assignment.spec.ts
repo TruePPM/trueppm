@@ -193,7 +193,10 @@ test.describe('TaskDetailDrawer — open and close', () => {
 
   test('clicking a task row opens the task detail drawer', async ({ page }) => {
     const drawer = await openDrawer(page, 'Discovery & Design');
-    await expect(drawer.getByRole('heading', { level: 2 })).toContainText('Discovery & Design');
+    // The redesigned header (#962) renders the task name as an editable input.
+    await expect(drawer.getByRole('textbox', { name: 'Task name' })).toHaveValue(
+      'Discovery & Design',
+    );
   });
 
   test('close button dismisses the drawer', async ({ page }) => {

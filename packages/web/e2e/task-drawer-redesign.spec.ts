@@ -1,16 +1,15 @@
 import { test, expect, type Page } from '@playwright/test';
 
 /**
- * E2E coverage for the redesigned TaskDetailDrawer (issues #306 + #309 / ADR-0050).
+ * E2E coverage for the redesigned TaskDetailDrawer (#962, "Direction B").
  *
- * Replaces the prior tab-based drawer (ADR-0032) with a registry-driven
- * collapsible-section list. Header is sticky; meta rail (status, dates,
- * duration, float, progress) is sticky on the left; sections render in
- * priority order. Overview is open by default; all others start collapsed.
- *
- * Each registered section is wrapped in an error boundary so a buggy section
- * cannot crash the drawer chrome — test coverage for that path lives in the
- * vitest unit at src/features/schedule/sections/SectionErrorBoundary.test.tsx.
+ * The drawer groups the registry-driven sections (ADR-0050) into four tabs —
+ * Details / Subtasks / Activity / Files. Details is active by default and
+ * carries the schedule strip + a deferred-save Description field above its
+ * registered sections. Within a tab the first section is expanded and the rest
+ * start collapsed (ADR-0050 lazy-load, preserved tab-by-tab). The header shows
+ * the WBS pill, readiness/CP chips, and an editable task-name input. A
+ * Settings-style save bar appears while the Description is dirty.
  *
  * All API calls are intercepted with Playwright route mocking.
  */
@@ -154,13 +153,30 @@ async function gotoSchedule(page: Page) {
     }),
   );
   await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/attention/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [] }) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ items: [] }),
+    }),
   );
   await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/my-tasks/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ tasks: [] }) }),
-  );
-  await page.route('**/api/v1/tasks/**', (route) =>
     route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ tasks: [] }),
+    }),
+  );
+  await page.route('**/api/v1/tasks/**', (route) => {
+    // A PATCH (Description / name save) echoes the first task back so the
+    // mutation's success handler has a well-shaped single-task response.
+    if (route.request().method() === 'PATCH') {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(FIXTURE_API_TASKS[0]),
+      });
+    }
+    return route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
@@ -169,8 +185,8 @@ async function gotoSchedule(page: Page) {
         previous: null,
         results: FIXTURE_API_TASKS,
       }),
-    }),
-  );
+    });
+  });
   await page.route('**/api/v1/dependencies/**', (route) =>
     route.fulfill({
       status: 200,
@@ -219,143 +235,127 @@ async function openDrawer(page: Page, taskName: string) {
   return drawer;
 }
 
-test.describe('TaskDetailDrawer redesign — section list', () => {
+test.describe('TaskDetailDrawer redesign — tabs', () => {
   test.beforeEach(async ({ page }) => {
     await gotoSchedule(page);
   });
 
-  test('renders OSS sections in priority order', async ({ page }) => {
+  test('renders the four tabs with Details active by default', async ({ page }) => {
     const drawer = await openDrawer(page, 'Discovery & Design');
-
-    // Each section's collapsible header is a <button> with the title as its
-    // accessible name. The visible ▶ glyph sits in an aria-hidden span, so
-    // textContent includes it but the accessible name does not — filter by
-    // accessible name to avoid leaking the glyph into the assertion.
-    //
-    // Unconditional sections from sections/index.ts in priority order. Sprint
-    // (150) is conditional on the task having an active sprint and is omitted
-    // here; Subtasks (300) renders for non-milestone tasks, which Discovery &
-    // Design is.
-    const sectionNames = [
-      'Overview',       // 100
-      'Dependencies',   // 200
-      'Subtasks',       // 300 (Discovery & Design is non-milestone)
-      'Attachments',    // 400 (#310)
-      'External links', // 450 (#637)
-      'Comments',       // 500 (#311)
-      'Activity',       // 600
-      'Recurrence',     // 700 (#312/#738 — renders for non-summary, non-milestone tasks)
-      'Estimates',      // 800
-      'History',        // 900
-      'Baseline',       // 1000
-    ];
-    const headers = drawer.getByRole('button', {
-      name: new RegExp(`^(${sectionNames.join('|')})$`),
-    });
-    await expect(headers).toHaveCount(sectionNames.length);
-
-    const titles = await headers.evaluateAll((els) =>
-      els.map((el) => el.getAttribute('aria-label') ?? el.querySelector('span:not([aria-hidden])')?.textContent ?? ''),
-    );
-    expect(titles).toEqual(sectionNames);
-  });
-
-  test('Overview section is expanded by default', async ({ page }) => {
-    const drawer = await openDrawer(page, 'Discovery & Design');
-    const overview = drawer.getByRole('button', { name: 'Overview' });
-    await expect(overview).toHaveAttribute('aria-expanded', 'true');
-  });
-
-  test('Assignees editor lives inside Overview, not under Dependencies (#313)', async ({ page }) => {
-    // Regression guard: pre-#313 the assignees editor was rendered inside the
-    // legacy DependenciesTab, so opening the drawer surfaced a "Resources"
-    // block under Dependencies that duplicated the Overview Assignees list.
-    // The mockup has no such block — Assignees is the only home for this UI.
-    const drawer = await openDrawer(page, 'Discovery & Design');
-    await expect(drawer.getByRole('region', { name: 'Assignees' })).toBeVisible();
-    await drawer.getByRole('button', { name: 'Dependencies' }).click();
-    await expect(drawer.getByRole('region', { name: 'Assignees' })).toHaveCount(1);
-  });
-
-  test('other sections start collapsed', async ({ page }) => {
-    const drawer = await openDrawer(page, 'Discovery & Design');
-    for (const name of [
-      'Dependencies',
-      'Subtasks',
-      'Attachments',
-      'External links',
-      'Comments',
-      'Activity',
-      'Recurrence',
-      'Estimates',
-      'History',
-      'Baseline',
-    ]) {
-      await expect(drawer.getByRole('button', { name })).toHaveAttribute('aria-expanded', 'false');
+    for (const name of ['Details', 'Subtasks', 'Activity', 'Files']) {
+      await expect(drawer.getByRole('tab', { name: new RegExp(`^${name}`) })).toBeVisible();
     }
-  });
-
-  test('clicking a section header expands and shows its content', async ({ page }) => {
-    const drawer = await openDrawer(page, 'Discovery & Design');
-    await drawer.getByRole('button', { name: 'Estimates' }).click();
-    await expect(drawer.getByRole('button', { name: 'Estimates' })).toHaveAttribute(
-      'aria-expanded',
+    await expect(drawer.getByRole('tab', { name: 'Details' })).toHaveAttribute(
+      'aria-selected',
       'true',
     );
-    // PERT panel content from EstimatesTab — present once the section's body mounts.
-    await expect(drawer.getByRole('region', { name: /PERT/i })).toBeVisible();
   });
 
-  test('clicking an expanded section header collapses it', async ({ page }) => {
+  test('header renders WBS pill and an editable task-name input', async ({ page }) => {
     const drawer = await openDrawer(page, 'Discovery & Design');
-    const overview = drawer.getByRole('button', { name: 'Overview' });
-    await overview.click();
-    await expect(overview).toHaveAttribute('aria-expanded', 'false');
+    await expect(drawer.getByText('1', { exact: true })).toBeVisible();
+    await expect(drawer.getByRole('textbox', { name: 'Task name' })).toHaveValue(
+      'Discovery & Design',
+    );
+  });
+
+  test('Details tab shows the schedule strip and (open) Overview assignees', async ({ page }) => {
+    const drawer = await openDrawer(page, 'Discovery & Design');
+    // Schedule strip cells (group per cell).
+    for (const label of ['Start', 'Finish', 'Duration', 'Float']) {
+      await expect(drawer.getByRole('group', { name: label })).toBeVisible();
+    }
+    await expect(drawer.getByText('10d', { exact: true })).toBeVisible();
+    // Overview is the first Details section → expanded → Assignees visible.
+    await expect(drawer.getByRole('region', { name: 'Assignees' })).toBeVisible();
+  });
+
+  test('critical task shows the CP marker in the schedule strip', async ({ page }) => {
+    const drawer = await openDrawer(page, 'Backend Implementation');
+    await expect(drawer.getByText('CP', { exact: true }).first()).toBeVisible();
+    await expect(drawer.getByText(/On the critical path/i)).toBeVisible();
+  });
+});
+
+test.describe('TaskDetailDrawer redesign — tab grouping', () => {
+  test.beforeEach(async ({ page }) => {
+    await gotoSchedule(page);
+  });
+
+  test('Dependencies + Estimates live under the Details tab', async ({ page }) => {
+    const drawer = await openDrawer(page, 'Discovery & Design');
+    await expect(drawer.getByRole('button', { name: 'Dependencies' })).toBeVisible();
+    await expect(drawer.getByRole('button', { name: 'Estimates' })).toBeVisible();
+  });
+
+  test('Attachments + External links live under the Files tab', async ({ page }) => {
+    const drawer = await openDrawer(page, 'Discovery & Design');
+    // Not present on the default Details tab.
+    await expect(drawer.getByRole('button', { name: 'External links' })).toHaveCount(0);
+    await drawer.getByRole('tab', { name: 'Files' }).click();
+    await expect(drawer.getByRole('button', { name: 'Attachments' })).toBeVisible();
+    await expect(drawer.getByRole('button', { name: 'External links' })).toBeVisible();
+  });
+
+  test('Comments + Activity + History live under the Activity tab', async ({ page }) => {
+    const drawer = await openDrawer(page, 'Discovery & Design');
+    await expect(drawer.getByRole('button', { name: 'History' })).toHaveCount(0);
+    await drawer.getByRole('tab', { name: 'Activity' }).click();
+    await expect(drawer.getByRole('button', { name: 'Comments' })).toBeVisible();
+    await expect(drawer.getByRole('button', { name: 'Activity' })).toBeVisible();
+    await expect(drawer.getByRole('button', { name: 'History' })).toBeVisible();
   });
 
   test('History section shows audit records when expanded', async ({ page }) => {
     const drawer = await openDrawer(page, 'Discovery & Design');
+    await drawer.getByRole('tab', { name: 'Activity' }).click();
     await drawer.getByRole('button', { name: 'History' }).click();
-    await expect(drawer.getByText('Updated')).toBeVisible({ timeout: 5_000 });
-    await expect(drawer.getByText('alice')).toBeVisible();
+    await expect(drawer.getByText('alice')).toBeVisible({ timeout: 5_000 });
   });
 
-  test('Baseline section shows no-baseline empty state when expanded', async ({ page }) => {
+  test('Overview is rendered inline (no accordion); secondary sections start collapsed', async ({
+    page,
+  }) => {
     const drawer = await openDrawer(page, 'Discovery & Design');
-    await drawer.getByRole('button', { name: 'Baseline' }).click();
-    await expect(drawer.getByText(/No baseline set/i)).toBeVisible({ timeout: 5_000 });
+    // Overview work-state is curated inline — there is no "Overview" accordion
+    // button; its Assignees region is visible directly.
+    await expect(drawer.getByRole('button', { name: 'Overview' })).toHaveCount(0);
+    await expect(drawer.getByRole('region', { name: 'Assignees' })).toBeVisible();
+    // Dependencies (a secondary Details section) starts collapsed.
+    await expect(drawer.getByRole('button', { name: 'Dependencies' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
   });
 });
 
-test.describe('TaskDetailDrawer redesign — meta rail', () => {
+test.describe('TaskDetailDrawer redesign — Description save bar', () => {
   test.beforeEach(async ({ page }) => {
     await gotoSchedule(page);
   });
 
-  test('shows status, start, finish, duration, float, progress', async ({ page }) => {
+  test('typing in Description reveals the save bar; Discard reverts it', async ({ page }) => {
     const drawer = await openDrawer(page, 'Discovery & Design');
-    const rail = drawer.getByRole('complementary', { name: 'Task vitals' });
-    // Each row is a group with an aria-label matching the row label.
-    for (const label of ['Status', 'Start', 'Finish', 'Duration', 'Float', 'Progress']) {
-      await expect(rail.getByRole('group', { name: label })).toBeVisible();
-    }
-    // Duration value comes through with .tppm-mono numeric formatting.
-    await expect(rail.getByText('10d', { exact: true })).toBeVisible();
+    const description = drawer.getByRole('textbox', { name: 'Description' });
+    await expect(description).toBeVisible();
+
+    // No save bar while clean.
+    await expect(drawer.getByText('You have unsaved changes')).toHaveCount(0);
+
+    await description.fill('Validate Phase-2 scope with the steering committee.');
+    await expect(drawer.getByText('You have unsaved changes')).toBeVisible();
+
+    await drawer.getByRole('button', { name: 'Discard' }).click();
+    await expect(description).toHaveValue('');
+    await expect(drawer.getByText('You have unsaved changes')).toHaveCount(0);
   });
 
-  test('renders critical-path styling on float for a critical task', async ({ page }) => {
-    const drawer = await openDrawer(page, 'Backend Implementation');
-    const rail = drawer.getByRole('complementary', { name: 'Task vitals' });
-    // Critical tasks render their float as "{Nd · CP}" — text presence is a
-    // sufficient proxy for the styling here; pixel-level color is out of scope.
-    await expect(rail.getByText(/CP/)).toBeVisible();
-  });
-
-  test('progress bar reflects task percent_complete', async ({ page }) => {
+  test('Save changes button persists the edit and clears the bar', async ({ page }) => {
     const drawer = await openDrawer(page, 'Discovery & Design');
-    const rail = drawer.getByRole('complementary', { name: 'Task vitals' });
-    const bar = rail.getByRole('progressbar', { name: 'Task progress' });
-    await expect(bar).toHaveAttribute('aria-valuenow', '50');
+    const description = drawer.getByRole('textbox', { name: 'Description' });
+    await description.fill('A new description.');
+    await drawer.getByRole('button', { name: 'Save changes' }).click();
+    await expect(drawer.getByText('You have unsaved changes')).toHaveCount(0, { timeout: 5_000 });
   });
 });
 
