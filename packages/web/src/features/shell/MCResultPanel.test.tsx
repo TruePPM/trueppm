@@ -1,8 +1,16 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { MCResultPanel } from './MCResultPanel';
 import { FIXTURE_MC_RESULT } from '@/fixtures/monteCarlo';
+import { renderWithProviders as render } from '@/test/utils';
+
+// The panel now embeds ForecastHistorySection (ADR-0109), which fetches the run
+// history. Mock the client to return an empty history so the section renders
+// nothing and these tests stay focused on the panel chrome.
+vi.mock('@/api/client', () => ({
+  apiClient: { get: vi.fn().mockResolvedValue({ data: { results: [], cap: 100 } }) },
+}));
 
 describe('MCResultPanel', () => {
   it('renders P50/P80/P95 section headings and date chips', () => {

@@ -23,8 +23,9 @@ from __future__ import annotations
 import logging
 import statistics
 import uuid
+from datetime import date
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.db import IntegrityError, transaction
 
@@ -32,6 +33,7 @@ from trueppm_api.apps.scheduling.models import ScheduleRequestReason
 
 if TYPE_CHECKING:
     from trueppm_api.apps.projects.models import Sprint
+    from trueppm_api.apps.scheduling.models import MonteCarloRun
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +136,58 @@ def enqueue_recalculate(
             "— leaving new request PENDING for drain_schedule_queue to coalesce",
             project_id,
         )
+
+
+# ---------------------------------------------------------------------------
+# Monte Carlo run history — ADR-0109 (#961)
+# ---------------------------------------------------------------------------
+
+
+def record_monte_carlo_run(
+    project_id: str | uuid.UUID,
+    *,
+    p50: date | None,
+    p80: date | None,
+    p95: date | None,
+    n_simulations: int,
+    cpm_finish: date | None = None,
+    task_count: int | None = None,
+    user: Any = None,
+) -> MonteCarloRun | None:
+    """Persist one project-level Monte Carlo run for the forecast history (ADR-0109).
+
+    Called synchronously from ``run_monte_carlo`` after the simulation returns.
+    Persistence is **best-effort**: the simulation result is the primary
+    deliverable, so a write failure is logged and swallowed (the caller still
+    returns the computed result; the history simply misses that row). Returns the
+    created ``MonteCarloRun`` or ``None`` on failure.
+
+    ``user`` is stored as ``triggered_by`` and is serialized only to Admin/Owner
+    (ADR-0109 / VoC): forecast drift must not become a named-individual signal at
+    the team level. An ``AnonymousUser`` (never expected here behind
+    IsAuthenticated) is normalized to ``None``.
+    """
+    from trueppm_api.apps.scheduling.models import MonteCarloRun
+
+    triggered_by = user if getattr(user, "is_authenticated", False) else None
+    try:
+        return MonteCarloRun.objects.create(
+            project_id=project_id,
+            p50=p50,
+            p80=p80,
+            p95=p95,
+            cpm_finish=cpm_finish,
+            n_simulations=n_simulations,
+            task_count=task_count,
+            triggered_by=triggered_by,
+        )
+    except Exception:
+        logger.exception(
+            "record_monte_carlo_run: failed to persist run for project %s "
+            "— returning computed result without history row",
+            project_id,
+        )
+        return None
 
 
 # ---------------------------------------------------------------------------

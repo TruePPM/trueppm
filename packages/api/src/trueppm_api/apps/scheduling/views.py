@@ -46,14 +46,16 @@ from trueppm_api.apps.projects.models import (
 from trueppm_api.apps.scheduling.models import (
     FailedTask,
     FailedTaskStatus,
+    MonteCarloRun,
     ScheduleRequestReason,
     VelocitySuggestion,
 )
 from trueppm_api.apps.scheduling.serializers import (
     FailedTaskSerializer,
+    MonteCarloRunSerializer,
     VelocitySuggestionSerializer,
 )
-from trueppm_api.apps.scheduling.services import enqueue_recalculate
+from trueppm_api.apps.scheduling.services import enqueue_recalculate, record_monte_carlo_run
 
 
 @api_view(["POST"])
@@ -292,6 +294,28 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
         "last_run_at": timezone.now().isoformat(),
     }
     cache.set(f"mc_latest:{pk}", result_dict, timeout=86400)
+
+    # Persist this run for the forecast-drift history (ADR-0109, #961). The
+    # deterministic CPM spine is the max early_finish of the committed tasks
+    # already loaded above — no extra query. Best-effort: a write failure inside
+    # the service is logged and swallowed so the simulation result is still
+    # returned; the response carries the run id when persistence succeeded.
+    cpm_finish = max(
+        (t.early_finish for t in db_tasks if t.early_finish is not None),
+        default=None,
+    )
+    run = record_monte_carlo_run(
+        str(project.pk),
+        p50=mc_result.p50,
+        p80=mc_result.p80,
+        p95=mc_result.p95,
+        n_simulations=n_simulations,
+        cpm_finish=cpm_finish,
+        task_count=len(db_tasks),
+        user=request.user,
+    )
+    if run is not None:
+        result_dict["run_id"] = str(run.id)
     return Response(result_dict)
 
 
@@ -307,16 +331,128 @@ class MonteCarloLatestView(APIView):
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     def get(self, request: Request, pk: str) -> Response:
-        """Return the latest cached Monte Carlo result for the project."""
+        """Return the latest cached Monte Carlo result for the project.
+
+        Falls back to the most recent persisted ``MonteCarloRun`` when the 24-hour
+        cache has expired (ADR-0109): the latest forecast now survives past the
+        TTL. The fallback carries the percentiles but an empty histogram — the raw
+        simulation distribution is intentionally not persisted (only the
+        percentile band is), so the chips render from history while the histogram
+        needs a fresh run.
+        """
         project = get_object_or_404(Project, pk=pk, is_deleted=False)
         self.check_object_permissions(request, project)
         cached = cache.get(f"mc_latest:{pk}")
-        if cached is None:
+        if cached is not None:
+            return Response(cached)
+
+        latest = MonteCarloRun.objects.filter(project_id=pk).order_by("-taken_at").first()
+        if latest is None:
             return Response(
                 {"detail": "No simulation result available."},
                 status=status.HTTP_404_NOT_FOUND,
             )
-        return Response(cached)
+        return Response(
+            {
+                "p50": latest.p50.isoformat() if latest.p50 else None,
+                "p80": latest.p80.isoformat() if latest.p80 else None,
+                "p95": latest.p95.isoformat() if latest.p95 else None,
+                "runs": latest.n_simulations,
+                "histogram_buckets": [],
+                "last_run_at": latest.taken_at.isoformat(),
+                "from_history": True,
+            }
+        )
+
+
+# Hard ceiling on a single forecast-history response, independent of the
+# retention cap. OSS retention (MC_HISTORY_CAP=100) is already below this; the
+# ceiling only bites the Enterprise unlimited-retention case so the endpoint can
+# never stream an unbounded payload (ADR-0109).
+MC_HISTORY_RESPONSE_MAX = 500
+
+
+@extend_schema(
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description=(
+                "Project Monte Carlo run history (ADR-0109). "
+                "{results: [MonteCarloRun], cap: int|null}. Each run carries P50/P80/P95, "
+                "cpm_finish, n_simulations, task_count, a per-percentile delta vs the "
+                "previous run (null on the oldest row), and triggered_by_name "
+                "(non-null only for Admin/Owner)."
+            ),
+        ),
+        404: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Project does not exist.",
+        ),
+    },
+)
+class MonteCarloHistoryView(APIView):
+    """Project Monte Carlo run history — forecast drift over time (ADR-0109, #961).
+
+    Returns persisted runs newest-first, capped at ``settings.MC_HISTORY_CAP``,
+    each with a computed-on-read per-percentile delta versus the immediately
+    previous (older) run. The run-author attribution (``triggered_by_name``) is
+    serialized only for Admin/Owner (role ≥ ADMIN); every other member sees the
+    drift values without attribution, so forecast drift cannot become a
+    named-individual performance signal (VoC Morgan).
+
+    Permission: Member (any role ≥ Viewer), consistent with the forecast read.
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
+
+    def get(self, request: Request, pk: str) -> Response:
+        """Return the capped, newest-first run history with per-run deltas."""
+        from trueppm_api.apps.access.models import Role
+        from trueppm_api.apps.access.permissions import _membership_role
+
+        project = get_object_or_404(Project, pk=pk, is_deleted=False)
+        self.check_object_permissions(request, project)
+
+        cap: int | None = settings.MC_HISTORY_CAP
+        # Hard response ceiling: even when MC_HISTORY_CAP is None (Enterprise
+        # unlimited *retention*), a single API response must stay bounded — keep
+        # the newest MC_HISTORY_RESPONSE_MAX rows. select_related avoids an N+1 on
+        # triggered_by when attribution is serialized for an Admin/Owner.
+        limit = cap if cap is not None else MC_HISTORY_RESPONSE_MAX
+        qs = (
+            MonteCarloRun.objects.filter(project_id=pk)
+            .select_related("triggered_by")
+            .order_by("-taken_at")
+        )
+        runs = list(qs[:limit])
+
+        # Computed-on-read delta (ADR-0108): each run vs the next-older run.
+        # Positive days = the forecast slipped later (worse). The oldest row in
+        # the list has no predecessor → _delta stays None (baseline).
+        def _diff(newer: _date | None, older: _date | None) -> int | None:
+            if newer is None or older is None:
+                return None
+            return (newer - older).days
+
+        for i, run in enumerate(runs):
+            older = runs[i + 1] if i + 1 < len(runs) else None
+            if older is None:
+                run._delta = None  # type: ignore[attr-defined]
+            else:
+                run._delta = {  # type: ignore[attr-defined]
+                    "p50": _diff(run.p50, older.p50),
+                    "p80": _diff(run.p80, older.p80),
+                    "p95": _diff(run.p95, older.p95),
+                }
+
+        role = _membership_role(request, pk)
+        can_see_attribution = role is not None and role >= Role.ADMIN
+        data = MonteCarloRunSerializer(
+            runs,
+            many=True,
+            context={"request": request, "can_see_attribution": can_see_attribution},
+        ).data
+        return Response({"results": data, "cap": cap})
 
 
 @extend_schema_view(

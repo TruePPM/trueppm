@@ -85,6 +85,60 @@ The most recent result is also available without re-running the simulation:
 GET /api/v1/projects/<project_id>/monte-carlo/latest/
 ```
 
+## Forecast history
+
+A single percentile date answers "when?" once. The more useful planning question
+is "is my confidence eroding?" — has the P80 finish slipped since you last looked?
+
+**Coming in 0.3** (ADR-0109), TruePPM will persist every project-level Monte
+Carlo run so you can read finish-date *drift* over time: "my P80 was Aug 14 two
+weeks ago, now it's Aug 28." Each run is recorded with its P50/P80/P95 as of that
+moment, so the history is a true before/after, not just the latest snapshot.
+
+The history will be available at:
+
+```
+GET /api/v1/projects/<project_id>/monte-carlo/history/
+```
+
+It will return persisted runs newest-first. Each run carries:
+
+| Field | Meaning |
+|---|---|
+| `taken_at` | When the simulation was run (ISO 8601). |
+| `p50` / `p80` / `p95` | The percentile finish dates as of that run. |
+| `cpm_finish` | The deterministic CPM spine at run time, for context. |
+| `n_simulations` | Number of runs in that simulation. |
+| `task_count` | Committed tasks included in that simulation. |
+| `delta` | Per-percentile signed day change versus the immediately previous run (positive = the forecast slipped later). `null` on the oldest/baseline run. |
+| `triggered_by_name` | Who ran the simulation — see the visibility note below. |
+
+In the UI, the Monte Carlo drawer (and the mobile bottom sheet) will gain a
+collapsible **Forecast history** list showing each run with its per-run delta
+(for example, `P80 ▲ +14d`), so the drift is legible at a glance.
+
+The latest-result endpoint (`GET .../monte-carlo/latest/`) will also fall back to
+this persisted history once the 24-hour cache has expired, so your most recent
+forecast survives past the cache rather than disappearing.
+
+:::note[Attribution is Admin/Owner only]
+`triggered_by_name` will be returned **only** to project Admins and Owners. Every
+other member (Viewer and up) will see the drift values without the run-author
+name. This is deliberate: forecast drift is a planning signal about the *project*,
+not a performance signal about a *person*.
+:::
+
+Forecast history is **Community (OSS)** edition and single-project scope. Rolling
+forecast drift up *across* programs or a portfolio is out of scope here and
+belongs to the Enterprise edition.
+
+### Retention
+
+Consistent with the OSS cap philosophy (`MC_SIMULATION_CAP`, `MC_TASK_CAP`), OSS
+will keep the **newest 100 runs per project** (`MC_HISTORY_CAP`); a nightly job
+trims older runs. Enterprise sets the cap to `None` (unlimited history). 100 runs
+is ample to read multi-month drift on an actively re-forecast project.
+
 ## The math
 
 ### PERT-Beta distribution
@@ -230,6 +284,7 @@ not 1.2× M.
 |---|---|---|
 | Max runs per request (`MC_SIMULATION_CAP`) | 1,000 | Unlimited |
 | Max tasks per project (`MC_TASK_CAP`) | 5,000 | Unlimited |
+| Max run history per project (`MC_HISTORY_CAP`, ships in 0.3) | 100 | Unlimited |
 
 Both settings can be changed in `settings/base.py` (or a local override). The
 Enterprise package sets both to `None` (unlimited) in its settings include.

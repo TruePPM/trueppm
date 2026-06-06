@@ -24,6 +24,19 @@ vi.mock('@/hooks/useRunMonteCarlo', () => ({
   }),
 }));
 
+// Opening the card mounts MonteCarloSheet, which now embeds
+// ForecastHistorySection (#961). Stub the history hook so the sheet doesn't fire
+// an unmocked apiClient request when the sheet opens.
+vi.mock('@/hooks/useMonteCarloHistory', () => ({
+  useMonteCarloHistory: () => ({
+    data: [],
+    cap: 100,
+    isLoading: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
+}));
+
 beforeEach(() => {
   useMonteCarloResultSpy.mockReset();
   useMonteCarloResultSpy.mockReturnValue({

@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react';
 import type { MonteCarloResult } from '@/types';
 import { MonteCarloHistogram } from './MonteCarloHistogram';
+import { ForecastHistorySection } from './ForecastHistorySection';
+import { fmtForecastDate } from './forecastDelta';
 
 interface Props {
   result: MonteCarloResult;
@@ -57,7 +59,10 @@ export function MonteCarloSheet({ result, onClose }: Props) {
             </h2>
             <p className="mt-0.5 text-xs text-neutral-text-secondary">
               80% confidence the project finishes on or before{' '}
-              <span className="font-medium text-semantic-at-risk">{result.p80}</span>.
+              <span className="font-medium text-semantic-at-risk tppm-mono">
+                {fmtForecastDate(result.p80)}
+              </span>
+              .
             </p>
           </div>
           <button
@@ -76,6 +81,10 @@ export function MonteCarloSheet({ result, onClose }: Props) {
         <div className="mt-4 overflow-x-auto">
           <MonteCarloHistogram result={result} />
         </div>
+
+        {/* Forecast drift history (ADR-0109, #961) — collapsed by default on
+            mobile so the current result stays the priority on a small screen. */}
+        <ForecastHistorySection projectId={result.projectId} defaultExpanded={false} />
       </div>
     </div>
   );
