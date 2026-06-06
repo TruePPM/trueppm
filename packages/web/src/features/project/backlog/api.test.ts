@@ -1,5 +1,8 @@
-import { describe, expect, it } from 'vitest';
-import { fromApiProductBacklog } from './api';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { apiClient } from '@/api/client';
+import { createBacklogStory, fromApiProductBacklog, postReorderBacklog } from './api';
+
+vi.mock('@/api/client');
 
 // Minimal ApiTask-shaped story; mapTask tolerates the absent fields.
 function apiStory(over: Record<string, unknown>): Record<string, unknown> {
@@ -94,5 +97,43 @@ describe('fromApiProductBacklog', () => {
       storyCount: 2,
     });
     expect(result.scoring).toEqual({ model: 'wsjf' });
+  });
+});
+
+describe('postReorderBacklog', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('posts the ordered {id, server_version} list and returns the updated count', async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({ data: { updated: 2 } } as never);
+    const stories = [
+      { id: 'b', server_version: 7 },
+      { id: 'a', server_version: 3 },
+    ];
+    const result = await postReorderBacklog('proj-1', stories);
+    expect(apiClient.post).toHaveBeenCalledWith('/projects/proj-1/product-backlog/reorder/', {
+      stories,
+    });
+    expect(result).toEqual({ updated: 2 });
+  });
+
+  it('propagates a 409 conflict to the caller', async () => {
+    const err = Object.assign(new Error('conflict'), { response: { status: 409 } });
+    vi.mocked(apiClient.post).mockRejectedValue(err);
+    await expect(postReorderBacklog('proj-1', [{ id: 'a', server_version: 1 }])).rejects.toBe(err);
+  });
+});
+
+describe('createBacklogStory', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('posts a title-only BACKLOG story of type story', async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({ data: {} } as never);
+    await createBacklogStory('proj-1', 'New idea');
+    expect(apiClient.post).toHaveBeenCalledWith('/tasks/', {
+      project: 'proj-1',
+      name: 'New idea',
+      status: 'BACKLOG',
+      type: 'story',
+    });
   });
 });

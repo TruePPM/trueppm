@@ -84,3 +84,40 @@ export async function patchTaskDor(taskId: string, dor: 'ready' | 'refine'): Pro
 export async function postSplitStory(taskId: string, name?: string): Promise<void> {
   await apiClient.post(`/tasks/${taskId}/split/`, name ? { name } : {});
 }
+
+/** One {id, server_version} entry of a reorder payload (ADR-0110). */
+export interface ReorderEntry {
+  id: string;
+  server_version: number;
+}
+
+/**
+ * Persist a manual drag reorder of the backlog (ADR-0110, #494). `stories` is the
+ * COMPLETE current backlog in target priority order; the server writes dense
+ * priority_rank 1..N and returns the count of rows whose rank changed. A 409 (stale
+ * snapshot — another PO changed the backlog) propagates as an axios error for the caller
+ * to handle by refetching and replaying the drag.
+ */
+export async function postReorderBacklog(
+  projectId: string,
+  stories: ReorderEntry[],
+): Promise<{ updated: number }> {
+  const res = await apiClient.post<{ updated: number }>(
+    `/projects/${projectId}/product-backlog/reorder/`,
+    { stories },
+  );
+  return { updated: res.data.updated };
+}
+
+/**
+ * Quick-add a title-only backlog story (#921). Posts status=BACKLOG / type=story; the
+ * server leaves priority_rank null so the story sorts to the bottom of the backlog.
+ */
+export async function createBacklogStory(projectId: string, name: string): Promise<void> {
+  await apiClient.post('/tasks/', {
+    project: projectId,
+    name,
+    status: 'BACKLOG',
+    type: 'story',
+  });
+}
