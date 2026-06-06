@@ -90,7 +90,38 @@ export interface UpdateTaskPayload {
   remaining_points?: number | null;
 }
 
-/** PATCH /api/v1/tasks/{id}/ — update task fields; immediately invalidates the task cache. */
+/**
+ * Map the snake_case PATCH payload to the camelCase {@link Task} cache shape for
+ * the optimistic update. Only the fields a user edits directly in the drawer /
+ * board are mapped — server-derived fields (CPM dates, float, criticality) are
+ * reconciled by the success invalidation. Returns only the keys present on the
+ * payload so untouched fields are never clobbered.
+ */
+function optimisticTaskPatch(vars: UpdateTaskPayload): Partial<Task> {
+  const patch: Partial<Task> = {};
+  if (vars.name !== undefined) patch.name = vars.name;
+  if (vars.notes !== undefined) patch.notes = vars.notes;
+  if (vars.percent_complete !== undefined) patch.progress = vars.percent_complete;
+  if (vars.status !== undefined) patch.status = vars.status as Task['status'];
+  if (vars.duration !== undefined) patch.duration = vars.duration;
+  if (vars.planned_start !== undefined) patch.plannedStart = vars.planned_start;
+  if (vars.story_points !== undefined) patch.storyPoints = vars.story_points;
+  if (vars.remaining_points !== undefined) patch.remainingPoints = vars.remaining_points;
+  if (vars.sprint !== undefined) patch.sprintId = vars.sprint;
+  return patch;
+}
+
+/**
+ * PATCH /api/v1/tasks/{id}/ — update task fields.
+ *
+ * Applies an optimistic cache update in `onMutate` so an edited field (progress,
+ * status, name, description…) reflects instantly without waiting on the network
+ * round-trip — eliminating the brief revert-to-old-value flicker on a slider
+ * release or status change (#965). `onSuccess` still invalidates the task cache
+ * so server-authoritative fields (CPM dates after a schedule-affecting edit,
+ * status side-effects, `server_version`) reconcile; `onError` rolls the
+ * optimistic patch back.
+ */
 export function useUpdateTask() {
   const queryClient = useQueryClient();
 
@@ -98,6 +129,23 @@ export function useUpdateTask() {
     mutationFn: async ({ id, projectId: _projectId, ...data }: UpdateTaskPayload) => {
       const res = await apiClient.patch<ApiTaskResponse>(`/tasks/${id}/`, data);
       return res.data;
+    },
+    onMutate: async (variables) => {
+      const { id, projectId } = variables;
+      // Cancel in-flight fetches so a late response can't clobber the optimistic data.
+      await queryClient.cancelQueries({ queryKey: ['tasks', projectId] });
+      const snapshot = queryClient.getQueryData<Task[]>(['tasks', projectId]);
+      const patch = optimisticTaskPatch(variables);
+      queryClient.setQueryData<Task[]>(
+        ['tasks', projectId],
+        (old) => old?.map((t) => (t.id === id ? { ...t, ...patch } : t)) ?? [],
+      );
+      return { snapshot };
+    },
+    onError: (_err, variables, context) => {
+      if (context?.snapshot) {
+        queryClient.setQueryData(['tasks', variables.projectId], context.snapshot);
+      }
     },
     onSuccess: (_data, variables) => {
       void queryClient.invalidateQueries({ queryKey: ['tasks', variables.projectId] });
@@ -133,12 +181,7 @@ export function useRescheduleTask() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({
-      id,
-      projectId: _p,
-      optimistic: _o,
-      ...data
-    }: RescheduleTaskPayload) => {
+    mutationFn: async ({ id, projectId: _p, optimistic: _o, ...data }: RescheduleTaskPayload) => {
       await apiClient.patch(`/tasks/${id}/`, data);
     },
     onMutate: async ({ id, projectId, planned_start, optimistic }) => {
@@ -146,23 +189,25 @@ export function useRescheduleTask() {
       await queryClient.cancelQueries({ queryKey: ['tasks', projectId] });
       const snapshot = queryClient.getQueryData<Task[]>(['tasks', projectId]);
       const todayIso = new Date().toISOString().slice(0, 10);
-      queryClient.setQueryData<Task[]>(['tasks', projectId], (old) =>
-        old?.map((t) => {
-          if (t.id !== id) return t;
-          // Mirror the server's date-gated NOT_STARTED → IN_PROGRESS rule (#336)
-          // so the board doesn't flicker after a today-drag round-trip. Applied
-          // only when the caller didn't explicitly include a status of its own.
-          const willPromote =
-            t.status === 'NOT_STARTED' &&
-            optimistic.status === undefined &&
-            planned_start != null &&
-            planned_start <= todayIso;
-          return {
-            ...t,
-            ...optimistic,
-            ...(willPromote ? { status: 'IN_PROGRESS' as const } : {}),
-          };
-        }) ?? [],
+      queryClient.setQueryData<Task[]>(
+        ['tasks', projectId],
+        (old) =>
+          old?.map((t) => {
+            if (t.id !== id) return t;
+            // Mirror the server's date-gated NOT_STARTED → IN_PROGRESS rule (#336)
+            // so the board doesn't flicker after a today-drag round-trip. Applied
+            // only when the caller didn't explicitly include a status of its own.
+            const willPromote =
+              t.status === 'NOT_STARTED' &&
+              optimistic.status === undefined &&
+              planned_start != null &&
+              planned_start <= todayIso;
+            return {
+              ...t,
+              ...optimistic,
+              ...(willPromote ? { status: 'IN_PROGRESS' as const } : {}),
+            };
+          }) ?? [],
       );
       return { snapshot };
     },
@@ -302,24 +347,24 @@ export function usePromoteTask() {
       await queryClient.cancelQueries({ queryKey: ['tasks', projectId] });
       const snapshot = queryClient.getQueryData<Task[]>(['tasks', projectId]);
       const todayIso = new Date().toISOString().slice(0, 10);
-      queryClient.setQueryData<Task[]>(['tasks', projectId], (old) =>
-        old?.map((t) => {
-          if (t.id !== id) return t;
-          // When the caller sends no explicit status (To Do path), mirror the
-          // server's date-gated NOT_STARTED → IN_PROGRESS rule so the row
-          // doesn't flicker after the round-trip. When the caller IS explicit
-          // (#318 backlog promote → NOT_STARTED), honor it and skip the bump.
-          const willPromote =
-            status === undefined &&
-            t.status === 'NOT_STARTED' &&
-            planned_start <= todayIso;
-          return {
-            ...t,
-            plannedStart: planned_start,
-            ...(status !== undefined ? { status: status as Task['status'] } : {}),
-            ...(willPromote ? { status: 'IN_PROGRESS' as const } : {}),
-          };
-        }) ?? [],
+      queryClient.setQueryData<Task[]>(
+        ['tasks', projectId],
+        (old) =>
+          old?.map((t) => {
+            if (t.id !== id) return t;
+            // When the caller sends no explicit status (To Do path), mirror the
+            // server's date-gated NOT_STARTED → IN_PROGRESS rule so the row
+            // doesn't flicker after the round-trip. When the caller IS explicit
+            // (#318 backlog promote → NOT_STARTED), honor it and skip the bump.
+            const willPromote =
+              status === undefined && t.status === 'NOT_STARTED' && planned_start <= todayIso;
+            return {
+              ...t,
+              plannedStart: planned_start,
+              ...(status !== undefined ? { status: status as Task['status'] } : {}),
+              ...(willPromote ? { status: 'IN_PROGRESS' as const } : {}),
+            };
+          }) ?? [],
       );
       return { snapshot };
     },
@@ -505,9 +550,7 @@ export interface MilestoneRollupLockedError {
 /**
  * Narrow an unknown caught error to a {@link MilestoneRollupLockedError} payload.
  */
-export function parseMilestoneRollupLockedError(
-  err: unknown,
-): MilestoneRollupLockedError | null {
+export function parseMilestoneRollupLockedError(err: unknown): MilestoneRollupLockedError | null {
   if (typeof err !== 'object' || err === null) return null;
   const data = (err as { response?: { data?: unknown } }).response?.data;
   if (typeof data !== 'object' || data === null) return null;
@@ -635,7 +678,9 @@ export function useAddDependency(projectId: string | null) {
     },
     onSuccess: (_data, variables) => {
       void queryClient.invalidateQueries({ queryKey: ['task-dependencies', variables.successor] });
-      void queryClient.invalidateQueries({ queryKey: ['task-dependencies', variables.predecessor] });
+      void queryClient.invalidateQueries({
+        queryKey: ['task-dependencies', variables.predecessor],
+      });
       void queryClient.invalidateQueries({ queryKey: ['tasks', projectId ?? undefined] });
       void queryClient.invalidateQueries({ queryKey: ['dependencies', projectId ?? undefined] });
     },
@@ -667,7 +712,9 @@ export function useRemoveDependency(projectId: string | null) {
     },
     onSuccess: (_data, variables) => {
       void queryClient.invalidateQueries({ queryKey: ['task-dependencies', variables.successor] });
-      void queryClient.invalidateQueries({ queryKey: ['task-dependencies', variables.predecessor] });
+      void queryClient.invalidateQueries({
+        queryKey: ['task-dependencies', variables.predecessor],
+      });
       void queryClient.invalidateQueries({ queryKey: ['tasks', projectId ?? undefined] });
       void queryClient.invalidateQueries({ queryKey: ['dependencies', projectId ?? undefined] });
     },
@@ -706,17 +753,19 @@ export function useToggleComplete() {
       await queryClient.cancelQueries({ queryKey: ['tasks', projectId] });
       const snapshot = queryClient.getQueryData<Task[]>(['tasks', projectId]);
       const nextStatus = previousStatus === 'COMPLETE' ? 'NOT_STARTED' : 'COMPLETE';
-      queryClient.setQueryData<Task[]>(['tasks', projectId], (old) =>
-        old?.map((t) => {
-          if (t.id !== id) return t;
-          // Match the server's COMPLETE coercion (`progress` is the TS-side
-          // mirror of API `percent_complete` — useScheduleTasks line 135) so
-          // the row settles to its final state immediately, no green-flash
-          // → snap-back when the server confirms (~150 ms typical).
-          return nextStatus === 'COMPLETE'
-            ? { ...t, status: nextStatus, progress: 100, isComplete: true }
-            : { ...t, status: nextStatus };
-        }) ?? [],
+      queryClient.setQueryData<Task[]>(
+        ['tasks', projectId],
+        (old) =>
+          old?.map((t) => {
+            if (t.id !== id) return t;
+            // Match the server's COMPLETE coercion (`progress` is the TS-side
+            // mirror of API `percent_complete` — useScheduleTasks line 135) so
+            // the row settles to its final state immediately, no green-flash
+            // → snap-back when the server confirms (~150 ms typical).
+            return nextStatus === 'COMPLETE'
+              ? { ...t, status: nextStatus, progress: 100, isComplete: true }
+              : { ...t, status: nextStatus };
+          }) ?? [],
       );
       return { snapshot };
     },
