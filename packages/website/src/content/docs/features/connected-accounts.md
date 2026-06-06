@@ -95,10 +95,19 @@ resolves an MR, PR, or issue and shows its current status badge.
 
 - **Add a link** — paste a URL; the provider is detected automatically from the
   host (gitlab.com → GitLab, github.com → GitHub, anything else → a *generic*
-  link). For a self-hosted GitLab CE/EE or GitHub Enterprise Server instance, a
-  link on that host routes to the matching provider when you have a credential
-  connected with that host as its base URL. The provider is always resolved
-  server-side — the typed hint is only a preview.
+  link). You can paste a bare address without a scheme (`github.com/acme/api`) —
+  `https://` is assumed. For a self-hosted GitLab CE/EE or GitHub Enterprise
+  Server instance, a link on that host routes to the matching provider when you
+  have a credential connected with that host as its base URL. The provider is
+  always resolved server-side — the typed hint is only a preview.
+- **Title** — give a link your own name (optional). A custom title is shown in
+  preference to the provider-fetched title, so a *generic* link that has no
+  fetched title still reads clearly. A refresh updates the provider title only
+  and never overwrites a custom title.
+- **Labels** — tag a link with free-text labels (e.g. `spec`, `design`) to
+  categorize it. Labels are trimmed and de-duplicated; a link can carry up to 12.
+- **Edit a link** — change a link's title or labels after it's added via the
+  per-link edit (pencil) control. Editing follows task-edit permission.
 - **Status badge** — each git link shows a cached status: **open**, **draft**,
   **merged**, **closed**, or **unknown**. A new link starts *unknown* — there is
   **no background polling**; status is fetched only when you refresh.
@@ -121,11 +130,13 @@ resolves an MR, PR, or issue and shows its current status badge.
 |---|---|---|
 | List links | `GET /api/v1/projects/{id}/tasks/{task_id}/links/` | Viewer |
 | Add link | `POST /api/v1/projects/{id}/tasks/{task_id}/links/` | Member |
+| Edit title/labels | `PATCH /api/v1/projects/{id}/tasks/{task_id}/links/{link_id}/` | Member |
 | Refresh status | `POST /api/v1/projects/{id}/tasks/{task_id}/links/{link_id}/refresh/` | Viewer |
 | Remove link | `DELETE /api/v1/projects/{id}/tasks/{task_id}/links/{link_id}/` | Member |
 
-Adding and removing follow task-edit permission; listing and refreshing follow
-task-read. Links inherit offline-sync parity with tasks, so add/remove/status
+The add/edit body accepts `url`, `custom_title`, and `labels` (`provider`,
+`title`, and `status` are server-owned). Adding, editing, and removing follow
+task-edit permission; listing and refreshing follow task-read. Links inherit offline-sync parity with tasks, so add/remove/status
 changes reach the mobile client through the project sync delta.
 
 ## Related ADRs

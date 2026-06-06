@@ -233,19 +233,21 @@ class TaskLinkViewSet(
     mixins.ListModelMixin,
     mixins.CreateModelMixin,
     mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet[TaskLink],
 ):
-    """Git/PM links on a task (ADR-0049 §3, #637).
+    """Git/PM links on a task (ADR-0049 §3, #637; redesign #970).
 
     Routes (relative to ``/projects/{project_pk}/tasks/{task_pk}/``):
         GET    links/
-        POST   links/                  (body ``{url}``; provider auto-detected)
+        POST   links/                  (body ``{url, custom_title?, labels?}``; provider auto-detected)
         GET    links/{pk}/
+        PATCH  links/{pk}/             (edit custom_title / labels / url / display_order)
         DELETE links/{pk}/             (soft-delete)
         POST   links/{pk}/refresh/     (synchronous, 5s; refresh cached status)
 
-    Permissions: create/destroy follow task-edit (Member+, ``IsProjectMemberWrite``);
+    Permissions: create/update/destroy follow task-edit (Member+, ``IsProjectMemberWrite``);
     list/retrieve/refresh follow task-read (Viewer+, ``IsProjectMember``). The
     queryset is the IDOR boundary — it scopes to the caller's project membership
     and the task in the URL, so a link id from another project is a 404.
@@ -255,6 +257,9 @@ class TaskLinkViewSet(
     # A task carries a handful of links — return the bare array (matching the
     # client contract and the credentials viewset) rather than a paged envelope.
     pagination_class = None
+    # PATCH-only edits (custom_title/labels/url). A full PUT replace of the
+    # server-owned status/provider/title fields is meaningless, so drop it.
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
     def get_queryset(self) -> QuerySet[TaskLink]:
         """Scope to the caller's project membership + the task in the URL.
@@ -280,7 +285,7 @@ class TaskLinkViewSet(
         ).select_related("task")
 
     def get_permissions(self) -> list[BasePermission]:
-        if self.action in ("create", "destroy"):
+        if self.action in ("create", "update", "partial_update", "destroy"):
             return [IsAuthenticated(), IsProjectMemberWrite(), IsProjectNotArchived()]
         return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
 
@@ -312,6 +317,32 @@ class TaskLinkViewSet(
         transaction.on_commit(
             lambda: broadcast_board_event(
                 project_id, "task_link_created", {"id": link_id, "task_id": task_id}
+            )
+        )
+
+    def perform_update(self, serializer: BaseSerializer[TaskLink]) -> None:
+        """Edit a link's user fields (custom_title / labels / url) (#970).
+
+        If the ``url`` itself changes the provider is re-resolved server-side
+        (same rule as create — never trusted from the client); ``status`` /
+        ``title`` / ``fetched_at`` are left untouched here and only move on an
+        explicit refresh. Broadcasts ``task_link_updated`` on commit so other
+        board viewers see the edited title/labels live.
+        """
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        update_kwargs: dict[str, object] = {}
+        if "url" in serializer.validated_data:
+            update_kwargs["provider"] = providers.resolve_provider_key(
+                serializer.validated_data["url"], user=self.request.user
+            )
+        link = serializer.save(**update_kwargs)
+        link_id = str(link.pk)
+        task_id = str(link.task_id)
+        project_id = str(link.task.project_id)
+        transaction.on_commit(
+            lambda: broadcast_board_event(
+                project_id, "task_link_updated", {"id": link_id, "task_id": task_id}
             )
         )
 

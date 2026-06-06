@@ -20,11 +20,21 @@ export interface TaskExternalLink {
   id: string;
   url: string;
   provider: string;
+  /** Provider-fetched title (PR/MR/issue), populated only by refresh. */
   title: string;
+  /** User-supplied name (#970); takes display precedence over `title`. */
+  custom_title: string;
+  /** Free-text categorization tags (#970). */
+  labels: string[];
   status: ExternalLinkStatus;
   fetched_at: string | null;
   display_order: number;
   server_version: number;
+}
+
+/** Display name precedence (#970): user title → provider title → raw URL. */
+export function linkDisplayTitle(link: TaskExternalLink): string {
+  return link.custom_title || link.title || link.url;
 }
 
 const linksKey = (taskId: string | null) => ['task-links', taskId];
@@ -55,14 +65,48 @@ interface CreateLinkVars {
   projectId: string;
   taskId: string;
   url: string;
+  customTitle?: string;
+  labels?: string[];
 }
 
 /** POST /projects/{projectId}/tasks/{taskId}/links/ — provider resolved server-side. */
 export function useCreateTaskLink() {
   const queryClient = useQueryClient();
   return useMutation<TaskExternalLink, Error, CreateLinkVars>({
-    mutationFn: async ({ projectId, taskId, url }) => {
-      const res = await apiClient.post<TaskExternalLink>(linksPath(projectId, taskId), { url });
+    mutationFn: async ({ projectId, taskId, url, customTitle, labels }) => {
+      const res = await apiClient.post<TaskExternalLink>(linksPath(projectId, taskId), {
+        url,
+        custom_title: customTitle ?? '',
+        labels: labels ?? [],
+      });
+      return res.data;
+    },
+    onSuccess: (_data, { taskId }) => {
+      void queryClient.invalidateQueries({ queryKey: linksKey(taskId) });
+    },
+  });
+}
+
+interface UpdateLinkVars {
+  projectId: string;
+  taskId: string;
+  linkId: string;
+  customTitle?: string;
+  labels?: string[];
+}
+
+/** PATCH /projects/{projectId}/tasks/{taskId}/links/{linkId}/ — edit title/labels (#970). */
+export function useUpdateTaskLink() {
+  const queryClient = useQueryClient();
+  return useMutation<TaskExternalLink, Error, UpdateLinkVars>({
+    mutationFn: async ({ projectId, taskId, linkId, customTitle, labels }) => {
+      const body: { custom_title?: string; labels?: string[] } = {};
+      if (customTitle !== undefined) body.custom_title = customTitle;
+      if (labels !== undefined) body.labels = labels;
+      const res = await apiClient.patch<TaskExternalLink>(
+        `${linksPath(projectId, taskId)}${linkId}/`,
+        body,
+      );
       return res.data;
     },
     onSuccess: (_data, { taskId }) => {

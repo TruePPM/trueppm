@@ -54,6 +54,8 @@ interface LinkRow {
   url: string;
   provider: string;
   title: string;
+  custom_title: string;
+  labels: string[];
   status: string;
   fetched_at: string | null;
   display_order: number;
@@ -114,16 +116,24 @@ async function stubLinks(
 
   await page.route(base, (route) => {
     if (route.request().method() === 'POST') {
-      const body = JSON.parse(route.request().postData() ?? '{}') as { url: string };
+      const body = JSON.parse(route.request().postData() ?? '{}') as {
+        url: string;
+        custom_title?: string;
+        labels?: string[];
+      };
+      // Mirror the server: normalize a scheme-less URL to https:// (#970).
+      const normalized = /:\/\//.test(body.url) ? body.url : `https://${body.url}`;
       const row: LinkRow = {
         id: `link-${links.length + 1}`,
-        url: body.url,
-        provider: body.url.includes('github.com')
+        url: normalized,
+        provider: normalized.includes('github.com')
           ? 'github'
-          : body.url.includes('gitlab.com')
+          : normalized.includes('gitlab.com')
             ? 'gitlab'
             : 'generic',
         title: '',
+        custom_title: body.custom_title ?? '',
+        labels: body.labels ?? [],
         status: 'unknown',
         fetched_at: null,
         display_order: links.length,
@@ -198,6 +208,33 @@ test.describe('Task external links (#637)', () => {
     await expect(row.getByText('MERGED')).toBeVisible();
   });
 
+  test('#970: bare URL + custom title + labels', async ({ page }) => {
+    await stubLinks(page);
+    const section = await openDrawerLinksSection(page);
+
+    // A scheme-less URL is accepted (detect hint shows) — #970.
+    const input = section.getByLabel('Add a link URL');
+    await input.fill('github.com/acme/api/pull/12');
+    await expect(section.getByText(/GitHub detected/i)).toBeVisible();
+
+    // Title + labels are revealed once a URL is entered.
+    await section.getByLabel('Link title').fill('Design spec');
+    const labelInput = section.getByLabel('Add a label');
+    await labelInput.fill('spec');
+    await labelInput.press('Enter');
+
+    await section.getByRole('button', { name: 'Add', exact: true }).click();
+
+    // The row uses the custom title (not the raw URL) and shows the label chip.
+    const row = section.getByRole('listitem', { name: 'Link: Design spec' });
+    await expect(row).toBeVisible();
+    await expect(row.getByRole('link', { name: /Design spec/ })).toHaveAttribute(
+      'href',
+      'https://github.com/acme/api/pull/12',
+    );
+    await expect(row.getByRole('list', { name: 'Labels' }).getByText('spec')).toBeVisible();
+  });
+
   test('error path: refresh without a credential offers a Connect shortcut', async ({ page }) => {
     await stubLinks(page, {
       initial: [
@@ -206,6 +243,8 @@ test.describe('Task external links (#637)', () => {
           url: 'https://github.com/acme/api/pull/9',
           provider: 'github',
           title: '',
+          custom_title: '',
+          labels: [],
           status: 'unknown',
           fetched_at: null,
           display_order: 0,
@@ -235,6 +274,8 @@ test.describe('Task external links (#637)', () => {
           url: 'javascript:alert(document.cookie)',
           provider: 'generic',
           title: 'Click me',
+          custom_title: '',
+          labels: [],
           status: 'unknown',
           fetched_at: null,
           display_order: 0,
