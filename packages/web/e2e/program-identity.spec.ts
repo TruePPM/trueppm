@@ -1,0 +1,129 @@
+import { test, expect, type Page } from '@playwright/test';
+
+/**
+ * Program visual identity & wayfinding (#963).
+ *
+ * The per-program accent color renders as a rounded identity SQUARE on the
+ * sidebar wayfinding surfaces. The square is decorative (aria-hidden) — the
+ * program NAME is always the accessible signal — and an accent-set program
+ * fills the square with its color in both the grouped list header and the
+ * scope-picker option row.
+ */
+
+function seedAuth(page: Page) {
+  return page.addInitScript(() => {
+    localStorage.setItem(
+      'trueppm-auth',
+      JSON.stringify({ state: { accessToken: 'e2e-token', isAuthenticated: true }, version: 0 }),
+    );
+  });
+}
+
+// Cloud Migration has an accent (#7C3AED → rgb(124, 58, 237)); Mobile Platform
+// leaves it unset (neutral square).
+const ACCENT = 'rgb(124, 58, 237)';
+const PROGRAMS = [
+  { id: 'pg-a', name: 'Cloud Migration', code: 'CLD', color: '#7C3AED' },
+  { id: 'pg-b', name: 'Mobile Platform', code: '', color: null },
+];
+
+const PROJECTS = [
+  {
+    id: '1',
+    name: 'Phoenix Rollout',
+    program: 'pg-a',
+    description: '',
+    start_date: '2026-01-01',
+    calendar: 'default',
+  },
+  {
+    id: '2',
+    name: 'Quartz Rollout',
+    program: 'pg-b',
+    description: '',
+    start_date: '2026-01-01',
+    calendar: 'default',
+  },
+];
+
+function paginated<T>(results: T[]) {
+  return JSON.stringify({ count: results.length, next: null, previous: null, results });
+}
+
+test.beforeEach(async ({ page }) => {
+  await seedAuth(page);
+  // Keep the session live so the SessionExpiredBanner overlay never intercepts
+  // clicks (in-memory access token since #897).
+  await page.route('**/api/v1/auth/me/', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: 'e2e-user',
+        email: 'e2e@trueppm.local',
+        username: 'e2e',
+        first_name: 'E2E',
+        last_name: 'User',
+        is_active: true,
+      }),
+    }),
+  );
+  await page.route('**/api/v1/auth/token/refresh/', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ access: 'e2e-token-refreshed' }),
+    }),
+  );
+  await page.route('**/api/v1/projects/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: paginated(PROJECTS) }),
+  );
+  await page.route('**/api/v1/programs/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: paginated(PROGRAMS) }),
+  );
+  await page.route('**/api/v1/me/work/**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        results: [],
+        next: null,
+        previous: null,
+        due_today_count: 0,
+        active_sprints: [],
+        server_version_high_water: 0,
+        retro_action_items: [],
+      }),
+    }),
+  );
+});
+
+function sidebar(page: Page) {
+  return page.locator('aside[aria-label="Projects"]');
+}
+
+test('the grouped list header shows the accent identity square; the name is the accessible signal', async ({
+  page,
+}) => {
+  await page.goto('/me/work');
+  const sb = sidebar(page);
+  // The program NAME is the button's accessible name — the square is decorative.
+  const header = sb.getByRole('button', { name: /Cloud Migration/i });
+  await expect(header).toBeVisible();
+  // The decorative square is filled with the program accent.
+  const square = header.locator('span[aria-hidden="true"]');
+  await expect(square).toHaveCSS('background-color', ACCENT);
+});
+
+test('the scope-picker option row shows the accent identity square next to the program name', async ({
+  page,
+}) => {
+  await page.goto('/me/work');
+  const sb = sidebar(page);
+  await sb.getByRole('button', { name: /Program scope:/i }).click();
+  // The option's accessible name is the program name (color is decorative).
+  const option = sb.getByRole('option', { name: /Cloud Migration/i });
+  await expect(option).toBeVisible();
+  const square = option.locator('span[aria-hidden="true"]');
+  await expect(square).toHaveCSS('background-color', ACCENT);
+});

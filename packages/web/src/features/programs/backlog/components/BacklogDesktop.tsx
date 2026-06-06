@@ -63,6 +63,7 @@ export function BacklogDesktop({ controller }: BacklogDesktopProps) {
     <div className="flex h-full flex-col bg-neutral-surface">
       <BacklogHeader
         programName={controller.programName}
+        program={controller.program}
         canEdit={canEdit}
         onCreate={url.openCreate}
         onImport={() => controller.notify(IMPORT_NOTICE)}
