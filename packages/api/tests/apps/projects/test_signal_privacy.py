@@ -121,27 +121,33 @@ def test_requester_tier_by_role(project: Project, pm: Any, dev: Any) -> None:
     assert svc.requester_signal_tier(_Req(dev), project.pk) == SignalAudience.TEAM  # type: ignore[arg-type]
 
 
-def test_scrum_master_facet_lifts_tier(project: Project, dev: Any) -> None:
-    """A non-admin member with the SM facet resolves to TEAM_SM (wires #927)."""
+def test_scrum_master_reads_as_team_and_can_write(project: Project, dev: Any) -> None:
+    """The SM is a team insider: they read team signals as TEAM (the facet does not
+    raise the *read* band) — but the facet *does* grant the write gate (#927)."""
     team = Team.objects.create(project=project, name="Default", short_id="T01", is_default=True)
     TeamMembership.objects.create(team=team, user=dev, role=TeamRole.MEMBER, is_scrum_master=True)
 
     class _Req:
         user = dev
 
-    assert svc.requester_signal_tier(_Req(), project.pk) == SignalAudience.TEAM_SM  # type: ignore[arg-type]
+    # SM reads as a team insider, not an elevated band.
+    assert svc.requester_signal_tier(_Req(), project.pk) == SignalAudience.TEAM  # type: ignore[arg-type]
+    # ...but the facet grants the write gate: the policy GET reports can_set_audience.
+    resp = _client(dev).get(_url(project))
+    assert resp.status_code == 200
+    assert resp.data["can_set_audience"] is True
 
 
 # --------------------------------------------------------------------------- #
-# Velocity suppression (ADR-0104 §2.1)
+# Velocity suppression (ADR-0104 §2.1) — team-private by default, shared upward
 # --------------------------------------------------------------------------- #
 
 
 def test_velocity_regression_guard_member_reads_full_at_default(
     project: Project, dev: Any, closed_sprints: None
 ) -> None:
-    """The 🔴 regression guard: a plain MEMBER's velocity read at the default policy
-    keeps the full series — no suppression, no velocity_suppressed flag."""
+    """The 🔴 regression guard: an ordinary MEMBER's velocity read at the default
+    policy keeps the full series — the team never loses its own read."""
     resp = _client(dev).get(f"/api/v1/projects/{project.pk}/velocity/")
     assert resp.status_code == 200
     assert len(resp.data["sprints"]) == 2
@@ -149,24 +155,34 @@ def test_velocity_regression_guard_member_reads_full_at_default(
     assert "velocity_suppressed" not in resp.data
 
 
-def test_velocity_suppressed_for_member_after_opt_up(
+def test_velocity_hidden_from_pm_by_default_shared_after_opt_up(
     project: Project, pm: Any, dev: Any, closed_sprints: None
 ) -> None:
-    """After the team opts velocity up to TEAM_SM_PM, a below-tier MEMBER gets the
-    aggregate shape but not the gated series; the PM (tier TEAM_SM_PM) still reads."""
+    """ADR-0104's core guarantee (Morgan's hard-NO): the PM does NOT read velocity at
+    the default (team-private) — only the aggregate shape, no series. The team raising
+    velocity's audience to TEAM_SM_PM is what shares it up to the PM. Ordinary members
+    read throughout."""
+    # Default: PM is suppressed; the ordinary member still reads.
+    pm_default = _client(pm).get(f"/api/v1/projects/{project.pk}/velocity/")
+    assert pm_default.status_code == 200
+    assert pm_default.data["velocity_suppressed"] is True
+    assert pm_default.data["sprints"] == []
+    assert pm_default.data["rolling_avg_points"] is None
+
+    member_default = _client(dev).get(f"/api/v1/projects/{project.pk}/velocity/")
+    assert len(member_default.data["sprints"]) == 2
+
+    # Team shares velocity up to the PM band → the PM now reads the full series.
     policy, _ = ProjectSignalPrivacyPolicy.objects.get_or_create(project=project)
     svc.raise_signal_ceiling(policy, "velocity", SignalAudience.TEAM_SM_PM)
     svc.set_signal_audience(policy, "velocity", SignalAudience.TEAM_SM_PM)
 
-    member_resp = _client(dev).get(f"/api/v1/projects/{project.pk}/velocity/")
-    assert member_resp.status_code == 200
-    assert member_resp.data["velocity_suppressed"] is True
-    assert member_resp.data["sprints"] == []
-    assert member_resp.data["rolling_avg_points"] is None
-
-    pm_resp = _client(pm).get(f"/api/v1/projects/{project.pk}/velocity/")
-    assert pm_resp.status_code == 200
-    assert len(pm_resp.data["sprints"]) == 2
+    pm_shared = _client(pm).get(f"/api/v1/projects/{project.pk}/velocity/")
+    assert pm_shared.status_code == 200
+    assert len(pm_shared.data["sprints"]) == 2
+    assert "velocity_suppressed" not in pm_shared.data
+    # The ordinary member still reads after the upward share (never regressed).
+    assert len(_client(dev).get(f"/api/v1/projects/{project.pk}/velocity/").data["sprints"]) == 2
 
 
 # --------------------------------------------------------------------------- #

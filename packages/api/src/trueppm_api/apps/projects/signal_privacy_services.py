@@ -7,18 +7,22 @@ signal). The model exposes no bare field write — `set_signal_audience` and
 sprint-sovereignty contract: a non-team principal can never move a project's
 audience or ceiling.
 
-**Reader-gate direction (security-critical).** A requester reads a signal's gated
-detail iff their tier is **at or above** the signal's configured audience on the
-ladder — i.e. suppress when `tier < audience` (ADR-0104 §2 path 1, and the three
-authoritative tests in §Testing). At the `TEAM` default every project member's tier
-(`TEAM` or higher) is not below `TEAM`, so the read is byte-for-byte unchanged from
-today and only a non-member is denied; a team raising a signal's audience above
-`TEAM` is what suppresses a below-tier in-project member.
+**Reader-gate direction (security-critical).** The audience ladder measures how far
+*up* (toward management) a signal has been shared. A requester reads a signal's
+gated detail iff their reader band is **within** the audience — ``tier <= audience``
+(suppress when ``tier > audience``). The team band (TEAM — ordinary members,
+viewers, and the Scrum Master) is the floor, so the team **always** reads its own
+signals (ordinary members' read is never regressed); the PM band (TEAM_SM_PM) is
+excluded until the team raises a signal's audience to include it; a non-member is
+outside the ladder and never reads. This delivers ADR-0104's core guarantee
+(velocity/pulse are team-private by default, the PM does not read them automatically
+— Morgan's hard-NO) while keeping every ordinary member's existing read intact.
 
-(Note: ADR-0104 Decision-1's prose "the PM no longer reads velocity automatically"
-is inconsistent with §2's "every project member passes at the TEAM default,
-byte-for-byte unchanged"; §2 + the concrete tests are the contract and are what is
-implemented here. Flagged for confirmation at MR review.)
+This reconciles ADR-0104's internal tension: §1's "no regression" is about *ordinary
+members*, and Decision-1's "the PM no longer reads velocity automatically" is the
+intent — both hold under ``tier <= audience``. §2's earlier "suppress when tier <
+audience" wording (which would have left the PM reading velocity by default) was the
+inverted statement and is corrected here and in the ADR.
 """
 
 from __future__ import annotations
@@ -36,7 +40,6 @@ from trueppm_api.apps.projects.models import (
     SignalAudience,
     signal_audience_rank,
 )
-from trueppm_api.apps.teams.services import has_team_facet
 
 if TYPE_CHECKING:
     from rest_framework.request import Request
@@ -120,25 +123,28 @@ def get_or_create_policy(project: Project) -> ProjectSignalPrivacyPolicy:
 
 
 def requester_signal_tier(request: Request, project_id: Any) -> str | None:
-    """Resolve a requester's ladder tier for signal reads, or None (below TEAM).
+    """Resolve a requester's reader band on the ladder, or None for a non-member.
 
-    ``None`` (non-member — the only way an org/PMO principal arrives) is **below
-    TEAM** and is denied every signal regardless of role ordinal: an Enterprise
+    The ladder measures **management distance**: ``TEAM`` is the team itself
+    (ordinary members, viewers, and the Scrum Master — all team insiders who always
+    read their own team's signals), and ``TEAM_SM_PM`` is the PM/management band.
+    A signal is read iff the requester's band is *within* the signal's audience
+    (``tier <= audience``, see :func:`audience_can_read`), so the team always reads
+    its own signals while the PM is excluded until the team shares upward.
+
+    ``None`` (non-member — the only way an org/PMO principal arrives) is below the
+    ladder and is denied every signal regardless of role ordinal: an Enterprise
     custom role above OWNER that is not a project member has no ``ProjectMembership``
-    row, so it never passes (the back-door close, ADR-0104 §2). A project Admin (the
-    PM) is the top in-project tier; the Scrum-Master facet (ADR-0078 / #927) sits one
-    rung below; ordinary members and viewers are TEAM.
+    row, so it never passes (the back-door close, ADR-0104 §2). The Scrum-Master
+    facet (ADR-0078 / #927) does **not** raise the *read* band — the SM is a team
+    insider who reads as TEAM; the facet grants the *write* gate instead.
     """
     role = _membership_role(request, project_id)
     if role is None:
         return None
     if role >= Role.ADMIN:
-        return SignalAudience.TEAM_SM_PM
-    # SM facet elevates a non-admin member to the SM rung (wires #927 directly,
-    # retiring ADR-0104's interim role>=ADMIN fallback).
-    if has_team_facet(request.user, project_id, "is_scrum_master"):
-        return SignalAudience.TEAM_SM
-    return SignalAudience.TEAM
+        return SignalAudience.TEAM_SM_PM  # the PM / management band
+    return SignalAudience.TEAM  # ordinary members, viewers, and the SM are the team
 
 
 def audience_can_read(
@@ -146,12 +152,16 @@ def audience_can_read(
 ) -> bool:
     """Whether a requester at ``requester_tier`` may read ``signal_key``'s gated detail.
 
-    Read iff the tier is at or above the signal's audience on the ladder. A non-member
-    (``requester_tier is None``) is below every rung and never reads.
+    Read iff the requester's band is **within** the signal's audience on the ladder
+    (``tier <= audience``) — the team (TEAM) always reads its own signals; the PM
+    (TEAM_SM_PM) reads only once the team has shared the signal up to its band; the
+    program rollup reads only at PROGRAM_SHARED. Raising the audience *widens* who
+    can see a signal (shares upward); it never hides it from the team. A non-member
+    (``requester_tier is None``) is outside the ladder and never reads.
     """
     if requester_tier is None:
         return False
-    return signal_audience_rank(requester_tier) >= signal_audience_rank(
+    return signal_audience_rank(requester_tier) <= signal_audience_rank(
         policy.audience_of(signal_key)
     )
 
@@ -173,7 +183,7 @@ def can_read_signal(request: Request, project_id: Any, signal_key: str) -> bool:
         if policy is not None
         else SIGNAL_DEFAULTS.get(signal_key, {"audience": SignalAudience.TEAM})["audience"]
     )
-    return signal_audience_rank(tier) >= signal_audience_rank(audience)
+    return signal_audience_rank(tier) <= signal_audience_rank(audience)
 
 
 # Velocity_summary fields that are team-private detail (the series + the

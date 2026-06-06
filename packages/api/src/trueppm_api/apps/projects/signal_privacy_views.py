@@ -98,14 +98,13 @@ def _is_facilitator_or_admin(request: Request, project_id: Any) -> bool:
 def _serialize_policy(
     request: Request, project_id: Any, policy: ProjectSignalPrivacyPolicy
 ) -> dict[str, Any]:
-    tier = requester_signal_tier(request, project_id)
-    # The write gate is "facilitator (TEAM_SM) or admin (TEAM_SM_PM)" — exactly the
-    # top two reader tiers — so derive it from the already-resolved tier rather than
-    # issuing a second has_team_facet query (perf).
-    can_write = tier in (SignalAudience.TEAM_SM, SignalAudience.TEAM_SM_PM)
+    # The reader band (TEAM for the team incl. the SM; TEAM_SM_PM for the PM) does
+    # not encode the SM *write* capability, so the write gate is checked directly:
+    # facilitator (SM facet) OR project Admin.
+    can_write = _is_facilitator_or_admin(request, project_id)
     return {
         "signals": {key: policy.resolved(key) for key in SIGNAL_KEYS},
-        "requester_tier": tier,
+        "requester_tier": requester_signal_tier(request, project_id),
         # set-audience and the 0.3 raise-ceiling share the same interim gate; they
         # diverge at the 0.4 team-vote (#930), so they are reported separately now.
         "can_set_audience": can_write,
