@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import type { Program } from '@/api/types';
 import type { ProjectScope } from '@/stores/shellStore';
+import { ProgramIdentitySquare } from '@/features/programs/ProgramIdentitySquare';
 
 interface ScopeOption {
   /** 'all' | 'none' | programId */
@@ -8,6 +9,24 @@ interface ScopeOption {
   name: string;
   /** Number of projects in this scope. */
   count: number;
+  /** Program accent color (#963); null for "All programs" / "No program". */
+  color: string | null;
+}
+
+/** The generic grid glyph for the non-program scopes ("All" / "No program"). */
+function ScopeGridGlyph({ className, size = 15 }: { className?: string; size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 14 14"
+      fill="currentColor"
+      aria-hidden="true"
+      className={className ?? 'shrink-0 text-brand-primary'}
+    >
+      <path d="M2 2h4v4H2V2zm6 0h4v4H8V2zM2 8h4v4H2V8zm6 0h4v4H8V8z" />
+    </svg>
+  );
 }
 
 interface Props {
@@ -58,14 +77,14 @@ export function ProjectScopePicker({
     const q = query.trim().toLowerCase();
     const matchesAll = !q || 'all programs'.includes(q);
     const base: ScopeOption[] = matchesAll
-      ? [{ id: 'all', name: 'All programs', count: totalCount }]
+      ? [{ id: 'all', name: 'All programs', count: totalCount, color: null }]
       : [];
     const progOpts: ScopeOption[] = programs
       .filter((p) => !q || p.name.toLowerCase().includes(q))
-      .map((p) => ({ id: p.id, name: p.name, count: countFor(p.id) }));
+      .map((p) => ({ id: p.id, name: p.name, count: countFor(p.id), color: p.color }));
     const noneOpt: ScopeOption[] =
       noProgramCount > 0 && (!q || 'no program'.includes(q))
-        ? [{ id: 'none', name: 'No program', count: noProgramCount }]
+        ? [{ id: 'none', name: 'No program', count: noProgramCount, color: null }]
         : [];
     return [...base, ...progOpts, ...noneOpt];
   }, [query, programs, countFor, totalCount, noProgramCount]);
@@ -77,11 +96,12 @@ export function ProjectScopePicker({
         ? 'No program'
         : (programs.find((p) => p.id === scope)?.name ?? 'All programs');
   const scopeCount =
-    scope === 'all'
-      ? totalCount
-      : scope === 'none'
-        ? noProgramCount
-        : countFor(scope);
+    scope === 'all' ? totalCount : scope === 'none' ? noProgramCount : countFor(scope);
+  // When scoped to a single program, the trigger leads with its identity square
+  // instead of the generic grid glyph (#963). "All programs" / "No program" keep
+  // the glyph — they are not a single program's identity.
+  const scopedProgram =
+    scope !== 'all' && scope !== 'none' ? (programs.find((p) => p.id === scope) ?? null) : null;
 
   // Keep the active descendant in range as the filtered list shrinks/grows.
   useEffect(() => {
@@ -166,7 +186,12 @@ export function ProjectScopePicker({
             focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface"
         >
           <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
-            <path d="M6 1v10M1 6h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            <path
+              d="M6 1v10M1 6h10"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+            />
           </svg>
         </button>
       </div>
@@ -186,17 +211,12 @@ export function ProjectScopePicker({
           'focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface',
         ].join(' ')}
       >
-        {/* Programs (grid) glyph */}
-        <svg
-          width="15"
-          height="15"
-          viewBox="0 0 14 14"
-          fill="currentColor"
-          aria-hidden="true"
-          className="shrink-0 text-brand-primary"
-        >
-          <path d="M2 2h4v4H2V2zm6 0h4v4H8V2zM2 8h4v4H2V8zm6 0h4v4H8V8z" />
-        </svg>
+        {/* Identity square when scoped to one program; grid glyph otherwise. */}
+        {scopedProgram ? (
+          <ProgramIdentitySquare program={scopedProgram} size="sm" />
+        ) : (
+          <ScopeGridGlyph />
+        )}
         <span className="min-w-0 flex-1 truncate text-sm font-medium text-chrome-text-primary">
           {scopeName}
         </span>
@@ -212,18 +232,35 @@ export function ProjectScopePicker({
           className="shrink-0 text-chrome-text-secondary transition-transform"
           style={{ transform: open ? 'rotate(90deg)' : 'none' }}
         >
-          <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          <path
+            d="M6 4l4 4-4 4"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
         </svg>
       </button>
 
       {open && (
-        <div
-          className="absolute left-2 right-2 z-30 mt-1 overflow-hidden rounded-lg border border-chrome-border/20 bg-chrome-surface-raised"
-        >
+        <div className="absolute left-2 right-2 z-30 mt-1 overflow-hidden rounded-lg border border-chrome-border/20 bg-chrome-surface-raised">
           <div className="border-b border-chrome-border/10 p-2">
             <div className="flex h-8 items-center gap-2 rounded-md border border-chrome-border/15 bg-chrome-surface px-2 focus-within:border-brand-primary">
-              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true" className="shrink-0 text-chrome-text-secondary">
-                <path d="M7 11.5a4.5 4.5 0 100-9 4.5 4.5 0 000 9zM10.6 10.6l2.9 2.9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 16 16"
+                fill="none"
+                aria-hidden="true"
+                className="shrink-0 text-chrome-text-secondary"
+              >
+                <path
+                  d="M7 11.5a4.5 4.5 0 100-9 4.5 4.5 0 000 9zM10.6 10.6l2.9 2.9"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
               </svg>
               <input
                 ref={inputRef}
@@ -231,7 +268,9 @@ export function ProjectScopePicker({
                 role="combobox"
                 aria-expanded="true"
                 aria-controls={listboxId}
-                aria-activedescendant={options[activeIndex] ? `${optionPrefix}-${activeIndex}` : undefined}
+                aria-activedescendant={
+                  options[activeIndex] ? `${optionPrefix}-${activeIndex}` : undefined
+                }
                 aria-label="Filter programs"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
@@ -241,7 +280,12 @@ export function ProjectScopePicker({
               />
             </div>
           </div>
-          <ul id={listboxId} role="listbox" aria-label="Program scope" className="max-h-56 overflow-y-auto p-1.5">
+          <ul
+            id={listboxId}
+            role="listbox"
+            aria-label="Program scope"
+            className="max-h-56 overflow-y-auto p-1.5"
+          >
             {options.map((opt, i) => {
               const selected = scope === opt.id;
               const active = i === activeIndex;
@@ -263,6 +307,16 @@ export function ProjectScopePicker({
                     active ? 'bg-neutral-text-primary/5' : '',
                   ].join(' ')}
                 >
+                  {/* Leading identity square for a program row; grid glyph for the
+                      "All programs" / "No program" rows (#963). */}
+                  {opt.id === 'all' || opt.id === 'none' ? (
+                    <ScopeGridGlyph size={11} className="shrink-0 text-chrome-text-secondary" />
+                  ) : (
+                    <ProgramIdentitySquare
+                      program={{ color: opt.color, code: '', name: opt.name }}
+                      size="sm"
+                    />
+                  )}
                   <span className={`min-w-0 flex-1 truncate ${selected ? 'font-semibold' : ''}`}>
                     {opt.name}
                   </span>
@@ -270,15 +324,31 @@ export function ProjectScopePicker({
                     {opt.count}
                   </span>
                   {selected && (
-                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true" className="shrink-0 text-brand-primary">
-                      <path d="M3 8.5l3 3 7-7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                    <svg
+                      width="13"
+                      height="13"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      aria-hidden="true"
+                      className="shrink-0 text-brand-primary"
+                    >
+                      <path
+                        d="M3 8.5l3 3 7-7"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
                     </svg>
                   )}
                 </li>
               );
             })}
             {options.length === 0 && (
-              <li role="status" className="px-2 py-3 text-center text-sm text-chrome-text-secondary">
+              <li
+                role="status"
+                className="px-2 py-3 text-center text-sm text-chrome-text-secondary"
+              >
                 No programs match
               </li>
             )}

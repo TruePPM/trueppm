@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page, type Locator } from '@playwright/test';
 
 /**
  * E2E coverage for the Subtasks drawer section (ADR-0060 #308).
@@ -103,7 +103,11 @@ async function setupRoutes(page: Page, tasks: object[]) {
   // Registered first so specific mocks (registered later) take precedence —
   // Playwright matches routes in LIFO order.
   await page.route('**/api/v1/**', (route) =>
-    route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ detail: 'not mocked' }) }),
+    route.fulfill({
+      status: 404,
+      contentType: 'application/json',
+      body: JSON.stringify({ detail: 'not mocked' }),
+    }),
   );
 
   await page.route('**/api/v1/auth/me/', (route) =>
@@ -159,10 +163,18 @@ async function setupRoutes(page: Page, tasks: object[]) {
     }),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/attention/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [] }) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ items: [] }),
+    }),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/my-tasks/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ tasks: [] }) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ tasks: [] }),
+    }),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/members/**`, (route) =>
     route.fulfill({
@@ -218,32 +230,42 @@ async function openDrawer(page: Page, taskName: string) {
   return drawer;
 }
 
+/**
+ * Open the drawer and switch to the Subtasks tab (#962). The Subtasks section
+ * is the first (and only) section in that tab, so it renders expanded — no
+ * extra section-header click is needed.
+ */
+async function openSubtasksTab(page: Page, taskName: string): Promise<Locator> {
+  const drawer = await openDrawer(page, taskName);
+  await drawer.getByRole('tab', { name: 'Subtasks' }).click();
+  return drawer;
+}
+
 test.describe('Subtasks drawer section', () => {
-  test('Subtasks section appears in drawer for a regular task', async ({ page }) => {
+  test('Subtasks tab opens the subtasks section for a regular task', async ({ page }) => {
     await setupRoutes(page, [PARENT_TASK]);
-    const drawer = await openDrawer(page, 'Implement feature');
-    await expect(drawer.getByRole('button', { name: 'Subtasks' })).toBeVisible();
+    const drawer = await openSubtasksTab(page, 'Implement feature');
+    await expect(drawer.getByRole('region', { name: 'Subtasks' })).toBeVisible();
   });
 
   test('shows empty-state when task has no subtasks', async ({ page }) => {
     await setupRoutes(page, [PARENT_TASK]);
-    const drawer = await openDrawer(page, 'Implement feature');
-    await drawer.getByRole('button', { name: 'Subtasks' }).click();
+    const drawer = await openSubtasksTab(page, 'Implement feature');
     await expect(drawer.getByText(/No subtasks yet/i)).toBeVisible({ timeout: 5_000 });
   });
 
   test('Add subtask button opens inline form', async ({ page }) => {
     await setupRoutes(page, [PARENT_TASK]);
-    const drawer = await openDrawer(page, 'Implement feature');
-    await drawer.getByRole('button', { name: 'Subtasks' }).click();
+    const drawer = await openSubtasksTab(page, 'Implement feature');
     await drawer.getByRole('button', { name: /add subtask/i }).click();
-    await expect(drawer.getByRole('textbox', { name: /new subtask name/i })).toBeVisible({ timeout: 3_000 });
+    await expect(drawer.getByRole('textbox', { name: /new subtask name/i })).toBeVisible({
+      timeout: 3_000,
+    });
   });
 
   test('cancel button dismisses inline form', async ({ page }) => {
     await setupRoutes(page, [PARENT_TASK]);
-    const drawer = await openDrawer(page, 'Implement feature');
-    await drawer.getByRole('button', { name: 'Subtasks' }).click();
+    const drawer = await openSubtasksTab(page, 'Implement feature');
     await drawer.getByRole('button', { name: /add subtask/i }).click();
     await drawer.getByRole('button', { name: /cancel adding subtask/i }).click();
     await expect(drawer.getByRole('textbox', { name: /new subtask name/i })).not.toBeVisible();
@@ -251,8 +273,7 @@ test.describe('Subtasks drawer section', () => {
 
   test('renders existing subtasks with progress rollup bar', async ({ page }) => {
     await setupRoutes(page, [PARENT_TASK, SUBTASK_IN_PROGRESS, SUBTASK_COMPLETE]);
-    const drawer = await openDrawer(page, 'Implement feature');
-    await drawer.getByRole('button', { name: 'Subtasks' }).click();
+    const drawer = await openSubtasksTab(page, 'Implement feature');
 
     // Both subtask names appear.
     await expect(drawer.getByText('Write unit tests')).toBeVisible({ timeout: 5_000 });
@@ -261,14 +282,15 @@ test.describe('Subtasks drawer section', () => {
     // Progress bar is present.
     await expect(drawer.getByRole('progressbar', { name: /subtask completion/i })).toBeVisible();
 
-    // Completion count badge shows "1/2".
-    await expect(drawer.getByText('1/2')).toBeVisible();
+    // Completion count badge shows "1/2" — scope to the section region so it
+    // does not collide with the matching count on the Subtasks tab itself.
+    const section = drawer.getByRole('region', { name: 'Subtasks' });
+    await expect(section.getByText('1/2')).toBeVisible();
   });
 
   test('shows depth-1 guard message for subtask-of-subtask', async ({ page }) => {
     await setupRoutes(page, [SUBTASK_TASK]);
-    const drawer = await openDrawer(page, 'A leaf subtask');
-    await drawer.getByRole('button', { name: 'Subtasks' }).click();
+    const drawer = await openSubtasksTab(page, 'A leaf subtask');
     await expect(drawer.getByText(/cannot be nested/i)).toBeVisible({ timeout: 5_000 });
     await expect(drawer.getByRole('button', { name: /add subtask/i })).not.toBeVisible();
   });

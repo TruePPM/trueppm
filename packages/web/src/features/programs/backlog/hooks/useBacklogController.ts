@@ -10,6 +10,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { Program } from '@/api/types';
 import { useProgram } from '@/hooks/useProgram';
 import { ROLE_ADMIN, ROLE_OWNER } from '@/lib/roles';
 import {
@@ -53,6 +54,8 @@ function errorMessage(error: unknown): string {
 export interface BacklogController {
   programId: string | undefined;
   programName: string | undefined;
+  /** Program identity fields for the backlog header marker (#963). */
+  program: Pick<Program, 'color' | 'code' | 'name'> | undefined;
   isLoading: boolean;
   /** Page-level error class, derived from the query error status. */
   errorKind: 'forbidden' | 'not-found' | 'generic' | null;
@@ -220,6 +223,9 @@ export function useBacklogController(
   return {
     programId,
     programName: program?.name,
+    // Identity fields for the backlog header marker (#963). A single-program
+    // board marks the program once in the header — never per row.
+    program: program ? { color: program.color, code: program.code, name: program.name } : undefined,
     isLoading: itemsQuery.isLoading,
     errorKind: itemsQuery.isError ? errorKind : null,
 

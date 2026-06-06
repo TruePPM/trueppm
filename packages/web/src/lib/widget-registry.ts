@@ -14,23 +14,23 @@
 import type { ComponentType } from 'react';
 
 export type SlotId =
-  | 'project_overview.kpi_row'       // additional KPI cards right of the 4 OSS cards
-  | 'project_overview.hero_right'    // replaces/extends the "Needs attention" panel
-  | 'project_overview.below_hero'    // rows injected below the hero row
-  | 'nav.portfolio_section'          // nav rail section above the project switcher
-  | 'top_bar.context'                // items to the right of the project name chip
-  | 'routes'                         // additional React Router routes (path + element)
+  | 'project_overview.kpi_row' // additional KPI cards right of the 4 OSS cards
+  | 'project_overview.hero_right' // replaces/extends the "Needs attention" panel
+  | 'project_overview.below_hero' // rows injected below the hero row
+  | 'nav.portfolio_section' // nav rail section above the project switcher
+  | 'top_bar.context' // items to the right of the project name chip
+  | 'routes' // additional React Router routes (path + element)
   // --- Resource catalog slots (issue #155, ADR-0034) ---
-  | 'resources_page.toolbar_end'        // Enterprise: "Sync from LDAP" button + last-synced timestamp
-  | 'resources_page.detail_managed_by'  // Enterprise: "Managed by Active Directory" badge in detail pane
+  | 'resources_page.toolbar_end' // Enterprise: "Sync from LDAP" button + last-synced timestamp
+  | 'resources_page.detail_managed_by' // Enterprise: "Managed by Active Directory" badge in detail pane
   | 'resources_page.create_form_extension' // Enterprise: extra fields in the create/edit form
   // --- Resource heatmap slots (issue #217 / ADR-0042) ---
-  | 'resources_heatmap.level_loads'     // Enterprise: replaces the static disabled "Level loads" upsell button
+  | 'resources_heatmap.level_loads' // Enterprise: replaces the static disabled "Level loads" upsell button
   // --- Task detail drawer slots (issue #309 / ADR-0050) ---
-  | 'task_detail.section'               // sections inside TaskDetailDrawer (OSS + Enterprise)
-  | 'task_detail.external_links'        // external link cards (separate from .section to avoid the priority ladder collision; ADR-0076)
+  | 'task_detail.section' // sections inside TaskDetailDrawer (OSS + Enterprise)
+  | 'task_detail.external_links' // external link cards (separate from .section to avoid the priority ladder collision; ADR-0076)
   // --- Project settings slots (issue #569 / ADR-0076) ---
-  | 'project_settings.integrations'    // extra cards rendered below the OSS three sections (Enterprise extension point)
+  | 'project_settings.integrations' // extra cards rendered below the OSS three sections (Enterprise extension point)
   // --- User settings slots (issue #587 / ADR-0049) ---
   | 'user_settings.connected_accounts'; // extra provider cards on User → Settings → Connected Accounts (Enterprise extension point — Jira / ServiceNow / Bitbucket / Azure DevOps register here)
 
@@ -53,6 +53,11 @@ export interface SlotRegistration<T = ComponentType<any>> {
    * knowing about licensing rules.
    */
   canRender?: (ctx: unknown) => boolean;
+  /**
+   * Optional drawer tab grouping. Only meaningful for `task_detail.section`
+   * registrations (#962) — ignored by other slots. See {@link DrawerSectionTab}.
+   */
+  tab?: DrawerSectionTab;
 }
 
 export class WidgetRegistry {
@@ -106,6 +111,14 @@ export interface DrawerSectionProps {
 }
 
 /**
+ * The four fixed tabs the task detail drawer groups its sections under
+ * (#962, tabbed redesign). A tab is a presentation grouping layered on top of
+ * the priority ladder — it does NOT replace it: sections still register with a
+ * priority and render in priority order *within* their tab.
+ */
+export type DrawerSectionTab = 'details' | 'subtasks' | 'activity' | 'files';
+
+/**
  * Context passed to `canRender` for drawer-section registrations. Sections
  * use this to gate visibility — typically Enterprise sections check whether
  * the user holds the required license/role. OSS sections rarely need it.
@@ -127,8 +140,18 @@ export interface DrawerSectionContext {
  *  900 History · 1000 Baseline. Enterprise picks any non-multiple of 100
  *  between (e.g. 250 for Custom Fields).
  */
-export interface DrawerSectionRegistration
-  extends Omit<SlotRegistration<ComponentType<DrawerSectionProps>>, 'canRender'> {
+export interface DrawerSectionRegistration extends Omit<
+  SlotRegistration<ComponentType<DrawerSectionProps>>,
+  'canRender'
+> {
   title: string;
   canRender?: (ctx: DrawerSectionContext) => boolean;
+  /**
+   * Which tab this section renders under in the drawer (#962). Optional and
+   * backward-compatible: a registration that omits `tab` (including every
+   * existing Enterprise registration) falls into the `details` tab, so adding
+   * tabs does not break the extension-point contract. OSS sets it explicitly
+   * in `sections/index.ts`.
+   */
+  tab?: DrawerSectionTab;
 }

@@ -74,15 +74,21 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
     if (projectScope !== 'all') return [];
     const q = query.trim().toLowerCase();
     const allProjects = projects ?? [];
-    const matches = (p: (typeof allProjects)[number]) =>
-      !q || p.name.toLowerCase().includes(q);
-    const groups: { id: string; name: string; projects: typeof allProjects }[] = [];
+    const matches = (p: (typeof allProjects)[number]) => !q || p.name.toLowerCase().includes(q);
+    const groups: {
+      id: string;
+      name: string;
+      color: string | null;
+      projects: typeof allProjects;
+    }[] = [];
     for (const prog of programs ?? []) {
       const kids = allProjects.filter((p) => p.programId === prog.id && matches(p));
-      if (kids.length) groups.push({ id: prog.id, name: prog.name, projects: kids });
+      if (kids.length)
+        groups.push({ id: prog.id, name: prog.name, color: prog.color, projects: kids });
     }
     const orphans = allProjects.filter((p) => !p.programId && matches(p));
-    if (orphans.length) groups.push({ id: NONE_GROUP, name: 'No program', projects: orphans });
+    if (orphans.length)
+      groups.push({ id: NONE_GROUP, name: 'No program', color: null, projects: orphans });
     return groups;
   }, [projectScope, programs, projects, query]);
 
@@ -150,7 +156,10 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
                 viewBox="0 0 16 16"
                 fill="currentColor"
                 aria-hidden="true"
-                style={{ transform: sidebarCollapsed ? 'rotate(180deg)' : 'none', transition: 'transform 200ms ease-out' }}
+                style={{
+                  transform: sidebarCollapsed ? 'rotate(180deg)' : 'none',
+                  transition: 'transform 200ms ease-out',
+                }}
               >
                 <path d="M10.5 8L6 3.5 4.5 5l3 3-3 3L6 12.5l4.5-4.5z" />
               </svg>
@@ -177,7 +186,14 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               }
             >
               <span className="inline-flex items-center gap-2 min-w-0">
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true" className="shrink-0">
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 14 14"
+                  fill="currentColor"
+                  aria-hidden="true"
+                  className="shrink-0"
+                >
                   <path d="M2 3h10v2H2V3zm0 3h10v2H2V6zm0 3h6v2H2V9z" />
                 </svg>
                 My Work
@@ -208,11 +224,20 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
                 ].join(' ')
               }
             >
-              <svg width="16" height="16" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 14 14"
+                fill="currentColor"
+                aria-hidden="true"
+              >
                 <path d="M2 3h10v2H2V3zm0 3h10v2H2V6zm0 3h6v2H2V9z" />
               </svg>
               {dueTodayCount > 0 && (
-                <span aria-hidden="true" className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-semantic-critical" />
+                <span
+                  aria-hidden="true"
+                  className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-semantic-critical"
+                />
               )}
             </NavLink>
           </div>
@@ -245,7 +270,9 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
                   aria-label={`Projects, ${scopedProjects.length}`}
                 >
                   PROJECTS{' '}
-                  <span className="tppm-mono normal-case tracking-normal">· {scopedProjects.length}</span>
+                  <span className="tppm-mono normal-case tracking-normal">
+                    · {scopedProjects.length}
+                  </span>
                 </h2>
                 {/* Touch targets are 44×44px; icons stay 12×12px visually (Rule 5) */}
                 <div className="flex items-center -mr-2">
@@ -260,8 +287,13 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
                       focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface"
                   >
                     <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                      <path d="M6 8V1m0 0L3.5 3.5M6 1l2.5 2.5M2 8.5v1A1.5 1.5 0 003.5 11h5A1.5 1.5 0 0010 9.5v-1"
-                        stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                      <path
+                        d="M6 8V1m0 0L3.5 3.5M6 1l2.5 2.5M2 8.5v1A1.5 1.5 0 003.5 11h5A1.5 1.5 0 0010 9.5v-1"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
                     </svg>
                   </button>
                   <button
@@ -273,8 +305,19 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
                       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
                       focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface"
                   >
-                    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
-                      <path d="M6 1v10M1 6h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 12 12"
+                      fill="currentColor"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M6 1v10M1 6h10"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                      />
                     </svg>
                   </button>
                 </div>
@@ -285,14 +328,29 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               {totalCount > 0 && (
                 <div className="px-2 pb-2">
                   <div className="flex h-8 items-center gap-2 rounded-md border border-chrome-border/15 bg-chrome-surface-raised px-2 focus-within:border-brand-primary">
-                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true" className="shrink-0 text-chrome-text-secondary">
-                      <path d="M7 11.5a4.5 4.5 0 100-9 4.5 4.5 0 000 9zM10.6 10.6l2.9 2.9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                    <svg
+                      width="13"
+                      height="13"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      aria-hidden="true"
+                      className="shrink-0 text-chrome-text-secondary"
+                    >
+                      <path
+                        d="M7 11.5a4.5 4.5 0 100-9 4.5 4.5 0 000 9zM10.6 10.6l2.9 2.9"
+                        stroke="currentColor"
+                        strokeWidth="1.6"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
                     </svg>
                     <input
                       type="text"
                       value={query}
                       onChange={(e) => setQuery(e.target.value)}
-                      placeholder={projectScope === 'all' ? 'Search all projects…' : `Search in ${scopeName}…`}
+                      placeholder={
+                        projectScope === 'all' ? 'Search all projects…' : `Search in ${scopeName}…`
+                      }
                       aria-label="Search projects"
                       className="min-w-0 flex-1 bg-transparent text-sm text-chrome-text-primary outline-none placeholder:text-chrome-text-secondary"
                     />
@@ -307,7 +365,11 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
             {isLoading ? (
               <ul className="space-y-1 px-2" aria-label="Loading projects">
                 {[1, 2, 3, 4].map((i) => (
-                  <li key={i} className="h-8 rounded animate-pulse bg-neutral-text-primary/5" aria-hidden="true" />
+                  <li
+                    key={i}
+                    className="h-8 rounded animate-pulse bg-neutral-text-primary/5"
+                    aria-hidden="true"
+                  />
                 ))}
               </ul>
             ) : error ? (
@@ -331,15 +393,17 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
                     <ProjectGroup
                       key={g.id}
                       name={g.name}
+                      color={g.color}
                       projects={g.projects}
                       collapsed={!!collapsedGroups[g.id]}
-                      onToggle={() =>
-                        setCollapsedGroups((s) => ({ ...s, [g.id]: !s[g.id] }))
-                      }
+                      onToggle={() => setCollapsedGroups((s) => ({ ...s, [g.id]: !s[g.id] }))}
                     />
                   ))
                 ) : (
-                  <li role="status" className="px-3 py-3 text-center text-xs text-chrome-text-secondary">
+                  <li
+                    role="status"
+                    className="px-3 py-3 text-center text-xs text-chrome-text-secondary"
+                  >
                     No projects match
                   </li>
                 )}
@@ -351,7 +415,10 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
                   <ProjectListItem key={project.id} project={project} collapsed={false} />
                 ))}
                 {scopedProjects.length === 0 && (
-                  <li role="status" className="px-3 py-3 text-center text-xs text-chrome-text-secondary">
+                  <li
+                    role="status"
+                    className="px-3 py-3 text-center text-xs text-chrome-text-secondary"
+                  >
                     No projects match
                   </li>
                 )}
@@ -377,7 +444,14 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               }
             >
               {/* People / users icon */}
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true" className="shrink-0">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 14 14"
+                fill="currentColor"
+                aria-hidden="true"
+                className="shrink-0"
+              >
                 <path d="M5 6.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm-3 4.5a3 3 0 0 1 6 0H2Zm7-4.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm1 1.5c.7.3 1.3.8 1.7 1.4A3 3 0 0 0 9 11h-.5A4 4 0 0 0 9 9a3 3 0 0 0-.3-1.3c.4-.1.8-.2 1.3-.2Z" />
               </svg>
               Resources
@@ -396,7 +470,14 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               }
             >
               {/* Gear / settings icon */}
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" className="shrink-0">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 14 14"
+                fill="none"
+                aria-hidden="true"
+                className="shrink-0"
+              >
                 <path
                   d="M5.5 1.5h3l.5 1.5a4 4 0 0 1 1.2.7l1.5-.5 1.5 2.6-1.2 1.1a4 4 0 0 1 0 1.2l1.2 1.1-1.5 2.6-1.5-.5A4 4 0 0 1 9 12l-.5 1.5h-3L5 12a4 4 0 0 1-1.2-.7l-1.5.5L.8 9.2 2 8.1a4 4 0 0 1 0-1.2L.8 5.8 2.3 3.2l1.5.5A4 4 0 0 1 5 2.5L5.5 1ZM7 9a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"
                   stroke="currentColor"
@@ -423,7 +504,13 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
                 ].join(' ')
               }
             >
-              <svg width="16" height="16" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 14 14"
+                fill="currentColor"
+                aria-hidden="true"
+              >
                 <path d="M5 6.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm-3 4.5a3 3 0 0 1 6 0H2Zm7-4.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm1 1.5c.7.3 1.3.8 1.7 1.4A3 3 0 0 0 9 11h-.5A4 4 0 0 0 9 9a3 3 0 0 0-.3-1.3c.4-.1.8-.2 1.3-.2Z" />
               </svg>
             </NavLink>

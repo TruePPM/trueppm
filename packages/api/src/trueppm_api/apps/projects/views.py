@@ -152,6 +152,18 @@ logger = logging.getLogger(__name__)
 # downstream third-party consumers from arbitrary Unicode or oversized strings.
 _VALID_SOURCE = re.compile(r"[a-z_]{1,64}")
 
+# Task fields whose mutation never changes the CPM schedule, so a PATCH touching
+# *only* these must not enqueue a whole-project recalculation (#965). This is a
+# conservative DENYLIST: any field not listed here still triggers a recalc, so a
+# new scheduling input added later defaults to the safe (recalc) behavior.
+#   - percent_complete: carried to the engine but never read by the CPM
+#     forward/backward pass (verified against trueppm_scheduler.engine) — it is
+#     reporting data, not a scheduling input.
+#   - notes / name: pure metadata.
+# Status, dates, duration, PERT estimates, sprint, parent, etc. are deliberately
+# absent — they can move the schedule and must keep recalculating immediately.
+_NON_SCHEDULE_TASK_FIELDS = frozenset({"percent_complete", "notes", "name"})
+
 
 class CalendarViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]):
     """CRUD for project calendars.
@@ -2138,7 +2150,18 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         from trueppm_api.apps.projects.services import maybe_record_scope_injection
 
         maybe_record_scope_injection(instance, old_sprint_id, self.request.user)
-        transaction.on_commit(lambda: _enqueue_recalculate(project_id))
+
+        # Only recalculate when a schedule-affecting field changed (#965). A
+        # PATCH that touches only non-scheduling fields (progress, notes, name)
+        # would otherwise enqueue a full-project CPM recalc on every keystroke —
+        # the dominant source of drawer-edit lag. `validated_data` holds exactly
+        # the fields this partial update wrote, so an empty/subset-of-denylist
+        # write skips the recalc; everything else still recalculates immediately.
+        changed_fields = set(getattr(serializer, "validated_data", {}).keys())
+        if not changed_fields or not changed_fields <= _NON_SCHEDULE_TASK_FIELDS:
+            transaction.on_commit(lambda: _enqueue_recalculate(project_id))
+        # The board broadcast always fires — collaborators must see a progress or
+        # name change land even though it doesn't move the schedule.
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "task_updated", {"id": task_id})
         )

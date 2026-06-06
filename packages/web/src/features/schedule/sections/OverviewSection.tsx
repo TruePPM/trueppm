@@ -23,11 +23,7 @@ const SELECT_CLASS =
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1';
 
 /** Statuses that require a BacklogDemoteConfirmDialog before demoting to BACKLOG. */
-const DEMOTION_GUARD: ReadonlySet<TaskStatus> = new Set([
-  'IN_PROGRESS',
-  'REVIEW',
-  'COMPLETE',
-]);
+const DEMOTION_GUARD: ReadonlySet<TaskStatus> = new Set(['IN_PROGRESS', 'REVIEW', 'COMPLETE']);
 
 /**
  * Overview — the always-open default section per ADR-0050.
@@ -60,9 +56,9 @@ export function OverviewSection({ taskId, projectId }: DrawerSectionProps) {
   // milestones are leaves, not summaries, so this branch is independent.
   const milestoneRollupActive = Boolean(
     task.isMilestone &&
-      task.milestoneRollup &&
-      task.milestoneRollup.rollup_basis !== 'none' &&
-      task.milestoneRollup.percent_complete != null,
+    task.milestoneRollup &&
+    task.milestoneRollup.rollup_basis !== 'none' &&
+    task.milestoneRollup.percent_complete != null,
   );
 
   function handleStatusChange(e: ChangeEvent<HTMLSelectElement>) {
@@ -107,111 +103,104 @@ export function OverviewSection({ taskId, projectId }: DrawerSectionProps) {
     );
   }
 
-  // Description field is not yet exposed on the Task type — wired in a
-  // follow-up MR alongside the API mapping (`notes` exists on the backend
-  // model). Until then the placeholder keeps the section's structure stable.
-  const description: string | undefined = undefined;
-
   return (
     <div className="space-y-5">
       {pendingBacklog && (
-        <BacklogDemoteConfirmDialog
-          onConfirm={handleDemoteConfirm}
-          onCancel={handleDemoteCancel}
-        />
+        <BacklogDemoteConfirmDialog onConfirm={handleDemoteConfirm} onCancel={handleDemoteCancel} />
       )}
 
-      {/* Description */}
-      <div>
-        <div className={LABEL_CLASS}>Description</div>
-        {description ? (
-          <p className="text-sm leading-relaxed text-neutral-text-primary whitespace-pre-wrap">
-            {description}
-          </p>
-        ) : (
-          <p className="text-sm italic text-neutral-text-secondary">No description.</p>
-        )}
-      </div>
+      {/* Description moved to the drawer-level Details tab as a deferred-save
+          field (#962) — it is the one free-text field that stages edits behind
+          the save bar; the rest of this section autosaves immediately. */}
 
-      {/* Assignees */}
-      <ResourceAssignmentSection taskId={taskId} projectId={projectId} />
-
-      {/* Status — editable (#405) */}
-      <div>
-        <div className={LABEL_CLASS}>Status</div>
-        {task.isSummary ? (
-          <p className="text-sm text-neutral-text-primary">
-            {STATUS_OPTIONS.find((o) => o.value === task.status)?.label ?? task.status}
-          </p>
-        ) : (
-          <select
-            aria-label="Task status"
-            value={task.status}
-            onChange={handleStatusChange}
-            disabled={isPending}
-            className={SELECT_CLASS}
-          >
-            {STATUS_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        )}
-      </div>
-
-      {/* Progress — editable for leaf tasks, read-only for summary (#406)
-       *   and for milestones with a sprint rollup (ADR-0074). */}
-      <div>
-        <div className={LABEL_CLASS}>
-          {milestoneRollupActive
-            ? 'Progress (sprint rollup)'
-            : task.isSummary
-              ? 'Progress (rolled up)'
-              : 'Progress'}
+      {/* Status + Progress — the work state, side by side per the #962 redesign.
+          Both autosave immediately (status on change, progress on drag-release). */}
+      <div className="flex gap-4">
+        {/* Status — editable (#405) */}
+        <div className="flex-1 min-w-0">
+          <div className={LABEL_CLASS}>Status</div>
+          {task.isSummary ? (
+            <p className="text-sm text-neutral-text-primary">
+              {STATUS_OPTIONS.find((o) => o.value === task.status)?.label ?? task.status}
+            </p>
+          ) : (
+            <select
+              aria-label="Task status"
+              value={task.status}
+              onChange={handleStatusChange}
+              disabled={isPending}
+              className={SELECT_CLASS}
+            >
+              {STATUS_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
-        {milestoneRollupActive && task.milestoneRollup ? (
-          <MilestoneRollupReadOnly rollup={task.milestoneRollup} />
-        ) : task.isSummary ? (
-          <p className="text-sm tppm-mono text-neutral-text-primary">
-            {Math.round(task.progress)}%
-          </p>
-        ) : (
-          <div className="flex items-center gap-1.5">
-            <input
-              type="number"
-              aria-label="Task progress percentage"
-              min={0}
-              max={100}
-              step={1}
-              value={progressDisplay}
-              disabled={task.status === 'COMPLETE' || isPending}
-              onChange={(e) => setLocalProgress(e.target.value)}
-              onBlur={handleProgressBlur}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') e.currentTarget.blur();
-              }}
-              className={[
-                'w-16 h-9 rounded border border-neutral-border bg-neutral-surface px-3',
-                'text-sm tppm-mono text-right text-neutral-text-primary',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-                'disabled:opacity-50 disabled:cursor-not-allowed',
-              ].join(' ')}
-            />
-            <span className="text-sm text-neutral-text-secondary">%</span>
-            {task.status === 'COMPLETE' && (
-              <span className="text-xs text-neutral-text-disabled">
-                (zeroed automatically on Complete)
+
+        {/* Progress — slider for leaf tasks, read-only for summary (#406)
+         *   and for milestones with a sprint rollup (ADR-0074). */}
+        <div className="flex-1 min-w-0">
+          <div className={`${LABEL_CLASS} flex items-center justify-between gap-2`}>
+            <span>
+              {milestoneRollupActive
+                ? 'Progress (sprint rollup)'
+                : task.isSummary
+                  ? 'Progress (rolled up)'
+                  : 'Progress'}
+            </span>
+            {!milestoneRollupActive && !task.isSummary && (
+              <span className="tppm-mono font-bold normal-case tracking-normal text-brand-primary">
+                {progressDisplay}%
               </span>
             )}
           </div>
-        )}
-        {progressError && (
-          <p role="alert" className="mt-1.5 text-xs text-semantic-critical">
-            {progressError}
-          </p>
-        )}
+          {milestoneRollupActive && task.milestoneRollup ? (
+            <MilestoneRollupReadOnly rollup={task.milestoneRollup} />
+          ) : task.isSummary ? (
+            <p className="text-sm tppm-mono text-neutral-text-primary">
+              {Math.round(task.progress)}%
+            </p>
+          ) : (
+            <div className="flex h-9 items-center">
+              <input
+                type="range"
+                aria-label="Task progress percentage"
+                min={0}
+                max={100}
+                step={5}
+                value={Number(progressDisplay)}
+                disabled={task.status === 'COMPLETE' || isPending}
+                onChange={(e) => setLocalProgress(e.target.value)}
+                onMouseUp={handleProgressBlur}
+                onTouchEnd={handleProgressBlur}
+                onKeyUp={handleProgressBlur}
+                onBlur={handleProgressBlur}
+                className={[
+                  'w-full accent-brand-primary cursor-pointer',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded',
+                  'disabled:opacity-50 disabled:cursor-not-allowed',
+                ].join(' ')}
+              />
+            </div>
+          )}
+          {task.status === 'COMPLETE' && !task.isSummary && !milestoneRollupActive && (
+            <p className="mt-1 text-xs text-neutral-text-disabled">
+              Zeroed automatically on Complete
+            </p>
+          )}
+          {progressError && (
+            <p role="alert" className="mt-1.5 text-xs text-semantic-critical">
+              {progressError}
+            </p>
+          )}
+        </div>
       </div>
+
+      {/* People / assignees */}
+      <ResourceAssignmentSection taskId={taskId} projectId={projectId} />
     </div>
   );
 }
@@ -261,9 +250,7 @@ function MilestoneRollupReadOnly({
                 : 'text-semantic-critical',
           ].join(' ')}
         >
-          {variance < 0
-            ? `Sprint plan: ${variance}d ahead`
-            : `Sprint plan: +${variance}d slip`}
+          {variance < 0 ? `Sprint plan: ${variance}d ahead` : `Sprint plan: +${variance}d slip`}
         </p>
       )}
     </div>

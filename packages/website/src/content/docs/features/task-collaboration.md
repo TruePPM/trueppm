@@ -23,7 +23,8 @@ Decision rollup) are filed in `trueppm-enterprise`.
 
 ## Attachments
 
-Open any task in the schedule drawer; scroll to the **Attachments** section.
+Open any task in the schedule drawer and switch to the **Files** tab, where
+the **Attachments** section lives alongside external links.
 Two add affordances sit above the grid: **+ Attach file** (native file picker)
 and **+ Pin link** (modal for external URLs). Files can also be dropped
 directly onto the section — the drop zone is hidden until you start dragging.
@@ -63,7 +64,8 @@ the thread's context survives.
 
 ## Comments
 
-Below the attachments grid sits the comment thread. The composer is always
+The comment thread lives in the task drawer's **Activity** tab, alongside the
+activity timeline and field history. The composer is always
 visible at the bottom. Top-level comments support a single level of inline
 replies — click **↩ Reply** on any top-level row to open a scoped reply
 composer beneath it.

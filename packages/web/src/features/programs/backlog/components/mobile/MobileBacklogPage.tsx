@@ -8,6 +8,7 @@
 import { useState } from 'react';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { PlusIcon } from '@/components/Icons';
+import { ProgramIdentitySquare } from '@/features/programs/ProgramIdentitySquare';
 import { matchesSearch } from '../../filter';
 import { BACKLOG_ITEM_TYPES, type BacklogItemType } from '../../types';
 import type { BacklogController } from '../../hooks/useBacklogController';
@@ -40,6 +41,7 @@ export function MobileBacklogPage({ controller }: MobileBacklogPageProps) {
   const {
     url,
     programName,
+    program,
     allItems,
     mainItems,
     pulledItems,
@@ -91,11 +93,15 @@ export function MobileBacklogPage({ controller }: MobileBacklogPageProps) {
     <div className="flex h-full flex-col bg-neutral-surface">
       {/* Header */}
       <header className="flex items-center justify-between gap-2 border-b border-neutral-border bg-neutral-surface-raised px-4 py-3">
-        <div className="min-w-0">
-          <div className="text-[11px] font-medium uppercase tracking-[0.06em] text-neutral-text-secondary">
-            {programName ?? ' '}
+        <div className="flex min-w-0 items-center gap-2.5">
+          {/* One marker for the whole board (#963), in the header — not per row. */}
+          {program && <ProgramIdentitySquare program={program} size="md" />}
+          <div className="min-w-0">
+            <div className="text-[11px] font-medium uppercase tracking-[0.06em] text-neutral-text-secondary">
+              {programName ?? ' '}
+            </div>
+            <h1 className="text-base font-bold text-neutral-text-primary">Backlog</h1>
           </div>
-          <h1 className="text-base font-bold text-neutral-text-primary">Backlog</h1>
         </div>
         {canEdit && (
           <button

@@ -4,6 +4,7 @@ import { usePrograms } from '@/hooks/usePrograms';
 import { ProgramCard } from './ProgramCard';
 import { NewProgramModal } from './NewProgramModal';
 import { UngroupedProjectsSection } from './UngroupedProjectsSection';
+import { ImportProgramButton } from './ImportProgramButton';
 
 /**
  * /programs — list of programs the current user is a member of (ADR-0070).
@@ -23,15 +24,18 @@ export function ProgramListPage() {
       {/* Header */}
       <header className="flex items-center justify-between border-b border-neutral-border px-6 py-4">
         <h1 className="text-lg font-semibold text-neutral-text-primary">Programs</h1>
-        <button
-          type="button"
-          onClick={() => setShowCreate(true)}
-          className="h-9 rounded bg-brand-primary px-4 text-sm font-medium text-white
-            hover:bg-brand-primary/90
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-        >
-          + New program
-        </button>
+        <div className="flex items-center gap-2">
+          <ImportProgramButton variant="header" />
+          <button
+            type="button"
+            onClick={() => setShowCreate(true)}
+            className="h-9 rounded bg-brand-primary px-4 text-sm font-medium text-white
+              hover:bg-brand-primary/90
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          >
+            + New program
+          </button>
+        </div>
       </header>
 
       <div className="flex-1 overflow-y-auto px-6 py-6">
@@ -59,27 +63,28 @@ export function ProgramListPage() {
               Programs group related projects
             </h2>
             <p className="mt-2 text-sm text-neutral-text-secondary">
-              Create a program when you&rsquo;re managing several related projects and want a
-              shared backlog or combined burndown.
+              Create a program when you&rsquo;re managing several related projects and want a shared
+              backlog or combined burndown.
             </p>
-            <button
-              type="button"
-              onClick={() => setShowCreate(true)}
-              className="mt-6 h-10 rounded bg-brand-primary px-5 text-sm font-medium text-white
-                hover:bg-brand-primary/90
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-            >
-              + Create your first program
-            </button>
+            <div className="mt-6 flex flex-col items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setShowCreate(true)}
+                className="h-10 rounded bg-brand-primary px-5 text-sm font-medium text-white
+                  hover:bg-brand-primary/90
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              >
+                + Create your first program
+              </button>
+              <p className="text-xs text-neutral-text-secondary">or</p>
+              <ImportProgramButton variant="hero" />
+            </div>
           </div>
         )}
 
         {!isLoading && !error && programs && programs.length > 0 && (
           <>
-            <ul
-              aria-label="Programs"
-              className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
-            >
+            <ul aria-label="Programs" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {programs.map((p) => (
                 <ProgramCard key={p.id} program={p} />
               ))}

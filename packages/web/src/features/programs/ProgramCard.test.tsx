@@ -50,11 +50,14 @@ describe('ProgramCard identity square (#698)', () => {
     expect(square).toHaveStyle({ color: '#FFFFFF' });
   });
 
-  it('falls back to name initials + health tint when no code or color is set', () => {
+  it('shows a neutral square (NO health tint) when no code or color is set (#963)', () => {
+    // Even a healthy program's unset square stays neutral — identity must never
+    // carry a status signal (the deleted HEALTH_SQUARE conflation).
     renderCard(makeProgram({ code: '', color: null, health: 'ON_TRACK' }));
     // "Phase 2 Modernization" → first two words → "P2".
     const square = screen.getByText('P2');
-    expect(square).toHaveClass('text-semantic-on-track');
+    expect(square).toHaveClass('bg-neutral-surface-sunken');
+    expect(square.className).not.toMatch(/semantic-(on-track|at-risk|critical)/);
     // No inline accent color when unset.
     expect(square.style.backgroundColor).toBe('');
   });
