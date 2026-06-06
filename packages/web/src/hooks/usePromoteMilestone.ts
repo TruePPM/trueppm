@@ -1,8 +1,6 @@
 import { useMemo } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
-import { useScheduleTasks } from '@/hooks/useScheduleTasks';
-import { useProjectVelocity } from '@/hooks/useSprints';
 import type { ApiSprint } from '@/types';
 
 /**
@@ -48,6 +46,12 @@ export interface PromotePayload {
   /** Omit (or pass null) to create+bind a new milestone; pass an id to bind an
    *  existing one. Mirrors the ADR `{}` vs `{ milestone_id }` body split. */
   milestoneId?: string | null;
+  /** Create-mode only (ADR-0106 §E1.2): optional milestone name. Blank/undefined
+   *  → the backend's goal-derived default. Ignored on the bind-existing path. */
+  name?: string;
+  /** Create-mode only (ADR-0106 §E1.2): optional ISO target date (the milestone's
+   *  planned_start floor). Undefined → the sprint finish date. Ignored on bind. */
+  targetDate?: string;
 }
 
 /**
@@ -58,8 +62,19 @@ export interface PromotePayload {
 export function usePromoteSprintToMilestone(projectId: string | null | undefined) {
   const queryClient = useQueryClient();
   return useMutation<ApiSprint, unknown, PromotePayload>({
-    mutationFn: async ({ sprintId, milestoneId }) => {
-      const body = milestoneId ? { milestone_id: milestoneId } : {};
+    mutationFn: async ({ sprintId, milestoneId, name, targetDate }) => {
+      // bind-existing → { milestone_id }; create+bind → {} plus the optional
+      // create overrides (§E1.2). A blank name/date is omitted so the backend
+      // applies its goal-name / sprint-finish defaults.
+      let body: Record<string, unknown>;
+      if (milestoneId) {
+        body = { milestone_id: milestoneId };
+      } else {
+        body = {};
+        const trimmedName = name?.trim();
+        if (trimmedName) body.name = trimmedName;
+        if (targetDate) body.target_date = targetDate;
+      }
       const res = await apiClient.post<ApiSprint>(
         `/sprints/${sprintId}/promote-to-milestone/`,
         body,
@@ -106,31 +121,56 @@ export interface MilestoneCandidate {
   wbs: string;
   /** ISO date — the milestone's CPM finish, or empty when CPM has not run. */
   finish: string;
+  /** True when at least one sprint already targets this milestone (ADR-0106
+   *  §E1.3 `is_bound`). A binding is many-sprints-to-one, so a bound milestone is
+   *  still a valid target — surfaced as an annotation, not a disable. */
+  isBound: boolean;
+}
+
+/** Slim milestone row from `GET /projects/{id}/milestones/` (ADR-0106 §E1.3). */
+interface ApiMilestoneRow {
+  id: string;
+  name: string;
+  wbs_path: string | null;
+  early_finish: string | null;
+  is_bound: boolean;
 }
 
 /**
  * Milestone tasks in the project, offered as bind targets in "Bind existing"
- * mode. Sourced from the live schedule task list (`useScheduleTasks`) filtered
- * to `isMilestone`, sorted by finish date. The currently-bound milestone (if
- * any) is excluded so the picker only shows *other* targets.
+ * mode. Reads the dedicated slim endpoint `GET /projects/{id}/milestones/`
+ * (ADR-0106 §E1.3) rather than scanning the full schedule task list — the rows
+ * already carry `is_bound`, server-sorted by finish date.
  *
- * A sprint→milestone binding is many-sprints-to-one-milestone, so we do NOT
- * hide milestones that already have other sprints — only the one this sprint is
- * already bound to. The server is the authority on validity (it rejects a
- * cross-project or deleted milestone).
+ * A sprint→milestone binding is many-sprints-to-one-milestone, so we fetch ALL
+ * milestones (not `?unbound=true`) and surface `isBound` as an annotation —
+ * binding to an already-targeted milestone is allowed. Only the milestone this
+ * sprint is *currently* bound to is excluded (the picker shows *other* targets).
+ * The server remains the authority on validity (rejects cross-project/deleted).
  */
 export function useMilestoneCandidates(
   projectId: string | null | undefined,
   excludeMilestoneId?: string | null,
 ): { candidates: MilestoneCandidate[]; isLoading: boolean } {
-  const { tasks, isLoading } = useScheduleTasks(projectId ?? undefined);
-  const candidates = useMemo(() => {
-    return (tasks ?? [])
-      .filter((t) => t.isMilestone && t.id !== excludeMilestoneId)
-      .map((t) => ({ id: t.id, name: t.name, wbs: t.wbs, finish: t.finish }))
-      .sort((a, b) => a.finish.localeCompare(b.finish));
-  }, [tasks, excludeMilestoneId]);
-  return { candidates, isLoading };
+  const query = useQuery<MilestoneCandidate[], Error>({
+    queryKey: ['project-milestones', projectId],
+    queryFn: async () => {
+      const res = await apiClient.get<ApiMilestoneRow[]>(`/projects/${projectId}/milestones/`);
+      return res.data.map((m) => ({
+        id: m.id,
+        name: m.name,
+        wbs: m.wbs_path ?? '',
+        finish: m.early_finish ?? '',
+        isBound: m.is_bound,
+      }));
+    },
+    enabled: !!projectId,
+  });
+  const candidates = useMemo(
+    () => (query.data ?? []).filter((m) => m.id !== excludeMilestoneId),
+    [query.data, excludeMilestoneId],
+  );
+  return { candidates, isLoading: query.isLoading };
 }
 
 // ---------------------------------------------------------------------------
@@ -147,67 +187,69 @@ export interface ReforecastPreview {
   p50: string;
   p80: string;
   p95: string;
-  /** Team-pace band in points/sprint (the velocity range), for the caption. */
-  teamPaceLow: number;
-  teamPaceHigh: number;
+  /** Team-pace band in points/sprint (the velocity range), for the caption.
+   *  Null below the 2-closed-sprint velocity floor (no defensible band). */
+  teamPaceLow: number | null;
+  teamPaceHigh: number | null;
   /** ADR-0106 §4 — true when the milestone has an upstream predecessor not in
    *  this sprint, so the range may be optimistic. */
   unmodeledDependency: boolean;
 }
 
-function shiftIso(iso: string, days: number): string {
-  if (!iso) return iso;
-  const d = new Date(iso + 'T00:00:00Z');
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
+/** Wire shape of `GET /sprints/{id}/reforecast-preview/` (ADR-0106 §E1.1). */
+interface ApiReforecastPreview {
+  basis: string;
+  cpm_finish: string | null;
+  p50: string | null;
+  p80: string | null;
+  p95: string | null;
+  velocity_low: number | null;
+  velocity_high: number | null;
+  unmodeled_dependency: boolean;
+  unmodeled_predecessor_ids: string[];
 }
 
 /**
- * Reforecast preview for variant B's "watch the CPM finish reforecast" panel.
+ * Live dry-run reforecast preview for the promote dialog (ADR-0106 §E1.1, #933).
  *
- * Stubbed read (web-rule 11): ADR-0106 §2/§3 define the reforecast as a write that runs
- * on *sprint close* (`reforecast_bound_milestone`) — there is no pre-bind
- * dry-run endpoint yet, so this hook derives an illustrative projection from the
- * already-loaded velocity band and the milestone's current CPM finish. It is
- * explicitly labelled "preview/projection" in the UI; the authoritative range is
- * computed and recorded on close. When a `GET /sprints/{id}/reforecast-preview/`
- * dry-run endpoint ships, swap the body of this hook for the live read — the
- * `ReforecastPreview` shape is the contract. The dialog renders correctly when
- * this returns `null` (it falls back to the honest "reforecasts on close" note).
- *
- * TODO: replace the derived projection with a real dry-run endpoint (see the
- * "DA-02 contract gaps" note handed to the ADR-0106 owner).
+ * Reads `GET /sprints/{id}/reforecast-preview/` — create-mode omits `milestone_id`
+ * (the spine is the sprint finish); bind-mode passes the selected milestone id (its
+ * CPM finish is the spine, and its out-of-sprint predecessors light the
+ * unmodeled-dependency caveat). Until #411's agile-aware Monte Carlo lands the
+ * backend returns `basis="velocity_band"`; the UI keeps its honest "projection,
+ * committed on close" framing. Returns `null` when there is no CPM anchor, so the
+ * panel falls back to the "reforecasts on close" note.
  */
 export function useReforecastPreview(
-  projectId: string | null | undefined,
-  milestoneFinishIso: string | null | undefined,
+  sprintId: string | null | undefined,
+  milestoneId: string | null | undefined,
   enabled: boolean,
 ): { preview: ReforecastPreview | null; isLoading: boolean } {
-  const { data: velocity, isLoading } = useProjectVelocity(enabled ? projectId : null);
+  const query = useQuery<ReforecastPreview | null, Error>({
+    queryKey: ['reforecast-preview', sprintId, milestoneId ?? null],
+    queryFn: async () => {
+      const res = await apiClient.get<ApiReforecastPreview>(
+        `/sprints/${sprintId}/reforecast-preview/`,
+        { params: milestoneId ? { milestone_id: milestoneId } : {} },
+      );
+      const d = res.data;
+      // No CPM spine → nothing to chart; the panel shows the honest fallback note.
+      if (!d.cpm_finish) return null;
+      return {
+        basis: d.basis === 'monte_carlo' ? 'monte_carlo' : 'velocity_band',
+        cpmFinish: d.cpm_finish,
+        // p50/p80/p95 collapse to cpm_finish below the velocity floor (API already
+        // does this; the ?? is defensive so the bar never renders an empty date).
+        p50: d.p50 ?? d.cpm_finish,
+        p80: d.p80 ?? d.cpm_finish,
+        p95: d.p95 ?? d.cpm_finish,
+        teamPaceLow: d.velocity_low,
+        teamPaceHigh: d.velocity_high,
+        unmodeledDependency: d.unmodeled_dependency,
+      };
+    },
+    enabled: enabled && !!sprintId,
+  });
 
-  const preview = useMemo<ReforecastPreview | null>(() => {
-    if (!enabled || !milestoneFinishIso) return null;
-    const low = velocity?.forecast_range_low ?? null;
-    const high = velocity?.forecast_range_high ?? null;
-    const avg = velocity?.rolling_avg_points ?? null;
-    // Without at least one closed sprint of velocity there is nothing to project.
-    if (low == null || high == null || avg == null) return null;
-
-    // Illustrative pull-in: a wider, healthier band pulls the finish in a little;
-    // this is a preview heuristic only — the real engine runs the agile-aware
-    // Monte Carlo / velocity-band math on close (ADR-0106 §3).
-    const pull = Math.min(6, Math.max(0, Math.round((high - low) / 2)));
-    return {
-      basis: 'velocity_band',
-      cpmFinish: milestoneFinishIso,
-      p50: shiftIso(milestoneFinishIso, -(pull + 2)),
-      p80: shiftIso(milestoneFinishIso, -pull),
-      p95: shiftIso(milestoneFinishIso, 1),
-      teamPaceLow: low,
-      teamPaceHigh: high,
-      unmodeledDependency: false,
-    };
-  }, [enabled, milestoneFinishIso, velocity]);
-
-  return { preview, isLoading };
+  return { preview: query.data ?? null, isLoading: query.isLoading };
 }

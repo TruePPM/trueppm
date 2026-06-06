@@ -122,6 +122,12 @@ export function PromoteMilestoneDialog({
   // Quick mode hides the preview column at lg+ (repeat-bind ergonomics — Alex/
   // Jordan/David convergence). Below lg the preview is always hidden anyway.
   const [quickMode, setQuickMode] = useState(compact);
+  // Create-mode editable overrides (ADR-0106 §E1.2, #933): prefilled with the
+  // backend defaults (goal-derived name, sprint finish date) so leaving them
+  // untouched reproduces the plain `{}` create; clearing the name falls back to
+  // the goal default server-side.
+  const [createName, setCreateName] = useState(() => derivedMilestoneName(sprint));
+  const [createTargetDate, setCreateTargetDate] = useState(sprint.finish_date);
 
   const dialogRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<Element | null>(null);
@@ -174,21 +180,14 @@ export function PromoteMilestoneDialog({
     return () => document.removeEventListener('keydown', handler);
   }, [onClose]);
 
-  const selectedCandidate = useMemo(
-    () => candidates.find((c) => c.id === selectedId) ?? null,
-    [candidates, selectedId],
-  );
-
-  // The finish the preview is anchored on: the sprint window for a fresh
-  // milestone (ADR-0106 §2 dates create-bind at finish_date), or the chosen
-  // candidate's CPM finish for bind-existing.
-  const previewFinish =
-    mode === 'create' ? sprint.finish_date : (selectedCandidate?.finish ?? null);
+  // Create mode always has a target (the sprint finish); bind mode needs a
+  // selected milestone before the dry-run preview can resolve.
+  const hasTarget = mode === 'create' || selectedId != null;
   const showPreview = !quickMode;
   const { preview } = useReforecastPreview(
-    projectId,
-    previewFinish,
-    showPreview && !!previewFinish,
+    sprint.id,
+    mode === 'bind' ? selectedId : null,
+    showPreview && hasTarget,
   );
 
   const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
@@ -209,7 +208,14 @@ export function PromoteMilestoneDialog({
     const milestoneId = mode === 'bind' ? selectedId : null;
     const run = () =>
       promote.mutate(
-        { sprintId: sprint.id, milestoneId },
+        {
+          sprintId: sprint.id,
+          milestoneId,
+          // Create-mode overrides ride only the create path; the hook ignores
+          // them when milestoneId is set (and the backend does too, §E1.2).
+          name: mode === 'create' ? createName : undefined,
+          targetDate: mode === 'create' ? createTargetDate : undefined,
+        },
         {
           onSuccess: (updated) => {
             onBound?.(updated);
@@ -364,7 +370,12 @@ export function PromoteMilestoneDialog({
                 </div>
 
                 {mode === 'create' ? (
-                  <CreateModeBody sprint={sprint} />
+                  <CreateModeBody
+                    name={createName}
+                    onNameChange={setCreateName}
+                    targetDate={createTargetDate}
+                    onTargetDateChange={setCreateTargetDate}
+                  />
                 ) : (
                   <BindModeBody
                     candidates={filteredCandidates}
@@ -382,7 +393,7 @@ export function PromoteMilestoneDialog({
                 <div className="hidden lg:flex flex-col gap-3 border-l border-neutral-border bg-neutral-surface-sunken p-5">
                   <ReforecastPreviewPanel
                     preview={preview}
-                    hasTarget={!!previewFinish}
+                    hasTarget={hasTarget}
                     mode={mode}
                   />
                 </div>
@@ -459,37 +470,61 @@ const ModeButton = forwardRef<HTMLButtonElement, ModeButtonProps>(function ModeB
   );
 });
 
-/** Create mode — a read-only preview of the `{}` create (ADR-0106 §2 derives the
- *  name from the goal and dates it at the sprint finish; the body carries no
- *  overrides, so we show, not edit). */
-function CreateModeBody({ sprint }: { sprint: ApiSprint }) {
+/** Create mode — editable name + target date for the `{}` create (ADR-0106 §E1.2,
+ *  #933). Prefilled with the backend defaults (goal-derived name, sprint finish);
+ *  a blank name falls back to the goal default server-side, and any valid target
+ *  date is accepted (it sets the milestone's planned_start floor). */
+function CreateModeBody({
+  name,
+  onNameChange,
+  targetDate,
+  onTargetDateChange,
+}: {
+  name: string;
+  onNameChange: (v: string) => void;
+  targetDate: string;
+  onTargetDateChange: (v: string) => void;
+}) {
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-col gap-1.5">
+      <label className="flex flex-col gap-1.5">
         <span className="text-xs font-medium uppercase tracking-wide text-neutral-text-secondary">
           New milestone
         </span>
-        <div className="flex items-center gap-2 rounded-md border border-neutral-border bg-neutral-surface px-3 py-2">
+        <span className="flex items-center gap-2 rounded-md border border-neutral-border bg-neutral-surface px-3 h-9 focus-within:ring-2 focus-within:ring-brand-primary focus-within:ring-offset-1">
           <FlagIcon className="h-3.5 w-3.5 shrink-0 text-brand-primary" />
-          <span className="text-sm text-neutral-text-primary line-clamp-2">
-            {derivedMilestoneName(sprint)}
-          </span>
-        </div>
-      </div>
-      <div className="flex flex-col gap-1.5">
+          <input
+            type="text"
+            value={name}
+            maxLength={255}
+            onChange={(e) => onNameChange(e.target.value)}
+            placeholder="Milestone name"
+            className="flex-1 bg-transparent text-sm text-neutral-text-primary placeholder:text-neutral-text-disabled
+              focus-visible:outline-none"
+          />
+        </span>
+      </label>
+      <label className="flex flex-col gap-1.5">
         <span className="text-xs font-medium uppercase tracking-wide text-neutral-text-secondary">
           Target date
         </span>
-        <div className="flex items-center gap-2 rounded-md border border-neutral-border bg-neutral-surface px-3 py-2">
-          <CalendarIcon className="h-3.5 w-3.5 shrink-0 text-neutral-text-secondary" aria-hidden="true" />
-          <span className="text-sm text-neutral-text-primary tppm-mono">
-            {formatShortDate(sprint.finish_date)}
-          </span>
-        </div>
-      </div>
+        <span className="flex items-center gap-2 rounded-md border border-neutral-border bg-neutral-surface px-3 h-9 focus-within:ring-2 focus-within:ring-brand-primary focus-within:ring-offset-1">
+          <CalendarIcon
+            className="h-3.5 w-3.5 shrink-0 text-neutral-text-secondary"
+            aria-hidden="true"
+          />
+          <input
+            type="date"
+            value={targetDate}
+            onChange={(e) => onTargetDateChange(e.target.value)}
+            className="flex-1 bg-transparent text-sm text-neutral-text-primary tppm-mono
+              focus-visible:outline-none"
+          />
+        </span>
+      </label>
       <p className="text-xs text-neutral-text-secondary leading-relaxed">
-        The milestone takes the sprint’s goal and finish date. Rename or move it in
-        the Schedule view after it’s created.
+        Defaults to the sprint’s goal and finish date — edit either here, or move the
+        milestone in the Schedule view later.
       </p>
     </div>
   );
@@ -537,7 +572,7 @@ function BindModeBody({
         <span className="text-xs font-medium uppercase tracking-wide text-neutral-text-secondary">
           Schedule milestone
         </span>
-        <span className="flex items-center gap-2 rounded-md border border-neutral-border bg-neutral-surface px-3 h-9">
+        <span className="flex items-center gap-2 rounded-md border border-neutral-border bg-neutral-surface px-3 h-9 focus-within:ring-2 focus-within:ring-brand-primary focus-within:ring-offset-1">
           <SearchIcon className="h-3.5 w-3.5 shrink-0 text-neutral-text-secondary" aria-hidden="true" />
           <input
             type="text"
@@ -675,14 +710,21 @@ function ReforecastPreviewPanel({
 
           <PercentileBar preview={preview} />
 
-          <p className="text-xs text-neutral-text-secondary leading-relaxed">
-            Team pace of{' '}
-            <span className="tppm-mono font-medium text-neutral-text-primary">
-              {preview.teamPaceLow}–{preview.teamPaceHigh} pts
-            </span>{' '}
-            per sprint feeds this milestone’s forecast. Projection — the committed
-            range is set on close.
-          </p>
+          {preview.teamPaceLow != null && preview.teamPaceHigh != null ? (
+            <p className="text-xs text-neutral-text-secondary leading-relaxed">
+              Team pace of{' '}
+              <span className="tppm-mono font-medium text-neutral-text-primary">
+                {preview.teamPaceLow}–{preview.teamPaceHigh} pts
+              </span>{' '}
+              per sprint feeds this milestone’s forecast. Projection — the committed
+              range is set on close.
+            </p>
+          ) : (
+            <p className="text-xs text-neutral-text-secondary leading-relaxed">
+              Not enough closed sprints yet for a team-pace band — the range is set
+              on close as velocity accrues.
+            </p>
+          )}
 
           {preview.unmodeledDependency && (
             <p className="flex items-start gap-1.5 rounded-md bg-semantic-at-risk-bg px-2.5 py-2 text-xs text-semantic-at-risk">
