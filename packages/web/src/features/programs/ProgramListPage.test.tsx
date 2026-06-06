@@ -68,9 +68,24 @@ describe('ProgramListPage', () => {
     usePrograms.mockReturnValue({ data: [], isLoading: false, error: null });
     renderPage();
     expect(screen.getByText(/Programs group related projects/i)).toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: /Create your first program/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Create your first program/i })).toBeInTheDocument();
+  });
+
+  it('offers an Import from JSON affordance in the empty state', () => {
+    usePrograms.mockReturnValue({ data: [], isLoading: false, error: null });
+    renderPage();
+    // header + hero both expose the import button
+    expect(screen.getAllByRole('button', { name: /Import from JSON/i }).length).toBeGreaterThan(0);
+  });
+
+  it('offers an Import from JSON affordance in the header when programs exist', () => {
+    usePrograms.mockReturnValue({
+      data: [makeProgram({ id: 'p-1', name: 'Phase 2' })],
+      isLoading: false,
+      error: null,
+    });
+    renderPage();
+    expect(screen.getByRole('button', { name: /Import from JSON/i })).toBeInTheDocument();
   });
 
   it('renders skeletons while loading', () => {

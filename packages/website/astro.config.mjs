@@ -66,6 +66,7 @@ export default defineConfig({
           items: [
             { slug: "getting-started/installation" },
             { slug: "getting-started/quickstart" },
+            { slug: "getting-started/sample-projects" },
             { slug: "getting-started/upgrade" },
           ],
         },
