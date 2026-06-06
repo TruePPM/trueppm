@@ -20,6 +20,21 @@ def _group_name(project_id: str) -> str:
     return f"project_{project_id}"
 
 
+def _board_message(event_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Build the ``board.event`` channel-layer envelope consumers expect.
+
+    Shared by the sync and async broadcast helpers so the wire shape stays in
+    one place — ``ProjectConsumer.board_event`` reads ``event_type``/``payload``
+    off the top level (unlike the workshop channel, which nests under
+    ``content``).
+    """
+    return {
+        "type": "board.event",
+        "event_type": event_type,
+        "payload": payload,
+    }
+
+
 def broadcast_board_event(
     project_id: str,
     event_type: str,
@@ -56,16 +71,46 @@ def broadcast_board_event(
         return
 
     group = _group_name(project_id)
-    message = {
-        "type": "board.event",
-        "event_type": event_type,
-        "payload": payload,
-    }
-
     try:
-        async_to_sync(channel_layer.group_send)(group, message)
+        async_to_sync(channel_layer.group_send)(group, _board_message(event_type, payload))
     except Exception:
         logger.exception("broadcast_board_event: failed to send %s to group %s", event_type, group)
+
+
+async def abroadcast_board_event(
+    project_id: str,
+    event_type: str,
+    payload: dict[str, Any],
+) -> None:
+    """Async-native broadcast for callers already on an event loop.
+
+    The synchronous ``broadcast_board_event`` wraps ``group_send`` in
+    ``async_to_sync``, which raises ``RuntimeError`` when called from a thread
+    that already runs an event loop — exactly the case inside a Channels
+    consumer. Async callers (e.g. ``ProjectConsumer`` presence join/leave) must
+    ``await`` this instead so ``group_send`` is awaited directly.
+
+    Same best-effort durability contract as the sync helper: a channel-layer
+    failure is logged and swallowed, never raised — clients reconcile on
+    reconnect (#958).
+
+    Args:
+        project_id:  UUID string of the project whose group to broadcast to.
+        event_type:  Short identifier for the event, e.g. "presence_join".
+        payload:     JSON-serializable dict with event-specific data.
+    """
+    from channels.layers import get_channel_layer
+
+    channel_layer = get_channel_layer()
+    if channel_layer is None:
+        logger.warning("abroadcast_board_event: no channel layer configured, skipping broadcast")
+        return
+
+    group = _group_name(project_id)
+    try:
+        await channel_layer.group_send(group, _board_message(event_type, payload))
+    except Exception:
+        logger.exception("abroadcast_board_event: failed to send %s to group %s", event_type, group)
 
 
 def evict_project_connection(project_id: str, user_id: str) -> None:
