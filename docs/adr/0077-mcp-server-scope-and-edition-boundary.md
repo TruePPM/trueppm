@@ -2,6 +2,24 @@
 
 ## Status: Proposed (v3 — post-architect)
 
+> **Erratum (2026-06-06) — release re-slot to 0.6.** This ADR's §B/§D/§M describe a
+> read-only-in-0.3 / writes-in-0.4 split. That split is superseded. Following the
+> 2026-05-25 persona-per-release roadmap rebalance, the MCP server is slotted to
+> **0.6 — "open & portable"**, shipping read **and** write together, framed as an
+> interoperability surface. The roadmap (`packages/website/src/content/docs/overview/roadmap.md`,
+> the single source of truth) and all eight tracking issues (#503/#504/#505 scaffold/read/write,
+> prerequisites #599/#601/#602, and umbrella #603/#604) are on 0.6.
+>
+> The *technical* reasoning in §B is unchanged and is in fact why 0.6 is correct: the
+> adapter is generated from the committed OpenAPI schema (§D), so it should target APIs
+> only after they freeze. The agile/sprint/forecast/team surfaces it wraps are created
+> and reshaped across 0.3→0.5; they stabilize by ~0.5, making 0.6 the first release
+> where the tool surface is stationary. The Team-entity *core* prerequisite (§C.1) has
+> partially landed early via #927 (0.3); the remaining prerequisites (#599 per-team
+> opt-in UX, #601 ApiToken scopes, #602 Notification source_type) remain at 0.6.
+> Read "0.3" as "first frozen-API release" and "0.4" as "the following release" when
+> reading the section bodies below; the absolute version numbers are 0.6 and beyond.
+
 (Numbered 0077 to leave 0076 for the *Integration Management Surface Boundary* ADR, which is conceptually a prerequisite — it settles workspace-vs-project integration scope before MCP adds a new integration surface.)
 
 ## Context
