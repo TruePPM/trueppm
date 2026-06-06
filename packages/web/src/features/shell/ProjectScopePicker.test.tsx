@@ -79,4 +79,23 @@ describe('ProjectScopePicker', () => {
     await userEvent.click(screen.getByRole('button', { name: /New program/i }));
     expect(onNewProgram).toHaveBeenCalledOnce();
   });
+
+  it('leads the trigger with the program identity square when scoped (#963)', () => {
+    const colored = [
+      { id: 'p1', name: 'Phoenix Program', code: 'PHX', color: '#7C3AED' },
+    ] as unknown as Program[];
+    // The accessible name stays the program name — the square is decorative.
+    renderPicker({ scope: 'p1', programs: colored });
+    const trigger = screen.getByRole('button', { name: /Program scope: Phoenix Program/i });
+    const square = trigger.querySelector('span[aria-hidden="true"][style]');
+    expect(square).not.toBeNull();
+    expect(square).toHaveStyle({ backgroundColor: '#7C3AED' });
+  });
+
+  it('keeps the generic glyph (no identity square) in the All-programs trigger', () => {
+    renderPicker({ scope: 'all' });
+    const trigger = screen.getByRole('button', { name: /Program scope: All programs/i });
+    // No accent-filled identity square — the grid glyph is an <svg>, not a styled span.
+    expect(trigger.querySelector('span[aria-hidden="true"][style]')).toBeNull();
+  });
 });
