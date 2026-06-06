@@ -133,6 +133,7 @@ from trueppm_api.apps.projects.serializers import (
     TaskCommentSerializer,
     TaskRecurrenceRuleSerializer,
     TaskReorderSerializer,
+    TaskScopeRollupSerializer,
     TaskSerializer,
 )
 from trueppm_api.apps.scheduling.models import ScheduleRequestReason
@@ -2227,6 +2228,22 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
             )
         )
 
+    @extend_schema(responses=TaskScopeRollupSerializer)
+    @action(detail=True, methods=["get"], url_path="scope")
+    def scope(self, request: Request, **kwargs: Any) -> Response:
+        """Scope rollup for a task's subtree (ADR-0108 §3, #408).
+
+        Returns the live story-point sum over leaf descendants, the active
+        baseline's snapshot of that scope, and the delta (null when no active
+        baseline). Detail-scoped so the per-call queries are not an N+1; any
+        project member may read (the default permission applies — no schedule or
+        backlog gate, this is a read-only computed view).
+        """
+        from trueppm_api.apps.projects.services import compute_scope_rollup
+
+        task = self.get_object()
+        return Response(compute_scope_rollup(task), status=status.HTTP_200_OK)
+
     @action(
         detail=True,
         methods=["post"],
@@ -2674,6 +2691,7 @@ class BaselineViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Baseline]):
                 "duration",
                 "actual_start",
                 "actual_finish",
+                "story_points",
             )
         )
         has_cpm_dates = bool(live_tasks) and all(t["early_start"] is not None for t in live_tasks)
@@ -2696,6 +2714,7 @@ class BaselineViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Baseline]):
                         duration=t["duration"],
                         actual_start=t["actual_start"],
                         actual_finish=t["actual_finish"],
+                        story_points=t["story_points"],
                     )
                     for t in live_tasks
                 ]
