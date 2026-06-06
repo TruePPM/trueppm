@@ -125,9 +125,7 @@ describe('OverviewSection — status select', () => {
     const select = screen.getByRole('combobox', { name: /Task status/i });
     fireEvent.change(select, { target: { value: 'BACKLOG' } });
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
-    expect(updateMock).toHaveBeenCalledWith(
-      expect.objectContaining({ status: 'BACKLOG' }),
-    );
+    expect(updateMock).toHaveBeenCalledWith(expect.objectContaining({ status: 'BACKLOG' }));
   });
 
   it('shows read-only status text for summary tasks (no select)', () => {
@@ -143,19 +141,19 @@ describe('OverviewSection — status select', () => {
 // ---------------------------------------------------------------------------
 
 describe('OverviewSection — progress field', () => {
-  it('renders a numeric progress input for leaf tasks', () => {
+  it('renders a progress slider for leaf tasks', () => {
     renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
-    expect(screen.getByRole('spinbutton', { name: /Task progress/i })).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: /Task progress/i })).toBeInTheDocument();
   });
 
   it('pre-fills with the current progress value', () => {
     renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
-    expect(screen.getByRole('spinbutton', { name: /Task progress/i })).toHaveValue(40);
+    expect(screen.getByRole('slider', { name: /Task progress/i })).toHaveValue('40');
   });
 
   it('fires updateTask with percent_complete on blur', () => {
     renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
-    const input = screen.getByRole('spinbutton', { name: /Task progress/i });
+    const input = screen.getByRole('slider', { name: /Task progress/i });
     fireEvent.change(input, { target: { value: '75' } });
     fireEvent.blur(input);
     expect(updateMock).toHaveBeenCalledWith(
@@ -166,7 +164,7 @@ describe('OverviewSection — progress field', () => {
 
   it('clamps values above 100', () => {
     renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
-    const input = screen.getByRole('spinbutton', { name: /Task progress/i });
+    const input = screen.getByRole('slider', { name: /Task progress/i });
     fireEvent.change(input, { target: { value: '150' } });
     fireEvent.blur(input);
     expect(updateMock).toHaveBeenCalledWith(
@@ -177,7 +175,7 @@ describe('OverviewSection — progress field', () => {
 
   it('clamps values below 0', () => {
     renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
-    const input = screen.getByRole('spinbutton', { name: /Task progress/i });
+    const input = screen.getByRole('slider', { name: /Task progress/i });
     fireEvent.change(input, { target: { value: '-5' } });
     fireEvent.blur(input);
     expect(updateMock).toHaveBeenCalledWith(
@@ -189,13 +187,13 @@ describe('OverviewSection — progress field', () => {
   it('disables the progress input when status is COMPLETE', () => {
     mockTasks.splice(0, mockTasks.length, { ...baseTask, status: 'COMPLETE', progress: 100 });
     renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
-    expect(screen.getByRole('spinbutton', { name: /Task progress/i })).toBeDisabled();
+    expect(screen.getByRole('slider', { name: /Task progress/i })).toBeDisabled();
   });
 
   it('renders read-only progress for summary tasks', () => {
     mockTasks.splice(0, mockTasks.length, { ...baseTask, isSummary: true, progress: 55 });
     renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
-    expect(screen.queryByRole('spinbutton')).not.toBeInTheDocument();
+    expect(screen.queryByRole('slider')).not.toBeInTheDocument();
     expect(screen.getByText(/55%/)).toBeInTheDocument();
     expect(screen.getByText(/rolled up/i)).toBeInTheDocument();
   });
@@ -215,7 +213,7 @@ describe('OverviewSection — progress field', () => {
       suggested_action: 'set_planned_start' as const,
     });
     renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
-    const input = screen.getByRole('spinbutton', { name: /Task progress/i });
+    const input = screen.getByRole('slider', { name: /Task progress/i });
     fireEvent.change(input, { target: { value: '75' } });
     fireEvent.blur(input);
     expect(await screen.findByRole('alert')).toHaveTextContent(
@@ -223,18 +221,10 @@ describe('OverviewSection — progress field', () => {
     );
   });
 
-  it('does not call updateTask when the progress field is blurred without a change', () => {
+  it('does not call updateTask when the progress slider is released without a change', () => {
     renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
-    const input = screen.getByRole('spinbutton', { name: /Task progress/i });
+    const input = screen.getByRole('slider', { name: /Task progress/i });
     // Blur without ever calling fireEvent.change → localProgress stays null.
-    fireEvent.blur(input);
-    expect(updateMock).not.toHaveBeenCalled();
-  });
-
-  it('does not call updateTask when a non-numeric value is entered and blurred', () => {
-    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
-    const input = screen.getByRole('spinbutton', { name: /Task progress/i });
-    fireEvent.change(input, { target: { value: 'abc' } });
     fireEvent.blur(input);
     expect(updateMock).not.toHaveBeenCalled();
   });
@@ -259,7 +249,7 @@ describe('OverviewSection — milestone rollup', () => {
       },
     });
     renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
-    expect(screen.queryByRole('spinbutton')).not.toBeInTheDocument();
+    expect(screen.queryByRole('slider')).not.toBeInTheDocument();
     expect(screen.getByText(/73%/)).toBeInTheDocument();
     expect(screen.getByText(/by points/i)).toBeInTheDocument();
     expect(screen.getByText(/Progress rolls up from sprint/i)).toBeInTheDocument();
@@ -316,7 +306,7 @@ describe('OverviewSection — milestone rollup', () => {
     });
     renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
     // Editable input still rendered — no rollup-driven lock when basis=none.
-    expect(screen.getByRole('spinbutton', { name: /Task progress/i })).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: /Task progress/i })).toBeInTheDocument();
   });
 
   it('shows "by tasks" copy for throughput-basis rollup', () => {

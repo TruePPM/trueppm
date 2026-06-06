@@ -22,6 +22,33 @@ Step 2 ([Schedule the skeleton — CPM, milestones, baseline](/the-story/#2-sche
 
 Split-pane: a virtualised task list on the left (seven columns — WBS, Task, Dur, Start, Finish, %, Owner — all but Task hideable and resizable, persisted via `localStorage`), and the canvas timeline on the right. Scroll is synchronised in both directions.
 
+## Task detail drawer
+
+Clicking a task row opens a right-side drawer (a bottom sheet on mobile). The
+header shows the WBS number, a readiness chip, a **CP** marker when the task is
+on the critical path, and the task name as an inline-editable field. Below it,
+the drawer groups everything about the task into four tabs:
+
+- **Details** — a schedule strip (Start, Finish, Duration, Float, with a
+  critical-path banner when float is zero), status and progress, assignees, the
+  description, dependencies, and the secondary planning sections (sprint,
+  estimates, recurrence).
+- **Subtasks** — the checklist breakdown, with a done/total count on the tab.
+- **Activity** — comments, the activity timeline, field history, and baseline.
+- **Files** — attachments and external links.
+
+Most fields autosave the moment you change them — picking a status, nudging
+progress, ticking a subtask, posting a comment, or attaching a file all take
+effect immediately. The one exception is the free-text **Description**: it edits
+locally and a save bar appears while you have unsaved changes, so a half-typed
+note is never committed by accident. That edit still flushes automatically when
+you blur the field, switch tabs, or close the drawer, and a notice warns you if
+someone else changed the description while you were typing.
+
+The tabs are extension points: each section registers against the
+`task_detail.section` slot with a priority and a tab, so TruePPM Enterprise can
+add its own sections without the community edition knowing about them.
+
 ## Canvas renderer
 
 TruePPM ships its own canvas Schedule renderer in `packages/web/src/features/schedule/engine/`. It replaced an earlier SVAR React Gantt integration to remove third-party constraints on drag UX, accessibility (ARIA grid overlay), and dark-mode rendering. Three layered canvases (background, bars, interaction) are dirty-rect repainted; row virtualisation is mandatory from the first commit. See [ADR-0040](/architecture/decisions/) for the full rationale.
