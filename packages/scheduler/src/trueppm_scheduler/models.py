@@ -19,6 +19,21 @@ class DependencyType(enum.Enum):
     SF = "SF"  # Start-to-Finish
 
 
+class DeliveryMode(enum.Enum):
+    """How a task's duration uncertainty is modeled in Monte Carlo (#411).
+
+    ``WATERFALL`` (the default when ``Task.delivery_mode`` is ``None``) samples
+    from the task's three-point PERT estimate, or uses the deterministic duration
+    when no estimate is set. ``SCRUM`` instead treats the task as a sprint-delivered
+    body of work: its duration is sampled from the team's velocity distribution
+    (``Project.velocity_samples``), estimating sprints-to-completion from the
+    committed ``story_points`` rather than a per-task duration estimate.
+    """
+
+    WATERFALL = "waterfall"
+    SCRUM = "scrum"
+
+
 @dataclass
 class DateRange:
     """A contiguous range of dates (inclusive on both ends)."""
@@ -88,6 +103,13 @@ class Task:
     most_likely_duration: timedelta | None = None
     pessimistic_duration: timedelta | None = None
 
+    # Agile-aware Monte Carlo (#411). ``delivery_mode=SCRUM`` + ``story_points``
+    # make the task sample from the project's velocity distribution instead of a
+    # three-point estimate. ``None`` delivery_mode == WATERFALL (backward compatible
+    # with every existing serialized document — both fields default to absent).
+    delivery_mode: DeliveryMode | None = None
+    story_points: float | None = None
+
     def to_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = _serialize(asdict(self))
         return result
@@ -118,6 +140,8 @@ class Task:
         ):
             if d.get(f) is not None:
                 d[f] = _parse_timedelta(d[f])
+        if d.get("delivery_mode") is not None:
+            d["delivery_mode"] = DeliveryMode(d["delivery_mode"])
         return cls(**d)
 
 
@@ -201,6 +225,15 @@ class Project:
     dependencies: list[Dependency] = field(default_factory=list)
     calendar: Calendar = field(default_factory=Calendar)
 
+    # Agile-aware Monte Carlo inputs (#411). ``velocity_samples`` is the team's
+    # historical throughput series — completed story points per closed sprint —
+    # which scrum tasks bootstrap-sample to estimate sprints-to-completion.
+    # ``sprint_length_days`` is the cadence in *working* days (the engine schedules
+    # in working days). Both default to absent; without them a SCRUM task gracefully
+    # falls back to its deterministic duration.
+    velocity_samples: list[float] | None = None
+    sprint_length_days: int | None = None
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
@@ -209,6 +242,8 @@ class Project:
             "tasks": [t.to_dict() for t in self.tasks],
             "dependencies": [d.to_dict() for d in self.dependencies],
             "calendar": self.calendar.to_dict(),
+            "velocity_samples": self.velocity_samples,
+            "sprint_length_days": self.sprint_length_days,
         }
 
     @classmethod
@@ -228,6 +263,8 @@ class Project:
                 tasks=[Task.from_dict(t) for t in data.get("tasks", [])],
                 dependencies=[Dependency.from_dict(d) for d in data.get("dependencies", [])],
                 calendar=Calendar.from_dict(data.get("calendar", {})),
+                velocity_samples=data.get("velocity_samples"),
+                sprint_length_days=data.get("sprint_length_days"),
             )
         except (KeyError, ValueError, TypeError) as err:
             raise InvalidScheduleInput(f"Invalid project document: {err}") from err

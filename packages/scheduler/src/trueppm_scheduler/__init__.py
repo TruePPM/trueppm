@@ -25,6 +25,7 @@ from trueppm_scheduler.engine import (
 from trueppm_scheduler.models import (
     Calendar,
     DateRange,
+    DeliveryMode,
     Dependency,
     DependencyType,
     Project,
@@ -35,6 +36,7 @@ __all__ = [
     "Calendar",
     "CyclicDependencyError",
     "DateRange",
+    "DeliveryMode",
     "Dependency",
     "DependencyType",
     "InvalidScheduleInput",
