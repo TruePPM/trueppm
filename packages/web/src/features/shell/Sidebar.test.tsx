@@ -1,14 +1,16 @@
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { renderWithRouter } from '@/test/utils';
 import { useShellStore } from '@/stores/shellStore';
 import { FIXTURE_PROJECTS } from '@/fixtures/projects';
+import type { Program } from '@/api/types';
+import type { Project } from '@/types';
 import { Sidebar } from './Sidebar';
 
 // Module-level state used by the useProjects mock below.
 let mockProjectsResult: {
-  data: typeof FIXTURE_PROJECTS | undefined;
+  data: Project[] | undefined;
   isLoading: boolean;
   error: Error | null;
 } = { data: FIXTURE_PROJECTS, isLoading: false, error: null };
@@ -16,6 +18,26 @@ let mockProjectsResult: {
 // useProjects now calls the live API — stub it with fixture data for unit tests.
 vi.mock('@/hooks/useProjects', () => ({
   useProjects: () => mockProjectsResult,
+}));
+
+// usePrograms drives the scope picker (#959). Two programs so we can exercise
+// scoping; cast keeps the fixture terse without spelling out every Program field.
+const FIXTURE_PROGRAMS = [
+  { id: 'p1', name: 'Phoenix Program' },
+  { id: 'p2', name: 'Atlas Program' },
+] as unknown as Program[];
+let mockProgramsResult: { data: Program[] | undefined } = { data: FIXTURE_PROGRAMS };
+vi.mock('@/hooks/usePrograms', () => ({
+  usePrograms: () => mockProgramsResult,
+}));
+
+// Stub the New Program modal — its real behavior is covered in NewProgramModal.test.tsx.
+vi.mock('@/features/programs/NewProgramModal', () => ({
+  NewProgramModal: ({ onClose }: { onClose: () => void; onCreated: (id: string) => void }) => (
+    <div role="dialog" aria-label="New program">
+      <button onClick={onClose}>Cancel program</button>
+    </div>
+  ),
 }));
 
 // Stub NewProjectModal to a simple dialog — avoids needing useProjectMutations in Sidebar tests.
@@ -39,8 +61,13 @@ vi.mock('@/hooks/useMyWork', () => ({
 
 describe('Sidebar', () => {
   beforeEach(() => {
-    useShellStore.setState({ sidebarCollapsed: false, sidebarUserControlled: false });
+    useShellStore.setState({
+      sidebarCollapsed: false,
+      sidebarUserControlled: false,
+      projectScope: 'all',
+    });
     mockProjectsResult = { data: FIXTURE_PROJECTS, isLoading: false, error: null };
+    mockProgramsResult = { data: FIXTURE_PROGRAMS };
   });
 
   it('renders project list navigation', () => {
@@ -88,11 +115,14 @@ describe('Sidebar', () => {
     expect(screen.getByText(/No projects yet/i)).toBeInTheDocument();
   });
 
-  it('hides collapse toggle and section headers in drawer mode', () => {
+  it('hides the collapse toggle but shows the scoped list in drawer mode', () => {
     renderWithRouter(<Sidebar isDrawer />);
+    // The collapse toggle is desktop-only.
     expect(screen.queryByRole('button', { name: /collapse sidebar/i })).not.toBeInTheDocument();
-    // Section headers (PROJECTS, ORG) are hidden in drawer mode
-    expect(screen.queryByText('PROJECTS')).not.toBeInTheDocument();
+    // The scoped list (picker + projects header) renders in the drawer — mobile
+    // benefits most from scoping/search (#959).
+    expect(screen.getByRole('heading', { name: /^Projects,/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Program scope:/i })).toBeInTheDocument();
   });
 
   it('shows new-project button when sidebar is expanded', () => {
@@ -139,5 +169,99 @@ describe('Sidebar', () => {
     await userEvent.keyboard('{Escape}');
     // Sidebar still renders normally — no crash
     expect(screen.getByRole('navigation', { name: /project list/i })).toBeInTheDocument();
+  });
+
+  // ── #959: scoped program picker + in-scope search ──────────────────────
+  const SCOPED_PROJECTS: Project[] = [
+    { id: 'a', name: 'Phoenix Rollout', colorDot: '#3E8C6D', healthState: 'unknown', methodology: 'HYBRID', programId: 'p1' },
+    { id: 'b', name: 'Atlas Migration', colorDot: '#E8A020', healthState: 'unknown', methodology: 'HYBRID', programId: 'p2' },
+    { id: 'c', name: 'Standalone Thing', colorDot: '#B91C1C', healthState: 'unknown', methodology: 'HYBRID', programId: null },
+  ];
+
+  it('groups projects under collapsible program headers in the "All programs" scope', async () => {
+    mockProjectsResult = { data: SCOPED_PROJECTS, isLoading: false, error: null };
+    renderWithRouter(<Sidebar />);
+    // Group headers for each program plus the orphan "No program" group.
+    expect(screen.getByRole('button', { name: /Phoenix Program/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Atlas Program/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /No program/i })).toBeInTheDocument();
+    // Projects are visible while their group is expanded.
+    expect(screen.getByText('Phoenix Rollout')).toBeInTheDocument();
+
+    // Collapsing a group hides its projects.
+    await userEvent.click(screen.getByRole('button', { name: /Phoenix Program/i }));
+    expect(screen.queryByText('Phoenix Rollout')).not.toBeInTheDocument();
+    expect(screen.getByText('Atlas Migration')).toBeInTheDocument();
+  });
+
+  it('renders a flat list with no group headers when scoped to one program', () => {
+    mockProjectsResult = { data: SCOPED_PROJECTS, isLoading: false, error: null };
+    useShellStore.setState({ projectScope: 'p1' });
+    renderWithRouter(<Sidebar />);
+    expect(screen.getByText('Phoenix Rollout')).toBeInTheDocument();
+    expect(screen.queryByText('Atlas Migration')).not.toBeInTheDocument();
+    // No collapsible program group header in a single-program scope.
+    expect(screen.queryByRole('button', { name: /Atlas Program/i })).not.toBeInTheDocument();
+  });
+
+  it('filters the project list to the selected program scope', async () => {
+    mockProjectsResult = { data: SCOPED_PROJECTS, isLoading: false, error: null };
+    renderWithRouter(<Sidebar />);
+    // All three show under the default "All programs" scope.
+    expect(screen.getByText('Phoenix Rollout')).toBeInTheDocument();
+    expect(screen.getByText('Atlas Migration')).toBeInTheDocument();
+    expect(screen.getByText('Standalone Thing')).toBeInTheDocument();
+
+    // Open the picker and scope to Phoenix Program.
+    await userEvent.click(screen.getByRole('button', { name: /Program scope:/i }));
+    await userEvent.click(screen.getByRole('option', { name: /Phoenix Program/i }));
+
+    expect(screen.getByText('Phoenix Rollout')).toBeInTheDocument();
+    expect(screen.queryByText('Atlas Migration')).not.toBeInTheDocument();
+    expect(screen.queryByText('Standalone Thing')).not.toBeInTheDocument();
+    // Scope is persisted to the store so the drawer instance stays in sync.
+    expect(useShellStore.getState().projectScope).toBe('p1');
+  });
+
+  it('scopes to projects with no program via the "No program" option', async () => {
+    mockProjectsResult = { data: SCOPED_PROJECTS, isLoading: false, error: null };
+    renderWithRouter(<Sidebar />);
+    await userEvent.click(screen.getByRole('button', { name: /Program scope:/i }));
+    await userEvent.click(screen.getByRole('option', { name: /No program/i }));
+    expect(screen.getByText('Standalone Thing')).toBeInTheDocument();
+    expect(screen.queryByText('Phoenix Rollout')).not.toBeInTheDocument();
+  });
+
+  it('narrows the visible projects with the in-scope search box', async () => {
+    mockProjectsResult = { data: SCOPED_PROJECTS, isLoading: false, error: null };
+    renderWithRouter(<Sidebar />);
+    await userEvent.type(screen.getByRole('textbox', { name: /Search projects/i }), 'atlas');
+    expect(screen.getByText('Atlas Migration')).toBeInTheDocument();
+    expect(screen.queryByText('Phoenix Rollout')).not.toBeInTheDocument();
+    expect(screen.queryByText('Standalone Thing')).not.toBeInTheDocument();
+  });
+
+  it('shows a "No projects match" status when search excludes everything', async () => {
+    mockProjectsResult = { data: SCOPED_PROJECTS, isLoading: false, error: null };
+    renderWithRouter(<Sidebar />);
+    await userEvent.type(screen.getByRole('textbox', { name: /Search projects/i }), 'zzz-nomatch');
+    expect(screen.getByText(/No projects match/i)).toBeInTheDocument();
+  });
+
+  it('filters the scope picker options with its own search input', async () => {
+    mockProjectsResult = { data: SCOPED_PROJECTS, isLoading: false, error: null };
+    renderWithRouter(<Sidebar />);
+    await userEvent.click(screen.getByRole('button', { name: /Program scope:/i }));
+    const listbox = screen.getByRole('listbox', { name: /Program scope/i });
+    expect(within(listbox).getByRole('option', { name: /Phoenix Program/i })).toBeInTheDocument();
+    await userEvent.type(screen.getByRole('combobox', { name: /Filter programs/i }), 'atlas');
+    expect(within(listbox).getByRole('option', { name: /Atlas Program/i })).toBeInTheDocument();
+    expect(within(listbox).queryByRole('option', { name: /Phoenix Program/i })).not.toBeInTheDocument();
+  });
+
+  it('opens the New Program modal from the scope picker', async () => {
+    renderWithRouter(<Sidebar />);
+    await userEvent.click(screen.getByRole('button', { name: /New program/i }));
+    expect(screen.getByRole('dialog', { name: /New program/i })).toBeInTheDocument();
   });
 });
