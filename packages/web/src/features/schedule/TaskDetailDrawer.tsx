@@ -489,8 +489,16 @@ function DrawerContent({
             You have unsaved changes
           </span>
           <div className="flex-1" />
+          {/* preventDefault on mousedown keeps focus on the Description textarea
+              so its onBlur={onFlush} does NOT fire when a save-bar button is the
+              click target. Without this, clicking Discard blurs the textarea
+              first, flush() optimistically persists the edit, and the subsequent
+              discard() reverts the draft to a now-stale value — leaving the form
+              dirty and the edit silently saved (#972). It also prevents a
+              redundant double-PATCH on Save (blur-flush + click-flush). */}
           <button
             type="button"
+            onMouseDown={(e) => e.preventDefault()}
             onClick={onDiscard}
             disabled={isSaving}
             className="text-[13px] text-white/85 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-60"
@@ -499,6 +507,7 @@ function DrawerContent({
           </button>
           <button
             type="button"
+            onMouseDown={(e) => e.preventDefault()}
             onClick={onSave}
             disabled={isSaving}
             className="px-3.5 py-1.5 rounded bg-white text-brand-primary-dark text-[13px] font-semibold hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-60"
