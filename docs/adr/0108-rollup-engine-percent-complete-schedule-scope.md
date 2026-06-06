@@ -107,16 +107,19 @@ and ADR-0090/0101.
 This stays a **single RawSQL annotation** on `TaskViewSet.get_queryset` (the `CASE` lives in
 the existing leaf subquery), applied in `to_representation` — no new query, no N+1.
 
-### §2 — Schedule-date rollup (post-CPM step, per ADR-0024)
+### §2 — Schedule-date rollup (post-CPM step, per ADR-0024) — ALREADY IMPLEMENTED
 
-In the schedule recompute task (`apps/scheduling/tasks.py`, after the CPM `bulk_update` of leaf
-dates), add a summary-date rollup pass that sets, for every summary task (a task with WBS
-children), `early_start = MIN(leaf-descendant early_start)` and `early_finish = MAX(leaf-descendant
-early_finish)`, written via the same `bulk_update` (so it inherits the no-`server_version`-churn
-behavior and the existing broadcast). This is the canonical ADR-0024 split: **dates roll up only
-when CPM runs**, percent rolls up on every read. We do **not** add a `planned_finish` column;
-`early_finish` is the rolled-up summary finish (the issue's "planned_finish = max(child)" maps to
-`early_finish` on the CPM spine, the field the Gantt already renders).
+Verified 2026-06-06: this already exists in `apps/scheduling/tasks.py::_run_schedule` (the
+"Compute summary task dates by rolling up from their leaf descendants" block). After the CPM
+run it sets, for every summary task, `early_start = MIN(leaf early_start)`,
+`early_finish = MAX(leaf early_finish)`, the late dates, `total_float = MIN(leaf float)`, and
+`is_critical = any(leaf critical)`, written via the same `bulk_update` (inheriting the
+no-`server_version`-churn behavior and the existing broadcast). This is the canonical ADR-0024
+split: **dates roll up only when CPM runs**, percent rolls up on every read. We do **not** add a
+`planned_finish` column; `early_finish` is the rolled-up summary finish (the issue's
+"planned_finish = max(child)" maps to `early_finish` on the CPM spine, the field the Gantt
+renders). **No code change needed for §2** — it predates this ADR and confirms the chosen
+architecture.
 
 ### §3 — Scope rollup + delta (annotation; requires one additive baseline field)
 

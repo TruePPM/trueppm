@@ -15924,6 +15924,47 @@
                 }
             }
         },
+        "/api/v1/tasks/{id}/scope/": {
+            "get": {
+                "operationId": "v1_tasks_scope_retrieve",
+                "description": "Scope rollup for a task's subtree (ADR-0108 §3, #408).\n\nReturns the live story-point sum over leaf descendants, the active\nbaseline's snapshot of that scope, and the delta (null when no active\nbaseline). Detail-scoped so the per-call queries are not an N+1; any\nproject member may read (the default permission applies — no schedule or\nbacklog gate, this is a read-only computed view).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskScopeRollup"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/tasks/{id}/split/": {
             "post": {
                 "operationId": "v1_tasks_split_create",
@@ -25540,6 +25581,32 @@
                     "started_at",
                     "status",
                     "task_name"
+                ]
+            },
+            "TaskScopeRollup": {
+                "type": "object",
+                "description": "Scope rollup for a task's subtree (ADR-0108 §3, #408).\n\n``current_scope`` is the live story-point sum over leaf descendants;\n``baselined_scope`` / ``scope_delta`` are null when there is no active baseline\n(or it captured no scope) — never a misleading 0. ``has_baseline`` lets the UI\ndistinguish \"no baseline\" from \"delta is exactly 0\".",
+                "properties": {
+                    "current_scope": {
+                        "type": "integer"
+                    },
+                    "baselined_scope": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "scope_delta": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "has_baseline": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "baselined_scope",
+                    "current_scope",
+                    "has_baseline",
+                    "scope_delta"
                 ]
             },
             "TaskSkillRequirement": {

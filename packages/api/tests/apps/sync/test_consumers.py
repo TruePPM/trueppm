@@ -223,7 +223,7 @@ async def test_connect_member_accepted(user: object, project: Project) -> None:
             "trueppm_api.apps.sync.consumers.ProjectConsumer._get_redis",
             new=AsyncMock(return_value=mock_redis),
         ),
-        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.sync.broadcast.abroadcast_board_event", new=AsyncMock()),
     ):
         await consumer.websocket_connect({"type": "websocket.connect"})
 
@@ -292,6 +292,60 @@ async def test_board_event_forwarded_to_client(user: object, project: Project) -
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
+async def test_presence_join_reaches_channel_layer_on_event_loop(
+    user: object, project: Project
+) -> None:
+    """Regression for #958: the presence broadcast must reach the channel layer
+    when fired from the consumer's running event loop.
+
+    The helper is intentionally **not** mocked here — this exercises the real
+    broadcast path on the asyncio loop. The original sync ``broadcast_board_event``
+    wrapped ``group_send`` in ``async_to_sync``, which raises
+    ``RuntimeError: cannot use AsyncToSync in the same thread as an async event
+    loop``; the helper swallowed it, so ``group_send`` was never reached and the
+    presence_join event silently vanished. Asserting the layer actually received
+    the envelope guards against re-introducing the sync helper here.
+    """
+
+    class _FakeAsyncLayer:
+        def __init__(self) -> None:
+            self.sent: list[tuple[str, dict]] = []
+
+        async def group_send(self, group: str, message: dict) -> None:
+            self.sent.append((group, message))
+
+    layer = _FakeAsyncLayer()
+
+    from trueppm_api.apps.sync.consumers import ProjectConsumer
+
+    consumer = ProjectConsumer()
+    consumer.project_pk = str(project.pk)
+    consumer._user = user  # type: ignore[attr-defined]
+    consumer._display_name = user.username  # type: ignore[attr-defined]
+
+    mock_redis = AsyncMock()
+    mock_redis.hset = AsyncMock()
+    mock_redis.expire = AsyncMock()
+
+    with (
+        patch(
+            "trueppm_api.apps.sync.consumers.ProjectConsumer._get_redis",
+            new=AsyncMock(return_value=mock_redis),
+        ),
+        patch("channels.layers.get_channel_layer", return_value=layer),
+    ):
+        await consumer._presence_join()
+
+    assert len(layer.sent) == 1
+    group, message = layer.sent[0]
+    assert group == f"project_{project.pk}"
+    assert message["type"] == "board.event"
+    assert message["event_type"] == "presence_join"
+    assert message["payload"]["user_id"] == str(user.pk)  # type: ignore[attr-defined]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
 async def test_presence_join_broadcast_on_connect(user: object, project: Project) -> None:
     """When a user connects, a presence_join event is broadcast to the project group."""
     await database_sync_to_async(ProjectMembership.objects.create)(
@@ -330,7 +384,11 @@ async def test_presence_join_broadcast_on_connect(user: object, project: Project
             "trueppm_api.apps.sync.consumers.ProjectConsumer._get_redis",
             new=AsyncMock(return_value=mock_redis),
         ),
-        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event", side_effect=_mock_broadcast),
+        patch(
+            "trueppm_api.apps.sync.broadcast.abroadcast_board_event",
+            new_callable=AsyncMock,
+            side_effect=_mock_broadcast,
+        ),
     ):
         await consumer.websocket_connect({"type": "websocket.connect"})
 
@@ -369,7 +427,11 @@ async def test_presence_leave_broadcast_on_disconnect(user: object, project: Pro
             "trueppm_api.apps.sync.consumers.ProjectConsumer._get_redis",
             new=AsyncMock(return_value=mock_redis),
         ),
-        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event", side_effect=_mock_broadcast),
+        patch(
+            "trueppm_api.apps.sync.broadcast.abroadcast_board_event",
+            new_callable=AsyncMock,
+            side_effect=_mock_broadcast,
+        ),
     ):
         await consumer.disconnect(1000)
 

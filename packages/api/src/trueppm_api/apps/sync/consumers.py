@@ -127,9 +127,12 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
         await r.hset(key, str(self._user.pk), entry)
         await r.expire(key, _PRESENCE_TTL)
 
-        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+        # Async-native broadcast: we are on the consumer's event loop, so the
+        # sync broadcast_board_event (which wraps group_send in async_to_sync)
+        # would raise "cannot use AsyncToSync in the same thread" here (#958).
+        from trueppm_api.apps.sync.broadcast import abroadcast_board_event
 
-        broadcast_board_event(
+        await abroadcast_board_event(
             project_id=self.project_pk,
             event_type="presence_join",
             payload={"user_id": str(self._user.pk), "display_name": self._display_name},
@@ -141,9 +144,11 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
         key = _presence_key(self.project_pk)
         await r.hdel(key, str(self._user.pk))
 
-        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+        # Async-native broadcast — see _presence_join for why the sync helper
+        # cannot be used from the consumer's event loop (#958).
+        from trueppm_api.apps.sync.broadcast import abroadcast_board_event
 
-        broadcast_board_event(
+        await abroadcast_board_event(
             project_id=self.project_pk,
             event_type="presence_leave",
             payload={"user_id": str(self._user.pk), "display_name": self._display_name},

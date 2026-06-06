@@ -10,7 +10,9 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import patch
 
-from trueppm_api.apps.sync.broadcast import evict_project_connection
+import pytest
+
+from trueppm_api.apps.sync.broadcast import abroadcast_board_event, evict_project_connection
 
 _GET_LAYER = "channels.layers.get_channel_layer"
 
@@ -50,3 +52,44 @@ def test_evict_swallows_group_send_failure() -> None:
 
     with patch(_GET_LAYER, return_value=_BoomLayer()):
         evict_project_connection("p1", "u9")
+
+
+# ---------------------------------------------------------------------------
+# abroadcast_board_event (#958) — async-native broadcast for event-loop callers
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_abroadcast_awaits_group_send_with_board_envelope() -> None:
+    """The async helper awaits group_send directly with the flat board.event shape."""
+    layer = _FakeChannelLayer()
+    with patch(_GET_LAYER, return_value=layer):
+        await abroadcast_board_event("p1", "presence_join", {"user_id": "u9"})
+    assert layer.sent == [
+        (
+            "project_p1",
+            {
+                "type": "board.event",
+                "event_type": "presence_join",
+                "payload": {"user_id": "u9"},
+            },
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_abroadcast_is_noop_when_no_channel_layer_configured() -> None:
+    with patch(_GET_LAYER, return_value=None):
+        await abroadcast_board_event("p1", "presence_join", {"user_id": "u9"})
+
+
+@pytest.mark.asyncio
+async def test_abroadcast_swallows_group_send_failure() -> None:
+    """Best-effort like the sync helper: a layer error is logged, not raised."""
+
+    class _BoomLayer:
+        async def group_send(self, group: str, message: dict[str, Any]) -> None:
+            raise RuntimeError("channel layer down")
+
+    with patch(_GET_LAYER, return_value=_BoomLayer()):
+        await abroadcast_board_event("p1", "presence_join", {"user_id": "u9"})

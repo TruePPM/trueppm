@@ -139,7 +139,30 @@ async function setupCommon(page: Page) {
       }),
     }),
   );
-  // Dialog candidate source (and schedule) — empty list is fine for create mode.
+  // Dialog candidate source — the slim milestones list (#933 live endpoint).
+  // Empty is fine for the create-mode golden path.
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/milestones/**`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  );
+  // Live dry-run reforecast preview (#933). Create mode omits milestone_id; a real
+  // band makes the variant-B preview panel render its projected range.
+  await page.route(/\/api\/v1\/sprints\/.*\/reforecast-preview\/.*/, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        basis: 'velocity_band',
+        cpm_finish: '2026-06-27',
+        p50: '2026-06-27',
+        p80: '2026-06-30',
+        p95: '2026-07-03',
+        velocity_low: 21,
+        velocity_high: 27,
+        unmodeled_dependency: false,
+        unmodeled_predecessor_ids: [],
+      }),
+    }),
+  );
   await page.route(/\/api\/v1\/tasks\//, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
   );
@@ -162,18 +185,18 @@ async function setupCommon(page: Page) {
 }
 
 test.describe('Promote to milestone (DA-02 / ADR-0106)', () => {
-  test('golden path — promote opens the dialog and create+bind posts the empty body', async ({
+  test('golden path — live preview renders, create+bind posts the edited name + date', async ({
     page,
   }) => {
     await setupCommon(page);
 
-    let promoteBody: unknown = undefined;
+    let promoteBody: Record<string, unknown> | null = null;
     await page.route('**/api/v1/sprints/*/promote-to-milestone/', (route) => {
       promoteBody = route.request().postDataJSON();
       const bound = {
         ...unboundSprint(),
         target_milestone: 'task-new',
-        target_milestone_detail: { id: 'task-new', name: 'FAT review', wbs_path: '1.3.1', finish: '2026-06-27' },
+        target_milestone_detail: { id: 'task-new', name: 'Customer Beta Gate', wbs_path: '1.3.1', finish: '2026-07-15' },
       };
       route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(bound) });
     });
@@ -186,15 +209,22 @@ test.describe('Promote to milestone (DA-02 / ADR-0106)', () => {
 
     const dialog = page.getByRole('dialog', { name: /Promote sprint to milestone/i });
     await expect(dialog).toBeVisible();
-    // create mode is the default; the new milestone preview shows the sprint goal + finish
-    await expect(dialog.getByText(/Close out telemetry firmware/i)).toBeVisible();
-    await expect(dialog.getByText(/Jun 27/)).toBeVisible();
 
+    // Create mode prefills editable name + target date from the sprint.
+    await expect(dialog.getByLabel('New milestone')).toHaveValue(/Close out telemetry firmware/i);
+    await expect(dialog.getByLabel('Target date')).toHaveValue('2026-06-27');
+
+    // The live dry-run preview renders the team-pace band (variant B, ≥ lg).
+    await expect(dialog.getByText(/Team pace/i)).toBeVisible();
+
+    // Edit both create overrides, then create+bind.
+    await dialog.getByLabel('Target date').fill('2026-07-15');
+    await dialog.getByLabel('New milestone').fill('Customer Beta Gate');
     await dialog.getByRole('button', { name: /Create & bind/i }).click();
 
-    // Dialog closes on success; the POST carried the empty create body (ADR §2).
+    // Dialog closes on success; the POST carried the edited overrides (§E1.2).
     await expect(dialog).toBeHidden();
-    expect(promoteBody === null || JSON.stringify(promoteBody) === '{}').toBeTruthy();
+    expect(promoteBody).toEqual({ name: 'Customer Beta Gate', target_date: '2026-07-15' });
   });
 
   test('error state — a failed bind keeps the dialog open with an alert', async ({ page }) => {
