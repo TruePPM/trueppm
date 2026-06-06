@@ -1729,30 +1729,62 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
                 output_field=db_models.UUIDField(),
             ),
             # Replaces the per-row Task.objects.raw() in TaskSerializer.to_representation.
-            # Returns the duration-weighted average percent_complete of ALL LEAF descendants,
-            # or NULL for leaf tasks (which the serializer leaves untouched).
+            # Returns the delivery-mode-aware weighted average percent_complete of ALL
+            # LEAF descendants, or NULL for leaf tasks (which the serializer leaves
+            # untouched). ADR-0108 §1: each leaf contributes a (weight, pct) pair from
+            # ITS OWN delivery_mode —
+            #   waterfall → pct=percent_complete,  weight=duration (working days)
+            #   scrum     → pct=story-point burndown (100 if COMPLETE, else
+            #               (1 - remaining/story_points)*100, fallback percent_complete),
+            #               weight=story_points (fallback duration)
+            #   kanban    → pct=100 if COMPLETE else 0,  weight=1 (→ parent %=done/total)
+            #   milestone → pct=100 if COMPLETE else 0,  weight=0 (a zero-work gate never
+            #               dilutes the phase percent)
+            # Mixed-mode subtrees sum weights in each leaf's native unit (documented
+            # approximation, ADR-0108). Recurring tasks have wbs_path=NULL so the ltree
+            # match already excludes them.
             #
-            # Previously used '.*{1}' (direct children only). For 3-level WBS this caused
-            # grandparent summaries to read zero — the intermediate summary's stored
-            # percent_complete is 0 (not persisted); only leaves have live values.
-            # Fix: select all descendants at any depth ('.*{1,}') then exclude any
-            # descendant that itself has children (non-leaf), so only leaf tasks contribute.
+            # Leaf selection: all descendants at any depth ('.*{1,}') minus any that
+            # themselves have children (non-leaf), so only leaves contribute — fixes the
+            # 3-level grandparent-reads-zero case (intermediate summaries aren't persisted).
             percent_complete_rollup=RawSQL(
                 "("
-                "  SELECT CASE WHEN SUM(c.duration) > 0"
-                "              THEN SUM(c.duration * c.percent_complete) / SUM(c.duration)"
+                "  SELECT CASE WHEN SUM(w.weight) > 0"
+                "              THEN SUM(w.weight * w.pct) / SUM(w.weight)"
                 "              ELSE NULL END"
-                "  FROM projects_task c"
-                "  WHERE c.project_id = projects_task.project_id"
-                "    AND c.is_deleted = false"
-                "    AND projects_task.wbs_path IS NOT NULL"
-                "    AND c.wbs_path ~ (projects_task.wbs_path::text || '.*{1,}')::lquery"
-                "    AND NOT EXISTS ("
-                "      SELECT 1 FROM projects_task gc"
-                "      WHERE gc.project_id = projects_task.project_id"
-                "        AND gc.is_deleted = false"
-                "        AND gc.wbs_path ~ (c.wbs_path::text || '.*{1}')::lquery"
-                "    )"
+                "  FROM ("
+                "    SELECT"
+                "      CASE c.delivery_mode"
+                "        WHEN 'scrum' THEN COALESCE(c.story_points, c.duration)"
+                "        WHEN 'kanban' THEN 1"
+                "        WHEN 'milestone' THEN 0"
+                "        ELSE c.duration"
+                "      END AS weight,"
+                "      CASE c.delivery_mode"
+                "        WHEN 'scrum' THEN"
+                "          CASE WHEN c.status = 'COMPLETE' THEN 100.0"
+                "               WHEN COALESCE(c.story_points, 0) > 0"
+                "                 THEN (1.0 - COALESCE(c.remaining_points, c.story_points)::float"
+                "                              / c.story_points) * 100.0"
+                "               ELSE c.percent_complete END"
+                "        WHEN 'kanban' THEN"
+                "          CASE WHEN c.status = 'COMPLETE' THEN 100.0 ELSE 0.0 END"
+                "        WHEN 'milestone' THEN"
+                "          CASE WHEN c.status = 'COMPLETE' THEN 100.0 ELSE 0.0 END"
+                "        ELSE c.percent_complete"
+                "      END AS pct"
+                "    FROM projects_task c"
+                "    WHERE c.project_id = projects_task.project_id"
+                "      AND c.is_deleted = false"
+                "      AND projects_task.wbs_path IS NOT NULL"
+                "      AND c.wbs_path ~ (projects_task.wbs_path::text || '.*{1,}')::lquery"
+                "      AND NOT EXISTS ("
+                "        SELECT 1 FROM projects_task gc"
+                "        WHERE gc.project_id = projects_task.project_id"
+                "          AND gc.is_deleted = false"
+                "          AND gc.wbs_path ~ (c.wbs_path::text || '.*{1}')::lquery"
+                "      )"
+                "  ) w"
                 ")",
                 [],
                 output_field=db_models.FloatField(),
