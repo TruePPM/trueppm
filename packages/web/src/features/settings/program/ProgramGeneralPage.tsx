@@ -4,6 +4,7 @@ import { SettingsPageTitle, FieldRow } from '../SettingsShell';
 import { useDirtyForm } from '../hooks/useDirtyForm';
 import { useProgram } from '@/hooks/useProgram';
 import { useUpdateProgram } from '@/hooks/useProgramMutations';
+import { useExportProgramSeed } from '@/hooks/useProgramSeedIo';
 import type { ProgramHealth, ProgramMethodology, ProgramVisibility } from '@/api/types';
 import { PROGRAM_ACCENT_SWATCHES, contrastText } from '@/features/programs/programColor';
 
@@ -57,6 +58,7 @@ function initialsFor(username: string | null | undefined): string {
 export function ProgramGeneralPage() {
   const { programId } = useParams<{ programId: string }>();
   const { data: program } = useProgram(programId);
+  const exportSeed = useExportProgramSeed();
   const updateProgram = useUpdateProgram();
 
   const [name, setName] = useState('');
@@ -381,6 +383,28 @@ export function ProgramGeneralPage() {
               </label>
             ))}
           </div>
+        </FieldRow>
+
+        <FieldRow
+          label="Export"
+          hint="Download this program as a canonical JSON seed file. Re-importing it reproduces the program."
+        >
+          <button
+            type="button"
+            onClick={() => programId && exportSeed.mutate({ programId, code: program?.code })}
+            disabled={!programId || exportSeed.isPending}
+            className="h-9 rounded border border-neutral-border px-4 text-[13px] font-medium text-neutral-text-primary
+              hover:bg-neutral-surface-raised
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+              disabled:opacity-60"
+          >
+            {exportSeed.isPending ? 'Exporting…' : 'Export to JSON'}
+          </button>
+          {exportSeed.isError && (
+            <p role="alert" className="mt-2 text-[12px] text-semantic-critical">
+              Export failed — please try again.
+            </p>
+          )}
         </FieldRow>
       </div>
     </div>

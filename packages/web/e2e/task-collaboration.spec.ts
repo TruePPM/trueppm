@@ -480,8 +480,22 @@ async function openDrawer(page: Page): Promise<ReturnType<Page['locator']>> {
   return drawer;
 }
 
-/** Expand a collapsed section by clicking its header. */
+// The redesigned drawer (#962) groups registry sections into four tabs; a
+// section's header only mounts once its owning tab is active, so openSection
+// must switch tabs first. Kept in sync with sections/index.ts tab assignments.
+const SECTION_TAB: Record<string, string> = {
+  Attachments: 'Files',
+  'External links': 'Files',
+  Comments: 'Activity',
+  Activity: 'Activity',
+};
+
+/** Switch to the tab that owns `name`, then expand its (possibly collapsed) section. */
 async function openSection(drawer: ReturnType<Page['locator']>, name: string): Promise<void> {
+  const tabLabel = SECTION_TAB[name];
+  if (tabLabel) {
+    await drawer.getByRole('tab', { name: new RegExp(`^${tabLabel}`) }).click();
+  }
   const header = drawer.getByRole('button', { name });
   await expect(header).toBeVisible();
   const expanded = await header.getAttribute('aria-expanded');

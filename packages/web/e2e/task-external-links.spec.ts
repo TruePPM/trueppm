@@ -163,7 +163,9 @@ async function openDrawerLinksSection(page: Page): Promise<Locator> {
   await grid.getByText('Foundation', { exact: true }).click();
   const drawer = page.getByRole('dialog', { name: /Foundation/ }).first();
   await expect(drawer).toBeVisible({ timeout: 5_000 });
-  // Expand the External links section (sections render collapsed by default).
+  // External links lives under the Files tab in the redesigned drawer (#962) —
+  // switch to it, then expand the section (the non-first section starts collapsed).
+  await drawer.getByRole('tab', { name: 'Files' }).click();
   const header = drawer.getByRole('button', { name: 'External links' });
   await expect(header).toBeVisible();
   if ((await header.getAttribute('aria-expanded')) !== 'true') await header.click();

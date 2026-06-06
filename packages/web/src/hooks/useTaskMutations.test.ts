@@ -35,11 +35,18 @@ vi.mock('@/api/client', () => ({
 }));
 
 const baseTask: Task = {
-  id: 't1', wbs: '1', name: 'Task 1',
-  start: '2026-01-01', finish: '2026-01-08',
-  duration: 7, progress: 0, parentId: null,
-  isCritical: false, isComplete: false,
-  isSummary: false, isMilestone: false,
+  id: 't1',
+  wbs: '1',
+  name: 'Task 1',
+  start: '2026-01-01',
+  finish: '2026-01-08',
+  duration: 7,
+  progress: 0,
+  parentId: null,
+  isCritical: false,
+  isComplete: false,
+  isSummary: false,
+  isMilestone: false,
   status: 'NOT_STARTED',
   assignees: [],
   notes: '',
@@ -67,7 +74,8 @@ describe('useRescheduleTask', () => {
     const { result } = renderHook(() => useRescheduleTask(), { wrapper: makeWrapper(qc) });
 
     result.current.mutate({
-      id: 't1', projectId: 'proj1',
+      id: 't1',
+      projectId: 'proj1',
       planned_start: '2026-01-05',
       optimistic: { start: '2026-01-05' },
     });
@@ -84,7 +92,8 @@ describe('useRescheduleTask', () => {
     const { result } = renderHook(() => useRescheduleTask(), { wrapper: makeWrapper(qc) });
 
     result.current.mutate({
-      id: 't1', projectId: 'proj1',
+      id: 't1',
+      projectId: 'proj1',
       planned_start: '2026-01-05',
       optimistic: { start: '2026-01-05' },
     });
@@ -100,7 +109,8 @@ describe('useRescheduleTask', () => {
     const { result } = renderHook(() => useRescheduleTask(), { wrapper: makeWrapper(qc) });
 
     result.current.mutate({
-      id: 't1', projectId: 'proj1',
+      id: 't1',
+      projectId: 'proj1',
       planned_start: '2026-01-05',
       optimistic: { start: '2026-01-05' },
     });
@@ -118,7 +128,8 @@ describe('useRescheduleTask', () => {
     const { result } = renderHook(() => useRescheduleTask(), { wrapper: makeWrapper(qc) });
 
     result.current.mutate({
-      id: 't1', projectId: 'proj1',
+      id: 't1',
+      projectId: 'proj1',
       planned_start: '2026-01-05',
       optimistic: { start: '2026-01-05' },
     });
@@ -154,7 +165,8 @@ describe('useRescheduleTask', () => {
       const { result } = renderHook(() => useRescheduleTask(), { wrapper: makeWrapper(qc) });
 
       result.current.mutate({
-        id: 't1', projectId: 'proj1',
+        id: 't1',
+        projectId: 'proj1',
         planned_start: TODAY,
         optimistic: { start: TODAY },
       });
@@ -171,7 +183,8 @@ describe('useRescheduleTask', () => {
       const { result } = renderHook(() => useRescheduleTask(), { wrapper: makeWrapper(qc) });
 
       result.current.mutate({
-        id: 't1', projectId: 'proj1',
+        id: 't1',
+        projectId: 'proj1',
         planned_start: '2026-04-01',
         optimistic: { start: '2026-04-01' },
       });
@@ -187,7 +200,8 @@ describe('useRescheduleTask', () => {
       const { result } = renderHook(() => useRescheduleTask(), { wrapper: makeWrapper(qc) });
 
       result.current.mutate({
-        id: 't1', projectId: 'proj1',
+        id: 't1',
+        projectId: 'proj1',
         planned_start: '2026-06-01',
         optimistic: { start: '2026-06-01' },
       });
@@ -205,7 +219,8 @@ describe('useRescheduleTask', () => {
       const { result } = renderHook(() => useRescheduleTask(), { wrapper: makeWrapper(qc) });
 
       result.current.mutate({
-        id: 't1', projectId: 'proj1',
+        id: 't1',
+        projectId: 'proj1',
         planned_start: TODAY,
         optimistic: { start: TODAY },
       });
@@ -222,7 +237,8 @@ describe('useRescheduleTask', () => {
       const { result } = renderHook(() => useRescheduleTask(), { wrapper: makeWrapper(qc) });
 
       result.current.mutate({
-        id: 't1', projectId: 'proj1',
+        id: 't1',
+        projectId: 'proj1',
         planned_start: TODAY,
         optimistic: { start: TODAY, status: 'NOT_STARTED' },
       });
@@ -252,10 +268,9 @@ describe('useReparentTask', () => {
     result.current.mutate({ taskId: 't1', newParentId: 'summary-99' });
 
     await waitFor(() =>
-      expect(postMock).toHaveBeenCalledWith(
-        '/projects/proj1/tasks/t1/reparent/',
-        { new_parent_id: 'summary-99' },
-      ),
+      expect(postMock).toHaveBeenCalledWith('/projects/proj1/tasks/t1/reparent/', {
+        new_parent_id: 'summary-99',
+      }),
     );
   });
 
@@ -266,10 +281,9 @@ describe('useReparentTask', () => {
     result.current.mutate({ taskId: 't1', newParentId: null });
 
     await waitFor(() =>
-      expect(postMock).toHaveBeenCalledWith(
-        '/projects/proj1/tasks/t1/reparent/',
-        { new_parent_id: null },
-      ),
+      expect(postMock).toHaveBeenCalledWith('/projects/proj1/tasks/t1/reparent/', {
+        new_parent_id: null,
+      }),
     );
   });
 });
@@ -289,7 +303,17 @@ describe('useCreateTask', () => {
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
     vi.clearAllMocks();
-    postMock.mockResolvedValue({ data: { id: 'new', name: 'X', project: 'p1', wbs_path: null, duration: 1, status: 'NOT_STARTED', percent_complete: 0 } });
+    postMock.mockResolvedValue({
+      data: {
+        id: 'new',
+        name: 'X',
+        project: 'p1',
+        wbs_path: null,
+        duration: 1,
+        status: 'NOT_STARTED',
+        percent_complete: 0,
+      },
+    });
   });
 
   it('POSTs the project id and payload, then invalidates the tasks cache', async () => {
@@ -299,9 +323,7 @@ describe('useCreateTask', () => {
     await waitFor(() =>
       expect(postMock).toHaveBeenCalledWith('/tasks/', { project: 'p1', name: 'New', duration: 5 }),
     );
-    await waitFor(() =>
-      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'p1'] }),
-    );
+    await waitFor(() => expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'p1'] }));
   });
 
   it('falls back to undefined query key when projectId is null', async () => {
@@ -317,7 +339,10 @@ describe('useCreateTask', () => {
     const { result } = renderHook(() => useCreateTask('p1'), { wrapper: makeWrapper(qc) });
     result.current.mutate({ name: 'Child Task', duration: 3, parent_id: 'phase-1' });
     await waitFor(() =>
-      expect(postMock).toHaveBeenCalledWith('/tasks/', expect.objectContaining({ parent_id: 'phase-1' })),
+      expect(postMock).toHaveBeenCalledWith(
+        '/tasks/',
+        expect.objectContaining({ parent_id: 'phase-1' }),
+      ),
     );
   });
 
@@ -325,7 +350,10 @@ describe('useCreateTask', () => {
     const { result } = renderHook(() => useCreateTask('p1'), { wrapper: makeWrapper(qc) });
     result.current.mutate({ name: 'Status Task', duration: 3, status: 'IN_PROGRESS' });
     await waitFor(() =>
-      expect(postMock).toHaveBeenCalledWith('/tasks/', expect.objectContaining({ status: 'IN_PROGRESS' })),
+      expect(postMock).toHaveBeenCalledWith(
+        '/tasks/',
+        expect.objectContaining({ status: 'IN_PROGRESS' }),
+      ),
     );
   });
 
@@ -353,11 +381,48 @@ describe('useUpdateTask', () => {
     const { result } = renderHook(() => useUpdateTask(), { wrapper: makeWrapper(qc) });
     result.current.mutate({ id: 't1', projectId: 'p1', name: 'Renamed', percent_complete: 50 });
     await waitFor(() =>
-      expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', { name: 'Renamed', percent_complete: 50 }),
+      expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', {
+        name: 'Renamed',
+        percent_complete: 50,
+      }),
     );
-    await waitFor(() =>
-      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'p1'] }),
-    );
+    await waitFor(() => expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'p1'] }));
+  });
+
+  it('optimistically maps snake_case payload to the cached camelCase task (#965)', async () => {
+    qc.setQueryData<Task[]>(['tasks', 'p1'], [baseTask]);
+    // Never resolve (once), so the optimistic state from onMutate is observable
+    // without leaking a hung mock into later tests.
+    patchMock.mockReturnValueOnce(new Promise(() => {}));
+    const { result } = renderHook(() => useUpdateTask(), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({
+      id: 't1',
+      projectId: 'p1',
+      percent_complete: 65,
+      status: 'IN_PROGRESS',
+      notes: 'note',
+    });
+
+    await waitFor(() => {
+      const [t] = qc.getQueryData<Task[]>(['tasks', 'p1']) ?? [];
+      expect(t.progress).toBe(65); // percent_complete → progress
+    });
+    const [t] = qc.getQueryData<Task[]>(['tasks', 'p1']) ?? [];
+    expect(t.status).toBe('IN_PROGRESS');
+    expect(t.notes).toBe('note');
+  });
+
+  it('rolls the optimistic update back when the PATCH fails (#965)', async () => {
+    qc.setQueryData<Task[]>(['tasks', 'p1'], [baseTask]);
+    patchMock.mockRejectedValueOnce(new Error('boom'));
+    const { result } = renderHook(() => useUpdateTask(), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({ id: 't1', projectId: 'p1', percent_complete: 99 });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    const [t] = qc.getQueryData<Task[]>(['tasks', 'p1']) ?? [];
+    expect(t.progress).toBe(0); // restored from the pre-mutation snapshot
   });
 });
 
@@ -375,12 +440,8 @@ describe('useIndentTask / useOutdentTask', () => {
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
     const { result } = renderHook(() => useIndentTask('p1'), { wrapper: makeWrapper(qc) });
     result.current.mutate('t1');
-    await waitFor(() =>
-      expect(postMock).toHaveBeenCalledWith('/projects/p1/tasks/t1/indent/'),
-    );
-    await waitFor(() =>
-      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'p1'] }),
-    );
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith('/projects/p1/tasks/t1/indent/'));
+    await waitFor(() => expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'p1'] }));
   });
 
   it('useIndentTask falls back to undefined query key when projectId is null', async () => {
@@ -395,9 +456,7 @@ describe('useIndentTask / useOutdentTask', () => {
   it('useOutdentTask POSTs to /outdent/ for the given projectId', async () => {
     const { result } = renderHook(() => useOutdentTask('p1'), { wrapper: makeWrapper(qc) });
     result.current.mutate('t1');
-    await waitFor(() =>
-      expect(postMock).toHaveBeenCalledWith('/projects/p1/tasks/t1/outdent/'),
-    );
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith('/projects/p1/tasks/t1/outdent/'));
   });
 
   it('useOutdentTask falls back to undefined query key when projectId is null', async () => {
@@ -443,9 +502,7 @@ describe('useDeleteTask', () => {
     const { result } = renderHook(() => useDeleteTask('p1'), { wrapper: makeWrapper(qc) });
     result.current.mutate('t1');
     await waitFor(() => expect(deleteMock).toHaveBeenCalledWith('/tasks/t1/'));
-    await waitFor(() =>
-      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'p1'] }),
-    );
+    await waitFor(() => expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'p1'] }));
   });
 
   it('falls back to undefined query key when projectId is null', async () => {
@@ -473,7 +530,10 @@ describe('useBulkDeleteTasks', () => {
     result.current.mutate(['t1', 't2']);
     await waitFor(() =>
       expect(postMock).toHaveBeenCalledWith('/projects/p1/tasks/bulk/', {
-        operations: [{ op: 'delete', id: 't1' }, { op: 'delete', id: 't2' }],
+        operations: [
+          { op: 'delete', id: 't1' },
+          { op: 'delete', id: 't2' },
+        ],
       }),
     );
   });
@@ -561,7 +621,9 @@ describe('parseGuardrailWarnings', () => {
   it('returns the warnings array from a successful response', () => {
     const data = {
       id: 't1',
-      warnings: [{ rule: 'phase_in_sprint', detail: 'Phases group work; assign the tasks inside it.' }],
+      warnings: [
+        { rule: 'phase_in_sprint', detail: 'Phases group work; assign the tasks inside it.' },
+      ],
     };
     const out = parseGuardrailWarnings(data);
     expect(out).toHaveLength(1);
@@ -573,7 +635,9 @@ describe('parseGuardrailWarnings', () => {
   });
 
   it('filters out malformed entries', () => {
-    const data = { warnings: [{ rule: 'summary_in_sprint', detail: 'x' }, { rule: 123 }, null, 'nope'] };
+    const data = {
+      warnings: [{ rule: 'summary_in_sprint', detail: 'x' }, { rule: 123 }, null, 'nope'],
+    };
     expect(parseGuardrailWarnings(data)).toHaveLength(1);
   });
 

@@ -1,6 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router';
 import { apiClient } from '@/api/client';
+import { useProgram } from '@/hooks/useProgram';
+import { ProgramIdentitySquare } from './ProgramIdentitySquare';
 
 // ---------------------------------------------------------------------------
 // API response types (GET /programs/{id}/rollup/ — ADR-0088, #713)
@@ -180,7 +182,14 @@ export function renderKpi(key: string, entry: RollupKpiEntry): RenderedKpi {
   const label = KPI_LABELS[key] ?? key;
 
   if (!entry.available) {
-    return { key, label, value: '—', sub: DEFERRED_REASON_LABEL[entry.reason], variant: 'neutral', muted: true };
+    return {
+      key,
+      label,
+      value: '—',
+      sub: DEFERRED_REASON_LABEL[entry.reason],
+      variant: 'neutral',
+      muted: true,
+    };
   }
 
   if (HEALTH_KPIS.has(key)) {
@@ -254,26 +263,38 @@ function HealthHero({ rollup }: { rollup: ProgramRollup }) {
 export function ProgramOverviewPage() {
   const { programId } = useParams<{ programId: string }>();
   const { data: rollup, isLoading, error } = useProgramRollup(programId);
+  const { data: program } = useProgram(programId);
 
   const kpiEntries = rollup ? Object.entries(rollup.kpis) : [];
 
   return (
     <div className="flex flex-col gap-6 p-6 overflow-y-auto h-full bg-neutral-surface">
+      {/* Identity header (#963): the lg tile is the ONLY accent on this page —
+          the KPI cards and health hero keep the semantic palette. The program
+          name (not the decorative square) is the heading the screen reader announces. */}
+      {program && (
+        <header className="flex items-center gap-3">
+          <ProgramIdentitySquare program={program} size="lg" showLabel className="h-10 w-10" />
+          <div className="flex min-w-0 items-center gap-2">
+            <h1 className="truncate text-2xl font-bold tracking-[-0.01em] text-neutral-text-primary">
+              {program.name}
+            </h1>
+            {program.code && (
+              <span className="tppm-mono shrink-0 rounded bg-neutral-surface-sunken px-1.5 py-0.5 text-[11px] text-neutral-text-secondary">
+                {program.code}
+              </span>
+            )}
+          </div>
+        </header>
+      )}
+
       {error && (
         <p role="alert" className="text-sm text-semantic-critical">
           Failed to load the program rollup.
         </p>
       )}
 
-      {!error && (isLoading || !rollup) ? (
-        <>
-          <div
-            aria-hidden="true"
-            className="h-6 w-56 animate-pulse rounded bg-neutral-surface-raised"
-          />
-          <KpiSkeleton />
-        </>
-      ) : null}
+      {!error && (isLoading || !rollup) ? <KpiSkeleton /> : null}
 
       {!error && rollup && (
         <>
@@ -284,9 +305,7 @@ export function ProgramOverviewPage() {
               className="flex flex-col items-start gap-2 px-4 py-6 rounded border border-neutral-border bg-neutral-surface-raised"
               role="status"
             >
-              <p className="text-sm text-neutral-text-primary">
-                No projects in this program yet.
-              </p>
+              <p className="text-sm text-neutral-text-primary">No projects in this program yet.</p>
               <p className="text-xs text-neutral-text-secondary">
                 Add projects to the program to see a rolled-up health summary.
               </p>

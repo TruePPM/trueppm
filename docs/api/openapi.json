@@ -2530,6 +2530,47 @@
                 }
             }
         },
+        "/api/v1/programs/{id}/export/": {
+            "get": {
+                "operationId": "v1_programs_export_retrieve",
+                "description": "Export this program as a downloadable canonical JSON seed file (#616).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this program.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Program"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/programs/{id}/integrations-summary/": {
             "get": {
                 "operationId": "v1_programs_integrations_summary_retrieve",
@@ -4856,6 +4897,55 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/Webhook"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/programs/import/": {
+            "post": {
+                "operationId": "v1_programs_import_create",
+                "description": "Import a JSON seed document, creating (or replacing) a program.\n\nAccepts either a ``file`` multipart upload or a raw JSON body. The caller\nbecomes the program OWNER (same authorization as ``create`` — any\nauthenticated user may create a program). ``create_users`` is forced off:\nimporting a seed on a live instance must never mint arbitrary logins.",
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Program"
                                 }
                             }
                         },
