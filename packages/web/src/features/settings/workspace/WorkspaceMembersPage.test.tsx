@@ -254,7 +254,7 @@ describe('WorkspaceMembersPage — invite error alert', () => {
   });
 });
 
-describe('WorkspaceMembersPage — unwired buttons disabled (#791)', () => {
+describe('WorkspaceMembersPage — unwired buttons disabled (#969)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -264,7 +264,7 @@ describe('WorkspaceMembersPage — unwired buttons disabled (#791)', () => {
     render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
     const exportBtn = await screen.findByRole('button', { name: 'Export CSV' });
     expect(exportBtn).toBeDisabled();
-    expect(exportBtn).toHaveAttribute('title', expect.stringContaining('#791'));
+    expect(exportBtn).toHaveAttribute('title', expect.stringContaining('#969'));
   });
 
   it('disables Resend on pending invites until the resend endpoint ships', async () => {
@@ -281,7 +281,7 @@ describe('WorkspaceMembersPage — unwired buttons disabled (#791)', () => {
     render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
     const resendBtn = await screen.findByRole('button', { name: 'Resend' });
     expect(resendBtn).toBeDisabled();
-    expect(resendBtn).toHaveAttribute('title', expect.stringContaining('#791'));
+    expect(resendBtn).toHaveAttribute('title', expect.stringContaining('#969'));
     // The bulk "Resend all" affordance is disabled too (was a dead <span>).
     expect(screen.getByRole('button', { name: /Resend all/i })).toBeDisabled();
     // The adjacent Revoke action stays live — only Resend is unwired.

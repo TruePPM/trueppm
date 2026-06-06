@@ -15,6 +15,9 @@ interface LifecycleCardProps {
   actionLabel: string;
   notes: string[];
   disabled?: boolean;
+  /** When the card is a not-yet-wired placeholder, the reason shown on hover
+   *  (and as the accessible title) — should link the tracking issue, e.g. "… — tracked in #967". */
+  disabledReason?: string;
   onClick?: () => void;
   busy?: boolean;
   error?: string | null;
@@ -27,6 +30,7 @@ function LifecycleCard({
   actionLabel,
   notes,
   disabled,
+  disabledReason,
   onClick,
   busy,
   error,
@@ -51,11 +55,12 @@ function LifecycleCard({
         type="button"
         onClick={onClick}
         disabled={disabled || busy || !onClick}
+        title={disabled && !busy ? disabledReason : undefined}
         className={[
           'px-3 py-1.5 rounded border border-neutral-border text-[12px] font-medium',
           'text-neutral-text-primary hover:bg-neutral-surface-sunken',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary',
-          disabled || busy || !onClick ? 'opacity-40 cursor-not-allowed' : '',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+          'disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed',
         ].join(' ')}
       >
         {busy ? 'Working…' : actionLabel}
@@ -154,6 +159,7 @@ export function ProgramArchivePage() {
             'Sends notification to all program members.',
           ]}
           disabled
+          disabledReason="Transferring sponsorship isn't available yet — tracked in #967"
         />
 
         <LifecycleCard
@@ -166,6 +172,7 @@ export function ProgramArchivePage() {
             'All project links, dependencies, and baselines are preserved.',
           ]}
           disabled
+          disabledReason="Splitting a program isn't available yet — tracked in #967"
         />
 
         {/* Delete — critical zone */}

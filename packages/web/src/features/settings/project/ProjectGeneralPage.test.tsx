@@ -151,6 +151,20 @@ describe('ProjectGeneralPage', () => {
     ).toBeInTheDocument();
   });
 
+  it('disables the calendar "+ Override" button with the #968 picker reference', () => {
+    renderPage();
+    const override = screen.getByRole('button', { name: '+ Override' });
+    expect(override).toBeDisabled();
+    expect(override).toHaveAttribute('title', expect.stringContaining('#968'));
+  });
+
+  it('disables the project-lead "Change" button with the #966 picker reference', () => {
+    renderPage();
+    const change = screen.getByRole('button', { name: 'Change' });
+    expect(change).toBeDisabled();
+    expect(change).toHaveAttribute('title', expect.stringContaining('#966'));
+  });
+
   it('persists every edited field through the save mutation', async () => {
     renderPage();
 

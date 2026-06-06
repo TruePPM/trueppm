@@ -56,8 +56,8 @@ const VISIBILITY_OPTIONS: Array<{ id: ProjectVisibility; label: string; hint: st
  * All seven editable fields (name, description, code, health, visibility,
  * timezone, default_view) are wired to PATCH /api/v1/projects/:id/. The
  * `calendar` FK toggles between inherited (null) and override; the picker UI
- * for choosing a specific calendar is queued for a follow-up issue, so the
- * "+ Override" button stays disabled when no calendar is currently assigned.
+ * for choosing a specific calendar is tracked in #968, so the "+ Override"
+ * button stays disabled when no calendar is currently assigned.
  *
  * The save bar appears on the first dirty edit and submits the whole payload
  * as a single PATCH on confirm; useDirtyForm handles the visibility + reset.
@@ -267,10 +267,12 @@ export function ProjectGeneralPage() {
               Anika Krishnan
             </span>
             <span className="text-[12px] text-neutral-text-secondary">· PM</span>
+            {/* Project-lead picker (and real lead display) not wired yet — disabled until it ships (#966). */}
             <button
               type="button"
               disabled
-              className="ml-1 text-[12px] text-brand-primary font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded disabled:text-neutral-text-secondary disabled:cursor-not-allowed disabled:no-underline"
+              title="Changing the project lead isn't available yet — tracked in #966"
+              className="ml-1 text-[12px] text-brand-primary font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded disabled:text-neutral-text-secondary disabled:cursor-not-allowed disabled:no-underline"
             >
               Change
             </button>
@@ -391,7 +393,7 @@ export function ProjectGeneralPage() {
                 type="button"
                 disabled
                 aria-pressed={!calendarInherited}
-                title="Calendar picker coming soon"
+                title="Calendar picker isn't available yet — tracked in #968"
                 className={[
                   'px-3 py-1 rounded border text-[12px] font-medium transition-colors',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
@@ -404,7 +406,7 @@ export function ProjectGeneralPage() {
                 + Override
               </button>
             </div>
-            {/* The per-project calendar picker isn't wired yet; give the user a
+            {/* The per-project calendar picker isn't wired yet (#968); give the user a
               path forward instead of a dead disabled button (#668, Sarah/PM). */}
             <p className="text-[12px] text-neutral-text-secondary">
               Workaround: set the work week per task under Task → Calendar until the project-level

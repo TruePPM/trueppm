@@ -125,6 +125,22 @@ describe('ProgramGeneralPage (settings)', () => {
     expect(screen.getByRole('button', { name: /Assign/i })).toBeDisabled();
   });
 
+  it('disables the manager Change button with the #966 picker reference (lead present)', () => {
+    useProgram.mockReturnValue({ data: makeProgram() });
+    renderPage();
+    const change = screen.getByRole('button', { name: 'Change' });
+    expect(change).toBeDisabled();
+    expect(change).toHaveAttribute('title', expect.stringContaining('#966'));
+  });
+
+  it('disables the manager Assign button with the #966 picker reference (lead null)', () => {
+    useProgram.mockReturnValue({ data: makeProgram({ lead: null, lead_detail: null }) });
+    renderPage();
+    const assign = screen.getByRole('button', { name: 'Assign' });
+    expect(assign).toBeDisabled();
+    expect(assign).toHaveAttribute('title', expect.stringContaining('#966'));
+  });
+
   it('publishes apiReady=true and dirty=false to the settings save store once seeded', () => {
     useProgram.mockReturnValue({ data: makeProgram() });
     renderPage();
