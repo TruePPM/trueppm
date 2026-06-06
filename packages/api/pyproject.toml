@@ -21,7 +21,7 @@ authors = [
 # still allowed.
 dependencies = [
     "trueppm-scheduler>=0.1.0a0",
-    "django>=5.2,<6.0",
+    "django>=5.2.15,<6.0",
     "djangorestframework>=3.15,<4.0",
     "djangorestframework-simplejwt>=5.3,<6.0",
     "django-allauth>=65.0,<66.0",
