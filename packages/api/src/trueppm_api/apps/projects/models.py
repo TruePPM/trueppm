@@ -813,6 +813,38 @@ class DorState(models.TextChoices):
     READY = "ready", "Ready"
 
 
+class GovernanceClass(models.TextChoices):
+    """Which overlay governs a task's subtree in the hybrid model (ADR-0036, #407).
+
+    ``FLOW`` (the default) is sprint/kanban-governed agile work; ``GATED`` is
+    phase-gate-governed waterfall work; ``HYBRID`` mixes both within the subtree.
+    This selects *which governance overlay* applies — distinct from
+    ``delivery_mode``, which selects *how the work is executed and estimated*.
+    Default FLOW keeps every pre-existing row purely additive.
+    """
+
+    GATED = "gated", "Gated"
+    FLOW = "flow", "Flow"
+    HYBRID = "hybrid", "Hybrid"
+
+
+class DeliveryMode(models.TextChoices):
+    """How a task is executed, rendered, and rolled up (ADR-0036, #407).
+
+    Drives the rollup engine's ``percent_complete`` interpretation (#408): a
+    ``SCRUM`` node rolls up from story-point burndown, a ``KANBAN`` node from item
+    throughput (done/total), a ``WATERFALL`` node from explicit percent entry, and
+    a ``MILESTONE`` node is a zero-duration gate. Also feeds the agile-aware Monte
+    Carlo (#411): SCRUM subtrees sample from the team velocity distribution. Default
+    WATERFALL preserves every existing task's current behavior.
+    """
+
+    WATERFALL = "waterfall", "Waterfall"
+    SCRUM = "scrum", "Scrum"
+    KANBAN = "kanban", "Kanban"
+    MILESTONE = "milestone", "Milestone"
+
+
 class CommittedTaskManager(models.Manager["Task"]):
     """Tasks that represent committed delivery: not BACKLOG and not soft-deleted.
 
@@ -1082,6 +1114,29 @@ class Task(VersionedModel):
     # Value / Effort
     value = models.PositiveSmallIntegerField(null=True, blank=True)
     effort_estimate = models.FloatField(null=True, blank=True)
+
+    # ── Hybrid governance / delivery model (ADR-0036, #407) ─────────────────────
+    # The three foundational fields every hybrid feature reads: the rollup engine
+    # (#408), the agile-aware Monte Carlo (#411), and the governance overlays. All
+    # carry defaults so every pre-existing row keeps its current waterfall/flow
+    # semantics — purely additive, no behavioral change. db_index on the two choice
+    # fields because the rollup + overlay queries filter subtrees by them.
+    governance_class = models.CharField(
+        max_length=8,
+        choices=GovernanceClass.choices,
+        default=GovernanceClass.FLOW,
+        db_index=True,
+    )
+    delivery_mode = models.CharField(
+        max_length=10,
+        choices=DeliveryMode.choices,
+        default=DeliveryMode.WATERFALL,
+        db_index=True,
+    )
+    # When True the node inherits its parent's governance_class; when False it
+    # overrides with its own. Default True so a subtree governs uniformly unless a
+    # node explicitly breaks inheritance.
+    parent_governance_inherited = models.BooleanField(default=True)
 
     # Subtask discriminator (ADR-0060 #308).  True only for tasks created via the
     # drawer subtask action.  Distinguishes drawer-created decomposition children

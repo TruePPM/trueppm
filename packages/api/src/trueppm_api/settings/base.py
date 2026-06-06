@@ -689,5 +689,12 @@ SPECTACULAR_SETTINGS = {
         # to `RoleEnum` and the team role to `TeamRoleEnum`.
         "RoleEnum": "trueppm_api.apps.access.models.Role",
         "TeamRoleEnum": "trueppm_api.apps.teams.models.TeamRole",
+        # ADR-0036 (#407): Task.governance_class / .delivery_mode add two new choice
+        # sets. Pin to stable model-prefixed names so a later delivery_mode on another
+        # model (e.g. Project, #410) cannot trigger a drf-spectacular rename of the
+        # existing component (same regression class as ScopeChangeStatus — project
+        # memory project_drf_enum_name_collision).
+        "GovernanceClassEnum": "trueppm_api.apps.projects.models.GovernanceClass",
+        "DeliveryModeEnum": "trueppm_api.apps.projects.models.DeliveryMode",
     },
 }
