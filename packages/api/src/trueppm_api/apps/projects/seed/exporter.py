@@ -99,6 +99,8 @@ class _Exporter:
         self.task_ref: dict[Any, tuple[str, str]] = {}
         # sprint pk -> slug, scoped per project.
         self.sprint_slugs: dict[Any, str] = {}
+        # memoized — _all_resources is consulted by three blocks.
+        self._resources_cache: list[Resource] | None = None
 
     # --- public ------------------------------------------------------------
 
@@ -433,6 +435,8 @@ class _Exporter:
 
     def _all_resources(self) -> list[Resource]:
         # Resources referenced by either a task assignment or the project roster.
+        if self._resources_cache is not None:
+            return self._resources_cache
         ids = set(
             TaskResource.objects.filter(task__project__in=self.projects).values_list(
                 "resource_id", flat=True
@@ -443,8 +447,9 @@ class _Exporter:
                 "resource_id", flat=True
             )
         )
-        return list(
+        self._resources_cache = list(
             Resource.objects.filter(pk__in=ids)
             .select_related("calendar", "user")
             .order_by("name", "pk")
         )
+        return self._resources_cache

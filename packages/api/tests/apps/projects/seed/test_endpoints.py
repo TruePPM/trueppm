@@ -79,6 +79,17 @@ def test_import_rejects_malformed_file(user: Any) -> None:
     assert resp.status_code == 400
 
 
+def test_import_rejects_oversized_file(user: Any, settings: Any) -> None:
+    settings.SEED_MAX_UPLOAD_MB = 0  # any non-empty upload now exceeds the cap
+    upload = SimpleUploadedFile(
+        "big.json", json.dumps(_seed()).encode("utf-8"), content_type="application/json"
+    )
+    resp = _client(user).post(IMPORT_URL, data={"file": upload}, format="multipart")
+    assert resp.status_code == 400
+    assert any("too large" in e for e in resp.data["errors"])
+    assert not Program.objects.filter(code="atlas").exists()
+
+
 def test_import_does_not_mint_users(user: Any) -> None:
     # create_users is forced off on the endpoint — assignees stay unresolved.
     _client(user).post(IMPORT_URL, data=_seed(), format="json")

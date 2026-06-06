@@ -286,6 +286,21 @@ class _SeedImporter:
         assignee = self.users.get(data["assignee"]) if data.get("assignee") else None
         is_milestone = data.get("is_milestone", False)
 
+        # Three-point estimate is all-or-none and never set on milestones
+        # (ADR-0093). Seeded estimates are PM-authored, so they import ACCEPTED.
+        # Folded into the create() so an estimated task is one INSERT, not two.
+        estimate = data.get("estimate") if not is_milestone else None
+        estimate_fields = (
+            {
+                "optimistic_duration": estimate["optimistic"],
+                "most_likely_duration": estimate["most_likely"],
+                "pessimistic_duration": estimate["pessimistic"],
+                "estimate_status": EstimateStatus.ACCEPTED,
+            }
+            if estimate
+            else {}
+        )
+
         task = Task.objects.create(
             project=project,
             name=data["name"],
@@ -305,24 +320,8 @@ class _SeedImporter:
             governance_class=data.get("governance_class", "flow"),
             delivery_mode=data.get("delivery_mode", "waterfall"),
             color=data.get("color"),
+            **estimate_fields,
         )
-
-        # Three-point estimate is all-or-none and never set on milestones
-        # (ADR-0093). Seeded estimates are PM-authored, so they import ACCEPTED.
-        estimate = data.get("estimate")
-        if estimate and not is_milestone:
-            task.optimistic_duration = estimate["optimistic"]
-            task.most_likely_duration = estimate["most_likely"]
-            task.pessimistic_duration = estimate["pessimistic"]
-            task.estimate_status = EstimateStatus.ACCEPTED
-            task.save(
-                update_fields=[
-                    "optimistic_duration",
-                    "most_likely_duration",
-                    "pessimistic_duration",
-                    "estimate_status",
-                ]
-            )
 
         self.tasks[(project_slug, data["wbs_path"])] = task
 

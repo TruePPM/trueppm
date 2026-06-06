@@ -66,6 +66,13 @@ GET /api/v1/programs/{id}/export/
 Available to any program member (Viewer and above). The response is a JSON
 attachment.
 
+:::caution
+An exported seed file includes the email addresses of the program's members and
+resources (the same details members already see in the app). Treat exported
+files as you would any file containing contact information. No passwords,
+tokens, or internal IDs are ever exported.
+:::
+
 ## Round-trip guarantee
 
 Export is the exact inverse of import: exporting a program, re-importing the

@@ -503,6 +503,11 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = 2_621_440  # 2.5 MB (Django default; explicit)
 # remain the hard edge cap — do not configure this above them.
 MSPROJECT_MAX_UPLOAD_MB: int = env.int("MSPROJECT_MAX_UPLOAD_MB", default=50)
 
+# Max size of an uploaded JSON program seed (ADR-0109, #615). Seeds are bounded
+# (the largest bundled sample is a few hundred KB); 5 MB is generous headroom
+# while bounding the memory a single authenticated import request can consume.
+SEED_MAX_UPLOAD_MB: int = env.int("SEED_MAX_UPLOAD_MB", default=5)
+
 # ---------------------------------------------------------------------------
 # Django REST Framework
 # ---------------------------------------------------------------------------

@@ -34,15 +34,16 @@
     "projects": {
       "type": "array",
       "minItems": 1,
+      "maxItems": 200,
       "items": { "$ref": "#/$defs/project" }
     }
   },
   "$defs": {
     "slug": {
       "type": "string",
-      "description": "File-local stable identifier, kebab-case.",
+      "description": "File-local stable identifier, kebab-case. Capped at 40 so the program slug fits Program.code.",
       "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
-      "maxLength": 60
+      "maxLength": 40
     },
     "wbsPath": {
       "type": "string",
@@ -295,10 +296,12 @@
         },
         "tasks": {
           "type": "array",
+          "maxItems": 20000,
           "items": { "$ref": "#/$defs/task" }
         },
         "dependencies": {
           "type": "array",
+          "maxItems": 50000,
           "items": { "$ref": "#/$defs/dependency" }
         },
         "sprints": {

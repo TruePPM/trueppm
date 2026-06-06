@@ -169,11 +169,25 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
         authenticated user may create a program). ``create_users`` is forced off:
         importing a seed on a live instance must never mint arbitrary logins.
         """
+        from django.conf import settings
+
         from trueppm_api.apps.projects.seed import SeedValidationError
         from trueppm_api.apps.projects.seed import import_seed as run_import
 
         upload = request.FILES.get("file")
         if upload is not None:
+            # Bound the in-memory parse: an authenticated user must not be able
+            # to exhaust memory with a giant upload (mirrors the MSP importer).
+            max_bytes = settings.SEED_MAX_UPLOAD_MB * 1024 * 1024
+            if upload.size is not None and upload.size > max_bytes:
+                return Response(
+                    {
+                        "errors": [
+                            f"Seed file too large. Maximum: {settings.SEED_MAX_UPLOAD_MB} MB."
+                        ]
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             try:
                 payload = json.loads(upload.read().decode("utf-8"))
             except (json.JSONDecodeError, UnicodeDecodeError):

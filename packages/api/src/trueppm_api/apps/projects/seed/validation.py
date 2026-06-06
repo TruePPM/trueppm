@@ -26,6 +26,13 @@ from jsonschema import Draft202012Validator, FormatChecker
 # (a future v2 importer would ship its own schema + shim). See ADR-0109.
 SUPPORTED_SCHEMA_VERSION = "1.0"
 
+# Aggregate ceiling on materializable entities (tasks + dependencies + sprints +
+# risks) across the whole document. Per-array maxItems in the schema bound each
+# collection; this bounds the *total* — a single import must not be able to
+# create an unbounded number of rows in one transaction. Generous: the largest
+# bundled sample is a few hundred entities.
+MAX_SEED_NODES = 100_000
+
 _SCHEMA_PATH = Path(__file__).resolve().parent.parent / "schemas" / "seed_v1.json"
 
 
@@ -101,9 +108,25 @@ def validate_seed(payload: Any) -> None:
     # the cross-reference walk assumes well-typed slugs and arrays.
     if not errors:
         errors.extend(_referential_errors(payload))
+        errors.extend(_node_budget_errors(payload))
 
     if errors:
         raise SeedValidationError(errors)
+
+
+def _node_budget_errors(payload: dict[str, Any]) -> list[str]:
+    """Reject documents whose total materializable entity count is excessive."""
+    total = len(payload.get("risks", []))
+    for project in payload.get("projects", []):
+        total += (
+            len(project.get("tasks", []))
+            + len(project.get("dependencies", []))
+            + len(project.get("sprints", []))
+            + len(project.get("risks", []))
+        )
+    if total > MAX_SEED_NODES:
+        return [f"$: seed too large — {total} entities exceeds the {MAX_SEED_NODES} limit"]
+    return []
 
 
 def _referential_errors(payload: dict[str, Any]) -> list[str]:

@@ -305,6 +305,19 @@ def test_errors_are_collected_not_failed_fast() -> None:
     assert len(exc.value.errors) >= 1
 
 
+def test_node_budget_enforced(monkeypatch: pytest.MonkeyPatch) -> None:
+    import trueppm_api.apps.projects.seed.validation as validation_module
+
+    monkeypatch.setattr(validation_module, "MAX_SEED_NODES", 1)
+    _expect_error(_valid_seed(), "seed too large")
+
+
+def test_program_slug_over_40_chars_rejected() -> None:
+    seed = _valid_seed()
+    seed["program"]["slug"] = "a" * 41
+    _expect_error(seed, "program")  # slug maxLength 40 keeps it within Program.code
+
+
 def test_deepcopy_base_is_independent() -> None:
     # guard against accidental shared-state between cases
     a = _valid_seed()
