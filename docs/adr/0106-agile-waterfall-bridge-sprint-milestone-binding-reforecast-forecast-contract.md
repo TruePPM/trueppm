@@ -3,7 +3,8 @@
 > **Companion ADRs (0.3 agile-team architecture batch).** ADR-0104 = Unified Team-Signal Privacy Model · ADR-0105 = PO Product-Backlog Hierarchy & Scoring · ADR-0106 = Agile/Waterfall Bridge. Where this ADR refers to "the Privacy ADR", "the Backlog ADR", or "the Bridge ADR" it means 0104 / 0105 / 0106 respectively. **ADR-0106** is this document.
 
 ## Status
-Proposed
+Accepted (2026-06-05) — §1/§2 shipped in #931, §E1 in #928, §3/§5 in #860. The four
+sign-off decisions below are resolved (see "Decisions resolved at acceptance").
 
 ## Context
 
@@ -146,14 +147,14 @@ Enterprise #140/#141/#142 register receivers at 1.0. OSS ships the signal + the 
 7. **Idempotency**: promote on an already-bound (same) milestone is a no-op `200`; a different milestone is 409. The reforecast is a pure function of current state; a duplicate run writes one more append-only row, deduped on read by latest-per-milestone.
 8. **Dead-letter / failure**: a failed CPM recompute falls to the ScheduleRequest retry/drain; a failed broadcast self-heals on next board load (binding, provenance, latest snapshot are read from the DB). The reforecast never blocks or reverts the close.
 
-## Decisions pending your sign-off
+## Decisions resolved at acceptance
 
-This ADR is **Proposed**. The following choices encode a defensible default but are flagged for review at MR time:
+The four sign-off choices were confirmed at their proposed defaults when §3/§5 landed in #860 (2026-06-05):
 
-1. **Promote-to-milestone RBAC.** Gated at `role >= Role.SCHEDULER` (200 = Resource Manager) as a schedule-authoring write — this **includes** the PM (ADMIN=300) but also admits a bare Resource Manager. Confirm, or tighten to `>= Role.ADMIN` (PM-and-up only). (The original cluster said 'PM territory', which maps to ADMIN — flagging the label mismatch.)
-2. **MC fallback for the demo.** #411 (agile-aware Monte Carlo) and #388 (forecast snapshot) are in-flight 0.3 deps. If #411 slips, the reforecast ships velocity-band-only (`basis=velocity_band`) for the #860 demo. Confirm fallback-only is acceptable, or whether #860 blocks on #411.
-3. **Binding-drift granularity.** `binding_drifted` is currently a committed-points equality check (snapshot vs current) — swapping two equal-point tasks would not trip it. Confirm points-equality is sufficient for Sarah's trust signal, or whether drift should also fire on task-set change (more sensitive, noisier).
-4. **ForecastSnapshot retention.** Proposed nightly purge keeps latest-per-milestone + 90 days. Confirm 90 days, or whether the demo narrative ('P50 moved across the last K sprints') needs longer per-milestone history.
+1. **Promote-to-milestone RBAC → `role >= Role.SCHEDULER` (confirmed).** Kept the schedule-authoring rung (Resource Manager and up, which includes the PM). Promotion writes a *schedule* object, not a sprint-composition change, so it stays distinct from the team sprint-lifecycle gate (`>= ADMIN`). Shipped this way in #931.
+2. **MC fallback → velocity-band-only acceptable (confirmed); #860 does NOT block on #411.** The reforecast ships with `basis=velocity_band` and the graceful-fallback derivation in §3.2; #411's agile-aware Monte Carlo upgrades `basis` to `monte_carlo` when it lands. The snapshot records the path so the UI labels confidence honestly. The #860 demo runs on the band today.
+3. **Binding-drift granularity → committed-points equality (confirmed).** A points-equality check (snapshot vs current accepted points) is sufficient for Sarah's trust signal; the rarer equal-point task swap is not worth the noisier task-set diff. Shipped in the rollup payload (#931).
+4. **ForecastSnapshot retention → latest-per-milestone + 90 days (confirmed).** The nightly purge keeps the latest row per milestone plus a 90-day window — enough for the "P50 moved across the last K sprints" narrative without unbounded growth. (The model and read path ship in #860; the nightly purge job itself is tracked as #952.)
 
 ## Erratum E1 — Contract additions for the promote dialog (#928, 2026-06-03)
 

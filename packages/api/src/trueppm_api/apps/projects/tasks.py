@@ -154,6 +154,26 @@ def close_sprint(self: object, request_id: str) -> None:
 
                 recompute_milestone_rollup(sprint.target_milestone_id)
 
+                # ADR-0106 §3 (#860) — the bridge WOW: reforecast the bound
+                # milestone's finish as a range from the just-closed sprint's
+                # velocity. The snapshot write is synchronous (durable with the
+                # close, mirroring recompute_milestone_rollup); the
+                # milestone_forecast_updated broadcast + Enterprise-seam signal
+                # defer to on_commit inside the service. Wrapped non-blocking like
+                # the velocity calibration below: a reforecast bug must never
+                # strand or revert a sprint close (ADR-0106 §Durable 8).
+                try:
+                    from trueppm_api.apps.projects.services import (
+                        reforecast_bound_milestone,
+                    )
+
+                    reforecast_bound_milestone(sprint.target_milestone_id)
+                except Exception:
+                    logger.exception(
+                        "close_sprint: reforecast failed for milestone %s — continuing close",
+                        sprint.target_milestone_id,
+                    )
+
             SprintCloseRequest.objects.filter(pk=req.pk).update(
                 status=SprintCloseRequestStatus.COMPLETED,
                 completed_at=timezone.now(),

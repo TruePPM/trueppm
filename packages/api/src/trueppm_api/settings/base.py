@@ -696,5 +696,12 @@ SPECTACULAR_SETTINGS = {
         # memory project_drf_enum_name_collision).
         "GovernanceClassEnum": "trueppm_api.apps.projects.models.GovernanceClass",
         "DeliveryModeEnum": "trueppm_api.apps.projects.models.DeliveryMode",
+        # ADR-0106 §5 (#860): ForecastSnapshot.basis / .confidence introduce two
+        # new choice sets on "basis" / "confidence" fields. Pin to model-prefixed
+        # names so drf-spectacular does not rename existing stable components
+        # (same regression class as ScopeChangeStatus — project memory
+        # project_drf_enum_name_collision).
+        "ForecastBasisEnum": "trueppm_api.apps.projects.models.ForecastBasis",
+        "ForecastConfidenceEnum": "trueppm_api.apps.projects.models.ForecastConfidence",
     },
 }

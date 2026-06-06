@@ -67,3 +67,25 @@ task_status_changed = django.dispatch.Signal()
 # SprintScopeChange.status away from PENDING — accept/reject are exclusively the
 # human-invoked service functions (accept_scope_change / reject_scope_change).
 sprint_scope_changed = django.dispatch.Signal()
+
+# Sent after a bound milestone is reforecast (ADR-0106 §6, #860). This is the
+# one OSS read-only seam the Enterprise cross-team forecast mirrors (#140/#141/
+# #142, 1.0) register against. OSS itself never aggregates across teams.
+#
+# Keyword arguments (band + dates ONLY — never the velocity series, never any
+# per-contributor data):
+#   sender               — the ForecastSnapshot class
+#   project_id           — the project UUID (str)
+#   milestone_id         — the bound milestone Task UUID (str)
+#   cpm_finish           — ISO date str | None (the deterministic CPM spine)
+#   p50                  — ISO date str | None
+#   p80                  — ISO date str | None
+#   confidence           — "high" | "medium" | "low"
+#   unmodeled_dependency — bool (§4 cheap predecessor heuristic)
+#
+# Privacy (ADR-0106 §6): the signal fires for OSS's own forecast-history needs
+# unconditionally, but the *cross-team-eligible* projection of it is supplied
+# only through the consent-respecting provider in the Unified Team-Signal Privacy
+# Model — the Enterprise receiver must consult the consent record; OSS never does
+# the aggregation. Receivers performing I/O must use transaction.on_commit().
+milestone_forecast_recomputed = django.dispatch.Signal()

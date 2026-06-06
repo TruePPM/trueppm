@@ -1574,6 +1574,38 @@ def _unmodeled_predecessors(milestone: Any) -> list[str]:
     return unmodeled
 
 
+def _velocity_band_percentiles(
+    *,
+    cpm_finish: Any,
+    remaining: int,
+    sprint_days: int,
+    velocity_low: int | None,
+    avg: float | None,
+) -> tuple[Any, Any, Any, bool]:
+    """Coarse velocity-band percentile derivation (ADR-0106 §E1.1, band fallback).
+
+    Shared by the dry-run preview (§E1.1) and the on-close reforecast (§3) so both
+    produce an identical range from the same inputs — the true percentiles arrive
+    with #411's agile-aware Monte Carlo. The 1-σ slow-pace day penalty re-paces the
+    remaining committed work from the team's average to its slow-tail velocity:
+    ``penalty = remaining × (sprint_days/velocity_low − sprint_days/avg)``. ``p80``
+    takes 0.6 of it, ``p95`` the whole tail. Below the 2-closed-sprint floor (band
+    null) or with no remaining work the spread collapses to ``cpm_finish``.
+
+    Returns ``(p50, p80, p95, usable)`` where ``usable`` is True only when a real
+    band was applied — the caller nulls ``velocity_low``/``velocity_high`` when
+    False so an absent band is never surfaced as a zero-width range. Monotonic by
+    construction: ``p50 ≤ p80 ≤ p95``.
+    """
+    p50 = p80 = p95 = cpm_finish
+    if velocity_low and avg and cpm_finish is not None and remaining > 0:
+        penalty_days = max(0, round(remaining * (sprint_days / velocity_low - sprint_days / avg)))
+        p80 = cpm_finish + timedelta(days=round(penalty_days * 0.6))
+        p95 = cpm_finish + timedelta(days=penalty_days)
+        return p50, p80, p95, True
+    return p50, p80, p95, False
+
+
 def reforecast_preview(
     sprint: Any,
     *,
@@ -1597,8 +1629,6 @@ def reforecast_preview(
     does not resolve to a milestone task in the sprint's project (no cross-project
     read).
     """
-    from datetime import timedelta
-
     from trueppm_api.apps.projects.models import Task
 
     milestone = None
@@ -1628,20 +1658,19 @@ def reforecast_preview(
     velocity_high = vel["forecast_range_high"]
     avg = vel["rolling_avg_points"]
 
-    # Band→percentile derivation (coarse velocity-band fallback; the true
-    # percentiles arrive with #411 MC). The 1-σ slow-pace day penalty is the
-    # remaining committed work re-paced from the team's average to its slow-tail
-    # velocity; p80 takes 0.6 of it, p95 the whole tail. Below the 2-closed-sprint
-    # floor (band null) it collapses to cpm_finish. Monotonic: p50 ≤ p80 ≤ p95.
-    p50 = p80 = p95 = cpm_finish
-    if velocity_low and avg and cpm_finish is not None:
-        remaining = current_committed_points(sprint.pk)
-        sprint_days = max(1, (sprint.finish_date - sprint.start_date).days)
-        penalty_days = round(remaining * (sprint_days / velocity_low - sprint_days / avg))
-        penalty_days = max(0, penalty_days)
-        p80 = cpm_finish + timedelta(days=round(penalty_days * 0.6))
-        p95 = cpm_finish + timedelta(days=penalty_days)
-    else:
+    # Coarse velocity-band fallback shared with the on-close reforecast (§3); the
+    # true percentiles arrive with #411 MC. Uses this sprint's pace + remaining
+    # committed work as the basis.
+    remaining = current_committed_points(sprint.pk)
+    sprint_days = max(1, (sprint.finish_date - sprint.start_date).days)
+    p50, p80, p95, usable = _velocity_band_percentiles(
+        cpm_finish=cpm_finish,
+        remaining=remaining,
+        sprint_days=sprint_days,
+        velocity_low=velocity_low,
+        avg=avg,
+    )
+    if not usable:
         # No usable band → no defensible spread; surface the band as absent.
         velocity_low = None
         velocity_high = None
@@ -1683,6 +1712,299 @@ def list_project_milestones(project_id: str | uuid.UUID, *, unbound_only: bool =
     if unbound_only:
         qs = qs.filter(is_bound=False)
     return qs
+
+
+# ---------------------------------------------------------------------------
+# Reforecast-on-close + the forecast read (ADR-0106 §3/§5 — the bridge WOW, #860)
+# ---------------------------------------------------------------------------
+
+
+def _forecast_confidence(
+    *,
+    usable_band: bool,
+    stdev: float | None,
+    avg: float | None,
+    unmodeled: bool,
+    drifted: bool,
+) -> str:
+    """Coarse confidence band for a milestone forecast (ADR-0106 §5).
+
+    A *band*, never the series. The rule encodes the ADR's "no false confidence"
+    force: any signal the forecast cannot see (an unmodeled upstream predecessor)
+    or that has silently shifted (binding drift) caps it at LOW; below the
+    2-closed-sprint floor (no usable band) is also LOW. Otherwise it grades on the
+    team's velocity coefficient of variation (stdev/avg): tight history → HIGH,
+    moderate → MEDIUM, noisy → LOW.
+    """
+    from trueppm_api.apps.projects.models import ForecastConfidence
+
+    if not usable_band or unmodeled or drifted:
+        return ForecastConfidence.LOW
+    cv = (stdev / avg) if (stdev and avg) else 1.0
+    if cv <= 0.2:
+        return ForecastConfidence.HIGH
+    if cv <= 0.5:
+        return ForecastConfidence.MEDIUM
+    return ForecastConfidence.LOW
+
+
+def _scan_targeting_sprints(milestone_pk: uuid.UUID) -> tuple[int, int, bool]:
+    """One pass over a milestone's targeting sprints for the reforecast inputs.
+
+    Returns ``(remaining_points, representative_sprint_days, binding_drifted)``:
+
+    - ``remaining_points`` — incomplete committed (pending-excluded) story points
+      across the milestone's not-yet-closed targeting sprints. Closed/cancelled
+      sprints contribute nothing (their work is done or carried over). This is the
+      "remaining bound backlog" the velocity band re-paces into a date range.
+    - ``representative_sprint_days`` — the mean sprint length (finish − start) over
+      targeting sprints with both dates, used as the pace denominator; falls back
+      to 14 (a fortnight) when no dated sprint is bound.
+    - ``binding_drifted`` — True when any bound sprint's current accepted points
+      diverge from its promote-time ``binding_committed_snapshot`` (ADR-0106 §1).
+    """
+    from trueppm_api.apps.projects.models import (
+        Sprint,
+        SprintState,
+        TaskStatus,
+        committed_sprint_tasks,
+    )
+
+    remaining = 0
+    day_lengths: list[int] = []
+    drifted = False
+    for sprint in Sprint.objects.filter(target_milestone_id=milestone_pk, is_deleted=False).exclude(
+        state=SprintState.CANCELLED
+    ):
+        if (
+            sprint.binding_committed_snapshot is not None
+            and current_committed_points(sprint.pk) != sprint.binding_committed_snapshot
+        ):
+            drifted = True
+        if sprint.start_date is not None and sprint.finish_date is not None:
+            day_lengths.append(max(1, (sprint.finish_date - sprint.start_date).days))
+        if sprint.state != SprintState.COMPLETED:
+            remaining += sum(
+                p
+                for p in committed_sprint_tasks(sprint.pk)
+                .exclude(status=TaskStatus.COMPLETE)
+                .values_list("story_points", flat=True)
+                if p is not None
+            )
+    sprint_days = round(sum(day_lengths) / len(day_lengths)) if day_lengths else 14
+    return remaining, sprint_days, drifted
+
+
+def reforecast_bound_milestone(
+    milestone_id: str | uuid.UUID,
+    *,
+    broadcast: bool = True,
+) -> Any:
+    """Reforecast a bound milestone's finish as a range and persist it (ADR-0106 §3).
+
+    Computes the milestone-anchored range — ``cpm_finish`` (the deterministic CPM
+    spine = the milestone's current ``early_finish``) plus ``p50``/``p80`` from the
+    velocity band re-paced over the remaining bound backlog — writes one
+    ``ForecastSnapshot`` row, and (when ``broadcast``) emits
+    ``milestone_forecast_updated`` to the board and fires the
+    ``milestone_forecast_recomputed`` Enterprise seam signal, both deferred to
+    ``transaction.on_commit()``.
+
+    Privacy (§3): the broadcast, the signal, and the persisted row carry only the
+    band + dates — **never** the per-sprint ``completed_points`` series.
+
+    Until #411's agile-aware Monte Carlo lands, ``basis`` is always
+    ``velocity_band``; the snapshot records the path so the UI labels confidence
+    honestly. Returns the created ``ForecastSnapshot``, or ``None`` when the
+    milestone no longer exists or has no live (non-cancelled) targeting sprint —
+    there is nothing to forecast in that case.
+    """
+    from trueppm_api.apps.projects.models import (
+        ForecastBasis,
+        ForecastSnapshot,
+        Sprint,
+        SprintState,
+        Task,
+    )
+    from trueppm_api.apps.projects.signals import milestone_forecast_recomputed
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+    milestone = (
+        Task.objects.filter(pk=milestone_id, is_milestone=True, is_deleted=False)
+        .only("pk", "project_id", "early_finish")
+        .first()
+    )
+    if milestone is None:
+        return None
+
+    has_live_binding = (
+        Sprint.objects.filter(target_milestone_id=milestone.pk, is_deleted=False)
+        .exclude(state=SprintState.CANCELLED)
+        .exists()
+    )
+    if not has_live_binding:
+        return None
+
+    cpm_finish = milestone.early_finish
+    vel = velocity_summary(milestone.project_id)
+    velocity_low = vel["forecast_range_low"]
+    velocity_high = vel["forecast_range_high"]
+    avg = vel["rolling_avg_points"]
+    stdev = vel["rolling_stdev_points"]
+
+    remaining, sprint_days, binding_drifted = _scan_targeting_sprints(milestone.pk)
+
+    p50, p80, _p95, usable = _velocity_band_percentiles(
+        cpm_finish=cpm_finish,
+        remaining=remaining,
+        sprint_days=sprint_days,
+        velocity_low=velocity_low,
+        avg=avg,
+    )
+    if not usable:
+        velocity_low = None
+        velocity_high = None
+
+    unmodeled_ids = _unmodeled_predecessors(milestone)
+    unmodeled = bool(unmodeled_ids)
+    confidence = _forecast_confidence(
+        usable_band=usable,
+        stdev=stdev,
+        avg=avg,
+        unmodeled=unmodeled,
+        drifted=binding_drifted,
+    )
+
+    snapshot = ForecastSnapshot.objects.create(
+        project_id=milestone.project_id,
+        milestone=milestone,
+        basis=ForecastBasis.VELOCITY_BAND,
+        cpm_finish=cpm_finish,
+        p50=p50,
+        p80=p80,
+        velocity_low=velocity_low,
+        velocity_high=velocity_high,
+        confidence=confidence,
+        unmodeled_dependency=unmodeled,
+    )
+
+    if broadcast:
+        project_id_str = str(milestone.project_id)
+        milestone_id_str = str(milestone.pk)
+        cpm_iso = cpm_finish.isoformat() if cpm_finish else None
+        p50_iso = p50.isoformat() if p50 else None
+        p80_iso = p80.isoformat() if p80 else None
+
+        def _emit() -> None:
+            # §3.4 broadcast — carries binding_drifted for the bridge banner caveat.
+            broadcast_board_event(
+                project_id_str,
+                "milestone_forecast_updated",
+                {
+                    "milestone_id": milestone_id_str,
+                    "cpm_finish": cpm_iso,
+                    "p50": p50_iso,
+                    "p80": p80_iso,
+                    "confidence": confidence,
+                    "unmodeled_dependency": unmodeled,
+                    "binding_drifted": binding_drifted,
+                },
+            )
+            # §6 Enterprise seam — band + dates only, NO binding_drifted, NO series.
+            milestone_forecast_recomputed.send(
+                sender=ForecastSnapshot,
+                project_id=project_id_str,
+                milestone_id=milestone_id_str,
+                cpm_finish=cpm_iso,
+                p50=p50_iso,
+                p80=p80_iso,
+                confidence=confidence,
+                unmodeled_dependency=unmodeled,
+            )
+
+        transaction.on_commit(_emit)
+
+    return snapshot
+
+
+def project_forecast(project_id: str | uuid.UUID) -> dict[str, Any]:
+    """Aggregate the project forecast read (ADR-0106 §5, #487/#860).
+
+    Returns the velocity range (avg ± 1σ, with the per-sprint series — the
+    velocity privacy gate of ADR-0104 / #553, not yet merged, will suppress it for
+    below-tier readers once it lands at the shared ``velocity_summary`` sink), the
+    remaining committed backlog re-paced into a sprints-to-complete range, and the
+    latest ``ForecastSnapshot`` per bound milestone.
+
+    Uses ``story_points`` (NOT ``prioritization_score`` — scoring inputs are
+    PO-private per the backlog ADR) for the remaining-work sum.
+    """
+    from trueppm_api.apps.projects.models import (
+        ForecastSnapshot,
+        Sprint,
+        SprintState,
+        TaskStatus,
+    )
+
+    vel = velocity_summary(project_id)
+    low = vel["forecast_range_low"]
+    high = vel["forecast_range_high"]
+
+    # Remaining committed backlog: incomplete, pending-excluded story points across
+    # the project's not-yet-closed sprints. Re-paced by the velocity band into a
+    # sprints-to-complete range (high velocity → fewer sprints, low → more).
+    remaining_points = 0
+    from trueppm_api.apps.projects.models import committed_sprint_tasks
+
+    for sprint_pk in (
+        Sprint.objects.filter(project_id=project_id, is_deleted=False)
+        .exclude(state__in=[SprintState.COMPLETED, SprintState.CANCELLED])
+        .values_list("pk", flat=True)
+    ):
+        remaining_points += sum(
+            p
+            for p in committed_sprint_tasks(sprint_pk)
+            .exclude(status=TaskStatus.COMPLETE)
+            .values_list("story_points", flat=True)
+            if p is not None
+        )
+
+    sprints_to_complete_low: float | None = None
+    sprints_to_complete_high: float | None = None
+    if remaining_points > 0 and low and high:
+        # Fewer sprints when the team's pace is high; the slow tail (low) gives
+        # the pessimistic count. Rounded up — a partial sprint is still a sprint.
+        import math
+
+        sprints_to_complete_low = math.ceil(remaining_points / high)
+        sprints_to_complete_high = math.ceil(remaining_points / low)
+
+    # Latest snapshot per bound milestone (one row each, newest taken_at).
+    bound_milestone_ids = list(
+        Sprint.objects.filter(project_id=project_id, is_deleted=False)
+        .exclude(target_milestone_id=None)
+        .values_list("target_milestone_id", flat=True)
+        .distinct()
+    )
+    milestones: list[ForecastSnapshot] = []
+    for mid in bound_milestone_ids:
+        latest = (
+            ForecastSnapshot.objects.filter(milestone_id=mid)
+            .select_related("milestone")
+            .order_by("-taken_at")
+            .first()
+        )
+        if latest is not None:
+            milestones.append(latest)
+    milestones.sort(key=lambda s: (s.cpm_finish or date.max, getattr(s.milestone, "name", "")))
+
+    return {
+        "velocity": vel,
+        "remaining_committed_points": remaining_points,
+        "sprints_to_complete_low": sprints_to_complete_low,
+        "sprints_to_complete_high": sprints_to_complete_high,
+        "milestones": milestones,
+    }
 
 
 # ---------------------------------------------------------------------------

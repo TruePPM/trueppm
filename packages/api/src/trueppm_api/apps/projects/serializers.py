@@ -37,6 +37,7 @@ from trueppm_api.apps.projects.models import (
     Dependency,
     EstimateStatus,
     EstimationMode,
+    ForecastSnapshot,
     InboundTaskLink,
     PhaseGateConfig,
     Program,
@@ -2841,6 +2842,58 @@ class MilestoneListItemSerializer(serializers.Serializer[Any]):
     wbs_path = serializers.CharField(read_only=True)
     early_finish = serializers.DateField(read_only=True, allow_null=True)
     is_bound = serializers.BooleanField(read_only=True)
+
+
+class ForecastSnapshotSerializer(serializers.ModelSerializer[ForecastSnapshot]):
+    """A persisted milestone reforecast row (ADR-0106 §5, #860).
+
+    Carries the band + dates only — never the per-sprint velocity series (the
+    at-rest half of the velocity-privacy guarantee, §3). ``milestone_name`` is
+    surfaced for the forecast list; the FK is SET_NULL so it may be absent for a
+    deleted milestone's lingering history.
+    """
+
+    milestone_id = serializers.UUIDField(read_only=True, allow_null=True)
+    milestone_name = serializers.SerializerMethodField()
+
+    def get_milestone_name(self, obj: ForecastSnapshot) -> str | None:
+        return obj.milestone.name if obj.milestone else None
+
+    class Meta:
+        model = ForecastSnapshot
+        fields = [
+            "id",
+            "milestone_id",
+            "milestone_name",
+            "basis",
+            "cpm_finish",
+            "p50",
+            "p80",
+            "velocity_low",
+            "velocity_high",
+            "confidence",
+            "unmodeled_dependency",
+            "taken_at",
+        ]
+        read_only_fields = fields
+
+
+class ProjectForecastSerializer(serializers.Serializer[dict[str, Any]]):
+    """Project forecast read response (ADR-0106 §5, #487/#860).
+
+    ``velocity`` is the full ``velocity_summary`` payload (avg ± 1σ + the
+    per-sprint series — the velocity privacy gate of ADR-0104 / #553, not yet
+    merged, will suppress the series for below-tier readers once it lands).
+    ``sprints_to_complete_*`` is the remaining committed backlog re-paced by the
+    velocity band into a sprint count range; ``milestones`` is the latest snapshot
+    per bound milestone.
+    """
+
+    velocity = serializers.DictField()
+    remaining_committed_points = serializers.IntegerField()
+    sprints_to_complete_low = serializers.IntegerField(allow_null=True)
+    sprints_to_complete_high = serializers.IntegerField(allow_null=True)
+    milestones = ForecastSnapshotSerializer(many=True, read_only=True)
 
 
 # ---------------------------------------------------------------------------
