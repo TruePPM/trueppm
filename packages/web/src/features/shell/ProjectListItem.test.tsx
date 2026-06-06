@@ -64,31 +64,32 @@ const PROJECT_UNKNOWN: Project = {
 };
 
 describe('ProjectListItem — expanded (collapsed=false)', () => {
-  it('renders project name and health label when expanded', () => {
+  it('renders the project name when expanded', () => {
     renderWithRouter(<ProjectListItem project={PROJECT} collapsed={false} />);
     expect(screen.getByText('Alpha Platform')).toBeInTheDocument();
-    expect(screen.getByText('On track')).toBeInTheDocument();
   });
 
-  it('renders at-risk health label', () => {
-    renderWithRouter(<ProjectListItem project={PROJECT_AT_RISK} collapsed={false} />);
-    expect(screen.getByText('At risk')).toBeInTheDocument();
-  });
-
-  it('renders critical health label', () => {
-    renderWithRouter(<ProjectListItem project={PROJECT_CRITICAL} collapsed={false} />);
-    expect(screen.getByText('Critical')).toBeInTheDocument();
-  });
-
-  it('renders unknown health label', () => {
-    renderWithRouter(<ProjectListItem project={PROJECT_UNKNOWN} collapsed={false} />);
-    expect(screen.getByText('Unknown')).toBeInTheDocument();
-  });
-
-  it('does not set aria-label when not collapsed', () => {
+  it('does not render a visible health text label (one-line row, #959)', () => {
     renderWithRouter(<ProjectListItem project={PROJECT} collapsed={false} />);
-    const link = screen.getByRole('link');
-    expect(link).not.toHaveAttribute('aria-label');
+    // Health moved off-row into the accessible name — no "On track" text node.
+    expect(screen.queryByText('On track')).not.toBeInTheDocument();
+  });
+
+  it('carries health in the accessible name when expanded', () => {
+    renderWithRouter(<ProjectListItem project={PROJECT_AT_RISK} collapsed={false} />);
+    expect(screen.getByRole('link')).toHaveAttribute('aria-label', 'Beta Migration — At risk');
+  });
+
+  it('carries critical health in the accessible name', () => {
+    renderWithRouter(<ProjectListItem project={PROJECT_CRITICAL} collapsed={false} />);
+    expect(screen.getByRole('link')).toHaveAttribute('aria-label', 'Gamma Compliance — Critical');
+  });
+
+  it('omits the health suffix from the accessible name when health is unknown', () => {
+    renderWithRouter(<ProjectListItem project={PROJECT_UNKNOWN} collapsed={false} />);
+    // No "Unknown" noise — the hollow dot conveys "no signal".
+    expect(screen.getByRole('link')).toHaveAttribute('aria-label', 'Delta Infrastructure');
+    expect(screen.queryByText('Unknown')).not.toBeInTheDocument();
   });
 
   it('does not set title when not collapsed', () => {

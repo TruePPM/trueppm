@@ -9,7 +9,7 @@ import { test, expect } from '@playwright/test';
  *  - Members tab renders the auto-OWNER membership row
  *  - Backlog tab renders the backlog workspace (#742; detailed coverage lives
  *    in program-backlog.spec.ts)
- *  - Sidebar PROGRAMS section lists the user's programs after creation
+ *  - Sidebar program scope picker lists the user's programs after creation (#959)
  */
 
 const ME_ID = 'user-alice';
@@ -423,16 +423,18 @@ test.describe('Programs — ungrouped projects (#697, ADR-0083)', () => {
 });
 
 test.describe('Programs — sidebar entry', () => {
-  test('PROGRAMS section lists the program after creation', async ({ page }) => {
+  test('scope picker lists the program after creation (#959)', async ({ page }) => {
     await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
     await page.goto(`/programs/${PROGRAM_ID}/projects`);
     const sidebar = page.locator('aside[aria-label="Projects"]');
     await expect(sidebar).toBeVisible();
-    // Sidebar PROGRAMS section header (rule 36 uppercase).
-    await expect(sidebar.getByRole('heading', { name: 'Programs' })).toBeVisible();
-    // The program link rendered inside the PROGRAMS list.
+    // The flat PROGRAMS list was replaced by the searchable scope picker (#959).
+    const picker = sidebar.getByRole('button', { name: /Program scope:/i });
+    await expect(picker).toBeVisible();
+    await picker.click();
+    // The program appears as an option inside the picker's listbox.
     await expect(
-      sidebar.getByRole('link', { name: 'Phase 2 Modernization' }).first(),
+      sidebar.getByRole('option', { name: /Phase 2 Modernization/i }),
     ).toBeVisible();
   });
 });

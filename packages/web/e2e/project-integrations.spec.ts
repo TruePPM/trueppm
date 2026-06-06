@@ -210,9 +210,15 @@ test.describe('Workspace integrations redirect shim', () => {
     await expect(
       page.getByRole('heading', { name: /Which project's integrations/i }),
     ).toBeVisible();
+    // Scope to the settings content panel: the redesigned sidebar (#959) now renders a
+    // row link per project with the same accessible name, so an unscoped getByRole('link')
+    // is a strict-mode collision. The picker we assert on lives under settings-content-scroll.
+    const picker = page.getByTestId('settings-content-scroll');
     await expect(
-      page.getByRole('link', { name: 'Integrations Test Project', exact: true }),
+      picker.getByRole('link', { name: 'Integrations Test Project', exact: true }),
     ).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Second Project', exact: true })).toBeVisible();
+    await expect(
+      picker.getByRole('link', { name: 'Second Project', exact: true }),
+    ).toBeVisible();
   });
 });

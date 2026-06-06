@@ -1,7 +1,6 @@
 import type { CSSProperties } from 'react';
 import { NavLink, useLocation, useParams } from 'react-router';
 import type { Project, HealthState } from '@/types';
-import { usePrograms } from '@/hooks/usePrograms';
 
 const HEALTH_LABELS: Record<HealthState, string> = {
   'on-track': 'On track',
@@ -10,16 +9,11 @@ const HEALTH_LABELS: Record<HealthState, string> = {
   unknown: 'Unknown',
 };
 
-const HEALTH_COLORS: Record<HealthState, string> = {
-  'on-track': 'text-semantic-on-track',
-  'at-risk': 'text-semantic-at-risk',
-  critical: 'text-semantic-critical',
-  unknown: 'text-neutral-text-disabled',
-};
-
-// 7px health dot with 2px halo at 20% alpha — design spec (#200).
-// CSS custom properties in boxShadow resolve at paint time, so dark-mode
-// semantic color flips are picked up automatically.
+// 7px health dot. Known states fill with the semantic color + a 2px halo at 20%
+// alpha (#200). Unknown renders as a hollow ring instead of a filled gray dot —
+// the cleanup that removes the "Unknown" text noise (#959, Direction C): an empty
+// state reads as "no signal yet" without a word repeated on every row.
+// CSS custom properties resolve at paint time so dark-mode color flips are free.
 const HEALTH_DOT_STYLE: Record<HealthState, CSSProperties> = {
   'on-track': {
     backgroundColor: 'rgb(var(--semantic-on-track))',
@@ -34,7 +28,8 @@ const HEALTH_DOT_STYLE: Record<HealthState, CSSProperties> = {
     boxShadow: '0 0 0 2px rgb(var(--semantic-critical) / 0.20)',
   },
   unknown: {
-    backgroundColor: 'rgb(var(--neutral-text-disabled))',
+    backgroundColor: 'transparent',
+    border: '1.5px solid rgb(var(--neutral-text-disabled))',
   },
 };
 
@@ -43,25 +38,30 @@ interface Props {
   collapsed: boolean;
 }
 
+/**
+ * A single one-line project row in the sidebar (#959, Direction C): a health
+ * dot + the project name. The owning program is no longer shown per-row — in
+ * "All programs" scope projects are grouped under their program header, and in
+ * a scoped view the program is implied by the scope, so a per-row tag is
+ * redundant. (Per-project open-task count is deferred to #960.)
+ */
 export function ProjectListItem({ project, collapsed }: Props) {
   // Determine active project from URL path param (ADR-0030).
   const { projectId: currentProjectId } = useParams<{ projectId: string }>();
   const isThisProject = currentProjectId === project.id;
   const location = useLocation();
-  // Programs are cached at the app shell level by usePrograms; this is a free
-  // lookup (TanStack Query dedupes shared queryKey). The badge surfaces the
-  // owning program for grouped projects (ADR-0070).
-  const { data: programs } = usePrograms();
-  const programName = project.programId
-    ? programs?.find((p) => p.id === project.programId)?.name ?? null
-    : null;
 
   // Preserve the active tab when switching projects (#160).
   // Extract the path suffix after the current project segment (e.g. "/schedule", "/resources/roster").
   // Fall back to "/board" (canonical planning surface) when not inside a project route.
   const viewSuffix = currentProjectId
-    ? (location.pathname.replace(`/projects/${currentProjectId}`, '') || '/board')
+    ? location.pathname.replace(`/projects/${currentProjectId}`, '') || '/board'
     : '/board';
+
+  // Health is conveyed in the accessible name because the dot is decorative
+  // (rule 6) and the row no longer renders a visible health text label.
+  const healthSuffix =
+    project.healthState === 'unknown' ? '' : ` — ${HEALTH_LABELS[project.healthState]}`;
 
   return (
     <li>
@@ -70,7 +70,8 @@ export function ProjectListItem({ project, collapsed }: Props) {
         title={collapsed ? project.name : undefined}
         className={() =>
           [
-            'flex items-center gap-2 px-3 py-2 rounded text-sm transition-colors',
+            'flex items-center gap-2 px-3 rounded text-sm transition-colors',
+            collapsed ? 'py-2' : 'min-h-8 py-1.5',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface',
             // Active: fill + 2px left border (rule 37 — border is primary non-color signal)
             isThisProject
@@ -78,31 +79,18 @@ export function ProjectListItem({ project, collapsed }: Props) {
               : 'hover:bg-neutral-text-primary/5 border-l-2 border-transparent',
           ].join(' ')
         }
-        aria-label={collapsed ? `${project.name} — ${HEALTH_LABELS[project.healthState]}` : undefined}
+        aria-label={`${project.name}${healthSuffix}`}
         aria-current={isThisProject ? 'page' : undefined}
       >
-        {/* 7px health dot with 2px halo — color encodes health state (#200).
-            aria-hidden; state is conveyed by label text below or aria-label. */}
+        {/* 7px health dot — color (or hollow ring) encodes health state (#200/#959).
+            aria-hidden; state is conveyed by the row aria-label. */}
         <span
-          className="rounded-full flex-shrink-0"
+          className="rounded-full flex-shrink-0 box-border"
           style={{ width: '7px', height: '7px', ...HEALTH_DOT_STYLE[project.healthState] }}
           aria-hidden="true"
         />
         {!collapsed && (
-          <span className="flex-1 truncate">
-            <span className="text-chrome-text-primary">{project.name}</span>
-            <span className={`block text-xs ${HEALTH_COLORS[project.healthState]}`}>
-              {HEALTH_LABELS[project.healthState]}
-            </span>
-            {programName && (
-              <span
-                className="tppm-mono block truncate text-xs text-chrome-text-secondary"
-                title={`Program: ${programName}`}
-              >
-                Program · {programName}
-              </span>
-            )}
-          </span>
+          <span className="min-w-0 flex-1 truncate text-chrome-text-primary">{project.name}</span>
         )}
       </NavLink>
     </li>
