@@ -89,7 +89,7 @@ test.describe('Program JSON import', () => {
       .getByRole('button', { name: /Import from JSON/i })
       .first()
       .click();
-    await page.locator('input[type="file"]').setInputFiles({
+    await page.locator('input[type="file"]').first().setInputFiles({
       name: 'atlas.json',
       mimeType: 'application/json',
       buffer: SAMPLE_SEED,
@@ -113,7 +113,7 @@ test.describe('Program JSON import', () => {
       .getByRole('button', { name: /Import from JSON/i })
       .first()
       .click();
-    await page.locator('input[type="file"]').setInputFiles({
+    await page.locator('input[type="file"]').first().setInputFiles({
       name: 'bad.json',
       mimeType: 'application/json',
       buffer: Buffer.from('{}'),
