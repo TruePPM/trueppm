@@ -13,6 +13,9 @@ interface RunOptions {
  * cache so every consumer of `useMonteCarloResult` (Project Overview's
  * Forecast widget, the Schedule MC row, the mobile card, and the TopBar
  * P80 pill) refetches in lockstep.
+ *
+ * Also invalidates `monte-carlo-history` so the new run prepends to the forecast
+ * drift history (ADR-0109, #961) without a manual refresh.
  */
 export function useRunMonteCarlo(projectId: string | undefined) {
   const qc = useQueryClient();
@@ -23,6 +26,7 @@ export function useRunMonteCarlo(projectId: string | undefined) {
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['monte-carlo-latest', projectId] });
+      void qc.invalidateQueries({ queryKey: ['monte-carlo-history', projectId] });
     },
   });
 }

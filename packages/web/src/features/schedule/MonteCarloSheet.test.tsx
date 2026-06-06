@@ -4,6 +4,12 @@ import { renderWithProviders } from '@/test/utils';
 import { MonteCarloSheet } from './MonteCarloSheet';
 import { FIXTURE_MC_RESULT } from '@/fixtures/monteCarlo';
 
+// The sheet embeds ForecastHistorySection (ADR-0109); mock the client so its
+// history fetch resolves empty and the section stays out of these chrome tests.
+vi.mock('@/api/client', () => ({
+  apiClient: { get: vi.fn().mockResolvedValue({ data: { results: [], cap: 100 } }) },
+}));
+
 describe('MonteCarloSheet', () => {
   it('renders as a dialog with the correct aria attributes', () => {
     const onClose = vi.fn();

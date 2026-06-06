@@ -6154,10 +6154,61 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/monte-carlo/history/": {
+            "get": {
+                "operationId": "v1_projects_monte_carlo_history_retrieve",
+                "description": "Return the capped, newest-first run history with per-run deltas.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Project Monte Carlo run history (ADR-0109). {results: [MonteCarloRun], cap: int|null}. Each run carries P50/P80/P95, cpm_finish, n_simulations, task_count, a per-percentile delta vs the previous run (null on the oldest row), and triggered_by_name (non-null only for Admin/Owner)."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Project does not exist."
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/monte-carlo/latest/": {
             "get": {
                 "operationId": "v1_projects_monte_carlo_latest_retrieve",
-                "description": "Return the latest cached Monte Carlo result for the project.",
+                "description": "Return the latest cached Monte Carlo result for the project.\n\nFalls back to the most recent persisted ``MonteCarloRun`` when the 24-hour\ncache has expired (ADR-0109): the latest forecast now survives past the\nTTL. The fallback carries the percentiles but an empty histogram — the raw\nsimulation distribution is intentionally not persisted (only the\npercentile band is), so the chips render from history while the histogram\nneeds a fresh run.",
                 "parameters": [
                     {
                         "in": "path",

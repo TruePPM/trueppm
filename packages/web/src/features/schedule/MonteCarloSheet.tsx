@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { MonteCarloResult } from '@/types';
 import { MonteCarloHistogram } from './MonteCarloHistogram';
+import { ForecastHistorySection } from './ForecastHistorySection';
 
 interface Props {
   result: MonteCarloResult;
@@ -76,6 +77,10 @@ export function MonteCarloSheet({ result, onClose }: Props) {
         <div className="mt-4 overflow-x-auto">
           <MonteCarloHistogram result={result} />
         </div>
+
+        {/* Forecast drift history (ADR-0109, #961) — collapsed by default on
+            mobile so the current result stays the priority on a small screen. */}
+        <ForecastHistorySection projectId={result.projectId} defaultExpanded={false} />
       </div>
     </div>
   );

@@ -195,6 +195,71 @@ def _do_purge() -> None:
     logger.info("purge_old_schedule_requests: deleted %d row(s)", deleted)
 
 
+@idempotent_task(
+    lock_key_template="purge_old_monte_carlo_runs",
+    lock_ttl=120,
+    on_contention="skip",
+    soft_time_limit=55,
+    time_limit=90,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    name="scheduling.purge_old_monte_carlo_runs",
+)
+def purge_old_monte_carlo_runs(self: object) -> None:
+    """Trim project Monte Carlo run history to the newest cap per project.
+
+    Runs nightly at 02:20 UTC via Celery Beat. Keeps the most recent
+    ``settings.MC_HISTORY_CAP`` ``MonteCarloRun`` rows per project (ADR-0109,
+    #961) so forecast-drift history stays bounded. No-ops when the cap is
+    ``None`` (Enterprise unlimited). Idempotent: rank-based delete is safe to
+    run repeatedly.
+    """
+    _do_monte_carlo_run_purge()
+
+
+def _do_monte_carlo_run_purge() -> None:
+    """Business logic for purge_old_monte_carlo_runs — extracted for testability.
+
+    For each project that exceeds the cap, delete every run older than its
+    cap-th most recent. Iterates only over projects above the cap so the common
+    case (most projects under 100 runs) does no delete work.
+    """
+    from django.conf import settings
+    from django.db.models import Count
+
+    from trueppm_api.apps.scheduling.models import MonteCarloRun
+
+    cap: int | None = settings.MC_HISTORY_CAP
+    if cap is None:
+        return  # Enterprise: unlimited history, nothing to purge.
+
+    over_cap = (
+        MonteCarloRun.objects.values("project_id")
+        .annotate(n=Count("id"))
+        .filter(n__gt=cap)
+        .values_list("project_id", flat=True)
+    )
+
+    total_deleted = 0
+    for project_id in list(over_cap):
+        # Find the taken_at of the cap-th most recent run; everything strictly
+        # older is surplus. Ordered by -taken_at so [cap - 1] is the boundary row.
+        boundary = list(
+            MonteCarloRun.objects.filter(project_id=project_id)
+            .order_by("-taken_at")
+            .values_list("taken_at", flat=True)[cap - 1 : cap]
+        )
+        if not boundary:
+            continue
+        deleted, _ = MonteCarloRun.objects.filter(
+            project_id=project_id, taken_at__lt=boundary[0]
+        ).delete()
+        total_deleted += deleted
+
+    if total_deleted:
+        logger.info("purge_old_monte_carlo_runs: deleted %d row(s)", total_deleted)
+
+
 def _dead_letter_current(task: object, project_id: str, exc: BaseException) -> None:
     """Write a FailedTask record for the current task invocation."""
     from trueppm_api.apps.scheduling.deadletter import record_failed_task

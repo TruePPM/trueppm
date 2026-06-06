@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from rest_framework import serializers
 
-from trueppm_api.apps.scheduling.models import FailedTask, VelocitySuggestion
+from trueppm_api.apps.scheduling.models import FailedTask, MonteCarloRun, VelocitySuggestion
 
 
 class FailedTaskSerializer(serializers.ModelSerializer[FailedTask]):
@@ -64,3 +66,53 @@ class VelocitySuggestionSerializer(serializers.ModelSerializer[VelocitySuggestio
             "dismissed_by",
         ]
         read_only_fields = fields
+
+
+class MonteCarloRunSerializer(serializers.ModelSerializer[MonteCarloRun]):
+    """Read serializer for one project Monte Carlo run in the forecast history (ADR-0109).
+
+    Two pieces of context the view must supply:
+
+    - ``delta`` is computed-on-read (ADR-0108): the view attaches ``_delta`` to
+      each instance — a ``{"p50"|"p80"|"p95": signed-int-days|None}`` map of the
+      change versus the immediately-previous (older) run, or ``None`` on the
+      oldest/baseline row. Positive = the forecast slipped later (worse).
+    - ``triggered_by_name`` ("who ran it") is emitted **only** when the context
+      flag ``can_see_attribution`` is true (requester is Admin/Owner). For every
+      other member the field is ``None`` so forecast drift cannot be read as a
+      named-individual performance signal (VoC Morgan). The FK is never exposed
+      directly; only a display name, and only to admins.
+    """
+
+    delta = serializers.SerializerMethodField()
+    triggered_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = MonteCarloRun
+        fields = [
+            "id",
+            "taken_at",
+            "p50",
+            "p80",
+            "p95",
+            "cpm_finish",
+            "n_simulations",
+            "task_count",
+            "delta",
+            "triggered_by_name",
+        ]
+        read_only_fields = fields
+
+    def get_delta(self, obj: MonteCarloRun) -> dict[str, int | None] | None:
+        """Return the per-percentile day delta vs the previous run (view-attached)."""
+        return getattr(obj, "_delta", None)
+
+    def get_triggered_by_name(self, obj: MonteCarloRun) -> str | None:
+        """Run-author display name — Admin/Owner only, else None (ADR-0109)."""
+        if not self.context.get("can_see_attribution"):
+            return None
+        user: Any = obj.triggered_by
+        if user is None:
+            return None
+        full_name = user.get_full_name() if hasattr(user, "get_full_name") else ""
+        return full_name or user.get_username()
