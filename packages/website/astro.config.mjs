@@ -133,6 +133,7 @@ export default defineConfig({
               label: "Agile",
               collapsed: false,
               items: [
+                { slug: "features/product-backlog" },
                 { slug: "features/board" },
                 { slug: "features/board-sprint-panel" },
                 { slug: "features/wip-overload" },
