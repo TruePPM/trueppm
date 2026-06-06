@@ -144,7 +144,7 @@ function LabelChipInput({ labels, onChange }: LabelChipInputProps) {
     <div
       className="flex flex-wrap items-center gap-1 rounded border border-neutral-border
         bg-neutral-surface px-2 py-1
-        focus-within:ring-2 focus-within:ring-brand-primary focus-within:ring-offset-1"
+        focus-within:ring-2 focus-within:ring-brand-primary focus-within:ring-offset-1 dark:focus-within:ring-semantic-on-track"
     >
       {labels.map((label, i) => (
         <span
@@ -158,7 +158,7 @@ function LabelChipInput({ labels, onChange }: LabelChipInputProps) {
             onClick={() => removeAt(i)}
             aria-label={`Remove label ${label}`}
             className="rounded text-neutral-text-secondary hover:text-semantic-critical
-              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
+              focus-visible:ring-2 focus-visible:ring-brand-primary dark:focus-visible:ring-semantic-on-track focus-visible:outline-none"
           >
             ×
           </button>
@@ -563,8 +563,8 @@ export function ExternalLinksSection({ taskId, projectId }: DrawerSectionProps) 
           className="text-xs text-neutral-text-secondary border border-dashed border-neutral-border
             bg-neutral-surface-sunken rounded px-4 py-3"
         >
-          🔗 Paste a GitLab or GitHub URL to see live status — open, draft, merged, or closed — on
-          this task.
+          🔗 Paste a GitLab, GitHub, or any URL. GitLab and GitHub links show live status — open,
+          draft, merged, or closed — and you can add a title and labels.
         </p>
       )}
 

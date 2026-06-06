@@ -192,7 +192,7 @@ test.describe('Task external links (#637)', () => {
     const section = await openDrawerLinksSection(page);
 
     // Empty state.
-    await expect(section.getByRole('note')).toContainText(/Paste a GitLab or GitHub URL/i);
+    await expect(section.getByRole('note')).toContainText(/Paste a GitLab, GitHub, or any URL/i);
 
     // Paste a GitHub URL → provider-detect hint appears.
     const input = section.getByLabel('Add a link URL');

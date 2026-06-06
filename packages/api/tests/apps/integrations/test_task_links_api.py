@@ -466,3 +466,50 @@ def test_refresh_preserves_custom_title(
     body = r.json()
     assert body["title"] == "Provider title"
     assert body["custom_title"] == "My name for it"  # untouched by refresh
+
+
+def test_patch_cannot_set_provider_or_status(
+    member: object, project: Project, task: Task, memberships: None
+) -> None:
+    """provider/status/title stay read-only on PATCH — a client value is ignored (#970)."""
+    link = TaskLink.objects.create(task=task, url="https://example.com/x", provider="generic")
+    r = _client(member).patch(
+        _detail_url(project, task, link.pk),
+        {"provider": "github", "status": "merged", "custom_title": "ok"},
+        format="json",
+    )
+    assert r.status_code == 200
+    link.refresh_from_db()
+    assert link.provider == "generic"  # read-only — ignored
+    assert link.status == "unknown"
+    assert link.custom_title == "ok"
+
+
+def test_patch_url_reresolves_provider(
+    member: object, project: Project, task: Task, memberships: None
+) -> None:
+    """Changing the url via PATCH re-resolves the provider server-side (#970)."""
+    link = TaskLink.objects.create(task=task, url="https://example.com/x", provider="generic")
+    r = _client(member).patch(
+        _detail_url(project, task, link.pk),
+        {"url": "https://github.com/acme/api/pull/3"},
+        format="json",
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["provider"] == "github"
+    assert body["url"] == "https://github.com/acme/api/pull/3"
+
+
+def test_patch_link_from_another_project_is_404(member: object, memberships: None) -> None:
+    """The membership-scoped queryset is the IDOR boundary for PATCH too (#970)."""
+    other_cal = Calendar.objects.create(name="Other cal 2")
+    other_project = Project.objects.create(
+        name="Gamma", start_date=date(2026, 1, 1), calendar=other_cal
+    )
+    other_task = Task.objects.create(project=other_project, name="G-task", duration=1)
+    link = TaskLink.objects.create(task=other_task, url="https://example.com/x", provider="generic")
+    r = _client(member).patch(
+        _detail_url(other_project, other_task, link.pk), {"custom_title": "stolen"}, format="json"
+    )
+    assert r.status_code in (403, 404)
