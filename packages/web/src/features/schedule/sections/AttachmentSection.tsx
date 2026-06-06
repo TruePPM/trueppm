@@ -340,7 +340,7 @@ export function AttachmentSection({ taskId, projectId }: DrawerSectionProps) {
       )}
 
       {showAddControls && (
-        <div className="flex items-center gap-2 mt-1">
+        <div className="mt-1">
           <input
             ref={fileInputRef}
             type="file"
@@ -349,42 +349,53 @@ export function AttachmentSection({ taskId, projectId }: DrawerSectionProps) {
             aria-hidden="true"
             tabIndex={-1}
           />
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploadBlocked}
-            className="text-xs border border-neutral-border rounded px-3 h-7 font-medium
-              text-neutral-text-primary hover:bg-neutral-surface
-              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
-              disabled:opacity-50"
-          >
-            + Attach file
-          </button>
-          <button
-            type="button"
-            onClick={() => setLinkModalOpen(true)}
-            disabled={uploadBlocked}
-            className="text-xs border border-neutral-border rounded px-3 h-7 font-medium
-              text-neutral-text-primary hover:bg-neutral-surface
-              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
-              disabled:opacity-50"
-          >
-            + Pin link
-          </button>
-          {createAttachment.isPending && (
-            <span className="text-xs text-neutral-text-secondary" aria-live="polite">
-              Uploading…
-            </span>
-          )}
-          {!isOnline && (
-            <span className="text-xs text-neutral-text-secondary" role="status">
-              You&apos;re offline — attachments resume when you reconnect.
-            </span>
-          )}
-          {uploadError && (
-            <span className="text-xs text-semantic-critical" role="alert">
-              {uploadError}
-            </span>
+          {/* Buttons live in their own non-shrinking row; status/error messages
+              stack below so a long validation message can never squeeze the
+              buttons and wrap their labels (e.g. "+ Attach\nfile"). */}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploadBlocked}
+              className="text-xs border border-neutral-border rounded px-3 h-7 font-medium
+                shrink-0 whitespace-nowrap
+                text-neutral-text-primary hover:bg-neutral-surface
+                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
+                disabled:opacity-50"
+            >
+              + Attach file
+            </button>
+            <button
+              type="button"
+              onClick={() => setLinkModalOpen(true)}
+              disabled={uploadBlocked}
+              className="text-xs border border-neutral-border rounded px-3 h-7 font-medium
+                shrink-0 whitespace-nowrap
+                text-neutral-text-primary hover:bg-neutral-surface
+                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
+                disabled:opacity-50"
+            >
+              + Pin link
+            </button>
+          </div>
+          {(createAttachment.isPending || !isOnline || uploadError) && (
+            <div className="flex flex-col gap-1 mt-1.5">
+              {createAttachment.isPending && (
+                <span className="text-xs text-neutral-text-secondary" aria-live="polite">
+                  Uploading…
+                </span>
+              )}
+              {!isOnline && (
+                <span className="text-xs text-neutral-text-secondary" role="status">
+                  You&apos;re offline — attachments resume when you reconnect.
+                </span>
+              )}
+              {uploadError && (
+                <span className="text-xs text-semantic-critical" role="alert">
+                  {uploadError}
+                </span>
+              )}
+            </div>
           )}
         </div>
       )}
