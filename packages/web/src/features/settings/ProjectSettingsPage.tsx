@@ -81,6 +81,11 @@ export function ProjectSettingsPage() {
       items: [
         { id: 'workflow',      label: 'Workflow & fields', to: `/projects/${projectId}/settings/workflow`,      icon: <NavIcon><WbsIcon aria-hidden="true" /></NavIcon> },
         { id: 'guardrails',    label: 'Sprint guardrails', to: `/projects/${projectId}/settings/guardrails`,    icon: <NavIcon><WarningIcon aria-hidden="true" /></NavIcon> },
+        // Signal privacy is agile/hybrid-only (ADR-0104): velocity/throughput/pulse
+        // are sprint signals; waterfall projects never see it (same gate as Team).
+        ...(showTeamTab
+          ? [{ id: 'signal-privacy', label: 'Signal privacy', to: `/projects/${projectId}/settings/signal-privacy`, icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> }]
+          : []),
         { id: 'integrations',  label: 'Integrations',      to: `/projects/${projectId}/settings/integrations`,  icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> },
         { id: 'notifications', label: 'Notifications',     to: `/projects/${projectId}/settings/notifications`, icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> },
       ],

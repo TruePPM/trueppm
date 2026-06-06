@@ -126,6 +126,11 @@ const ProjectTeamPage = lazy(() =>
     default: m.ProjectTeamPage,
   })),
 );
+const ProjectSignalPrivacyPage = lazy(() =>
+  import('@/features/settings/signalPrivacy/ProjectSignalPrivacyPage').then((m) => ({
+    default: m.ProjectSignalPrivacyPage,
+  })),
+);
 const ProjectGuardrailsPage = lazy(() =>
   import('@/features/settings/project/ProjectGuardrailsPage').then((m) => ({
     default: m.ProjectGuardrailsPage,
@@ -464,6 +469,14 @@ export const router = createBrowserRouter([
                     element: (
                       <Suspense fallback={<RouteLoadingFallback />}>
                         <ProjectTeamPage />
+                      </Suspense>
+                    ),
+                  },
+                  {
+                    path: 'signal-privacy',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <ProjectSignalPrivacyPage />
                       </Suspense>
                     ),
                   },

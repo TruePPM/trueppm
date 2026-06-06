@@ -179,6 +179,7 @@ export default defineConfig({
               items: [
                 { slug: "features/settings/project-members" },
                 { slug: "features/settings/project-team" },
+                { slug: "features/settings/signal-privacy" },
                 { slug: "features/settings/project-notifications" },
                 { slug: "features/settings/program-rollup" },
                 { slug: "features/settings/program-risk-policy" },

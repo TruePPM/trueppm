@@ -6594,10 +6594,22 @@ class ProjectVelocityView(APIView):
 
     def get(self, request: Request, pk: str) -> Response:
         from trueppm_api.apps.projects.services import velocity_summary
+        from trueppm_api.apps.projects.signal_privacy_services import (
+            can_read_signal,
+            suppress_velocity_summary,
+        )
 
         project = get_object_or_404(Project, pk=pk, is_deleted=False)
         self.check_object_permissions(request, project)
-        return Response(velocity_summary(project.pk), status=status.HTTP_200_OK)
+        summary = velocity_summary(project.pk)
+        # ADR-0104 §2.1: strip the team-private velocity detail (series + rolling
+        # points) when the requester's tier is below the velocity audience. At the
+        # TEAM default every member passes, so the payload is byte-for-byte
+        # unchanged from before this gate existed — only a non-member, or a team
+        # that opted velocity up, triggers suppression.
+        if not can_read_signal(request, project.pk, "velocity"):
+            summary = suppress_velocity_summary(summary)
+        return Response(summary, status=status.HTTP_200_OK)
 
 
 class ProjectForecastView(APIView):

@@ -2646,6 +2646,133 @@ class ProjectGuardrailPolicy(VersionedModel):
 
 
 # ---------------------------------------------------------------------------
+# Team-signal privacy — ADR-0104 (#553 / #854 / #923)
+# ---------------------------------------------------------------------------
+
+
+class SignalAudience(models.TextChoices):
+    """How far a team signal may travel — one ordered ladder (ADR-0104 §1).
+
+    Strictly ordered: TEAM < TEAM_SM < TEAM_SM_PM < PROGRAM_SHARED. The order is
+    load-bearing — ``audience_can_read`` compares a requester's tier against the
+    signal's configured audience on this ladder, and the ``audience <= ceiling``
+    invariant is an ordinal comparison. :data:`SIGNAL_AUDIENCE_LADDER` pins the
+    canonical order so the comparison never depends on enum declaration order or
+    string sorting.
+
+    PROGRAM_SHARED is the single opt-in rung that makes a signal eligible for the
+    cross-team rollup (the Enterprise extension point); nothing reaches it without
+    a team raising a ceiling there.
+    """
+
+    TEAM = "team", "Team only"
+    TEAM_SM = "team_sm", "Team + Scrum Master"
+    TEAM_SM_PM = "team_sm_pm", "Team + SM + PM"
+    PROGRAM_SHARED = "program_shared", "Shared to program rollup (opt-in)"
+
+
+# Canonical rung order for ordinal comparisons (ladder position 0..3). A reader's
+# tier and a signal's audience/ceiling are all SignalAudience values; comparing
+# them means comparing these positions, never the raw strings.
+SIGNAL_AUDIENCE_LADDER: list[str] = [
+    SignalAudience.TEAM,
+    SignalAudience.TEAM_SM,
+    SignalAudience.TEAM_SM_PM,
+    SignalAudience.PROGRAM_SHARED,
+]
+
+
+def signal_audience_rank(value: str) -> int:
+    """Ladder position (0..3) of a SignalAudience value, for ordinal comparison."""
+    return SIGNAL_AUDIENCE_LADDER.index(value)
+
+
+# The three governed signals and their coded {audience, ceiling} defaults
+# (ADR-0104 §1). An absent signal — or an absent key — resolves to these. Every
+# audience defaults to TEAM (nothing is exposed upward by default); the ceiling
+# encodes how far the team has authorized a signal *may* go.
+SIGNAL_DEFAULTS: dict[str, dict[str, str]] = {
+    # velocity (#553): TEAM/TEAM preserves today's any-member read and makes even
+    # raising it a deliberate team-owned ceiling act.
+    "velocity": {"audience": SignalAudience.TEAM, "ceiling": SignalAudience.TEAM},
+    # throughput_rollup (#854): the per-project rollup opt-in *is* raising audience
+    # to PROGRAM_SHARED; the ceiling already permits it, so consent is one step.
+    "throughput_rollup": {
+        "audience": SignalAudience.TEAM,
+        "ceiling": SignalAudience.PROGRAM_SHARED,
+    },
+    # pulse (#923): most private; locked to team by default, team-raisable only.
+    "pulse": {"audience": SignalAudience.TEAM, "ceiling": SignalAudience.TEAM},
+}
+
+
+class ProjectSignalPrivacyPolicy(VersionedModel):
+    """Per-project team-signal privacy posture — one ladder for three signals.
+
+    One row per Project (1:1), created lazily on first GET via ``get_or_create`` so
+    existing projects need no data migration (the ``ProjectGuardrailPolicy`` idiom).
+    ``signal_visibility`` maps each signal key to a ``{audience, ceiling}`` pair;
+    an absent signal or key resolves to :data:`SIGNAL_DEFAULTS`. Stored as JSON so a
+    future signal needs no migration.
+
+    The two values per signal carry the sprint-sovereignty contract (ADR-0104 §1.1):
+    ``audience`` is where a signal sits now and ``ceiling`` is the furthest the team
+    has authorized, with the invariant ``audience <= ceiling`` on the ladder. The
+    invariant and the two write gates (set-audience vs the team-owned raise-ceiling)
+    are enforced in ``signal_privacy_services`` — a JSON map cannot carry a per-key
+    DB ``CheckConstraint``, and the model deliberately exposes no bare field write.
+    """
+
+    project = models.OneToOneField(
+        Project,
+        on_delete=models.CASCADE,
+        related_name="signal_privacy_policy",
+    )
+    # {signal_key: {"audience": SignalAudience, "ceiling": SignalAudience}}. Absent
+    # signals/keys resolve to SIGNAL_DEFAULTS. JSON (not column-per-signal) so a new
+    # signal needs no migration.
+    signal_visibility = models.JSONField(default=dict, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_BASE)
+
+    # Declared explicitly so django-stubs resolves the manager / project_id on a
+    # VersionedModel subclass that also carries HistoricalRecords (project memory
+    # feedback_cross_app_versionedmodel_stubs).
+    objects = models.Manager()
+
+    class Meta:
+        db_table = "projects_signal_privacy_policy"
+
+    def __str__(self) -> str:
+        return f"ProjectSignalPrivacyPolicy({self.pk})"
+
+    def resolved(self, signal_key: str) -> dict[str, str]:
+        """Return the effective ``{audience, ceiling}`` for a signal.
+
+        Merges the stored override (which may carry only one of the two keys) over
+        the coded default, so a partially-written entry never loses the missing
+        half. Unknown signal keys fall back to a TEAM/TEAM (fully private) shape.
+        """
+        default = SIGNAL_DEFAULTS.get(
+            signal_key, {"audience": SignalAudience.TEAM, "ceiling": SignalAudience.TEAM}
+        )
+        stored = self.signal_visibility.get(signal_key, {})
+        return {
+            "audience": stored.get("audience", default["audience"]),
+            "ceiling": stored.get("ceiling", default["ceiling"]),
+        }
+
+    def audience_of(self, signal_key: str) -> str:
+        """Current audience of a signal (the value the read gate consults)."""
+        return self.resolved(signal_key)["audience"]
+
+    def ceiling_of(self, signal_key: str) -> str:
+        """Team-authorized ceiling of a signal (bounds writes, never reads)."""
+        return self.resolved(signal_key)["ceiling"]
+
+
+# ---------------------------------------------------------------------------
 # Inbound task-sync — ADR-0068 / issue #500 (Gap 3 of ADR-0065)
 # ---------------------------------------------------------------------------
 
