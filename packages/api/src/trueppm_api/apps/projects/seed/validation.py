@@ -120,7 +120,7 @@ def _referential_errors(payload: dict[str, Any]) -> list[str]:
     project_slugs: set[str] = set()
     task_index: dict[str, set[str]] = {}
     for i, project in enumerate(projects):
-        slug = project.get("slug")
+        slug: str = project.get("slug")
         path = f"$.projects[{i}]"
         if slug in project_slugs:
             errors.append(f"{path}.slug: duplicate project slug {slug!r}")
@@ -210,7 +210,7 @@ def _collect_slugs(items: list[dict[str, Any]], base: str, errors: list[str]) ->
     """Gather slugs from a collection, recording duplicates as errors."""
     slugs: set[str] = set()
     for i, item in enumerate(items):
-        slug = item.get("slug")
+        slug = item.get("slug", "")
         if slug in slugs:
             errors.append(f"{base}[{i}].slug: duplicate slug {slug!r}")
         slugs.add(slug)
@@ -262,7 +262,7 @@ def _check_risks(
     seen: set[str] = set()
     for i, risk in enumerate(risks):
         rpath = f"{base}[{i}]"
-        slug = risk.get("slug")
+        slug = risk.get("slug", "")
         if slug in seen:
             errors.append(f"{rpath}.slug: duplicate risk slug {slug!r}")
         seen.add(slug)

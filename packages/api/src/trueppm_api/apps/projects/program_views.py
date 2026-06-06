@@ -12,11 +12,13 @@ delete, role checks) is in :mod:`trueppm_api.apps.access.services` and
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import Count, OuterRef, Q, QuerySet, Subquery
+from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -84,9 +86,10 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
             if self.request.method == "PATCH":
                 return [IsAuthenticated(), IsProgramAdmin(), IsProgramNotClosed()]
             return [IsAuthenticated(), IsProgramMember()]
-        if self.action == "rollup":
-            # Computed overview rollup — read-only. Open to any member, including
-            # on closed programs (the overview stays viewable for forensics).
+        if self.action in ("rollup", "export"):
+            # Computed overview rollup / JSON export — read-only. Open to any
+            # member, including on closed programs (overview and data portability
+            # stay available for forensics/archival).
             return [IsAuthenticated(), IsProgramMember()]
         if self.action in ("retrieve", "projects", "integrations_summary"):
             return [IsAuthenticated(), IsProgramMember(), IsProgramNotClosed()]
@@ -156,6 +159,50 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
         # and the count annotations.
         fresh = self.get_queryset().get(pk=program.pk)
         return Response(ProgramSerializer(fresh).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=["post"], url_path="import")
+    def import_seed(self, request: Request) -> Response:
+        """Import a JSON seed document, creating (or replacing) a program.
+
+        Accepts either a ``file`` multipart upload or a raw JSON body. The caller
+        becomes the program OWNER (same authorization as ``create`` — any
+        authenticated user may create a program). ``create_users`` is forced off:
+        importing a seed on a live instance must never mint arbitrary logins.
+        """
+        from trueppm_api.apps.projects.seed import SeedValidationError
+        from trueppm_api.apps.projects.seed import import_seed as run_import
+
+        upload = request.FILES.get("file")
+        if upload is not None:
+            try:
+                payload = json.loads(upload.read().decode("utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                return Response(
+                    {"errors": ["Uploaded file is not valid JSON."]},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        else:
+            payload = request.data
+
+        try:
+            program = run_import(payload, owner=request.user, create_users=False)
+        except SeedValidationError as exc:
+            return Response({"errors": exc.errors}, status=status.HTTP_400_BAD_REQUEST)
+
+        fresh = self.get_queryset().get(pk=program.pk)
+        return Response(ProgramSerializer(fresh).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["get"], url_path="export")
+    def export(self, request: Request, pk: str | None = None) -> HttpResponse:
+        """Export this program as a downloadable canonical JSON seed file (#616)."""
+        from trueppm_api.apps.projects.seed.exporter import dump_seed, export_program
+
+        program = self.get_object()
+        body = dump_seed(export_program(program))
+        filename = f"{program.code or program.pk}.json"
+        response = HttpResponse(body, content_type="application/json")
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event

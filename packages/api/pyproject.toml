@@ -83,6 +83,7 @@ module = [
     "celery.*",
     "defusedxml.*",
     "environ",
+    "jsonschema.*",
     "channels.*",
     "simple_history.*",
     "trueppm_api.apps.scheduling.*",
