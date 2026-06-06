@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react';
+import { fireEvent, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderWithProviders } from '@/test/utils';
@@ -57,8 +57,8 @@ function makeSprint(overrides: Partial<ApiSprint> = {}): ApiSprint {
 }
 
 const CANDIDATES: MilestoneCandidate[] = [
-  { id: 'm-fat', name: 'FAT review', wbs: '1.3.1', finish: '2026-07-18' },
-  { id: 'm-p3', name: 'Phase-3 handoff', wbs: '1.4.0', finish: '2026-08-02' },
+  { id: 'm-fat', name: 'FAT review', wbs: '1.3.1', finish: '2026-07-18', isBound: false },
+  { id: 'm-p3', name: 'Phase-3 handoff', wbs: '1.4.0', finish: '2026-08-02', isBound: true },
 ];
 
 const PREVIEW: ReforecastPreview = {
@@ -90,16 +90,43 @@ afterEach(() => {
 });
 
 describe('PromoteMilestoneDialog', () => {
-  it('opens in create mode with the derived milestone preview', () => {
+  it('opens in create mode with the name + target date prefilled and editable', () => {
     renderWithProviders(
       <PromoteMilestoneDialog projectId="proj-1" sprint={makeSprint()} onClose={vi.fn()} />,
     );
     const dialog = screen.getByRole('dialog', { name: /Promote sprint to milestone/i });
     expect(dialog).toBeInTheDocument();
-    // create mode shows the goal-derived name + the sprint finish date as preview
-    expect(within(dialog).getByText('Close out telemetry FAT prep')).toBeInTheDocument();
-    expect(within(dialog).getByText(/Jun 27/)).toBeInTheDocument();
+    // create mode prefills editable inputs with the goal-derived name + sprint finish
+    expect(within(dialog).getByDisplayValue('Close out telemetry FAT prep')).toBeInTheDocument();
+    expect(within(dialog).getByDisplayValue('2026-06-27')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Create & bind/i })).toBeInTheDocument();
+  });
+
+  it('create-mode passes the edited name and target date to the mutation', async () => {
+    h.promoteMutate.mockImplementation(
+      (_p: unknown, opts?: { onSuccess?: (s: ApiSprint) => void }) =>
+        opts?.onSuccess?.(makeSprint({ target_milestone: 'm-new' })),
+    );
+    renderWithProviders(
+      <PromoteMilestoneDialog projectId="proj-1" sprint={makeSprint()} onClose={vi.fn()} />,
+    );
+    const nameInput = screen.getByDisplayValue('Close out telemetry FAT prep');
+    await userEvent.clear(nameInput);
+    await userEvent.type(nameInput, 'Customer Beta Gate');
+    // date inputs don't take userEvent.type reliably — set the value directly.
+    fireEvent.change(screen.getByDisplayValue('2026-06-27'), {
+      target: { value: '2026-07-30' },
+    });
+    await userEvent.click(screen.getByRole('button', { name: /Create & bind/i }));
+    expect(h.promoteMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sprintId: 'sp-1',
+        milestoneId: null,
+        name: 'Customer Beta Gate',
+        targetDate: '2026-07-30',
+      }),
+      expect.anything(),
+    );
   });
 
   it('create-mode submit promotes with no milestone id (create+bind)', async () => {
