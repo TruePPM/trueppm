@@ -471,7 +471,9 @@ urlpatterns = [
     ),
     path(
         "projects/<project_pk>/tasks/<task_pk>/links/<pk>/",
-        TaskLinkViewSet.as_view({"get": "retrieve", "delete": "destroy"}),
+        TaskLinkViewSet.as_view(
+            {"get": "retrieve", "patch": "partial_update", "delete": "destroy"}
+        ),
         name="project-task-links-detail",
     ),
     path(
