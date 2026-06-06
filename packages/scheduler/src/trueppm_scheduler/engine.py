@@ -10,7 +10,14 @@ from typing import Any
 import networkx as nx
 import numpy as np
 
-from trueppm_scheduler.models import Calendar, Dependency, DependencyType, Project, Task
+from trueppm_scheduler.models import (
+    Calendar,
+    DeliveryMode,
+    Dependency,
+    DependencyType,
+    Project,
+    Task,
+)
 
 # ---------------------------------------------------------------------------
 # Exceptions
@@ -887,6 +894,49 @@ def _sample_pert(
     return opt + samples * range_
 
 
+def _sample_velocity_durations(
+    story_points: float,
+    velocity_samples: list[float],
+    sprint_length_days: int,
+    n: int,
+    rng: np.random.Generator,
+) -> np.ndarray | None:
+    """Sample n durations (in working days) for a scrum task from team velocity (#411).
+
+    This is throughput Monte Carlo, not three-point estimation: instead of perturbing
+    a duration estimate, it asks "how many sprints to burn down ``story_points`` given
+    the team's historical per-sprint throughput?" For each run it bootstrap-samples
+    completed-points-per-sprint observations (``velocity_samples``) with replacement,
+    accumulates them, and counts the sprints needed to reach ``story_points``; the
+    duration is that sprint count times ``sprint_length_days`` working days. A faster team
+    (high-throughput draws) finishes in fewer sprints; the slow tail finishes later —
+    so the spread reflects velocity variability, the real driver of agile uncertainty.
+
+    Returns ``None`` (caller falls back to the deterministic duration) when there is no
+    usable signal: no positive velocity samples, non-positive ``story_points``, or a
+    non-positive sprint length. With a single positive sample the result is a constant
+    (degenerate distribution) — honest: one data point cannot express variance.
+    """
+    positive = np.asarray([s for s in velocity_samples if s is not None and s > 0], dtype=float)
+    if story_points <= 0 or positive.size == 0 or sprint_length_days <= 0:
+        return None
+
+    mean = float(positive.mean())
+    # Bound the per-run sprint horizon so a pathologically slow bootstrap path can't
+    # spin: 4x the mean-pace sprint count plus a floor. Runs that still haven't burned
+    # down by then clamp to the cap (a deep-tail outlier), keeping the sim finite.
+    max_sprints = int(np.ceil(story_points / mean)) * 4 + 10
+    draws = rng.choice(positive, size=(n, max_sprints), replace=True)
+    cumulative = np.cumsum(draws, axis=1)
+    reached = cumulative >= story_points
+    sprints_needed = np.where(
+        reached.any(axis=1),
+        reached.argmax(axis=1) + 1,  # first sprint index that meets the target (+1 = count)
+        max_sprints,
+    )
+    return sprints_needed.astype(np.float64) * float(sprint_length_days)
+
+
 def _build_working_day_index(start: date, calendar: Calendar, n_working_days: int) -> list[date]:
     """Build a lookup list: working_day_index[k] = the k-th working day from start.
 
@@ -919,9 +969,20 @@ def monte_carlo(
 ) -> MonteCarloResult:
     """Run Monte Carlo probabilistic scheduling on a project.
 
-    For each task that has three-point PERT estimates (optimistic, most_likely,
-    pessimistic), duration is sampled from a PERT-Beta distribution. Tasks
-    without three-point estimates use their deterministic duration every run.
+    Each task's per-run duration is sampled by one of three paths, in priority order:
+
+    1. **Agile / velocity (#411)** — a task with ``delivery_mode=SCRUM`` and
+       ``story_points``, on a project carrying ``velocity_samples`` +
+       ``sprint_length_days``, samples sprints-to-completion from the team's
+       throughput distribution (see :func:`_sample_velocity_durations`). This is how
+       sprint-delivered work contributes real velocity-driven risk to a mixed-mode
+       schedule rather than being invisible to the simulation.
+    2. **Three-point PERT** — a task with all of (optimistic, most_likely,
+       pessimistic) set samples from a PERT-Beta distribution.
+    3. **Deterministic** — any other task uses its fixed ``duration`` every run.
+
+    A mixed project (scrum subtree + waterfall tasks) therefore produces a single
+    finish-date distribution combining both sources of uncertainty.
 
     The CPM network is evaluated `runs` times with sampled durations.
     All 4 dependency types are handled. Computation is vectorised with numpy:
@@ -995,7 +1056,28 @@ def monte_carlo(
     for col, tid in enumerate(topo_order):
         t = task_map[tid]
         base = float(t.duration.days)
+        velocity_durations: np.ndarray | None = None
+        # Agile-aware path (#411): a SCRUM task with committed story points samples
+        # from the team's velocity distribution, not its duration estimate. Takes
+        # precedence over PERT — the delivery mode is an explicit declaration that
+        # uncertainty comes from throughput, not a three-point guess. Falls through
+        # to PERT / deterministic when the project carries no velocity signal.
         if (
+            t.delivery_mode == DeliveryMode.SCRUM
+            and t.story_points is not None
+            and project.velocity_samples
+            and project.sprint_length_days is not None
+        ):
+            velocity_durations = _sample_velocity_durations(
+                float(t.story_points),
+                project.velocity_samples,
+                project.sprint_length_days,
+                runs,
+                rng,
+            )
+        if velocity_durations is not None:
+            dur_matrix[:, col] = velocity_durations
+        elif (
             t.optimistic_duration is not None
             and t.most_likely_duration is not None
             and t.pessimistic_duration is not None
