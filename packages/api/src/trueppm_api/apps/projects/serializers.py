@@ -2882,6 +2882,21 @@ class MilestoneListItemSerializer(serializers.Serializer[Any]):
     is_bound = serializers.BooleanField(read_only=True)
 
 
+class TaskScopeRollupSerializer(serializers.Serializer[dict[str, Any]]):
+    """Scope rollup for a task's subtree (ADR-0108 §3, #408).
+
+    ``current_scope`` is the live story-point sum over leaf descendants;
+    ``baselined_scope`` / ``scope_delta`` are null when there is no active baseline
+    (or it captured no scope) — never a misleading 0. ``has_baseline`` lets the UI
+    distinguish "no baseline" from "delta is exactly 0".
+    """
+
+    current_scope = serializers.IntegerField()
+    baselined_scope = serializers.IntegerField(allow_null=True)
+    scope_delta = serializers.IntegerField(allow_null=True)
+    has_baseline = serializers.BooleanField()
+
+
 class ForecastSnapshotSerializer(serializers.ModelSerializer[ForecastSnapshot]):
     """A persisted milestone reforecast row (ADR-0106 §5, #860).
 

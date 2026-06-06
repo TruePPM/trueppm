@@ -1619,6 +1619,11 @@ class BaselineTask(models.Model):
     duration = models.IntegerField()
     actual_start = models.DateField(null=True, blank=True)
     actual_finish = models.DateField(null=True, blank=True)
+    # Story-point scope at snapshot time (ADR-0108 §3, #408). Nullable: a task may
+    # have no points, and baselines captured before this field existed have None —
+    # in which case scope_delta is reported as null (no baseline scope), never a
+    # misleading zero. Mirrors the dates: a frozen snapshot of the committed scope.
+    story_points = models.PositiveSmallIntegerField(null=True, blank=True)
 
     class Meta:
         db_table = "projects_baseline_task"

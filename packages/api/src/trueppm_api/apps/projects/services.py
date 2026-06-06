@@ -1344,6 +1344,76 @@ def recompute_milestone_rollup(
     return payload
 
 
+def compute_scope_rollup(task: Any) -> dict[str, Any]:
+    """Scope rollup for a task's subtree (ADR-0108 §3, #408).
+
+    ``current_scope`` = sum of ``story_points`` over the task's **leaf descendants**
+    (or the task itself when it is a leaf). ``baselined_scope`` = the same sum taken
+    from the project's **active baseline** snapshot (``BaselineTask.story_points``,
+    matched by ``task_id``). ``scope_delta = current − baselined`` measures scope
+    growth/shrink since the baseline was cut.
+
+    ``scope_delta`` (and ``baselined_scope``) are ``None`` — never a misleading 0 —
+    when there is no active baseline, or when the baseline predates the
+    ``BaselineTask.story_points`` field and captured no scope (all rows null →
+    ``Sum`` returns ``None``). The UI shows "no baseline" in that case.
+
+    Computed on read (no stored rollup state, per ADR-0024/0074); detail-scoped, so
+    the per-call queries are not an N+1 on list endpoints.
+    """
+    from django.db.models import BooleanField, Sum
+    from django.db.models.expressions import RawSQL
+
+    from trueppm_api.apps.projects.models import Baseline, BaselineTask, Task
+
+    # Leaf descendants (or self): rows in this task's subtree (ltree ``<@``) that
+    # have no children of their own. Recurring tasks have wbs_path NULL and so are
+    # excluded from the subtree match for free.
+    if task.wbs_path is None:
+        leaf_ids: list[Any] = [task.pk]
+    else:
+        leaf_ids = list(
+            Task.objects.filter(project_id=task.project_id, is_deleted=False)
+            .annotate(
+                _in_subtree=RawSQL(
+                    "wbs_path <@ %s::ltree", [str(task.wbs_path)], output_field=BooleanField()
+                ),
+                _has_child=RawSQL(
+                    "EXISTS(SELECT 1 FROM projects_task gc"
+                    " WHERE gc.project_id = projects_task.project_id"
+                    " AND gc.is_deleted = false"
+                    " AND gc.wbs_path ~ (projects_task.wbs_path::text || '.*{1}')::lquery)",
+                    [],
+                    output_field=BooleanField(),
+                ),
+            )
+            .filter(_in_subtree=True, _has_child=False)
+            .values_list("pk", flat=True)
+        )
+
+    current_scope = Task.objects.filter(pk__in=leaf_ids).aggregate(s=Sum("story_points"))["s"] or 0
+
+    active_baseline = (
+        Baseline.objects.filter(project_id=task.project_id, is_active=True, is_deleted=False)
+        .only("pk")
+        .first()
+    )
+    baselined_scope: int | None = None
+    if active_baseline is not None:
+        baselined_scope = BaselineTask.objects.filter(
+            baseline=active_baseline, task_id__in=leaf_ids
+        ).aggregate(s=Sum("story_points"))["s"]
+
+    scope_delta = (current_scope - baselined_scope) if baselined_scope is not None else None
+
+    return {
+        "current_scope": current_scope,
+        "baselined_scope": baselined_scope,
+        "scope_delta": scope_delta,
+        "has_baseline": active_baseline is not None,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Sprint ↔ milestone binding (ADR-0106 §1/§2 — the agile/waterfall bridge)
 # ---------------------------------------------------------------------------
