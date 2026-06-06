@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import type { MonteCarloResult } from '@/types';
 import { MonteCarloHistogram } from './MonteCarloHistogram';
 import { ForecastHistorySection } from './ForecastHistorySection';
+import { fmtForecastDate } from './forecastDelta';
 
 interface Props {
   result: MonteCarloResult;
@@ -58,7 +59,10 @@ export function MonteCarloSheet({ result, onClose }: Props) {
             </h2>
             <p className="mt-0.5 text-xs text-neutral-text-secondary">
               80% confidence the project finishes on or before{' '}
-              <span className="font-medium text-semantic-at-risk">{result.p80}</span>.
+              <span className="font-medium text-semantic-at-risk tppm-mono">
+                {fmtForecastDate(result.p80)}
+              </span>
+              .
             </p>
           </div>
           <button

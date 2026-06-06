@@ -19,10 +19,12 @@ describe('MonteCarloSheet', () => {
     expect(dialog).toHaveAttribute('aria-modal', 'true');
   });
 
-  it('renders the p80 date in the subtitle', () => {
+  it('renders the p80 date in the subtitle (locale-formatted)', () => {
     const onClose = vi.fn();
     renderWithProviders(<MonteCarloSheet result={FIXTURE_MC_RESULT} onClose={onClose} />);
-    expect(screen.getByText(FIXTURE_MC_RESULT.p80)).toBeInTheDocument();
+    // p80 fixture is '2026-11-03'; rendered via fmtForecastDate → "Nov 2/3, 2026"
+    // (tz-tolerant since ISO midnight may shift a day in the local zone).
+    expect(screen.getByText(/Nov [23], 2026/)).toBeInTheDocument();
   });
 
   it('renders the close button', () => {

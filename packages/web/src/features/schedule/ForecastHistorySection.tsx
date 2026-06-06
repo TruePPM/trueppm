@@ -97,7 +97,8 @@ export function ForecastHistorySection({ projectId, defaultExpanded = true }: Pr
                 <button
                   type="button"
                   onClick={() => setShowAll(true)}
-                  className="mt-2 text-xs text-brand-primary underline hover:no-underline
+                  className="mt-2 min-h-[44px] inline-flex items-center text-xs text-brand-primary
+                    underline hover:no-underline
                     focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
                 >
                   Show older runs ({runs.length - INITIAL_VISIBLE})

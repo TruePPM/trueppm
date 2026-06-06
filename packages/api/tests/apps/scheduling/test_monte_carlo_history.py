@@ -95,6 +95,16 @@ def viewer_client(viewer: object, project: Project) -> APIClient:
     return _client(viewer, project, Role.VIEWER)
 
 
+@pytest.fixture
+def scheduler(db: object) -> object:
+    return User.objects.create_user(username="mc_hist_scheduler", password="pw")
+
+
+@pytest.fixture
+def scheduler_client(scheduler: object, project: Project) -> APIClient:
+    return _client(scheduler, project, Role.SCHEDULER)
+
+
 def history_url(pk: object) -> str:
     return f"/api/v1/projects/{pk}/monte-carlo/history/"
 
@@ -198,6 +208,15 @@ class TestHistoryEndpoint:
     ) -> None:
         self._make_run(project, p80=date(2026, 9, 1), when=timezone.now(), user=admin)
         res = viewer_client.get(history_url(project.pk))
+        assert res.status_code == 200
+        assert res.json()["results"][0]["triggered_by_name"] is None
+
+    def test_attribution_hidden_from_scheduler(
+        self, scheduler_client: APIClient, admin: object, project: Project
+    ) -> None:
+        # Scheduler (role 200) sits below ADMIN (300) — must not see attribution.
+        self._make_run(project, p80=date(2026, 9, 1), when=timezone.now(), user=admin)
+        res = scheduler_client.get(history_url(project.pk))
         assert res.status_code == 200
         assert res.json()["results"][0]["triggered_by_name"] is None
 

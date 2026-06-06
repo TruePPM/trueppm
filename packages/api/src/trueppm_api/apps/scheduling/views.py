@@ -365,6 +365,13 @@ class MonteCarloLatestView(APIView):
         )
 
 
+# Hard ceiling on a single forecast-history response, independent of the
+# retention cap. OSS retention (MC_HISTORY_CAP=100) is already below this; the
+# ceiling only bites the Enterprise unlimited-retention case so the endpoint can
+# never stream an unbounded payload (ADR-0109).
+MC_HISTORY_RESPONSE_MAX = 500
+
+
 @extend_schema(
     responses={
         200: OpenApiResponse(
@@ -407,8 +414,17 @@ class MonteCarloHistoryView(APIView):
         self.check_object_permissions(request, project)
 
         cap: int | None = settings.MC_HISTORY_CAP
-        qs = MonteCarloRun.objects.filter(project_id=pk).order_by("-taken_at")
-        runs = list(qs[:cap] if cap is not None else qs)
+        # Hard response ceiling: even when MC_HISTORY_CAP is None (Enterprise
+        # unlimited *retention*), a single API response must stay bounded — keep
+        # the newest MC_HISTORY_RESPONSE_MAX rows. select_related avoids an N+1 on
+        # triggered_by when attribution is serialized for an Admin/Owner.
+        limit = cap if cap is not None else MC_HISTORY_RESPONSE_MAX
+        qs = (
+            MonteCarloRun.objects.filter(project_id=pk)
+            .select_related("triggered_by")
+            .order_by("-taken_at")
+        )
+        runs = list(qs[:limit])
 
         # Computed-on-read delta (ADR-0108): each run vs the next-older run.
         # Positive days = the forecast slipped later (worse). The oldest row in
