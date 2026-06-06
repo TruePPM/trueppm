@@ -23,8 +23,9 @@ from __future__ import annotations
 import logging
 import statistics
 import uuid
+from datetime import date
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.db import IntegrityError, transaction
 
@@ -32,6 +33,7 @@ from trueppm_api.apps.scheduling.models import ScheduleRequestReason
 
 if TYPE_CHECKING:
     from trueppm_api.apps.projects.models import Sprint
+    from trueppm_api.apps.scheduling.models import MonteCarloRun
 
 logger = logging.getLogger(__name__)
 
@@ -144,14 +146,14 @@ def enqueue_recalculate(
 def record_monte_carlo_run(
     project_id: str | uuid.UUID,
     *,
-    p50: object | None,
-    p80: object | None,
-    p95: object | None,
+    p50: date | None,
+    p80: date | None,
+    p95: date | None,
     n_simulations: int,
-    cpm_finish: object | None = None,
+    cpm_finish: date | None = None,
     task_count: int | None = None,
-    user: object | None = None,
-) -> object | None:
+    user: Any = None,
+) -> MonteCarloRun | None:
     """Persist one project-level Monte Carlo run for the forecast history (ADR-0109).
 
     Called synchronously from ``run_monte_carlo`` after the simulation returns.

@@ -9,6 +9,7 @@ vi.mock('@/api/client', () => ({
   apiClient: { get: vi.fn() },
 }));
 
+// eslint-disable-next-line @typescript-eslint/unbound-method -- apiClient.get is a vi.fn mock, not a bound method
 const mockGet = vi.mocked(apiClient.get);
 
 function wireHistory(results: unknown[], cap: number | null = 100) {

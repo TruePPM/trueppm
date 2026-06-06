@@ -88,7 +88,7 @@ export function ForecastHistorySection({ projectId, defaultExpanded = true }: Pr
                   Run again later to see how the forecast moves.
                 </p>
               )}
-              <ol role="list" className="divide-y divide-neutral-border">
+              <ol className="divide-y divide-neutral-border">
                 {visible.map((run) => (
                   <ForecastHistoryRow key={run.id} run={run} />
                 ))}
