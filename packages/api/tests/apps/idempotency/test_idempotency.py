@@ -234,6 +234,16 @@ def _iter_view_classes() -> list[tuple[str, str | None, type, set[str]]]:
 # - token_logout (CookieTokenLogoutView POST, #897) is naturally idempotent: it clears the
 #   refresh cookie and best-effort blacklists the token, so replaying it converges to the same
 #   logged-out state — mirroring the token_obtain_pair / token_refresh exemptions.
+# - project-signal-privacy (SignalPrivacyPolicyView PATCH, ADR-0104 / #553) sets one signal's
+#   audience on the per-project policy singleton; setting the current value short-circuits to a
+#   no-op (no history row), so replaying converges to the same posture — the retention-settings
+#   shape (naturally idempotent);
+# - project-signal-privacy-raise-ceiling (SignalPrivacyRaiseCeilingView POST) sets one signal's
+#   ceiling on the same singleton with the identical no-op-on-unchanged guard, so a replay writes
+#   no duplicate audit row and converges to the same ceiling (naturally idempotent);
+# - project-signal-privacy-ratchet-down (SignalPrivacyRatchetDownView POST) sets every signal's
+#   audience to TEAM in one converging write on the singleton — replaying lands on the same
+#   all-team posture (naturally idempotent).
 EXEMPT_URL_NAMES = frozenset(
     {
         "project-schedule",
@@ -243,6 +253,9 @@ EXEMPT_URL_NAMES = frozenset(
         "token_obtain_pair",
         "token_refresh",
         "token_logout",
+        "project-signal-privacy",
+        "project-signal-privacy-raise-ceiling",
+        "project-signal-privacy-ratchet-down",
     }
 )
 
