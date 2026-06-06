@@ -211,15 +211,15 @@ test.describe('Promote to milestone (DA-02 / ADR-0106)', () => {
     await expect(dialog).toBeVisible();
 
     // Create mode prefills editable name + target date from the sprint.
-    await expect(dialog.getByDisplayValue(/Close out telemetry firmware/i)).toBeVisible();
-    await expect(dialog.getByDisplayValue('2026-06-27')).toBeVisible();
+    await expect(dialog.getByLabel('New milestone')).toHaveValue(/Close out telemetry firmware/i);
+    await expect(dialog.getByLabel('Target date')).toHaveValue('2026-06-27');
 
     // The live dry-run preview renders the team-pace band (variant B, ≥ lg).
     await expect(dialog.getByText(/Team pace/i)).toBeVisible();
 
     // Edit both create overrides, then create+bind.
-    await dialog.getByDisplayValue('2026-06-27').fill('2026-07-15');
-    await dialog.getByRole('textbox').fill('Customer Beta Gate');
+    await dialog.getByLabel('Target date').fill('2026-07-15');
+    await dialog.getByLabel('New milestone').fill('Customer Beta Gate');
     await dialog.getByRole('button', { name: /Create & bind/i }).click();
 
     // Dialog closes on success; the POST carried the edited overrides (§E1.2).
