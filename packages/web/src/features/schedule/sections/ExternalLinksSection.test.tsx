@@ -163,7 +163,7 @@ describe('ExternalLinksSection — custom title & labels (#970)', () => {
     });
     render(<ExternalLinksSection taskId="t1" projectId="p1" />);
     fireEvent.click(screen.getByRole('button', { name: /Edit Old/ }));
-    const titleInput = screen.getByLabelText('Link title') as HTMLInputElement;
+    const titleInput = screen.getByLabelText<HTMLInputElement>('Link title');
     expect(titleInput.value).toBe('Old');
     fireEvent.change(titleInput, { target: { value: 'New name' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));

@@ -5,20 +5,21 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('integrations', '0003_tasklink_tasklink_serverver_idx'),
+        ("integrations", "0003_tasklink_tasklink_serverver_idx"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='tasklink',
-            name='custom_title',
-            field=models.CharField(blank=True, default='', max_length=512),
+            model_name="tasklink",
+            name="custom_title",
+            field=models.CharField(blank=True, default="", max_length=512),
         ),
         migrations.AddField(
-            model_name='tasklink',
-            name='labels',
-            field=django.contrib.postgres.fields.ArrayField(base_field=models.CharField(max_length=40), blank=True, default=list, size=None),
+            model_name="tasklink",
+            name="labels",
+            field=django.contrib.postgres.fields.ArrayField(
+                base_field=models.CharField(max_length=40), blank=True, default=list, size=None
+            ),
         ),
     ]

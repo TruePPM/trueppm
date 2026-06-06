@@ -241,7 +241,7 @@ class TaskLinkViewSet(
 
     Routes (relative to ``/projects/{project_pk}/tasks/{task_pk}/``):
         GET    links/
-        POST   links/                  (body ``{url, custom_title?, labels?}``; provider auto-detected)
+        POST   links/         (body ``{url, custom_title?, labels?}``; provider detected)
         GET    links/{pk}/
         PATCH  links/{pk}/             (edit custom_title / labels / url / display_order)
         DELETE links/{pk}/             (soft-delete)
