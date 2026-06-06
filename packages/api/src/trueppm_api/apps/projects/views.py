@@ -253,7 +253,7 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
         # backlog action gated on can_manage_backlog (Admin+ today, PO-role seam).
         if self.action == "product_backlog":
             return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
-        if self.action == "product_backlog_auto_rank":
+        if self.action in ("product_backlog_auto_rank", "product_backlog_reorder"):
             return [IsAuthenticated(), IsProjectBacklogManager(), IsProjectNotArchived()]
         return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
 
@@ -519,6 +519,75 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
         project = self.get_object()
         changed = auto_rank(project, request.user)
         return Response({"reranked": changed, "model": project.prioritization_model})
+
+    @action(detail=True, methods=["post"], url_path="product-backlog/reorder")
+    def product_backlog_reorder(self, request: Request, pk: str | None = None) -> Response:
+        """Manual drag reorder of the project backlog (ADR-0110, #494).
+
+        Body: ``{"stories": [{"id": "<uuid>", "server_version": <int>}, ...]}`` in target
+        priority order — the *complete* current backlog. Writes dense ``priority_rank`` 1..N,
+        optimistic-locked on ``server_version``. Returns ``200 {"updated": <count>}``; ``409``
+        with the offending ids if the backlog changed under the client (a story was added,
+        removed, or reordered concurrently) so the client refetches and replays the drag.
+        ``400`` on a malformed body. Idempotency-Key is honored via ``IdempotencyMixin``.
+        """
+        from trueppm_api.apps.projects.product_backlog_services import (
+            BacklogReorderConflict,
+            reorder_backlog,
+        )
+
+        project = self.get_object()
+
+        stories_data = request.data.get("stories")
+        if not isinstance(stories_data, list) or not stories_data:
+            return Response(
+                {"stories": ["This field is required and must be a non-empty list."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        invalid: list[str] = []
+        parsed: list[tuple[str, int]] = []
+        for entry in stories_data:
+            if not isinstance(entry, dict):
+                invalid.append(repr(entry))
+                continue
+            tid = entry.get("id")
+            sv = entry.get("server_version")
+            # bool is an int subclass — exclude it so {"server_version": true} is rejected.
+            if not isinstance(tid, str) or not isinstance(sv, int) or isinstance(sv, bool):
+                invalid.append(repr(entry))
+                continue
+            try:
+                uuid.UUID(tid)
+            except ValueError:
+                invalid.append(tid)
+                continue
+            parsed.append((tid, sv))
+
+        if invalid:
+            bad = ", ".join(invalid)
+            return Response(
+                {"stories": [f"Invalid entries (expected {{id, server_version}}): {bad}"]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Reject duplicate ids up front — a dup would make the completeness set-diff pass
+        # while the order is ambiguous.
+        ids = [tid for tid, _ in parsed]
+        if len(set(ids)) != len(ids):
+            return Response(
+                {"stories": ["Duplicate task ids in the ordered list."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            changed = reorder_backlog(project, parsed, request.user)
+        except BacklogReorderConflict as exc:
+            return Response(
+                {"detail": "Backlog changed — reload and retry.", "conflicts": exc.ids},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response({"updated": changed})
 
     @action(detail=True, methods=["post"], url_path="archive")
     def archive(self, request: Request, pk: str | None = None) -> Response:
