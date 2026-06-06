@@ -56,6 +56,25 @@ const FIXTURE_MC_RESULT = {
   last_run_at: '2026-05-09T10:00:00Z',
 };
 
+/** Forecast run history (ADR-0109, #961): newest-first with per-run deltas. */
+const FIXTURE_MC_HISTORY = {
+  results: [
+    {
+      id: 'run-2', taken_at: '2026-05-09T10:00:00Z',
+      p50: '2026-11-15', p80: '2026-12-10', p95: '2026-12-28', cpm_finish: '2026-11-30',
+      n_simulations: 500, task_count: 2,
+      delta: { p50: 5, p80: 14, p95: 9 }, triggered_by_name: 'P M',
+    },
+    {
+      id: 'run-1', taken_at: '2026-05-02T10:00:00Z',
+      p50: '2026-11-10', p80: '2026-11-26', p95: '2026-12-19', cpm_finish: '2026-11-30',
+      n_simulations: 500, task_count: 2,
+      delta: null, triggered_by_name: 'P M',
+    },
+  ],
+  cap: 100,
+};
+
 async function gotoScheduleWithMC(page: import('@playwright/test').Page) {
   await page.addInitScript(() => {
     localStorage.setItem(
@@ -116,6 +135,13 @@ async function gotoScheduleWithMC(page: import('@playwright/test').Page) {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify(FIXTURE_MC_RESULT),
+    }),
+  );
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/monte-carlo/history/`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(FIXTURE_MC_HISTORY),
     }),
   );
   // Stub current-user for role gating
@@ -218,5 +244,46 @@ test.describe('Monte Carlo Schedule Integration (#333)', () => {
 
     await page.keyboard.press('Escape');
     await expect(page.locator('[data-testid="mc-detail-panel"]')).not.toBeVisible({ timeout: 3_000 });
+  });
+});
+
+test.describe('Monte Carlo forecast history (#961, ADR-0109)', () => {
+  async function openMcPanel(page: import('@playwright/test').Page) {
+    await gotoScheduleWithMC(page);
+    // Open the MC confidence drawer from the TopBar P80 pill.
+    await page.click('[aria-label*="Monte Carlo P80 completion"]', { timeout: 10_000 });
+    await expect(
+      page.getByRole('dialog', { name: /Monte Carlo confidence distribution/i }),
+    ).toBeVisible();
+  }
+
+  test('golden path: history section shows runs with a P80 drift delta', async ({ page }) => {
+    await openMcPanel(page);
+
+    const section = page.getByRole('region', { name: /Forecast history/i });
+    await expect(section).toBeVisible();
+    // Newest run slipped +14d on P80 vs the previous run.
+    await expect(section.getByText('▲ +14d')).toBeVisible();
+    // Oldest run is the baseline (no delta).
+    await expect(section.getByText('— baseline')).toBeVisible();
+  });
+
+  test('empty state: no history section when no runs are recorded', async ({ page }) => {
+    await gotoScheduleWithMC(page);
+    // Override the history route AFTER setup so this empty response wins (Playwright
+    // matches most-recently-registered first); the panel fetches on pill click.
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/monte-carlo/history/`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ results: [], cap: 100 }),
+      }),
+    );
+    await page.click('[aria-label*="Monte Carlo P80 completion"]', { timeout: 10_000 });
+    await expect(
+      page.getByRole('dialog', { name: /Monte Carlo confidence distribution/i }),
+    ).toBeVisible();
+    // The drawer opens, but the history region must not render with no runs.
+    await expect(page.getByRole('region', { name: /Forecast history/i })).toHaveCount(0);
   });
 });

@@ -230,3 +230,67 @@ class VelocitySuggestion(models.Model):
     def is_pending(self) -> bool:
         """True when neither accepted nor dismissed — pending PM decision."""
         return self.accepted_at is None and self.dismissed_at is None
+
+
+class MonteCarloRun(models.Model):
+    """One persisted project-level Monte Carlo simulation run (ADR-0109, #961).
+
+    Written synchronously per ``POST /projects/<pk>/monte-carlo/`` run so the PM
+    can read finish-date forecast *drift* over time ("my P80 was Aug 14 two weeks
+    ago, now Aug 28"). Distinct from ``projects.ForecastSnapshot`` (ADR-0106 §5),
+    which is milestone-scoped, latest-per-milestone, and carries the velocity
+    -privacy band — this model is the explicit project-level CPM Monte Carlo run
+    history and stores P95 (which ForecastSnapshot does not).
+
+    A plain ``models.Model`` (not a ``VersionedModel``) — display/forecast
+    metadata, consistent with ``ForecastSnapshot`` / ``VelocitySuggestion``; not
+    on the mobile sync surface (Monte Carlo requires server compute, so history
+    is an online read).
+
+    Retention is the OSS cap applied to run *count*: a nightly purge keeps the
+    newest ``settings.MC_HISTORY_CAP`` rows per project (Enterprise overrides to
+    ``None`` = unlimited). Bounded history, never unlimited — the portfolio /
+    cross-program rollup is the Enterprise upsell (ADR-0109).
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(
+        "projects.Project",
+        on_delete=models.CASCADE,
+        related_name="monte_carlo_runs",
+    )
+    taken_at = models.DateTimeField(auto_now_add=True)
+    # SET_NULL + null: account deletion never cascades away forecast history, and
+    # the attribution is optional metadata. Serialized ONLY to Admin/Owner so
+    # forecast drift cannot become a named-individual performance signal at the
+    # team level (ADR-0109 / VoC Morgan). related_name="+": no reverse accessor
+    # needed (we never list a user's runs).
+    triggered_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    # The probabilistic finish-date percentiles as of this run. Nullable: a
+    # project with no committed tasks yields no distribution to anchor on.
+    p50 = models.DateField(null=True, blank=True)
+    p80 = models.DateField(null=True, blank=True)
+    p95 = models.DateField(null=True, blank=True)
+    # The deterministic CPM spine at run time (max early_finish of committed
+    # tasks), kept for context alongside the probabilistic band.
+    cpm_finish = models.DateField(null=True, blank=True)
+    # Inputs needed to interpret the run.
+    n_simulations = models.PositiveIntegerField()
+    task_count = models.PositiveIntegerField(null=True, blank=True)
+
+    class Meta:
+        db_table = "scheduling_montecarlorun"
+        ordering = ["-taken_at"]
+        indexes = [
+            # Newest-first history read + the nightly rank-based purge.
+            models.Index(fields=["project", "-taken_at"], name="mcrun_project_recent_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"MonteCarloRun(project={self.project_id} @ {self.taken_at:%Y-%m-%d})"

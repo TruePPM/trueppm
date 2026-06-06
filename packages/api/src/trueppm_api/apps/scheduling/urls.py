@@ -7,6 +7,7 @@ from rest_framework.routers import DefaultRouter
 
 from trueppm_api.apps.scheduling.views import (
     FailedTaskViewSet,
+    MonteCarloHistoryView,
     MonteCarloLatestView,
     VelocitySuggestionViewSet,
     run_monte_carlo,
@@ -28,6 +29,11 @@ urlpatterns: list[URLPattern | URLResolver] = [
         "projects/<str:pk>/monte-carlo/latest/",
         MonteCarloLatestView.as_view(),
         name="project-monte-carlo-latest",
+    ),
+    path(
+        "projects/<str:pk>/monte-carlo/history/",
+        MonteCarloHistoryView.as_view(),
+        name="project-monte-carlo-history",
     ),
     path("", include(router.urls)),
 ]

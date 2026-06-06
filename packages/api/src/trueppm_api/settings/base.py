@@ -203,6 +203,14 @@ CELERY_BEAT_SCHEDULE = {
         # 02:15 UTC — between the two existing purge jobs.
         "schedule": crontab(hour=2, minute=15),
     },
+    # Nightly cleanup: trims project Monte Carlo run history to the newest
+    # MC_HISTORY_CAP rows per project (ADR-0109, #961). No-ops when the cap is
+    # None (Enterprise unlimited).
+    "purge-monte-carlo-runs-nightly": {
+        "task": "scheduling.purge_old_monte_carlo_runs",
+        # 02:20 UTC — right after the schedule-requests purge.
+        "schedule": crontab(hour=2, minute=20),
+    },
     # Webhook delivery drain: re-enqueues stranded PENDING deliveries whose
     # initial .delay() call was lost (e.g. broker down at creation time).
     "drain-webhook-queue": {
@@ -464,6 +472,12 @@ MC_SIMULATION_CAP: int | None = 1_000
 # 1000-run simulation in a few seconds. Operators on constrained hardware can
 # lower this; Enterprise overrides it in enterprise settings.
 MC_TASK_CAP: int | None = 5_000
+
+# Project Monte Carlo run-history retention (ADR-0109, #961): the nightly purge
+# keeps the newest MC_HISTORY_CAP MonteCarloRun rows per project so a PM can read
+# finish-date forecast drift over time. None = unlimited (Enterprise overrides it
+# — unbounded history + cross-program rollup is the portfolio upsell).
+MC_HISTORY_CAP: int | None = 100
 
 # ---------------------------------------------------------------------------
 # Upload caps (ADR-0075, task attachments)

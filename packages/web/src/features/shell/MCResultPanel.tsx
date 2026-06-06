@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { MonteCarloResult } from '@/types';
 import { MonteCarloHistogram } from '@/features/schedule/MonteCarloHistogram';
+import { ForecastHistorySection } from '@/features/schedule/ForecastHistorySection';
 
 interface Props {
   result: MonteCarloResult;
@@ -109,6 +110,9 @@ export function MCResultPanel({ result, onClose }: Props) {
         <div className="px-5 pb-6 mt-2 overflow-x-auto">
           <MonteCarloHistogram result={result} />
         </div>
+
+        {/* Forecast drift history (ADR-0109, #961) */}
+        <ForecastHistorySection projectId={result.projectId} />
       </div>
     </div>
   );

@@ -76,6 +76,19 @@ vi.mock('@/hooks/useMonteCarloResult', () => ({
   }),
 }));
 
+// MCResultPanel now embeds ForecastHistorySection (#961), which fetches run
+// history. Stub the hook so opening the MC panel doesn't fire an unmocked
+// apiClient request and crash the worker.
+vi.mock('@/hooks/useMonteCarloHistory', () => ({
+  useMonteCarloHistory: () => ({
+    data: [],
+    cap: 100,
+    isLoading: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
+}));
+
 beforeEach(() => {
   useThemeStore.setState({ theme: 'auto' });
   mockShellStatsContainer.current = FIXTURE_SHELL_STATS;
