@@ -18401,6 +18401,16 @@
                 "type": "string",
                 "description": "* `SCHEDULE` - Schedule\n* `BOARD` - Board\n* `TABLE` - Table\n* `OVERVIEW` - Overview"
             },
+            "DeliveryModeEnum": {
+                "enum": [
+                    "waterfall",
+                    "scrum",
+                    "kanban",
+                    "milestone"
+                ],
+                "type": "string",
+                "description": "* `waterfall` - Waterfall\n* `scrum` - Scrum\n* `kanban` - Kanban\n* `milestone` - Milestone"
+            },
             "DepTypeEnum": {
                 "enum": [
                     "FS",
@@ -18648,6 +18658,15 @@
                 ],
                 "type": "string",
                 "description": "* `daily` - Daily\n* `weekly` - Weekly\n* `off` - Off"
+            },
+            "GovernanceClassEnum": {
+                "enum": [
+                    "gated",
+                    "flow",
+                    "hybrid"
+                ],
+                "type": "string",
+                "description": "* `gated` - Gated\n* `flow` - Flow\n* `hybrid` - Hybrid"
             },
             "Group": {
                 "type": "object",
@@ -21183,6 +21202,15 @@
                         "maximum": 2147483647,
                         "minimum": 0,
                         "nullable": true
+                    },
+                    "governance_class": {
+                        "$ref": "#/components/schemas/GovernanceClassEnum"
+                    },
+                    "delivery_mode": {
+                        "$ref": "#/components/schemas/DeliveryModeEnum"
+                    },
+                    "parent_governance_inherited": {
+                        "type": "boolean"
                     },
                     "business_value": {
                         "type": "integer",
@@ -24019,6 +24047,15 @@
                         "minimum": 0,
                         "nullable": true
                     },
+                    "governance_class": {
+                        "$ref": "#/components/schemas/GovernanceClassEnum"
+                    },
+                    "delivery_mode": {
+                        "$ref": "#/components/schemas/DeliveryModeEnum"
+                    },
+                    "parent_governance_inherited": {
+                        "type": "boolean"
+                    },
                     "business_value": {
                         "type": "integer",
                         "maximum": 32767,
@@ -24783,6 +24820,15 @@
                         "maximum": 2147483647,
                         "minimum": 0,
                         "nullable": true
+                    },
+                    "governance_class": {
+                        "$ref": "#/components/schemas/GovernanceClassEnum"
+                    },
+                    "delivery_mode": {
+                        "$ref": "#/components/schemas/DeliveryModeEnum"
+                    },
+                    "parent_governance_inherited": {
+                        "type": "boolean"
                     },
                     "business_value": {
                         "type": "integer",

@@ -909,6 +909,10 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "parent_epic",
             "dor",
             "sprint_rank",
+            # ADR-0036 hybrid governance/delivery model (#407, writable)
+            "governance_class",
+            "delivery_mode",
+            "parent_governance_inherited",
             # distinct per-model scoring inputs (writable)
             "business_value",
             "time_criticality",
