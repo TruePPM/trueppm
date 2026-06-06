@@ -201,13 +201,73 @@ test.describe('Programs — shell tabs', () => {
     await expect(page.getByText(/These projects belong to the program/i)).toBeVisible();
   });
 
-  test('Projects tab shows both New project and Add existing buttons (admin)', async ({ page }) => {
+  test('Projects tab shows Add existing, Import, and New project buttons (admin)', async ({
+    page,
+  }) => {
     await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
     await page.goto(`/programs/${PROGRAM_ID}/projects`);
     // Scope to the toolbar so we don't hit the sidebar or empty-state copies.
     const toolbar = page.getByRole('toolbar', { name: /program projects actions/i });
     await expect(toolbar.getByRole('button', { name: /^New project$/i })).toBeVisible();
     await expect(toolbar.getByRole('button', { name: /^Add existing$/i })).toBeVisible();
+    await expect(toolbar.getByRole('button', { name: /^Import$/i })).toBeVisible();
+  });
+
+  test('Import button creates a project assigned to the program', async ({ page }) => {
+    const NEW_PROJECT_ID = 'e2e-imported-project-uuid-001';
+    let sentProgramField = false;
+
+    await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
+
+    // The create-from-import endpoint returns the new project's id synchronously
+    // (202); the caller then navigates to it (ADR-0092). Inspect the multipart
+    // body to prove the import lands assigned to this program.
+    await page.route('**/api/v1/projects/import/msproject/', (route) => {
+      const body = route.request().postData() ?? '';
+      sentProgramField = body.includes('name="program"') && body.includes(PROGRAM_ID);
+      return route.fulfill({
+        status: 202,
+        contentType: 'application/json',
+        body: JSON.stringify({ project_id: NEW_PROJECT_ID, detail: 'Import queued.' }),
+      });
+    });
+
+    // Stub the navigated-to project so the redirect doesn't 404.
+    await page.route(`**/api/v1/projects/${NEW_PROJECT_ID}/`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: NEW_PROJECT_ID,
+          server_version: 1,
+          name: 'Imported Plan',
+          description: '',
+          start_date: '2026-05-18',
+          methodology: 'HYBRID',
+          program: PROGRAM_ID,
+        }),
+      }),
+    );
+
+    await page.goto(`/programs/${PROGRAM_ID}/projects`);
+    await page
+      .getByRole('toolbar', { name: /program projects actions/i })
+      .getByRole('button', { name: /^Import$/i })
+      .click();
+
+    const dialog = page.getByRole('dialog', { name: 'Import a project' });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText(/Will be added to the/i)).toContainText(FIXTURE_PROGRAM.name);
+
+    await dialog.locator('input[type="file"]').setInputFiles({
+      name: 'plan.xml',
+      mimeType: 'application/xml',
+      buffer: Buffer.from('<Project><Tasks/></Project>'),
+    });
+    await dialog.getByRole('button', { name: 'Import', exact: true }).click();
+
+    await expect(page).toHaveURL(`/projects/${NEW_PROJECT_ID}/overview`);
+    expect(sentProgramField).toBe(true);
   });
 
   test('New project button creates a project assigned to the program', async ({ page }) => {

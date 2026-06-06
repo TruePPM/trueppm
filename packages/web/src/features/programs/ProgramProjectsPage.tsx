@@ -4,6 +4,7 @@ import { useProgram } from '@/hooks/useProgram';
 import { useProgramProjects } from '@/hooks/useProgramProjects';
 import { useAssignProjectToProgram } from '@/hooks/useProgramMutations';
 import { NewProjectModal } from '@/features/shell/NewProjectModal';
+import { ImportProjectModal } from '@/components/import/ImportProjectModal';
 import { AddProjectToProgramModal } from './AddProjectToProgramModal';
 import { ROLE_ADMIN } from '@/lib/roles';
 
@@ -23,6 +24,7 @@ export function ProgramProjectsPage() {
   const removeProjectFromProgram = useAssignProjectToProgram();
 
   const [showAddExistingModal, setShowAddExistingModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
 
@@ -72,6 +74,15 @@ export function ProgramProjectsPage() {
             </button>
             <button
               type="button"
+              onClick={() => setShowImportModal(true)}
+              className="h-9 rounded border border-neutral-border bg-neutral-surface px-3 text-xs font-medium text-neutral-text-primary
+                hover:bg-neutral-surface-raised
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            >
+              Import
+            </button>
+            <button
+              type="button"
               onClick={() => setShowNewProjectModal(true)}
               className="h-9 rounded bg-brand-primary px-3 text-xs font-medium text-white
                 hover:bg-brand-primary/90
@@ -117,8 +128,8 @@ export function ProgramProjectsPage() {
       {!isLoading && !error && projects && projects.length === 0 && (
         <div className="rounded border border-neutral-border bg-neutral-surface-raised p-6 text-center">
           <p className="text-sm text-neutral-text-secondary">
-            No projects in this program yet. Add an existing project, or create a new one and assign
-            it here.
+            No projects in this program yet. Add an existing project, import one from MS Project, or
+            create a new one and assign it here.
           </p>
           {isAdmin && (
             <div className="mt-4 flex items-center justify-center gap-2">
@@ -130,6 +141,15 @@ export function ProgramProjectsPage() {
                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               >
                 Add existing
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowImportModal(true)}
+                className="h-9 rounded border border-neutral-border bg-neutral-surface px-4 text-xs font-medium text-neutral-text-primary
+                  hover:bg-neutral-surface-raised
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              >
+                Import
               </button>
               <button
                 type="button"
@@ -198,6 +218,21 @@ export function ProgramProjectsPage() {
           onClose={() => setShowNewProjectModal(false)}
           onCreated={(newProjectId) => {
             setShowNewProjectModal(false);
+            void navigate(`/projects/${newProjectId}/overview`);
+          }}
+        />
+      )}
+
+      {/* Import-a-project entry (#797) — the new project lands already assigned
+          to this program; gated by program Admin both client- and server-side.
+          Mirrors the Program Settings → Projects sibling page. */}
+      {showImportModal && (
+        <ImportProjectModal
+          programId={programId}
+          programName={program?.name}
+          onClose={() => setShowImportModal(false)}
+          onCreated={(newProjectId) => {
+            setShowImportModal(false);
             void navigate(`/projects/${newProjectId}/overview`);
           }}
         />

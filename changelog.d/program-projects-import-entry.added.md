@@ -1,0 +1,1 @@
+Add an "Import" button to the program **Projects** tab. Program admins can now create a project from an MS Project file that lands already assigned to the program — the same entry point that already existed on the Program Settings → Projects page.
