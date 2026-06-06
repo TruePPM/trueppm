@@ -1102,6 +1102,44 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             if has_live_targeting_sprint:
                 raise MilestoneRollupLockedError()
 
+        # Summary-task percent lock (ADR-0108 §4): a task with WBS children has its
+        # percent_complete rolled up (delivery-mode-aware) from its leaf descendants
+        # and computed on read — a manual write would be silently discarded on the
+        # next serialize, so reject it. Mirrors the milestone lock above; leaf tasks
+        # stay writable. The has-children probe reuses the ``is_summary`` ltree shape.
+        if (
+            "percent_complete" in attrs
+            and self.instance is not None
+            and self.instance.wbs_path is not None
+        ):
+            from django.db.models import BooleanField
+            from django.db.models.expressions import RawSQL
+
+            from trueppm_api.apps.projects.models import Task as _Task
+
+            has_wbs_children = (
+                _Task.objects.filter(project_id=self.instance.project_id, is_deleted=False)
+                .annotate(
+                    _is_descendant=RawSQL(
+                        "wbs_path ~ (%s || '.*{1,}')::lquery",
+                        [str(self.instance.wbs_path)],
+                        output_field=BooleanField(),
+                    )
+                )
+                .filter(_is_descendant=True)
+                .exists()
+            )
+            if has_wbs_children:
+                raise serializers.ValidationError(
+                    {
+                        "percent_complete": serializers.ErrorDetail(
+                            "Summary task percent_complete is computed from its children "
+                            "and cannot be set directly.",
+                            code="summary_rollup_locked",
+                        )
+                    }
+                )
+
         # Project-start floor guard (#868): a task may not be pinned to start
         # before the project's start_date. The CPM already clamps early_start to
         # the project start, so persisting a sub-start planned_start is a "ghost"
