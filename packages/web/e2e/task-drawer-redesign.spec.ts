@@ -166,24 +166,33 @@ async function gotoSchedule(page: Page) {
       body: JSON.stringify({ tasks: [] }),
     }),
   );
+  // Stateful task store for this page: useUpdateTask invalidates and refetches
+  // the list on save, so the PATCH must persist into the copy the GET returns —
+  // otherwise the saved notes never round-trip and the dirty save-bar never
+  // clears. Deep-clone so concurrent specs never share mutated fixtures.
+  const tasks = FIXTURE_API_TASKS.map((t) => ({ ...t }));
   await page.route('**/api/v1/tasks/**', (route) => {
-    // A PATCH (Description / name save) echoes the first task back so the
-    // mutation's success handler has a well-shaped single-task response.
-    if (route.request().method() === 'PATCH') {
+    const request = route.request();
+    if (request.method() === 'PATCH') {
+      // URL is .../api/v1/tasks/{id}/ — apply the body to the stored task so the
+      // subsequent list refetch reflects the edit.
+      const id = new URL(request.url()).pathname.split('/').filter(Boolean).pop();
+      const target = tasks.find((t) => t.id === id) ?? tasks[0];
+      Object.assign(target, request.postDataJSON() ?? {});
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(FIXTURE_API_TASKS[0]),
+        body: JSON.stringify(target),
       });
     }
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        count: FIXTURE_API_TASKS.length,
+        count: tasks.length,
         next: null,
         previous: null,
-        results: FIXTURE_API_TASKS,
+        results: tasks,
       }),
     });
   });
