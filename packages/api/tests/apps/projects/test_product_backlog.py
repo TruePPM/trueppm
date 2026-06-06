@@ -671,6 +671,15 @@ def test_reorder_endpoint_400_on_malformed(owner_client: APIClient, project: Pro
     )
 
 
+def test_reorder_endpoint_400_on_oversized_list(owner_client: APIClient, project: Project) -> None:
+    import uuid as _uuid
+
+    # The cap is checked before the parse loop / select_for_update, so the ids need not exist.
+    payload = [{"id": str(_uuid.uuid4()), "server_version": 1} for _ in range(2001)]
+    resp = owner_client.post(REORDER_URL.format(pk=project.pk), {"stories": payload}, format="json")
+    assert resp.status_code == 400
+
+
 def test_reorder_endpoint_400_on_duplicate_ids(owner_client: APIClient, project: Project) -> None:
     a = _story(project, name="a", priority_rank=1)
     resp = owner_client.post(

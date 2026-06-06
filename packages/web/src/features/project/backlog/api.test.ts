@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/unbound-method -- vi.mocked(apiClient.post) references the
+   mocked method for assertions; it is never invoked unbound. Mirrors useWorkshopSession.test.ts. */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/api/client';
 import { createBacklogStory, fromApiProductBacklog, postReorderBacklog } from './api';

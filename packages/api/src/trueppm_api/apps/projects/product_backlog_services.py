@@ -251,11 +251,14 @@ def reorder_backlog(project: Project, ordered: list[tuple[str, int]], actor: Any
                 task.save(update_fields=["priority_rank", "server_version"])
                 changed += 1
 
-    if changed:
-        pid = str(project.id)
-        transaction.on_commit(
-            lambda: broadcast_board_event(pid, "backlog_reranked", {"project_id": pid})
-        )
+        # Registered inside the atomic block so it defers to commit (and fires only within a
+        # transaction). pid is a non-mutating local, so the plain closure capture is safe —
+        # matching the auto_rank pattern.
+        if changed:
+            pid = str(project.id)
+            transaction.on_commit(
+                lambda: broadcast_board_event(pid, "backlog_reranked", {"project_id": pid})
+            )
     return changed
 
 

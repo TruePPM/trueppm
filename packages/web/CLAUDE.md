@@ -502,6 +502,16 @@ These rules are enforced at review time. Violations block merge.
      (`border-2 border-dashed border-neutral-border rounded-md`). Never animate the card on entry —
      only the lifted (drag) and snap-back (error) states animate.
 
+102a. **Drag-lifted rows in list/backlog views use ring, not shadow.** A sortable row in the
+     dragging state (e.g. the Product Backlog grooming view) uses `ring-2 ring-brand-primary
+     opacity-60` — never `shadow-*` (rule 1). This mirrors the Board card drag treatment (rule
+     102) so the shadow prohibition is not reintroduced piecemeal on each new sortable list.
+     The drag handle is a `min-h-[44px] min-w-[44px]` button (rule 5 touch target) carrying the
+     dnd-kit listeners, with an `aria-label` and the rule-4 `focus-visible` ring; the row stays
+     clickable. Fixed-column list grids that exceed a phone's width wrap their header + rows in a
+     `min-w-max` container inside an `overflow-auto` shell so columns stay aligned under
+     horizontal scroll rather than compressing and misaligning.
+
 103. **Board drag-over target** — `bg-brand-primary/5` fill + `border-l-2 border-brand-primary`
      on the column container during an active drag. Applied on `pointerenter` over the column drop
      zone; removed on `pointerleave` and `pointerup`. Never highlight the source column while a

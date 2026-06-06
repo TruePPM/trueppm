@@ -545,6 +545,15 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Bound the payload before the parse loop + select_for_update: a project backlog is
+        # realistically a few hundred stories, so 2000 is generous headroom while preventing
+        # a giant list from exhausting CPU and locking every backlog row (DoS guard).
+        if len(stories_data) > 2000:
+            return Response(
+                {"stories": ["Too many entries to reorder in one request (max 2000)."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         invalid: list[str] = []
         parsed: list[tuple[str, int]] = []
         for entry in stories_data:

@@ -282,6 +282,16 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         scheduleInvalidate('tasks');
       }
 
+      // --- Product-backlog priority_rank change (ADR-0105 auto-rank / ADR-0110 reorder) ---
+      else if (event_type === 'backlog_reranked') {
+        // A collaborator reordered or auto-ranked the backlog. Refresh the grooming view
+        // and the tasks cache (the board/schedule may order by priority_rank).
+        void queryClient.invalidateQueries({
+          queryKey: ['product-backlog', projectIdRef.current],
+        });
+        scheduleInvalidate('tasks');
+      }
+
       // --- Risk events ---
       else if (
         event_type === 'risk_created' ||

@@ -1,0 +1,1 @@
+Product Backlog grooming view: drag-to-reorder stories by priority (within an epic group), a prioritization-score column (WSJF / RICE / value-effort), and inline title-only quick-add. Reordering is conflict-safe — a concurrent change by another Product Owner reloads the backlog so no one's order is silently lost.

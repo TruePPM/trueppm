@@ -20,7 +20,7 @@
  * Rendered against the navy/sage design-system tokens.
  */
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import {
   DndContext,
   KeyboardSensor,
@@ -56,8 +56,8 @@ import type { EpicGroup, GroomingHealth, ProductBacklog } from './types';
 /** Row grid; the score column is present only when the project has a prioritization model. */
 function gridCols(hasScore: boolean): string {
   return hasScore
-    ? 'grid grid-cols-[28px_56px_1fr_120px_84px_56px_44px] items-center gap-2.5'
-    : 'grid grid-cols-[28px_56px_1fr_120px_84px_44px] items-center gap-2.5';
+    ? 'grid grid-cols-[44px_56px_1fr_120px_84px_56px_44px] items-center gap-2.5'
+    : 'grid grid-cols-[44px_56px_1fr_120px_84px_44px] items-center gap-2.5';
 }
 
 function GroomStat({
@@ -79,11 +79,11 @@ function GroomStat({
         : 'text-neutral-text-primary';
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-[10px] font-semibold uppercase tracking-wide text-neutral-text-secondary">
+      <span className="text-xs font-semibold uppercase tracking-wide text-neutral-text-secondary">
         {label}
       </span>
       <span className={`font-mono text-lg font-bold tabular-nums ${valueColor}`}>{value}</span>
-      <span className="text-[10.5px] text-neutral-text-secondary">{sub}</span>
+      <span className="text-xs text-neutral-text-secondary">{sub}</span>
     </div>
   );
 }
@@ -141,13 +141,13 @@ function StoryRow({
       ref={setNodeRef}
       style={style}
       className={`${gridCols(hasScore)} border-b border-neutral-border bg-neutral-surface px-2 py-2.5 text-[13px] ${
-        isDragging ? 'rounded-md opacity-60 shadow-md' : ''
+        isDragging ? 'rounded-md opacity-60 ring-2 ring-brand-primary' : ''
       }`}
     >
       <button
         type="button"
         aria-label={`Reorder ${story.name}`}
-        className="flex min-h-[28px] cursor-grab touch-none items-center justify-center text-neutral-text-secondary hover:text-neutral-text-primary active:cursor-grabbing"
+        className="flex min-h-[44px] min-w-[44px] cursor-grab touch-none items-center justify-center rounded text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary active:cursor-grabbing"
         {...attributes}
         {...listeners}
       >
@@ -194,7 +194,7 @@ function SortableGroup({
 }: {
   ids: string[];
   onReorder: (orderedIds: string[]) => void;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -224,7 +224,7 @@ function EpicHeader({ group }: { group: EpicGroup }) {
   return (
     <div className="flex items-center gap-2.5 rounded-md bg-neutral-surface-sunken px-2 py-2">
       <span className="h-5 w-2 rounded-[2px] bg-brand-primary" aria-hidden />
-      <span className="text-[10px] font-bold uppercase tracking-wide text-neutral-text-secondary">
+      <span className="text-xs font-bold uppercase tracking-wide text-neutral-text-secondary">
         Epic
       </span>
       <span className="font-mono text-[11px] text-neutral-text-secondary">{epic.shortId}</span>
@@ -241,7 +241,7 @@ function ReadyLine() {
   return (
     <div className="flex items-center gap-2.5 px-2 py-1.5">
       <span className="h-0 flex-1 border-t-2 border-dashed border-brand-primary" />
-      <span className="text-[10.5px] font-bold uppercase tracking-wide text-brand-primary">
+      <span className="text-xs font-bold uppercase tracking-wide text-brand-primary">
         Next-sprint ready line
       </span>
       <span className="h-0 flex-1 border-t-2 border-dashed border-brand-primary" />
@@ -347,7 +347,7 @@ export function ProductBacklogPage() {
     quickAdd.mutate({ name }, { onError: () => setDraft(name) });
   }
 
-  function rowsWithReadyLine(stories: Task[]): React.ReactNode {
+  function rowsWithReadyLine(stories: Task[]): ReactNode {
     return stories.map((s) => (
       <div key={s.id}>
         <StoryRow story={s} hasScore={hasScore} onToggleDor={toggleDor} />
@@ -389,7 +389,7 @@ export function ProductBacklogPage() {
       {conflict && (
         <div
           role="status"
-          className="flex items-center gap-2 border-b border-semantic-at-risk-bg bg-semantic-warning-bg px-6 py-2 text-xs text-semantic-warning"
+          className="flex items-center gap-2 border-b border-semantic-at-risk/80 bg-semantic-warning-bg px-6 py-2 text-xs text-semantic-warning"
         >
           <span>Backlog changed — reloaded. Try your move again.</span>
           <button
@@ -402,8 +402,11 @@ export function ProductBacklogPage() {
         </div>
       )}
 
+      {/* Fixed-column table scrolls horizontally as a unit so header + rows stay aligned
+          on narrow viewports (the dense grid exceeds a phone's width). */}
+      <div className="min-w-max">
       <div
-        className={`${gridCols(hasScore)} border-b border-neutral-border px-6 py-2 text-[10px] font-semibold uppercase tracking-wide text-neutral-text-secondary`}
+        className={`${gridCols(hasScore)} border-b border-neutral-border px-6 py-2 text-xs font-semibold uppercase tracking-wide text-neutral-text-secondary`}
       >
         <span>#</span>
         <span>ID</span>
@@ -443,8 +446,8 @@ export function ProductBacklogPage() {
         )}
 
         {/* Quick-add (#921): persistent title-only create pinned at the bottom. */}
-        <div className="flex items-center gap-2.5 border-t border-neutral-border px-2 py-2.5">
-          <span className="flex w-[28px] justify-center text-neutral-text-secondary" aria-hidden>
+        <div className="flex items-center gap-2.5 rounded border-t border-neutral-border px-2 py-2.5 focus-within:ring-2 focus-within:ring-brand-primary">
+          <span className="flex w-[44px] justify-center text-neutral-text-secondary" aria-hidden>
             +
           </span>
           <input
@@ -464,9 +467,10 @@ export function ProductBacklogPage() {
             className="flex-1 bg-transparent text-[13px] text-neutral-text-primary placeholder:text-neutral-text-secondary focus:outline-none"
           />
           {draft.trim() && (
-            <span className="text-[10.5px] text-neutral-text-secondary">↵ to add</span>
+            <span className="text-xs text-neutral-text-secondary">↵ to add</span>
           )}
         </div>
+      </div>
       </div>
     </div>
   );
