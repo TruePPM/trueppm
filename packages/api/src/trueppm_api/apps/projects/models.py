@@ -715,6 +715,11 @@ class Project(VersionedModel):
         related_name="projects_archived",
     )
 
+    # Marks demo/sample data created by the sample-project loader (#375). Lets
+    # the UI show a "this is sample data" banner and a one-click teardown, and
+    # lets operators distinguish disposable demo content from real projects.
+    is_sample = models.BooleanField(default=False, db_index=True)
+
     history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_BASE)
 
     class Meta:

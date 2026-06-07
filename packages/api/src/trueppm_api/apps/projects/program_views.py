@@ -17,7 +17,7 @@ from typing import Any
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
-from django.db.models import Count, OuterRef, Q, QuerySet, Subquery
+from django.db.models import Count, Exists, OuterRef, Q, QuerySet, Subquery
 from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework import status, viewsets
@@ -26,7 +26,7 @@ from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from trueppm_api.apps.access.models import ProgramMembership
+from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership
 from trueppm_api.apps.access.permissions import (
     IsProgramAdmin,
     IsProgramMember,
@@ -72,6 +72,7 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
             "reopen",
             "transfer_sponsorship",
             "split",
+            "remove_sample",
         ):
             # Lifecycle actions bypass the IsProgramNotClosed gate via the
             # class's _CLOSE_BYPASS_ACTIONS set — otherwise an Owner could
@@ -132,6 +133,9 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
                     "memberships",
                     distinct=True,
                     filter=Q(memberships__is_deleted=False),
+                ),
+                _is_sample=Exists(
+                    Project.objects.filter(program=OuterRef("pk"), is_sample=True, is_deleted=False)
                 ),
             )
             .order_by("name")
@@ -217,6 +221,59 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
         response = HttpResponse(body, content_type="application/json")
         response["Content-Disposition"] = f'attachment; filename="{filename}"'
         return response
+
+    @action(detail=False, methods=["post"], url_path="load-sample")
+    def load_sample(self, request: Request) -> Response:
+        """Load a bundled sample program — the "Load demo data" action (#375).
+
+        Body: ``{"sample": "<key>"}`` (optional; defaults to the launch demo).
+        The caller becomes OWNER (same authorization as ``create``). Demo
+        persona accounts are created so the boards render fully.
+        """
+        from trueppm_api.apps.projects.seed.samples import (
+            DEFAULT_SAMPLE,
+            UnknownSampleError,
+            load_sample,
+        )
+
+        key = request.data.get("sample", DEFAULT_SAMPLE)
+        try:
+            program = load_sample(key, owner=request.user, create_users=True)
+        except UnknownSampleError as exc:
+            return Response({"errors": [str(exc)]}, status=status.HTTP_400_BAD_REQUEST)
+
+        fresh = self.get_queryset().get(pk=program.pk)
+        return Response(ProgramSerializer(fresh).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"], url_path="remove-sample")
+    def remove_sample(self, request: Request, pk: str | None = None) -> Response:
+        """Tear down a sample program — the "Remove sample data" action (#375).
+
+        Owner-only. Refuses to delete a program that is not sample data, so the
+        teardown can never remove real work. Hard-deletes the program subtree.
+        """
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        program = self.get_object()
+        is_sample = Project.objects.filter(
+            program=program, is_sample=True, is_deleted=False
+        ).exists()
+        if not is_sample:
+            return Response(
+                {"detail": "This program is not sample data."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        program_id = str(program.pk)
+        with transaction.atomic():
+            project_ids = list(Project.objects.filter(program=program).values_list("pk", flat=True))
+            ProjectMembership.objects.filter(project_id__in=project_ids).delete()
+            Project.objects.filter(pk__in=project_ids).delete()
+            ProgramMembership.objects.filter(program=program).delete()
+            Program.objects.filter(pk=program.pk).delete()
+        transaction.on_commit(
+            lambda: broadcast_board_event(program_id, "program_deleted", {"id": program_id})
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
