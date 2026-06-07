@@ -1,6 +1,32 @@
-import { useMutation, useQueryClient, type UseMutationResult } from '@tanstack/react-query';
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type UseMutationResult,
+  type UseQueryResult,
+} from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type { Program } from '@/api/types';
+
+export interface SampleInfo {
+  key: string;
+  title: string;
+  description: string;
+}
+
+/**
+ * GET /api/v1/programs/samples/ — list bundled demo samples for the picker (#375).
+ */
+export function useSamples(): UseQueryResult<SampleInfo[], Error> {
+  return useQuery({
+    queryKey: ['program-samples'],
+    queryFn: async () => {
+      const res = await apiClient.get<SampleInfo[]>('/programs/samples/');
+      return res.data;
+    },
+    staleTime: 60 * 60 * 1000,
+  });
+}
 
 /**
  * Extract the server's line-level validation report from a failed import.
@@ -43,11 +69,11 @@ export function useImportProgramSeed(): UseMutationResult<Program, Error, File> 
  * The "Load demo data" empty-state action. Creates the Atlas hybrid-large
  * sample (owned by the caller) and invalidates ``['programs']``.
  */
-export function useLoadSampleProgram(): UseMutationResult<Program, Error, void> {
+export function useLoadSampleProgram(): UseMutationResult<Program, Error, string | undefined> {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async () => {
-      const res = await apiClient.post<Program>('/programs/load-sample/', {});
+    mutationFn: async (sample: string | undefined) => {
+      const res = await apiClient.post<Program>('/programs/load-sample/', sample ? { sample } : {});
       return res.data;
     },
     onSuccess: () => {

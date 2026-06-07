@@ -69,20 +69,36 @@ async function setup(page: Page) {
       body: pj({ results: [], count: 0, next: null, previous: null, due_today_count: 0 }),
     }),
   );
+  await page.route('**/api/v1/programs/samples/', (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj([
+        {
+          key: 'atlas-platform-launch',
+          title: 'Atlas Platform Launch',
+          description: 'Hybrid-large.',
+        },
+        { key: 'aurora-mobile-app', title: 'Aurora Mobile App', description: 'Agile-only.' },
+      ]),
+    }),
+  );
   await page.route(`**/api/v1/programs/${PROGRAM_ID}/**`, (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_PROGRAM) }),
   );
 }
 
 test.describe('Load demo data', () => {
-  test('loads the sample program and lands on it', async ({ page }) => {
+  test('picks a sample and lands on the loaded program', async ({ page }) => {
     await setup(page);
     await page.route('**/api/v1/programs/load-sample/', (r) =>
       r.fulfill({ status: 201, contentType: 'application/json', body: pj(FIXTURE_PROGRAM) }),
     );
     await page.goto('/programs');
 
+    // With more than one bundled sample, the button opens a picker.
     await page.getByRole('button', { name: /Load demo data/i }).click();
+    await page.getByRole('menuitem', { name: /Atlas Platform Launch/i }).click();
 
     await expect(page).toHaveURL(new RegExp(`/programs/${PROGRAM_ID}/overview`));
   });
