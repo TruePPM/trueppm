@@ -51,6 +51,7 @@ function makeProgram(overrides: Partial<Program> = {}): Program {
     my_role_label: 'Project Admin',
     project_count: 3,
     member_count: 5,
+    is_sample: false,
     is_closed: false,
     closed_at: null,
     closed_by: null,
@@ -76,6 +77,12 @@ describe('ProgramListPage', () => {
     renderPage();
     // header + hero both expose the import button
     expect(screen.getAllByRole('button', { name: /Import from JSON/i }).length).toBeGreaterThan(0);
+  });
+
+  it('offers a Load demo data affordance in the empty state', () => {
+    usePrograms.mockReturnValue({ data: [], isLoading: false, error: null });
+    renderPage();
+    expect(screen.getByRole('button', { name: /Load demo data/i })).toBeInTheDocument();
   });
 
   it('offers an Import from JSON affordance in the header when programs exist', () => {

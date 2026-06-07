@@ -37,6 +37,43 @@ export function useImportProgramSeed(): UseMutationResult<Program, Error, File> 
   });
 }
 
+/**
+ * POST /api/v1/programs/load-sample/ — load the bundled demo program (#375).
+ *
+ * The "Load demo data" empty-state action. Creates the Atlas hybrid-large
+ * sample (owned by the caller) and invalidates ``['programs']``.
+ */
+export function useLoadSampleProgram(): UseMutationResult<Program, Error, void> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const res = await apiClient.post<Program>('/programs/load-sample/', {});
+      return res.data;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['programs'] });
+    },
+  });
+}
+
+/**
+ * POST /api/v1/programs/{id}/remove-sample/ — tear down sample data (#375).
+ *
+ * The "Remove sample data" banner action. Owner-only server-side; refuses to
+ * delete a non-sample program.
+ */
+export function useRemoveSampleProgram(): UseMutationResult<void, Error, string> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (programId: string) => {
+      await apiClient.post(`/programs/${programId}/remove-sample/`);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['programs'] });
+    },
+  });
+}
+
 export interface ExportProgramInput {
   programId: string;
   /** Program code/slug — used as the download filename when present. */
