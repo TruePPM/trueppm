@@ -13,6 +13,8 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import urlparse
 
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import URLValidator
 from rest_framework import serializers
 
 from .models import IntegrationCredential, TaskLink
@@ -113,14 +115,27 @@ class CredentialVerificationErrorSerializer(serializers.Serializer[Any]):
 
 
 class TaskLinkSerializer(serializers.ModelSerializer[TaskLink]):
-    """A git/PM link on a task (ADR-0049 §3, #637).
+    """A git/PM link on a task (ADR-0049 §3, #637; redesign #970).
 
-    Only ``url`` (and optional ``display_order``) is client-writable. ``provider``
-    is resolved server-side from the URL + the user's connected hosts, and
-    ``status``/``title``/``fetched_at`` are populated by the refresh endpoint —
-    never trusted from the client. ``server_version`` is exposed so offline
-    clients can reconcile against the sync delta.
+    Client-writable: ``url``, ``custom_title``, ``labels``, ``display_order``.
+    ``provider`` is resolved server-side from the URL + the user's connected
+    hosts, and ``status``/``title``/``fetched_at`` are populated by the refresh
+    endpoint — never trusted from the client. ``server_version`` is exposed so
+    offline clients can reconcile against the sync delta.
     """
+
+    # Declared as a plain CharField (not the auto ModelSerializer URLField) so a
+    # bare host like "github.com/acme/api" survives field validation and reaches
+    # ``validate_url``, which prepends the scheme before validating (#970). A
+    # strict URLField would 400 it before normalization could run.
+    url = serializers.CharField(max_length=2048, trim_whitespace=True)
+    # Optional free-text tags; entries are trimmed/de-duped/capped in
+    # ``validate_labels``. ``allow_blank`` on the child so a stray "" is dropped
+    # rather than 400-ing the whole request.
+    labels = serializers.ListField(
+        child=serializers.CharField(max_length=40, allow_blank=True),
+        required=False,
+    )
 
     class Meta:
         model = TaskLink
@@ -129,6 +144,8 @@ class TaskLinkSerializer(serializers.ModelSerializer[TaskLink]):
             "url",
             "provider",
             "title",
+            "custom_title",
+            "labels",
             "status",
             "fetched_at",
             "display_order",
@@ -144,12 +161,44 @@ class TaskLinkSerializer(serializers.ModelSerializer[TaskLink]):
         ]
 
     def validate_url(self, value: str) -> str:
-        # Reject non-http(s) at write time; the resolver-level SSRF guard runs
-        # at refresh time when the URL is actually fetched (integrations.http).
-        scheme = urlparse(value).scheme.lower()
-        if scheme not in ("http", "https"):
-            raise serializers.ValidationError("Link URL must be an http or https URL.")
-        return value
+        """Normalize a scheme-less URL to ``https://`` then validate (#970).
+
+        Users routinely paste a bare ``github.com/acme/api/pull/5`` — prepend
+        ``https://`` rather than reject it. Anything with an explicit scheme is
+        left as-is so a deliberate ``ftp://`` / ``javascript:`` is still caught
+        by the http(s)-only ``URLValidator``. The resolver-level SSRF guard runs
+        separately at refresh time when the URL is actually fetched.
+        """
+        raw = (value or "").strip()
+        if not raw:
+            raise serializers.ValidationError("Enter a URL.")
+        if "://" not in raw:
+            raw = "https://" + raw.lstrip("/")
+        try:
+            URLValidator(schemes=["http", "https"])(raw)
+        except DjangoValidationError:
+            raise serializers.ValidationError("Enter a valid http(s) web address.") from None
+        return raw
+
+    def validate_labels(self, value: list[str]) -> list[str]:
+        """Trim, drop blanks, de-dupe (case-insensitive), and cap at 12 (#970)."""
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for raw in value:
+            label = (raw or "").strip()
+            if not label:
+                continue
+            key = label.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            cleaned.append(label)
+        if len(cleaned) > 12:
+            raise serializers.ValidationError("A link can have at most 12 labels.")
+        return cleaned
+
+    def validate_custom_title(self, value: str) -> str:
+        return (value or "").strip()
 
 
 class TaskLinkCredentialRequiredSerializer(serializers.Serializer[Any]):

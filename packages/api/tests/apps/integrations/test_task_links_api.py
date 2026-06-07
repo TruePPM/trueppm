@@ -337,3 +337,179 @@ def test_soft_deleted_link_is_a_sync_tombstone(
     r = _client(member).get(f"/api/v1/projects/{project.pk}/sync/?since=0")
     task_links = r.json()["changes"]["task_links"]
     assert str(link.pk) in task_links["deleted"]
+
+
+# ---------------------------------------------------------------------------
+# url normalization + custom_title + labels (#970)
+# ---------------------------------------------------------------------------
+
+
+def test_create_normalizes_bare_url_and_resolves_provider(
+    member: object, project: Project, task: Task, memberships: None
+) -> None:
+    """A scheme-less URL is normalized to https:// (not rejected) and the
+    provider still resolves from the host (#970)."""
+    r = _client(member).post(
+        _list_url(project, task), {"url": "github.com/acme/api/pull/7"}, format="json"
+    )
+    assert r.status_code == 201
+    body = r.json()
+    assert body["url"] == "https://github.com/acme/api/pull/7"
+    assert body["provider"] == "github"
+
+
+def test_create_accepts_custom_title_and_cleans_labels(
+    member: object, project: Project, task: Task, memberships: None
+) -> None:
+    r = _client(member).post(
+        _list_url(project, task),
+        {
+            "url": "https://example.com/spec",
+            "custom_title": "  Design spec  ",
+            "labels": ["spec", " design ", "Spec", ""],
+        },
+        format="json",
+    )
+    assert r.status_code == 201
+    body = r.json()
+    assert body["custom_title"] == "Design spec"  # trimmed
+    # trimmed, blanks dropped, case-insensitive de-dupe, original order kept
+    assert body["labels"] == ["spec", "design"]
+
+
+def test_create_rejects_more_than_12_labels(
+    member: object, project: Project, task: Task, memberships: None
+) -> None:
+    r = _client(member).post(
+        _list_url(project, task),
+        {"url": "https://example.com/x", "labels": [f"l{i}" for i in range(13)]},
+        format="json",
+    )
+    assert r.status_code == 400
+
+
+def test_patch_updates_custom_title_and_labels(
+    member: object, project: Project, task: Task, memberships: None
+) -> None:
+    link = TaskLink.objects.create(task=task, url="https://example.com/x", provider="generic")
+    r = _client(member).patch(
+        _detail_url(project, task, link.pk),
+        {"custom_title": "Renamed", "labels": ["ref"]},
+        format="json",
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["custom_title"] == "Renamed"
+    assert body["labels"] == ["ref"]
+    link.refresh_from_db()
+    assert link.custom_title == "Renamed"
+    assert link.labels == ["ref"]
+
+
+def test_viewer_cannot_patch(
+    viewer: object, member: object, project: Project, task: Task, memberships: None
+) -> None:
+    link = TaskLink.objects.create(task=task, url="https://example.com/x", provider="generic")
+    r = _client(viewer).patch(
+        _detail_url(project, task, link.pk), {"custom_title": "nope"}, format="json"
+    )
+    assert r.status_code == 403
+
+
+def test_put_is_not_allowed(
+    member: object, project: Project, task: Task, memberships: None
+) -> None:
+    """Only PATCH is exposed; a full PUT replace of server-owned fields is 405 (#970)."""
+    link = TaskLink.objects.create(task=task, url="https://example.com/x", provider="generic")
+    r = _client(member).put(
+        _detail_url(project, task, link.pk), {"url": "https://example.com/y"}, format="json"
+    )
+    assert r.status_code == 405
+
+
+def test_archived_project_blocks_patch(
+    member: object, project: Project, task: Task, memberships: None
+) -> None:
+    link = TaskLink.objects.create(task=task, url="https://example.com/x", provider="generic")
+    project.is_archived = True
+    project.save(update_fields=["is_archived"])
+    r = _client(member).patch(
+        _detail_url(project, task, link.pk), {"custom_title": "x"}, format="json"
+    )
+    assert r.status_code == 403
+
+
+def test_refresh_preserves_custom_title(
+    member: object,
+    project: Project,
+    task: Task,
+    memberships: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A refresh updates the provider title/status but never clobbers the
+    user-supplied custom_title (#970)."""
+    IntegrationCredential.upsert(user=member, provider="github", secret="ghp-x")
+    link = TaskLink.objects.create(
+        task=task,
+        url="https://github.com/acme/api/pull/5",
+        provider="github",
+        custom_title="My name for it",
+    )
+
+    def _fake_get(url: str, **kwargs: object) -> http.EgressResponse:
+        body = json.dumps({"state": "open", "title": "Provider title"}).encode()
+        return http.EgressResponse(status=200, body=body, headers={})
+
+    monkeypatch.setattr(http, "get", _fake_get)
+    r = _client(member).post(_refresh_url(project, task, link.pk))
+    assert r.status_code == 200
+    body = r.json()
+    assert body["title"] == "Provider title"
+    assert body["custom_title"] == "My name for it"  # untouched by refresh
+
+
+def test_patch_cannot_set_provider_or_status(
+    member: object, project: Project, task: Task, memberships: None
+) -> None:
+    """provider/status/title stay read-only on PATCH — a client value is ignored (#970)."""
+    link = TaskLink.objects.create(task=task, url="https://example.com/x", provider="generic")
+    r = _client(member).patch(
+        _detail_url(project, task, link.pk),
+        {"provider": "github", "status": "merged", "custom_title": "ok"},
+        format="json",
+    )
+    assert r.status_code == 200
+    link.refresh_from_db()
+    assert link.provider == "generic"  # read-only — ignored
+    assert link.status == "unknown"
+    assert link.custom_title == "ok"
+
+
+def test_patch_url_reresolves_provider(
+    member: object, project: Project, task: Task, memberships: None
+) -> None:
+    """Changing the url via PATCH re-resolves the provider server-side (#970)."""
+    link = TaskLink.objects.create(task=task, url="https://example.com/x", provider="generic")
+    r = _client(member).patch(
+        _detail_url(project, task, link.pk),
+        {"url": "https://github.com/acme/api/pull/3"},
+        format="json",
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["provider"] == "github"
+    assert body["url"] == "https://github.com/acme/api/pull/3"
+
+
+def test_patch_link_from_another_project_is_404(member: object, memberships: None) -> None:
+    """The membership-scoped queryset is the IDOR boundary for PATCH too (#970)."""
+    other_cal = Calendar.objects.create(name="Other cal 2")
+    other_project = Project.objects.create(
+        name="Gamma", start_date=date(2026, 1, 1), calendar=other_cal
+    )
+    other_task = Task.objects.create(project=other_project, name="G-task", duration=1)
+    link = TaskLink.objects.create(task=other_task, url="https://example.com/x", provider="generic")
+    r = _client(member).patch(
+        _detail_url(other_project, other_task, link.pk), {"custom_title": "stolen"}, format="json"
+    )
+    assert r.status_code in (403, 404)

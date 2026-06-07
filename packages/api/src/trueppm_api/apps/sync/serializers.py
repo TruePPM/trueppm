@@ -207,6 +207,8 @@ class SyncTaskLinkSerializer(serializers.ModelSerializer[TaskLink]):
             "url",
             "provider",
             "title",
+            "custom_title",
+            "labels",
             "status",
             "fetched_at",
             "display_order",

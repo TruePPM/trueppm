@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { ExternalLinksSection, StatusBadge } from './ExternalLinksSection';
 import type { ExternalLinkStatus, TaskExternalLink } from '@/hooks/useTaskLinks';
@@ -7,6 +7,7 @@ const useLinksMock = vi.hoisted(() => vi.fn());
 const useCreateMock = vi.hoisted(() => vi.fn());
 const useDeleteMock = vi.hoisted(() => vi.fn());
 const useRefreshMock = vi.hoisted(() => vi.fn());
+const useUpdateMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/hooks/useTaskLinks', async () => {
   const actual =
@@ -17,6 +18,7 @@ vi.mock('@/hooks/useTaskLinks', async () => {
     useCreateTaskLink: useCreateMock,
     useDeleteTaskLink: useDeleteMock,
     useRefreshTaskLink: useRefreshMock,
+    useUpdateTaskLink: useUpdateMock,
   };
 });
 
@@ -26,6 +28,8 @@ function link(overrides: Partial<TaskExternalLink> = {}): TaskExternalLink {
     url: 'https://gitlab.com/acme/api/-/merge_requests/5',
     provider: 'gitlab',
     title: 'MR 5',
+    custom_title: '',
+    labels: [],
     status: 'open',
     fetched_at: null,
     display_order: 0,
@@ -66,6 +70,7 @@ describe('ExternalLinksSection — unsafe URL rendering (#898)', () => {
     useCreateMock.mockReturnValue({ mutate: vi.fn(), isPending: false });
     useDeleteMock.mockReturnValue({ mutate: vi.fn(), isPending: false, isError: false });
     useRefreshMock.mockReturnValue({ mutate: vi.fn(), isPending: false });
+    useUpdateMock.mockReturnValue({ mutate: vi.fn(), isPending: false, isError: false });
   });
 
   it('renders a safe http(s) link as a clickable anchor', () => {
@@ -101,5 +106,76 @@ describe('ExternalLinksSection — unsafe URL rendering (#898)', () => {
     render(<ExternalLinksSection taskId="t1" projectId="p1" />);
     expect(screen.queryByRole('link', { name: /Broken/ })).toBeNull();
     expect(screen.getByText('Broken')).toBeInTheDocument();
+  });
+});
+
+describe('ExternalLinksSection — custom title & labels (#970)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useCreateMock.mockReturnValue({ mutate: vi.fn(), isPending: false });
+    useDeleteMock.mockReturnValue({ mutate: vi.fn(), isPending: false, isError: false });
+    useRefreshMock.mockReturnValue({ mutate: vi.fn(), isPending: false });
+    useUpdateMock.mockReturnValue({ mutate: vi.fn(), isPending: false, isError: false });
+  });
+
+  it('shows the user custom title in preference to the provider title', () => {
+    useLinksMock.mockReturnValue({
+      links: [link({ custom_title: 'Design spec', title: 'MR 5' })],
+      isLoading: false,
+      error: null,
+    });
+    render(<ExternalLinksSection taskId="t1" projectId="p1" />);
+    expect(screen.getByRole('link', { name: /Design spec/ })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /^MR 5/ })).toBeNull();
+  });
+
+  it('renders labels as chips', () => {
+    useLinksMock.mockReturnValue({
+      links: [link({ labels: ['spec', 'design'] })],
+      isLoading: false,
+      error: null,
+    });
+    render(<ExternalLinksSection taskId="t1" projectId="p1" />);
+    const labelList = screen.getByRole('list', { name: 'Labels' });
+    expect(within(labelList).getByText('spec')).toBeInTheDocument();
+    expect(within(labelList).getByText('design')).toBeInTheDocument();
+  });
+
+  it('reveals title + label inputs once a (bare) URL is entered', () => {
+    useLinksMock.mockReturnValue({ links: [], isLoading: false, error: null });
+    render(<ExternalLinksSection taskId="t1" projectId="p1" />);
+    expect(screen.queryByLabelText('Link title')).toBeNull();
+    // A scheme-less URL still enables the affordance (#970).
+    fireEvent.change(screen.getByLabelText('Add a link URL'), {
+      target: { value: 'github.com/acme/api/pull/5' },
+    });
+    expect(screen.getByLabelText('Link title')).toBeInTheDocument();
+    expect(screen.getByLabelText('Add a label')).toBeInTheDocument();
+  });
+
+  it('edits custom title via the inline editor and PATCHes (#970)', () => {
+    const mutate = vi.fn();
+    useUpdateMock.mockReturnValue({ mutate, isPending: false, isError: false });
+    useLinksMock.mockReturnValue({
+      links: [link({ custom_title: 'Old', labels: ['spec'] })],
+      isLoading: false,
+      error: null,
+    });
+    render(<ExternalLinksSection taskId="t1" projectId="p1" />);
+    fireEvent.click(screen.getByRole('button', { name: /Edit Old/ }));
+    const titleInput = screen.getByLabelText<HTMLInputElement>('Link title');
+    expect(titleInput.value).toBe('Old');
+    fireEvent.change(titleInput, { target: { value: 'New name' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: 'p1',
+        taskId: 't1',
+        linkId: 'l1',
+        customTitle: 'New name',
+        labels: ['spec'],
+      }),
+      expect.anything(),
+    );
   });
 });

@@ -18,9 +18,11 @@ import { detectProvider } from '@/lib/detectProvider';
 import { safeExternalHref } from '@/lib/safeExternalHref';
 import { formatRelative } from '@/lib/formatRelative';
 import {
+  linkDisplayTitle,
   useCreateTaskLink,
   useDeleteTaskLink,
   useRefreshTaskLink,
+  useUpdateTaskLink,
   useTaskLinks,
 } from '@/hooks/useTaskLinks';
 import type { ExternalLinkStatus, TaskExternalLink } from '@/hooks/useTaskLinks';
@@ -92,6 +94,100 @@ function shortRef(link: TaskExternalLink): string {
   }
 }
 
+/** Read-only label chips on a link row. Text is the signal (no color coding). */
+function LabelPills({ labels }: { labels: string[] }) {
+  if (labels.length === 0) return null;
+  return (
+    <ul className="flex flex-wrap gap-1 list-none" aria-label="Labels">
+      {labels.map((label, i) => (
+        <li
+          key={`${label}-${i}`}
+          className="inline-flex items-center rounded bg-neutral-surface-sunken px-1.5 py-0.5
+            text-xs text-neutral-text-secondary"
+        >
+          {label}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+interface LabelChipInputProps {
+  labels: string[];
+  onChange: (labels: string[]) => void;
+}
+
+/**
+ * Editable label chips (#970). Enter or comma commits the draft; Backspace on an
+ * empty draft removes the last chip. De-dupes case-insensitively and caps at 12
+ * — mirrors the server's `validate_labels` so the UI never offers what the API
+ * would reject. The wrapper carries the focus ring (rule 157) since the inner
+ * input's outline is suppressed.
+ */
+function LabelChipInput({ labels, onChange }: LabelChipInputProps) {
+  const [draft, setDraft] = useState('');
+  const atCap = labels.length >= 12;
+
+  function commitDraft() {
+    const label = draft.trim().slice(0, 40);
+    setDraft('');
+    if (!label || atCap) return;
+    if (labels.some((l) => l.toLowerCase() === label.toLowerCase())) return;
+    onChange([...labels, label]);
+  }
+
+  function removeAt(index: number) {
+    onChange(labels.filter((_, i) => i !== index));
+  }
+
+  return (
+    <div
+      className="flex flex-wrap items-center gap-1 rounded border border-neutral-border
+        bg-neutral-surface px-2 py-1
+        focus-within:ring-2 focus-within:ring-brand-primary focus-within:ring-offset-1 dark:focus-within:ring-semantic-on-track"
+    >
+      {labels.map((label, i) => (
+        <span
+          key={`${label}-${i}`}
+          className="inline-flex items-center gap-1 rounded bg-neutral-surface-sunken px-1.5 py-0.5
+            text-xs text-neutral-text-secondary"
+        >
+          {label}
+          <button
+            type="button"
+            onClick={() => removeAt(i)}
+            aria-label={`Remove label ${label}`}
+            className="rounded text-neutral-text-secondary hover:text-semantic-critical
+              focus-visible:ring-2 focus-visible:ring-brand-primary dark:focus-visible:ring-semantic-on-track focus-visible:outline-none"
+          >
+            ×
+          </button>
+        </span>
+      ))}
+      <input
+        type="text"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ',') {
+            e.preventDefault();
+            commitDraft();
+          } else if (e.key === 'Backspace' && !draft && labels.length > 0) {
+            removeAt(labels.length - 1);
+          }
+        }}
+        onBlur={commitDraft}
+        maxLength={40}
+        placeholder={atCap ? 'Label limit reached' : labels.length ? 'Add another…' : 'Add labels…'}
+        disabled={atCap}
+        aria-label="Add a label"
+        className="min-w-[6rem] flex-1 bg-transparent text-xs text-neutral-text-primary
+          placeholder:text-neutral-text-secondary focus-visible:outline-none disabled:cursor-not-allowed"
+      />
+    </div>
+  );
+}
+
 interface ExternalLinkRowProps {
   link: TaskExternalLink;
   projectId: string;
@@ -102,11 +198,15 @@ interface ExternalLinkRowProps {
 function ExternalLinkRow({ link, projectId, taskId, canEdit }: ExternalLinkRowProps) {
   const refresh = useRefreshTaskLink();
   const remove = useDeleteTaskLink();
+  const update = useUpdateTaskLink();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [connectPrompt, setConnectPrompt] = useState<string | null>(null);
   const [refreshFailed, setRefreshFailed] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draftTitle, setDraftTitle] = useState(link.custom_title);
+  const [draftLabels, setDraftLabels] = useState<string[]>(link.labels);
 
-  const title = link.title || link.url;
+  const title = linkDisplayTitle(link);
   const ts = link.fetched_at ? formatRelative(new Date(link.fetched_at)) : 'never refreshed';
   // Only bind the URL to an href if it is a safe http(s) link. A stored
   // javascript:/data:/malformed URL would otherwise execute on click (#898);
@@ -136,6 +236,66 @@ function ExternalLinkRow({ link, projectId, taskId, canEdit }: ExternalLinkRowPr
     remove.mutate(
       { projectId, taskId, linkId: link.id },
       { onSettled: () => setConfirmingDelete(false) },
+    );
+  }
+
+  function startEdit() {
+    setDraftTitle(link.custom_title);
+    setDraftLabels(link.labels);
+    setEditing(true);
+  }
+
+  function handleSaveEdit() {
+    update.mutate(
+      { projectId, taskId, linkId: link.id, customTitle: draftTitle.trim(), labels: draftLabels },
+      { onSuccess: () => setEditing(false) },
+    );
+  }
+
+  if (editing) {
+    return (
+      <li
+        className="flex flex-col gap-2 p-3 rounded border border-neutral-border bg-neutral-surface-raised"
+        aria-label={`Edit link: ${title}`}
+      >
+        <input
+          type="text"
+          value={draftTitle}
+          onChange={(e) => setDraftTitle(e.target.value)}
+          maxLength={512}
+          placeholder="Title (optional)"
+          aria-label="Link title"
+          className="h-8 px-2 text-sm rounded border border-neutral-border bg-neutral-surface
+            text-neutral-text-primary placeholder:text-neutral-text-secondary
+            focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none"
+        />
+        <LabelChipInput labels={draftLabels} onChange={setDraftLabels} />
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleSaveEdit}
+            disabled={update.isPending}
+            className="text-xs border border-neutral-border rounded px-3 h-8 font-medium
+              text-neutral-text-primary hover:bg-neutral-surface disabled:opacity-50
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none"
+          >
+            {update.isPending ? 'Saving…' : 'Save'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setEditing(false)}
+            className="text-xs text-neutral-text-secondary rounded px-3 h-8 hover:bg-neutral-surface
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none"
+          >
+            Cancel
+          </button>
+          {update.isError && (
+            <span className="text-xs text-semantic-critical" role="alert">
+              Save failed.
+            </span>
+          )}
+        </div>
+      </li>
     );
   }
 
@@ -190,6 +350,17 @@ function ExternalLinkRow({ link, projectId, taskId, canEdit }: ExternalLinkRowPr
               ⟳
             </span>
           </button>
+          {canEdit && !confirmingDelete && (
+            <button
+              type="button"
+              onClick={startEdit}
+              className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary rounded px-2 h-7
+                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none"
+              aria-label={`Edit ${title}`}
+            >
+              ✎
+            </button>
+          )}
           {canEdit &&
             (!confirmingDelete ? (
               <button
@@ -227,6 +398,8 @@ function ExternalLinkRow({ link, projectId, taskId, canEdit }: ExternalLinkRowPr
         </span>
       </div>
 
+      <LabelPills labels={link.labels} />
+
       {connectPrompt && (
         <a
           href={`/me/settings/connected-accounts#${connectPrompt}`}
@@ -258,6 +431,8 @@ interface AddLinkInputProps {
 function AddLinkInput({ projectId, taskId }: AddLinkInputProps) {
   const create = useCreateTaskLink();
   const [url, setUrl] = useState('');
+  const [customTitle, setCustomTitle] = useState('');
+  const [labels, setLabels] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const detected = detectProvider(url);
 
@@ -265,9 +440,13 @@ function AddLinkInput({ projectId, taskId }: AddLinkInputProps) {
     if (!detected) return;
     setError(null);
     create.mutate(
-      { projectId, taskId, url: url.trim() },
+      { projectId, taskId, url: url.trim(), customTitle: customTitle.trim(), labels },
       {
-        onSuccess: () => setUrl(''),
+        onSuccess: () => {
+          setUrl('');
+          setCustomTitle('');
+          setLabels([]);
+        },
         onError: (err) => setError(err.message || 'Could not add link.'),
       },
     );
@@ -286,7 +465,8 @@ function AddLinkInput({ projectId, taskId }: AddLinkInputProps) {
     <div className="flex flex-col gap-1">
       <div className="flex items-center gap-2">
         <input
-          type="url"
+          type="text"
+          inputMode="url"
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           onKeyDown={(e) => {
@@ -310,6 +490,29 @@ function AddLinkInput({ projectId, taskId }: AddLinkInputProps) {
           {create.isPending ? 'Adding…' : 'Add'}
         </button>
       </div>
+
+      {/* Title + labels are progressive — revealed once a valid URL is entered so
+          the empty state stays a single paste field. */}
+      {detected && (
+        <>
+          <input
+            type="text"
+            value={customTitle}
+            onChange={(e) => setCustomTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSubmit();
+            }}
+            maxLength={512}
+            placeholder="Title (optional)"
+            aria-label="Link title"
+            className="h-8 px-2 text-sm rounded border border-neutral-border bg-neutral-surface
+              text-neutral-text-primary placeholder:text-neutral-text-secondary
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none"
+          />
+          <LabelChipInput labels={labels} onChange={setLabels} />
+        </>
+      )}
+
       <span
         id="external-link-hint"
         className="text-xs text-neutral-text-secondary"
@@ -360,8 +563,8 @@ export function ExternalLinksSection({ taskId, projectId }: DrawerSectionProps) 
           className="text-xs text-neutral-text-secondary border border-dashed border-neutral-border
             bg-neutral-surface-sunken rounded px-4 py-3"
         >
-          🔗 Paste a GitLab or GitHub URL to see live status — open, draft, merged, or closed — on
-          this task.
+          🔗 Paste a GitLab, GitHub, or any URL. GitLab and GitHub links show live status — open,
+          draft, merged, or closed — and you can add a title and labels.
         </p>
       )}
 
