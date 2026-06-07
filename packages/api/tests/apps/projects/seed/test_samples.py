@@ -48,8 +48,10 @@ def test_load_atlas_creates_three_sample_projects(owner: Any) -> None:
     # methodology mix present
     assert set(projects.values_list("methodology", flat=True)) == {"AGILE", "WATERFALL", "HYBRID"}
 
-    # personas created (create_users=True)
-    assert User.objects.filter(username="alex").exists()
+    # personas created (create_users=True), with namespaced usernames so a real
+    # account named "alex" is never reused for the demo persona
+    assert User.objects.filter(username="atlas-alex").exists()
+    assert not User.objects.filter(username="alex").exists()
 
     # cross-project dependency wired (Platform Core gates Migration build)
     assert Dependency.objects.filter(
@@ -113,6 +115,18 @@ def test_remove_sample_non_owner_denied(owner: Any) -> None:
     program = load_sample("atlas-platform-launch", owner=owner, create_users=True)
     stranger = User.objects.create_user(username="stranger", password="pw")
     resp = _client(stranger).post(f"/api/v1/programs/{program.pk}/remove-sample/")
+    assert resp.status_code in (403, 404)
+    assert Program.objects.filter(pk=program.pk, is_deleted=False).exists()
+
+
+def test_remove_sample_non_owner_member_denied(owner: Any) -> None:
+    # An ADMIN member (not OWNER) must not be able to tear down the program.
+    from trueppm_api.apps.access.models import ProgramMembership
+
+    program = load_sample("atlas-platform-launch", owner=owner, create_users=True)
+    admin = User.objects.create_user(username="prog-admin", password="pw")
+    ProgramMembership.objects.create(program=program, user=admin, role=Role.ADMIN)
+    resp = _client(admin).post(f"/api/v1/programs/{program.pk}/remove-sample/")
     assert resp.status_code in (403, 404)
     assert Program.objects.filter(pk=program.pk, is_deleted=False).exists()
 

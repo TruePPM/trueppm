@@ -624,8 +624,17 @@ def build_atlas() -> dict:
             "lead": "alex",
         },
         "accounts": [
-            {"slug": s, "username": u, "display_name": dn, "email": e, "role": r}
-            for (s, u, dn, e, r) in ACCOUNTS
+            # Usernames are namespaced (``atlas-<slug>``) so loading the demo can
+            # never reuse — and silently grant membership to — a real account that
+            # happens to share a common first name. The display name stays human.
+            {
+                "slug": s,
+                "username": f"atlas-{s}",
+                "display_name": dn,
+                "email": e,
+                "role": r,
+            }
+            for (s, _u, dn, e, r) in ACCOUNTS
         ],
         "calendars": CALENDARS,
         "resources": [

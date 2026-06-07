@@ -250,7 +250,12 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
         """Tear down a sample program — the "Remove sample data" action (#375).
 
         Owner-only. Refuses to delete a program that is not sample data, so the
-        teardown can never remove real work. Hard-deletes the program subtree.
+        teardown can never remove real work. Hard-deletes the *entire* program
+        subtree (all projects, not only is_sample ones — a sample program holds
+        only sample projects). Unlike ``destroy`` this is a hard delete, not a
+        soft delete: sample data is disposable, so it is purged outright. Offline
+        sync clients reconcile via the ``program_deleted`` broadcast rather than a
+        tombstone — acceptable because demo data is never offline-authored.
         """
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
@@ -265,6 +270,9 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
             )
         program_id = str(program.pk)
         with transaction.atomic():
+            # Lock the program row so a concurrent member-add / project-assign
+            # can't resurrect a PROTECTed reference mid-teardown.
+            Program.objects.select_for_update().filter(pk=program.pk).first()
             project_ids = list(Project.objects.filter(program=program).values_list("pk", flat=True))
             ProjectMembership.objects.filter(project_id__in=project_ids).delete()
             Project.objects.filter(pk__in=project_ids).delete()

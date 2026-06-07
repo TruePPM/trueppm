@@ -2656,7 +2656,7 @@
         "/api/v1/programs/{id}/remove-sample/": {
             "post": {
                 "operationId": "v1_programs_remove_sample_create",
-                "description": "Tear down a sample program — the \"Remove sample data\" action (#375).\n\nOwner-only. Refuses to delete a program that is not sample data, so the\nteardown can never remove real work. Hard-deletes the program subtree.",
+                "description": "Tear down a sample program — the \"Remove sample data\" action (#375).\n\nOwner-only. Refuses to delete a program that is not sample data, so the\nteardown can never remove real work. Hard-deletes the *entire* program\nsubtree (all projects, not only is_sample ones — a sample program holds\nonly sample projects). Unlike ``destroy`` this is a hard delete, not a\nsoft delete: sample data is disposable, so it is purged outright. Offline\nsync clients reconcile via the ``program_deleted`` broadcast rather than a\ntombstone — acceptable because demo data is never offline-authored.",
                 "parameters": [
                     {
                         "in": "path",

@@ -11,105 +11,105 @@
   "accounts": [
     {
       "slug": "alex",
-      "username": "alex",
+      "username": "atlas-alex",
       "display_name": "Alex Rivera",
       "email": "alex@atlas.example",
       "role": "OWNER"
     },
     {
       "slug": "priya",
-      "username": "priya",
+      "username": "atlas-priya",
       "display_name": "Priya Nair",
       "email": "priya@atlas.example",
       "role": "ADMIN"
     },
     {
       "slug": "jordan",
-      "username": "jordan",
+      "username": "atlas-jordan",
       "display_name": "Jordan Blake",
       "email": "jordan@atlas.example",
       "role": "ADMIN"
     },
     {
       "slug": "sam",
-      "username": "sam",
+      "username": "atlas-sam",
       "display_name": "Sam Okafor",
       "email": "sam@atlas.example",
       "role": "SCHEDULER"
     },
     {
       "slug": "mei",
-      "username": "mei",
+      "username": "atlas-mei",
       "display_name": "Mei Tanaka",
       "email": "mei@atlas.example",
       "role": "MEMBER"
     },
     {
       "slug": "diego",
-      "username": "diego",
+      "username": "atlas-diego",
       "display_name": "Diego Santos",
       "email": "diego@atlas.example",
       "role": "MEMBER"
     },
     {
       "slug": "nadia",
-      "username": "nadia",
+      "username": "atlas-nadia",
       "display_name": "Nadia Hassan",
       "email": "nadia@atlas.example",
       "role": "MEMBER"
     },
     {
       "slug": "tom",
-      "username": "tom",
+      "username": "atlas-tom",
       "display_name": "Tom Becker",
       "email": "tom@atlas.example",
       "role": "MEMBER"
     },
     {
       "slug": "yuki",
-      "username": "yuki",
+      "username": "atlas-yuki",
       "display_name": "Yuki Sato",
       "email": "yuki@atlas.example",
       "role": "MEMBER"
     },
     {
       "slug": "omar",
-      "username": "omar",
+      "username": "atlas-omar",
       "display_name": "Omar Aziz",
       "email": "omar@atlas.example",
       "role": "MEMBER"
     },
     {
       "slug": "lena",
-      "username": "lena",
+      "username": "atlas-lena",
       "display_name": "Lena Vogel",
       "email": "lena@atlas.example",
       "role": "MEMBER"
     },
     {
       "slug": "raj",
-      "username": "raj",
+      "username": "atlas-raj",
       "display_name": "Raj Mehta",
       "email": "raj@atlas.example",
       "role": "MEMBER"
     },
     {
       "slug": "clara",
-      "username": "clara",
+      "username": "atlas-clara",
       "display_name": "Clara Mendes",
       "email": "clara@atlas.example",
       "role": "MEMBER"
     },
     {
       "slug": "ivan",
-      "username": "ivan",
+      "username": "atlas-ivan",
       "display_name": "Ivan Petrov",
       "email": "ivan@atlas.example",
       "role": "MEMBER"
     },
     {
       "slug": "ada",
-      "username": "ada",
+      "username": "atlas-ada",
       "display_name": "Ada Boyega",
       "email": "ada@atlas.example",
       "role": "VIEWER"
