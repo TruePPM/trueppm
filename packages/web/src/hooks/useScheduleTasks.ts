@@ -2,7 +2,16 @@ import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useProjectId } from '@/hooks/useProjectId';
 import { apiClient } from '@/api/client';
-import type { Task, TaskAssignee, TaskLink, TaskStatus, LinkType, TaskReadiness } from '@/types';
+import type {
+  Task,
+  TaskAssignee,
+  TaskLink,
+  TaskStatus,
+  LinkType,
+  TaskReadiness,
+  TaskType,
+  DorState,
+} from '@/types';
 import type { PaginatedResponse } from '@/api/types';
 import { computeWbsCodes } from '@/utils/computeWbsCodes';
 import { useWsConnectionStore } from '@/stores/wsConnectionStore';
@@ -91,6 +100,26 @@ export interface ApiTask {
     resource_name: string;
     units: number;
   }>;
+  // Product backlog & scoring (ADR-0105) — snake_case on the wire.
+  type?: TaskType;
+  parent_epic?: string | null;
+  dor?: DorState;
+  sprint_rank?: number | null;
+  acceptance_criteria?: Array<{
+    id: string;
+    text: string;
+    given?: string;
+    when?: string;
+    then?: string;
+    met: boolean;
+    position: number;
+    met_by_name?: string | null;
+    met_at?: string | null;
+  }>;
+  prioritization_score?: number | null;
+  criteria_met_count?: number;
+  criteria_total?: number;
+  dor_blockers?: string[];
 }
 
 interface ApiDependency {
@@ -232,6 +261,26 @@ export function mapTask(t: ApiTask): Task {
     })),
     milestoneRollup: t.milestone_rollup ?? null,
     shortId: t.short_id,
+    // Product backlog & scoring (ADR-0105). Absent on legacy/non-agile payloads.
+    taskType: t.type ?? undefined,
+    parentEpic: t.parent_epic ?? null,
+    dor: t.dor ?? undefined,
+    sprintRank: t.sprint_rank ?? null,
+    acceptanceCriteria: t.acceptance_criteria?.map((c) => ({
+      id: c.id,
+      text: c.text,
+      given: c.given,
+      when: c.when,
+      then: c.then,
+      met: c.met,
+      position: c.position,
+      metByName: c.met_by_name ?? null,
+      metAt: c.met_at ?? null,
+    })),
+    score: t.prioritization_score ?? null,
+    acMet: t.criteria_met_count ?? undefined,
+    acTotal: t.criteria_total ?? undefined,
+    dorBlockers: t.dor_blockers ?? undefined,
   };
 }
 

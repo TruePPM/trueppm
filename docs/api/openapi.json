@@ -6679,6 +6679,67 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/product-backlog/reorder/": {
+            "post": {
+                "operationId": "v1_projects_product_backlog_reorder_create",
+                "description": "Manual drag reorder of the project backlog (ADR-0110, #494).\n\nBody: ``{\"stories\": [{\"id\": \"<uuid>\", \"server_version\": <int>}, ...]}`` in target\npriority order — the *complete* current backlog. Writes dense ``priority_rank`` 1..N,\noptimistic-locked on ``server_version``. Returns ``200 {\"updated\": <count>}``; ``409``\nwith the offending ids if the backlog changed under the client (a story was added,\nremoved, or reordered concurrently) so the client refetches and replays the drag.\n``400`` on a malformed body. Idempotency-Key is honored via ``IdempotencyMixin``.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this project.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Project"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/resource-allocation/": {
             "get": {
                 "operationId": "v1_projects_resource_allocation_retrieve",

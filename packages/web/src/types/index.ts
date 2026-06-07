@@ -12,6 +12,31 @@ export type ZoomLevel = 'day' | 'week' | 'month' | 'quarter' | 'year';
 
 export type TaskReadiness = 'idea' | 'estimated' | 'ready' | 'baselined';
 
+/** Work-item taxonomy (ADR-0105 / #363). */
+export type TaskType = 'epic' | 'story' | 'task' | 'bug' | 'spike';
+
+/** Definition-of-Ready signal for a backlog story (ADR-0105 / #731). Distinct from
+ *  the computed board `readiness` chip — this is the PO's stored grooming intent. */
+export type DorState = 'idea' | 'refine' | 'ready';
+
+/** Prioritization scoring model for a project's product backlog (ADR-0105 / #922).
+ *  `none` hides the scoring surface (pure manual drag). */
+export type PrioritizationModel = 'none' | 'wsjf' | 'rice' | 'value_effort';
+
+/** A single first-class acceptance criterion (ADR-0105 / #493). The `metBy`/`metAt`
+ *  review trail is exposed as an attribution name only (never a raw user id). */
+export interface AcceptanceCriterion {
+  id: string;
+  text: string;
+  given?: string;
+  when?: string;
+  then?: string;
+  met: boolean;
+  position: number;
+  metByName?: string | null;
+  metAt?: string | null;
+}
+
 /**
  * Sprint scope-change decision status (ADR-0102 §1, `ScopeChangeStatus`).
  *
@@ -162,6 +187,25 @@ export interface Task {
    * lock chrome in that case.
    */
   milestoneRollup?: MilestoneRollup | null;
+  // ── Product backlog & scoring (ADR-0105) ──────────────────────────────────
+  /** Work-item type. Absent on legacy payloads → treat as 'task'. */
+  taskType?: TaskType;
+  /** Parent epic id (grouping parallel to the WBS), or null when ungrouped. */
+  parentEpic?: string | null;
+  /** Definition-of-Ready signal set by the PO; field is `dor` to avoid the
+   *  collision with the computed `readiness` board chip. */
+  dor?: DorState;
+  /** Within-sprint execution order (#365); null outside a sprint. */
+  sprintRank?: number | null;
+  /** First-class acceptance criteria (read-only nested; write via the criteria API). */
+  acceptanceCriteria?: AcceptanceCriterion[];
+  /** Computed prioritization score under the project's active model; null when unscored. */
+  score?: number | null;
+  /** Acceptance-criteria meter: met / total. */
+  acMet?: number;
+  acTotal?: number;
+  /** Definition-of-Ready blocker codes; empty ⇒ the story may be marked ready. */
+  dorBlockers?: string[];
 }
 
 /** Estimation governance mode on Project (issue #141 / ADR-0032). */

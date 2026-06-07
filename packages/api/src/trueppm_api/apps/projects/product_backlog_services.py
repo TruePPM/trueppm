@@ -183,6 +183,85 @@ def auto_rank(project: Project, actor: Any) -> int:
     return changed
 
 
+# ── Manual reorder (ADR-0110, #494) ───────────────────────────────────────────
+
+
+class BacklogReorderConflict(Exception):
+    """Raised when the client's backlog snapshot is stale (ADR-0110 §3).
+
+    Covers every "the backlog moved under you" case — a story added or removed
+    concurrently (the supplied set no longer matches the live backlog) or a row whose
+    ``server_version`` advanced since the client loaded it. The view maps this to 409 and
+    the client refetches + replays the drag. ``ids`` lists the offending task ids.
+    """
+
+    def __init__(self, ids: list[str]) -> None:
+        self.ids = ids
+        super().__init__(f"Stale backlog snapshot for tasks: {', '.join(ids)}")
+
+
+def reorder_backlog(project: Project, ordered: list[tuple[str, int]], actor: Any) -> int:
+    """Apply a manual drag reorder of the project backlog (ADR-0110, #494).
+
+    ``ordered`` is the *complete* current backlog as ``[(task_id, server_version), ...]`` in
+    the new priority order. Renumbers ``priority_rank`` densely 1..N (matching ``auto_rank``'s
+    output shape) so a later auto-rank diff stays clean; sparse keys buy nothing under a
+    full-list rewrite. Optimistic-locked on ``server_version`` and on set-completeness: if the
+    supplied set differs from the live backlog (concurrent add/remove) or any row's version is
+    stale, raises :class:`BacklogReorderConflict` (409) and writes nothing.
+
+    Writes only changed rows, each via ``save()`` (never ``bulk_update``) so ``server_version``
+    bumps and ``HistoricalTask`` is written. Returns the count of rows whose rank changed.
+    Idempotent: re-applying the same order writes nothing. Rank-only — never touches
+    ``sprint_rank`` or ``parent_epic`` (ADR-0110 §5).
+    """
+    changed = 0
+    with transaction.atomic():
+        # Lock the live backlog rows first to serialise concurrent reorders, scoped exactly
+        # like _backlog_stories (BACKLOG, sprint-less, non-epic).
+        live = (
+            Task.objects.select_for_update()
+            .filter(
+                project=project,
+                is_deleted=False,
+                status=TaskStatus.BACKLOG,
+                sprint__isnull=True,
+            )
+            .exclude(type=TaskType.EPIC)
+        )
+        by_id = {str(t.pk): t for t in live}
+        supplied = {tid for tid, _ in ordered}
+
+        # Completeness + membership: the client must hold exactly the current backlog. Any
+        # drift (story added/removed since load, or an id that isn't a current backlog story)
+        # is a stale snapshot → 409, not a partial write.
+        drift = sorted((supplied - by_id.keys()) | (by_id.keys() - supplied))
+        if drift:
+            raise BacklogReorderConflict(drift)
+
+        # Per-row optimistic lock.
+        stale = [tid for tid, sv in ordered if by_id[tid].server_version != sv]
+        if stale:
+            raise BacklogReorderConflict(stale)
+
+        for new_rank, (tid, _) in enumerate(ordered, start=1):
+            task = by_id[tid]
+            if task.priority_rank != new_rank:
+                task.priority_rank = new_rank
+                task.save(update_fields=["priority_rank", "server_version"])
+                changed += 1
+
+        # Registered inside the atomic block so it defers to commit (and fires only within a
+        # transaction). pid is a non-mutating local, so the plain closure capture is safe —
+        # matching the auto_rank pattern.
+        if changed:
+            pid = str(project.id)
+            transaction.on_commit(
+                lambda: broadcast_board_event(pid, "backlog_reranked", {"project_id": pid})
+            )
+    return changed
+
+
 # ── Dual ordering (#365) ──────────────────────────────────────────────────────
 
 

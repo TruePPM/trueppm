@@ -25,6 +25,11 @@ const BoardView = lazy(() =>
 const SprintsView = lazy(() =>
   import('@/features/sprints/SprintsView').then((m) => ({ default: m.SprintsView })),
 );
+const ProductBacklogPage = lazy(() =>
+  import('@/features/project/backlog/ProductBacklogPage').then((m) => ({
+    default: m.ProductBacklogPage,
+  })),
+);
 const CalendarView = lazy(() =>
   import('@/features/calendar/CalendarView').then((m) => ({ default: m.CalendarView })),
 );
@@ -383,6 +388,15 @@ export const router = createBrowserRouter([
                 element: (
                   <Suspense fallback={<RouteLoadingFallback />}>
                     <SprintsView />
+                  </Suspense>
+                ),
+              },
+              {
+                // ADR-0105 — Product-Owner backlog / grooming view (#494).
+                path: 'product-backlog',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <ProductBacklogPage />
                   </Suspense>
                 ),
               },

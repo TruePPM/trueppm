@@ -16,6 +16,8 @@ Covers:
 from __future__ import annotations
 
 from datetime import date
+from typing import Any
+from unittest import mock
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -35,11 +37,13 @@ from trueppm_api.apps.projects.models import (
     TaskType,
 )
 from trueppm_api.apps.projects.product_backlog_services import (
+    BacklogReorderConflict,
     DorTransitionError,
     auto_rank,
     compute_score,
     dor_blockers,
     mark_ready,
+    reorder_backlog,
     seed_sprint_rank,
     split_story,
 )
@@ -507,3 +511,216 @@ def test_epics_excluded_from_committed_manager(project: Project) -> None:
     committed_names = set(Task.committed.filter(project=project).values_list("name", flat=True))
     assert "real" in committed_names
     assert "epic" not in committed_names
+
+
+# --------------------------------------------------------------------------- #
+# Manual drag reorder (ADR-0110, #494)
+# --------------------------------------------------------------------------- #
+
+
+def _entry(task: Task) -> dict[str, object]:
+    """A {id, server_version} reorder entry from a task's current state."""
+    return {"id": str(task.pk), "server_version": task.server_version}
+
+
+REORDER_URL = "/api/v1/projects/{pk}/product-backlog/reorder/"
+
+
+def test_reorder_service_renumbers_dense(project: Project) -> None:
+    a = _story(project, name="a", priority_rank=1)
+    b = _story(project, name="b", priority_rank=2)
+    c = _story(project, name="c", priority_rank=3)
+    # New order: c, a, b → dense 1..N in that order.
+    changed = reorder_backlog(
+        project,
+        [
+            (str(c.pk), c.server_version),
+            (str(a.pk), a.server_version),
+            (str(b.pk), b.server_version),
+        ],
+        None,
+    )
+    for t in (a, b, c):
+        t.refresh_from_db()
+    assert (c.priority_rank, a.priority_rank, b.priority_rank) == (1, 2, 3)
+    assert changed == 3  # c:3→1, a:1→2, b:2→3 — all three shift
+
+
+def test_reorder_is_idempotent(project: Project) -> None:
+    a = _story(project, name="a", priority_rank=1)
+    b = _story(project, name="b", priority_rank=2)
+    order = [(str(a.pk), a.server_version), (str(b.pk), b.server_version)]
+    # Already in this order → no writes, no version bump.
+    assert reorder_backlog(project, order, None) == 0
+    a.refresh_from_db()
+    b.refresh_from_db()
+    assert (
+        reorder_backlog(
+            project, [(str(a.pk), a.server_version), (str(b.pk), b.server_version)], None
+        )
+        == 0
+    )
+
+
+def test_reorder_bumps_server_version_and_writes_history(project: Project) -> None:
+    a = _story(project, name="a", priority_rank=1)
+    b = _story(project, name="b", priority_rank=2)
+    v0, h0 = a.server_version, a.history.count()
+    reorder_backlog(project, [(str(b.pk), b.server_version), (str(a.pk), a.server_version)], None)
+    a.refresh_from_db()
+    assert a.priority_rank == 2  # moved to the back
+    assert a.server_version > v0
+    assert a.history.count() > h0
+
+
+def test_reorder_stale_server_version_conflicts(project: Project) -> None:
+    a = _story(project, name="a", priority_rank=1)
+    b = _story(project, name="b", priority_rank=2)
+    with pytest.raises(BacklogReorderConflict) as exc:
+        reorder_backlog(
+            project,
+            [(str(b.pk), b.server_version), (str(a.pk), a.server_version + 99)],
+            None,
+        )
+    assert str(a.pk) in exc.value.ids
+    a.refresh_from_db()
+    b.refresh_from_db()
+    assert (a.priority_rank, b.priority_rank) == (1, 2)  # nothing written
+
+
+def test_reorder_incomplete_set_conflicts(project: Project) -> None:
+    a = _story(project, name="a", priority_rank=1)
+    _story(project, name="b", priority_rank=2)  # omitted from the list → drift
+    with pytest.raises(BacklogReorderConflict):
+        reorder_backlog(project, [(str(a.pk), a.server_version)], None)
+
+
+def test_reorder_unknown_id_conflicts(project: Project) -> None:
+    a = _story(project, name="a", priority_rank=1)
+    import uuid as _uuid
+
+    with pytest.raises(BacklogReorderConflict):
+        reorder_backlog(
+            project,
+            [(str(a.pk), a.server_version), (str(_uuid.uuid4()), 1)],
+            None,
+        )
+
+
+def test_reorder_ignores_epics_and_sprinted(project: Project) -> None:
+    # Epics and sprinted tasks are not backlog stories — supplying only the real backlog
+    # story is a complete set (the epic/sprinted rows are out of scope).
+    _story(project, name="epic", type=TaskType.EPIC, priority_rank=9)
+    sprint = Sprint.objects.create(
+        project=project,
+        name="S1",
+        start_date=date(2026, 1, 5),
+        finish_date=date(2026, 1, 16),
+        state=SprintState.PLANNED,
+    )
+    _story(project, name="sprinted", status=TaskStatus.NOT_STARTED, sprint=sprint, priority_rank=8)
+    story = _story(project, name="real", priority_rank=5)
+    changed = reorder_backlog(project, [(str(story.pk), story.server_version)], None)
+    story.refresh_from_db()
+    assert story.priority_rank == 1
+    assert changed == 1
+
+
+def test_reorder_endpoint_happy_path(owner_client: APIClient, project: Project) -> None:
+    a = _story(project, name="a", priority_rank=1)
+    b = _story(project, name="b", priority_rank=2)
+    resp = owner_client.post(
+        REORDER_URL.format(pk=project.pk),
+        {"stories": [_entry(b), _entry(a)]},
+        format="json",
+    )
+    assert resp.status_code == 200
+    assert resp.data["updated"] == 2
+    a.refresh_from_db()
+    b.refresh_from_db()
+    assert (b.priority_rank, a.priority_rank) == (1, 2)
+
+
+def test_reorder_endpoint_409_on_stale(owner_client: APIClient, project: Project) -> None:
+    a = _story(project, name="a", priority_rank=1)
+    b = _story(project, name="b", priority_rank=2)
+    resp = owner_client.post(
+        REORDER_URL.format(pk=project.pk),
+        {"stories": [{"id": str(b.pk), "server_version": b.server_version + 5}, _entry(a)]},
+        format="json",
+    )
+    assert resp.status_code == 409
+    assert str(b.pk) in resp.data["conflicts"]
+
+
+def test_reorder_endpoint_400_on_malformed(owner_client: APIClient, project: Project) -> None:
+    pk = project.pk
+    # missing field
+    assert owner_client.post(REORDER_URL.format(pk=pk), {}, format="json").status_code == 400
+    # empty list
+    assert (
+        owner_client.post(REORDER_URL.format(pk=pk), {"stories": []}, format="json").status_code
+        == 400
+    )
+    # bad entry shape
+    assert (
+        owner_client.post(
+            REORDER_URL.format(pk=pk), {"stories": [{"id": "not-a-uuid"}]}, format="json"
+        ).status_code
+        == 400
+    )
+
+
+def test_reorder_endpoint_400_on_oversized_list(owner_client: APIClient, project: Project) -> None:
+    import uuid as _uuid
+
+    # The cap is checked before the parse loop / select_for_update, so the ids need not exist.
+    payload = [{"id": str(_uuid.uuid4()), "server_version": 1} for _ in range(2001)]
+    resp = owner_client.post(REORDER_URL.format(pk=project.pk), {"stories": payload}, format="json")
+    assert resp.status_code == 400
+
+
+def test_reorder_endpoint_400_on_duplicate_ids(owner_client: APIClient, project: Project) -> None:
+    a = _story(project, name="a", priority_rank=1)
+    resp = owner_client.post(
+        REORDER_URL.format(pk=project.pk),
+        {"stories": [_entry(a), _entry(a)]},
+        format="json",
+    )
+    assert resp.status_code == 400
+
+
+def test_reorder_endpoint_requires_backlog_manager(project: Project, member: object) -> None:
+    a = _story(project, name="a", priority_rank=1)
+    client = APIClient()
+    client.force_authenticate(user=member)
+    resp = client.post(
+        REORDER_URL.format(pk=project.pk),
+        {"stories": [_entry(a)]},
+        format="json",
+    )
+    assert resp.status_code == 403
+
+
+def test_reorder_broadcasts_backlog_reranked(
+    owner_client: APIClient,
+    project: Project,
+    django_capture_on_commit_callbacks: Any,
+) -> None:
+    a = _story(project, name="a", priority_rank=1)
+    b = _story(project, name="b", priority_rank=2)
+    with mock.patch(
+        "trueppm_api.apps.projects.product_backlog_services.broadcast_board_event"
+    ) as spy:
+        # on_commit callbacks only fire when the surrounding transaction commits; the
+        # capture fixture executes them so the deferred broadcast is observable.
+        with django_capture_on_commit_callbacks(execute=True):
+            resp = owner_client.post(
+                REORDER_URL.format(pk=project.pk),
+                {"stories": [_entry(b), _entry(a)]},
+                format="json",
+            )
+        assert resp.status_code == 200
+    spy.assert_called_once_with(
+        str(project.pk), "backlog_reranked", {"project_id": str(project.pk)}
+    )
