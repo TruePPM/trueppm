@@ -222,6 +222,18 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
         response["Content-Disposition"] = f'attachment; filename="{filename}"'
         return response
 
+    @action(detail=False, methods=["get"], url_path="samples")
+    def samples(self, request: Request) -> Response:
+        """List the bundled samples available to the demo loader (#375)."""
+        from trueppm_api.apps.projects.seed.samples import SAMPLES
+
+        return Response(
+            [
+                {"key": s.key, "title": s.title, "description": s.description}
+                for s in SAMPLES.values()
+            ]
+        )
+
     @action(detail=False, methods=["post"], url_path="load-sample")
     def load_sample(self, request: Request) -> Response:
         """Load a bundled sample program — the "Load demo data" action (#375).

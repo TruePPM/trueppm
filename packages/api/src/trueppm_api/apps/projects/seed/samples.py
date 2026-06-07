@@ -50,6 +50,33 @@ SAMPLES: dict[str, Sample] = {
         ),
         filename="atlas-platform-launch.json",
     ),
+    "aurora-mobile-app": Sample(
+        key="aurora-mobile-app",
+        title="Aurora Mobile App",
+        description=(
+            "Agile-only — a mobile team running the sprint lifecycle with velocity history "
+            "and a Kanban board. No CPM, no estimates: the pure-scrum tour."
+        ),
+        filename="aurora-mobile-app.json",
+    ),
+    "bayside-civic-center": Sample(
+        key="bayside-civic-center",
+        title="Bayside Civic Center",
+        description=(
+            "Waterfall-only construction project — CPM with all four dependency types, "
+            "three-point estimates, a captured baseline, and a populated risk register."
+        ),
+        filename="bayside-civic-center.json",
+    ),
+    "helios-crm-replacement": Sample(
+        key="helios-crm-replacement",
+        title="Helios CRM Replacement",
+        description=(
+            "Hybrid-small — a completed waterfall planning phase feeding an agile build "
+            "phase, with a cross-phase dependency. The entry-level hybrid story."
+        ),
+        filename="helios-crm-replacement.json",
+    ),
 }
 
 DEFAULT_SAMPLE = "atlas-platform-launch"

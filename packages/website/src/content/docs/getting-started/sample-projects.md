@@ -12,9 +12,19 @@ the JSON Schema lives at `packages/api/src/trueppm_api/apps/projects/schemas/see
 
 ## Load the demo data
 
-The fastest way to see TruePPM with real data is the bundled demo. On a fresh
-install the **Programs** page shows a **Load demo data** button — one click
-loads the **Atlas Platform Launch** sample and drops you onto it.
+The fastest way to see TruePPM with real data is a bundled demo. On a fresh
+install the **Programs** page shows a **Load demo data** button — it offers a
+short menu of samples; pick one and you land on a fully populated program.
+
+Four samples ship:
+
+- **Atlas Platform Launch** — hybrid-large, the launch demo (described below).
+- **Aurora Mobile App** — agile-only: the sprint lifecycle, velocity, and a
+  Kanban board, with no CPM or estimates (the pure-scrum tour).
+- **Bayside Civic Center** — waterfall-only construction: CPM with all four
+  dependency types, three-point estimates, a baseline, and a risk register.
+- **Helios CRM Replacement** — hybrid-small: a completed waterfall planning
+  phase feeding an agile build phase, with a cross-phase dependency.
 
 Atlas is the launch demo: one program, three projects that span the methodology
 mix, so you can feel the agile/waterfall bridge end to end:
@@ -35,8 +45,10 @@ Sample data is clearly marked: a banner on the program offers a one-click
 From the command line:
 
 ```bash
-python manage.py load_sample_project            # loads Atlas by default
-python manage.py load_sample_project --owner <username>
+python manage.py load_sample_project                          # Atlas (default)
+python manage.py load_sample_project --sample aurora-mobile-app
+python manage.py load_sample_project --sample bayside-civic-center
+python manage.py load_sample_project --sample helios-crm-replacement
 ```
 
 Or over the API: `POST /api/v1/programs/load-sample/` (any authenticated user;

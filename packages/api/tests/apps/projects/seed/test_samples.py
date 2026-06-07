@@ -16,7 +16,7 @@ from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import Role
 from trueppm_api.apps.projects.models import Dependency, Program, Project, Task
-from trueppm_api.apps.projects.seed.samples import UnknownSampleError, load_sample
+from trueppm_api.apps.projects.seed.samples import SAMPLES, UnknownSampleError, load_sample
 
 pytestmark = pytest.mark.django_db
 
@@ -74,6 +74,28 @@ def test_load_sample_is_idempotent(owner: Any) -> None:
 def test_unknown_sample_raises(owner: Any) -> None:
     with pytest.raises(UnknownSampleError):
         load_sample("does-not-exist", owner=owner)
+
+
+@pytest.mark.parametrize("key", sorted(SAMPLES))
+def test_every_bundled_sample_imports(owner: Any, key: str) -> None:
+    # Each committed fixture validates and imports cleanly into a real DB.
+    program = load_sample(key, owner=owner, create_users=True)
+    projects = Project.objects.filter(program=program)
+    assert projects.exists()
+    assert all(p.is_sample for p in projects)
+
+
+def test_samples_endpoint_lists_all(owner: Any) -> None:
+    resp = _client(owner).get("/api/v1/programs/samples/")
+    assert resp.status_code == 200
+    keys = {s["key"] for s in resp.data}
+    assert keys == set(SAMPLES)
+    assert all({"key", "title", "description"} <= set(s) for s in resp.data)
+
+
+def test_samples_endpoint_requires_auth() -> None:
+    resp = APIClient().get("/api/v1/programs/samples/")
+    assert resp.status_code in (401, 403)
 
 
 def test_management_command_loads_sample(owner: Any) -> None:

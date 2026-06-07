@@ -5064,6 +5064,35 @@
                 }
             }
         },
+        "/api/v1/programs/samples/": {
+            "get": {
+                "operationId": "v1_programs_samples_retrieve",
+                "description": "List the bundled samples available to the demo loader (#375).",
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Program"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/project-resources/": {
             "get": {
                 "operationId": "v1_project_resources_list",
