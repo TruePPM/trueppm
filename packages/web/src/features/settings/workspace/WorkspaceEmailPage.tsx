@@ -9,6 +9,7 @@
 
 import type { ReactNode } from 'react';
 import { useEmailSettings } from '@/hooks/useEmailSettings';
+import { docsUrl } from '@/lib/docsUrl';
 import { SettingsPageTitle, SettingsCard } from '../SettingsShell';
 
 export function WorkspaceEmailPage() {
@@ -90,7 +91,7 @@ export function WorkspaceEmailPage() {
                   <span className="tppm-mono">EMAIL_*</span> settings to environment
                   variables / Helm values is not yet wired — see the{' '}
                   <a
-                    href="/docs/administration/email"
+                    href={docsUrl('administration/email')}
                     className="text-brand-primary underline-offset-2 hover:underline"
                   >
                     email administration guide
