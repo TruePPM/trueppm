@@ -82,7 +82,8 @@ describe('ProgramListPage', () => {
   it('offers a Load demo data affordance in the empty state', () => {
     usePrograms.mockReturnValue({ data: [], isLoading: false, error: null });
     renderPage();
-    expect(screen.getByRole('button', { name: /Load demo data/i })).toBeInTheDocument();
+    // header + hero both expose the demo loader
+    expect(screen.getAllByRole('button', { name: /Load demo data/i }).length).toBeGreaterThan(0);
   });
 
   it('offers an Import from JSON affordance in the header when programs exist', () => {
@@ -93,6 +94,18 @@ describe('ProgramListPage', () => {
     });
     renderPage();
     expect(screen.getByRole('button', { name: /Import from JSON/i })).toBeInTheDocument();
+  });
+
+  it('offers a Load demo data affordance in the header when programs exist', () => {
+    // The demo loader must stay reachable on a populated instance, not only in
+    // the zero-programs empty state (the hero is not rendered here).
+    usePrograms.mockReturnValue({
+      data: [makeProgram({ id: 'p-1', name: 'Phase 2' })],
+      isLoading: false,
+      error: null,
+    });
+    renderPage();
+    expect(screen.getByRole('button', { name: /Load demo data/i })).toBeInTheDocument();
   });
 
   it('renders skeletons while loading', () => {

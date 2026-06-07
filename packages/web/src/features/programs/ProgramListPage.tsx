@@ -26,6 +26,7 @@ export function ProgramListPage() {
       <header className="flex items-center justify-between border-b border-neutral-border px-6 py-4">
         <h1 className="text-lg font-semibold text-neutral-text-primary">Programs</h1>
         <div className="flex items-center gap-2">
+          <LoadSampleButton variant="header" />
           <ImportProgramButton variant="header" />
           <button
             type="button"

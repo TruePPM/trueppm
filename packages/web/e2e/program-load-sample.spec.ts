@@ -96,8 +96,10 @@ test.describe('Load demo data', () => {
     );
     await page.goto('/programs');
 
-    // With more than one bundled sample, the button opens a picker.
-    await page.getByRole('button', { name: /Load demo data/i }).click();
+    // The empty state shows the loader both in the header and the hero; the
+    // header button comes first in DOM order. With more than one bundled sample,
+    // the button opens a picker.
+    await page.getByRole('button', { name: /Load demo data/i }).first().click();
     await page.getByRole('menuitem', { name: /Atlas Platform Launch/i }).click();
 
     await expect(page).toHaveURL(new RegExp(`/programs/${PROGRAM_ID}/overview`));
