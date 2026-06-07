@@ -1,0 +1,1 @@
+Fixed the task drawer's Attachments controls wrapping their labels (e.g. "+ Attach\nfile") when a long upload-validation message appeared — the `+ Attach file` and `+ Pin link` buttons no longer share a flex row with the status/error text, so a long message can never shrink them. Messages now stack on their own line below the buttons.

@@ -11611,7 +11611,7 @@
         "/api/v1/projects/{project_pk}/tasks/{task_pk}/links/": {
             "get": {
                 "operationId": "v1_projects_tasks_links_list",
-                "description": "Git/PM links on a task (ADR-0049 §3, #637).\n\nRoutes (relative to ``/projects/{project_pk}/tasks/{task_pk}/``):\n    GET    links/\n    POST   links/                  (body ``{url}``; provider auto-detected)\n    GET    links/{pk}/\n    DELETE links/{pk}/             (soft-delete)\n    POST   links/{pk}/refresh/     (synchronous, 5s; refresh cached status)\n\nPermissions: create/destroy follow task-edit (Member+, ``IsProjectMemberWrite``);\nlist/retrieve/refresh follow task-read (Viewer+, ``IsProjectMember``). The\nqueryset is the IDOR boundary — it scopes to the caller's project membership\nand the task in the URL, so a link id from another project is a 404.",
+                "description": "Git/PM links on a task (ADR-0049 §3, #637; redesign #970).\n\nRoutes (relative to ``/projects/{project_pk}/tasks/{task_pk}/``):\n    GET    links/\n    POST   links/         (body ``{url, custom_title?, labels?}``; provider detected)\n    GET    links/{pk}/\n    PATCH  links/{pk}/             (edit custom_title / labels / url / display_order)\n    DELETE links/{pk}/             (soft-delete)\n    POST   links/{pk}/refresh/     (synchronous, 5s; refresh cached status)\n\nPermissions: create/update/destroy follow task-edit (Member+, ``IsProjectMemberWrite``);\nlist/retrieve/refresh follow task-read (Viewer+, ``IsProjectMember``). The\nqueryset is the IDOR boundary — it scopes to the caller's project membership\nand the task in the URL, so a link id from another project is a 404.",
                 "parameters": [
                     {
                         "name": "ordering",
@@ -11678,7 +11678,7 @@
             },
             "post": {
                 "operationId": "v1_projects_tasks_links_create",
-                "description": "Git/PM links on a task (ADR-0049 §3, #637).\n\nRoutes (relative to ``/projects/{project_pk}/tasks/{task_pk}/``):\n    GET    links/\n    POST   links/                  (body ``{url}``; provider auto-detected)\n    GET    links/{pk}/\n    DELETE links/{pk}/             (soft-delete)\n    POST   links/{pk}/refresh/     (synchronous, 5s; refresh cached status)\n\nPermissions: create/destroy follow task-edit (Member+, ``IsProjectMemberWrite``);\nlist/retrieve/refresh follow task-read (Viewer+, ``IsProjectMember``). The\nqueryset is the IDOR boundary — it scopes to the caller's project membership\nand the task in the URL, so a link id from another project is a 404.",
+                "description": "Git/PM links on a task (ADR-0049 §3, #637; redesign #970).\n\nRoutes (relative to ``/projects/{project_pk}/tasks/{task_pk}/``):\n    GET    links/\n    POST   links/         (body ``{url, custom_title?, labels?}``; provider detected)\n    GET    links/{pk}/\n    PATCH  links/{pk}/             (edit custom_title / labels / url / display_order)\n    DELETE links/{pk}/             (soft-delete)\n    POST   links/{pk}/refresh/     (synchronous, 5s; refresh cached status)\n\nPermissions: create/update/destroy follow task-edit (Member+, ``IsProjectMemberWrite``);\nlist/retrieve/refresh follow task-read (Viewer+, ``IsProjectMember``). The\nqueryset is the IDOR boundary — it scopes to the caller's project membership\nand the task in the URL, so a link id from another project is a 404.",
                 "parameters": [
                     {
                         "in": "path",
@@ -11746,7 +11746,7 @@
         "/api/v1/projects/{project_pk}/tasks/{task_pk}/links/{id}/": {
             "get": {
                 "operationId": "v1_projects_tasks_links_retrieve",
-                "description": "Git/PM links on a task (ADR-0049 §3, #637).\n\nRoutes (relative to ``/projects/{project_pk}/tasks/{task_pk}/``):\n    GET    links/\n    POST   links/                  (body ``{url}``; provider auto-detected)\n    GET    links/{pk}/\n    DELETE links/{pk}/             (soft-delete)\n    POST   links/{pk}/refresh/     (synchronous, 5s; refresh cached status)\n\nPermissions: create/destroy follow task-edit (Member+, ``IsProjectMemberWrite``);\nlist/retrieve/refresh follow task-read (Viewer+, ``IsProjectMember``). The\nqueryset is the IDOR boundary — it scopes to the caller's project membership\nand the task in the URL, so a link id from another project is a 404.",
+                "description": "Git/PM links on a task (ADR-0049 §3, #637; redesign #970).\n\nRoutes (relative to ``/projects/{project_pk}/tasks/{task_pk}/``):\n    GET    links/\n    POST   links/         (body ``{url, custom_title?, labels?}``; provider detected)\n    GET    links/{pk}/\n    PATCH  links/{pk}/             (edit custom_title / labels / url / display_order)\n    DELETE links/{pk}/             (soft-delete)\n    POST   links/{pk}/refresh/     (synchronous, 5s; refresh cached status)\n\nPermissions: create/update/destroy follow task-edit (Member+, ``IsProjectMemberWrite``);\nlist/retrieve/refresh follow task-read (Viewer+, ``IsProjectMember``). The\nqueryset is the IDOR boundary — it scopes to the caller's project membership\nand the task in the URL, so a link id from another project is a 404.",
                 "parameters": [
                     {
                         "in": "path",
@@ -11800,9 +11800,84 @@
                     }
                 }
             },
+            "patch": {
+                "operationId": "v1_projects_tasks_links_partial_update",
+                "description": "Git/PM links on a task (ADR-0049 §3, #637; redesign #970).\n\nRoutes (relative to ``/projects/{project_pk}/tasks/{task_pk}/``):\n    GET    links/\n    POST   links/         (body ``{url, custom_title?, labels?}``; provider detected)\n    GET    links/{pk}/\n    PATCH  links/{pk}/             (edit custom_title / labels / url / display_order)\n    DELETE links/{pk}/             (soft-delete)\n    POST   links/{pk}/refresh/     (synchronous, 5s; refresh cached status)\n\nPermissions: create/update/destroy follow task-edit (Member+, ``IsProjectMemberWrite``);\nlist/retrieve/refresh follow task-read (Viewer+, ``IsProjectMember``). The\nqueryset is the IDOR boundary — it scopes to the caller's project membership\nand the task in the URL, so a link id from another project is a 404.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this Task link.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "task_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedTaskLinkRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedTaskLinkRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedTaskLinkRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskLink"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
             "delete": {
                 "operationId": "v1_projects_tasks_links_destroy",
-                "description": "Git/PM links on a task (ADR-0049 §3, #637).\n\nRoutes (relative to ``/projects/{project_pk}/tasks/{task_pk}/``):\n    GET    links/\n    POST   links/                  (body ``{url}``; provider auto-detected)\n    GET    links/{pk}/\n    DELETE links/{pk}/             (soft-delete)\n    POST   links/{pk}/refresh/     (synchronous, 5s; refresh cached status)\n\nPermissions: create/destroy follow task-edit (Member+, ``IsProjectMemberWrite``);\nlist/retrieve/refresh follow task-read (Viewer+, ``IsProjectMember``). The\nqueryset is the IDOR boundary — it scopes to the caller's project membership\nand the task in the URL, so a link id from another project is a 404.",
+                "description": "Git/PM links on a task (ADR-0049 §3, #637; redesign #970).\n\nRoutes (relative to ``/projects/{project_pk}/tasks/{task_pk}/``):\n    GET    links/\n    POST   links/         (body ``{url, custom_title?, labels?}``; provider detected)\n    GET    links/{pk}/\n    PATCH  links/{pk}/             (edit custom_title / labels / url / display_order)\n    DELETE links/{pk}/             (soft-delete)\n    POST   links/{pk}/refresh/     (synchronous, 5s; refresh cached status)\n\nPermissions: create/update/destroy follow task-edit (Member+, ``IsProjectMemberWrite``);\nlist/retrieve/refresh follow task-read (Viewer+, ``IsProjectMember``). The\nqueryset is the IDOR boundary — it scopes to the caller's project membership\nand the task in the URL, so a link id from another project is a 404.",
                 "parameters": [
                     {
                         "in": "path",
@@ -21596,6 +21671,33 @@
                     }
                 }
             },
+            "PatchedTaskLinkRequest": {
+                "type": "object",
+                "description": "A git/PM link on a task (ADR-0049 §3, #637; redesign #970).\n\nClient-writable: ``url``, ``custom_title``, ``labels``, ``display_order``.\n``provider`` is resolved server-side from the URL + the user's connected\nhosts, and ``status``/``title``/``fetched_at`` are populated by the refresh\nendpoint — never trusted from the client. ``server_version`` is exposed so\noffline clients can reconcile against the sync delta.",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2048
+                    },
+                    "custom_title": {
+                        "type": "string",
+                        "maxLength": 512
+                    },
+                    "labels": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "maxLength": 40
+                        }
+                    },
+                    "display_order": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0
+                    }
+                }
+            },
             "PatchedTaskRecurrenceRuleRequest": {
                 "type": "object",
                 "description": "Read/write serializer for a task's recurrence rule (ADR-0090).\n\nOne rule per task. The ``task`` FK is settable on create and immutable\nthereafter — a rule cannot be repointed to another task. ``occurrence_count``\nexposes how many occurrences have been materialized so the #738 setup panel can\nshow series progress; ``generated_through`` is the internal generation cursor and\nis read-only.",
@@ -25115,7 +25217,7 @@
             },
             "TaskLink": {
                 "type": "object",
-                "description": "A git/PM link on a task (ADR-0049 §3, #637).\n\nOnly ``url`` (and optional ``display_order``) is client-writable. ``provider``\nis resolved server-side from the URL + the user's connected hosts, and\n``status``/``title``/``fetched_at`` are populated by the refresh endpoint —\nnever trusted from the client. ``server_version`` is exposed so offline\nclients can reconcile against the sync delta.",
+                "description": "A git/PM link on a task (ADR-0049 §3, #637; redesign #970).\n\nClient-writable: ``url``, ``custom_title``, ``labels``, ``display_order``.\n``provider`` is resolved server-side from the URL + the user's connected\nhosts, and ``status``/``title``/``fetched_at`` are populated by the refresh\nendpoint — never trusted from the client. ``server_version`` is exposed so\noffline clients can reconcile against the sync delta.",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -25124,7 +25226,6 @@
                     },
                     "url": {
                         "type": "string",
-                        "format": "uri",
                         "maxLength": 2048
                     },
                     "provider": {
@@ -25134,6 +25235,17 @@
                     "title": {
                         "type": "string",
                         "readOnly": true
+                    },
+                    "custom_title": {
+                        "type": "string",
+                        "maxLength": 512
+                    },
+                    "labels": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "maxLength": 40
+                        }
                     },
                     "status": {
                         "allOf": [
@@ -25195,13 +25307,23 @@
             },
             "TaskLinkRequest": {
                 "type": "object",
-                "description": "A git/PM link on a task (ADR-0049 §3, #637).\n\nOnly ``url`` (and optional ``display_order``) is client-writable. ``provider``\nis resolved server-side from the URL + the user's connected hosts, and\n``status``/``title``/``fetched_at`` are populated by the refresh endpoint —\nnever trusted from the client. ``server_version`` is exposed so offline\nclients can reconcile against the sync delta.",
+                "description": "A git/PM link on a task (ADR-0049 §3, #637; redesign #970).\n\nClient-writable: ``url``, ``custom_title``, ``labels``, ``display_order``.\n``provider`` is resolved server-side from the URL + the user's connected\nhosts, and ``status``/``title``/``fetched_at`` are populated by the refresh\nendpoint — never trusted from the client. ``server_version`` is exposed so\noffline clients can reconcile against the sync delta.",
                 "properties": {
                     "url": {
                         "type": "string",
-                        "format": "uri",
                         "minLength": 1,
                         "maxLength": 2048
+                    },
+                    "custom_title": {
+                        "type": "string",
+                        "maxLength": 512
+                    },
+                    "labels": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "maxLength": 40
+                        }
                     },
                     "display_order": {
                         "type": "integer",

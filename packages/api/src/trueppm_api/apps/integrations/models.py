@@ -20,6 +20,7 @@ import uuid
 from typing import Any, ClassVar
 
 from django.conf import settings
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
 from trueppm_api.apps.projects.models import VersionedModel
@@ -159,8 +160,22 @@ class TaskLink(VersionedModel):
     # DB-level choices constraint so Enterprise providers need no OSS migration.
     provider = models.CharField(max_length=32)
     # Human title the provider reported (PR/MR/issue title). Blank until the
-    # first successful refresh; the UI falls back to the URL.
+    # first successful refresh; the UI falls back to ``custom_title`` then the URL.
     title = models.CharField(max_length=512, blank=True, default="")
+    # User-supplied display name (#970). Distinct from the provider-fetched
+    # ``title`` so a refresh updates ``title`` only and never clobbers what the
+    # user typed — and so a *generic* link (no provider title) can still carry a
+    # human name. Display precedence is ``custom_title or title or url``.
+    custom_title = models.CharField(max_length=512, blank=True, default="")
+    # Free-text categorization tags (#970), e.g. ["spec", "design"]. OSS-simple:
+    # no shared per-project taxonomy and no colors — the serializer trims,
+    # de-dupes, and caps the list. A plain text-array column (not a join table)
+    # because labels are read with the link and never queried independently.
+    labels = ArrayField(
+        models.CharField(max_length=40),
+        blank=True,
+        default=list,
+    )
     # Cached status — one of LINK_STATUS_VALUES. Starts "unknown" on create
     # (nothing fetched yet) and is updated by the refresh endpoint.
     status = models.CharField(

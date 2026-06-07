@@ -38,7 +38,7 @@ function SubtaskRow({ subtask }: { subtask: Task }) {
         {subtask.name}
       </span>
       <span className="tppm-mono text-xs text-neutral-text-secondary shrink-0">
-        {subtask.progress}%
+        {Math.round(subtask.progress)}%
       </span>
     </div>
   );

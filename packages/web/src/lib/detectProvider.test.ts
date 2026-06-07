@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectProvider } from './detectProvider';
+import { detectProvider, normalizeUrl } from './detectProvider';
 
 describe('detectProvider', () => {
   it('detects github.com (with or without www)', () => {
@@ -9,6 +9,12 @@ describe('detectProvider', () => {
 
   it('detects gitlab.com', () => {
     expect(detectProvider('https://gitlab.com/acme/api/-/merge_requests/5')).toBe('gitlab');
+  });
+
+  it('detects providers from a bare (scheme-less) URL (#970)', () => {
+    expect(detectProvider('github.com/acme/api/pull/5')).toBe('github');
+    expect(detectProvider('gitlab.com/acme/api/-/merge_requests/5')).toBe('gitlab');
+    expect(detectProvider('example.com/some/doc')).toBe('generic');
   });
 
   it('falls back to generic for any other well-formed http(s) URL', () => {
@@ -23,5 +29,25 @@ describe('detectProvider', () => {
     expect(detectProvider('not a url')).toBeNull();
     expect(detectProvider('ftp://example.com/x')).toBeNull();
     expect(detectProvider('javascript:alert(1)')).toBeNull();
+  });
+});
+
+describe('normalizeUrl (#970)', () => {
+  it('keeps an explicit http(s) URL unchanged', () => {
+    expect(normalizeUrl('https://github.com/a/b')).toBe('https://github.com/a/b');
+    expect(normalizeUrl('http://example.com/x')).toBe('http://example.com/x');
+  });
+
+  it('prepends https:// to a bare host/path', () => {
+    expect(normalizeUrl('github.com/acme/api/pull/5')).toBe('https://github.com/acme/api/pull/5');
+    expect(normalizeUrl('example.com')).toBe('https://example.com');
+    expect(normalizeUrl('  example.com/doc  ')).toBe('https://example.com/doc');
+  });
+
+  it('rejects non-http(s) schemes and unparseable input', () => {
+    expect(normalizeUrl('ftp://example.com')).toBeNull();
+    expect(normalizeUrl('javascript:alert(1)')).toBeNull();
+    expect(normalizeUrl('')).toBeNull();
+    expect(normalizeUrl('not a url')).toBeNull();
   });
 });

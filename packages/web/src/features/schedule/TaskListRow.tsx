@@ -1011,10 +1011,10 @@ function TaskListRowInner({
           <EditableCell
             column="progress"
             value={String(task.progress)}
-            display={`${task.progress}%`}
+            display={`${Math.round(task.progress)}%`}
             isEditing={editingColumnProgress}
             inputType="number"
-            ariaLabel={`Progress: ${task.progress}%. Press Enter to edit.`}
+            ariaLabel={`Progress: ${Math.round(task.progress)}%. Press Enter to edit.`}
             className="justify-end shrink-0 text-right text-neutral-text-secondary tabular-nums pr-2"
             style={{ width: widths.progress }}
             onStartEdit={() => {
@@ -1241,15 +1241,21 @@ function MilestoneProgressCell({ task, widthPx }: { task: Task; widthPx: number 
     );
   }
 
+  // Summary/parent rows carry a duration-weighted rollup of child progress, which
+  // is fractional (e.g. 31.36); leaf rows are already integers. Round for display so
+  // every row reads as a whole percent, matching the milestone-rollup cell above and
+  // the Overview KPI cards.
+  const pct = Math.round(task.progress);
+
   return (
     <div
       className="flex items-center justify-end shrink-0
         text-right text-neutral-text-secondary tabular-nums pr-2 border-r border-neutral-border/20"
       style={{ width: widthPx }}
       role="gridcell"
-      aria-label={`${task.progress}% complete`}
+      aria-label={`${pct}% complete`}
     >
-      {!task.isMilestone && `${task.progress}%`}
+      {!task.isMilestone && `${pct}%`}
     </div>
   );
 }
