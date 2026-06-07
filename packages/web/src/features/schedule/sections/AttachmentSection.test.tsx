@@ -121,6 +121,28 @@ describe('AttachmentSection — upload + delete actions', () => {
     expect(screen.getByRole('alert').textContent).toMatch(/not allowed/i);
   });
 
+  it('keeps the action buttons in a non-shrinking row, separate from status/error messages', () => {
+    // Regression: a long validation error used to share the buttons' flex row and
+    // shrink them, wrapping the labels to "+ Attach\nfile". Buttons must not wrap,
+    // and the error must render outside the button row so it can never squeeze them.
+    const mutate = vi.fn();
+    useCreateMock.mockReturnValue({ mutate, isPending: false, isError: false });
+    useListMock.mockReturnValue({ attachments: [], isLoading: false, error: null });
+    const { container } = render(<AttachmentSection taskId="t1" projectId="p1" />);
+
+    const attachBtn = screen.getByText('+ Attach file');
+    const pinBtn = screen.getByText('+ Pin link');
+    expect(attachBtn.className).toContain('whitespace-nowrap');
+    expect(pinBtn.className).toContain('whitespace-nowrap');
+    expect(attachBtn.parentElement).toBe(pinBtn.parentElement);
+
+    const fileInput = container.querySelector<HTMLInputElement>('input[type="file"]')!;
+    fireEvent.change(fileInput, {
+      target: { files: [new File(['x'], 'page.html', { type: 'text/html' })] },
+    });
+    expect(attachBtn.parentElement?.contains(screen.getByRole('alert'))).toBe(false);
+  });
+
   it('opens the Pin link modal and forwards the submitted URL', () => {
     const mutate = vi.fn();
     useCreateMock.mockReturnValue({ mutate, isPending: false, isError: false });
