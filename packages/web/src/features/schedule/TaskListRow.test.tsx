@@ -132,6 +132,23 @@ describe('TaskListRow', () => {
     expect(screen.getByLabelText(/50% complete/i)).toBeInTheDocument();
   });
 
+  it('rounds a fractional summary-rollup progress to a whole percent (#973)', () => {
+    // Summary rows carry a duration-weighted rollup (e.g. 31.36); leaf rows are
+    // integers. The cell must display a whole percent, not the raw fraction.
+    renderWithRouter(
+      <TaskListRow
+        task={{ ...base, isSummary: true, progress: 31.36 }}
+        level={1}
+        widths={defaultWidths}
+        visible={defaultVisible}
+        {...defaultTreeProps}
+      />,
+    );
+    expect(screen.getByText('31%')).toBeInTheDocument();
+    expect(screen.queryByText('31.36%')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('31% complete')).toBeInTheDocument();
+  });
+
   it('renders duration without start date when unscheduled', () => {
     renderWithRouter(
       <TaskListRow task={{ ...base, start: '' }} level={1} widths={defaultWidths} visible={defaultVisible} />,

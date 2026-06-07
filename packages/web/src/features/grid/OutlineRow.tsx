@@ -223,7 +223,7 @@ export function OutlineRow({
           />
         </span>
         <span className="tppm-mono text-xs text-neutral-text-secondary w-7 text-right">
-          {task.progress}%
+          {Math.round(task.progress)}%
         </span>
       </span>
 
