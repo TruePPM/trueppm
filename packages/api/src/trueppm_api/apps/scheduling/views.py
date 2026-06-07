@@ -212,6 +212,12 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
         for t in db_tasks
     ]
 
+    # Drop any edge whose endpoint is absent from sched_tasks: cross-project
+    # dependencies (successor lives in another project) and edges to non-committed
+    # (BACKLOG) tasks both dangle here and would make the engine reject the network
+    # as referencing an unknown task. Mirrors the CPM guard in scheduling.tasks
+    # (ADR-0090) — a single-project Monte Carlo simulates only this project's tasks.
+    included_ids = {str(t.id) for t in db_tasks}
     db_deps = list(
         Dependency.objects.filter(predecessor__project_id=pk).select_related(
             "predecessor", "successor"
@@ -225,6 +231,7 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
             lag=timedelta(days=d.lag),
         )
         for d in db_deps
+        if str(d.predecessor_id) in included_ids and str(d.successor_id) in included_ids
     ]
 
     sched_project = SchedProject(
