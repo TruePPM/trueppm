@@ -21,6 +21,7 @@ import {
   type SystemHealthComponent,
 } from '@/hooks/useSystemHealth';
 import { formatAge, formatUpdatedAgo } from './formatAge';
+import { docsUrl } from '@/lib/docsUrl';
 import axios from 'axios';
 
 // ---------------------------------------------------------------------------
@@ -430,7 +431,7 @@ export function SystemHealthOverviewPage() {
               {isFetching ? 'Refreshing…' : 'Force refresh'}
             </button>
             <a
-              href="/docs/administration/system-health"
+              href={docsUrl('administration/system-health')}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-secondary hover:text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track"

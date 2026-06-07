@@ -20,6 +20,7 @@ import {
   useUpsertIntegrationCredential,
 } from '@/hooks/useIntegrationCredentials';
 import { registry } from '@/lib/widget-registry';
+import { docsUrl } from '@/lib/docsUrl';
 
 type DialogMode = 'connect' | 'rotate' | 'revoke';
 
@@ -93,7 +94,7 @@ export function ConnectedAccountsPage() {
           Connect GitLab or GitHub to unlock on-demand previews of task links.
           Credentials are stored encrypted and never returned to your browser.{' '}
           <a
-            href="/docs/features/integrations"
+            href={docsUrl('features/connected-accounts')}
             className="text-brand-primary underline-offset-2 hover:underline"
           >
             Learn more

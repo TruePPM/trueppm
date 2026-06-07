@@ -11,6 +11,8 @@
  * shipped) lives in `docs/features/my-work.md` rather than this empty state
  * so the page stays calm; the docs link surfaces it on demand.
  */
+import { docsUrl } from '@/lib/docsUrl';
+
 interface Props {
   hasProjects: boolean;
 }
@@ -37,7 +39,7 @@ export function MyWorkEmptyState({ hasProjects }: Props) {
           </ul>
         </div>
         <a
-          href="/docs/features/my-work"
+          href={docsUrl('features/my-work')}
           className="inline-flex items-center gap-1 text-sm text-brand-primary hover:underline
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
             focus-visible:ring-offset-1 rounded"
@@ -63,7 +65,7 @@ export function MyWorkEmptyState({ hasProjects }: Props) {
         When a PM assigns you a task or you create one, you&rsquo;ll see it here.
       </p>
       <a
-        href="/docs/features/my-work"
+        href={docsUrl('features/my-work')}
         className="inline-flex items-center gap-1 text-sm text-brand-primary hover:underline
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
           focus-visible:ring-offset-1 rounded"
