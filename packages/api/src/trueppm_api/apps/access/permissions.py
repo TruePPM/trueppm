@@ -590,7 +590,9 @@ class IsProgramNotClosed(BasePermission):
 
     message = "This program is closed and cannot be modified. Reopen it first."
 
-    _CLOSE_BYPASS_ACTIONS: frozenset[str] = frozenset({"reopen", "destroy", "close"})
+    _CLOSE_BYPASS_ACTIONS: frozenset[str] = frozenset(
+        {"reopen", "destroy", "close", "remove_sample"}
+    )
 
     def has_permission(self, request: Request, view: APIView) -> bool:
         if request.method in ("GET", "HEAD", "OPTIONS"):

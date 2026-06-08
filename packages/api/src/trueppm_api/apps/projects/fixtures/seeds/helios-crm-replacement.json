@@ -1,0 +1,496 @@
+{
+  "schema_version": "1.0",
+  "program": {
+    "slug": "helios-crm-replacement",
+    "name": "Helios CRM Replacement",
+    "description": "Hybrid-small sample — a completed waterfall planning phase feeding an agile build phase, with a cross-phase dependency.",
+    "methodology": "HYBRID",
+    "color": "#2E8B8B",
+    "lead": "jordan"
+  },
+  "accounts": [
+    {
+      "slug": "jordan",
+      "username": "helios-jordan",
+      "display_name": "Jordan Blake",
+      "email": "jordan@helios.example",
+      "role": "OWNER"
+    },
+    {
+      "slug": "ivan",
+      "username": "helios-ivan",
+      "display_name": "Ivan Petrov",
+      "email": "ivan@helios.example",
+      "role": "ADMIN"
+    },
+    {
+      "slug": "mei",
+      "username": "helios-mei",
+      "display_name": "Mei Tanaka",
+      "email": "mei@helios.example",
+      "role": "MEMBER"
+    },
+    {
+      "slug": "nadia",
+      "username": "helios-nadia",
+      "display_name": "Nadia Hassan",
+      "email": "nadia@helios.example",
+      "role": "MEMBER"
+    }
+  ],
+  "resources": [
+    {
+      "slug": "ivan",
+      "name": "Ivan Petrov",
+      "job_role": "Solutions Architect",
+      "max_units": 1.0,
+      "account": "ivan"
+    },
+    {
+      "slug": "jordan",
+      "name": "Jordan Blake",
+      "job_role": "Product Owner",
+      "max_units": 1.0,
+      "account": "jordan"
+    },
+    {
+      "slug": "mei",
+      "name": "Mei Tanaka",
+      "job_role": "Engineer",
+      "max_units": 1.0,
+      "account": "mei"
+    }
+  ],
+  "projects": [
+    {
+      "slug": "helios",
+      "name": "Helios CRM",
+      "methodology": "HYBRID",
+      "start_date": "2026-01-05",
+      "default_view": "OVERVIEW",
+      "agile_features": true,
+      "tasks": [
+        {
+          "wbs_path": "1",
+          "name": "Planning",
+          "governance_class": "gated",
+          "delivery_mode": "waterfall"
+        },
+        {
+          "wbs_path": "1.1",
+          "name": "Discovery interviews",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "duration": 6,
+          "planned_start": "2026-01-05",
+          "estimate": {
+            "optimistic": 4,
+            "most_likely": 6,
+            "pessimistic": 11
+          },
+          "governance_class": "gated",
+          "delivery_mode": "waterfall",
+          "assignee": "ivan"
+        },
+        {
+          "wbs_path": "1.2",
+          "name": "Current-state analysis",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "duration": 5,
+          "planned_start": "2026-01-11",
+          "estimate": {
+            "optimistic": 4,
+            "most_likely": 5,
+            "pessimistic": 10
+          },
+          "governance_class": "gated",
+          "delivery_mode": "waterfall",
+          "assignee": "ivan"
+        },
+        {
+          "wbs_path": "1.3",
+          "name": "Target architecture",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "duration": 7,
+          "planned_start": "2026-01-16",
+          "estimate": {
+            "optimistic": 5,
+            "most_likely": 7,
+            "pessimistic": 13
+          },
+          "governance_class": "gated",
+          "delivery_mode": "waterfall",
+          "assignee": "ivan"
+        },
+        {
+          "wbs_path": "1.4",
+          "name": "Vendor selection",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "duration": 5,
+          "planned_start": "2026-01-23",
+          "estimate": {
+            "optimistic": 4,
+            "most_likely": 5,
+            "pessimistic": 10
+          },
+          "governance_class": "gated",
+          "delivery_mode": "waterfall",
+          "assignee": "ivan"
+        },
+        {
+          "wbs_path": "1.5",
+          "name": "Data model design",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "duration": 6,
+          "planned_start": "2026-01-28",
+          "estimate": {
+            "optimistic": 4,
+            "most_likely": 6,
+            "pessimistic": 11
+          },
+          "governance_class": "gated",
+          "delivery_mode": "waterfall",
+          "assignee": "ivan"
+        },
+        {
+          "wbs_path": "1.6",
+          "name": "Tooling & environments",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "duration": 4,
+          "planned_start": "2026-02-03",
+          "estimate": {
+            "optimistic": 3,
+            "most_likely": 4,
+            "pessimistic": 8
+          },
+          "governance_class": "gated",
+          "delivery_mode": "waterfall",
+          "assignee": "ivan"
+        },
+        {
+          "wbs_path": "2",
+          "name": "Build",
+          "governance_class": "flow",
+          "delivery_mode": "scrum"
+        },
+        {
+          "wbs_path": "2.1",
+          "name": "Account import",
+          "type": "story",
+          "status": "IN_PROGRESS",
+          "percent_complete": 40.0,
+          "story_points": 5,
+          "assignee": "mei",
+          "sprint": "he-sprint-2",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "2.2",
+          "name": "Contact dedupe",
+          "type": "story",
+          "status": "BACKLOG",
+          "percent_complete": 0.0,
+          "story_points": 8,
+          "assignee": "mei",
+          "sprint": "he-sprint-3",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "2.3",
+          "name": "Lead pipeline",
+          "type": "story",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "story_points": 3,
+          "assignee": "mei",
+          "sprint": "he-sprint-1",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "2.4",
+          "name": "Email sync",
+          "type": "story",
+          "status": "IN_PROGRESS",
+          "percent_complete": 40.0,
+          "story_points": 5,
+          "assignee": "mei",
+          "sprint": "he-sprint-2",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "2.5",
+          "name": "Dashboards",
+          "type": "story",
+          "status": "BACKLOG",
+          "percent_complete": 0.0,
+          "story_points": 8,
+          "assignee": "mei",
+          "sprint": "he-sprint-3",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "2.6",
+          "name": "Role permissions",
+          "type": "story",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "story_points": 3,
+          "assignee": "mei",
+          "sprint": "he-sprint-1",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "2.7",
+          "name": "Activity timeline",
+          "type": "story",
+          "status": "IN_PROGRESS",
+          "percent_complete": 40.0,
+          "story_points": 5,
+          "assignee": "mei",
+          "sprint": "he-sprint-2",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "2.8",
+          "name": "Mobile app",
+          "type": "story",
+          "status": "BACKLOG",
+          "percent_complete": 0.0,
+          "story_points": 8,
+          "assignee": "mei",
+          "sprint": "he-sprint-3",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "2.9",
+          "name": "Reporting export",
+          "type": "story",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "story_points": 3,
+          "assignee": "mei",
+          "sprint": "he-sprint-1",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "2.10",
+          "name": "Workflow rules",
+          "type": "story",
+          "status": "IN_PROGRESS",
+          "percent_complete": 40.0,
+          "story_points": 5,
+          "assignee": "mei",
+          "sprint": "he-sprint-2",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "2.11",
+          "name": "Custom fields",
+          "type": "story",
+          "status": "BACKLOG",
+          "percent_complete": 0.0,
+          "story_points": 8,
+          "assignee": "mei",
+          "sprint": "he-sprint-3",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "2.12",
+          "name": "Bulk edit",
+          "type": "story",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "story_points": 3,
+          "assignee": "mei",
+          "sprint": "he-sprint-1",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "2.13",
+          "name": "Audit log",
+          "type": "story",
+          "status": "IN_PROGRESS",
+          "percent_complete": 40.0,
+          "story_points": 5,
+          "assignee": "mei",
+          "sprint": "he-sprint-2",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "2.14",
+          "name": "SSO integration",
+          "type": "story",
+          "status": "BACKLOG",
+          "percent_complete": 0.0,
+          "story_points": 8,
+          "assignee": "mei",
+          "sprint": "he-sprint-3",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "2.15",
+          "name": "Notification center",
+          "type": "story",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "story_points": 3,
+          "assignee": "mei",
+          "sprint": "he-sprint-1",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "2.16",
+          "name": "Search & filters",
+          "type": "story",
+          "status": "IN_PROGRESS",
+          "percent_complete": 40.0,
+          "story_points": 5,
+          "assignee": "mei",
+          "sprint": "he-sprint-2",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "2.17",
+          "name": "Data migration run",
+          "type": "story",
+          "status": "BACKLOG",
+          "percent_complete": 0.0,
+          "story_points": 8,
+          "assignee": "mei",
+          "sprint": "he-sprint-3",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "2.18",
+          "name": "Cutover rehearsal",
+          "type": "story",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "story_points": 3,
+          "assignee": "mei",
+          "sprint": "he-sprint-1",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        }
+      ],
+      "dependencies": [
+        {
+          "predecessor": "1.1",
+          "successor": "1.2",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "1.2",
+          "successor": "1.3",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "1.3",
+          "successor": "1.4",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "1.4",
+          "successor": "1.5",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "1.5",
+          "successor": "1.6",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "1.5",
+          "successor": "2.17",
+          "dep_type": "FS",
+          "lag": 0
+        }
+      ],
+      "sprints": [
+        {
+          "slug": "he-sprint-1",
+          "name": "Build Sprint 1",
+          "state": "COMPLETED",
+          "start_date": "2026-03-06",
+          "finish_date": "2026-03-19",
+          "committed_points": 30,
+          "completed_points": 28,
+          "capacity_points": 32
+        },
+        {
+          "slug": "he-sprint-2",
+          "name": "Build Sprint 2",
+          "state": "ACTIVE",
+          "start_date": "2026-03-20",
+          "finish_date": "2026-04-02",
+          "committed_points": 32,
+          "capacity_points": 32
+        },
+        {
+          "slug": "he-sprint-3",
+          "name": "Build Sprint 3",
+          "state": "PLANNED",
+          "start_date": "2026-04-03",
+          "finish_date": "2026-04-16",
+          "capacity_points": 32
+        }
+      ],
+      "risks": [
+        {
+          "slug": "vendor-lockin",
+          "title": "Vendor lock-in (identified in planning)",
+          "status": "MITIGATING",
+          "probability": 3,
+          "impact": 4,
+          "category": "EXTERNAL",
+          "response": "MITIGATE",
+          "owner": "ivan",
+          "tasks": [
+            "1.4",
+            "2.14"
+          ]
+        },
+        {
+          "slug": "migration-risk",
+          "title": "Legacy data migration fidelity",
+          "status": "OPEN",
+          "probability": 3,
+          "impact": 4,
+          "category": "TECHNICAL",
+          "response": "MITIGATE",
+          "owner": "mei",
+          "tasks": [
+            "2.17"
+          ]
+        }
+      ]
+    }
+  ]
+}

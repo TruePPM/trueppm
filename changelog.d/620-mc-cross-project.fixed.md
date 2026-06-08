@@ -1,0 +1,1 @@
+Monte Carlo simulation no longer fails with "Dependency references unknown task" on a project that has cross-project dependencies. The project-scoped simulation now drops edges whose endpoints fall outside the project's task set (cross-project links and non-committed backlog tasks), matching the existing CPM behavior.

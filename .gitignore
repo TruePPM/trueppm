@@ -18,8 +18,9 @@ env/
 .coverage
 htmlcov/
 
-# Node
-node_modules/
+# Node — no trailing slash so a worktree's `node_modules` *symlink*
+# (created by scripts/wt) is ignored too, not just real directories.
+node_modules
 
 # Coverage
 coverage/

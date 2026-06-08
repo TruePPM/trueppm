@@ -128,6 +128,8 @@ export interface Program {
   /** Live counts annotated on the list endpoint — defaults to 0. */
   project_count: number;
   member_count: number;
+  /** True when this is bundled demo data (any project is_sample) (#375). */
+  is_sample: boolean;
   /** Lifecycle (#530) — closed programs are read-only at the program shell. */
   is_closed: boolean;
   closed_at: string | null;

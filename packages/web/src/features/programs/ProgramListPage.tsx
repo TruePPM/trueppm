@@ -5,6 +5,7 @@ import { ProgramCard } from './ProgramCard';
 import { NewProgramModal } from './NewProgramModal';
 import { UngroupedProjectsSection } from './UngroupedProjectsSection';
 import { ImportProgramButton } from './ImportProgramButton';
+import { LoadSampleButton } from './LoadSampleButton';
 
 /**
  * /programs — list of programs the current user is a member of (ADR-0070).
@@ -25,6 +26,7 @@ export function ProgramListPage() {
       <header className="flex items-center justify-between border-b border-neutral-border px-6 py-4">
         <h1 className="text-lg font-semibold text-neutral-text-primary">Programs</h1>
         <div className="flex items-center gap-2">
+          <LoadSampleButton variant="header" />
           <ImportProgramButton variant="header" />
           <button
             type="button"
@@ -64,7 +66,8 @@ export function ProgramListPage() {
             </h2>
             <p className="mt-2 text-sm text-neutral-text-secondary">
               Create a program when you&rsquo;re managing several related projects and want a shared
-              backlog or combined burndown.
+              backlog or combined burndown. New to TruePPM? Load the demo to explore a populated
+              program.
             </p>
             <div className="mt-6 flex flex-col items-center gap-3">
               <button
@@ -77,6 +80,7 @@ export function ProgramListPage() {
                 + Create your first program
               </button>
               <p className="text-xs text-neutral-text-secondary">or</p>
+              <LoadSampleButton />
               <ImportProgramButton variant="hero" />
             </div>
           </div>

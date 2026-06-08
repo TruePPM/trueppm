@@ -2653,6 +2653,67 @@
                 }
             }
         },
+        "/api/v1/programs/{id}/remove-sample/": {
+            "post": {
+                "operationId": "v1_programs_remove_sample_create",
+                "description": "Tear down a sample program — the \"Remove sample data\" action (#375).\n\nOwner-only. Refuses to delete a program that is not sample data, so the\nteardown can never remove real work. Hard-deletes the *entire* program\nsubtree (all projects, not only is_sample ones — a sample program holds\nonly sample projects). Unlike ``destroy`` this is a hard delete, not a\nsoft delete: sample data is disposable, so it is purged outright. Offline\nsync clients reconcile via the ``program_deleted`` broadcast rather than a\ntombstone — acceptable because demo data is never offline-authored.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this program.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Program"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/programs/{id}/reopen/": {
             "post": {
                 "operationId": "v1_programs_reopen_create",
@@ -4932,6 +4993,84 @@
                     },
                     "required": true
                 },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Program"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/programs/load-sample/": {
+            "post": {
+                "operationId": "v1_programs_load_sample_create",
+                "description": "Load a bundled sample program — the \"Load demo data\" action (#375).\n\nBody: ``{\"sample\": \"<key>\"}`` (optional; defaults to the launch demo).\nThe caller becomes OWNER (same authorization as ``create``). Demo\npersona accounts are created so the boards render fully.",
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Program"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/programs/samples/": {
+            "get": {
+                "operationId": "v1_programs_samples_retrieve",
+                "description": "List the bundled samples available to the demo loader (#375).",
+                "tags": [
+                    "v1"
+                ],
                 "security": [
                     {
                         "jwtAuth": []
@@ -22321,6 +22460,10 @@
                         "readOnly": true,
                         "default": 0
                     },
+                    "is_sample": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
                     "is_closed": {
                         "type": "boolean",
                         "readOnly": true
@@ -22344,6 +22487,7 @@
                     "created_by",
                     "id",
                     "is_closed",
+                    "is_sample",
                     "lead_detail",
                     "member_count",
                     "my_role",

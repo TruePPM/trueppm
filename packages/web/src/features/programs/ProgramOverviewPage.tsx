@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router';
 import { apiClient } from '@/api/client';
 import { useProgram } from '@/hooks/useProgram';
 import { ProgramIdentitySquare } from './ProgramIdentitySquare';
+import { SampleDataBanner } from './SampleDataBanner';
 
 // ---------------------------------------------------------------------------
 // API response types (GET /programs/{id}/rollup/ — ADR-0088, #713)
@@ -269,6 +270,9 @@ export function ProgramOverviewPage() {
 
   return (
     <div className="flex flex-col gap-6 p-6 overflow-y-auto h-full bg-neutral-surface">
+      {program?.is_sample && programId && (
+        <SampleDataBanner programId={programId} canRemove={program.my_role === 400} />
+      )}
       {/* Identity header (#963): the lg tile is the ONLY accent on this page —
           the KPI cards and health hero keep the semantic palette. The program
           name (not the decorative square) is the heading the screen reader announces. */}

@@ -325,6 +325,9 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
     my_role_label = serializers.SerializerMethodField()
     project_count = serializers.IntegerField(read_only=True, default=0)
     member_count = serializers.IntegerField(read_only=True, default=0)
+    # True when the program is bundled demo data (any project is_sample). Backed
+    # by the viewset's ``_is_sample`` annotation to avoid an N+1 on list.
+    is_sample = serializers.SerializerMethodField()
     # Read-only nested user payload so the General settings page can render
     # the lead's name + initials without a second per-program user fetch.
     # Null when ``lead`` is unset. The write side stays on the plain ``lead``
@@ -352,6 +355,7 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             "my_role_label",
             "project_count",
             "member_count",
+            "is_sample",
             # Lifecycle (#530) — read-only; flipped via /close/ and /reopen/.
             "is_closed",
             "closed_at",
@@ -379,6 +383,11 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
         # freshly-created instance before re-fetch — but the viewset re-fetches
         # via the queryset in those paths, so this branch is defensive only).
         return getattr(obj, "_my_role", None)
+
+    def get_is_sample(self, obj: Program) -> bool:
+        # Backed by the viewset's ``_is_sample`` annotation (Exists over
+        # is_sample projects); defensive False when the annotation is absent.
+        return bool(getattr(obj, "_is_sample", False))
 
     def validate_lead(self, value: Any) -> Any:
         """Lead must hold an active ProgramMembership on this program.

@@ -24,6 +24,7 @@ function makeProgram(overrides: Partial<Program> = {}): Program {
     my_role_label: 'Project Admin',
     project_count: 3,
     member_count: 5,
+    is_sample: false,
     is_closed: false,
     closed_at: null,
     closed_by: null,

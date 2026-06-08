@@ -1,0 +1,1725 @@
+{
+  "schema_version": "1.0",
+  "program": {
+    "slug": "atlas-platform-launch",
+    "name": "Atlas Platform Launch",
+    "description": "Fictional B2B SaaS launch program — the hybrid bridge demo. One program, three projects spanning agile, waterfall, and hybrid delivery.",
+    "methodology": "HYBRID",
+    "color": "#2E5AAC",
+    "lead": "alex"
+  },
+  "accounts": [
+    {
+      "slug": "alex",
+      "username": "atlas-alex",
+      "display_name": "Alex Rivera",
+      "email": "alex@atlas.example",
+      "role": "OWNER"
+    },
+    {
+      "slug": "priya",
+      "username": "atlas-priya",
+      "display_name": "Priya Nair",
+      "email": "priya@atlas.example",
+      "role": "ADMIN"
+    },
+    {
+      "slug": "jordan",
+      "username": "atlas-jordan",
+      "display_name": "Jordan Blake",
+      "email": "jordan@atlas.example",
+      "role": "ADMIN"
+    },
+    {
+      "slug": "sam",
+      "username": "atlas-sam",
+      "display_name": "Sam Okafor",
+      "email": "sam@atlas.example",
+      "role": "SCHEDULER"
+    },
+    {
+      "slug": "mei",
+      "username": "atlas-mei",
+      "display_name": "Mei Tanaka",
+      "email": "mei@atlas.example",
+      "role": "MEMBER"
+    },
+    {
+      "slug": "diego",
+      "username": "atlas-diego",
+      "display_name": "Diego Santos",
+      "email": "diego@atlas.example",
+      "role": "MEMBER"
+    },
+    {
+      "slug": "nadia",
+      "username": "atlas-nadia",
+      "display_name": "Nadia Hassan",
+      "email": "nadia@atlas.example",
+      "role": "MEMBER"
+    },
+    {
+      "slug": "tom",
+      "username": "atlas-tom",
+      "display_name": "Tom Becker",
+      "email": "tom@atlas.example",
+      "role": "MEMBER"
+    },
+    {
+      "slug": "yuki",
+      "username": "atlas-yuki",
+      "display_name": "Yuki Sato",
+      "email": "yuki@atlas.example",
+      "role": "MEMBER"
+    },
+    {
+      "slug": "omar",
+      "username": "atlas-omar",
+      "display_name": "Omar Aziz",
+      "email": "omar@atlas.example",
+      "role": "MEMBER"
+    },
+    {
+      "slug": "lena",
+      "username": "atlas-lena",
+      "display_name": "Lena Vogel",
+      "email": "lena@atlas.example",
+      "role": "MEMBER"
+    },
+    {
+      "slug": "raj",
+      "username": "atlas-raj",
+      "display_name": "Raj Mehta",
+      "email": "raj@atlas.example",
+      "role": "MEMBER"
+    },
+    {
+      "slug": "clara",
+      "username": "atlas-clara",
+      "display_name": "Clara Mendes",
+      "email": "clara@atlas.example",
+      "role": "MEMBER"
+    },
+    {
+      "slug": "ivan",
+      "username": "atlas-ivan",
+      "display_name": "Ivan Petrov",
+      "email": "ivan@atlas.example",
+      "role": "MEMBER"
+    },
+    {
+      "slug": "ada",
+      "username": "atlas-ada",
+      "display_name": "Ada Boyega",
+      "email": "ada@atlas.example",
+      "role": "VIEWER"
+    }
+  ],
+  "calendars": [
+    {
+      "slug": "standard",
+      "name": "Atlas Standard (5-day)",
+      "working_days": 31,
+      "hours_per_day": 8.0
+    },
+    {
+      "slug": "gtm-regional",
+      "name": "GTM Regional (5-day, holidays)",
+      "working_days": 31,
+      "hours_per_day": 7.5
+    }
+  ],
+  "resources": [
+    {
+      "slug": "alex",
+      "name": "Alex Rivera",
+      "job_role": "Program Manager",
+      "max_units": 0.5,
+      "calendar": "standard",
+      "account": "alex"
+    },
+    {
+      "slug": "priya",
+      "name": "Priya Nair",
+      "job_role": "Engineering Lead",
+      "max_units": 1.0,
+      "calendar": "standard",
+      "account": "priya"
+    },
+    {
+      "slug": "jordan",
+      "name": "Jordan Blake",
+      "job_role": "Product Owner",
+      "max_units": 1.0,
+      "calendar": "standard",
+      "account": "jordan"
+    },
+    {
+      "slug": "sam",
+      "name": "Sam Okafor",
+      "job_role": "Project Scheduler",
+      "max_units": 1.0,
+      "calendar": "standard",
+      "account": "sam"
+    },
+    {
+      "slug": "mei",
+      "name": "Mei Tanaka",
+      "job_role": "Senior Engineer",
+      "max_units": 1.0,
+      "calendar": "standard",
+      "account": "mei"
+    },
+    {
+      "slug": "diego",
+      "name": "Diego Santos",
+      "job_role": "Senior Engineer",
+      "max_units": 1.0,
+      "calendar": "standard",
+      "account": "diego"
+    },
+    {
+      "slug": "nadia",
+      "name": "Nadia Hassan",
+      "job_role": "Engineer",
+      "max_units": 1.0,
+      "calendar": "standard",
+      "account": "nadia"
+    },
+    {
+      "slug": "tom",
+      "name": "Tom Becker",
+      "job_role": "Engineer",
+      "max_units": 1.0,
+      "calendar": "standard",
+      "account": "tom"
+    },
+    {
+      "slug": "yuki",
+      "name": "Yuki Sato",
+      "job_role": "Data Engineer",
+      "max_units": 1.0,
+      "calendar": "standard",
+      "account": "yuki"
+    },
+    {
+      "slug": "omar",
+      "name": "Omar Aziz",
+      "job_role": "Data Engineer",
+      "max_units": 1.0,
+      "calendar": "standard",
+      "account": "omar"
+    },
+    {
+      "slug": "lena",
+      "name": "Lena Vogel",
+      "job_role": "QA Engineer",
+      "max_units": 1.0,
+      "calendar": "standard",
+      "account": "lena"
+    },
+    {
+      "slug": "raj",
+      "name": "Raj Mehta",
+      "job_role": "DevOps Engineer",
+      "max_units": 0.8,
+      "calendar": "standard",
+      "account": "raj"
+    },
+    {
+      "slug": "clara",
+      "name": "Clara Mendes",
+      "job_role": "Content Strategist",
+      "max_units": 1.0,
+      "calendar": "gtm-regional",
+      "account": "clara"
+    },
+    {
+      "slug": "ivan",
+      "name": "Ivan Petrov",
+      "job_role": "Solutions Architect",
+      "max_units": 0.2,
+      "calendar": "standard",
+      "account": "ivan"
+    },
+    {
+      "slug": "ada",
+      "name": "Ada Boyega",
+      "job_role": "Executive Sponsor",
+      "max_units": 0.1,
+      "calendar": "standard",
+      "account": "ada"
+    }
+  ],
+  "risks": [
+    {
+      "slug": "prog-cross-team-dependency",
+      "title": "Cross-team dependency stalls the critical path",
+      "description": "Platform Core API delays ripple into Migration and then the public launch.",
+      "status": "MITIGATING",
+      "probability": 4,
+      "impact": 5,
+      "category": "ORGANIZATIONAL",
+      "response": "MITIGATE",
+      "owner": "alex",
+      "tasks": [
+        "platform-core:2.1",
+        "migration-tooling:2.1",
+        "gtm-readiness:3"
+      ]
+    },
+    {
+      "slug": "prog-budget",
+      "title": "Program budget pressure",
+      "description": "A contractor rate increase threatens the back half of the program.",
+      "status": "OPEN",
+      "probability": 2,
+      "impact": 4,
+      "category": "EXTERNAL",
+      "response": "ACCEPT",
+      "owner": "ada",
+      "tasks": [
+        "platform-core:9"
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "slug": "platform-core",
+      "name": "Platform Core",
+      "description": "The agile build stream — the platform itself, delivered sprint by sprint.",
+      "methodology": "AGILE",
+      "start_date": "2026-01-05",
+      "calendar": "standard",
+      "default_view": "BOARD",
+      "agile_features": true,
+      "board_columns": [
+        "Backlog",
+        "To Do",
+        "In Progress",
+        "In Review",
+        "Done"
+      ],
+      "tasks": [
+        {
+          "wbs_path": "1",
+          "name": "Identity & access",
+          "type": "epic",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "2",
+          "name": "Core API",
+          "type": "epic",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "3",
+          "name": "Data platform",
+          "type": "epic",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "4",
+          "name": "Billing",
+          "type": "epic",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "5",
+          "name": "Notifications",
+          "type": "epic",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "1.1",
+          "name": "SSO login",
+          "type": "story",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "story_points": 3,
+          "parent_epic": "1",
+          "assignee": "mei",
+          "sprint": "pc-sprint-1",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "1.2",
+          "name": "MFA enrollment",
+          "type": "story",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "story_points": 5,
+          "parent_epic": "1",
+          "assignee": "diego",
+          "sprint": "pc-sprint-2",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "1.3",
+          "name": "Role management",
+          "type": "story",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "story_points": 8,
+          "parent_epic": "1",
+          "assignee": "nadia",
+          "sprint": "pc-sprint-3",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "1.4",
+          "name": "Session hardening",
+          "type": "story",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "story_points": 5,
+          "parent_epic": "1",
+          "assignee": "tom",
+          "sprint": "pc-sprint-4",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "1.5",
+          "name": "Audit log",
+          "type": "story",
+          "status": "IN_PROGRESS",
+          "percent_complete": 45.0,
+          "story_points": 3,
+          "parent_epic": "1",
+          "assignee": "yuki",
+          "sprint": "pc-sprint-5",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "2.1",
+          "name": "Tenant model",
+          "type": "story",
+          "status": "IN_PROGRESS",
+          "percent_complete": 45.0,
+          "story_points": 8,
+          "parent_epic": "2",
+          "assignee": "omar",
+          "sprint": "pc-sprint-6",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "2.2",
+          "name": "Rate limiting",
+          "type": "story",
+          "status": "BACKLOG",
+          "percent_complete": 0.0,
+          "story_points": 2,
+          "parent_epic": "2",
+          "assignee": "mei",
+          "sprint": "pc-sprint-7",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "2.3",
+          "name": "Webhook delivery",
+          "type": "story",
+          "status": "BACKLOG",
+          "percent_complete": 0.0,
+          "story_points": 13,
+          "parent_epic": "2",
+          "assignee": "diego",
+          "sprint": "pc-sprint-8",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "2.4",
+          "name": "API key rotation",
+          "type": "story",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "story_points": 3,
+          "parent_epic": "2",
+          "assignee": "nadia",
+          "sprint": "pc-sprint-1",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "2.5",
+          "name": "OpenAPI export",
+          "type": "story",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "story_points": 5,
+          "parent_epic": "2",
+          "assignee": "tom",
+          "sprint": "pc-sprint-2",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "3.1",
+          "name": "Event pipeline",
+          "type": "story",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "story_points": 8,
+          "parent_epic": "3",
+          "assignee": "yuki",
+          "sprint": "pc-sprint-3",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "3.2",
+          "name": "Warehouse sync",
+          "type": "story",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "story_points": 5,
+          "parent_epic": "3",
+          "assignee": "omar",
+          "sprint": "pc-sprint-4",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "3.3",
+          "name": "Schema registry",
+          "type": "story",
+          "status": "IN_PROGRESS",
+          "percent_complete": 45.0,
+          "story_points": 3,
+          "parent_epic": "3",
+          "assignee": "mei",
+          "sprint": "pc-sprint-5",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "3.4",
+          "name": "Backfill tool",
+          "type": "story",
+          "status": "IN_PROGRESS",
+          "percent_complete": 45.0,
+          "story_points": 8,
+          "parent_epic": "3",
+          "assignee": "diego",
+          "sprint": "pc-sprint-6",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "3.5",
+          "name": "PII scrubber",
+          "type": "story",
+          "status": "BACKLOG",
+          "percent_complete": 0.0,
+          "story_points": 2,
+          "parent_epic": "3",
+          "assignee": "nadia",
+          "sprint": "pc-sprint-7",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "4.1",
+          "name": "Plan catalog",
+          "type": "story",
+          "status": "BACKLOG",
+          "percent_complete": 0.0,
+          "story_points": 13,
+          "parent_epic": "4",
+          "assignee": "tom",
+          "sprint": "pc-sprint-8",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "4.2",
+          "name": "Usage metering",
+          "type": "story",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "story_points": 3,
+          "parent_epic": "4",
+          "assignee": "yuki",
+          "sprint": "pc-sprint-1",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "4.3",
+          "name": "Invoice render",
+          "type": "story",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "story_points": 5,
+          "parent_epic": "4",
+          "assignee": "omar",
+          "sprint": "pc-sprint-2",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "4.4",
+          "name": "Dunning flow",
+          "type": "story",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "story_points": 8,
+          "parent_epic": "4",
+          "assignee": "mei",
+          "sprint": "pc-sprint-3",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "4.5",
+          "name": "Tax engine",
+          "type": "story",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "story_points": 5,
+          "parent_epic": "4",
+          "assignee": "diego",
+          "sprint": "pc-sprint-4",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "5.1",
+          "name": "Email service",
+          "type": "story",
+          "status": "IN_PROGRESS",
+          "percent_complete": 45.0,
+          "story_points": 3,
+          "parent_epic": "5",
+          "assignee": "nadia",
+          "sprint": "pc-sprint-5",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "5.2",
+          "name": "In-app inbox",
+          "type": "story",
+          "status": "IN_PROGRESS",
+          "percent_complete": 45.0,
+          "story_points": 8,
+          "parent_epic": "5",
+          "assignee": "tom",
+          "sprint": "pc-sprint-6",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "5.3",
+          "name": "Digest scheduler",
+          "type": "story",
+          "status": "BACKLOG",
+          "percent_complete": 0.0,
+          "story_points": 2,
+          "parent_epic": "5",
+          "assignee": "yuki",
+          "sprint": "pc-sprint-7",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "5.4",
+          "name": "Preference center",
+          "type": "story",
+          "status": "BACKLOG",
+          "percent_complete": 0.0,
+          "story_points": 13,
+          "parent_epic": "5",
+          "assignee": "omar",
+          "sprint": "pc-sprint-8",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "9",
+          "name": "Platform Core GA",
+          "is_milestone": true,
+          "delivery_mode": "milestone",
+          "planned_start": "2026-04-27"
+        }
+      ],
+      "sprints": [
+        {
+          "slug": "pc-sprint-1",
+          "name": "Sprint 1",
+          "goal": "Increment 1 of the platform core.",
+          "state": "COMPLETED",
+          "start_date": "2026-01-05",
+          "finish_date": "2026-01-18",
+          "capacity_points": 34,
+          "committed_points": 32,
+          "completed_points": 28
+        },
+        {
+          "slug": "pc-sprint-2",
+          "name": "Sprint 2",
+          "goal": "Increment 2 of the platform core.",
+          "state": "COMPLETED",
+          "start_date": "2026-01-19",
+          "finish_date": "2026-02-01",
+          "capacity_points": 34,
+          "committed_points": 32,
+          "completed_points": 31
+        },
+        {
+          "slug": "pc-sprint-3",
+          "name": "Sprint 3",
+          "goal": "Increment 3 of the platform core.",
+          "state": "COMPLETED",
+          "start_date": "2026-02-02",
+          "finish_date": "2026-02-15",
+          "capacity_points": 34,
+          "committed_points": 32,
+          "completed_points": 26
+        },
+        {
+          "slug": "pc-sprint-4",
+          "name": "Sprint 4",
+          "goal": "Increment 4 of the platform core.",
+          "state": "COMPLETED",
+          "start_date": "2026-02-16",
+          "finish_date": "2026-03-01",
+          "capacity_points": 34,
+          "committed_points": 32,
+          "completed_points": 34
+        },
+        {
+          "slug": "pc-sprint-5",
+          "name": "Sprint 5",
+          "goal": "Increment 5 of the platform core.",
+          "state": "ACTIVE",
+          "start_date": "2026-03-02",
+          "finish_date": "2026-03-15",
+          "capacity_points": 34,
+          "committed_points": 32
+        },
+        {
+          "slug": "pc-sprint-6",
+          "name": "Sprint 6",
+          "goal": "Increment 6 of the platform core.",
+          "state": "ACTIVE",
+          "start_date": "2026-03-16",
+          "finish_date": "2026-03-29",
+          "capacity_points": 34,
+          "committed_points": 32
+        },
+        {
+          "slug": "pc-sprint-7",
+          "name": "Sprint 7",
+          "goal": "Increment 7 of the platform core.",
+          "state": "PLANNED",
+          "start_date": "2026-03-30",
+          "finish_date": "2026-04-12",
+          "capacity_points": 34
+        },
+        {
+          "slug": "pc-sprint-8",
+          "name": "Sprint 8",
+          "goal": "Increment 8 of the platform core.",
+          "state": "PLANNED",
+          "start_date": "2026-04-13",
+          "finish_date": "2026-04-26",
+          "capacity_points": 34,
+          "target_milestone": "9"
+        }
+      ],
+      "baselines": [
+        {
+          "name": "Sprint-0 baseline",
+          "is_active": true,
+          "tasks": [
+            {
+              "task": "1.1",
+              "story_points": 3
+            },
+            {
+              "task": "1.2",
+              "story_points": 5
+            },
+            {
+              "task": "1.3",
+              "story_points": 8
+            },
+            {
+              "task": "1.4",
+              "story_points": 5
+            },
+            {
+              "task": "1.5",
+              "story_points": 3
+            },
+            {
+              "task": "2.1",
+              "story_points": 8
+            },
+            {
+              "task": "2.2",
+              "story_points": 2
+            },
+            {
+              "task": "2.3",
+              "story_points": 13
+            },
+            {
+              "task": "2.4",
+              "story_points": 3
+            },
+            {
+              "task": "2.5",
+              "story_points": 5
+            },
+            {
+              "task": "3.1",
+              "story_points": 8
+            },
+            {
+              "task": "3.2",
+              "story_points": 5
+            },
+            {
+              "task": "3.3",
+              "story_points": 3
+            },
+            {
+              "task": "3.4",
+              "story_points": 8
+            },
+            {
+              "task": "3.5",
+              "story_points": 2
+            },
+            {
+              "task": "4.1",
+              "story_points": 13
+            },
+            {
+              "task": "4.2",
+              "story_points": 3
+            },
+            {
+              "task": "4.3",
+              "story_points": 5
+            },
+            {
+              "task": "4.4",
+              "story_points": 8
+            },
+            {
+              "task": "4.5",
+              "story_points": 5
+            }
+          ]
+        }
+      ],
+      "risks": [
+        {
+          "slug": "pc-velocity-dip",
+          "title": "Velocity dip after team expansion",
+          "description": "Onboarding three new engineers mid-program may dip velocity for 2 sprints.",
+          "status": "MITIGATING",
+          "probability": 3,
+          "impact": 3,
+          "category": "ORGANIZATIONAL",
+          "response": "MITIGATE",
+          "owner": "priya",
+          "tasks": [
+            "2.1"
+          ]
+        },
+        {
+          "slug": "pc-scope-creep",
+          "title": "Billing scope creep",
+          "description": "Tax-engine requirements are still firming up and may expand the billing epic.",
+          "status": "OPEN",
+          "probability": 4,
+          "impact": 3,
+          "category": "PROJECT_MANAGEMENT",
+          "response": "MITIGATE",
+          "owner": "jordan",
+          "tasks": [
+            "4.5"
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "migration-tooling",
+      "name": "Migration Tooling",
+      "description": "The waterfall stream — CPM-scheduled data migration with three-point estimates.",
+      "methodology": "WATERFALL",
+      "start_date": "2026-01-05",
+      "calendar": "standard",
+      "default_view": "SCHEDULE",
+      "tasks": [
+        {
+          "wbs_path": "1",
+          "name": "Assess",
+          "type": "task",
+          "governance_class": "gated",
+          "delivery_mode": "waterfall"
+        },
+        {
+          "wbs_path": "1.1",
+          "name": "Inventory legacy schemas",
+          "type": "task",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "duration": 5,
+          "planned_start": "2026-01-05",
+          "estimate": {
+            "optimistic": 4,
+            "most_likely": 5,
+            "pessimistic": 9
+          },
+          "assignee": "raj",
+          "governance_class": "gated",
+          "delivery_mode": "waterfall"
+        },
+        {
+          "wbs_path": "1.2",
+          "name": "Profile data quality",
+          "type": "task",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "duration": 4,
+          "planned_start": "2026-01-15",
+          "estimate": {
+            "optimistic": 3,
+            "most_likely": 4,
+            "pessimistic": 7
+          },
+          "assignee": "tom",
+          "governance_class": "gated",
+          "delivery_mode": "waterfall"
+        },
+        {
+          "wbs_path": "1.3",
+          "name": "Map field semantics",
+          "type": "task",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "duration": 6,
+          "planned_start": "2026-01-23",
+          "estimate": {
+            "optimistic": 4,
+            "most_likely": 6,
+            "pessimistic": 11
+          },
+          "assignee": "yuki",
+          "governance_class": "gated",
+          "delivery_mode": "waterfall"
+        },
+        {
+          "wbs_path": "1.4",
+          "name": "Risk & cutover plan",
+          "type": "task",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "duration": 3,
+          "planned_start": "2026-02-04",
+          "estimate": {
+            "optimistic": 2,
+            "most_likely": 3,
+            "pessimistic": 5
+          },
+          "assignee": "omar",
+          "governance_class": "gated",
+          "delivery_mode": "waterfall"
+        },
+        {
+          "wbs_path": "2",
+          "name": "Build",
+          "type": "task",
+          "governance_class": "gated",
+          "delivery_mode": "waterfall"
+        },
+        {
+          "wbs_path": "2.1",
+          "name": "ETL framework",
+          "type": "task",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "duration": 8,
+          "planned_start": "2026-02-10",
+          "estimate": {
+            "optimistic": 6,
+            "most_likely": 8,
+            "pessimistic": 14
+          },
+          "assignee": "tom",
+          "governance_class": "gated",
+          "delivery_mode": "waterfall"
+        },
+        {
+          "wbs_path": "2.2",
+          "name": "Schema transformer",
+          "type": "task",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "duration": 7,
+          "planned_start": "2026-02-26",
+          "estimate": {
+            "optimistic": 5,
+            "most_likely": 7,
+            "pessimistic": 13
+          },
+          "assignee": "yuki",
+          "governance_class": "gated",
+          "delivery_mode": "waterfall"
+        },
+        {
+          "wbs_path": "2.3",
+          "name": "Validation harness",
+          "type": "task",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "duration": 6,
+          "planned_start": "2026-03-12",
+          "estimate": {
+            "optimistic": 4,
+            "most_likely": 6,
+            "pessimistic": 11
+          },
+          "assignee": "omar",
+          "governance_class": "gated",
+          "delivery_mode": "waterfall"
+        },
+        {
+          "wbs_path": "2.4",
+          "name": "Reconciliation reports",
+          "type": "task",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "duration": 4,
+          "planned_start": "2026-03-24",
+          "estimate": {
+            "optimistic": 3,
+            "most_likely": 4,
+            "pessimistic": 7
+          },
+          "assignee": "raj",
+          "governance_class": "gated",
+          "delivery_mode": "waterfall"
+        },
+        {
+          "wbs_path": "3",
+          "name": "Migrate",
+          "type": "task",
+          "governance_class": "gated",
+          "delivery_mode": "waterfall"
+        },
+        {
+          "wbs_path": "3.1",
+          "name": "Dry-run migration",
+          "type": "task",
+          "status": "IN_PROGRESS",
+          "percent_complete": 40.0,
+          "duration": 5,
+          "planned_start": "2026-04-01",
+          "estimate": {
+            "optimistic": 4,
+            "most_likely": 5,
+            "pessimistic": 9
+          },
+          "assignee": "yuki",
+          "governance_class": "gated",
+          "delivery_mode": "waterfall"
+        },
+        {
+          "wbs_path": "3.2",
+          "name": "Performance tuning",
+          "type": "task",
+          "status": "IN_PROGRESS",
+          "percent_complete": 40.0,
+          "duration": 4,
+          "planned_start": "2026-04-11",
+          "estimate": {
+            "optimistic": 3,
+            "most_likely": 4,
+            "pessimistic": 7
+          },
+          "assignee": "omar",
+          "governance_class": "gated",
+          "delivery_mode": "waterfall"
+        },
+        {
+          "wbs_path": "3.3",
+          "name": "Delta sync",
+          "type": "task",
+          "status": "IN_PROGRESS",
+          "percent_complete": 40.0,
+          "duration": 6,
+          "planned_start": "2026-04-19",
+          "estimate": {
+            "optimistic": 4,
+            "most_likely": 6,
+            "pessimistic": 11
+          },
+          "assignee": "raj",
+          "governance_class": "gated",
+          "delivery_mode": "waterfall"
+        },
+        {
+          "wbs_path": "3.4",
+          "name": "Production rehearsal",
+          "type": "task",
+          "status": "IN_PROGRESS",
+          "percent_complete": 40.0,
+          "duration": 5,
+          "planned_start": "2026-05-01",
+          "estimate": {
+            "optimistic": 4,
+            "most_likely": 5,
+            "pessimistic": 9
+          },
+          "assignee": "tom",
+          "governance_class": "gated",
+          "delivery_mode": "waterfall"
+        },
+        {
+          "wbs_path": "4",
+          "name": "Validate",
+          "type": "task",
+          "governance_class": "gated",
+          "delivery_mode": "waterfall"
+        },
+        {
+          "wbs_path": "4.1",
+          "name": "Row-count reconciliation",
+          "type": "task",
+          "status": "NOT_STARTED",
+          "percent_complete": 0.0,
+          "duration": 3,
+          "planned_start": "2026-05-11",
+          "estimate": {
+            "optimistic": 2,
+            "most_likely": 3,
+            "pessimistic": 5
+          },
+          "assignee": "omar",
+          "governance_class": "gated",
+          "delivery_mode": "waterfall"
+        },
+        {
+          "wbs_path": "4.2",
+          "name": "Business sign-off pack",
+          "type": "task",
+          "status": "NOT_STARTED",
+          "percent_complete": 0.0,
+          "duration": 4,
+          "planned_start": "2026-05-17",
+          "estimate": {
+            "optimistic": 3,
+            "most_likely": 4,
+            "pessimistic": 7
+          },
+          "assignee": "raj",
+          "governance_class": "gated",
+          "delivery_mode": "waterfall"
+        },
+        {
+          "wbs_path": "4.3",
+          "name": "Rollback drill",
+          "type": "task",
+          "status": "NOT_STARTED",
+          "percent_complete": 0.0,
+          "duration": 3,
+          "planned_start": "2026-05-25",
+          "estimate": {
+            "optimistic": 2,
+            "most_likely": 3,
+            "pessimistic": 5
+          },
+          "assignee": "tom",
+          "governance_class": "gated",
+          "delivery_mode": "waterfall"
+        },
+        {
+          "wbs_path": "5",
+          "name": "Cutover",
+          "type": "task",
+          "governance_class": "gated",
+          "delivery_mode": "waterfall"
+        },
+        {
+          "wbs_path": "5.1",
+          "name": "Freeze window prep",
+          "type": "task",
+          "status": "NOT_STARTED",
+          "percent_complete": 0.0,
+          "duration": 2,
+          "planned_start": "2026-05-31",
+          "estimate": {
+            "optimistic": 1,
+            "most_likely": 2,
+            "pessimistic": 4
+          },
+          "assignee": "raj",
+          "governance_class": "gated",
+          "delivery_mode": "waterfall"
+        },
+        {
+          "wbs_path": "5.2",
+          "name": "Final cutover",
+          "type": "task",
+          "status": "NOT_STARTED",
+          "percent_complete": 0.0,
+          "duration": 3,
+          "planned_start": "2026-06-04",
+          "estimate": {
+            "optimistic": 2,
+            "most_likely": 3,
+            "pessimistic": 5
+          },
+          "assignee": "tom",
+          "governance_class": "gated",
+          "delivery_mode": "waterfall"
+        },
+        {
+          "wbs_path": "5.3",
+          "name": "Decommission legacy",
+          "type": "task",
+          "status": "NOT_STARTED",
+          "percent_complete": 0.0,
+          "duration": 4,
+          "planned_start": "2026-06-10",
+          "estimate": {
+            "optimistic": 3,
+            "most_likely": 4,
+            "pessimistic": 7
+          },
+          "assignee": "yuki",
+          "governance_class": "gated",
+          "delivery_mode": "waterfall"
+        },
+        {
+          "wbs_path": "6",
+          "name": "Migration complete",
+          "is_milestone": true,
+          "delivery_mode": "milestone",
+          "planned_start": "2026-06-18"
+        }
+      ],
+      "dependencies": [
+        {
+          "predecessor": "1.1",
+          "successor": "1.2",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "1.1",
+          "successor": "1.3",
+          "dep_type": "SS",
+          "lag": 0
+        },
+        {
+          "predecessor": "1.2",
+          "successor": "1.4",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "1.3",
+          "successor": "1.4",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "1.4",
+          "successor": "2.1",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "2.1",
+          "successor": "2.2",
+          "dep_type": "SS",
+          "lag": 0
+        },
+        {
+          "predecessor": "2.1",
+          "successor": "2.3",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "2.3",
+          "successor": "2.4",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "2.2",
+          "successor": "3.1",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "2.3",
+          "successor": "3.1",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "3.1",
+          "successor": "3.2",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "3.1",
+          "successor": "3.3",
+          "dep_type": "SS",
+          "lag": 0
+        },
+        {
+          "predecessor": "3.2",
+          "successor": "3.4",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "3.3",
+          "successor": "3.4",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "3.4",
+          "successor": "4.1",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "4.1",
+          "successor": "4.2",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "3.4",
+          "successor": "4.3",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "4.2",
+          "successor": "5.1",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "4.3",
+          "successor": "5.1",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "5.1",
+          "successor": "5.2",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "5.2",
+          "successor": "5.3",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "5.3",
+          "successor": "6",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "platform-core:2.1",
+          "successor": "2.1",
+          "dep_type": "FS",
+          "lag": 5
+        }
+      ],
+      "baselines": [
+        {
+          "name": "Kickoff baseline",
+          "is_active": true,
+          "tasks": [
+            {
+              "task": "1.1",
+              "start": "2026-01-05",
+              "finish": "2026-01-10",
+              "duration": 5
+            },
+            {
+              "task": "1.2",
+              "start": "2026-01-15",
+              "finish": "2026-01-19",
+              "duration": 4
+            },
+            {
+              "task": "1.3",
+              "start": "2026-01-23",
+              "finish": "2026-01-29",
+              "duration": 6
+            },
+            {
+              "task": "1.4",
+              "start": "2026-02-04",
+              "finish": "2026-02-07",
+              "duration": 3
+            },
+            {
+              "task": "2.1",
+              "start": "2026-02-10",
+              "finish": "2026-02-18",
+              "duration": 8
+            },
+            {
+              "task": "2.2",
+              "start": "2026-02-26",
+              "finish": "2026-03-05",
+              "duration": 7
+            },
+            {
+              "task": "2.3",
+              "start": "2026-03-12",
+              "finish": "2026-03-18",
+              "duration": 6
+            },
+            {
+              "task": "2.4",
+              "start": "2026-03-24",
+              "finish": "2026-03-28",
+              "duration": 4
+            },
+            {
+              "task": "3.1",
+              "start": "2026-04-01",
+              "finish": "2026-04-06",
+              "duration": 5
+            },
+            {
+              "task": "3.2",
+              "start": "2026-04-11",
+              "finish": "2026-04-15",
+              "duration": 4
+            },
+            {
+              "task": "3.3",
+              "start": "2026-04-19",
+              "finish": "2026-04-25",
+              "duration": 6
+            },
+            {
+              "task": "3.4",
+              "start": "2026-05-01",
+              "finish": "2026-05-06",
+              "duration": 5
+            },
+            {
+              "task": "4.1",
+              "start": "2026-05-11",
+              "finish": "2026-05-14",
+              "duration": 3
+            },
+            {
+              "task": "4.2",
+              "start": "2026-05-17",
+              "finish": "2026-05-21",
+              "duration": 4
+            },
+            {
+              "task": "4.3",
+              "start": "2026-05-25",
+              "finish": "2026-05-28",
+              "duration": 3
+            },
+            {
+              "task": "5.1",
+              "start": "2026-05-31",
+              "finish": "2026-06-02",
+              "duration": 2
+            },
+            {
+              "task": "5.2",
+              "start": "2026-06-04",
+              "finish": "2026-06-07",
+              "duration": 3
+            },
+            {
+              "task": "5.3",
+              "start": "2026-06-10",
+              "finish": "2026-06-14",
+              "duration": 4
+            }
+          ]
+        }
+      ],
+      "risks": [
+        {
+          "slug": "mt-data-quality",
+          "title": "Legacy data quality worse than profiled",
+          "description": "Undocumented nulls and encoding issues could expand the transform effort.",
+          "status": "OPEN",
+          "probability": 4,
+          "impact": 4,
+          "category": "TECHNICAL",
+          "response": "MITIGATE",
+          "owner": "yuki",
+          "tasks": [
+            "1.2",
+            "2.2"
+          ]
+        },
+        {
+          "slug": "mt-cutover-window",
+          "title": "Cutover window too short",
+          "description": "The approved freeze window may not absorb a failed first cutover.",
+          "status": "MITIGATING",
+          "probability": 3,
+          "impact": 5,
+          "category": "EXTERNAL",
+          "response": "MITIGATE",
+          "owner": "sam",
+          "tasks": [
+            "5.2"
+          ]
+        },
+        {
+          "slug": "mt-perf",
+          "title": "Migration throughput below target",
+          "description": "Delta-sync throughput may not keep pace with production write volume.",
+          "status": "OPEN",
+          "probability": 3,
+          "impact": 4,
+          "category": "TECHNICAL",
+          "response": "ACCEPT",
+          "owner": "omar",
+          "tasks": [
+            "3.3"
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "gtm-readiness",
+      "name": "GTM Readiness",
+      "description": "The hybrid stream — gated launch planning with agile enablement content.",
+      "methodology": "HYBRID",
+      "start_date": "2026-02-14",
+      "calendar": "gtm-regional",
+      "default_view": "OVERVIEW",
+      "agile_features": true,
+      "tasks": [
+        {
+          "wbs_path": "1",
+          "name": "Launch planning",
+          "governance_class": "gated",
+          "delivery_mode": "waterfall"
+        },
+        {
+          "wbs_path": "1.1",
+          "name": "Positioning & messaging",
+          "duration": 4,
+          "planned_start": "2026-01-05",
+          "estimate": {
+            "optimistic": 3,
+            "most_likely": 4,
+            "pessimistic": 7
+          },
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "governance_class": "gated",
+          "delivery_mode": "waterfall",
+          "assignee": "jordan"
+        },
+        {
+          "wbs_path": "1.2",
+          "name": "Pricing & packaging sign-off",
+          "duration": 3,
+          "planned_start": "2026-01-17",
+          "estimate": {
+            "optimistic": 2,
+            "most_likely": 3,
+            "pessimistic": 5
+          },
+          "status": "IN_PROGRESS",
+          "percent_complete": 30.0,
+          "governance_class": "gated",
+          "delivery_mode": "waterfall",
+          "assignee": "jordan"
+        },
+        {
+          "wbs_path": "1.3",
+          "name": "Launch gate review",
+          "duration": 2,
+          "planned_start": "2026-01-26",
+          "estimate": {
+            "optimistic": 1,
+            "most_likely": 2,
+            "pessimistic": 4
+          },
+          "status": "IN_PROGRESS",
+          "percent_complete": 30.0,
+          "governance_class": "gated",
+          "delivery_mode": "waterfall",
+          "assignee": "jordan"
+        },
+        {
+          "wbs_path": "2",
+          "name": "Enablement",
+          "governance_class": "flow",
+          "delivery_mode": "kanban"
+        },
+        {
+          "wbs_path": "2.1",
+          "name": "Sales deck",
+          "type": "story",
+          "status": "BACKLOG",
+          "story_points": 3,
+          "assignee": "clara",
+          "governance_class": "flow",
+          "delivery_mode": "kanban"
+        },
+        {
+          "wbs_path": "2.2",
+          "name": "Demo script",
+          "type": "story",
+          "status": "BACKLOG",
+          "story_points": 5,
+          "assignee": "clara",
+          "governance_class": "flow",
+          "delivery_mode": "kanban"
+        },
+        {
+          "wbs_path": "2.3",
+          "name": "Pricing FAQ",
+          "type": "story",
+          "status": "BACKLOG",
+          "story_points": 2,
+          "assignee": "clara",
+          "governance_class": "flow",
+          "delivery_mode": "kanban"
+        },
+        {
+          "wbs_path": "2.4",
+          "name": "Onboarding guide",
+          "type": "story",
+          "status": "BACKLOG",
+          "story_points": 3,
+          "assignee": "clara",
+          "governance_class": "flow",
+          "delivery_mode": "kanban"
+        },
+        {
+          "wbs_path": "2.5",
+          "name": "Launch blog",
+          "type": "story",
+          "status": "BACKLOG",
+          "story_points": 5,
+          "assignee": "clara",
+          "governance_class": "flow",
+          "delivery_mode": "kanban"
+        },
+        {
+          "wbs_path": "2.6",
+          "name": "Webinar prep",
+          "type": "story",
+          "status": "BACKLOG",
+          "story_points": 2,
+          "assignee": "clara",
+          "governance_class": "flow",
+          "delivery_mode": "kanban"
+        },
+        {
+          "wbs_path": "2.7",
+          "name": "Support runbook",
+          "type": "story",
+          "status": "BACKLOG",
+          "story_points": 3,
+          "assignee": "clara",
+          "governance_class": "flow",
+          "delivery_mode": "kanban"
+        },
+        {
+          "wbs_path": "2.8",
+          "name": "Release notes",
+          "type": "story",
+          "status": "BACKLOG",
+          "story_points": 5,
+          "assignee": "clara",
+          "governance_class": "flow",
+          "delivery_mode": "kanban"
+        },
+        {
+          "wbs_path": "3",
+          "name": "Public launch",
+          "is_milestone": true,
+          "delivery_mode": "milestone",
+          "planned_start": "2026-05-05"
+        }
+      ],
+      "dependencies": [
+        {
+          "predecessor": "1.1",
+          "successor": "1.2",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "1.2",
+          "successor": "1.3",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "1.3",
+          "successor": "3",
+          "dep_type": "FS",
+          "lag": 2
+        },
+        {
+          "predecessor": "migration-tooling:6",
+          "successor": "3",
+          "dep_type": "FS",
+          "lag": 3
+        }
+      ],
+      "risks": [
+        {
+          "slug": "gtm-launch-slip",
+          "title": "Launch slips past fiscal quarter",
+          "description": "A migration slip cascades to the public-launch milestone and misses the quarter.",
+          "status": "OPEN",
+          "probability": 3,
+          "impact": 4,
+          "category": "EXTERNAL",
+          "response": "MITIGATE",
+          "owner": "alex",
+          "tasks": [
+            "3"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -10,6 +10,50 @@ dependencies, sprints, baselines, risks, resources, and memberships. The format
 is specified in [ADR-0109](https://gitlab.com/trueppm/trueppm-suite/-/blob/main/docs/adr/0109-canonical-json-seed-import-export-schema.md);
 the JSON Schema lives at `packages/api/src/trueppm_api/apps/projects/schemas/seed_v1.json`.
 
+## Load the demo data
+
+The fastest way to see TruePPM with real data is a bundled demo. On a fresh
+install the **Programs** page shows a **Load demo data** button — it offers a
+short menu of samples; pick one and you land on a fully populated program.
+
+Four samples ship:
+
+- **Atlas Platform Launch** — hybrid-large, the launch demo (described below).
+- **Aurora Mobile App** — agile-only: the sprint lifecycle, velocity, and a
+  Kanban board, with no CPM or estimates (the pure-scrum tour).
+- **Bayside Civic Center** — waterfall-only construction: CPM with all four
+  dependency types, three-point estimates, a baseline, and a risk register.
+- **Helios CRM Replacement** — hybrid-small: a completed waterfall planning
+  phase feeding an agile build phase, with a cross-phase dependency.
+
+Atlas is the launch demo: one program, three projects that span the methodology
+mix, so you can feel the agile/waterfall bridge end to end:
+
+- **Platform Core** (agile) — eight sprints with velocity history feeding a
+  release forecast.
+- **Migration Tooling** (waterfall) — a CPM-scheduled plan with three-point
+  estimates and a captured baseline.
+- **GTM Readiness** (hybrid) — gated launch planning with agile enablement work.
+
+Cross-project dependencies link the three (Platform Core gates Migration, which
+gates the public-launch milestone), and a populated risk register plus a
+fifteen-person resource roster round out the picture.
+
+Sample data is clearly marked: a banner on the program offers a one-click
+**Remove sample data** teardown whenever you're ready to start your own work.
+
+From the command line:
+
+```bash
+python manage.py load_sample_project                          # Atlas (default)
+python manage.py load_sample_project --sample aurora-mobile-app
+python manage.py load_sample_project --sample bayside-civic-center
+python manage.py load_sample_project --sample helios-crm-replacement
+```
+
+Or over the API: `POST /api/v1/programs/load-sample/` (any authenticated user;
+the caller becomes the program owner).
+
 ## Import a seed file
 
 ### From the web app
