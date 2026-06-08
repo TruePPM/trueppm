@@ -1,6 +1,7 @@
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import { renderWithRouter } from '@/test/utils';
 import type { Program } from '@/api/types';
 import { ProjectScopePicker } from './ProjectScopePicker';
 
@@ -9,10 +10,14 @@ const PROGRAMS = [
   { id: 'p2', name: 'Atlas Program' },
 ] as unknown as Program[];
 
-function renderPicker(overrides: Partial<Parameters<typeof ProjectScopePicker>[0]> = {}) {
+function renderPicker(
+  overrides: Partial<Parameters<typeof ProjectScopePicker>[0]> = {},
+  { initialEntries = ['/'] }: { initialEntries?: string[] } = {},
+) {
   const onScope = vi.fn();
   const onNewProgram = vi.fn();
-  render(
+  const onNavigated = vi.fn();
+  renderWithRouter(
     <ProjectScopePicker
       scope="all"
       onScope={onScope}
@@ -21,10 +26,12 @@ function renderPicker(overrides: Partial<Parameters<typeof ProjectScopePicker>[0
       totalCount={5}
       noProgramCount={1}
       onNewProgram={onNewProgram}
+      onNavigated={onNavigated}
       {...overrides}
     />,
+    { initialEntries },
   );
-  return { onScope, onNewProgram };
+  return { onScope, onNewProgram, onNavigated };
 }
 
 describe('ProjectScopePicker', () => {
@@ -72,6 +79,34 @@ describe('ProjectScopePicker', () => {
     expect(screen.getByRole('combobox', { name: /Filter programs/i })).toHaveValue('');
     await userEvent.keyboard('{Escape}');
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+  });
+
+  it('renders the section header as a link to the /programs gateway (#980)', () => {
+    renderPicker();
+    const link = screen.getByRole('link', { name: 'Programs' });
+    expect(link).toHaveAttribute('href', '/programs');
+  });
+
+  it('fires onNavigated when the Programs link is clicked (closes the drawer) (#980)', async () => {
+    const { onNavigated } = renderPicker();
+    await userEvent.click(screen.getByRole('link', { name: 'Programs' }));
+    expect(onNavigated).toHaveBeenCalledOnce();
+  });
+
+  it('marks the Programs link as current when on /programs (#980)', () => {
+    renderPicker({}, { initialEntries: ['/programs'] });
+    expect(screen.getByRole('link', { name: 'Programs' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+  });
+
+  it('keeps navigation (header link) separate from filtering (picker trigger) (#980)', () => {
+    // The collision #959 introduced: the only program control was a filter.
+    // The link navigates; the trigger filters — two distinct controls.
+    renderPicker();
+    expect(screen.getByRole('link', { name: 'Programs' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Program scope:/i })).toBeInTheDocument();
   });
 
   it('fires onNewProgram from the + affordance', async () => {

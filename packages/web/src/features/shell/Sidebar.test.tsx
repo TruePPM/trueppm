@@ -125,6 +125,20 @@ describe('Sidebar', () => {
     expect(screen.getByRole('button', { name: /Program scope:/i })).toBeInTheDocument();
   });
 
+  it('exposes a Programs gateway link in the expanded sidebar (#980)', () => {
+    // #959 left the expanded sidebar with only the scope *filter* and no path to
+    // the /programs gateway; the header link restores it.
+    renderWithRouter(<Sidebar />);
+    expect(screen.getByRole('link', { name: 'Programs' })).toHaveAttribute('href', '/programs');
+  });
+
+  it('closes the drawer when the Programs gateway link is clicked (#980)', async () => {
+    const onClose = vi.fn();
+    renderWithRouter(<Sidebar isDrawer onClose={onClose} />);
+    await userEvent.click(screen.getByRole('link', { name: 'Programs' }));
+    expect(onClose).toHaveBeenCalled();
+  });
+
   it('shows new-project button when sidebar is expanded', () => {
     renderWithRouter(<Sidebar />);
     expect(screen.getByRole('button', { name: /New project/i })).toBeInTheDocument();
