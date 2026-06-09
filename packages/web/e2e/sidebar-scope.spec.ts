@@ -134,6 +134,18 @@ test('the in-scope search narrows the project list', async ({ page }) => {
   await expect(sb.getByText('Quartz Rollout')).toBeHidden();
 });
 
+test('the section header links to the /programs gateway (#980)', async ({ page }) => {
+  // #959 replaced the flat program list with a filter-only picker, dropping the
+  // only path to the /programs gateway from the expanded sidebar. The header link
+  // restores it — distinct from the scope filter trigger.
+  await page.goto('/me/work');
+  const sb = sidebar(page);
+  const gateway = sb.getByRole('link', { name: 'Programs' });
+  await expect(gateway).toBeVisible();
+  await gateway.click();
+  await expect(page).toHaveURL(/\/programs$/);
+});
+
 test('the scope picker filters programs with its own search', async ({ page }) => {
   await page.goto('/me/work');
   const sb = sidebar(page);

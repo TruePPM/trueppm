@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { NavLink } from 'react-router';
 import type { Program } from '@/api/types';
 import type { ProjectScope } from '@/stores/shellStore';
 import { ProgramIdentitySquare } from '@/features/programs/ProgramIdentitySquare';
@@ -41,6 +42,11 @@ interface Props {
   noProgramCount: number;
   /** Opens the New Program modal. */
   onNewProgram: () => void;
+  /**
+   * Fired after the header "Programs" link navigates to the /programs gateway.
+   * Used by the mobile drawer to close itself on navigation; omitted on desktop.
+   */
+  onNavigated?: () => void;
 }
 
 /**
@@ -50,6 +56,12 @@ interface Props {
  * active scope + its project count; clicking opens a searchable dropdown that
  * stays one control tall no matter how many programs exist. Selecting a program
  * narrows the project list below it; "All programs" clears the scope.
+ *
+ * The picker is a pure *filter* — it never navigates. Reaching the /programs
+ * gateway is a separate job, carried by the section header "Programs" link
+ * (#980): the flat-list-to-filter change in #959 dropped the only path to the
+ * gateway from the expanded sidebar and drawer. The header link and the picker's
+ * disclosure chevron are distinct rows so filter and navigate never collide.
  *
  * Accessibility: the trigger is `aria-haspopup="listbox"`; the open popover is a
  * combobox search input over a `role="listbox"` of `role="option"` rows with
@@ -64,6 +76,7 @@ export function ProjectScopePicker({
   totalCount,
   noProgramCount,
   onNewProgram,
+  onNavigated,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -169,11 +182,46 @@ export function ProjectScopePicker({
   return (
     <div ref={rootRef} className="relative px-2 pb-2 pt-1">
       <div className="flex items-center justify-between px-1">
-        <h2
-          className="text-xs font-semibold uppercase tracking-widest text-chrome-text-secondary"
-          aria-label="Program scope"
-        >
-          Program
+        {/* The section header is the link to the /programs gateway (#980). It is a
+            navigation affordance, distinct from the scope filter below — the
+            trailing chevron + hover underline signal "go to a place", versus the
+            picker trigger's rotating disclosure chevron. min-h-11 matches the
+            adjacent 44px "+" button so the link's touch target (rule 5) adds no
+            row height. */}
+        <h2 className="min-w-0">
+          <NavLink
+            to="/programs"
+            onClick={() => onNavigated?.()}
+            className={({ isActive }) =>
+              [
+                'group -ml-1 inline-flex min-h-11 items-center gap-1 rounded px-1',
+                'text-xs font-semibold uppercase tracking-widest transition-colors',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary',
+                'focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface',
+                isActive
+                  ? 'text-brand-primary'
+                  : 'text-chrome-text-secondary hover:text-chrome-text-primary',
+              ].join(' ')
+            }
+          >
+            <span className="group-hover:underline">Programs</span>
+            <svg
+              width="11"
+              height="11"
+              viewBox="0 0 16 16"
+              fill="none"
+              aria-hidden="true"
+              className="shrink-0"
+            >
+              <path
+                d="M6 4l4 4-4 4"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </NavLink>
         </h2>
         {/* 44x44 touch target with 12x12 icon (rule 5). */}
         <button

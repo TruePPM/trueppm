@@ -255,6 +255,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
             totalCount={totalCount}
             noProgramCount={noProgramCount}
             onNewProgram={() => setShowNewProgram(true)}
+            onNavigated={onClose}
           />
         ) : (
           <ProgramsSection collapsed isDrawer={false} onNavigated={onClose} />
