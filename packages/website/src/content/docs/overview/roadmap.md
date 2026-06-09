@@ -64,6 +64,7 @@ From 0.3 onward each release **lands one primary persona** — it ships the feat
 - **Client-ready PDF** — a basic Gantt-with-critical-path schedule export from day one (the rich reporting suite lands at 0.8)
 - **Ongoing inbound sync** — continuous one-way Jira → TruePPM card sync (distinct from the one-time migration import at 0.6) so contributors never double-enter
 - **Offline hardening** — WebSocket event replay/resync, sync conflict detection, calm offline states
+- **Read-only MCP server** (#503 #504 #603) — point any MCP client (Claude Desktop and the like) at your self-hosted instance and ask real questions of the live schedule: critical path, a non-mutating Monte Carlo what-if ("slip this task three days — when do we ship?"), sprint status and velocity, the risk register, and My Work. Every answer is computed server-side by the same CPM/Monte Carlo engine the UI uses — never an LLM guess, never leaving your box. Per-team token scopes keep sprint internals private. Read-only by design; write tools are deliberately held to 0.6
 
 ### 0.5 — plan & people (target: Aug 24–31, 2026)
 
@@ -81,7 +82,7 @@ From 0.3 onward each release **lands one primary persona** — it ships the feat
 **For the team switching off another tool — and the builder who wants to drive TruePPM from code or an AI agent.** Get your data in, get it out, and automate it from anywhere.
 
 - **Multi-format import with preview** (epics #624, #613) — top-10 PM tools (Jira, Asana, Monday, Wrike, ClickUp, Planview, Trello, Notion, Linear, Basecamp) plus Primavera P6 (XER/PMXML), OmniPlan, GanttProject, MPX/ProjectLibre
-- **MCP server** — an LLM-facing read/write surface with team-scoped tokens and read restrictions on sprint-internal fields, so automation never becomes surveillance
+- **MCP write surface** (#505 #604) — write tools (create/update task, move card, log time, update status), session auth, and broader surface coverage layered on top of the read-only MCP server that lands in 0.4, with read restrictions on sprint-internal fields so automation never becomes surveillance
 - **Public REST API depth** and JSON import/export
 - **Read-only shareable roadmap** — a now/next/later + timeline view a PO can hand to a stakeholder
 - **OSS integration connectors** — calendar export, Drive/Box/Dropbox preview, meeting links
