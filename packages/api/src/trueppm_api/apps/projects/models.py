@@ -2124,6 +2124,80 @@ class SprintBurnSnapshot(models.Model):
         return f"BurnSnapshot({self.sprint_id} @ {self.snapshot_date})"
 
 
+class SprintTaskDisposition(models.TextChoices):
+    """What happened to a task that was a member of a sprint at its close (#982)."""
+
+    COMPLETED = "completed", "Completed in sprint"
+    CARRIED = "carried", "Carried to another sprint"
+    DROPPED = "dropped", "Dropped (not carried forward)"
+
+
+class SprintTaskOutcome(models.Model):
+    """Per-task membership-at-close snapshot for sprint review (ADR-0111, #982).
+
+    One immutable row per task that was linked to the sprint at the instant it
+    closed — written inside the close transaction *before* ``apply_carry_over``
+    reassigns the task ``sprint`` FK. Without it, the "what didn't ship" set is
+    destroyed at close: carried-over tasks move to the next sprint, dropped tasks
+    move to the backlog, and the only trace is ``HistoricalTask`` for 90 days.
+
+    Denormalized (``task_short_id`` / ``task_title`` / ``story_points`` /
+    ``final_status``) so the review survives the FK move, the 90-day history
+    window, and even a later hard-delete of the task (``task`` FK is SET_NULL).
+    Append-only audit — like ``SprintBurnSnapshot`` it is unsynced and carries no
+    ``server_version`` (immutability makes it unnecessary; review is an online
+    read via the ``/outcome/`` endpoint, not an offline-synced row).
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    sprint = models.ForeignKey(Sprint, on_delete=models.CASCADE, related_name="task_outcomes")
+    task = models.ForeignKey(
+        Task,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="sprint_outcomes",
+    )
+    # Denormalized task identity — retained even if the task is later deleted.
+    task_short_id = models.CharField(max_length=12)
+    task_title = models.CharField(max_length=512)
+    story_points = models.PositiveSmallIntegerField(null=True, blank=True)
+    final_status = models.CharField(max_length=20, choices=TaskStatus.choices)
+    disposition = models.CharField(max_length=12, choices=SprintTaskDisposition.choices)
+    # For CARRIED rows: the sprint the task moved to. SET_NULL so deleting the
+    # destination sprint doesn't cascade away this audit row.
+    next_sprint = models.ForeignKey(
+        Sprint,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    # ADR-0102 sprint_pending at close — distinguishes committed work that didn't
+    # ship from uncommitted injected work that didn't ship.
+    was_pending = models.BooleanField(default=False)
+    # True when written by the optional backfill command (best-effort from
+    # HistoricalTask), False for rows captured live at close (ADR-0111 §4).
+    backfilled = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "projects_sprinttaskoutcome"
+        ordering = ["sprint_id", "task_short_id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["sprint", "task"],
+                name="uniq_sprint_task_outcome",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["sprint", "disposition"], name="sprint_outcome_disp_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"SprintTaskOutcome({self.sprint_id} {self.task_short_id} {self.disposition})"
+
+
 class SprintCloseRequestStatus(models.TextChoices):
     """Lifecycle of a transactional outbox row for sprint close (ADR-0037)."""
 
