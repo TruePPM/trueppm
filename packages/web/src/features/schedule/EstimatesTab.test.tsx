@@ -488,7 +488,7 @@ describe('EstimatesTab — velocity suggestion banner', () => {
     vi.clearAllMocks();
   });
 
-  it('does not render the banner for non-admin users', async () => {
+  it('does not render the banner for non-admin users', () => {
     routeGet([suggestionFixture]);
     renderWithProviders(
       <EstimatesTab

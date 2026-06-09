@@ -82,6 +82,27 @@ def test_scheduler_cannot_set_label(project: Project) -> None:
 
 
 @pytest.mark.django_db
+def test_scheduler_mixed_patch_rejected_atomically(project: Project) -> None:
+    """A Scheduler patching an allowed field + iteration_label is rejected whole.
+
+    The allowlist check inspects every changed field before deciding, so a mixed
+    PATCH must not partially apply the allowed field — guards against smuggling the
+    admin-only label past the gate alongside ``methodology``.
+    """
+    client = _client_for(project, Role.SCHEDULER, "u_sched_mix")
+    resp = client.patch(
+        f"/api/v1/projects/{project.pk}/",
+        {"methodology": "WATERFALL", "iteration_label": "PI"},
+        format="json",
+    )
+    assert resp.status_code == 400
+    project.refresh_from_db()
+    assert project.iteration_label == "Sprint"
+    # The allowed field must NOT have been partially applied either.
+    assert project.methodology != "WATERFALL"
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize("role", [Role.VIEWER, Role.MEMBER])
 def test_below_scheduler_blocked_at_gate(project: Project, role: int) -> None:
     """Viewer/Member never reach the serializer — blocked at the permission gate (403)."""

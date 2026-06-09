@@ -3,11 +3,10 @@ import { describe, it, expect, vi } from 'vitest';
 import { IterationLabelField } from './IterationLabelField';
 
 describe('IterationLabelField', () => {
-  it('selects the matching preset chip for a preset value', () => {
+  it('selects the matching preset radio for a preset value', () => {
     render(<IterationLabelField value="Sprint" onChange={vi.fn()} />);
-    const sprint = screen.getByRole('radio', { name: 'Sprint' });
-    expect(sprint).toHaveAttribute('aria-checked', 'true');
-    expect(screen.getByRole('radio', { name: 'Iteration' })).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByRole('radio', { name: 'Sprint' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: 'Iteration' })).not.toBeChecked();
     // No custom input while a preset is selected.
     expect(screen.queryByLabelText('Custom iteration label')).not.toBeInTheDocument();
   });
@@ -29,9 +28,8 @@ describe('IterationLabelField', () => {
 
   it('treats a non-preset value as custom with the input pre-filled', () => {
     render(<IterationLabelField value="Cycle" onChange={vi.fn()} />);
-    expect(screen.getByRole('radio', { name: 'Custom…' })).toHaveAttribute('aria-checked', 'true');
-    const input = screen.getByLabelText('Custom iteration label') as HTMLInputElement;
-    expect(input.value).toBe('Cycle');
+    expect(screen.getByRole('radio', { name: 'Custom…' })).toBeChecked();
+    expect(screen.getByLabelText('Custom iteration label')).toHaveValue('Cycle');
   });
 
   it('emits typed custom text', () => {

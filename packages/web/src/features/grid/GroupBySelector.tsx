@@ -1,4 +1,5 @@
 import type { GridGroupBy } from './persistence';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 
 const GROUP_BY_LABEL: Record<GridGroupBy, string> = {
   phase: 'Phase',
@@ -22,6 +23,7 @@ interface GroupBySelectorProps {
  * (ADR-0053 § 7) — the help-icon tooltip in the toolbar carries that copy.
  */
 export function GroupBySelector({ groupBy, onChange, showSprint }: GroupBySelectorProps) {
+  const itl = useIterationLabel();
   const options: GridGroupBy[] = showSprint
     ? ['phase', 'owner', 'status', 'sprint', 'resource']
     : ['phase', 'owner', 'status', 'resource'];
@@ -42,7 +44,7 @@ export function GroupBySelector({ groupBy, onChange, showSprint }: GroupBySelect
       >
         {options.map((opt) => (
           <option key={opt} value={opt}>
-            {GROUP_BY_LABEL[opt]}
+            {opt === 'sprint' ? itl.singular : GROUP_BY_LABEL[opt]}
           </option>
         ))}
       </select>

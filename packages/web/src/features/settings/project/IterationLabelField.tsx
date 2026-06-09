@@ -15,20 +15,22 @@ export interface IterationLabelFieldProps {
 /**
  * Settings control for the iteration-container label (ADR-0111, #862).
  *
- * Three preset chips (Sprint / Iteration / PI) plus a "Custom…" chip that reveals
- * a free-text input. A live preview shows the derived singular + plural forms so the
- * admin sees how their label pluralizes before saving. Display-only setting — it
- * never changes behavior, only the noun shown across sprint surfaces.
+ * A native radio group (Sprint / Iteration / PI / Custom…) — native `<input
+ * type="radio">` rather than ARIA-role buttons, so the browser provides
+ * arrow-key roving, a single tab stop, and correct `checked` semantics for free
+ * (WCAG 4.1.2). The radios are visually hidden; the `<label>` is styled as a chip.
+ * Choosing "Custom…" reveals a free-text input; a live preview shows the derived
+ * singular + plural forms so the admin sees how their label pluralizes before saving.
+ * Display-only — it never changes behavior, only the noun shown across iteration surfaces.
  *
  * State model: the chip selection is derived from `value` on each render (no
- * duplicated source of truth) — `value` matching a preset selects that chip; any
- * other non-empty value selects Custom with the input pre-filled. The only local
- * state is whether Custom mode is *forced* open (so selecting "Custom…" while the
- * stored value is still "Sprint" reveals an empty input rather than snapping back).
+ * duplicated source of truth). The only local state is whether Custom mode is
+ * *forced* open (so selecting "Custom…" while the stored value is still "Sprint"
+ * reveals an empty input rather than snapping back to the Sprint chip).
  */
 export function IterationLabelField({ value, onChange }: IterationLabelFieldProps) {
   const groupId = useId();
-  const inputId = `${groupId}-custom`;
+  const groupName = `${groupId}-iteration-label`;
   const previewId = `${groupId}-preview`;
   const errorId = `${groupId}-error`;
   const inputRef = useRef<HTMLInputElement>(null);
@@ -58,45 +60,45 @@ export function IterationLabelField({ value, onChange }: IterationLabelFieldProp
   const forms = iterationLabelForms(value);
   const customEmpty = isCustom && value.trim().length === 0;
 
-  const chip = (selected: boolean) =>
+  const chipClass = (selected: boolean) =>
     [
-      'px-3 py-1 rounded border text-[12px] font-medium transition-colors',
-      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+      'px-3 py-1 rounded border text-[12px] font-medium transition-colors cursor-pointer',
+      // Focus ring follows the (visually hidden) radio's focus state.
+      'has-[:focus-visible]:outline-none has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand-primary has-[:focus-visible]:ring-offset-1',
       selected
         ? 'border-2 border-brand-primary bg-brand-primary-light text-brand-primary'
         : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-sunken',
     ].join(' ');
 
   return (
-    <div className="flex flex-col gap-2.5">
-      <div role="radiogroup" aria-labelledby={`${groupId}-legend`} className="flex flex-wrap gap-2">
-        <span id={`${groupId}-legend`} className="sr-only">
-          Iteration container label
-        </span>
+    <fieldset className="flex flex-col gap-2.5 border-0 p-0 m-0">
+      <legend className="sr-only">Iteration terminology</legend>
+      <div className="flex flex-wrap gap-2">
         {PRESETS.map((preset) => {
           const selected = !isCustom && value.trim() === preset;
           return (
-            <button
-              key={preset}
-              type="button"
-              role="radio"
-              aria-checked={selected}
-              onClick={() => selectPreset(preset)}
-              className={chip(selected)}
-            >
+            <label key={preset} className={chipClass(selected)}>
+              <input
+                type="radio"
+                name={groupName}
+                className="sr-only"
+                checked={selected}
+                onChange={() => selectPreset(preset)}
+              />
               {preset}
-            </button>
+            </label>
           );
         })}
-        <button
-          type="button"
-          role="radio"
-          aria-checked={isCustom}
-          onClick={selectCustom}
-          className={chip(isCustom)}
-        >
+        <label className={chipClass(isCustom)}>
+          <input
+            type="radio"
+            name={groupName}
+            className="sr-only"
+            checked={isCustom}
+            onChange={selectCustom}
+          />
           Custom…
-        </button>
+        </label>
       </div>
 
       {isCustom && (
@@ -104,14 +106,13 @@ export function IterationLabelField({ value, onChange }: IterationLabelFieldProp
           <div className="flex items-center gap-2">
             <input
               ref={inputRef}
-              id={inputId}
               type="text"
               value={value}
               maxLength={MAX_LEN}
               onChange={(e) => onChange(e.target.value)}
               onBlur={(e) => onChange(e.target.value.trim())}
               aria-label="Custom iteration label"
-              aria-invalid={customEmpty}
+              aria-invalid={customEmpty ? 'true' : undefined}
               aria-describedby={`${previewId}${customEmpty ? ` ${errorId}` : ''}`}
               placeholder="e.g. Cycle"
               className="w-[200px] h-8 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
@@ -136,6 +137,6 @@ export function IterationLabelField({ value, onChange }: IterationLabelFieldProp
         {' · '}
         <span className="text-neutral-text-primary font-medium">Last 8 {forms.lowerPlural}</span>
       </p>
-    </div>
+    </fieldset>
   );
 }
