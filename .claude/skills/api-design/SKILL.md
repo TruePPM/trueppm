@@ -33,6 +33,10 @@ You design APIs for TruePPM following these rules:
 7. Rate limit tier (standard: 100/min, bulk: 10/min, heavy: 5/min)
 8. OSS or Enterprise? (check CLAUDE.md boundary rules)
 
+## Schema Fidelity (verify before finalizing any endpoint)
+- **Response-transforming views need a matching `@extend_schema` override** — if a view returns a body that diverges from its declared serializer (popping a field, renaming it, relocating it — e.g. moving a value into a cookie or a `meta` envelope), the generated schema still advertises the declared shape. That divergence breaks every schema-driven client (the TypeScript types, the MCP tool catalog). Any view whose actual response differs from its serializer must carry an `@extend_schema(responses=...)` that describes the *real* body.
+- **Every new `@action` needs `@extend_schema`** — a bare `@action` (no `@extend_schema`) produces a null-summary, untyped stub in generated clients and the MCP tool catalog. Each new action must declare its operation id, request body type, and response type so it surfaces as a usable, named operation downstream.
+
 ## Sync Endpoints (Mobile)
 - `GET /api/v1/sync/pull?last_version={n}&scope={my_tasks|my_projects|full}`
   Returns all records with server_version > n, scoped to user's access.

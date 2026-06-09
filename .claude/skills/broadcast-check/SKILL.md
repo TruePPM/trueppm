@@ -90,6 +90,9 @@ Checklist:
 - [ ] Baseline create/restore broadcasts all affected task dates
 - [ ] Member add/remove broadcasts a `project.membership.changed` event
 
+### Event ↔ Frontend Handler Pairing
+- [ ] **Every newly-emitted event type has a registered frontend handler — and every handler maps to an emitter (bidirectional)** — an event the backend fires that the frontend never handles is a silently-dropped update, not just a "missing broadcast"; a handler listening for an event nothing emits is dead code that masks the real event name. Check the socket-handler registry in the project websocket hook under `packages/web/src` and confirm each new backend event type has a matching handler, and that no handler references an event type that no backend path emits. A name mismatch (`project.task.updated` emitted vs `task.updated` handled) is a finding under this check.
+
 ## Output Format
 
 State the verdict: **PASS**, **FAIL**, or **NEEDS REVIEW**.

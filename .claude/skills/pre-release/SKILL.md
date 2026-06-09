@@ -399,7 +399,7 @@ After the report:
    - **Untracked** — no open or closed match. Offer to create an issue (see step 3).
 
 3. For untracked findings, offer to create issues:
-   - 🔴 findings introduced in $WORKING_RELEASE → milestone: **$WORKING_RELEASE**, label: **$WORKING_RELEASE**, priority::P0
+   - 🔴 findings introduced in $WORKING_RELEASE → milestone: **$WORKING_RELEASE**, labels: **$WORKING_RELEASE**, `critical` + `priority::high` (the high-tier priority label is `priority::P1`)
    - 🟡 findings against $WORKING_RELEASE → milestone: **$WORKING_RELEASE**, label: **$WORKING_RELEASE**
    - Already-shipped contract issues needing a major bump → milestone: **next open major milestone** (e.g. `1.0` if currently pre-1.0, `2.0` if currently 1.x), label: that major milestone
    - All findings go under the current working milestone unless they genuinely require a major bump to fix — **do not use generic labels like `post-1.0`**; always name the specific target milestone
