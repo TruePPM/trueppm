@@ -56,6 +56,7 @@ import { useCurrentUserResourceId } from '@/hooks/useCurrentUserResourceId';
 import { useBoardKeyboard } from '@/hooks/useBoardKeyboard';
 import { useBoardOverallocation } from '@/hooks/useBoardOverallocation';
 import { type BoardSortKey, type BoardViewConfig } from '@/hooks/useBoardSavedViews';
+import { wipState } from './wip';
 import { useTaskDependencies } from '@/hooks/useTaskDependencies';
 import { useQueryClient } from '@tanstack/react-query';
 import { useWorkshopSession, useStartWorkshop, useEndWorkshop } from '@/hooks/useWorkshopSession';
@@ -252,14 +253,6 @@ function WipBadge({ count, limit }: WipBadgeProps) {
   );
 }
 
-/** Returns the wip-state band for a column header / badge. */
-type WipState = 'under' | 'at' | 'over' | 'none';
-function wipState(count: number, limit: number | null | undefined): WipState {
-  if (limit == null) return 'none';
-  if (count > limit) return 'over';
-  if (count >= limit) return 'at';
-  return 'under';
-}
 
 /**
  * Confirm-prompt guard for moving a task into a column at or over its WIP

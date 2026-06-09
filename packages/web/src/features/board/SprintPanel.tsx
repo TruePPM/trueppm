@@ -8,6 +8,7 @@ import {
   sprintDayOf,
 } from '@/features/sprints/sprintMath';
 import { VelocitySparkline } from '@/features/sprints/VelocitySparkline';
+import { wipState } from '@/features/board/wip';
 import {
   useActiveSprint,
   useProjectVelocity,
@@ -234,30 +235,40 @@ interface WipChipProps {
 }
 
 /**
- * Header-band WIP chip (#546): "WIP {count}/{limit}". Neutral while the
- * in-flight count is within the limit; at-risk color once it exceeds it —
- * Alex's "surface WIP overload before it's a team-health problem" signal.
- * Clicking expands the panel so the inline WIP editor is reachable. Rendered
- * only when ``Sprint.wip_limit`` is set (the caller suppresses it otherwise).
+ * Header-band WIP chip (#546): "WIP {count}/{limit}". Uses the shared
+ * three-band {@link wipState} so the same count/limit state reads identically
+ * here and on the board column badges (#232): neutral under the limit, at-risk
+ * amber AT the limit, critical red OVER it — Alex's "surface WIP overload
+ * before it's a team-health problem" signal. Clicking expands the panel so the
+ * inline editor is reachable. Rendered only when ``Sprint.wip_limit`` is set.
  */
 function WipChip({ count, limit, onClick }: WipChipProps) {
-  const over = count > limit;
+  const state = wipState(count, limit);
+  const flagged = state === 'at' || state === 'over';
+  const colorClass =
+    state === 'over'
+      ? 'text-semantic-critical font-semibold'
+      : state === 'at'
+        ? 'text-semantic-at-risk font-semibold'
+        : 'text-neutral-text-secondary';
   return (
     <button
       type="button"
       onClick={onClick}
       data-testid="sprint-wip-chip"
       aria-label={
-        over
+        state === 'over'
           ? `WIP over limit: ${count} in progress, limit ${limit}`
-          : `WIP within limit: ${count} in progress, limit ${limit}`
+          : state === 'at'
+            ? `WIP at limit: ${count} in progress, limit ${limit}`
+            : `WIP within limit: ${count} in progress, limit ${limit}`
       }
       className={`tppm-mono inline-flex items-center gap-1 rounded px-1 -mx-1
         focus-visible:ring-2 focus-visible:ring-brand-primary
         focus-visible:ring-offset-1 focus-visible:outline-none hover:bg-chrome-row-hover
-        ${over ? 'text-semantic-at-risk font-semibold' : 'text-neutral-text-secondary'}`}
+        ${colorClass}`}
     >
-      {over && <span aria-hidden="true">⚠</span>}
+      {flagged && <span aria-hidden="true">⚠</span>}
       WIP {count}/{limit}
     </button>
   );
@@ -494,7 +505,7 @@ function WipCard({ sprint, canEdit, isSaving, onSave }: WipCardProps) {
   // cleanly as "limit set" vs "not set".
   const limit = sprint.wip_limit ?? null;
   const count = sprint.wip_count ?? 0;
-  const over = limit !== null && count > limit;
+  const state = wipState(count, limit);
 
   const startEdit = () => {
     if (!canEdit) return;
@@ -595,13 +606,17 @@ function WipCard({ sprint, canEdit, isSaving, onSave }: WipCardProps) {
           {count}
         </span>
       </p>
-      {over && (
+      {(state === 'at' || state === 'over') && (
         <p
-          className="mt-2 text-xs flex items-center gap-1 text-semantic-at-risk"
+          className={`mt-2 text-xs flex items-center gap-1 ${
+            state === 'over' ? 'text-semantic-critical' : 'text-semantic-at-risk'
+          }`}
           aria-live="polite"
         >
           <span aria-hidden="true">⚠</span>
-          <span>Over WIP by {count - (limit ?? 0)}</span>
+          <span>
+            {state === 'over' ? `Over WIP by ${count - (limit ?? 0)}` : 'At WIP limit'}
+          </span>
         </p>
       )}
     </div>

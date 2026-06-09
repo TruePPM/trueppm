@@ -225,17 +225,28 @@ describe('SprintPanel WIP limit (#546)', () => {
     const chip = screen.getByTestId('sprint-wip-chip');
     expect(chip).toHaveTextContent('WIP 3/5');
     expect(chip).toHaveAttribute('aria-label', expect.stringMatching(/within limit/i));
-    expect(chip.className).not.toMatch(/at-risk/);
+    expect(chip.className).not.toMatch(/at-risk|critical/);
   });
 
-  it('flips the WIP chip to at-risk when count exceeds the limit', () => {
+  it('shows the WIP chip at-risk (amber) when count equals the limit', () => {
+    renderPanel({
+      sprint: makeSprint({ state: 'ACTIVE', wip_limit: 5, wip_count: 5 }),
+    });
+    const chip = screen.getByTestId('sprint-wip-chip');
+    expect(chip).toHaveTextContent('WIP 5/5');
+    expect(chip).toHaveAttribute('aria-label', expect.stringMatching(/at limit/i));
+    expect(chip.className).toMatch(/at-risk/);
+    expect(chip.className).not.toMatch(/critical/);
+  });
+
+  it('flips the WIP chip to critical (red) when count exceeds the limit', () => {
     renderPanel({
       sprint: makeSprint({ state: 'ACTIVE', wip_limit: 4, wip_count: 6 }),
     });
     const chip = screen.getByTestId('sprint-wip-chip');
     expect(chip).toHaveTextContent('WIP 6/4');
     expect(chip).toHaveAttribute('aria-label', expect.stringMatching(/over limit/i));
-    expect(chip.className).toMatch(/at-risk/);
+    expect(chip.className).toMatch(/critical/);
   });
 
   it('SCHEDULER+ can set a WIP limit and it saves wip_limit', () => {
