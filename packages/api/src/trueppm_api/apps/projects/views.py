@@ -5327,7 +5327,19 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
             pending_count=db_models.Count(
                 "tasks",
                 filter=db_models.Q(tasks__sprint_pending=True, tasks__is_deleted=False),
-            )
+            ),
+            # #546: in-flight task count for the SprintPanel WIP chip. IN_PROGRESS
+            # + REVIEW are the in-flight columns (the two carrying default
+            # per-column WIP limits). Both filtered Counts target the same
+            # ``tasks`` relation, so Django reuses one LEFT JOIN with two
+            # conditional aggregates — no row fan-out between them.
+            wip_count=db_models.Count(
+                "tasks",
+                filter=db_models.Q(
+                    tasks__status__in=(TaskStatus.IN_PROGRESS, TaskStatus.REVIEW),
+                    tasks__is_deleted=False,
+                ),
+            ),
         )
         return cast(QuerySet[Sprint], qs)
 

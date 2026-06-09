@@ -42,6 +42,7 @@ function makeSprint(overrides: Partial<ApiSprint> = {}): ApiSprint {
     target_milestone: null,
     target_milestone_detail: null,
     capacity_points: 34,
+    wip_limit: null,
     committed_points: 34,
     committed_task_count: 8,
     completed_points: 10,

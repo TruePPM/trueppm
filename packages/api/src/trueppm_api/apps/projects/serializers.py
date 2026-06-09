@@ -2550,6 +2550,7 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
     completion_ratio_tasks = serializers.SerializerMethodField()
     target_milestone_detail = serializers.SerializerMethodField()
     pending_count = serializers.SerializerMethodField()
+    wip_count = serializers.SerializerMethodField()
 
     def get_short_id_display(self, obj: Sprint) -> str:
         """Return the human-facing form ``SP-XXXXXXXX`` of the short id."""
@@ -2570,6 +2571,27 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
         from trueppm_api.apps.projects.models import Task
 
         return Task.objects.filter(sprint_id=obj.pk, sprint_pending=True, is_deleted=False).count()
+
+    def get_wip_count(self, obj: Sprint) -> int:
+        """Number of in-flight tasks in this sprint (#546).
+
+        Drives the SprintPanel WIP chip "WIP {wip_count}/{wip_limit}".
+        "In flight" is the IN_PROGRESS + REVIEW pair — the two columns that
+        carry per-column WIP limits by default — not BACKLOG/NOT_STARTED/COMPLETE.
+        Prefers the ``wip_count`` annotation set on the list/detail queryset to
+        avoid an N+1; falls back to a single COUNT for the activate/close/cancel
+        actions that build the instance outside that queryset.
+        """
+        annotated = getattr(obj, "wip_count", None)
+        if annotated is not None:
+            return int(annotated)
+        from trueppm_api.apps.projects.models import Task, TaskStatus
+
+        return Task.objects.filter(
+            sprint_id=obj.pk,
+            is_deleted=False,
+            status__in=(TaskStatus.IN_PROGRESS, TaskStatus.REVIEW),
+        ).count()
 
     def get_completion_ratio_points(self, obj: Sprint) -> float | None:
         committed = obj.committed_points or 0
@@ -2650,37 +2672,44 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
                 raise serializers.ValidationError(
                     f"Sprint is {self.instance.state}; cannot modify {sorted(mutating)}."
                 )
-        if (
-            self.instance
-            and self.instance.state in {SprintState.COMPLETED, SprintState.CANCELLED}
-            and "capacity_points" in attrs
-        ):
-            raise serializers.ValidationError(
-                {
-                    "capacity_points": (
-                        f"Sprint is {self.instance.state}; capacity_points is locked."
-                    )
-                }
-            )
-        # capacity_points is the team's planning target, owned by the Scrum
-        # Master / lead — not a per-contributor field (ADR-0073 sovereignty
-        # rule). Field-level RBAC: SCHEDULER+ writes only. The viewset's
-        # IsProjectMemberWrite gate still applies to every other field; this
-        # check is layered on top for capacity_points specifically.
-        if "capacity_points" in attrs and self.instance is not None:
+        # capacity_points and wip_limit are the team's planning knobs (ADR-0073;
+        # #546). Both stay revisable mid-sprint (PLANNED + ACTIVE) as the team
+        # changes, and both lock once the sprint is COMPLETED or CANCELLED — the
+        # snapshot is the historical record at that point.
+        if self.instance and self.instance.state in {SprintState.COMPLETED, SprintState.CANCELLED}:
+            locked = {f for f in ("capacity_points", "wip_limit") if f in attrs}
+            if locked:
+                raise serializers.ValidationError(
+                    {
+                        field: f"Sprint is {self.instance.state}; {field} is locked."
+                        for field in locked
+                    }
+                )
+        # capacity_points / wip_limit are owned by the Scrum Master / lead — not
+        # per-contributor fields (ADR-0073 sovereignty rule). Field-level RBAC:
+        # SCHEDULER+ writes only. The viewset's IsProjectMemberWrite gate still
+        # applies to every other field; this check is layered on top for these
+        # two planning knobs specifically.
+        planning_fields = {f for f in ("capacity_points", "wip_limit") if f in attrs}
+        if planning_fields and self.instance is not None:
             from trueppm_api.apps.access.models import ProjectMembership, Role
 
             request = self.context.get("request")
             user = getattr(request, "user", None) if request else None
             if user is None or not getattr(user, "is_authenticated", False):
-                raise serializers.ValidationError({"capacity_points": "Authentication required."})
+                raise serializers.ValidationError(
+                    {field: "Authentication required." for field in planning_fields}
+                )
             membership = ProjectMembership.objects.filter(
                 project_id=self.instance.project_id,
                 user=user,
             ).first()
             if membership is None or membership.role < Role.SCHEDULER:
                 raise serializers.ValidationError(
-                    {"capacity_points": ("Only Scheduler+ may set sprint capacity.")}
+                    {
+                        field: "Only Scheduler+ may set sprint capacity / WIP limit."
+                        for field in planning_fields
+                    }
                 )
         return attrs
 
@@ -2704,6 +2733,7 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
             "milestone_bound_at",
             "binding_committed_snapshot",
             "capacity_points",
+            "wip_limit",
             "committed_points",
             "committed_task_count",
             "completed_points",
@@ -2711,6 +2741,7 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
             "completion_ratio_points",
             "completion_ratio_tasks",
             "pending_count",
+            "wip_count",
             "activated_at",
             "closed_at",
             "created_by",
@@ -2737,6 +2768,7 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
             "completion_ratio_points",
             "completion_ratio_tasks",
             "pending_count",
+            "wip_count",
             "activated_at",
             "closed_at",
             "created_by",

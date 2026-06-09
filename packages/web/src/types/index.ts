@@ -352,6 +352,14 @@ export interface ApiSprint {
    * Distinct from committed_points (snapshot of the backlog at activation).
    */
   capacity_points: number | null;
+  /**
+   * Optional WIP-overload threshold for the sprint (#546). Writable by
+   * SCHEDULER+ on PLANNED and ACTIVE sprints; locked on COMPLETED and
+   * CANCELLED — same field-level gate as capacity_points. Null = no limit set
+   * (the SprintPanel WIP chip is suppressed). The cheap per-sprint signal, not
+   * a flow engine — per-column WIP limits live on BoardColumnConfig.
+   */
+  wip_limit: number | null;
   committed_points: number | null;
   committed_task_count: number | null;
   /**
@@ -363,6 +371,14 @@ export interface ApiSprint {
    * the type (so legacy fixtures need not set it); the API always sends it and
    * consumers read it with `?? 0`. */
   pending_count?: number;
+  /**
+   * Count of in-flight tasks in this sprint (#546) — status IN_PROGRESS or
+   * REVIEW. Annotated on every sprint payload. Drives the SprintPanel WIP chip
+   * "WIP {wip_count}/{wip_limit}". Optional in the type so legacy
+   * fixtures need not set it; the API always sends it, consumers read with
+   * `?? 0`.
+   */
+  wip_count?: number;
   completed_points: number | null;
   completed_task_count: number | null;
   completion_ratio_points: number | null;

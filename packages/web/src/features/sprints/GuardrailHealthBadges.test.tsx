@@ -39,6 +39,7 @@ function sprint(id: string): ApiSprint {
     target_milestone: null,
     target_milestone_detail: null,
     capacity_points: null,
+    wip_limit: null,
     committed_points: null,
     committed_task_count: null,
     completed_points: null,

@@ -21792,6 +21792,12 @@
                         "maximum": 2147483647,
                         "minimum": 0,
                         "nullable": true
+                    },
+                    "wip_limit": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "nullable": true
                     }
                 }
             },
@@ -24487,6 +24493,12 @@
                         "minimum": 0,
                         "nullable": true
                     },
+                    "wip_limit": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "nullable": true
+                    },
                     "committed_points": {
                         "type": "integer",
                         "readOnly": true,
@@ -24522,6 +24534,11 @@
                     "pending_count": {
                         "type": "integer",
                         "description": "Number of tasks pending acceptance in this sprint (ADR-0102 §5).\n\nDrives the \"Forecast reflects accepted scope only — N items pending\"\ncopy. Prefers the ``pending_count`` annotation set on the list/detail\nqueryset (SprintViewSet.get_queryset) to avoid an N+1; falls back to a\nsingle COUNT for callers that build the sprint outside that queryset\n(the activate/close/cancel actions construct the instance directly).",
+                        "readOnly": true
+                    },
+                    "wip_count": {
+                        "type": "integer",
+                        "description": "Number of in-flight tasks in this sprint (#546).\n\nDrives the SprintPanel WIP chip \"WIP {wip_count}/{wip_limit}\".\n\"In flight\" is the IN_PROGRESS + REVIEW pair — the two columns that\ncarry per-column WIP limits by default — not BACKLOG/NOT_STARTED/COMPLETE.\nPrefers the ``wip_count`` annotation set on the list/detail queryset to\navoid an N+1; falls back to a single COUNT for the activate/close/cancel\nactions that build the instance outside that queryset.",
                         "readOnly": true
                     },
                     "activated_at": {
@@ -24577,7 +24594,8 @@
                     "start_date",
                     "state",
                     "target_milestone_detail",
-                    "updated_at"
+                    "updated_at",
+                    "wip_count"
                 ]
             },
             "SprintRequest": {
@@ -24610,6 +24628,12 @@
                         "description": "Optional milestone task this sprint progresses toward."
                     },
                     "capacity_points": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "wip_limit": {
                         "type": "integer",
                         "maximum": 2147483647,
                         "minimum": 0,
