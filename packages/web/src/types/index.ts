@@ -374,7 +374,7 @@ export interface ApiSprint {
   /**
    * Count of in-flight tasks in this sprint (#546) — status IN_PROGRESS or
    * REVIEW. Annotated on every sprint payload. Drives the SprintPanel WIP chip
-   * "WIP: {wip_count} / limit {wip_limit}". Optional in the type so legacy
+   * "WIP {wip_count}/{wip_limit}". Optional in the type so legacy
    * fixtures need not set it; the API always sends it, consumers read with
    * `?? 0`.
    */

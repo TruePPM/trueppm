@@ -2575,7 +2575,7 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
     def get_wip_count(self, obj: Sprint) -> int:
         """Number of in-flight tasks in this sprint (#546).
 
-        Drives the SprintPanel WIP chip "WIP: {wip_count} / limit {wip_limit}".
+        Drives the SprintPanel WIP chip "WIP {wip_count}/{wip_limit}".
         "In flight" is the IN_PROGRESS + REVIEW pair — the two columns that
         carry per-column WIP limits by default — not BACKLOG/NOT_STARTED/COMPLETE.
         Prefers the ``wip_count`` annotation set on the list/detail queryset to

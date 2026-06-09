@@ -24538,7 +24538,7 @@
                     },
                     "wip_count": {
                         "type": "integer",
-                        "description": "Number of in-flight tasks in this sprint (#546).\n\nDrives the SprintPanel WIP chip \"WIP: {wip_count} / limit {wip_limit}\".\n\"In flight\" is the IN_PROGRESS + REVIEW pair — the two columns that\ncarry per-column WIP limits by default — not BACKLOG/NOT_STARTED/COMPLETE.\nPrefers the ``wip_count`` annotation set on the list/detail queryset to\navoid an N+1; falls back to a single COUNT for the activate/close/cancel\nactions that build the instance outside that queryset.",
+                        "description": "Number of in-flight tasks in this sprint (#546).\n\nDrives the SprintPanel WIP chip \"WIP {wip_count}/{wip_limit}\".\n\"In flight\" is the IN_PROGRESS + REVIEW pair — the two columns that\ncarry per-column WIP limits by default — not BACKLOG/NOT_STARTED/COMPLETE.\nPrefers the ``wip_count`` annotation set on the list/detail queryset to\navoid an N+1; falls back to a single COUNT for the activate/close/cancel\nactions that build the instance outside that queryset.",
                         "readOnly": true
                     },
                     "activated_at": {

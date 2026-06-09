@@ -2023,7 +2023,7 @@ class Sprint(VersionedModel):
     # size in points and for sprints created before ADR-0073.
     capacity_points = models.PositiveIntegerField(null=True, blank=True)
     # Optional WIP-overload threshold for the active sprint (#546). The
-    # SprintPanel header surfaces "WIP: {in-progress count} / limit {wip_limit}"
+    # SprintPanel header surfaces "WIP {in-progress count}/{wip_limit}"
     # and flips to an at-risk color once the in-progress count exceeds it. This
     # is the cheap per-sprint signal, NOT a flow engine — per-column WIP limits
     # (BoardColumnConfig.wip_limit) and Kanban delivery_mode (#410) are separate.
