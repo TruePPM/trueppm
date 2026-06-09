@@ -6242,13 +6242,15 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
 class SprintScopeChangeViewSet(IdempotencyMixin, viewsets.GenericViewSet[Any]):
     """Single-item accept/reject for mid-sprint scope injections (ADR-0102 §5).
 
-    ``POST /api/v1/scope-changes/{id}/accept/`` and ``/reject/``. Permission is
-    enforced entirely in the service layer (``_assert_scope_gate``): the actor
-    must hold a real ProjectMembership at role>=ADMIN on the scope-change's task's
-    project. A non-member (the only way an org/PMO principal arrives) is 403
-    ``scope_accept_forbidden`` *regardless of role ordinal* — closing the
-    Enterprise back-door (VoC 🔴 #1) at the OSS boundary. There is no auto-accept
-    path: these two actions are the only writers of ACCEPTED/REJECTED.
+    ``POST /api/v1/scope-changes/{id}/accept/`` and ``/reject/``. Authorization is
+    layered: ``get_queryset`` first scopes to the caller's member projects, so a
+    non-member gets a uniform 404 (no 403-vs-404 existence oracle, #996). The
+    service-layer gate (``_assert_scope_gate``) then requires a real
+    ProjectMembership at role>=ADMIN on the scope-change's task's project, so a
+    member below ADMIN gets 403 ``scope_accept_forbidden`` *regardless of role
+    ordinal* — closing the Enterprise back-door (VoC 🔴 #1) at the OSS boundary.
+    There is no auto-accept path: these two actions are the only writers of
+    ACCEPTED/REJECTED.
     """
 
     # permission_classes is intentionally just IsAuthenticated: every action
