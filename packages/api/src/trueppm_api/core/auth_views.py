@@ -81,6 +81,18 @@ def _clear_refresh_cookie(response: Response) -> None:
     )
 
 
+class _LoginResponseSerializer(serializers.Serializer):  # type: ignore[type-arg]
+    """Login response shape: the access token only.
+
+    The refresh token is intentionally absent from the body — it is delivered as
+    an httpOnly cookie (#897). Declared explicitly so drf-spectacular does not
+    emit simplejwt's default ``TokenObtainPair`` schema, which still claims a
+    required ``refresh`` field this view never returns (#997).
+    """
+
+    access = serializers.CharField()
+
+
 class CookieTokenObtainPairView(TokenObtainPairView):
     """JWT login: return the access token in the body, refresh in an httpOnly cookie.
 
@@ -95,6 +107,17 @@ class CookieTokenObtainPairView(TokenObtainPairView):
     throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "login"
 
+    @extend_schema(
+        summary="Log in and obtain a JWT access token",
+        description=(
+            "Returns the short-lived **access** token in the JSON body. The "
+            "long-lived **refresh** token is set as an httpOnly, Secure, "
+            "SameSite=Strict cookie scoped to the refresh endpoint; it is never "
+            "present in the response body (#897)."
+        ),
+        request=TokenObtainPairSerializer,
+        responses={200: _LoginResponseSerializer},
+    )
     def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         serializer = TokenObtainPairSerializer(data=request.data)
         try:

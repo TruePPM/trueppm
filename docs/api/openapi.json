@@ -561,7 +561,8 @@
         "/api/v1/auth/token/": {
             "post": {
                 "operationId": "v1_auth_token_create",
-                "description": "JWT login: return the access token in the body, refresh in an httpOnly cookie.\n\nThrottled with the scoped ``login`` rate (#770) to bound password guessing.\nThe refresh token is *removed* from the JSON response body and set as a\nhardened cookie instead, so a successful login response no longer carries the\nlong-lived credential anywhere JavaScript can read it (#897).",
+                "description": "Returns the short-lived **access** token in the JSON body. The long-lived **refresh** token is set as an httpOnly, Secure, SameSite=Strict cookie scoped to the refresh endpoint; it is never present in the response body (#897).",
+                "summary": "Log in and obtain a JWT access token",
                 "tags": [
                     "v1"
                 ],
@@ -590,7 +591,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/TokenObtainPair"
+                                    "$ref": "#/components/schemas/_LoginResponse"
                                 }
                             }
                         },
@@ -26285,23 +26286,6 @@
                 "type": "string",
                 "description": "* `member` - Member\n* `admin` - Admin"
             },
-            "TokenObtainPair": {
-                "type": "object",
-                "properties": {
-                    "access": {
-                        "type": "string",
-                        "readOnly": true
-                    },
-                    "refresh": {
-                        "type": "string",
-                        "readOnly": true
-                    }
-                },
-                "required": [
-                    "access",
-                    "refresh"
-                ]
-            },
             "TokenObtainPairRequest": {
                 "type": "object",
                 "properties": {
@@ -26919,6 +26903,18 @@
             "_CookieRefreshResponse": {
                 "type": "object",
                 "description": "Response shape for the cookie-based refresh endpoint (access token only).",
+                "properties": {
+                    "access": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "access"
+                ]
+            },
+            "_LoginResponse": {
+                "type": "object",
+                "description": "Login response shape: the access token only.\n\nThe refresh token is intentionally absent from the body — it is delivered as\nan httpOnly cookie (#897). Declared explicitly so drf-spectacular does not\nemit simplejwt's default ``TokenObtainPair`` schema, which still claims a\nrequired ``refresh`` field this view never returns (#997).",
                 "properties": {
                     "access": {
                         "type": "string"
