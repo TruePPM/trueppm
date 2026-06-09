@@ -2685,20 +2685,24 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
                         for field in locked
                     }
                 )
-        # capacity_points / wip_limit are owned by the Scrum Master / lead — not
-        # per-contributor fields (ADR-0073 sovereignty rule). Field-level RBAC:
-        # SCHEDULER+ writes only. The viewset's IsProjectMemberWrite gate still
-        # applies to every other field; this check is layered on top for these
-        # two planning knobs specifically.
-        planning_fields = {f for f in ("capacity_points", "wip_limit") if f in attrs}
-        if planning_fields and self.instance is not None:
+        # capacity_points / wip_limit / goal_outcome are owned by the Scrum
+        # Master / lead — not per-contributor fields (ADR-0073 sovereignty rule).
+        # Field-level RBAC: SCHEDULER+ writes only. The viewset's
+        # IsProjectMemberWrite gate still applies to every other field; this check
+        # is layered on top for these team-owned fields. NOTE goal_outcome is
+        # SCHEDULER+-gated but deliberately NOT in the COMPLETED/CANCELLED lock
+        # above — it is the *post-close* verdict and stays editable after close.
+        scheduler_fields = {
+            f for f in ("capacity_points", "wip_limit", "goal_outcome") if f in attrs
+        }
+        if scheduler_fields and self.instance is not None:
             from trueppm_api.apps.access.models import ProjectMembership, Role
 
             request = self.context.get("request")
             user = getattr(request, "user", None) if request else None
             if user is None or not getattr(user, "is_authenticated", False):
                 raise serializers.ValidationError(
-                    {field: "Authentication required." for field in planning_fields}
+                    {field: "Authentication required." for field in scheduler_fields}
                 )
             membership = ProjectMembership.objects.filter(
                 project_id=self.instance.project_id,
@@ -2707,8 +2711,8 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
             if membership is None or membership.role < Role.SCHEDULER:
                 raise serializers.ValidationError(
                     {
-                        field: "Only Scheduler+ may set sprint capacity / WIP limit."
-                        for field in planning_fields
+                        field: "Only Scheduler+ may set this sprint field."
+                        for field in scheduler_fields
                     }
                 )
         return attrs
@@ -2734,6 +2738,7 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
             "binding_committed_snapshot",
             "capacity_points",
             "wip_limit",
+            "goal_outcome",
             "committed_points",
             "committed_task_count",
             "completed_points",
@@ -2797,13 +2802,19 @@ class SprintBurnSnapshotSerializer(serializers.ModelSerializer[SprintBurnSnapsho
 class SprintBurndownSerializer(serializers.Serializer[dict[str, Any]]):
     """Composite payload for ``GET /api/sprints/{id}/burndown/``.
 
-    Returns the sprint metadata and the list of actual burn snapshots. The
-    ideal line is computed client-side from ``committed_points`` and the
-    sprint date range — server returns only actual data points (ADR-0037 Q4).
+    Returns the sprint metadata, the actual burn snapshots, and the
+    server-computed burn pace (#984): ``burn_status`` (ahead / on_track / behind
+    / no_data), signed ``trend_points`` (positive = ahead of ideal), and
+    ``projected_finish_date``. The chart's ideal line is still drawn client-side
+    from ``committed_points`` + the date range (ADR-0037 Q4), but the pace
+    verdict is now a first-class server fact so MCP/mobile don't re-derive it.
     """
 
     sprint = SprintSerializer(read_only=True)
     snapshots = SprintBurnSnapshotSerializer(many=True, read_only=True)
+    burn_status = serializers.CharField(read_only=True)
+    trend_points = serializers.IntegerField(read_only=True, allow_null=True)
+    projected_finish_date = serializers.DateField(read_only=True, allow_null=True)
 
 
 class SprintCloseRequestSerializer(serializers.Serializer[dict[str, Any]]):

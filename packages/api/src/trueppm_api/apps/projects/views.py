@@ -5832,17 +5832,25 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
 
     @action(detail=True, methods=["get"])
     def burndown(self, request: Request, pk: str | None = None) -> Response:
-        """Return the sprint plus its actual burn snapshot series."""
+        """Return the sprint, its actual burn series, and the server-computed
+        burn pace (#984): burn_status + projected_finish_date, so MCP/mobile read
+        the pace verdict from REST instead of re-deriving it client-side."""
+        from trueppm_api.apps.projects.services import compute_sprint_burn_status
+
         sprint = get_object_or_404(
             Sprint.objects.select_related("project", "created_by"),
             pk=pk,
             is_deleted=False,
         )
         self.check_object_permissions(request, sprint)
-        snapshots = sprint.burn_snapshots.all().order_by("snapshot_date")
+        snapshot_list = list(sprint.burn_snapshots.all().order_by("snapshot_date"))
+        burn = compute_sprint_burn_status(sprint, snapshot_list)
         payload = {
             "sprint": SprintSerializer(sprint).data,
-            "snapshots": SprintBurnSnapshotSerializer(snapshots, many=True).data,
+            "snapshots": SprintBurnSnapshotSerializer(snapshot_list, many=True).data,
+            "burn_status": burn["burn_status"],
+            "trend_points": burn["trend_points"],
+            "projected_finish_date": burn["projected_finish_date"],
         }
         return Response(payload, status=status.HTTP_200_OK)
 

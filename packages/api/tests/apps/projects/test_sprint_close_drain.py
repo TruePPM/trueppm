@@ -391,6 +391,54 @@ def test_snapshot_outcomes_is_idempotent(project: Project) -> None:
     assert SprintTaskOutcome.objects.filter(sprint=s).count() == 2
 
 
+# ---------------------------------------------------------------------------
+# goal_outcome defaulted at close (#983)
+# ---------------------------------------------------------------------------
+
+
+@patch("trueppm_api.apps.sync.broadcast.broadcast_board_event")
+def test_goal_outcome_met_at_close(_broadcast: object, project: Project) -> None:
+    s = _make_active_sprint(project)  # committed_points=10
+    Task.objects.create(
+        project=project, name="D", duration=1, sprint=s, story_points=8, status=TaskStatus.COMPLETE
+    )
+    req = SprintCloseRequest.objects.create(sprint=s, carry_over_to="backlog")
+    close_sprint.run(str(req.id))
+    s.refresh_from_db()
+    assert s.completed_points == 8  # 8/10 = 0.8
+    assert s.goal_outcome == "MET"
+
+
+@patch("trueppm_api.apps.sync.broadcast.broadcast_board_event")
+def test_goal_outcome_missed_at_close(_broadcast: object, project: Project) -> None:
+    s = _make_active_sprint(project)  # committed_points=10
+    Task.objects.create(
+        project=project, name="D", duration=1, sprint=s, story_points=2, status=TaskStatus.COMPLETE
+    )
+    req = SprintCloseRequest.objects.create(sprint=s, carry_over_to="backlog")
+    close_sprint.run(str(req.id))
+    s.refresh_from_db()
+    assert s.goal_outcome == "MISSED"  # 2/10 = 0.2
+
+
+@patch("trueppm_api.apps.sync.broadcast.broadcast_board_event")
+def test_goal_outcome_null_without_commitment_baseline(
+    _broadcast: object, project: Project
+) -> None:
+    s = Sprint.objects.create(
+        project=project,
+        name="NoBaseline",
+        start_date=date(2026, 4, 1),
+        finish_date=date(2026, 4, 14),
+        state=SprintState.ACTIVE,
+        committed_points=0,
+    )
+    req = SprintCloseRequest.objects.create(sprint=s, carry_over_to="backlog")
+    close_sprint.run(str(req.id))
+    s.refresh_from_db()
+    assert s.goal_outcome is None
+
+
 @patch("trueppm_api.apps.projects.tasks.close_sprint.delay")
 def test_drain_dispatches_pending_rows(mock_delay: object, project: Project) -> None:
     s = _make_active_sprint(project)

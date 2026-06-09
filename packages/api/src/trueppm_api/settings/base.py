@@ -727,5 +727,10 @@ SPECTACULAR_SETTINGS = {
         # field cannot collide-and-rename it (project memory
         # project_drf_enum_name_collision).
         "SignalAudienceEnum": "trueppm_api.apps.projects.models.SignalAudience",
+        # #983: Sprint.goal_outcome (MET|PARTIAL|MISSED) is a new choice set; pin
+        # to a stable model-prefixed name so drf-spectacular does not rename
+        # existing components (same regression class as ScopeChangeStatus —
+        # project memory project_drf_enum_name_collision).
+        "SprintGoalOutcomeEnum": "trueppm_api.apps.projects.models.SprintGoalOutcome",
     },
 }

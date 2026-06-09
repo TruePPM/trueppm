@@ -14279,7 +14279,7 @@
         "/api/v1/sprints/{id}/burndown/": {
             "get": {
                 "operationId": "v1_sprints_burndown_retrieve",
-                "description": "Return the sprint plus its actual burn snapshot series.",
+                "description": "Return the sprint, its actual burn series, and the server-computed\nburn pace (#984): burn_status + projected_finish_date, so MCP/mobile read\nthe pace verdict from REST instead of re-deriving it client-side.",
                 "parameters": [
                     {
                         "in": "path",
@@ -21798,6 +21798,20 @@
                         "maximum": 2147483647,
                         "minimum": 0,
                         "nullable": true
+                    },
+                    "goal_outcome": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/SprintGoalOutcomeEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
                     }
                 }
             },
@@ -24499,6 +24513,20 @@
                         "minimum": 0,
                         "nullable": true
                     },
+                    "goal_outcome": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/SprintGoalOutcomeEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
                     "committed_points": {
                         "type": "integer",
                         "readOnly": true,
@@ -24598,6 +24626,15 @@
                     "wip_count"
                 ]
             },
+            "SprintGoalOutcomeEnum": {
+                "enum": [
+                    "MET",
+                    "PARTIAL",
+                    "MISSED"
+                ],
+                "type": "string",
+                "description": "* `MET` - Met\n* `PARTIAL` - Partially met\n* `MISSED` - Missed"
+            },
             "SprintRequest": {
                 "type": "object",
                 "description": "Read/write serializer for sprints.\n\nState, committed_*, completed_*, activated_at, closed_at are read-only —\nthey are written by the dedicated activate/close actions, not by PATCH.\n\ncompletion_ratio_* are computed from snapshotted committed/completed\nfields and only become non-null after sprint close.",
@@ -24638,6 +24675,20 @@
                         "maximum": 2147483647,
                         "minimum": 0,
                         "nullable": true
+                    },
+                    "goal_outcome": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/SprintGoalOutcomeEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
                     }
                 },
                 "required": [
