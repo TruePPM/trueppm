@@ -1,4 +1,5 @@
 import type { Task, ApiSprint } from '@/types';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 
 interface Props {
   /** All tasks in the current project. */
@@ -23,6 +24,7 @@ interface Props {
  * coach in the existing Sprints workspace.
  */
 export function GuardrailHealthBadges({ tasks, activeSprint }: Props) {
+  const itl = useIterationLabel();
   // "No sprint and no phase": a task with no sprint membership and no phase
   // ancestor (`wbs` lacks a dot — anything like "3.1" or deeper has a phase;
   // "3" *is* the phase; empty means unrooted). Recurring tasks and summary
@@ -63,14 +65,14 @@ export function GuardrailHealthBadges({ tasks, activeSprint }: Props) {
   if (orphanCount > 0) {
     items.push({
       key: 'orphan',
-      label: `${orphanCount} task${orphanCount === 1 ? '' : 's'} in no sprint and no phase`,
+      label: `${orphanCount} task${orphanCount === 1 ? '' : 's'} in no ${itl.lower} and no phase`,
       tone: 'info',
     });
   }
   if (activeSprintPhaseSpan >= 3) {
     items.push({
       key: 'span',
-      label: `Active sprint spans ${activeSprintPhaseSpan} phases`,
+      label: `Active ${itl.lower} spans ${activeSprintPhaseSpan} phases`,
       tone: 'info',
     });
   }
@@ -79,7 +81,7 @@ export function GuardrailHealthBadges({ tasks, activeSprint }: Props) {
     // "Parent task" is the term the rest of TruePPM uses for a task with children.
     items.push({
       key: 'summary',
-      label: `${summaryInSprintCount} parent task${summaryInSprintCount === 1 ? '' : 's'} in a sprint`,
+      label: `${summaryInSprintCount} parent task${summaryInSprintCount === 1 ? '' : 's'} in a ${itl.lower}`,
       tone: 'warn',
     });
   }
@@ -90,7 +92,7 @@ export function GuardrailHealthBadges({ tasks, activeSprint }: Props) {
     <div
       role="status"
       aria-live="polite"
-      aria-label="Sprint health signals"
+      aria-label={`${itl.singular} health signals`}
       className="flex flex-wrap items-center gap-1.5"
     >
       {items.map((it) => (

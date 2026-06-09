@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Task } from '@/types';
 import { useScopeChangeActions } from '@/hooks/useScopeChangeActions';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 
 /**
  * Right slide-over for reviewing mid-sprint scope-injection pending items
@@ -63,6 +64,7 @@ export function ScopePendingReviewPanel({
   offline = false,
   onClose,
 }: Props) {
+  const itl = useIterationLabel(projectId);
   const items = derivePending(tasks);
   const { acceptOne, rejectOne, acceptBulk, rejectBulk } = useScopeChangeActions(
     projectId,
@@ -118,7 +120,7 @@ export function ScopePendingReviewPanel({
             </h2>
             <p className="mt-0.5 text-xs text-neutral-text-secondary">
               <span className="tppm-mono">{items.length}</span> item
-              {items.length === 1 ? '' : 's'} added after the sprint started — not yet counted
+              {items.length === 1 ? '' : 's'} added after the {itl.lower} started — not yet counted
               in the commitment.
             </p>
           </div>
@@ -141,7 +143,7 @@ export function ScopePendingReviewPanel({
               role="status"
               className="px-4 py-8 text-center text-xs text-neutral-text-secondary"
             >
-              No items pending acceptance. Everything in this sprint is part of the commitment.
+              No items pending acceptance. Everything in this {itl.lower} is part of the commitment.
             </p>
           ) : (
             <ul className="divide-y divide-neutral-border/60">
@@ -152,7 +154,7 @@ export function ScopePendingReviewPanel({
                       {item.taskName}
                     </p>
                     {item.goalImpact && (
-                      <p className="text-xs text-neutral-text-secondary">Affects the sprint goal</p>
+                      <p className="text-xs text-neutral-text-secondary">Affects the {itl.lower} goal</p>
                     )}
                   </div>
                   <button
@@ -160,7 +162,7 @@ export function ScopePendingReviewPanel({
                     onClick={() => acceptOne.mutate(item.scopeChangeId)}
                     disabled={controlsDisabled}
                     title={offlineTitle}
-                    aria-label={`Accept ${item.taskName} into the sprint`}
+                    aria-label={`Accept ${item.taskName} into the ${itl.lower}`}
                     className="shrink-0 h-7 px-2 rounded text-xs font-medium
                       border border-brand-primary/40 text-brand-primary hover:bg-brand-primary/10
                       disabled:opacity-50 disabled:cursor-not-allowed
@@ -173,7 +175,7 @@ export function ScopePendingReviewPanel({
                     onClick={() => rejectOne.mutate(item.scopeChangeId)}
                     disabled={controlsDisabled}
                     title={offlineTitle}
-                    aria-label={`Reject ${item.taskName} and remove it from the sprint`}
+                    aria-label={`Reject ${item.taskName} and remove it from the ${itl.lower}`}
                     className="shrink-0 h-7 px-2 rounded text-xs font-medium
                       text-semantic-critical hover:bg-semantic-critical-bg
                       disabled:opacity-50 disabled:cursor-not-allowed
@@ -235,8 +237,8 @@ export function ScopePendingReviewPanel({
             </h3>
             <p className="text-xs text-neutral-text-secondary">
               {confirm === 'accept-all'
-                ? 'They join the sprint commitment and start counting toward burndown.'
-                : 'They are removed from the sprint. You can re-add any of them afterward.'}
+                ? `They join the ${itl.lower} commitment and start counting toward burndown.`
+                : `They are removed from the ${itl.lower}. You can re-add any of them afterward.`}
             </p>
             <div className="flex items-center justify-end gap-2 pt-1">
               <button

@@ -1,5 +1,6 @@
 import { useRef, useEffect, useState } from 'react';
 import { useProjectId } from '@/hooks/useProjectId';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useSprintsByState } from '@/hooks/useSprints';
 
 export interface MilestoneParent {
@@ -27,6 +28,7 @@ interface Props {
  */
 export function MilestoneDatePopover({ open, parents, onSelect, onClose }: Props) {
   const projectId = useProjectId() ?? null;
+  const itl = useIterationLabel(projectId);
   const { active: activeSprint } = useSprintsByState(projectId);
   const [showCustom, setShowCustom] = useState(false);
   const [customDate, setCustomDate] = useState('');
@@ -106,7 +108,7 @@ export function MilestoneDatePopover({ open, parents, onSelect, onClose }: Props
             onClose();
           }}
         >
-          End of sprint ({activeSprint.name})
+          End of {itl.lower} ({activeSprint.name})
         </button>
       )}
 

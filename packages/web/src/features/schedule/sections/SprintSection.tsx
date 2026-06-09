@@ -1,4 +1,5 @@
 import { type ChangeEvent, useState } from 'react';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useSprints } from '@/hooks/useSprints';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import {
@@ -29,6 +30,7 @@ const LABEL_CLASS =
  * renders an empty-state nudge toward the Sprints tab.
  */
 export function SprintSection({ taskId, projectId }: DrawerSectionProps) {
+  const itl = useIterationLabel(projectId);
   const { tasks } = useScheduleTasks();
   const task = tasks?.find((t) => t.id === taskId);
   const { sprints, isLoading } = useSprints(projectId);
@@ -97,16 +99,16 @@ export function SprintSection({ taskId, projectId }: DrawerSectionProps) {
   return (
     <div className="space-y-3">
       <div>
-        <div className={LABEL_CLASS}>Sprint</div>
+        <div className={LABEL_CLASS}>{itl.singular}</div>
         {isLoading ? (
-          <div className="h-9 rounded bg-neutral-surface-raised animate-pulse w-full" aria-label="Loading sprints" />
+          <div className="h-9 rounded bg-neutral-surface-raised animate-pulse w-full" aria-label={`Loading ${itl.lowerPlural}`} />
         ) : assignable.length === 0 && !task.sprintId ? (
           <p className="text-sm italic text-neutral-text-secondary">
-            No active or planned sprints — create one in the Sprints tab.
+            No active or planned {itl.lowerPlural} — create one in the {itl.plural} tab.
           </p>
         ) : (
           <select
-            aria-label="Sprint assignment"
+            aria-label={`${itl.singular} assignment`}
             value={task.sprintId ?? ''}
             onChange={handleChange}
             disabled={isPending}
@@ -154,7 +156,7 @@ export function SprintSection({ taskId, projectId }: DrawerSectionProps) {
             type="button"
             onClick={handleRemove}
             disabled={isPending}
-            aria-label="Remove from sprint"
+            aria-label={`Remove from ${itl.lower}`}
             className="text-xs text-neutral-text-secondary hover:text-semantic-critical rounded shrink-0
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
               disabled:opacity-50 disabled:cursor-not-allowed"

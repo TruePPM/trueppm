@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/Button';
 import { useProject } from '@/hooks/useProject';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useSprintsByState } from '@/hooks/useSprints';
 
 interface Props {
@@ -20,6 +21,7 @@ interface Props {
  */
 export function SprintPrompt({ open, projectId, onSelect, onDismiss }: Props) {
   const { data: project } = useProject(projectId);
+  const itl = useIterationLabel(projectId);
   const { active, planned } = useSprintsByState(projectId);
   const panelRef = useRef<HTMLDivElement>(null);
   const ptsInputRef = useRef<HTMLInputElement>(null);
@@ -108,8 +110,8 @@ export function SprintPrompt({ open, projectId, onSelect, onDismiss }: Props) {
 
   const sprintOptions = (
     [
-      { label: active ? `Current sprint: ${active.name}` : null, sprintId: active?.id ?? null },
-      { label: planned[0] ? `Next sprint: ${planned[0].name}` : null, sprintId: planned[0]?.id ?? null },
+      { label: active ? `Current ${itl.lower}: ${active.name}` : null, sprintId: active?.id ?? null },
+      { label: planned[0] ? `Next ${itl.lower}: ${planned[0].name}` : null, sprintId: planned[0]?.id ?? null },
       { label: 'Backlog', sprintId: null as string | null },
     ] as { label: string | null; sprintId: string | null }[]
   ).filter((o): o is { label: string; sprintId: string | null } => o.label !== null);
@@ -119,13 +121,13 @@ export function SprintPrompt({ open, projectId, onSelect, onDismiss }: Props) {
       ref={panelRef}
       role="dialog"
       aria-modal="false"
-      aria-label={step === 'sprint' ? 'Assign to sprint' : 'Story points'}
+      aria-label={step === 'sprint' ? `Assign to ${itl.lower}` : 'Story points'}
       className="absolute top-full left-0 z-50 w-[260px] mt-0.5 rounded border border-chrome-border
         bg-chrome-surface-raised p-2 space-y-0.5"
     >
       {step === 'sprint' ? (
         <>
-          <p className="text-xs text-chrome-text-secondary px-1 pb-1 font-medium">Add to sprint?</p>
+          <p className="text-xs text-chrome-text-secondary px-1 pb-1 font-medium">Add to {itl.lower}?</p>
           {sprintOptions.map((opt, i) => (
             <button
               key={opt.sprintId ?? 'backlog'}

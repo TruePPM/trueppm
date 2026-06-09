@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Task } from '@/types';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 
 interface Props {
   /** Every task the board is rendering. The banner derives its counts from
@@ -50,6 +51,7 @@ export function BoardScopeInjectionBanner({
   canManageScope = false,
   onReview,
 }: Props) {
+  const itl = useIterationLabel();
   const injected = tasks.filter((t) => (t.sprintScopeChanges?.length ?? 0) > 0);
   const goalImpactingCount = injected.filter((t) =>
     (t.sprintScopeChanges ?? []).some((sc) => sc.goalImpact),
@@ -89,11 +91,11 @@ export function BoardScopeInjectionBanner({
       <span aria-hidden="true" className="mt-0.5">◆</span>
       <div className="flex-1">
         <span className="font-medium text-neutral-text-primary">
-          {injected.length} task{injected.length === 1 ? '' : 's'} added to the active sprint after it started
+          {injected.length} task{injected.length === 1 ? '' : 's'} added to the active {itl.lower} after it started
         </span>
         {goalImpactingCount > 0 && (
           <span className="ml-1 text-neutral-text-secondary">
-            · {goalImpactingCount} affect{goalImpactingCount === 1 ? 's' : ''} the sprint goal
+            · {goalImpactingCount} affect{goalImpactingCount === 1 ? 's' : ''} the {itl.lower} goal
           </span>
         )}
         {pendingCount > 0 && (

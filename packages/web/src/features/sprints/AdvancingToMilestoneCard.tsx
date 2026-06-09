@@ -2,10 +2,12 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 import type { ApiSprint, MilestoneRollup } from '@/types';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { ROLE_SCHEDULER } from '@/lib/roles';
 import { Button } from '@/components/Button';
 import { daysUntil, formatShortDate } from './sprintMath';
 import { PromoteMilestoneDialog } from './PromoteMilestoneDialog';
+import type { IterationLabelForms } from '@/lib/iterationLabel';
 
 interface Props {
   sprint: ApiSprint;
@@ -41,6 +43,7 @@ export function AdvancingToMilestoneCard({
   projectId,
   predecessorsInSprint,
 }: Props) {
+  const itl = useIterationLabel(projectId);
   const detail = sprint.target_milestone_detail;
   const rollup = detail?.rollup ?? null;
 
@@ -81,7 +84,7 @@ export function AdvancingToMilestoneCard({
           </div>
 
           {rollup && rollup.rollup_basis !== 'none' && rollup.percent_complete != null && (
-            <RollupBlock rollup={rollup} />
+            <RollupBlock rollup={rollup} label={itl} />
           )}
 
           {predecessorsInSprint && predecessorsInSprint.total > 0 && (
@@ -115,7 +118,7 @@ export function AdvancingToMilestoneCard({
       ) : (
         <div className="flex flex-col items-start gap-2">
           <p className="text-sm italic text-neutral-text-disabled">
-            No milestone linked to this sprint.
+            No milestone linked to this {itl.lower}.
           </p>
           {canPromote && (
             <Button variant="secondary" size="sm" onClick={() => setPromoting(true)}>
@@ -138,6 +141,7 @@ export function AdvancingToMilestoneCard({
 
 interface RollupBlockProps {
   rollup: MilestoneRollup;
+  label: IterationLabelForms;
 }
 
 /**
@@ -147,7 +151,7 @@ interface RollupBlockProps {
  * sits inline with the percent and surfaces a native `title=` tooltip — never
  * a banner (deliberate: rule "no banners for soft signals").
  */
-function RollupBlock({ rollup }: RollupBlockProps) {
+function RollupBlock({ rollup, label }: RollupBlockProps) {
   const percent = rollup.percent_complete!;
   return (
     <div className="flex flex-col gap-1" aria-label={`Milestone progress ${Math.round(percent)} percent`}>
@@ -157,8 +161,8 @@ function RollupBlock({ rollup }: RollupBlockProps) {
         </span>
         {rollup.sprint_scope_changed && (
           <span
-            aria-label="Sprint scope changed since activation"
-            title="Sprint scope changed since activation — committed baseline preserved."
+            aria-label={`${label.singular} scope changed since activation`}
+            title={`${label.singular} scope changed since activation — committed baseline preserved.`}
             className="ml-1 text-neutral-text-secondary cursor-help"
           >
             ⓘ
@@ -168,10 +172,12 @@ function RollupBlock({ rollup }: RollupBlockProps) {
       <p className="text-xs text-neutral-text-secondary">
         {rollup.rollup_basis === 'tasks' ? 'by tasks' : 'by points'}
         {' · '}
-        {rollup.sprint_count > 1 ? `across ${rollup.sprint_count} sprints` : 'this sprint'}
+        {rollup.sprint_count > 1
+          ? `across ${rollup.sprint_count} ${label.lowerPlural}`
+          : `this ${label.lower}`}
       </p>
       {rollup.variance_days != null && (
-        <VarianceChip days={rollup.variance_days} />
+        <VarianceChip days={rollup.variance_days} iterationSingular={label.singular} />
       )}
     </div>
   );
@@ -179,6 +185,7 @@ function RollupBlock({ rollup }: RollupBlockProps) {
 
 interface VarianceChipProps {
   days: number;
+  iterationSingular: string;
 }
 
 /**
@@ -187,21 +194,21 @@ interface VarianceChipProps {
  * SPRINT'S planned finish. Both can be informative simultaneously — sprint
  * ends in 5d but milestone is 8d out → variance is -3 (ahead).
  */
-function VarianceChip({ days }: VarianceChipProps) {
+function VarianceChip({ days, iterationSingular }: VarianceChipProps) {
   let className: string;
   let label: string;
   if (days < 0) {
     className = 'border-semantic-on-track/40 text-semantic-on-track';
-    label = `Sprint plan: ${days}d ahead`;
+    label = `${iterationSingular} plan: ${days}d ahead`;
   } else if (days === 0) {
     className = 'border-neutral-border text-neutral-text-primary';
-    label = `Sprint plan: on time`;
+    label = `${iterationSingular} plan: on time`;
   } else if (days <= 5) {
     className = 'border-semantic-at-risk/40 text-semantic-at-risk';
-    label = `Sprint plan: +${days}d slip`;
+    label = `${iterationSingular} plan: +${days}d slip`;
   } else {
     className = 'border-semantic-critical/40 text-semantic-critical';
-    label = `Sprint plan: +${days}d slip`;
+    label = `${iterationSingular} plan: +${days}d slip`;
   }
   return (
     <span

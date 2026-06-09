@@ -41,6 +41,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { isAxiosError } from 'axios';
 import { Button } from '@/components/Button';
 import { useProjectId } from '@/hooks/useProjectId';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 import type { Task } from '@/types';
 import type { ReorderEntry } from './api';
 import { AcMeter, DorChip } from './components/atoms';
@@ -88,7 +89,7 @@ function GroomStat({
   );
 }
 
-function HealthStrip({ health }: { health: GroomingHealth }) {
+function HealthStrip({ health, iterationLower }: { health: GroomingHealth; iterationLower: string }) {
   const dorTone = health.dorPct >= 80 ? 'onTrack' : 'atRisk';
   return (
     <div className="flex flex-wrap items-center gap-x-10 gap-y-3 border-b border-neutral-border bg-neutral-surface-raised px-6 py-3.5">
@@ -99,12 +100,12 @@ function HealthStrip({ health }: { health: GroomingHealth }) {
         tone={dorTone}
       />
       <GroomStat
-        label="Ready for next sprint"
+        label={`Ready for next ${iterationLower}`}
         value={`${health.readyPoints}`}
         sub={
           health.capacityPoints != null
             ? `${health.readyPoints} of ${health.capacityPoints} pts capacity`
-            : 'no active sprint capacity'
+            : `no active ${iterationLower} capacity`
         }
       />
       <GroomStat
@@ -257,6 +258,7 @@ function toEntries(d: ProductBacklog): ReorderEntry[] {
 
 export function ProductBacklogPage() {
   const projectId = useProjectId();
+  const itl = useIterationLabel(projectId);
   const { data, isLoading, isError } = useProductBacklog(projectId);
   const autoRank = useAutoRank(projectId);
   const setDor = useSetDor(projectId);
@@ -384,7 +386,7 @@ export function ProductBacklogPage() {
         </Button>
       </header>
 
-      <HealthStrip health={health} />
+      <HealthStrip health={health} iterationLower={itl.lower} />
 
       {conflict && (
         <div

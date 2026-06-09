@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { ROLE_SCHEDULER } from '@/lib/roles';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useUpdateTask } from '@/hooks/useTaskMutations';
 import {
   useSprints,
@@ -93,6 +94,7 @@ const EMPTY_FILTER: SprintFilterValue = { assignee: 'anyone', statuses: new Set(
 export function SprintsView() {
   const projectId = useProjectId();
   const projectQuery = useProject(projectId);
+  const itl = useIterationLabel();
   const { sprints, isLoading, error } = useSprints(projectId);
   const buckets = useSprintsByState(projectId);
   const { closeSprint, activateSprint } = useSprintMutations(projectId);
@@ -331,12 +333,12 @@ export function SprintsView() {
         <div className="flex items-center gap-1.5 text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary">
           <span className="truncate">{projectName ?? 'Project'}</span>
           <span aria-hidden="true" className="text-neutral-text-disabled">/</span>
-          <span>Sprints</span>
+          <span>{itl.plural}</span>
         </div>
         {showLensToggle && (
           <div
             role="tablist"
-            aria-label="Sprint scope"
+            aria-label={`${itl.singular} scope`}
             className="inline-flex rounded border border-neutral-border bg-neutral-surface text-xs"
           >
             <button
@@ -423,7 +425,7 @@ export function SprintsView() {
         >
           <div className="flex flex-col gap-1">
             <p className="font-medium">
-              Sprint activated with {capacityWarnings.length} capacity warning
+              {itl.singular} activated with {capacityWarnings.length} capacity warning
               {capacityWarnings.length === 1 ? '' : 's'}
             </p>
             <ul className="list-disc list-inside space-y-0.5">
@@ -451,12 +453,12 @@ export function SprintsView() {
       <main className="flex-1 overflow-y-auto pb-6 flex flex-col gap-4">
         <div className="px-6 flex flex-col gap-4">
         {isLoading && (
-          <p className="text-sm text-neutral-text-secondary">Loading sprints…</p>
+          <p className="text-sm text-neutral-text-secondary">Loading {itl.lowerPlural}…</p>
         )}
 
         {error && (
           <p role="alert" className="text-sm text-semantic-critical">
-            Could not load sprints. {error.message}
+            Could not load {itl.lowerPlural}. {error.message}
           </p>
         )}
 
@@ -466,10 +468,10 @@ export function SprintsView() {
             className="rounded-md border border-dashed border-neutral-border bg-neutral-surface-raised p-6 text-center"
           >
             <p className="text-sm font-medium text-neutral-text-primary">
-              No sprints yet
+              No {itl.lowerPlural} yet
             </p>
             <p className="mt-1 text-xs text-neutral-text-secondary">
-              Plan your first sprint to start tracking velocity and burn.
+              Plan your first {itl.lower} to start tracking velocity and burn.
             </p>
           </div>
         )}

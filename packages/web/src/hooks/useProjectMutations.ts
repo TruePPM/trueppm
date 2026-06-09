@@ -70,6 +70,11 @@ export interface UpdateProjectPayload {
   timezone?: string;
   /** Default landing view (SCHEDULE | BOARD | TABLE | OVERVIEW). */
   default_view?: ProjectDefaultView;
+  /**
+   * Iteration-container display label (ADR-0111, #862). Singular noun, ≤32 chars,
+   * non-empty after trim. Admin+-only server-side (allowlist default in the serializer).
+   */
+  iteration_label?: string;
   /** Calendar UUID or null to inherit from the workspace. */
   calendar?: string | null;
   /** Project lead — user id, or null to unassign. Admin+-only and must already

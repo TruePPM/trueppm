@@ -1,4 +1,5 @@
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
+import { renderWithProviders as render } from '@/test/utils';
 import { describe, it, expect } from 'vitest';
 import { CapacityPreflight } from './CapacityPreflight';
 import type { SprintCapacity } from '@/hooks/useSprints';

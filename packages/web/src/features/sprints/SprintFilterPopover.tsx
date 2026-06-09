@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import type { TaskStatus } from '@/types';
 import type { SprintBacklogTask } from '@/hooks/useSprintBacklog';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 
 /** Approximate popover width — kept in sync with `w-72` (288px) below. */
 const POPOVER_WIDTH = 288;
@@ -49,6 +50,7 @@ interface Props {
  * controlled view over `value` + `onChange`.
  */
 export function SprintFilterPopover({ open, anchorRef, value, onChange, tasks, onClose }: Props) {
+  const itl = useIterationLabel();
   const popoverRef = useRef<HTMLDivElement>(null);
   // Fixed-position coordinates derived from the anchor button so the popover
   // hugs the Filter button regardless of the surrounding flex layout — fixes
@@ -129,7 +131,7 @@ export function SprintFilterPopover({ open, anchorRef, value, onChange, tasks, o
     <div
       ref={popoverRef}
       role="dialog"
-      aria-label="Filter sprint backlog"
+      aria-label={`Filter ${itl.lower} backlog`}
       style={pos ? { top: pos.top, left: pos.left } : { visibility: 'hidden' }}
       className="fixed z-30 w-72 rounded-md border border-neutral-border bg-neutral-surface
         text-neutral-text-primary text-xs"

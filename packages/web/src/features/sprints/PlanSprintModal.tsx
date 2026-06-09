@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useSprintMutations } from '@/hooks/useSprints';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 
 export interface ExistingSprintForEdit {
   id: string;
@@ -60,6 +61,7 @@ export function PlanSprintModal({
   existingSprint,
   onUpdated,
 }: Props) {
+  const itl = useIterationLabel(projectId);
   const isEdit = existingSprint !== undefined;
   const initialStart = existingSprint?.start_date ?? defaultStart ?? todayIso();
   const initialFinish = existingSprint?.finish_date ?? addDaysIso(initialStart, 13);
@@ -170,11 +172,11 @@ export function PlanSprintModal({
           ref={dialogRef}
           role="dialog"
           aria-modal="true"
-          aria-label={isEdit ? 'Edit planned sprint' : 'Plan next sprint'}
+          aria-label={isEdit ? `Edit planned ${itl.lower}` : `Plan next ${itl.lower}`}
           className="w-full max-w-md rounded-lg border border-neutral-border bg-neutral-surface p-6 pointer-events-auto"
         >
           <h2 className="text-base font-semibold text-neutral-text-primary mb-4">
-            {isEdit ? 'Edit planned sprint' : 'Plan next sprint'}
+            {isEdit ? `Edit planned ${itl.lower}` : `Plan next ${itl.lower}`}
           </h2>
 
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
@@ -244,7 +246,7 @@ export function PlanSprintModal({
                 onChange={(e) => setGoal(e.target.value)}
                 rows={3}
                 maxLength={1000}
-                placeholder="What does this sprint deliver?"
+                placeholder={`What does this ${itl.lower} deliver?`}
                 className="px-3 py-2 rounded border border-neutral-border bg-neutral-surface
                   text-sm text-neutral-text-primary placeholder:text-neutral-text-disabled resize-none
                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
@@ -254,8 +256,8 @@ export function PlanSprintModal({
             {activeMutation.isError && (
               <p role="alert" className="text-xs text-semantic-critical">
                 {isEdit
-                  ? 'Failed to update sprint. Please try again.'
-                  : 'Failed to create sprint. Please try again.'}
+                  ? `Failed to update ${itl.lower}. Please try again.`
+                  : `Failed to create ${itl.lower}. Please try again.`}
               </p>
             )}
 
@@ -284,7 +286,7 @@ export function PlanSprintModal({
                     : 'Creating…'
                   : isEdit
                     ? 'Save changes'
-                    : 'Plan sprint'}
+                    : `Plan ${itl.lower}`}
               </button>
             </div>
           </form>

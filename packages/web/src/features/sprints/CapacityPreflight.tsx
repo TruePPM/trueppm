@@ -1,5 +1,6 @@
 import type { SprintCapacity } from '@/hooks/useSprints';
 import { capacityPointsChip } from './sprintMath';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 
 interface Props {
   capacity: SprintCapacity;
@@ -36,6 +37,7 @@ const LABEL_COLOR: Record<SprintCapacity['totals']['label'], string> = {
  * to the API's threshold bands (on_track < 90% < at_risk ≤ 100% < over_capacity).
  */
 export function CapacityPreflight({ capacity, points }: Props) {
+  const itl = useIterationLabel();
   const { totals, members } = capacity;
   const pointsChip = points ? capacityPointsChip(points.committed, points.capacity) : null;
   const ratioCapped = Math.min(totals.ratio, 1.5);
@@ -145,7 +147,7 @@ export function CapacityPreflight({ capacity, points }: Props) {
       >
         {members.length === 0 ? (
           <li className="text-xs italic text-neutral-text-disabled">
-            No assignments yet for this sprint.
+            No assignments yet for this {itl.lower}.
           </li>
         ) : (
           members.map((m) => (

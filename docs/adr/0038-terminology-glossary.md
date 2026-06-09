@@ -142,6 +142,27 @@ Schema convergence into a polymorphic model is a **post-v1.0** concern. A dedica
 (planned before the v1.1 milestone) will decide whether to merge the two tables. Until
 then, both models are authoritative for their respective scopes.
 
+---
+
+### "Sprint" — the iteration container is a configurable display label
+
+As of ADR-0111 (#862) the noun for the time-boxed iteration container is a per-project
+display setting (`Project.iteration_label`): **Sprint** (default), **Iteration**, **PI**,
+or a custom string. This follows the same rule as "Schedule view" vs `GanttRenderer`
+above — **the user-facing term is configurable; the code symbol never changes.**
+
+| Layer | What it uses |
+|-------|--------------|
+| Code (model, FK, route, components, enums) | Always `Sprint` / `sprint` — `Sprint` model, `Task.sprint`, `/sprints`, `SprintPanel`, `SprintState`, rule keys like `summary_in_sprint`. Never renamed. |
+| User-facing copy (web) | Resolved from `Project.iteration_label` via `iterationLabelForms()` / `useIterationLabel()`; falls back to "Sprint". Stored singular; plural/possessive derived. |
+| `Sprint.name` | A *specific sprint's* PM-authored name ("Sprint 23"); orthogonal to the container label — never substituted. |
+| `Sprint.short_id` prefix (`SP-`) | Storage-neutral decoration; not relabeled. |
+
+The label is **display-only** — it never gates tabs/routes (that is `effective_methodology`,
+ADR-0041/0107), API semantics, or CPM. Surfaces with no single-project context (the
+new-project / new-program modals, the workspace methodology page, cross-project lenses)
+keep the generic "Sprint" wording.
+
 ## Consequences
 
 - **Easier**: New ADR authors have a single reference for naming decisions; reviewers

@@ -1,4 +1,5 @@
 import { useProjectId } from '@/hooks/useProjectId';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { ROLE_OWNER } from '@/lib/roles';
 import {
@@ -30,6 +31,7 @@ import { SettingsPageTitle } from '../SettingsShell';
  */
 export function ProjectGuardrailsPage() {
   const projectId = useProjectId();
+  const itl = useIterationLabel(projectId);
   const { role } = useCurrentUserRole(projectId ?? undefined);
   const { policy, isLoading, error, update } = useProjectGuardrailPolicy(projectId);
 
@@ -48,8 +50,8 @@ export function ProjectGuardrailsPage() {
     return (
       <div>
         <SettingsPageTitle
-          title="Sprint guardrails"
-          subtitle="Decide which sprint/phase mistakes warn the team and which the team's Owner blocks outright."
+          title={`${itl.singular} guardrails`}
+          subtitle={`Decide which ${itl.lower}/phase mistakes warn the team and which the team's Owner blocks outright.`}
         />
         <div className="px-6 pb-8 text-[13px] text-neutral-text-secondary">Loading…</div>
       </div>
@@ -60,8 +62,8 @@ export function ProjectGuardrailsPage() {
     return (
       <div>
         <SettingsPageTitle
-          title="Sprint guardrails"
-          subtitle="Decide which sprint/phase mistakes warn the team and which the team's Owner blocks outright."
+          title={`${itl.singular} guardrails`}
+          subtitle={`Decide which ${itl.lower}/phase mistakes warn the team and which the team's Owner blocks outright.`}
         />
         <div className="px-6 pb-8 text-[13px] text-semantic-critical" role="alert">
           Failed to load guardrail policy. Try refreshing the page.
@@ -80,8 +82,8 @@ export function ProjectGuardrailsPage() {
   return (
     <div>
       <SettingsPageTitle
-        title="Sprint guardrails"
-        subtitle="Decide which sprint/phase mistakes warn the team and which the team's Owner blocks outright. Subtask-split warnings are always advisory."
+        title={`${itl.singular} guardrails`}
+        subtitle={`Decide which ${itl.lower}/phase mistakes warn the team and which the team's Owner blocks outright. Subtask-split warnings are always advisory.`}
       />
 
       <div className="px-6 pb-8 max-w-[920px] space-y-4">

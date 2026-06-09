@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { EstimationMode, Task } from '@/types';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useUpdateTask } from '@/hooks/useTaskMutations';
 import { useApproveEstimates } from '@/hooks/useApproveEstimates';
 import {
@@ -27,6 +28,7 @@ export function EstimatesTab({
   userIsAdmin = false,
   sprintIsActive = false,
 }: EstimatesTabProps) {
+  const itl = useIterationLabel(projectId);
   const updateTask = useUpdateTask();
   const approveEstimates = useApproveEstimates(projectId);
 
@@ -284,7 +286,7 @@ export function EstimatesTab({
       {task.sprintId && (
         <fieldset className="flex flex-col gap-3 border-t border-neutral-border pt-4">
           <legend className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-1">
-            Sprint Effort
+            {itl.singular} Effort
           </legend>
 
           {/* Story points — read-only; commitment baseline must not change mid-sprint */}

@@ -15,6 +15,7 @@ import {
 } from '@/lib/widget-registry';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useUpdateTask } from '@/hooks/useTaskMutations';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { ReadinessChip } from '../board/ReadinessChip';
 import { CollapsibleSection } from './sections/CollapsibleSection';
 import { SectionErrorBoundary } from './sections/SectionErrorBoundary';
@@ -626,6 +627,10 @@ function SectionList({
   projectId: string;
   firstOpen?: boolean;
 }) {
+  // The 'sprint' section is registered with a static title in the module-level
+  // registry (sections/index.ts) which has no project context; resolve the
+  // configurable container label here at the render boundary (ADR-0111, #862).
+  const itl = useIterationLabel(projectId);
   if (sections.length === 0) {
     return (
       <div className="px-4 py-6 text-sm italic text-neutral-text-secondary">Nothing here yet.</div>
@@ -635,11 +640,12 @@ function SectionList({
     <>
       {sections.map((section, idx) => {
         const SectionComponent = section.component;
+        const sectionTitle = section.id === 'sprint' ? itl.singular : section.title;
         return (
-          <SectionErrorBoundary key={section.id} sectionTitle={section.title}>
+          <SectionErrorBoundary key={section.id} sectionTitle={sectionTitle}>
             <CollapsibleSection
               id={section.id}
-              title={section.title}
+              title={sectionTitle}
               defaultOpen={firstOpen && idx === 0}
             >
               {() => <SectionComponent taskId={taskId} projectId={projectId} />}

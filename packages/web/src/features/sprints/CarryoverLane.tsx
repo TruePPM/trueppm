@@ -3,6 +3,7 @@ import {
   usePullCarryoverToSprint,
   type CarryoverItem,
 } from '@/hooks/useSprints';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 
 interface Props {
   projectId: string;
@@ -21,6 +22,7 @@ interface Props {
  * list — no empty-state shell, no layout shift.
  */
 export function CarryoverLane({ projectId, sprintId, canPull }: Props) {
+  const itl = useIterationLabel(projectId);
   const { data, isLoading } = useProjectRetroCarryover(projectId);
   const pull = usePullCarryoverToSprint(sprintId);
   if (isLoading || !data || data.length === 0) return null;
@@ -45,6 +47,7 @@ export function CarryoverLane({ projectId, sprintId, canPull }: Props) {
             item={it}
             canPull={canPull}
             isPulling={pull.isPending}
+            iterationLower={itl.lower}
             onPull={() =>
               pull.mutate({ itemId: it.action_item_id, targetSprintId: sprintId })
             }
@@ -59,10 +62,11 @@ interface RowProps {
   item: CarryoverItem;
   canPull: boolean;
   isPulling: boolean;
+  iterationLower: string;
   onPull: () => void;
 }
 
-function CarryoverRow({ item, canPull, isPulling, onPull }: RowProps) {
+function CarryoverRow({ item, canPull, isPulling, iterationLower, onPull }: RowProps) {
   return (
     <li className="px-3 py-2 flex items-center gap-3 border-b border-neutral-border/60 last:border-b-0">
       <span className="tppm-mono text-xs text-neutral-text-secondary w-20 shrink-0">
@@ -89,7 +93,7 @@ function CarryoverRow({ item, canPull, isPulling, onPull }: RowProps) {
             disabled:opacity-50 disabled:cursor-not-allowed
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         >
-          Pull to sprint
+          Pull to {iterationLower}
         </button>
       ) : (
         <span className="text-xs italic text-neutral-text-disabled px-2">View only</span>

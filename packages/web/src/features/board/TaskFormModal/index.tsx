@@ -4,6 +4,7 @@ import { ROLE_VIEWER, ROLE_MEMBER, ROLE_ADMIN } from '@/lib/roles';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useSprints } from '@/hooks/useSprints';
 import { useProject } from '@/hooks/useProject';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useProjectResourcePool } from '@/hooks/useProjectResourcePool';
 import { useTaskHistory } from '@/hooks/useTaskHistory';
@@ -214,6 +215,7 @@ export function TaskFormModal({
   const { tasks: allTasks } = useScheduleTasks(projectId);
   const { sprints } = useSprints(projectId);
   const { data: projectDetail } = useProject(projectId);
+  const itl = useIterationLabel(projectId);
   const { role } = useCurrentUserRole(projectId);
   const { data: resourcePool } = useProjectResourcePool(projectId);
   const {
@@ -650,7 +652,7 @@ export function TaskFormModal({
             <div className="grid grid-cols-[1fr_auto] gap-3 items-end">
               <div>
                 <label htmlFor="task-sprint" className="block text-xs font-medium text-neutral-text-secondary mb-1">
-                  Sprint
+                  {itl.singular}
                 </label>
                 <select
                   id="task-sprint"

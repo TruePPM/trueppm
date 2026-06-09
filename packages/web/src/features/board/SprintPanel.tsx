@@ -17,6 +17,7 @@ import {
   useSprintMutations,
 } from '@/hooks/useSprints';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { ROLE_SCHEDULER } from '@/lib/roles';
 import type { ApiSprint } from '@/types';
 
@@ -39,6 +40,7 @@ interface Props {
  */
 export function SprintPanel({ projectId, methodology }: Props) {
   const { sprint } = useActiveSprint(projectId);
+  const itl = useIterationLabel(projectId);
   const { role } = useCurrentUserRole(projectId);
   const { data: velocity, isLoading: velocityLoading } = useProjectVelocity(projectId);
   const { updateSprint } = useSprintMutations(projectId);
@@ -88,7 +90,7 @@ export function SprintPanel({ projectId, methodology }: Props) {
 
   return (
     <section
-      aria-label="Active sprint summary"
+      aria-label={`Active ${itl.lower} summary`}
       className="border-b border-neutral-border bg-neutral-surface-raised"
       data-testid="sprint-panel"
     >
@@ -99,6 +101,7 @@ export function SprintPanel({ projectId, methodology }: Props) {
         onWipChipClick={handleOpenForWip}
         canLinkMilestone={isScheduler && sprint.target_milestone == null}
         onLinkMilestone={() => setPromoting(true)}
+        iterationLower={itl.lower}
       />
       <div
         id={`sprint-panel-body-${sprint.id}`}
@@ -149,6 +152,7 @@ interface HeaderProps {
    *  entry point so the bridge's keystone action is reachable on the board (#1052). */
   canLinkMilestone: boolean;
   onLinkMilestone: () => void;
+  iterationLower: string;
 }
 
 function Header({
@@ -158,6 +162,7 @@ function Header({
   onWipChipClick,
   canLinkMilestone,
   onLinkMilestone,
+  iterationLower,
 }: HeaderProps) {
   const daysRemaining = Math.max(0, daysUntil(sprint.finish_date));
   const { day: dayOf, total: totalDays } = sprintDayOf(
@@ -241,7 +246,7 @@ function Header({
         onClick={onToggle}
         aria-expanded={isOpen}
         aria-controls={`sprint-panel-body-${sprint.id}`}
-        aria-label={isOpen ? 'Collapse sprint panel' : 'Expand sprint panel'}
+        aria-label={isOpen ? `Collapse ${iterationLower} panel` : `Expand ${iterationLower} panel`}
         className="flex-shrink-0 w-11 h-11 rounded-md flex items-center justify-center
           text-neutral-text-secondary hover:bg-chrome-row-hover
           focus-visible:ring-2 focus-visible:ring-brand-primary

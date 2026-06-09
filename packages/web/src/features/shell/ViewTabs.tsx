@@ -6,6 +6,7 @@ import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useProject } from '@/hooks/useProject';
 import { isTabVisibleForMethodology } from '@/features/shell/methodologyTabs';
 import { ROLE_SCHEDULER } from '@/lib/roles';
+import { iterationLabelForms } from '@/lib/iterationLabel';
 import type { ComponentType } from 'react';
 
 interface Tab {
@@ -61,6 +62,9 @@ export function ViewTabs() {
   // pre-methodology behavior during the brief loading window.
   const methodology = project.data?.methodology ?? 'HYBRID';
 
+  // The Sprints tab adopts the project's configured container label (ADR-0111, #862).
+  const sprintsLabel = iterationLabelForms(project.data?.iteration_label).plural;
+
   // Pessimistic: hide Team tab while role is loading (null) or for role < SCHEDULER.
   // Direct URL access still works — TeamView renders PermissionDeniedNotice (rule 94).
   // Methodology preset filter (ADR-0041) layers on top of role gating.
@@ -92,7 +96,7 @@ export function ViewTabs() {
               className={isActive ? 'text-brand-primary' : 'text-neutral-text-disabled'}
               aria-hidden="true"
             />
-            {label}
+            {view === 'sprints' ? sprintsLabel : label}
           </NavLink>
         );
       })}

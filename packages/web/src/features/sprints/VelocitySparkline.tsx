@@ -1,5 +1,7 @@
 import { useMemo } from 'react';
 import type { ProjectVelocity, VelocitySprintEntry } from '@/hooks/useSprints';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
+import type { IterationLabelForms } from '@/lib/iterationLabel';
 
 interface Props {
   velocity: ProjectVelocity | undefined;
@@ -30,6 +32,7 @@ const MAX_BARS = 8;
  * the min / median / max so screen-reader users get the band data too.
  */
 export function VelocitySparkline({ velocity, isLoading = false }: Props) {
+  const itl = useIterationLabel();
   const sprints = useMemo(() => {
     if (!velocity) return [];
     return velocity.sprints
@@ -58,9 +61,9 @@ export function VelocitySparkline({ velocity, isLoading = false }: Props) {
   if (sprints.length === 0) {
     return (
       <div className="space-y-0.5">
-        <p className="text-xs text-neutral-text-secondary">No closed sprints</p>
+        <p className="text-xs text-neutral-text-secondary">No closed {itl.lowerPlural}</p>
         <p className="text-xs text-neutral-text-secondary">
-          Velocity unlocks after the first sprint closes
+          Velocity unlocks after the first {itl.lower} closes
         </p>
       </div>
     );
@@ -78,7 +81,7 @@ export function VelocitySparkline({ velocity, isLoading = false }: Props) {
           height={HEIGHT}
           viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
           role="img"
-          aria-label={buildAriaLabel(sprints, velocity, band)}
+          aria-label={buildAriaLabel(sprints, velocity, band, itl)}
         >
           {/* Min–max band + P50 line behind the bars. Needs 2+ sprints and a
               non-degenerate range (min !== max) to be meaningful. */}
@@ -120,7 +123,7 @@ export function VelocitySparkline({ velocity, isLoading = false }: Props) {
         </span>
       </div>
       <p className="text-xs text-neutral-text-secondary">
-        {sprintsCaption(sprints.length, velocity)}
+        {sprintsCaption(sprints.length, velocity, itl)}
       </p>
     </div>
   );
@@ -199,6 +202,7 @@ function buildAriaLabel(
   sprints: VelocitySprintEntry[],
   velocity: ProjectVelocity | undefined,
   band: BandStats | null,
+  itl: IterationLabelForms,
 ): string {
   const values = sprints.map((s) => s.completed_points ?? 0);
   const latest = values[values.length - 1] ?? 0;
@@ -210,22 +214,26 @@ function buildAriaLabel(
       : '';
   const excluded = sprints.filter((s) => s.exclude_from_velocity).length;
   const excludedPart = excluded > 0 ? `; ${excluded} excluded from velocity` : '';
-  return `Velocity over last ${sprints.length} sprint${
-    sprints.length === 1 ? '' : 's'
+  return `Velocity over last ${sprints.length} ${
+    sprints.length === 1 ? itl.lower : itl.lowerPlural
   }: ${values.join(', ')} points; latest ${latest} points${avgPart}${bandPart}${excludedPart}.`;
 }
 
-function sprintsCaption(count: number, velocity: ProjectVelocity | undefined): string {
+function sprintsCaption(
+  count: number,
+  velocity: ProjectVelocity | undefined,
+  itl: IterationLabelForms,
+): string {
   if (count === 1) {
-    return '1 sprint of history — trend unlocks at 2+';
+    return `1 ${itl.lower} of history — trend unlocks at 2+`;
   }
   const avg = velocity?.rolling_avg_points;
   const stdev = velocity?.rolling_stdev_points;
   if (avg == null) {
-    return `Last ${count} sprints`;
+    return `Last ${count} ${itl.lowerPlural}`;
   }
   if (stdev != null && stdev > 0) {
-    return `avg ${Math.round(avg)} ± ${Math.round(stdev)} / sprint`;
+    return `avg ${Math.round(avg)} ± ${Math.round(stdev)} / ${itl.lower}`;
   }
-  return `avg ${Math.round(avg)} / sprint`;
+  return `avg ${Math.round(avg)} / ${itl.lower}`;
 }

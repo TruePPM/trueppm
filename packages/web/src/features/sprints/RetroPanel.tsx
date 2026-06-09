@@ -14,6 +14,7 @@ import {
 import { PriorRetroSection } from './PriorRetroSection';
 import { RetroSummaryCard } from './RetroSummaryCard';
 import { RetroVisibilityToggle } from './RetroVisibilityToggle';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 
 interface Props {
   sprintId: string;
@@ -111,6 +112,7 @@ interface FullEditorProps {
 }
 
 function FullEditor({ sprintId, isClosed, retro, canEditVisibility }: FullEditorProps) {
+  const itl = useIterationLabel();
   const save = useSaveSprintRetro(sprintId);
   const updateVisibility = useUpdateRetroVisibility(sprintId);
   const promote = usePromoteRetroActionItem(sprintId);
@@ -170,7 +172,7 @@ function FullEditor({ sprintId, isClosed, retro, canEditVisibility }: FullEditor
         <p className="text-xs text-neutral-text-disabled italic">
           {isClosed
             ? 'Read-only fields are still editable — retros can be amended after close.'
-            : 'Add action items mid-sprint; promote each explicitly to land it in the project backlog.'}
+            : `Add action items mid-${itl.lower}; promote each explicitly to land it in the project backlog.`}
         </p>
         {canEditVisibility && retro && (
           <RetroVisibilityToggle

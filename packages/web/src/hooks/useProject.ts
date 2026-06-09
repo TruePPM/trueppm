@@ -35,6 +35,12 @@ export interface ApiProjectDetail {
   lead: string | null;
   /** Read-only nested user payload for the lead — null when `lead` is null (#966). */
   lead_detail: { id: string; username: string; email: string } | null;
+  /**
+   * Display noun for the iteration container (ADR-0111, #862): "Sprint" (default),
+   * "Iteration", "PI", or a custom string. Display-only — never gates behavior.
+   * Stored singular; derive plural/possessive via `useIterationLabel` / `iterationLabelForms`.
+   */
+  iteration_label: string;
   /** Lifecycle (#530) — archived projects are hard read-only across all writes. */
   is_archived: boolean;
   archived_at: string | null;

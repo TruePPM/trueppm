@@ -29,6 +29,7 @@ function agileProjectClient(): QueryClient {
     default_view: 'SCHEDULE',
     lead: null,
     lead_detail: null,
+    iteration_label: 'Sprint',
     is_archived: false,
     archived_at: null,
     archived_by: null,

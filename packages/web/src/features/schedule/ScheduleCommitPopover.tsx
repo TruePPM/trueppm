@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from '@/components/Button';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 
 /**
  * Pull-to-commit popover anchored above a task bar on the Schedule canvas (ADR-0067).
@@ -66,6 +67,7 @@ export function ScheduleCommitPopover({
   onCancel,
   onDismissByOutsideClick,
 }: ScheduleCommitPopoverProps) {
+  const itl = useIterationLabel();
   const popoverRef = useRef<HTMLDivElement>(null);
   const confirmRef = useRef<HTMLButtonElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
@@ -228,9 +230,9 @@ export function ScheduleCommitPopover({
         <div
           className="mt-2 border-l-2 border-semantic-at-risk bg-semantic-at-risk-bg text-semantic-at-risk pl-2 py-1 pr-2 text-xs truncate"
           data-testid="commit-popover-active-sprint-notice"
-          title={`Committed in Sprint ${activeSprintName}`}
+          title={`Committed in ${itl.singular} ${activeSprintName}`}
         >
-          Committed in Sprint <span className="font-medium">{activeSprintName}</span>
+          Committed in {itl.singular} <span className="font-medium">{activeSprintName}</span>
         </div>
       )}
 
