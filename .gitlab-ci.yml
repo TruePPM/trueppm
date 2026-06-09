@@ -862,6 +862,12 @@ api:testdb-dump:
         apt-get install -y -qq --no-install-recommends postgresql-client-16
       fi
     - cd packages/api
+    # Wait for the Postgres service to accept connections before migrating —
+    # on cold runner starts `migrate` stalls in the TCP connect phase and
+    # inflates this job 30s→170s, dragging the api:test critical path (#1039).
+    # Non-fatal: if Postgres still isn't up after 30s, migrate fails with its
+    # own clearer error.
+    - timeout 30 sh -c 'until pg_isready --dbname "$DATABASE_URL" >/dev/null 2>&1; do sleep 1; done' || echo "warning - postgres not ready after 30s, proceeding"
     - python manage.py migrate --no-input
     # --no-owner/--no-privileges keep the dump role-portable so it reloads
     # cleanly into the `migrated` template under the same CI role on the shards.

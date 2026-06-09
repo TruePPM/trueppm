@@ -23,6 +23,14 @@ elapsed=$((end - start))
 
 printf '%s  %4ds  branch=%s  exit=%d\n' "${timestamp}" "${elapsed}" "${branch}" "${status}" >>"${log_file}"
 
+# Budget drift signal (#1042): warn when a run exceeds the CLAUDE.md 60s budget
+# by >25%. Warning only — never fail; large-refactor pushes legitimately run
+# long, and the hard gates are CI's job.
+if [ "${elapsed}" -gt 75 ]; then
+  echo "warning: pre-push took ${elapsed}s (budget 60s). Recent runs:" >&2
+  tail -n 5 "${log_file}" >&2 || true
+fi
+
 # Rotate to last 100 lines so the log doesn't grow unbounded.
 if [ "$(wc -l <"${log_file}")" -gt 100 ]; then
   tail -n 100 "${log_file}" >"${log_file}.tmp" && mv "${log_file}.tmp" "${log_file}"
