@@ -28,7 +28,7 @@ pub fn compute_floats(
         let is_critical = tf_days == 0;
 
         // Free float: smallest slack to any successor across every dependency
-        // type (PMI definition, #825). `imposed` is the early date this task
+        // type (standard critical-path definition, #825). `imposed` is the early date this task
         // forces on the successor through the link (mirroring the forward pass);
         // `succ_date` is the successor's matching early date. Capped at total
         // float, which is also the value when there are no successors.

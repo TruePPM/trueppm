@@ -1664,7 +1664,7 @@ class RiskStatus(models.TextChoices):
 
 
 class RiskCategory(models.TextChoices):
-    """PMBOK risk source categories (PMI risk framework, ADR-0043)."""
+    """Standard risk source categories (risk framework, ADR-0043)."""
 
     TECHNICAL = "TECHNICAL", "Technical"
     EXTERNAL = "EXTERNAL", "External"
@@ -1673,7 +1673,7 @@ class RiskCategory(models.TextChoices):
 
 
 class RiskResponse(models.TextChoices):
-    """PMBOK risk response strategies (PMI risk framework, ADR-0043).
+    """Standard risk response strategies (risk framework, ADR-0043).
 
     The bare verb forms (ACCEPT, not ACCEPTED) are deliberate to avoid the
     visual collision with RiskStatus.ACCEPTED in serializers, audit logs, and

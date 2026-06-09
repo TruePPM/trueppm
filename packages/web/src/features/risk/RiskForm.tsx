@@ -66,13 +66,13 @@ export function RiskForm({ projectId, risk, onSuccess, onCancel }: RiskFormProps
   const [impact, setImpact] = useState<number>(risk?.impact ?? 3);
   const [titleError, setTitleError] = useState('');
 
-  // PMI fields — Advanced section
+  // Risk framework fields — Advanced section
   const [category, setCategory] = useState<string>(risk?.category ?? '');
   const [response, setResponse] = useState<string>(risk?.response ?? '');
   const [mitigationDueDate, setMitigationDueDate] = useState(risk?.mitigation_due_date ?? '');
   const [trigger, setTrigger] = useState(risk?.trigger ?? '');
   const [contingency, setContingency] = useState(risk?.contingency ?? '');
-  // Auto-open if any PMI field is already set (edit mode with existing PMI data)
+  // Auto-open if any framework field is already set (edit mode with existing data)
   const [advancedOpen, setAdvancedOpen] = useState(
     !!(
       risk?.category ||
@@ -238,7 +238,7 @@ export function RiskForm({ projectId, risk, onSuccess, onCancel }: RiskFormProps
         />
       </div>
 
-      {/* Advanced (PMI) — collapsible */}
+      {/* Advanced (risk framework) — collapsible */}
       <div className="border border-neutral-border rounded">
         <button
           type="button"

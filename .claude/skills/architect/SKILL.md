@@ -16,7 +16,7 @@ React web frontend, React Native mobile apps, and a Python scheduling engine.
 
 ## P3M Information Flow Model
 
-Every TruePPM feature sits in one layer of the PMI P3M hierarchy. Identify the layer
+Every TruePPM feature sits in one layer of the P3M (project, program, portfolio management) hierarchy. Identify the layer
 **before** evaluating options — it determines repo, data scope, and API surface.
 
 ```

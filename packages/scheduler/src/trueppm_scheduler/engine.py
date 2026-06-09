@@ -99,7 +99,7 @@ class ScheduleResult:
     Each task in ``tasks`` carries early/late start and finish, total float, free
     float, and an ``is_critical`` flag. ``free_float``, ``total_float``, and
     ``is_critical`` all account for every dependency type (FS/SS/FF/SF) per the
-    PMI definitions.
+    standard critical-path float definitions.
     """
 
     project_id: str
@@ -520,8 +520,8 @@ def _compute_floats(
 
     ``free_float`` is the number of working days a task can slip without delaying
     the early start (FS/SS links) or the early finish (FF/SF links) of *any* of
-    its successors — the PMI definition of free float (PMBOK® Guide, "Critical
-    Path Method"), evaluated across **all four** dependency types. For each
+    its successors — the standard critical-path-method definition of free float,
+    evaluated across **all four** dependency types. For each
     successor link we take the early date this task imposes on the successor —
     the *same* constraint the forward pass applies (see :func:`_forward_pass`) —
     and measure the working-day slack to the successor's actual early date. Free
@@ -790,7 +790,7 @@ def schedule(project: Project) -> ScheduleResult:
 
         Note: ``free_float``, ``total_float``, and ``is_critical`` are all
         dependency-type complete — each accounts for FS/SS/FF/SF links per the
-        PMI free-/total-float definitions.
+        standard free-/total-float definitions.
 
     Raises:
         CyclicDependencyError: If the dependency graph contains a cycle.

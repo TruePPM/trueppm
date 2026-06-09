@@ -59,7 +59,7 @@ TypeScript interface. Empty notes are stored as the empty string, never NULL.
 - Generic "edit notes" UI surfaces (e.g. the unified detail drawer in #303) work
   uniformly across Task, Risk, Sprint, and ProjectResource.
 - Risks now have a place to record discussion context distinct from the formal
-  `description` / `trigger` / `contingency` PMI fields.
+  `description` / `trigger` / `contingency` risk framework fields.
 - Sprints can carry mid-sprint PM annotations without overloading `goal`.
 
 **Negative / cost:**

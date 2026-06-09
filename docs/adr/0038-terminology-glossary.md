@@ -68,7 +68,7 @@ A baseline is a **comparison tool**, not a prerequisite for recording actual dat
 `actual_start` is set on every `IN_PROGRESS` transition whether or not the project has
 a baseline snapshot. See ADR-0023 for the full auto-set rules.
 
-**PMBOK / PMI EVM alignment:** Actual dates track reality; baseline dates track the
+**Earned-value (EVM) alignment:** Actual dates track reality; baseline dates track the
 approved plan; CPM-computed dates track the current re-forecast. All three layers
 coexist and are independently maintained.
 

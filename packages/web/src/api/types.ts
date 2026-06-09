@@ -174,7 +174,7 @@ export interface Risk {
   created_at: string;
   updated_at: string;
   tasks: string[];
-  // PMI framework fields (ADR-0043, wave 7 issue #221) — all optional/nullable
+  // Risk framework fields (ADR-0043, wave 7 issue #221) — all optional/nullable
   category?: 'TECHNICAL' | 'EXTERNAL' | 'ORGANIZATIONAL' | 'PROJECT_MANAGEMENT' | null;
   response?: 'AVOID' | 'MITIGATE' | 'TRANSFER' | 'ACCEPT' | null;
   mitigation_due_date?: string | null;

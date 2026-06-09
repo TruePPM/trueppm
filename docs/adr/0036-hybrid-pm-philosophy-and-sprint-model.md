@@ -90,16 +90,16 @@ ceremony workflow before they can drag a card.
 Concrete rules:
 - Sprint creation requires three fields: name, start date, end date. Everything else optional.
 - Story points are optional — tasks can be tracked by count if the team hasn't adopted
-  point estimation. (Story points are XP-origin, not defined in the Scrum Guide 2020; the
-  Guide says Developers are responsible for sizing but specifies no unit.)
+  point estimation. (Story points are XP-origin, not part of core Scrum; by common
+  practice Developers are responsible for sizing but no unit is specified.)
 - The four Sprint events (Sprint Planning, Daily Scrum, Sprint Review, Sprint Retrospective)
   are lightweight checklists in TruePPM, not enforced workflows. "Daily standup" is informal
-  colloquial usage; "Daily Scrum" is the official Scrum Guide term.
-- WIP limits are Kanban-origin (Kanban Method, David Anderson), not Scrum. Enabling them in
+  colloquial usage; "Daily Scrum" is the conventional term.
+- WIP limits are Kanban-origin, not Scrum. Enabling them in
   a sprint context creates a Scrumban hybrid — a recognised and common pattern. They are
   warnings by default, not hard blocks (can be hardened per project).
-- Velocity and burndown are XP/practice-layer tools, not Scrum Guide artifacts. The 2020 Guide
-  mentions them in one sentence as optional forecasting tools. TruePPM exposes them as
+- Velocity and burndown are XP/practice-layer tools, not core Scrum artifacts. They are
+  widely treated as optional forecasting tools. TruePPM exposes them as
   practice-layer features, not framework mandates — teams that prefer flow metrics (cycle time,
   throughput) are not disadvantaged.
 - The sprint model must be fully functional via the REST API with no UI dependency — teams

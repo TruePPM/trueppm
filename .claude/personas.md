@@ -383,28 +383,21 @@ A feature that **resolves** a tension cleanly (e.g. a notification model that sa
 
 **Name**: Alex Rivera
 **Title**: Scrum Master & Agile Delivery Lead, Mid-size SaaS Product Company (120 engineers)
-**Age**: 34 | **Tech comfort**: Very high (uses Jira, Linear, Confluence, Miro daily; PSM I certified — Professional Scrum Master, scrum.org)
+**Age**: 34 | **Tech comfort**: Very high (uses Jira, Linear, Confluence, Miro daily; experienced agile delivery lead)
 
-**⚠️ Internal use only:** Persona credential names (PSM I, SAFe®, Release Train Engineer®)
-are descriptive background for simulation purposes. They must not be reproduced in
-product marketing, landing pages, or UI copy — doing so risks trademark claims.
-SAFe® and Release Train Engineer® are registered trademarks of Scaled Agile, Inc.
-PSM and Professional Scrum Master are trademarks of Scrum.org.
-
-**Scrum Guide accuracy notes** *(Scrum Guide 2020 © Ken Schwaber and Jeff Sutherland,
-[CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/))*:
-- The four named Sprint events are: Sprint Planning, Daily Scrum, Sprint Review, Sprint Retrospective.
-  "Daily standup" is informal colloquial usage, not the official term.
-- Velocity and burndown/burn-up are **not** defined in the Scrum Guide 2020. They are XP-era
-  practice-layer metrics widely adopted in the Scrum community but outside the framework proper.
-- Story points are XP-origin (Ron Jeffries), not a Scrum artifact. The Guide says Developers are
-  responsible for sizing but specifies no unit. (~61% of teams use story points per Parabol 2024.)
-- WIP limits are Kanban (Kanban Method, David Anderson), not Scrum. Using them creates a
+**Agile-practice accuracy notes:**
+- The four named sprint events are: Sprint Planning, Daily Scrum, Sprint Review, Sprint Retrospective.
+  "Daily standup" is informal colloquial usage, not the conventional term.
+- Velocity and burndown/burn-up are **not** part of core Scrum. They are XP-era
+  practice-layer metrics widely adopted in the agile community but outside the framework proper.
+- Story points are XP-origin, not a core Scrum artifact. By convention Developers are
+  responsible for sizing but no unit is specified. (~61% of teams use story points per Parabol 2024.)
+- WIP limits are Kanban-origin, not Scrum. Using them creates a
   Scrumban hybrid — a real and recognized pattern, but not vanilla Scrum.
-- Scope protection mid-sprint: the Scrum Guide assigns scope negotiation to Developers + Product
-  Owner jointly. The SM's role is facilitation and coaching, not gatekeeping.
-- At 120 engineers (~12–15 Scrum Teams), Alex serves 2–3 teams. "Agile Delivery Lead" reflects
-  multi-team scope and PMO-bridge responsibility closer to Agile Coach or Release Train Engineer.
+- Scope protection mid-sprint: by common practice scope negotiation sits with Developers + Product
+  Owner jointly. The delivery lead's role is facilitation and coaching, not gatekeeping.
+- At 120 engineers (~12–15 teams), Alex serves 2–3 teams. "Agile Delivery Lead" reflects
+  multi-team scope and PMO-bridge responsibility closer to an agile coach or program-level delivery lead.
 
 **Goals**:
 - Run lean Sprint events without 4-hour Jira admin sessions
@@ -444,7 +437,7 @@ PSM and Professional Scrum Master are trademarks of Scrum.org.
 - Sprint modeled as "a label on tasks" instead of a first-class container with goal, dates, and burndown
 - No velocity chart, or a velocity that requires manual export to Sheets
 - Mid-sprint scope changes that slip in silently with no audit
-- Forces strict Scrum Guide terminology that doesn't fit Scrumban or SAFe-adjacent teams (his teams aren't all vanilla Scrum)
+- Forces strict Scrum terminology that doesn't fit Scrumban or scaled-agile teams (his teams aren't all vanilla Scrum)
 - "PM tool with a sprint view bolted on" — a board with date columns is not a Sprint
 
 **Decision authority**: Influencer for ~2–3 teams. Will champion if the Sprint model is real; will lose interest within a single Sprint if the abstraction is shallow. Reports up to a Director of Engineering or Head of Delivery who actually signs.

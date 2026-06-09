@@ -41,7 +41,7 @@ remains intact), no model change, no new endpoint.
 Introduce an append-only `RiskComment` model with author attribution and timestamp.
 Two new nested endpoints (`GET` / `POST`) under the existing risk URL hierarchy.
 Comments are displayed in the `RiskDrawer` detail view in a collapsible "Notes (N)"
-section, below the PMI fields. Comments are immutable in v1.
+section, below the risk framework fields. Comments are immutable in v1.
 
 ## Alternatives Considered
 
@@ -155,7 +155,7 @@ transaction.on_commit(
 - New `useRiskComments(riskId)` hook — TanStack Query key `['risk-comments', riskId]`
 - New `useCreateRiskComment()` mutation with optimistic list append
 - Loaded when drawer opens (separate query, not bundled with risk)
-- Position: below PMI fields, above the "Updated at" footer
+- Position: below the risk framework fields, above the "Updated at" footer
 - Collapsed when 0 comments; expanded when ≥ 1
 - Each comment: initials avatar circle + author name + `.tppm-mono` timestamp + message
 - Input: `<textarea>` + "Add note" button; Cmd/Ctrl+Enter also submits
