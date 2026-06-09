@@ -268,3 +268,41 @@ def test_dismiss_after_accept_is_409(project: Project, suggestion: VelocitySugge
 
     resp = _client_for(pm).post(f"/api/v1/velocity-suggestions/{suggestion.id}/dismiss/")
     assert resp.status_code == 409
+
+
+@pytest.mark.django_db
+def test_team_velocity_per_day_suppressed_for_below_audience_reader(
+    project: Project, task: Task, suggestion: VelocitySuggestion
+) -> None:
+    """#949: ``team_velocity_per_day`` is the same point-based velocity number the
+    ADR-0104 gate strips from /velocity/. A reader below the velocity audience
+    (here a PM at the default team-private posture, who is suppressed on
+    /velocity/) must not recover it from the calibration-suggestion surface, while
+    an in-audience MEMBER still reads it."""
+    pm = User.objects.create_user(username="pm", password="pw")
+    ProjectMembership.objects.create(project=project, user=pm, role=Role.ADMIN)
+    member = User.objects.create_user(username="dev", password="pw")
+    ProjectMembership.objects.create(project=project, user=member, role=Role.MEMBER)
+
+    pm_resp = _client_for(pm).get(f"/api/v1/velocity-suggestions/?task={task.id}")
+    assert pm_resp.status_code == 200
+    assert pm_resp.json()["results"][0]["team_velocity_per_day"] is None
+
+    member_resp = _client_for(member).get(f"/api/v1/velocity-suggestions/?task={task.id}")
+    assert member_resp.status_code == 200
+    assert member_resp.json()["results"][0]["team_velocity_per_day"] is not None
+
+
+@pytest.mark.django_db
+def test_dismiss_response_suppresses_team_velocity_for_below_audience(
+    project: Project, suggestion: VelocitySuggestion
+) -> None:
+    """#949: the accept/dismiss action responses build the serializer too — they
+    must carry request context so the velocity gate fires there as well. A PM
+    (suppressed by default) must not recover team_velocity_per_day from a dismiss."""
+    pm = User.objects.create_user(username="pm", password="pw")
+    ProjectMembership.objects.create(project=project, user=pm, role=Role.ADMIN)
+
+    resp = _client_for(pm).post(f"/api/v1/velocity-suggestions/{suggestion.id}/dismiss/")
+    assert resp.status_code == 200
+    assert resp.json()["team_velocity_per_day"] is None

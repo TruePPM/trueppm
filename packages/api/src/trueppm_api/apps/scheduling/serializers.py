@@ -47,6 +47,16 @@ class VelocitySuggestionSerializer(serializers.ModelSerializer[VelocitySuggestio
     sprint_name = serializers.CharField(source="sprint.name", read_only=True)
     sprint_id = serializers.UUIDField(source="sprint.id", read_only=True)
     is_pending = serializers.BooleanField(read_only=True)
+    # Declared explicitly with allow_null because to_representation nulls it for
+    # readers below the velocity audience (ADR-0104 gate, #949) — the schema must
+    # advertise the suppressed shape for schema-driven clients (#997 contract class).
+    team_velocity_per_day = serializers.DecimalField(
+        max_digits=6,
+        decimal_places=3,
+        read_only=True,
+        allow_null=True,
+        help_text="Rolling 6-sprint average of completed_points / sprint_working_days.",
+    )
 
     class Meta:
         model = VelocitySuggestion
@@ -66,6 +76,34 @@ class VelocitySuggestionSerializer(serializers.ModelSerializer[VelocitySuggestio
             "dismissed_by",
         ]
         read_only_fields = fields
+
+    def to_representation(self, instance: VelocitySuggestion) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        # ADR-0104 velocity gate (#949): team_velocity_per_day is the same
+        # point-based velocity number that suppress_velocity_summary strips from
+        # /velocity/. A reader below the velocity audience is suppressed there, so
+        # they must not recover it from this calibration-suggestion surface.
+        request = self.context.get("request")
+        # Fail closed: a render with no request context can't establish the
+        # reader's tier, so suppress rather than leak (the only callers are HTTP
+        # responses, which always carry a request).
+        if request is None:
+            data["team_velocity_per_day"] = None
+            return data
+        # The verdict is per-project; cache it on the (reused) child serializer so
+        # a list render is not N+1 on the gate query.
+        project_id = instance.task.project_id
+        cache: dict[Any, bool] | None = getattr(self, "_velocity_gate_cache", None)
+        if cache is None:
+            cache = {}
+            self._velocity_gate_cache = cache
+        if project_id not in cache:
+            from trueppm_api.apps.projects.signal_privacy_services import can_read_signal
+
+            cache[project_id] = can_read_signal(request, project_id, "velocity")
+        if not cache[project_id]:
+            data["team_velocity_per_day"] = None
+        return data
 
 
 class MonteCarloRunSerializer(serializers.ModelSerializer[MonteCarloRun]):

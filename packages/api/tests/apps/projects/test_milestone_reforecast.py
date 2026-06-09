@@ -352,6 +352,41 @@ def test_forecast_read_returns_velocity_and_milestone_snapshots(
 
 
 @pytest.mark.django_db
+def test_forecast_milestone_velocity_band_suppressed_for_below_audience(
+    client: APIClient, project: Project
+) -> None:
+    """#981: ForecastSnapshot.velocity_low/high ARE the velocity forecast band, so
+    a reader suppressed on /velocity/ must not recover it through the milestone
+    payload. cpm_finish/p50/p80 (milestone-date confidence) stay intact."""
+    _seed_velocity(project)
+    milestone = _milestone(project, early_finish=date(2026, 5, 1))
+    _bound_sprint_with_work(project, milestone, remaining=40)
+    reforecast_bound_milestone(milestone.pk, broadcast=False)
+
+    # In-audience SCHEDULER reads the band.
+    sched_resp = client.get(f"/api/v1/projects/{project.id}/forecast/")
+    sched_ms = sched_resp.data["milestones"][0]
+    assert sched_ms["velocity_low"] is not None
+    assert sched_ms["velocity_high"] is not None
+
+    # A PM (ADMIN) is suppressed on velocity at the default team-private posture.
+    pm = User.objects.create_user(username="pm", password="pw")
+    ProjectMembership.objects.create(project=project, user=pm, role=Role.ADMIN)
+    pm_client = APIClient()
+    pm_client.force_authenticate(user=pm)
+
+    pm_resp = pm_client.get(f"/api/v1/projects/{project.id}/forecast/")
+    assert pm_resp.status_code == 200
+    assert pm_resp.data["velocity"]["velocity_suppressed"] is True
+    pm_ms = pm_resp.data["milestones"][0]
+    assert pm_ms["velocity_low"] is None
+    assert pm_ms["velocity_high"] is None
+    # Milestone-date confidence artifacts remain readable.
+    assert pm_ms["cpm_finish"] == "2026-05-01"
+    assert pm_ms["p50"] is not None
+
+
+@pytest.mark.django_db
 def test_forecast_sprints_to_complete_range(project: Project) -> None:
     _seed_velocity(project)  # band 18–32
     milestone = _milestone(project, early_finish=date(2026, 5, 1))

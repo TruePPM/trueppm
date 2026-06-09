@@ -23032,14 +23032,15 @@
             },
             "ProjectForecast": {
                 "type": "object",
-                "description": "Project forecast read response (ADR-0106 §5, #487/#860).\n\n``velocity`` is the full ``velocity_summary`` payload (avg ± 1σ + the\nper-sprint series — the velocity privacy gate of ADR-0104 / #553, not yet\nmerged, will suppress the series for below-tier readers once it lands).\n``sprints_to_complete_*`` is the remaining committed backlog re-paced by the\nvelocity band into a sprint count range; ``milestones`` is the latest snapshot\nper bound milestone.",
+                "description": "Project forecast read response (ADR-0106 §5, #487/#860).\n\n``velocity`` is the full ``velocity_summary`` payload (avg ± 1σ + the\nper-sprint series). The ADR-0104 velocity privacy gate (#553/#981) suppresses\nthe series — and nulls ``remaining_committed_points`` + ``sprints_to_complete_*``\nand the milestone velocity band — for readers below the velocity audience, so\nthose fields are nullable. ``sprints_to_complete_*`` is the remaining committed\nbacklog re-paced by the velocity band into a sprint count range; ``milestones``\nis the latest snapshot per bound milestone.",
                 "properties": {
                     "velocity": {
                         "type": "object",
                         "additionalProperties": {}
                     },
                     "remaining_committed_points": {
-                        "type": "integer"
+                        "type": "integer",
+                        "nullable": true
                     },
                     "sprints_to_complete_low": {
                         "type": "integer",
@@ -26399,6 +26400,7 @@
                         "format": "decimal",
                         "pattern": "^-?\\d{0,3}(?:\\.\\d{0,3})?$",
                         "readOnly": true,
+                        "nullable": true,
                         "description": "Rolling 6-sprint average of completed_points / sprint_working_days."
                     },
                     "flag_for_review": {
