@@ -147,7 +147,7 @@ describe('generateRisksCSV — row content', () => {
     expect(row({ mitigation_due_date: '2026-06-15' })[9]).toBe('Jun 15, 2026');
   });
 
-  it('null PMI fields produce empty strings', () => {
+  it('null risk framework fields produce empty strings', () => {
     const r = row({ category: null, response: null, mitigation_due_date: null });
     expect(r[3]).toBe('');  // category
     expect(r[4]).toBe('');  // response

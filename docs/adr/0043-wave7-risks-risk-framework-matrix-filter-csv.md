@@ -1,4 +1,4 @@
-# ADR-0043: Wave 7 — Risk Register: PMI Framework Fields, Matrix Cell-Filter, and CSV Export
+# ADR-0043: Wave 7 — Risk Register: Risk Framework Fields, Matrix Cell-Filter, and CSV Export
 
 ## Status
 Accepted
@@ -9,7 +9,7 @@ The TruePPM risk register (ADR-0010) shipped with a minimal data model — title
 description, probability (1–5), impact (1–5), status, and computed severity. A VoC
 panel (wave 7, avg 4.8/10) identified three concrete gaps:
 
-1. **Insufficient PMI structure** — Sarah (PM, 8/10) needs response strategy, due date,
+1. **Insufficient risk structure** — Sarah (PM, 8/10) needs response strategy, due date,
    trigger, and category fields to produce client-facing registers without reformatting.
    Marcus (PMO, 6/10) needs audit-ready fields. All other personas confirmed the fields
    are acceptable overhead when hidden behind an optional "Advanced" section.
@@ -32,7 +32,7 @@ is deferred to Enterprise.
 
 ## Decision
 
-### 1. PMI fields on the Risk model (all nullable — existing risks unaffected)
+### 1. Risk framework fields on the Risk model (all nullable — existing risks unaffected)
 
 Add to `Risk` in `packages/api/src/trueppm_api/apps/projects/models.py`:
 
@@ -57,7 +57,7 @@ trigger             = TextField(blank=True, default="")
 contingency         = TextField(blank=True, default="")
 ```
 
-Migration `0023_risk_pmi_fields.py` — five `ALTER TABLE ADD COLUMN` with NULL defaults.
+Migration `0023_risk_framework_fields.py` — five `ALTER TABLE ADD COLUMN` with NULL defaults.
 Safe on a live PostgreSQL table; no lock escalation for nullable additions.
 
 All five fields are added to `RiskSerializer.Meta.fields` as optional writable fields.
@@ -115,8 +115,8 @@ purely client-side derived state — no new API field.
 
 | Option | Pros | Cons |
 |--------|------|------|
-| Store PMI fields as a JSON `metadata` column | No migration per field; extensible | Breaks filtering, serializer validation, and OpenAPI schema generation |
-| Separate `RiskPMIProfile` related model | Keeps Risk model lean; optional join | Extra JOIN on every list query; complicates serializer; over-engineering for 5 fields |
+| Store framework fields as a JSON `metadata` column | No migration per field; extensible | Breaks filtering, serializer validation, and OpenAPI schema generation |
+| Separate `RiskFrameworkProfile` related model | Keeps Risk model lean; optional join | Extra JOIN on every list query; complicates serializer; over-engineering for 5 fields |
 | Server-side CSV endpoint | Streams large files efficiently | Adds a new endpoint, auth surface, and test burden for a feature that works fine client-side at ≤1000 risks |
 | Inline matrix filter via existing `/matrix/` API endpoint | Consistent with server-side filtering | API already returns count aggregates, not risk lists; adding per-cell filtering would require a new query param and API contract change for a purely UI concern |
 
@@ -141,7 +141,7 @@ purely client-side derived state — no new API field.
 
 - **P3M layer**: Programs and Projects (single-project, OSS)
 - **Affected packages**: api, web
-- **Migration required**: yes — `0023_risk_pmi_fields.py`
+- **Migration required**: yes — `0023_risk_framework_fields.py`
 - **API changes**: yes — five new optional fields on RiskSerializer; OpenAPI schema regeneration required
 - **OSS or Enterprise**: OSS (`trueppm-suite`)
 
@@ -158,5 +158,5 @@ purely client-side derived state — no new API field.
 
 ## Tracking
 
-Tracking: implemented in #221 (PMI-standard fields), #222 (CSV/PDF export), and #223
+Tracking: implemented in #221 (risk framework fields), #222 (CSV/PDF export), and #223
 (CSV import).

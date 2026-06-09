@@ -511,18 +511,18 @@ class TestRiskTaskLinks:
 
 
 # ---------------------------------------------------------------------------
-# PMI framework fields (ADR-0043 — wave 7)
+# Risk framework fields (ADR-0043 — wave 7)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.django_db
-class TestRiskPMIFields:
-    """Coverage for the PMI extension fields: category, response,
+class TestRiskFrameworkFields:
+    """Coverage for the risk framework extension fields: category, response,
     mitigation_due_date, trigger, contingency. All five are nullable/blank;
     existing risks created without them must remain valid.
     """
 
-    def test_create_with_all_pmi_fields(
+    def test_create_with_all_framework_fields(
         self,
         client: APIClient,
         project: Project,
@@ -552,13 +552,13 @@ class TestRiskPMIFields:
         assert r.data["contingency"].startswith("Pre-source backup vendor")
         assert r.data["notes"].startswith("Discussed in 2026-05-07 standup")
 
-    def test_create_without_pmi_fields_uses_defaults(
+    def test_create_without_framework_fields_uses_defaults(
         self,
         client: APIClient,
         project: Project,
         owner_membership: ProjectMembership,
     ) -> None:
-        # Existing minimal payload must still work — PMI fields default to null/empty.
+        # Existing minimal payload must still work — framework fields default to null/empty.
         with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"):
             r = client.post(
                 f"/api/v1/projects/{project.pk}/risks/",
@@ -637,7 +637,7 @@ class TestRiskPMIFields:
         assert r.data["status"] == RiskStatus.ACCEPTED
         assert r.data["response"] == RiskResponse.ACCEPT
 
-    def test_patch_pmi_fields_on_existing_risk(
+    def test_patch_framework_fields_on_existing_risk(
         self,
         client: APIClient,
         project: Project,

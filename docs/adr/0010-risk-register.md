@@ -199,5 +199,5 @@ Guard with `update_fields` check to avoid signal fanout on unrelated saves.
 ## Tracking
 
 Tracking: implemented in #52 (risk register CRUD / status lifecycle / owner) and #174
-(full Risks tab — CRUD, risk matrix, task linkage). PMI-field and UX extensions are
+(full Risks tab — CRUD, risk matrix, task linkage). Risk framework field and UX extensions are
 tracked separately under ADR-0043 / ADR-0044.

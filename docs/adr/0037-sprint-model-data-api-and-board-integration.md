@@ -225,14 +225,12 @@ disconnected from actual resource availability.
 **always** the count of tasks that completed *within the sprint window*, not the
 final state of carry-over targets.
 
-**Scrum Guide alignment** *(Scrum Guide 2020 © Ken Schwaber and Jeff Sutherland,
-[CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/))*: The Guide states
-that incomplete Sprint Backlog items "return to the Product Backlog for future
-consideration." This makes
+**Agile-practice alignment:** By common Scrum practice, incomplete sprint backlog
+items return to the product backlog for future consideration. This makes
 `"backlog"` the canonically correct default — re-selection for a future sprint
 is a Product Owner prioritization decision, not an automatic carry-forward.
-Offering `<sprint-id>` as an option is a convenience feature beyond what the
-Guide prescribes, but it is common real-world practice and explicitly opt-in.
+Offering `<sprint-id>` as an option is a convenience feature beyond the
+conventional practice, but it is common real-world usage and explicitly opt-in.
 
 ### Q3 — Velocity storage
 

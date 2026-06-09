@@ -23,7 +23,7 @@ const STATUS_CLASSES: Record<Risk['status'], string> = {
   CLOSED:     'border-neutral-text-disabled/40 text-neutral-text-disabled',
 };
 
-// PMI label maps — used in RiskDetailView
+// Risk framework label maps — used in RiskDetailView
 const CATEGORY_LABELS: Record<NonNullable<Risk['category']>, string> = {
   TECHNICAL:          'Technical',
   EXTERNAL:           'External',
@@ -297,7 +297,7 @@ function RiskDetailView({ projectId, risk }: { projectId: string; risk: Risk }) 
         </div>
       )}
 
-      {/* PMI fields — shown when at least one is populated */}
+      {/* Risk framework fields — shown when at least one is populated */}
       {hasPmiFields && (
         <div className="flex flex-col gap-4 border-t border-neutral-border pt-4">
           {risk.category && (

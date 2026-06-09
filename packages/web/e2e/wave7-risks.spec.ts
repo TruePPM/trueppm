@@ -5,7 +5,7 @@ import { test, expect } from '@playwright/test';
  *
  * Golden path: open Risks tab → list renders, matrix shows.
  * Matrix cell-click: clicking a cell filters the table; clear chip removes filter.
- * PMI fields: overdue badge appears on MITIGATING risk with past mitigation_due_date.
+ * Risk framework fields: overdue badge appears on MITIGATING risk with past mitigation_due_date.
  * CSV export: Export CSV button is visible when risks are present.
  *
  * All API calls are intercepted via page.route() — no backend required.
@@ -285,17 +285,17 @@ test.describe('Overdue mitigation badge', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Risk drawer — PMI fields detail view
+// Risk drawer — risk framework fields detail view
 // ---------------------------------------------------------------------------
 
-test.describe('Risk drawer PMI fields', () => {
+test.describe('Risk drawer framework fields', () => {
   test.beforeEach(async ({ page }) => {
     await setup(page);
     await page.goto(`/projects/${PROJECT_ID}/risk`);
     await expect(page.getByRole('heading', { name: 'Risk register' })).toBeVisible({ timeout: 10_000 });
   });
 
-  test('opening a risk with PMI fields shows Category and Response', async ({ page }) => {
+  test('opening a risk with framework fields shows Category and Response', async ({ page }) => {
     await page.getByRole('button', { name: /Open risk: Critical infrastructure failure/ }).click();
 
     // Wait for drawer content (category chip rendered in quick-edit header + detail section)

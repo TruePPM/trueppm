@@ -39,7 +39,7 @@ and must not be conflated:
   It is always written regardless of whether a baseline exists. A baseline is a comparison
   tool — the absence of a baseline snapshot does not change when to record `actual_start`.
 
-This matches PMBOK / PMI EVM practice: actual dates track reality; baselines track the
+This matches standard earned-value (EVM) practice: actual dates track reality; baselines track the
 original plan; CPM-computed dates (early_start, early_finish) track the current schedule.
 All three are distinct and independently maintained.
 

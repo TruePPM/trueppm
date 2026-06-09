@@ -8,7 +8,7 @@ Accepted (2026-05-31) — implemented in #216
 Wave 9 of the design-aligned UI build (issue #216) adds a toggle-able Workshop mode to the
 operating Board. The feature converts the Kanban surface into a live multi-cursor planning
 canvas for project kickoff workshops: inline phase rename, drag-to-reorder phases, "+ Add
-task" in every board cell, "+ Add phase here" strips between phase rows, PMI starter sets,
+task" in every board cell, "+ Add phase here" strips between phase rows, phase starter sets,
 and minimal card chrome for rapid idea capture. A companion WebSocket channel broadcasts
 cursor presence and edit-in-progress state to all workshop participants.
 

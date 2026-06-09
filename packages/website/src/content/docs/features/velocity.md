@@ -35,7 +35,7 @@ The `team_velocity_per_day` field is the same rolling per-day average used by [v
 
 Stakeholders trust a range more than a single number. A forecast that says "5–8 sprints remaining" defends itself against the team's natural variance; a point estimate is brittle.
 
-The terminology is **forecast range**, not "velocity confidence band" — confidence band has a specific statistical meaning we are not claiming here. Velocity is XP-origin (not in the Scrum Guide 2020) but real-world standard practice; we surface it as a practice-layer tool, not a Scrum mandate.
+The terminology is **forecast range**, not "velocity confidence band" — confidence band has a specific statistical meaning we are not claiming here. Velocity is XP-origin (not part of core Scrum) but real-world standard practice; we surface it as a practice-layer tool, not a process mandate.
 
 ## Related ADRs
 

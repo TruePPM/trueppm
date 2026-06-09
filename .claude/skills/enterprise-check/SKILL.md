@@ -14,7 +14,7 @@ Enterprise (proprietary, `trueppm-enterprise`) before implementation begins.
 
 ## P3M Information Flow Model
 
-TruePPM is structured around the PMI P3M information flow. Every feature belongs
+TruePPM is structured around the P3M (project, program, portfolio management) information flow. Every feature belongs
 to exactly one layer — use it as the first cut for OSS vs Enterprise.
 
 ```

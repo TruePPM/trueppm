@@ -1,6 +1,6 @@
 ---
 title: Risk Register
-description: PMBOK-aligned risk tracking with probability × impact scoring, task links, and real-time board integration.
+description: Standards-aligned risk tracking with probability × impact scoring, task links, and real-time board integration.
 ---
 
 :::note[0.1]
@@ -35,7 +35,7 @@ The severity is read-only in the UI — it is always derived from the two inputs
 
 The risk matrix on the register view treats `OPEN` and `MITIGATING` as **active** risks. `RESOLVED`, `ACCEPTED`, and `CLOSED` risks are hidden by default; use the **Show closed** toggle to include them.
 
-## PMBOK response strategies
+## Response strategies
 
 Each risk can be assigned one response strategy:
 
@@ -48,7 +48,7 @@ Each risk can be assigned one response strategy:
 
 ## Risk categories
 
-Risks can be tagged with a PMBOK source category:
+Risks can be tagged with a standard source category:
 
 - **Technical** — technology, quality, complexity
 - **External** — market, regulatory, vendor

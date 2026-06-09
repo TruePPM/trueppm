@@ -103,7 +103,7 @@ read-only CPM outputs and are never PATCHed.
 
 | Option | Pros | Cons |
 |--------|------|------|
-| A — `planned_start` constraint (chosen) | CPM-correct; works offline; maps to PMI SNET concept; downstream tasks cascade | Requires scheduler change; migration; slightly more complex than C |
+| A — `planned_start` constraint (chosen) | CPM-correct; works offline; maps to the start-no-earlier-than (SNET) constraint; downstream tasks cascade | Requires scheduler change; migration; slightly more complex than C |
 | B — Drag = duration change only | No new field; resize already works | Misleading UX — move cursor implies relocation, not compression |
 | C — `task_offset_days` additive | Trivial to implement | Offset stacks on CPM shifts causing double-movement; breaks schedule integrity |
 | D — Preview-only, no save | No changes needed now | Violates Sarah's core requirement; not alpha-credible |
