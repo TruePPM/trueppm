@@ -2,7 +2,7 @@
     "openapi": "3.0.3",
     "info": {
         "title": "TruePPM API",
-        "version": "0.2.0",
+        "version": "0.3.0",
         "description": "REST API for the TruePPM project scheduling platform."
     },
     "paths": {
@@ -2474,6 +2474,7 @@
             "post": {
                 "operationId": "v1_programs_close_create",
                 "description": "Mark the program as closed (read-only shell). Owner only (#530).\n\nClosing a program freezes the program-level surfaces (members, settings,\nceremonies). Child projects are NOT cascaded — they retain their own\nlifecycle, matching the UI dialog's \"projects remain active\" warning.",
+                "summary": "Close the program",
                 "parameters": [
                     {
                         "in": "path",
@@ -2535,6 +2536,7 @@
             "get": {
                 "operationId": "v1_programs_export_retrieve",
                 "description": "Export this program as a downloadable canonical JSON seed file (#616).",
+                "summary": "Export the program as a downloadable JSON seed file",
                 "parameters": [
                     {
                         "in": "path",
@@ -2563,11 +2565,12 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Program"
+                                    "type": "string",
+                                    "format": "binary"
                                 }
                             }
                         },
-                        "description": ""
+                        "description": "Canonical JSON seed document as a file attachment."
                     }
                 }
             }
@@ -2576,6 +2579,7 @@
             "get": {
                 "operationId": "v1_programs_integrations_summary_retrieve",
                 "description": "Program-scoped integrations summary (ADR-0076).\n\nURL: ``GET /api/v1/programs/{pk}/integrations-summary/``\n\nReturns the program's outbound webhooks and inbound API tokens that\nare scoped to the program itself — does NOT bubble up resources from\nchild projects (those have their own per-project summaries).\n\nSame shape and per-section 503 fallback semantics as the project\nendpoint so the frontend can re-use the hook contract.",
+                "summary": "Get the program-scoped integrations summary",
                 "parameters": [
                     {
                         "in": "path",
@@ -2601,22 +2605,19 @@
                 ],
                 "responses": {
                     "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/Program"
-                                }
-                            }
-                        },
-                        "description": ""
+                        "description": "Summary object with `webhooks` and `api_tokens` sections scoped to the program."
+                    },
+                    "503": {
+                        "description": "A subservice failed; body names the `failed` section."
                     }
                 }
             }
         },
         "/api/v1/programs/{id}/projects/": {
             "get": {
-                "operationId": "v1_programs_projects_retrieve",
+                "operationId": "v1_programs_projects_list",
                 "description": "List projects in this program.\n\nURL: ``GET /api/v1/programs/{pk}/projects/``\n\nPermission: IsProgramMember (any program role can see the project list,\nbut the project itself only opens if the user also has project membership\n— that gate is enforced by the project's own viewset on click-through).",
+                "summary": "List projects in this program",
                 "parameters": [
                     {
                         "in": "path",
@@ -2627,6 +2628,33 @@
                         },
                         "description": "A UUID string identifying this program.",
                         "required": true
+                    },
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
                     }
                 ],
                 "tags": [
@@ -2645,7 +2673,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Program"
+                                    "$ref": "#/components/schemas/PaginatedProjectList"
                                 }
                             }
                         },
@@ -2658,6 +2686,7 @@
             "post": {
                 "operationId": "v1_programs_remove_sample_create",
                 "description": "Tear down a sample program — the \"Remove sample data\" action (#375).\n\nOwner-only. Refuses to delete a program that is not sample data, so the\nteardown can never remove real work. Hard-deletes the *entire* program\nsubtree (all projects, not only is_sample ones — a sample program holds\nonly sample projects). Unlike ``destroy`` this is a hard delete, not a\nsoft delete: sample data is disposable, so it is purged outright. Offline\nsync clients reconcile via the ``program_deleted`` broadcast rather than a\ntombstone — acceptable because demo data is never offline-authored.",
+                "summary": "Tear down a sample program",
                 "parameters": [
                     {
                         "in": "path",
@@ -2702,15 +2731,8 @@
                     }
                 ],
                 "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/Program"
-                                }
-                            }
-                        },
-                        "description": ""
+                    "204": {
+                        "description": "Sample program purged; empty body."
                     }
                 }
             }
@@ -2719,6 +2741,7 @@
             "post": {
                 "operationId": "v1_programs_reopen_create",
                 "description": "Reopen a closed program. Owner only (#530).",
+                "summary": "Reopen a closed program",
                 "parameters": [
                     {
                         "in": "path",
@@ -2780,6 +2803,7 @@
             "get": {
                 "operationId": "v1_programs_risk_policy_retrieve",
                 "description": "Read or update the program risk & deps policy (#529).\n\nURL: ``GET|PATCH /api/v1/programs/{pk}/risk-policy/``\n\nPermission split mirrors ``rollup_config`` (see ``get_permissions``):\nany member can read, only admins can write. Audit is automatic via\nthe ``HistoricalRecords()`` already on Program — every successful\nPATCH creates a ``HistoricalProgram`` row with the field diff.\n\nThe 5×5 risk matrix surfaced on the same Settings page is\nintentionally out of scope here — those thresholds are workspace-\nwide and read-only at the program level.",
+                "summary": "Read or update the program risk & dependencies policy",
                 "parameters": [
                     {
                         "in": "path",
@@ -2808,7 +2832,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Program"
+                                    "$ref": "#/components/schemas/ProgramRiskPolicy"
                                 }
                             }
                         },
@@ -2819,6 +2843,7 @@
             "patch": {
                 "operationId": "v1_programs_risk_policy_partial_update",
                 "description": "Read or update the program risk & deps policy (#529).\n\nURL: ``GET|PATCH /api/v1/programs/{pk}/risk-policy/``\n\nPermission split mirrors ``rollup_config`` (see ``get_permissions``):\nany member can read, only admins can write. Audit is automatic via\nthe ``HistoricalRecords()`` already on Program — every successful\nPATCH creates a ``HistoricalProgram`` row with the field diff.\n\nThe 5×5 risk matrix surfaced on the same Settings page is\nintentionally out of scope here — those thresholds are workspace-\nwide and read-only at the program level.",
+                "summary": "Read or update the program risk & dependencies policy",
                 "parameters": [
                     {
                         "in": "path",
@@ -2866,7 +2891,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Program"
+                                    "$ref": "#/components/schemas/ProgramRiskPolicy"
                                 }
                             }
                         },
@@ -2879,6 +2904,7 @@
             "get": {
                 "operationId": "v1_programs_rollup_retrieve",
                 "description": "Computed rollup of the enabled KPIs across the program's projects.\n\nURL: ``GET /api/v1/programs/{pk}/rollup/``\n\nConsumes the #527 config (``rollup_enabled_kpis`` +\n``rollup_aggregation_policy``) and returns the rolled-up values per\nADR-0088 — the program health dot, the active policy (and whether it\ncould be honored), the contributing project count, and a per-KPI map\nwhere deferred KPIs carry ``{\"available\": False, \"reason\": ...}``.\n\nRead-only and computed on demand (no persisted rollup row), so it always\nreflects the projects' current state. Permission: any program member.",
+                "summary": "Compute the program KPI rollup across its projects",
                 "parameters": [
                     {
                         "in": "path",
@@ -2904,14 +2930,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/Program"
-                                }
-                            }
-                        },
-                        "description": ""
+                        "description": "Computed rollup: program health dot, active aggregation policy, contributing project count, and a per-KPI value map."
                     }
                 }
             }
@@ -2920,6 +2939,7 @@
             "get": {
                 "operationId": "v1_programs_rollup_config_retrieve",
                 "description": "Read or update the program rollup KPIs config (ADR-0079, #527).\n\nURL: ``GET|PATCH /api/v1/programs/{pk}/rollup-config/``\n\nPermission split is method-level (see ``get_permissions``): any\nmember can read, only admins can write. Audit is automatic via the\n``HistoricalRecords()`` already on Program — every successful PATCH\ncreates a ``HistoricalProgram`` row with the field diff.",
+                "summary": "Read or update the program rollup KPIs config",
                 "parameters": [
                     {
                         "in": "path",
@@ -2948,7 +2968,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Program"
+                                    "$ref": "#/components/schemas/ProgramRollupConfig"
                                 }
                             }
                         },
@@ -2959,6 +2979,7 @@
             "patch": {
                 "operationId": "v1_programs_rollup_config_partial_update",
                 "description": "Read or update the program rollup KPIs config (ADR-0079, #527).\n\nURL: ``GET|PATCH /api/v1/programs/{pk}/rollup-config/``\n\nPermission split is method-level (see ``get_permissions``): any\nmember can read, only admins can write. Audit is automatic via the\n``HistoricalRecords()`` already on Program — every successful PATCH\ncreates a ``HistoricalProgram`` row with the field diff.",
+                "summary": "Read or update the program rollup KPIs config",
                 "parameters": [
                     {
                         "in": "path",
@@ -3006,7 +3027,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Program"
+                                    "$ref": "#/components/schemas/ProgramRollupConfig"
                                 }
                             }
                         },
@@ -3019,6 +3040,7 @@
             "post": {
                 "operationId": "v1_programs_split_create",
                 "description": "Split a program into sub-programs — stub for 0.2 (#530).\n\nValidates payload shape and Owner role, then returns 501 so the UI\ncan render the dialog and a coherent \"coming soon\" toast without a\nclient-side feature flag. Real implementation is tracked in a\nfollow-up issue; the contract here is the one the eventual handler\nwill accept.\n\nBody: ``{\"splits\": [{\"name\": str, \"project_ids\": [uuid]}, ...]}``",
+                "summary": "Split a program into sub-programs (not yet implemented)",
                 "parameters": [
                     {
                         "in": "path",
@@ -3063,15 +3085,8 @@
                     }
                 ],
                 "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/Program"
-                                }
-                            }
-                        },
-                        "description": ""
+                    "501": {
+                        "description": "Not implemented. Body carries a `detail` message and the `tracking_issue` number; the request payload contract is validated before the 501 is returned."
                     }
                 }
             }
@@ -3080,6 +3095,7 @@
             "post": {
                 "operationId": "v1_programs_transfer_sponsorship_create",
                 "description": "Transfer program sponsorship to another existing member (#530).\n\nBody: ``{\"new_owner_user_id\": \"<uuid>\", \"new_lead_user_id\": \"<uuid>?\"}``.\nThe new sponsor must already hold a ``ProgramMembership`` at any role —\ninvite first if not. The current OWNER is atomically demoted to ADMIN.\nOptionally rotates ``program.lead`` so the program header chip moves\nwith the role.",
+                "summary": "Transfer program sponsorship to another member",
                 "parameters": [
                     {
                         "in": "path",
@@ -4855,8 +4871,9 @@
         },
         "/api/v1/programs/{program_pk}/webhooks/{id}/deliveries/": {
             "get": {
-                "operationId": "v1_programs_webhooks_deliveries_retrieve",
+                "operationId": "v1_programs_webhooks_deliveries_list",
                 "description": "List recent deliveries for this webhook.",
+                "summary": "List recent webhook deliveries",
                 "parameters": [
                     {
                         "in": "path",
@@ -4867,12 +4884,39 @@
                         "required": true
                     },
                     {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
                         "in": "path",
                         "name": "program_pk",
                         "schema": {
                             "type": "string"
                         },
                         "required": true
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
                     }
                 ],
                 "tags": [
@@ -4891,7 +4935,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Webhook"
+                                    "$ref": "#/components/schemas/PaginatedWebhookDeliveryList"
                                 }
                             }
                         },
@@ -4904,6 +4948,7 @@
             "post": {
                 "operationId": "v1_programs_webhooks_test_create",
                 "description": "Send a test ping event to the webhook URL.",
+                "summary": "Send a test webhook ping",
                 "parameters": [
                     {
                         "in": "path",
@@ -4954,11 +4999,11 @@
                     }
                 ],
                 "responses": {
-                    "200": {
+                    "202": {
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Webhook"
+                                    "$ref": "#/components/schemas/WebhookTestPingResponse"
                                 }
                             }
                         },
@@ -4971,6 +5016,7 @@
             "post": {
                 "operationId": "v1_programs_import_create",
                 "description": "Import a JSON seed document, creating (or replacing) a program.\n\nAccepts either a ``file`` multipart upload or a raw JSON body. The caller\nbecomes the program OWNER (same authorization as ``create`` — any\nauthenticated user may create a program). ``create_users`` is forced off:\nimporting a seed on a live instance must never mint arbitrary logins.",
+                "summary": "Import a JSON seed bundle as a new program",
                 "tags": [
                     "v1"
                 ],
@@ -5003,7 +5049,7 @@
                     }
                 ],
                 "responses": {
-                    "200": {
+                    "201": {
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -5020,6 +5066,7 @@
             "post": {
                 "operationId": "v1_programs_load_sample_create",
                 "description": "Load a bundled sample program — the \"Load demo data\" action (#375).\n\nBody: ``{\"sample\": \"<key>\"}`` (optional; defaults to the launch demo).\nThe caller becomes OWNER (same authorization as ``create``). Demo\npersona accounts are created so the boards render fully.",
+                "summary": "Load a bundled sample program",
                 "tags": [
                     "v1"
                 ],
@@ -5052,7 +5099,7 @@
                     }
                 ],
                 "responses": {
-                    "200": {
+                    "201": {
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -5069,6 +5116,7 @@
             "get": {
                 "operationId": "v1_programs_samples_retrieve",
                 "description": "List the bundled samples available to the demo loader (#375).",
+                "summary": "List bundled demo samples available to the loader",
                 "tags": [
                     "v1"
                 ],
@@ -5082,14 +5130,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/Program"
-                                }
-                            }
-                        },
-                        "description": ""
+                        "description": "Array of available samples, each with `key`, `title`, and `description`."
                     }
                 }
             }
@@ -5712,6 +5753,7 @@
             "post": {
                 "operationId": "v1_projects_archive_create",
                 "description": "Mark the project as archived (read-only) (#530).\n\nIdempotent — archiving an already-archived project succeeds with the\nexisting ``archived_at`` / ``archived_by`` values preserved. Owner only.\nBroadcasts ``project_archived`` so connected clients flip their UI to\nread-only without a manual refresh.",
+                "summary": "Archive a project",
                 "parameters": [
                     {
                         "in": "path",
@@ -6192,6 +6234,7 @@
             "get": {
                 "operationId": "v1_projects_integrations_summary_retrieve",
                 "description": "Project-scoped integrations summary for the Project → Settings → Integrations page.\n\nAggregates the project's outbound webhooks (ADR-0019) and inbound API tokens\n(ADR-0068) into a single round-trip so the settings page avoids waterfall\nfetches. Per ADR-0076, the page is read-only in 0.2; CRUD is delegated to the\nunderlying viewsets via deep-links from the UI.\n\nEach section is computed independently. If one subservice errors, the\nresponse degrades gracefully: a 503 is returned with a ``failed`` key\nnaming the section, and the frontend falls back to fetching that section\nvia its own viewset (the per-section retry contract from ADR-0076).",
+                "summary": "Get the project integrations summary",
                 "parameters": [
                     {
                         "in": "path",
@@ -6220,11 +6263,15 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Project"
+                                    "type": "object",
+                                    "additionalProperties": {}
                                 }
                             }
                         },
-                        "description": ""
+                        "description": "Aggregated webhooks and API tokens sections for the project."
+                    },
+                    "503": {
+                        "description": "A subservice failed; body includes a `failed` key naming the section."
                     }
                 }
             }
@@ -6721,6 +6768,7 @@
             "get": {
                 "operationId": "v1_projects_product_backlog_retrieve",
                 "description": "Grooming view payload (ADR-0105 DA-10): epics with nested stories + health.\n\nOne query for the project's backlog stories (status=BACKLOG, sprint-less,\nnon-epic) plus its epics, assembled into epic groups with rollups and a\ngrooming-health summary. The active scoring model is passed into each\nTaskSerializer via context so the computed ``score`` needs no per-row query.",
+                "summary": "Get the product backlog grooming view",
                 "parameters": [
                     {
                         "in": "path",
@@ -6749,11 +6797,12 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Project"
+                                    "type": "object",
+                                    "additionalProperties": {}
                                 }
                             }
                         },
-                        "description": ""
+                        "description": "Grooming payload: epics with nested stories and rollups, ungrouped stories, a grooming-health summary, and the active scoring model."
                     }
                 }
             }
@@ -6762,6 +6811,7 @@
             "post": {
                 "operationId": "v1_projects_product_backlog_auto_rank_create",
                 "description": "One-shot recompute of priority_rank from the active model (ADR-0105 DA-11).",
+                "summary": "Auto-rank the product backlog from the active scoring model",
                 "parameters": [
                     {
                         "in": "path",
@@ -6810,11 +6860,12 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Project"
+                                    "type": "object",
+                                    "additionalProperties": {}
                                 }
                             }
                         },
-                        "description": ""
+                        "description": "Body includes the reranked count and the active scoring model."
                     }
                 }
             }
@@ -6823,6 +6874,7 @@
             "post": {
                 "operationId": "v1_projects_product_backlog_reorder_create",
                 "description": "Manual drag reorder of the project backlog (ADR-0110, #494).\n\nBody: ``{\"stories\": [{\"id\": \"<uuid>\", \"server_version\": <int>}, ...]}`` in target\npriority order — the *complete* current backlog. Writes dense ``priority_rank`` 1..N,\noptimistic-locked on ``server_version``. Returns ``200 {\"updated\": <count>}``; ``409``\nwith the offending ids if the backlog changed under the client (a story was added,\nremoved, or reordered concurrently) so the client refetches and replays the drag.\n``400`` on a malformed body. Idempotency-Key is honored via ``IdempotencyMixin``.",
+                "summary": "Manually reorder the product backlog",
                 "parameters": [
                     {
                         "in": "path",
@@ -6871,11 +6923,18 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Project"
+                                    "type": "object",
+                                    "additionalProperties": {}
                                 }
                             }
                         },
-                        "description": ""
+                        "description": "Body includes the updated row count."
+                    },
+                    "400": {
+                        "description": "Malformed body (missing, oversized, or invalid)."
+                    },
+                    "409": {
+                        "description": "Backlog changed under the client; body includes the conflicting ids so the client refetches and replays the drag."
                     }
                 }
             }
@@ -7061,6 +7120,7 @@
             "get": {
                 "operationId": "v1_projects_resources_summary_retrieve",
                 "description": "KPI summary for the Resources page header (issue #219, ADR-0042).\n\nComputes four metrics over an 8-week rolling window from today:\n  avg_utilization_pct, over_allocated_count, over_allocated_weeks,\n  under_utilized_count, under_utilized_names, headcount, contractor_count.\n\nReturns 409 when no CPM dates exist.",
+                "summary": "Get the resources KPI summary",
                 "parameters": [
                     {
                         "in": "path",
@@ -7089,11 +7149,15 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Project"
+                                    "type": "object",
+                                    "additionalProperties": {}
                                 }
                             }
                         },
-                        "description": ""
+                        "description": "Resource KPIs over an 8-week window: avg utilization, over/under-allocation counts, headcount, and contractor count."
+                    },
+                    "409": {
+                        "description": "Schedule has not been computed; run the scheduler."
                     }
                 }
             }
@@ -7102,6 +7166,7 @@
             "get": {
                 "operationId": "v1_projects_retrospective_carryover_retrieve",
                 "description": "Unresolved retro action items from the last 1–2 completed retros.\n\nUsed by the Sprint Planning \"From last retro\" lane (ADR-0071 §4b).\n\nAn item is \"unresolved\" when:\n  - ``promoted_task_id IS NULL`` (never promoted to a Task), OR\n  - the promoted Task is not yet COMPLETE.\n\nItems are scoped to the project; the response is the union over the\nmost recent two COMPLETED retros for the project, sorted by source\nsprint finish_date descending then by action item created_at.",
+                "summary": "List unresolved retro carryover action items",
                 "parameters": [
                     {
                         "in": "path",
@@ -7130,11 +7195,12 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Project"
+                                    "type": "object",
+                                    "additionalProperties": {}
                                 }
                             }
                         },
-                        "description": ""
+                        "description": "Body includes an `items` array of unresolved action items from the last one or two completed retros."
                     }
                 }
             }
@@ -7143,6 +7209,7 @@
             "post": {
                 "operationId": "v1_projects_schedule_create",
                 "description": "Manually trigger a CPM recalculation for a project.\n\nRequires the requesting user to hold at least the Scheduler role on the\nproject.  The request is written to the transactional outbox and dispatched\nimmediately if the broker is available; otherwise the Beat drain task picks\nit up within 30 seconds.\n\nReturns 404 if the project does not exist.",
+                "summary": "Trigger a CPM recalculation for a project",
                 "parameters": [
                     {
                         "in": "path",
@@ -7165,8 +7232,22 @@
                     }
                 ],
                 "responses": {
-                    "200": {
-                        "description": "No response body"
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Recalculation queued via the outbox; body is {\"queued\": true}."
+                    },
+                    "403": {
+                        "description": "Caller lacks the Scheduler role on the project."
+                    },
+                    "404": {
+                        "description": "Project not found."
                     }
                 }
             }
@@ -7175,6 +7256,7 @@
             "get": {
                 "operationId": "v1_projects_status_summary_retrieve",
                 "description": "Project health summary for the TopBar and StatusBar shell components.\n\nReturns task counts, health signals, and recency metadata in a single\nrequest so the shell avoids waterfall fetches on every project view.\n\nAt-risk: incomplete tasks with total_float <= 5 working days (or\nnegative float, which means already late).\nCritical: incomplete tasks where is_critical=True.\n\nP80 is omitted (null) until a Monte Carlo result store is added — the\nfront-end falls back to \"P80: —\" when the field is null.",
+                "summary": "Get the project status summary",
                 "parameters": [
                     {
                         "in": "path",
@@ -7203,11 +7285,12 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Project"
+                                    "type": "object",
+                                    "additionalProperties": {}
                                 }
                             }
                         },
-                        "description": ""
+                        "description": "Task counts and health signals for the shell: task_count, critical/at-risk counts, top-5 critical and at-risk task lists, and recency metadata."
                     }
                 }
             }
@@ -7331,6 +7414,11 @@
                 ],
                 "tags": [
                     "v1"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    }
                 ],
                 "responses": {
                     "200": {
@@ -7527,6 +7615,7 @@
             "post": {
                 "operationId": "v1_projects_transfer_create",
                 "description": "Transfer project ownership to another existing member (#530).\n\nBody: ``{\"new_owner_user_id\": \"<uuid>\"}``. The target must already be\na project member at any role — invite first if necessary. The current\nOWNER is atomically demoted to ADMIN.",
+                "summary": "Transfer project ownership",
                 "parameters": [
                     {
                         "in": "path",
@@ -7580,6 +7669,12 @@
                             }
                         },
                         "description": ""
+                    },
+                    "400": {
+                        "description": "Missing new_owner_user_id or invalid transfer."
+                    },
+                    "404": {
+                        "description": "Target user not found."
                     }
                 }
             }
@@ -7588,6 +7683,7 @@
             "post": {
                 "operationId": "v1_projects_unarchive_create",
                 "description": "Restore writes on an archived project (#530). Owner only.",
+                "summary": "Unarchive a project",
                 "parameters": [
                     {
                         "in": "path",
@@ -8969,6 +9065,7 @@
             "post": {
                 "operationId": "v1_projects_import_msproject_create_2",
                 "description": "Upload and import an MS Project file (.mpp or .xml).\n\nRequires project Admin role. The import runs asynchronously via Celery;\nthe response includes the celery_task_id for progress tracking.",
+                "summary": "Import an MS Project file into an existing project",
                 "parameters": [
                     {
                         "in": "path",
@@ -8982,6 +9079,16 @@
                 "tags": [
                     "v1"
                 ],
+                "requestBody": {
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "type": "string",
+                                "format": "binary"
+                            }
+                        }
+                    }
+                },
                 "security": [
                     {
                         "jwtAuth": []
@@ -8991,8 +9098,22 @@
                     }
                 ],
                 "responses": {
-                    "200": {
-                        "description": "No response body"
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Import queued; body is {\"detail\", \"import_request_id\"}."
+                    },
+                    "400": {
+                        "description": "Missing or invalid upload (wrong type/too large)."
+                    },
+                    "403": {
+                        "description": "Caller lacks the Admin role on the project."
                     }
                 }
             }
@@ -10305,6 +10426,7 @@
             "get": {
                 "operationId": "v1_projects_signal_privacy_retrieve",
                 "description": "GET the posture; PATCH one signal's audience (within its ceiling).",
+                "summary": "Read the team-signal privacy posture",
                 "parameters": [
                     {
                         "in": "path",
@@ -10342,6 +10464,7 @@
             "patch": {
                 "operationId": "v1_projects_signal_privacy_partial_update",
                 "description": "GET the posture; PATCH one signal's audience (within its ceiling).",
+                "summary": "Set one signal's audience within its ceiling",
                 "parameters": [
                     {
                         "in": "path",
@@ -10396,10 +10519,11 @@
                 }
             }
         },
-        "/api/v1/projects/{project_pk}/signal-privacy/raise_ceiling/": {
+        "/api/v1/projects/{project_pk}/signal-privacy/raise-ceiling/": {
             "post": {
                 "operationId": "v1_projects_signal_privacy_raise_ceiling_create",
                 "description": "POST — raise (or lower) one signal's team-authorized ceiling.",
+                "summary": "Raise or lower a signal's team-authorized ceiling",
                 "parameters": [
                     {
                         "in": "path",
@@ -10455,10 +10579,11 @@
                 }
             }
         },
-        "/api/v1/projects/{project_pk}/signal-privacy/ratchet_down/": {
+        "/api/v1/projects/{project_pk}/signal-privacy/ratchet-down/": {
             "post": {
                 "operationId": "v1_projects_signal_privacy_ratchet_down_create",
                 "description": "POST — set every signal's audience to TEAM in one call (the SM panic button).",
+                "summary": "Ratchet every signal's audience down to team-only",
                 "parameters": [
                     {
                         "in": "path",
@@ -10735,6 +10860,7 @@
             "post": {
                 "operationId": "v1_projects_task_runs_cancel_create",
                 "description": "Signal cancellation for a running task.",
+                "summary": "Cancel a task run",
                 "parameters": [
                     {
                         "in": "path",
@@ -10765,15 +10891,11 @@
                     }
                 ],
                 "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/TaskRun"
-                                }
-                            }
-                        },
-                        "description": ""
+                    "202": {
+                        "description": "Cancellation requested. Body: {'detail': str}."
+                    },
+                    "409": {
+                        "description": "Task run is not active (not PENDING or RUNNING)."
                     }
                 }
             }
@@ -11029,6 +11151,7 @@
             "get": {
                 "operationId": "v1_projects_tasks_attachments_signed_url_retrieve",
                 "description": "Issue a short-lived download URL for the attachment's underlying file.\n\nTTL defaults to 15 minutes; clamped to 60 minutes max in OSS. External-\nURL attachments reject this action (they're already a URL).",
+                "summary": "Issue a signed download URL for an attachment",
                 "parameters": [
                     {
                         "in": "path",
@@ -11074,7 +11197,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/TaskAttachment"
+                                    "$ref": "#/components/schemas/SignedDownloadUrl"
                                 }
                             }
                         },
@@ -11585,6 +11708,7 @@
             "post": {
                 "operationId": "v1_projects_tasks_comments_acknowledge_create",
                 "description": "Toggle the requesting user's acknowledgement on this comment.\n\nPOST creates an ack (idempotent — second POST returns 200 with the existing row).\nDELETE removes the ack. NEVER triggers a notification (per ADR-0075 §A.3).",
+                "summary": "Toggle acknowledgement on a comment",
                 "parameters": [
                     {
                         "in": "path",
@@ -11650,17 +11774,25 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/TaskComment"
+                                    "type": "object",
+                                    "additionalProperties": {}
                                 }
                             }
                         },
-                        "description": ""
+                        "description": "POST returns the acknowledgement row; DELETE returns a `deleted` count. DELETE returns 404 when no acknowledgement existed."
+                    },
+                    "401": {
+                        "description": "Authentication required."
+                    },
+                    "404": {
+                        "description": "No acknowledgement to remove (DELETE)."
                     }
                 }
             },
             "delete": {
                 "operationId": "v1_projects_tasks_comments_acknowledge_destroy",
                 "description": "Toggle the requesting user's acknowledgement on this comment.\n\nPOST creates an ack (idempotent — second POST returns 200 with the existing row).\nDELETE removes the ack. NEVER triggers a notification (per ADR-0075 §A.3).",
+                "summary": "Toggle acknowledgement on a comment",
                 "parameters": [
                     {
                         "in": "path",
@@ -11702,8 +11834,22 @@
                     }
                 ],
                 "responses": {
-                    "204": {
-                        "description": "No response body"
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "POST returns the acknowledgement row; DELETE returns a `deleted` count. DELETE returns 404 when no acknowledgement existed."
+                    },
+                    "401": {
+                        "description": "Authentication required."
+                    },
+                    "404": {
+                        "description": "No acknowledgement to remove (DELETE)."
                     }
                 }
             }
@@ -12539,8 +12685,9 @@
         },
         "/api/v1/projects/{project_pk}/webhooks/{id}/deliveries/": {
             "get": {
-                "operationId": "v1_projects_webhooks_deliveries_retrieve",
+                "operationId": "v1_projects_webhooks_deliveries_list",
                 "description": "List recent deliveries for this webhook.",
+                "summary": "List recent webhook deliveries",
                 "parameters": [
                     {
                         "in": "path",
@@ -12551,12 +12698,39 @@
                         "required": true
                     },
                     {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
                         "in": "path",
                         "name": "project_pk",
                         "schema": {
                             "type": "string"
                         },
                         "required": true
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
                     }
                 ],
                 "tags": [
@@ -12575,7 +12749,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Webhook"
+                                    "$ref": "#/components/schemas/PaginatedWebhookDeliveryList"
                                 }
                             }
                         },
@@ -12588,6 +12762,7 @@
             "post": {
                 "operationId": "v1_projects_webhooks_test_create",
                 "description": "Send a test ping event to the webhook URL.",
+                "summary": "Send a test webhook ping",
                 "parameters": [
                     {
                         "in": "path",
@@ -12638,11 +12813,11 @@
                     }
                 ],
                 "responses": {
-                    "200": {
+                    "202": {
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Webhook"
+                                    "$ref": "#/components/schemas/WebhookTestPingResponse"
                                 }
                             }
                         },
@@ -12655,9 +12830,20 @@
             "post": {
                 "operationId": "v1_projects_import_msproject_create",
                 "description": "Create a NEW project by importing an MS Project file (ADR-0092, #797).\n\nDistinct from ``MsProjectImportView``, which imports into an existing project.\nThe project shell is created synchronously (named from the filename, dated\ntoday, optionally assigned to a program); tasks import asynchronously via the\n``ImportRequest`` outbox, and the worker overwrites the name/start_date from\nthe file header once it parses.\n\nRBAC: any authenticated user may create a standalone project (becomes Owner) —\nidentical to ``POST /projects/``. Assigning a ``program`` requires program\nAdmin, enforced by ``ProjectSerializer.validate_program`` (ADR-0070).",
+                "summary": "Create a new project by importing an MS Project file",
                 "tags": [
                     "v1"
                 ],
+                "requestBody": {
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "type": "string",
+                                "format": "binary"
+                            }
+                        }
+                    }
+                },
                 "security": [
                     {
                         "jwtAuth": []
@@ -12667,8 +12853,19 @@
                     }
                 ],
                 "responses": {
-                    "200": {
-                        "description": "No response body"
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Project shell created; import queued. Body is {\"queued\", \"project_id\", \"import_request_id\"}."
+                    },
+                    "400": {
+                        "description": "Missing/invalid upload, or program-admin gate failed."
                     }
                 }
             }
@@ -13667,6 +13864,7 @@
             "post": {
                 "operationId": "v1_scope_changes_accept_create",
                 "description": "Accept a single pending scope injection into the sprint commitment.",
+                "summary": "Accept a single pending scope change",
                 "parameters": [
                     {
                         "in": "path",
@@ -13690,7 +13888,18 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "The accepted scope-change row plus the sprint's pending_count."
+                    },
+                    "403": {
+                        "description": "Accepting scope changes is team-owned (Admin+)."
                     }
                 }
             }
@@ -13699,6 +13908,7 @@
             "post": {
                 "operationId": "v1_scope_changes_reject_create",
                 "description": "Reject a single pending scope injection, removing the task from the sprint.",
+                "summary": "Reject a single pending scope change",
                 "parameters": [
                     {
                         "in": "path",
@@ -13722,7 +13932,18 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "The rejected scope-change row plus the sprint's pending_count."
+                    },
+                    "403": {
+                        "description": "Rejecting scope changes is team-owned (Admin+)."
                     }
                 }
             }
@@ -14216,6 +14437,7 @@
             "post": {
                 "operationId": "v1_sprints_activate_create",
                 "description": "Transition PLANNED → ACTIVE.\n\nSnapshots committed_points and committed_task_count from the current\nbacklog. Enforces the single-active-sprint-per-project soft constraint\n(409 with conflicting sprint id). Returns the updated sprint plus a\nnon-blocking ``warnings`` array for over-allocated members\n(ADR-0037 Q2 amendment).",
+                "summary": "Activate a sprint",
                 "parameters": [
                     {
                         "in": "path",
@@ -14269,6 +14491,12 @@
                             }
                         },
                         "description": ""
+                    },
+                    "400": {
+                        "description": "Sprint is not in PLANNED state."
+                    },
+                    "409": {
+                        "description": "Another sprint is already active; body includes conflicting_sprint_id."
                     }
                 }
             }
@@ -14277,6 +14505,7 @@
             "get": {
                 "operationId": "v1_sprints_burndown_retrieve",
                 "description": "Return the sprint, its actual burn series, and the server-computed\nburn pace (#984): burn_status + projected_finish_date, so MCP/mobile read\nthe pace verdict from REST instead of re-deriving it client-side.",
+                "summary": "Get a sprint's burndown series",
                 "parameters": [
                     {
                         "in": "path",
@@ -14305,11 +14534,12 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Sprint"
+                                    "type": "object",
+                                    "additionalProperties": {}
                                 }
                             }
                         },
-                        "description": ""
+                        "description": "Body includes the serialized sprint and its burn snapshot series."
                     }
                 }
             }
@@ -14318,6 +14548,7 @@
             "post": {
                 "operationId": "v1_sprints_cancel_create",
                 "description": "Transition PLANNED → CANCELLED.\n\nACTIVE → CANCELLED requires admin role and is a rare admin-only\nrecovery path; not exposed via this action in v1.",
+                "summary": "Cancel a planned sprint",
                 "parameters": [
                     {
                         "in": "path",
@@ -14371,6 +14602,9 @@
                             }
                         },
                         "description": ""
+                    },
+                    "400": {
+                        "description": "Sprint is not in PLANNED state."
                     }
                 }
             }
@@ -14379,6 +14613,7 @@
             "get": {
                 "operationId": "v1_sprints_capacity_retrieve",
                 "description": "Return per-person and aggregate capacity for a sprint (#228).\n\nExposes every assigned member (not only over-allocated ones) plus\naggregate totals — what the wave/10 capacity preflight panel\nrenders. The activate endpoint still returns the warnings-only\nslice via ``capacity_check``.",
+                "summary": "Get a sprint's capacity summary",
                 "parameters": [
                     {
                         "in": "path",
@@ -14407,11 +14642,12 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Sprint"
+                                    "type": "object",
+                                    "additionalProperties": {}
                                 }
                             }
                         },
-                        "description": ""
+                        "description": "Per-person and aggregate capacity for the sprint."
                     }
                 }
             }
@@ -14420,6 +14656,7 @@
             "post": {
                 "operationId": "v1_sprints_close_create",
                 "description": "Async transition ACTIVE → COMPLETED via the outbox drain.\n\nReturns 202 Accepted with the SprintCloseRequest id. The frontend\npolls retrieve or subscribes via WebSocket to observe ``state=COMPLETED``.",
+                "summary": "Close a sprint",
                 "parameters": [
                     {
                         "in": "path",
@@ -14464,15 +14701,14 @@
                     }
                 ],
                 "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/Sprint"
-                                }
-                            }
-                        },
-                        "description": ""
+                    "202": {
+                        "description": "Close request accepted; body includes the SprintCloseRequest id (request_id) and an optional pending-scope advisory."
+                    },
+                    "400": {
+                        "description": "Sprint is not ACTIVE or carry_over_to target is invalid."
+                    },
+                    "403": {
+                        "description": "Rejecting pending scope changes is team-owned (Project Manager+)."
                     }
                 }
             }
@@ -14481,6 +14717,7 @@
             "post": {
                 "operationId": "v1_sprints_promote_to_milestone_create",
                 "description": "Bind this sprint to a schedule milestone (ADR-0106 §2).\n\nBody ``{}`` mints a new ``Task(is_milestone=True)`` from the sprint goal\n(dated at finish), then binds it (``201``). Optional create overrides\n``{\"name\": str, \"target_date\": date}`` rename/re-date the new milestone\n(ADR-0106 §E1.2, #928); both are ignored when ``milestone_id`` is given.\nBody ``{\"milestone_id\": uuid}`` binds an existing milestone in the same\nproject (``200``). Re-binding the same milestone is an idempotent no-op\n``200``; binding a *different* one while already bound is ``409\nsprint_already_bound`` — the binding never silently re-points. SCHEDULER+.",
+                "summary": "Bind a sprint to a schedule milestone",
                 "parameters": [
                     {
                         "in": "path",
@@ -14534,6 +14771,22 @@
                             }
                         },
                         "description": ""
+                    },
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Sprint"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "400": {
+                        "description": "Milestone not found in this project."
+                    },
+                    "409": {
+                        "description": "Sprint already bound to a milestone (code: sprint_already_bound)."
                     }
                 }
             }
@@ -14592,6 +14845,7 @@
             "get": {
                 "operationId": "v1_sprints_retro_retrieve",
                 "description": "Sprint retrospective (#486 / ADR-0071).\n\n``GET`` returns the retro using the visibility-aware serializer:\ncallers whose role meets the retro's ``team_visibility`` threshold\nreceive the full serializer (``notes``, ``action_items`` with text\nand assignees); below the threshold, a summary serializer (counts\nonly) is returned. 404 when no retro exists.\n\n``POST`` upserts the retro: replaces ``notes`` and the action-item\nset. Action items no longer auto-promote (sprint sovereignty per\nADR-0071); use the explicit ``/promote/`` action below.\n\n``PATCH`` partially updates the retro — currently scoped to\n``team_visibility``. Only the retro ``created_by`` or a Project\nADMIN+ may change visibility; lower roles get 403.\n\nPermissions: read = IsProjectMember; write = IsProjectMemberWrite.",
+                "summary": "Get or upsert a sprint retrospective",
                 "parameters": [
                     {
                         "in": "path",
@@ -14620,17 +14874,25 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Sprint"
+                                    "type": "object",
+                                    "additionalProperties": {}
                                 }
                             }
                         },
-                        "description": ""
+                        "description": "The retro, using the full or summary serializer depending on the caller's role and the retro's team_visibility."
+                    },
+                    "403": {
+                        "description": "Below the role required to change visibility."
+                    },
+                    "404": {
+                        "description": "No retro recorded for this sprint."
                     }
                 }
             },
             "post": {
                 "operationId": "v1_sprints_retro_create",
                 "description": "Sprint retrospective (#486 / ADR-0071).\n\n``GET`` returns the retro using the visibility-aware serializer:\ncallers whose role meets the retro's ``team_visibility`` threshold\nreceive the full serializer (``notes``, ``action_items`` with text\nand assignees); below the threshold, a summary serializer (counts\nonly) is returned. 404 when no retro exists.\n\n``POST`` upserts the retro: replaces ``notes`` and the action-item\nset. Action items no longer auto-promote (sprint sovereignty per\nADR-0071); use the explicit ``/promote/`` action below.\n\n``PATCH`` partially updates the retro — currently scoped to\n``team_visibility``. Only the retro ``created_by`` or a Project\nADMIN+ may change visibility; lower roles get 403.\n\nPermissions: read = IsProjectMember; write = IsProjectMemberWrite.",
+                "summary": "Get or upsert a sprint retrospective",
                 "parameters": [
                     {
                         "in": "path",
@@ -14679,17 +14941,25 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Sprint"
+                                    "type": "object",
+                                    "additionalProperties": {}
                                 }
                             }
                         },
-                        "description": ""
+                        "description": "The retro, using the full or summary serializer depending on the caller's role and the retro's team_visibility."
+                    },
+                    "403": {
+                        "description": "Below the role required to change visibility."
+                    },
+                    "404": {
+                        "description": "No retro recorded for this sprint."
                     }
                 }
             },
             "patch": {
                 "operationId": "v1_sprints_retro_partial_update",
                 "description": "Sprint retrospective (#486 / ADR-0071).\n\n``GET`` returns the retro using the visibility-aware serializer:\ncallers whose role meets the retro's ``team_visibility`` threshold\nreceive the full serializer (``notes``, ``action_items`` with text\nand assignees); below the threshold, a summary serializer (counts\nonly) is returned. 404 when no retro exists.\n\n``POST`` upserts the retro: replaces ``notes`` and the action-item\nset. Action items no longer auto-promote (sprint sovereignty per\nADR-0071); use the explicit ``/promote/`` action below.\n\n``PATCH`` partially updates the retro — currently scoped to\n``team_visibility``. Only the retro ``created_by`` or a Project\nADMIN+ may change visibility; lower roles get 403.\n\nPermissions: read = IsProjectMember; write = IsProjectMemberWrite.",
+                "summary": "Get or upsert a sprint retrospective",
                 "parameters": [
                     {
                         "in": "path",
@@ -14737,11 +15007,18 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Sprint"
+                                    "type": "object",
+                                    "additionalProperties": {}
                                 }
                             }
                         },
-                        "description": ""
+                        "description": "The retro, using the full or summary serializer depending on the caller's role and the retro's team_visibility."
+                    },
+                    "403": {
+                        "description": "Below the role required to change visibility."
+                    },
+                    "404": {
+                        "description": "No retro recorded for this sprint."
                     }
                 }
             }
@@ -14750,6 +15027,7 @@
             "post": {
                 "operationId": "v1_sprints_retrospective_action_items_promote_create",
                 "description": "Promote a RetroActionItem into a project-backlog Task (ADR-0071 §2).\n\nThe created Task is unconditionally ``status=BACKLOG, sprint=NULL``.\nAny ``sprint_id`` field in the request body is structurally ignored —\nthe serializer does not accept it, so sprint sovereignty cannot be\nbypassed via this endpoint.\n\nReturns 409 with the existing task_id if the action item is already\npromoted (idempotent client retry).",
+                "summary": "Promote a retro action item to a backlog task",
                 "parameters": [
                     {
                         "in": "path",
@@ -14803,15 +15081,22 @@
                     }
                 ],
                 "responses": {
-                    "200": {
+                    "201": {
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Sprint"
+                                    "type": "object",
+                                    "additionalProperties": {}
                                 }
                             }
                         },
-                        "description": ""
+                        "description": "Body includes the created task under a `task` key."
+                    },
+                    "404": {
+                        "description": "Action item not found on this sprint's retro."
+                    },
+                    "409": {
+                        "description": "Action item already promoted; body includes the existing task_id."
                     }
                 }
             }
@@ -14820,6 +15105,7 @@
             "post": {
                 "operationId": "v1_sprints_retrospective_action_items_pull_to_sprint_create",
                 "description": "Atomically promote + assign a retro action item to a PLANNED sprint.\n\nSCHEDULER+ gated (the only path that can put a retro action item into\na sprint per ADR-0071 §4b). The target sprint must be in the same\nproject and in PLANNED state.\n\nRequest body: ``{\"target_sprint_id\": \"<uuid>\"}``.",
+                "summary": "Pull a retro action item into a planned sprint",
                 "parameters": [
                     {
                         "in": "path",
@@ -14877,11 +15163,18 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Sprint"
+                                    "type": "object",
+                                    "additionalProperties": {}
                                 }
                             }
                         },
-                        "description": ""
+                        "description": "Body includes the promoted-and-assigned task under a `task` key."
+                    },
+                    "400": {
+                        "description": "Missing target_sprint_id or invalid pull."
+                    },
+                    "404": {
+                        "description": "Action item or target sprint not found."
                     }
                 }
             }
@@ -14890,6 +15183,7 @@
             "get": {
                 "operationId": "v1_sprints_retrospective_prior_retrieve",
                 "description": "Most-recent prior completed retro for the same project (ADR-0071 §4a).\n\nReturns 404 if no prior COMPLETED sprint with a retro exists. Filters\nout CANCELLED sprints — the prior context is the team's most recent\nactually-finished sprint, not the most recent of any state.",
+                "summary": "Get the prior completed sprint's retrospective",
                 "parameters": [
                     {
                         "in": "path",
@@ -14918,11 +15212,15 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Sprint"
+                                    "type": "object",
+                                    "additionalProperties": {}
                                 }
                             }
                         },
-                        "description": ""
+                        "description": "The most-recent prior completed retro, using the full or summary serializer depending on the caller's role and team_visibility."
+                    },
+                    "404": {
+                        "description": "No prior retrospective."
                     }
                 }
             }
@@ -14931,6 +15229,7 @@
             "post": {
                 "operationId": "v1_sprints_scope_changes_accept_create",
                 "description": "Bulk-accept pending scope injections in a sprint (ADR-0102 §5).\n\nBody ``{\"ids\": [uuid, ...]}`` — omit or empty to accept *all* pending.\nReturns ``{\"accepted\": [...], \"pending_count\": N}``.",
+                "summary": "Bulk-accept pending sprint scope changes",
                 "parameters": [
                     {
                         "in": "path",
@@ -14979,11 +15278,15 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Sprint"
+                                    "type": "object",
+                                    "additionalProperties": {}
                                 }
                             }
                         },
-                        "description": ""
+                        "description": "Body includes the accepted scope-change rows and the pending_count."
+                    },
+                    "403": {
+                        "description": "Accepting scope changes is team-owned (Admin+)."
                     }
                 }
             }
@@ -14992,6 +15295,7 @@
             "post": {
                 "operationId": "v1_sprints_scope_changes_reject_create",
                 "description": "Bulk-reject pending scope injections in a sprint (ADR-0102 §5).\n\nBody ``{\"ids\": [uuid, ...]}`` — omit or empty to reject *all* pending.\nReturns ``{\"rejected\": [...], \"pending_count\": N}``.",
+                "summary": "Bulk-reject pending sprint scope changes",
                 "parameters": [
                     {
                         "in": "path",
@@ -15040,11 +15344,15 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Sprint"
+                                    "type": "object",
+                                    "additionalProperties": {}
                                 }
                             }
                         },
-                        "description": ""
+                        "description": "Body includes the rejected scope-change rows and the pending_count."
+                    },
+                    "403": {
+                        "description": "Rejecting scope changes is team-owned (Admin+)."
                     }
                 }
             }
@@ -15053,6 +15361,7 @@
             "post": {
                 "operationId": "v1_sprints_unbind_milestone_create",
                 "description": "Unbind this sprint from its milestone (ADR-0106 §2).\n\nClears the FK and all three provenance fields; the freed milestone's\nrollup recomputes (clears if this was its last targeting sprint).\nNo-op-safe — an already-unbound sprint returns ``200`` unchanged.\nSCHEDULER+.",
+                "summary": "Unbind a sprint from its milestone",
                 "parameters": [
                     {
                         "in": "path",
@@ -15515,8 +15824,38 @@
         },
         "/api/v1/task-runs/active/": {
             "get": {
-                "operationId": "v1_task_runs_active_retrieve",
+                "operationId": "v1_task_runs_active_list",
                 "description": "Return PENDING + RUNNING task runs across the user's projects.",
+                "summary": "List active task runs",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
                 "tags": [
                     "v1"
                 ],
@@ -15533,7 +15872,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/TaskRun"
+                                    "$ref": "#/components/schemas/PaginatedTaskRunList"
                                 }
                             }
                         },
@@ -16229,6 +16568,7 @@
             "post": {
                 "operationId": "v1_tasks_approve_estimates_create",
                 "description": "Accept pending three-point estimates on a task.\n\nOnly meaningful when the project's estimation_mode is SUGGEST_APPROVE.\nReturns 400 for other modes. Idempotent — calling on an already-accepted\ntask is a no-op (200, no DB write, no broadcast).\n\nPermission: IsProjectScheduler+ (Resource Manager and above).",
+                "summary": "Approve pending three-point estimates on a task",
                 "parameters": [
                     {
                         "in": "path",
@@ -16282,6 +16622,9 @@
                             }
                         },
                         "description": ""
+                    },
+                    "400": {
+                        "description": "Project estimation_mode is not suggest_approve."
                     }
                 }
             }
@@ -16331,6 +16674,7 @@
             "post": {
                 "operationId": "v1_tasks_split_create",
                 "description": "Split a story into a sibling under the same epic (ADR-0105 DA-13).\n\nThe child carries over only the unmet acceptance criteria and inherits the\nparent's epic so the split stays grouped; points are not auto-divided (the PO\nre-estimates both halves, so velocity is never double-counted — Alex's VoC\nnote). Returns the new child task. Permission: Admin+ via can_manage_backlog —\nsplitting restructures the backlog, so it rides the same gate as auto-rank /\nepic management rather than the assignee-scoped task-write class (rbac-check 🟡).",
+                "summary": "Split a story into a sibling task",
                 "parameters": [
                     {
                         "in": "path",
@@ -16375,7 +16719,7 @@
                     }
                 ],
                 "responses": {
-                    "200": {
+                    "201": {
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -18281,6 +18625,16 @@
                 "type": "string",
                 "description": "* `minted` - Minted\n* `revoked` - Revoked\n* `used` - Used"
             },
+            "AggregationPolicyEnum": {
+                "enum": [
+                    "worst",
+                    "average",
+                    "weighted_by_budget",
+                    "task_weighted"
+                ],
+                "type": "string",
+                "description": "* `worst` - Worst-case\n* `average` - Average\n* `weighted_by_budget` - Budget-weighted\n* `task_weighted` - Task-weighted"
+            },
             "ApiTokenAuditEntry": {
                 "type": "object",
                 "description": "Read-only serializer for the per-project audit log.\n\nCallers MUST construct this from a queryset with\n``.select_related(\"actor\", \"token\")`` — ``get_actor_email`` accesses\n``obj.actor.email`` and will issue one extra query per row otherwise.\n``ApiTokenAuditView.get_queryset`` provides this; other call sites must\nmatch the pattern.",
@@ -19222,6 +19576,23 @@
                 ],
                 "type": "string",
                 "description": "* `open` - Open\n* `suggest_approve` - Suggest & Approve\n* `pm_only` - PM Only"
+            },
+            "EventTypeEnum": {
+                "enum": [
+                    "task.created",
+                    "task.updated",
+                    "task.deleted",
+                    "dependency.created",
+                    "dependency.deleted",
+                    "schedule.recalculated",
+                    "project.created",
+                    "task.assigned",
+                    "task.assignee_changed",
+                    "task.mentioned",
+                    "task.due_date_changed"
+                ],
+                "type": "string",
+                "description": "* `task.created` - Task Created\n* `task.updated` - Task Updated\n* `task.deleted` - Task Deleted\n* `dependency.created` - Dependency Created\n* `dependency.deleted` - Dependency Deleted\n* `schedule.recalculated` - Schedule Recalculated\n* `project.created` - Project Created\n* `task.assigned` - Task Assigned\n* `task.assignee_changed` - Task Assignee Changed\n* `task.mentioned` - Task Mentioned\n* `task.due_date_changed` - Task Due Date Changed"
             },
             "EventsEnum": {
                 "enum": [
@@ -21128,6 +21499,37 @@
                     }
                 }
             },
+            "PaginatedWebhookDeliveryList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/WebhookDelivery"
+                        }
+                    }
+                }
+            },
             "PaginatedWebhookList": {
                 "type": "object",
                 "required": [
@@ -22664,6 +23066,45 @@
                 },
                 "required": [
                     "name"
+                ]
+            },
+            "ProgramRiskPolicy": {
+                "type": "object",
+                "description": "GET/PATCH payload for ``/api/v1/programs/{id}/risk-policy/`` (#529).\n\nWraps the two ``risk_*`` columns on Program. Both fields are partial-\nupdatable. Enum and range are enforced server-side so the UI can stay\nthin — DRF's ``ChoiceField`` rejects unknown values; the explicit\n``min_value``/``max_value`` mirror the model-level validators so a\nwell-formed PATCH never reaches the database with an out-of-range int.",
+                "properties": {
+                    "slip_propagation": {
+                        "$ref": "#/components/schemas/SlipPropagationEnum"
+                    },
+                    "escalation_days": {
+                        "type": "integer",
+                        "maximum": 30,
+                        "minimum": 1
+                    }
+                },
+                "required": [
+                    "escalation_days",
+                    "slip_propagation"
+                ]
+            },
+            "ProgramRollupConfig": {
+                "type": "object",
+                "description": "GET/PATCH payload for ``/api/v1/programs/{id}/rollup-config/`` (ADR-0079).\n\nBoth fields are partial-updatable. ``enabled_kpis`` is validated against\nthe closed ``RollupKpi`` enum — unknown identifiers raise 400 rather than\nbeing silently dropped, which would leave the UI and the server in\ndifferent states.",
+                "properties": {
+                    "enabled_kpis": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "maxLength": 64
+                        },
+                        "maxItems": 64
+                    },
+                    "aggregation_policy": {
+                        "$ref": "#/components/schemas/AggregationPolicyEnum"
+                    }
+                },
+                "required": [
+                    "aggregation_policy",
+                    "enabled_kpis"
                 ]
             },
             "Project": {
@@ -24366,6 +24807,26 @@
                     "signals"
                 ]
             },
+            "SignedDownloadUrl": {
+                "type": "object",
+                "description": "Response shape for the signed-URL action.\n\nStorage backends compose the actual URL; the serializer is for OpenAPI docs.",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "format": "uri",
+                        "readOnly": true
+                    },
+                    "expires_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "expires_at",
+                    "url"
+                ]
+            },
             "Skill": {
                 "type": "object",
                 "description": "Read/write serializer for the org-level skill catalog.\n\nNormalises name to lower-case + stripped on write to prevent duplicate\nentries (\"React\" vs \"react\"). Returns the existing row (not a 201) when\nthe normalized_name already exists — callers should handle 200 vs 201.",
@@ -24416,6 +24877,15 @@
                 "required": [
                     "name"
                 ]
+            },
+            "SlipPropagationEnum": {
+                "enum": [
+                    "none",
+                    "warn",
+                    "block"
+                ],
+                "type": "string",
+                "description": "* `none` - No action\n* `warn` - Warn only\n* `block` - Block & escalate"
             },
             "Sprint": {
                 "type": "object",
@@ -26556,6 +27026,80 @@
                     "url"
                 ]
             },
+            "WebhookDelivery": {
+                "type": "object",
+                "description": "Read-only serializer for webhook delivery log entries.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "event_type": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/EventTypeEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "sequence_number": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "payload": {
+                        "readOnly": true
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/WebhookDeliveryStatusEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "response_status": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "attempt_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "completed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "attempt_count",
+                    "completed_at",
+                    "created_at",
+                    "event_type",
+                    "id",
+                    "payload",
+                    "response_status",
+                    "sequence_number",
+                    "status"
+                ]
+            },
+            "WebhookDeliveryStatusEnum": {
+                "enum": [
+                    "pending",
+                    "success",
+                    "failed"
+                ],
+                "type": "string",
+                "description": "* `pending` - Pending\n* `success` - Success\n* `failed` - Failed"
+            },
             "WebhookRequest": {
                 "type": "object",
                 "description": "Serializer for Webhook CRUD.\n\nThe ``secret`` field is write-only — it is never returned in GET/list\nresponses. It is echoed back exactly once, in the create response, so the\ncaller can record it; subsequent reads never expose it (#893). When omitted\non create, a cryptographically-strong secret is auto-generated. When\nsupplied it must be at least :data:`MIN_WEBHOOK_SECRET_LENGTH` non-whitespace\ncharacters.\n\nThe ``events`` field is validated against the known event type choices.",
@@ -26589,6 +27133,17 @@
                 "required": [
                     "events",
                     "url"
+                ]
+            },
+            "WebhookTestPingResponse": {
+                "type": "object",
+                "properties": {
+                    "delivery_id": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "delivery_id"
                 ]
             },
             "WorkshopParticipant": {
@@ -27096,6 +27651,12 @@
                 "type": "http",
                 "scheme": "bearer",
                 "bearerFormat": "JWT"
+            },
+            "projectApiTokenAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "tppm_<64-hex>",
+                "description": "Project-scoped API token (ADR-0068). Send as `Authorization: Bearer tppm_<64-hex>`. Mint one in project settings; it is scoped to a single project and the task-sync surface."
             }
         }
     }

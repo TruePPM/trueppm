@@ -1,4 +1,7 @@
-# Idempotency
+---
+title: Idempotency
+description: Stripe-style Idempotency-Key header for safe retries of unsafe requests.
+---
 
 TruePPM supports a Stripe-style `Idempotency-Key` request header so that **retrying an
 unsafe request is safe** — a retry after a network timeout replays the original response

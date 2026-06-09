@@ -418,6 +418,19 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
             lambda: broadcast_board_event(project_id, "project_deleted", {"id": project_id})
         )
 
+    @extend_schema(
+        summary="Get the product backlog grooming view",
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "Grooming payload: epics with nested stories and rollups, "
+                    "ungrouped stories, a grooming-health summary, and the active "
+                    "scoring model."
+                ),
+            )
+        },
+    )
     @action(detail=True, methods=["get"], url_path="product-backlog")
     def product_backlog(self, request: Request, pk: str | None = None) -> Response:
         """Grooming view payload (ADR-0105 DA-10): epics with nested stories + health.
@@ -523,6 +536,15 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
             }
         )
 
+    @extend_schema(
+        summary="Auto-rank the product backlog from the active scoring model",
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Body includes the reranked count and the active scoring model.",
+            )
+        },
+    )
     @action(detail=True, methods=["post"], url_path="product-backlog/auto-rank")
     def product_backlog_auto_rank(self, request: Request, pk: str | None = None) -> Response:
         """One-shot recompute of priority_rank from the active model (ADR-0105 DA-11)."""
@@ -532,6 +554,22 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
         changed = auto_rank(project, request.user)
         return Response({"reranked": changed, "model": project.prioritization_model})
 
+    @extend_schema(
+        summary="Manually reorder the product backlog",
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Body includes the updated row count.",
+            ),
+            400: OpenApiResponse(description="Malformed body (missing, oversized, or invalid)."),
+            409: OpenApiResponse(
+                description=(
+                    "Backlog changed under the client; body includes the conflicting ids "
+                    "so the client refetches and replays the drag."
+                )
+            ),
+        },
+    )
     @action(detail=True, methods=["post"], url_path="product-backlog/reorder")
     def product_backlog_reorder(self, request: Request, pk: str | None = None) -> Response:
         """Manual drag reorder of the project backlog (ADR-0110, #494).
@@ -610,6 +648,10 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
             )
         return Response({"updated": changed})
 
+    @extend_schema(
+        summary="Archive a project",
+        responses={200: ProjectSerializer},
+    )
     @action(detail=True, methods=["post"], url_path="archive")
     def archive(self, request: Request, pk: str | None = None) -> Response:
         """Mark the project as archived (read-only) (#530).
@@ -634,6 +676,10 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
         serializer = self.get_serializer(project)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        summary="Unarchive a project",
+        responses={200: ProjectSerializer},
+    )
     @action(detail=True, methods=["post"], url_path="unarchive")
     def unarchive(self, request: Request, pk: str | None = None) -> Response:
         """Restore writes on an archived project (#530). Owner only."""
@@ -652,6 +698,14 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
         serializer = self.get_serializer(project)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        summary="Transfer project ownership",
+        responses={
+            200: ProjectSerializer,
+            400: OpenApiResponse(description="Missing new_owner_user_id or invalid transfer."),
+            404: OpenApiResponse(description="Target user not found."),
+        },
+    )
     @action(detail=True, methods=["post"], url_path="transfer")
     def transfer(self, request: Request, pk: str | None = None) -> Response:
         """Transfer project ownership to another existing member (#530).
@@ -1135,6 +1189,19 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
         result = aggregate_utilization_weekly(project, start_date, num_weeks, group_by)
         return Response(result)
 
+    @extend_schema(
+        summary="Get the resources KPI summary",
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "Resource KPIs over an 8-week window: avg utilization, "
+                    "over/under-allocation counts, headcount, and contractor count."
+                ),
+            ),
+            409: OpenApiResponse(description="Schedule has not been computed; run the scheduler."),
+        },
+    )
     @action(detail=True, methods=["get"], url_path="resources/summary")
     def resources_summary(self, request: Request, pk: str | None = None) -> Response:
         """KPI summary for the Resources page header (issue #219, ADR-0042).
@@ -1213,6 +1280,19 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
             }
         )
 
+    @extend_schema(
+        summary="Get the project status summary",
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "Task counts and health signals for the shell: task_count, "
+                    "critical/at-risk counts, top-5 critical and at-risk task lists, "
+                    "and recency metadata."
+                ),
+            )
+        },
+    )
     @action(detail=True, methods=["get"], url_path="status-summary")
     def status_summary(self, request: Request, pk: str | None = None) -> Response:
         """Project health summary for the TopBar and StatusBar shell components.
@@ -1297,6 +1377,18 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
             status=status.HTTP_200_OK,
         )
 
+    @extend_schema(
+        summary="Get the project integrations summary",
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Aggregated webhooks and API tokens sections for the project.",
+            ),
+            503: OpenApiResponse(
+                description="A subservice failed; body includes a `failed` key naming the section."
+            ),
+        },
+    )
     @action(detail=True, methods=["get"], url_path="integrations-summary")
     def integrations_summary(self, request: Request, pk: str | None = None) -> Response:
         """Project-scoped integrations summary for the Project → Settings → Integrations page.
@@ -1334,6 +1426,18 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
 
         return Response(sections, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        summary="List unresolved retro carryover action items",
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "Body includes an `items` array of unresolved action items from the "
+                    "last one or two completed retros."
+                ),
+            )
+        },
+    )
     @action(
         detail=True,
         methods=["get"],
@@ -2345,6 +2449,10 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         task = self.get_object()
         return Response(compute_scope_rollup(task), status=status.HTTP_200_OK)
 
+    @extend_schema(
+        summary="Split a story into a sibling task",
+        responses={201: TaskSerializer},
+    )
     @action(
         detail=True,
         methods=["post"],
@@ -2369,6 +2477,13 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         serializer = self.get_serializer(child)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
+    @extend_schema(
+        summary="Approve pending three-point estimates on a task",
+        responses={
+            200: TaskSerializer,
+            400: OpenApiResponse(description="Project estimation_mode is not suggest_approve."),
+        },
+    )
     @action(
         detail=True,
         methods=["post"],
@@ -5400,6 +5515,16 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         if target_milestone_id is not None:
             recompute_milestone_rollup(target_milestone_id)
 
+    @extend_schema(
+        summary="Activate a sprint",
+        responses={
+            200: SprintSerializer,
+            400: OpenApiResponse(description="Sprint is not in PLANNED state."),
+            409: OpenApiResponse(
+                description="Another sprint is already active; body includes conflicting_sprint_id."
+            ),
+        },
+    )
     @action(detail=True, methods=["post"])
     def activate(self, request: Request, pk: str | None = None) -> Response:
         """Transition PLANNED → ACTIVE.
@@ -5489,6 +5614,23 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         data["warnings"] = warnings
         return Response(data, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        summary="Close a sprint",
+        responses={
+            202: OpenApiResponse(
+                description=(
+                    "Close request accepted; body includes the SprintCloseRequest id "
+                    "(request_id) and an optional pending-scope advisory."
+                )
+            ),
+            400: OpenApiResponse(
+                description="Sprint is not ACTIVE or carry_over_to target is invalid."
+            ),
+            403: OpenApiResponse(
+                description="Rejecting pending scope changes is team-owned (Project Manager+)."
+            ),
+        },
+    )
     @action(detail=True, methods=["post"])
     def close(self, request: Request, pk: str | None = None) -> Response:
         """Async transition ACTIVE → COMPLETED via the outbox drain.
@@ -5569,6 +5711,13 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
             payload["scope_pending_on_close"] = advisory
         return Response(payload, status=status.HTTP_202_ACCEPTED)
 
+    @extend_schema(
+        summary="Cancel a planned sprint",
+        responses={
+            200: SprintSerializer,
+            400: OpenApiResponse(description="Sprint is not in PLANNED state."),
+        },
+    )
     @action(detail=True, methods=["post"])
     def cancel(self, request: Request, pk: str | None = None) -> Response:
         """Transition PLANNED → CANCELLED.
@@ -5612,6 +5761,17 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
                 recompute_milestone_rollup(sprint.target_milestone_id)
         return Response(SprintSerializer(sprint).data, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        summary="Bind a sprint to a schedule milestone",
+        responses={
+            200: SprintSerializer,
+            201: SprintSerializer,
+            400: OpenApiResponse(description="Milestone not found in this project."),
+            409: OpenApiResponse(
+                description="Sprint already bound to a milestone (code: sprint_already_bound)."
+            ),
+        },
+    )
     @action(detail=True, methods=["post"], url_path="promote-to-milestone")
     def promote_to_milestone(self, request: Request, pk: str | None = None) -> Response:
         """Bind this sprint to a schedule milestone (ADR-0106 §2).
@@ -5678,6 +5838,10 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
         return Response(SprintSerializer(sprint).data, status=code)
 
+    @extend_schema(
+        summary="Unbind a sprint from its milestone",
+        responses={200: SprintSerializer},
+    )
     @action(detail=True, methods=["post"], url_path="unbind-milestone")
     def unbind_milestone(self, request: Request, pk: str | None = None) -> Response:
         """Unbind this sprint from its milestone (ADR-0106 §2).
@@ -5812,6 +5976,16 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
             status=status.HTTP_200_OK,
         )
 
+    @extend_schema(
+        summary="Bulk-accept pending sprint scope changes",
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Body includes the accepted scope-change rows and the pending_count.",
+            ),
+            403: OpenApiResponse(description="Accepting scope changes is team-owned (Admin+)."),
+        },
+    )
     @action(detail=True, methods=["post"], url_path="scope-changes/accept")
     def scope_changes_accept(self, request: Request, pk: str | None = None) -> Response:
         """Bulk-accept pending scope injections in a sprint (ADR-0102 §5).
@@ -5821,6 +5995,16 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         """
         return self._bulk_scope_change(request, pk, accept=True)
 
+    @extend_schema(
+        summary="Bulk-reject pending sprint scope changes",
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Body includes the rejected scope-change rows and the pending_count.",
+            ),
+            403: OpenApiResponse(description="Rejecting scope changes is team-owned (Admin+)."),
+        },
+    )
     @action(detail=True, methods=["post"], url_path="scope-changes/reject")
     def scope_changes_reject(self, request: Request, pk: str | None = None) -> Response:
         """Bulk-reject pending scope injections in a sprint (ADR-0102 §5).
@@ -5830,6 +6014,15 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         """
         return self._bulk_scope_change(request, pk, accept=False)
 
+    @extend_schema(
+        summary="Get a sprint's burndown series",
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Body includes the serialized sprint and its burn snapshot series.",
+            )
+        },
+    )
     @action(detail=True, methods=["get"])
     def burndown(self, request: Request, pk: str | None = None) -> Response:
         """Return the sprint, its actual burn series, and the server-computed
@@ -5854,6 +6047,15 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         }
         return Response(payload, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        summary="Get a sprint's capacity summary",
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Per-person and aggregate capacity for the sprint.",
+            )
+        },
+    )
     @action(detail=True, methods=["get"])
     def capacity(self, request: Request, pk: str | None = None) -> Response:
         """Return per-person and aggregate capacity for a sprint (#228).
@@ -5873,6 +6075,20 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         self.check_object_permissions(request, sprint)
         return Response(capacity_summary(sprint), status=status.HTTP_200_OK)
 
+    @extend_schema(
+        summary="Get or upsert a sprint retrospective",
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "The retro, using the full or summary serializer depending on the "
+                    "caller's role and the retro's team_visibility."
+                ),
+            ),
+            403: OpenApiResponse(description="Below the role required to change visibility."),
+            404: OpenApiResponse(description="No retro recorded for this sprint."),
+        },
+    )
     @action(detail=True, methods=["get", "post", "patch"])
     def retro(self, request: Request, pk: str | None = None) -> Response:
         """Sprint retrospective (#486 / ADR-0071).
@@ -6032,6 +6248,19 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         retro.refresh_from_db()
         return Response(_pick_serializer(retro)(retro).data, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        summary="Get the prior completed sprint's retrospective",
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "The most-recent prior completed retro, using the full or summary "
+                    "serializer depending on the caller's role and team_visibility."
+                ),
+            ),
+            404: OpenApiResponse(description="No prior retrospective."),
+        },
+    )
     @action(
         detail=True,
         methods=["get"],
@@ -6103,6 +6332,19 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         )
         return Response(serializer_cls(prior_retro).data, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        summary="Promote a retro action item to a backlog task",
+        responses={
+            201: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Body includes the created task under a `task` key.",
+            ),
+            404: OpenApiResponse(description="Action item not found on this sprint's retro."),
+            409: OpenApiResponse(
+                description="Action item already promoted; body includes the existing task_id."
+            ),
+        },
+    )
     @action(
         detail=True,
         methods=["post"],
@@ -6168,6 +6410,17 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         task = Task.objects.select_related("project", "assignee", "sprint").get(pk=task.pk)
         return Response({"task": TaskSerializer(task).data}, status=status.HTTP_201_CREATED)
 
+    @extend_schema(
+        summary="Pull a retro action item into a planned sprint",
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Body includes the promoted-and-assigned task under a `task` key.",
+            ),
+            400: OpenApiResponse(description="Missing target_sprint_id or invalid pull."),
+            404: OpenApiResponse(description="Action item or target sprint not found."),
+        },
+    )
     @action(
         detail=True,
         methods=["post"],
@@ -6314,11 +6567,31 @@ class SprintScopeChangeViewSet(IdempotencyMixin, viewsets.GenericViewSet[Any]):
         data["pending_count"] = sprint_pending_count(result.sprint_id)
         return Response(data, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        summary="Accept a single pending scope change",
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="The accepted scope-change row plus the sprint's pending_count.",
+            ),
+            403: OpenApiResponse(description="Accepting scope changes is team-owned (Admin+)."),
+        },
+    )
     @action(detail=True, methods=["post"])
     def accept(self, request: Request, pk: str | None = None) -> Response:
         """Accept a single pending scope injection into the sprint commitment."""
         return self._act(request, pk, accept=True)
 
+    @extend_schema(
+        summary="Reject a single pending scope change",
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="The rejected scope-change row plus the sprint's pending_count.",
+            ),
+            403: OpenApiResponse(description="Rejecting scope changes is team-owned (Admin+)."),
+        },
+    )
     @action(detail=True, methods=["post"])
     def reject(self, request: Request, pk: str | None = None) -> Response:
         """Reject a single pending scope injection, removing the task from the sprint."""
@@ -7578,6 +7851,10 @@ class TaskAttachmentViewSet(
             )
         )
 
+    @extend_schema(
+        summary="Issue a signed download URL for an attachment",
+        responses={200: SignedDownloadUrlSerializer},
+    )
     @action(detail=True, methods=["get"], url_path="signed-url")
     def signed_url(self, request: Request, project_pk: str, task_pk: str, pk: str) -> Response:
         """Issue a short-lived download URL for the attachment's underlying file.
@@ -7837,6 +8114,20 @@ class TaskCommentViewSet(
             )
         )
 
+    @extend_schema(
+        summary="Toggle acknowledgement on a comment",
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "POST returns the acknowledgement row; DELETE returns a `deleted` count. "
+                    "DELETE returns 404 when no acknowledgement existed."
+                ),
+            ),
+            401: OpenApiResponse(description="Authentication required."),
+            404: OpenApiResponse(description="No acknowledgement to remove (DELETE)."),
+        },
+    )
     @action(detail=True, methods=["post", "delete"], url_path="acknowledge")
     def acknowledge(self, request: Request, project_pk: str, task_pk: str, pk: str) -> Response:
         """Toggle the requesting user's acknowledgement on this comment.

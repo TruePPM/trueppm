@@ -244,12 +244,12 @@ urlpatterns = [
         name="project-signal-privacy",
     ),
     path(
-        "projects/<project_pk>/signal-privacy/raise_ceiling/",
+        "projects/<project_pk>/signal-privacy/raise-ceiling/",
         SignalPrivacyRaiseCeilingView.as_view(),
         name="project-signal-privacy-raise-ceiling",
     ),
     path(
-        "projects/<project_pk>/signal-privacy/ratchet_down/",
+        "projects/<project_pk>/signal-privacy/ratchet-down/",
         SignalPrivacyRatchetDownView.as_view(),
         name="project-signal-privacy-ratchet-down",
     ),

@@ -152,6 +152,18 @@ class MsProjectImportView(IdempotencyMixin, APIView):
     permission_classes = [IsAuthenticated, IsProjectNotArchived]
     parser_classes = [MultiPartParser]
 
+    @extend_schema(
+        summary="Import an MS Project file into an existing project",
+        request=OpenApiTypes.BINARY,
+        responses={
+            202: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description='Import queued; body is {"detail", "import_request_id"}.',
+            ),
+            400: OpenApiResponse(description="Missing or invalid upload (wrong type/too large)."),
+            403: OpenApiResponse(description="Caller lacks the Admin role on the project."),
+        },
+    )
     def post(self, request: Request, project_pk: str) -> Response:
         _check_project_role(request.user, project_pk, Role.ADMIN)
 
@@ -207,6 +219,20 @@ class CreateProjectFromMsProjectView(IdempotencyMixin, APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser]
 
+    @extend_schema(
+        summary="Create a new project by importing an MS Project file",
+        request=OpenApiTypes.BINARY,
+        responses={
+            202: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Project shell created; import queued. Body is "
+                '{"queued", "project_id", "import_request_id"}.',
+            ),
+            400: OpenApiResponse(
+                description="Missing/invalid upload, or program-admin gate failed."
+            ),
+        },
+    )
     def post(self, request: Request) -> Response:
         from datetime import date
 

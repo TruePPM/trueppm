@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import redis as redis_lib
 from django.db.models import QuerySet
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
@@ -47,6 +48,13 @@ class ProjectTaskRunViewSet(
         self.check_object_permissions(self.request, obj.project)
         return obj
 
+    @extend_schema(
+        summary="Cancel a task run",
+        responses={
+            202: OpenApiResponse(description="Cancellation requested. Body: {'detail': str}."),
+            409: OpenApiResponse(description="Task run is not active (not PENDING or RUNNING)."),
+        },
+    )
     @action(detail=True, methods=["post"], url_path="cancel")
     def cancel(self, request: Request, **kwargs: object) -> Response:
         """Signal cancellation for a running task."""
@@ -110,6 +118,10 @@ class GlobalTaskRunViewSet(ReadOnlyModelViewSet[TaskRun]):
         )
         return TaskRun.objects.filter(project_id__in=project_ids)
 
+    @extend_schema(
+        summary="List active task runs",
+        responses={200: TaskRunSerializer(many=True)},
+    )
     @action(detail=False, methods=["get"], url_path="active")
     def active(self, request: Request) -> Response:
         """Return PENDING + RUNNING task runs across the user's projects."""

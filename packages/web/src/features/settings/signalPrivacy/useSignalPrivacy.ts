@@ -101,7 +101,7 @@ export function useSignalPrivacyMutations(projectId: string | undefined) {
   const raiseCeiling = useMutation({
     mutationFn: async (vars: { signal: SignalKey; ceiling: SignalAudience }) => {
       const res = await apiClient.post<SignalPrivacyPolicy>(
-        `/projects/${projectId}/signal-privacy/raise_ceiling/`,
+        `/projects/${projectId}/signal-privacy/raise-ceiling/`,
         vars,
       );
       return res.data;
@@ -112,7 +112,7 @@ export function useSignalPrivacyMutations(projectId: string | undefined) {
   const ratchetDown = useMutation({
     mutationFn: async () => {
       const res = await apiClient.post<SignalPrivacyPolicy>(
-        `/projects/${projectId}/signal-privacy/ratchet_down/`,
+        `/projects/${projectId}/signal-privacy/ratchet-down/`,
         {},
       );
       return res.data;

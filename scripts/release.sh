@@ -357,6 +357,18 @@ bump_manifest packages/web/package.json \
 
 echo "  Bumped manifests to $NEW_VERSION (scheduler PyPI: $NEW_PEP440)"
 
+# Keep the OpenAPI schema's info.version in lockstep with the release. The schema
+# has always tracked the base semver with the pre-release suffix stripped
+# (SPECTACULAR_SETTINGS["VERSION"] was "0.2.0", not "0.2.0-alpha.1"), so a tag
+# could ship a schema that still claimed the previous minor (#1018). Bump the
+# setting, then regenerate so the committed schema matches the tag exactly.
+SCHEMA_VERSION="${NEW_VERSION%%-*}"
+bump_manifest packages/api/src/trueppm_api/settings/base.py \
+  "s/\"VERSION\": \"[^\"]*\"/\"VERSION\": \"${SCHEMA_VERSION}\"/" \
+  "\"VERSION\": \"${SCHEMA_VERSION}\""
+bash scripts/export-openapi.sh
+echo "  Bumped OpenAPI schema version to $SCHEMA_VERSION and regenerated docs/api/openapi.json"
+
 # ---------------------------------------------------------------------------
 # CHANGELOG rotation (stable releases only)
 # ---------------------------------------------------------------------------
@@ -394,6 +406,8 @@ git add \
   packages/scheduler/pyproject.toml \
   packages/api/pyproject.toml \
   packages/web/package.json \
+  packages/api/src/trueppm_api/settings/base.py \
+  docs/api/openapi.json \
   CHANGELOG.md
 
 git commit -m "chore(release): bump version to ${NEW_VERSION}

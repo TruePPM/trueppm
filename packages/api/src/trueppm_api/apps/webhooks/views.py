@@ -7,10 +7,11 @@ import logging
 import redis as redis_lib
 from django.db import transaction
 from django.db.models import QuerySet
+from drf_spectacular.utils import extend_schema, inline_serializer
 from kombu.exceptions import (  # type: ignore[import-untyped]
     OperationalError as KombuOperationalError,
 )
-from rest_framework import status
+from rest_framework import serializers, status
 from rest_framework.decorators import action
 from rest_framework.mixins import (
     CreateModelMixin,
@@ -117,6 +118,15 @@ class WebhookViewSet(
         assert scope is not None
         return scope
 
+    @extend_schema(
+        summary="Send a test webhook ping",
+        responses={
+            202: inline_serializer(
+                name="WebhookTestPingResponse",
+                fields={"delivery_id": serializers.CharField()},
+            )
+        },
+    )
     @action(detail=True, methods=["post"], url_path="test")
     def test_ping(self, request: Request, **kwargs: object) -> Response:
         """Send a test ping event to the webhook URL."""
@@ -147,6 +157,10 @@ class WebhookViewSet(
             status=status.HTTP_202_ACCEPTED,
         )
 
+    @extend_schema(
+        summary="List recent webhook deliveries",
+        responses={200: WebhookDeliverySerializer(many=True)},
+    )
     @action(detail=True, methods=["get"], url_path="deliveries")
     def deliveries(self, request: Request, **kwargs: object) -> Response:
         """List recent deliveries for this webhook."""

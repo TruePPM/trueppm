@@ -27,3 +27,10 @@ schema:TokenRefreshRequest
 # inherited TokenObtainPair response, so that phantom schema is no longer emitted.
 # The /api/v1/auth/token/ path and its TokenObtainPairRequest body are unchanged.
 schema:TokenObtainPair
+
+# #1017 — signal-privacy action URLs renamed snake_case → kebab-case to match the
+# other 47 action paths (raise-ceiling / ratchet-down replace these). Signal
+# privacy is new in 0.3 with no shipped consumers, so this is a clean rename with
+# no redirect shim; the new paths are present, only the old segments are removed.
+/api/v1/projects/{project_pk}/signal-privacy/raise_ceiling/
+/api/v1/projects/{project_pk}/signal-privacy/ratchet_down/

@@ -229,7 +229,7 @@ no destructive operations, no NOT NULL backfill (new table).
 - Affected packages: `api` (new `idempotency` app; mixin wired into `ProjectScopedViewSet`); `docs`
 - Migration required: yes — `idempotency/0001_initial.py` (additive `CreateModel`)
 - API changes: yes — new optional `Idempotency-Key` request header on unsafe methods;
-  new `422 idempotency_key_conflict` response; documented in `docs/api/idempotency.md`
+  new `422 idempotency_key_conflict` response; documented in `packages/website/src/content/docs/api/idempotency.md`
 - OSS or Enterprise: **OSS** (Apache 2.0) — core API hardening every PM benefits from
 
 ### Durable Execution

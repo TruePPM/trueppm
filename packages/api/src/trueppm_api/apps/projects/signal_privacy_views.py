@@ -3,8 +3,8 @@
 Surface:
   GET   /api/v1/projects/<project_pk>/signal-privacy/             — read posture
   PATCH /api/v1/projects/<project_pk>/signal-privacy/             — set one audience
-  POST  /api/v1/projects/<project_pk>/signal-privacy/raise_ceiling/
-  POST  /api/v1/projects/<project_pk>/signal-privacy/ratchet_down/
+  POST  /api/v1/projects/<project_pk>/signal-privacy/raise-ceiling/
+  POST  /api/v1/projects/<project_pk>/signal-privacy/ratchet-down/
 
 Two write gates (ADR-0104 §1.1):
   * set-audience / ratchet  — the facilitator's dial (Scrum-Master facet, ADR-0078
@@ -139,13 +139,20 @@ class _SignalPrivacyBase(APIView):
 class SignalPrivacyPolicyView(_SignalPrivacyBase):
     """GET the posture; PATCH one signal's audience (within its ceiling)."""
 
-    @extend_schema(responses=SignalPrivacyPolicySerializer)
+    @extend_schema(
+        summary="Read the team-signal privacy posture",
+        responses=SignalPrivacyPolicySerializer,
+    )
     def get(self, request: Request, project_pk: str) -> Response:
         project = self._project(project_pk)
         policy = get_or_create_policy(project)
         return Response(_serialize_policy(request, project.pk, policy))
 
-    @extend_schema(request=SetAudienceSerializer, responses=SignalPrivacyPolicySerializer)
+    @extend_schema(
+        summary="Set one signal's audience within its ceiling",
+        request=SetAudienceSerializer,
+        responses=SignalPrivacyPolicySerializer,
+    )
     def patch(self, request: Request, project_pk: str) -> Response:
         project = self._project(project_pk)
         self._require_writer(project.pk)
@@ -164,7 +171,11 @@ class SignalPrivacyPolicyView(_SignalPrivacyBase):
 class SignalPrivacyRaiseCeilingView(_SignalPrivacyBase):
     """POST — raise (or lower) one signal's team-authorized ceiling."""
 
-    @extend_schema(request=RaiseCeilingSerializer, responses=SignalPrivacyPolicySerializer)
+    @extend_schema(
+        summary="Raise or lower a signal's team-authorized ceiling",
+        request=RaiseCeilingSerializer,
+        responses=SignalPrivacyPolicySerializer,
+    )
     def post(self, request: Request, project_pk: str) -> Response:
         project = self._project(project_pk)
         self._require_writer(project.pk)
@@ -184,6 +195,7 @@ class SignalPrivacyRatchetDownView(_SignalPrivacyBase):
     """POST — set every signal's audience to TEAM in one call (the SM panic button)."""
 
     @extend_schema(
+        summary="Ratchet every signal's audience down to team-only",
         request=None,
         responses={200: OpenApiResponse(SignalPrivacyPolicySerializer)},
     )

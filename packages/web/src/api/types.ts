@@ -230,9 +230,20 @@ export interface PhaseGateConfig {
   updated_at: string;
 }
 
+// ===========================================================================
+// CLIENT-PROJECTED SHAPES (camelCase) — NOT the wire contract.
+//
+// Unlike every interface above (snake_case, mirroring the DRF serializers),
+// the Workspace block below is the *post-transform* output of the settings
+// hooks (features/settings/hooks/useWorkspaceSettings.ts etc.), which map the
+// snake_case API response (apps/workspace/serializers.py) into camelCase for
+// the UI. Do NOT treat these as the schema: `fiscalYearStartMonth`, `workWeek`,
+// `roleValue`, `projectCount`, `createdAt`, … do not exist on the wire — the
+// serializer emits `fiscal_year_start_month`, `work_week`, `role_value`, etc.
+// The OpenAPI schema (docs/api/openapi.json) is the authoritative wire shape.
 // ---------------------------------------------------------------------------
 // Workspace settings types (ADR-0032, #517–#520)
-// ---------------------------------------------------------------------------
+// ===========================================================================
 
 /**
  * Workspace-level settings returned by GET /workspace/ and accepted by PATCH
