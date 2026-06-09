@@ -6251,12 +6251,34 @@ class SprintScopeChangeViewSet(IdempotencyMixin, viewsets.GenericViewSet[Any]):
     path: these two actions are the only writers of ACCEPTED/REJECTED.
     """
 
+    # permission_classes is intentionally just IsAuthenticated: every action
+    # routes through _act -> _assert_scope_gate in the service layer, which is
+    # the real authorization gate (role >= ADMIN + project membership). The
+    # queryset below is the second half of that contract — it must stay scoped to
+    # the caller's member projects so a non-member gets 404 (not a 403-vs-404
+    # discriminator that leaks cross-project scope-change existence, #996).
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self) -> QuerySet[Any]:
+        from typing import cast
+
+        from django.contrib.auth.models import User
+
+        from trueppm_api.apps.access.models import ProjectMembership
         from trueppm_api.apps.projects.models import SprintScopeChange
 
-        return SprintScopeChange.objects.select_related("task", "sprint").all()
+        # Scope to scope-changes on projects the caller is a member of. Without
+        # this, get_object_or_404 over an unscoped .all() returns 403 (found, no
+        # permission) vs 404 (absent), letting any authenticated user probe
+        # whether an arbitrary scope-change UUID exists anywhere (IDOR, #996).
+        # IsAuthenticated has already excluded AnonymousUser; cast narrows for mypy.
+        user = cast(User, self.request.user)
+        member_project_ids = ProjectMembership.objects.filter(
+            user=user, is_deleted=False
+        ).values_list("project_id", flat=True)
+        return SprintScopeChange.objects.select_related("task", "sprint").filter(
+            task__project_id__in=member_project_ids
+        )
 
     def _act(self, request: Request, pk: str | None, *, accept: bool) -> Response:
         from trueppm_api.apps.projects.serializers import SprintScopeChangeSerializer

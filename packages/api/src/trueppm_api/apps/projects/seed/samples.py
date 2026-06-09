@@ -18,7 +18,7 @@ from typing import Any
 
 from django.db import transaction
 
-from trueppm_api.apps.projects.models import Program, Project
+from trueppm_api.apps.projects.models import Program
 from trueppm_api.apps.projects.seed.importer import import_seed
 
 _SEEDS_DIR = Path(__file__).resolve().parent.parent / "fixtures" / "seeds"
@@ -105,7 +105,9 @@ def load_sample(key: str, *, owner: Any, create_users: bool = True) -> Program:
     payload: dict[str, Any] = json.loads(sample.path.read_text(encoding="utf-8"))
 
     with transaction.atomic():
-        program = import_seed(payload, owner=owner, create_users=create_users)
-        # Flag every project so the UI banner + teardown can find the demo data.
-        Project.objects.filter(program=program).update(is_sample=True)
+        # is_sample marks every created project as demo data (for the UI banner +
+        # teardown) and selects the demo importer semantics: shared-persona
+        # resource reuse and the sample-safe idempotency guard in
+        # _replace_existing.
+        program = import_seed(payload, owner=owner, create_users=create_users, is_sample=True)
     return program

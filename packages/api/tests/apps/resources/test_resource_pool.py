@@ -438,6 +438,57 @@ class TestTaskSkillRequirementViewSet:
         )
         assert res.status_code == 400
 
+    def test_create_on_non_member_project_is_forbidden(
+        self,
+        scheduler_client: APIClient,
+        calendar: Calendar,
+        react_skill: Skill,
+        scheduler_membership: ProjectMembership,
+    ) -> None:
+        """#995: SCHEDULER on project A cannot annotate a task in project B where
+        they have no membership. ``IsOrgScheduler`` only proves SCHEDULER on
+        *some* project; ``perform_create`` must gate on the target task's project.
+        """
+        other_project = Project.objects.create(
+            name="Bravo", start_date=date(2026, 4, 1), calendar=calendar
+        )
+        other_task = Task.objects.create(
+            project=other_project,
+            name="B-task",
+            duration=3,
+            early_start=date(2026, 4, 1),
+            early_finish=date(2026, 4, 3),
+        )
+        res = scheduler_client.post(
+            "/api/v1/task-skill-requirements/",
+            {"task": str(other_task.pk), "skill": str(react_skill.pk), "min_proficiency": 2},
+        )
+        assert res.status_code == 403
+        assert not TaskSkillRequirement.objects.filter(task=other_task).exists()
+
+    def test_update_below_scheduler_on_target_project_is_forbidden(
+        self,
+        viewer_client: APIClient,
+        viewer_membership: ProjectMembership,
+        task: Task,
+        react_skill: Skill,
+    ) -> None:
+        """#995 sibling: a Viewer on the target project cannot PATCH a skill
+        requirement there even though they pass IsOrgScheduler elsewhere."""
+        # The viewer holds SCHEDULER on an unrelated project (passes IsOrgScheduler).
+        other = Project.objects.create(name="Charlie", start_date=date(2026, 4, 1))
+        ProjectMembership.objects.create(
+            project=other, user=viewer_membership.user, role=Role.SCHEDULER
+        )
+        req = TaskSkillRequirement.objects.create(task=task, skill=react_skill, min_proficiency=1)
+        res = viewer_client.patch(
+            f"/api/v1/task-skill-requirements/{req.pk}/",
+            {"min_proficiency": 3},
+        )
+        assert res.status_code == 403
+        req.refresh_from_db()
+        assert req.min_proficiency == 1
+
 
 # ---------------------------------------------------------------------------
 # Skill-fit annotation on resource list
