@@ -142,6 +142,32 @@ That distribution puts roughly a third of agents on Opus, concentrated on the au
 - Pre-1.0 → Sonnet is fine for `architect` if the milestone has no shipped consumers yet and the contract is still mutable. **Default to Opus anyway** — pre-1.0 contract decisions still anchor 1.0.
 - Post-1.0 stable cuts → never downgrade `security-review`, `architect`, `scheduler-engine`, or `enterprise-check` from Opus.
 
+### Assignments are empirically validated — tune scope, not tier
+
+The 2026-06-09 `/pre-release full` run validated this assignment table against real findings. Sonnet pattern agents found **4 of the 6 blockers** — three RBAC IDORs (`rbac-check`) and a login schema contract bug (`api-design` audit mode). Opus deep agents found the cross-file vulnerability chain (`security-review`) and performed the severity-critical consolidation. Both tiers earned their keep. Cost tuning must therefore come from **scope** — the per-agent boundary sentences in Step 1 and the orchestration patterns in Step 0.65 — and **never** from downgrading a model tier or trimming an agent's exhaustiveness. Quality and security are paramount; a missed finding is a patch release at best and a CVE at worst.
+
+### Measured cost baseline + runaway guard
+
+From the 2026-06-09 run, expect each **wave agent** to run roughly **45–170k tokens, 20–240 tool calls, 2–16 min**; the **consolidator** (Steps 2–3, delegated per Step 0.65) ~350k tokens; the **full fleet total** ~2.6M tokens. Treat these as the calibration band, not a budget to spend down.
+
+**Runaway guard:** an agent that exceeds ~250k tokens, or roughly 2× any of these baselines, is signalling a runaway — scope drift, a search loop, or repeated re-reads — not deeper rigor. Investigate it before trusting its findings; do not silently absorb the overrun into the run total.
+
+---
+
+## Step 0.65 — Orchestration cost patterns
+
+These five patterns keep a 20+ agent run cheap and stable without weakening any check. They tune *how* the fleet runs, not *what* it audits.
+
+1. **Detached worktree.** Run the audit against a detached read-only worktree at the true tip: `git fetch origin main && git worktree add <tmpdir> origin/main --detach`. Agents see `origin/main` rather than a stale or dirty local checkout, branch switches in the main checkout can't disturb them mid-run, and the user's working tree stays untouched. Remove the worktree (`git worktree remove <tmpdir>`) when the audit completes.
+
+2. **Shared issue dump.** Before launching any wave, dump **all** open issues exactly once — `glab api` paginated, formatted as `#iid<TAB>milestone<TAB>title<TAB>[labels]` — to a run file, and pass that file's path to every agent for its tracking annotations. One API sweep replaces every agent independently running ~20 `glab issue list --search` calls (the 2026-06-09 run: a single dump replaced an estimated 300+ searches).
+
+3. **Reports to files, compact returns.** Every agent writes its full report to a shared run directory (`<run-dir>/reports/<agent>.md`) and returns to the orchestrator **only** a compact summary: counts, one line per 🔴, and the top 🟡 titles. This keeps the orchestrator's context flat across a 20+ agent run; the consolidation step reads the full reports from disk.
+
+4. **Background-parallel waves.** Launch each wave's agents as parallel background tasks in a single batch; the wave gate evaluates once they all complete. Kaizen and voc-audit (Steps 0.7 and 0.8) are wave-independent — launch them alongside Wave 1 rather than serially before it.
+
+5. **Delegated consolidation.** Steps 2–3 (consolidate + cross-reference) run as **one delegated Opus agent**, not inline in the orchestrator. It reads all reports from the run directory, dedups findings that multiple agents raised, recalibrates severity against the pre-1.0/post-1.0 bar (agents over-rate 🔴 — the 2026-06-09 run filed 6 blockers out of 15 agent-rated 🔴s), cross-references **both open and closed** issues, and emits one draft file per finding (frontmatter: title / labels / milestone / severity / action / refs; body: Problem / Root cause / Fix instructions / Test plan) ready for mechanical filing. The orchestrator spot-checks the drafts and executes the filing.
+
 ---
 
 ## Step 0.7 — Harness pre-flight (kaizen) — full audits only
@@ -234,20 +260,20 @@ Run in parallel:
 ### `performance`
 Run in parallel:
 1. **perf-check** *(Sonnet)* — Full codebase N+1 audit. Review every viewset and serializer for missing `select_related`/`prefetch_related`, unguarded `SerializerMethodField` database hits, missing indexes on filter fields, and missing transaction boundaries.
-2. **performance** *(Opus)* — Deeper performance audit across endpoints, serializers, the schedule canvas renderer (`packages/web/src/features/schedule/engine/`), WebSocket throughput, and mobile sync efficiency. Identify any relation that will cause query count to scale with project size, board size, or task count.
+2. **performance** *(Opus)* — Deeper performance audit across endpoints, serializers, the schedule canvas renderer (`packages/web/src/features/schedule/engine/`), WebSocket throughput, and mobile sync efficiency. Identify any relation that will cause query count to scale with project size, board size, or task count. Skip per-endpoint serializer/queryset N+1s — `perf-check` owns those; spend the depth on the canvas renderer, WebSocket fanout, sync protocol, and scheduler-engine hot paths.
 
 ### `frontend`
 Run in parallel:
-1. **ux-review** *(Sonnet)* — Full frontend codebase review against the TruePPM design system referenced in `frontend/CLAUDE.md` and in the `brand` skill. Check all components, layouts, modals, pages, and the schedule canvas for design system compliance, mobile-first behaviour, and offline-state handling.
+1. **ux-review** *(Sonnet)* — Full frontend codebase review against the TruePPM design system referenced in `frontend/CLAUDE.md` and in the `brand` skill. Check all components, layouts, modals, pages, and the schedule canvas for design system compliance, mobile-first behaviour, and offline-state handling. Owns design-system/token compliance and interaction-state consistency; defer WCAG SC findings (ARIA semantics, contrast ratios) to `accessibility`.
 2. **broadcast-check** *(Sonnet)* — Full audit of all write operations (create, update, delete, move, schedule recalculation) on board-scoped and project-scoped resources. Verify `broadcast_board_event()` is correctly wired, deferred with `transaction.on_commit()`, and that the frontend socket handler exists for every event type.
 
 ### `accessibility`
-1. **accessibility** *(Sonnet)* — Full WCAG 2.1 AA audit across web and mobile interfaces. Cover keyboard navigation, screen reader compatibility, focus management, color contrast (against the design system tokens), touch target sizes on mobile, and ARIA attributes on the schedule canvas / Gantt interactions. Accessibility regressions in a tagged release are a public commitment — fixing them post-tag means a patch release.
+1. **accessibility** *(Sonnet)* — Full WCAG 2.1 AA audit across web and mobile interfaces. Cover keyboard navigation, screen reader compatibility, focus management, color contrast (against the design system tokens), touch target sizes on mobile, and ARIA attributes on the schedule canvas / Gantt interactions. Accessibility regressions in a tagged release are a public commitment — fixing them post-tag means a patch release. Owns WCAG success-criterion findings (ARIA/tab semantics, contrast, focus, motion); `ux-review` defers those to it.
 
 ### `docs`
 Run in parallel:
-1. **docs-writer** *(Sonnet)* — Full documentation audit. Check `docs/features/`, `docs/getting-started/`, `docs/architecture/`, and `docs/administration/` for completeness. Every user-visible feature must have a doc page with correct version callouts and enterprise callouts where applicable. Verify the Docusaurus site (`packages/website/`) builds cleanly and that no internal links are broken. Verify `docs/api/openapi.json` is in sync with the current API surface.
-2. **api-design** (audit mode) *(Sonnet)* — Full API surface review. Every endpoint, serializer field, permission rule, query parameter, and WebSocket event must be reflected in `docs/api/`. Flag any path, method, schema field, or event type that is undocumented, stale, or inconsistent. Frame this as "what does an external integrator see?" — not internal correctness.
+1. **docs-writer** *(Sonnet)* — Full documentation audit. Check `docs/features/`, `docs/getting-started/`, `docs/architecture/`, and `docs/administration/` for completeness. Every user-visible feature must have a doc page with correct version callouts and enterprise callouts where applicable. Verify the Docusaurus site (`packages/website/`) builds cleanly and that no internal links are broken. Verify `docs/api/openapi.json` is in sync with the current API surface. Owns website feature/getting-started/administration docs; defer API-reference/schema accuracy to `api-design`.
+2. **api-design** (audit mode) *(Sonnet)* — Full API surface review. Every endpoint, serializer field, permission rule, query parameter, and WebSocket event must be reflected in `docs/api/`. Flag any path, method, schema field, or event type that is undocumented, stale, or inconsistent. Frame this as "what does an external integrator see?" — not internal correctness. Owns `docs/api/` + OpenAPI schema accuracy; `docs-writer` defers API-reference gaps to it.
 
 ### `contracts`
 Run in parallel:
@@ -261,7 +287,7 @@ Run in parallel:
 1. **enterprise-check** *(Opus)* — Full OSS/enterprise boundary audit. Verify the OSS core is fully functional without the `trueppm-enterprise` repo. Run `grep -r "trueppm_enterprise" packages/` — must return zero results in OSS code. Verify all extension points (settings includes, URL patterns, signal hooks, view registry, etc.) are stable and that no enterprise-only logic has leaked into OSS files. Confirm features classified as Enterprise per CLAUDE.md (portfolio dashboard, SSO/SAML, custom roles, etc.) are not present in the OSS surface.
 
 ### `tests`
-1. **test-strategy** (coverage-audit mode) *(Sonnet)* — Full test coverage audit across all backend Django apps and frontend modules. For each app in `packages/api/trueppm_api/` and each module in `packages/web/src/`, identify: (a) public functions/methods/endpoints with no test, (b) edge cases (empty state, permission boundary, error path, offline fallback) that are exercised in code but not in tests, (c) any `SerializerMethodField`, custom model method, or React hook that has only routing tests (asserting the right function is called) and lacks state/behaviour tests (asserting the result is correct). Include the scheduler package — coverage gaps in CPM, Monte Carlo, or float calculations are correctness-critical. Verify Playwright E2E coverage (`packages/web/e2e/`) for every user-visible flow. Do NOT generate scaffold files — return a structured findings report only, grouped by package/app/module, severity-rated as 🔴 (no coverage at all) or 🟡 (routing-only / missing edge cases).
+1. **test-strategy** (coverage-audit mode) *(Sonnet)* — Full test coverage audit across all backend Django apps and frontend modules. For each app in `packages/api/trueppm_api/` and each module in `packages/web/src/`, identify: (a) public functions/methods/endpoints with no test, (b) edge cases (empty state, permission boundary, error path, offline fallback) that are exercised in code but not in tests, (c) any `SerializerMethodField`, custom model method, or React hook that has only routing tests (asserting the right function is called) and lacks state/behaviour tests (asserting the result is correct). Include the scheduler package — coverage gaps in CPM, Monte Carlo, or float calculations are correctness-critical. Verify Playwright E2E coverage (`packages/web/e2e/`) for every user-visible flow. Do NOT generate scaffold files — return a structured findings report only, grouped by package/app/module, severity-rated as 🔴 (no coverage at all) or 🟡 (routing-only / missing edge cases). Scope to surfaces shipped since the last tag plus security-sensitive paths (auth, invites, import/seed, sync, signal-privacy); read sibling agents' reports from the run directory first and do not re-derive findings their domains own.
 
 ### `scheduler`
 1. **scheduler-engine** *(Opus)* — Full audit of the `packages/scheduler` pip package as a public artifact. Verify: (a) every export from `trueppm_scheduler.*` has a Google-style docstring and stable signature, (b) CPM forward/backward pass correctness against known reference cases, (c) Monte Carlo sampling assumptions are documented and reproducible (seeded), (d) float calculations match the standard critical-path definitions, (e) no API or Django-specific imports leak into the pure-Python package, (f) test coverage is ≥ 80% on the public surface, (g) the package builds and installs cleanly via `pip install -e packages/scheduler`. Once 1.0 ships, this surface is locked for the `1.x` line — every signature change becomes a major bump.
@@ -295,6 +321,8 @@ Run all agents above in 3 parallel waves **with gate checks between waves**. A g
 
 **Wave 3** (docs + ecosystem) — Opus: `enterprise-check` · Sonnet: `docs-writer`, `api-design`, `dependency`, `regression-check`, `test-strategy`:
 - docs-writer, api-design (audit mode), dependency, enterprise-check, regression-check, test-strategy (coverage audit mode — report only, no scaffold generation)
+
+`regression-check` in pre-release mode scopes to code merged since the last release tag — the per-MR day-to-day `regression-check` already gates the rest; full-suite static cross-referencing was the worst ROI of the 2026-06-09 run (171k tokens → 5 🟡).
 
 ---
 
