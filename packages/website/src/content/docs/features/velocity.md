@@ -19,9 +19,21 @@ Step 7 ([Forecast — Monte Carlo across both worlds](/the-story/#7-forecast--mo
   - < 0.6 → `semantic-critical`
 - **Footer:** `Velocity feeds CPM duration estimates · ADR-0036` link
 
+## On the Board sprint panel
+
+The active-sprint panel at the top of the **Board** carries a compact version of the same data:
+
+- **History chart with a range band:** the 8-sprint bars sit behind a shaded **min–max band** with a dashed **P50 (median)** line, so the typical throughput reads at a glance.
+- **Delivery forecast line:** a one-line answer to "when does it ship?" —
+  - if the active sprint is bound to a milestone, the milestone's reforecast **P50 / P80 dates** (from the sprint-close reforecast bridge, ADR-0106);
+  - otherwise the remaining committed backlog re-paced into "~N–M more sprints to clear X pts (by ~date)";
+  - falling back to "Need at least 3 closed sprints to forecast delivery" until there is enough history.
+- **Team-private by default:** velocity is gated by the team-signal privacy ladder (ADR-0104). When the reader's tier is below the velocity audience, the card shows a "Velocity is team-private" state and the forecast is not fetched — never a misleading empty chart.
+
 ## Where to find it in the app
 
 - Route: `/projects/:projectId/sprints` (right column of the metrics row, bottom half)
+- Board: top sprint panel → **Velocity** card (history band + forecast line)
 
 ## API endpoints
 

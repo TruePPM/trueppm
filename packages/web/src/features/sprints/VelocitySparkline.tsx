@@ -13,19 +13,21 @@ const BAR_GAP = 2;
 const MAX_BARS = 8;
 
 /**
- * Inline velocity trend sparkline for the Board SprintPanel (ADR-0073).
+ * Inline velocity trend sparkline for the Board SprintPanel (ADR-0073, #607).
  * Renders up to 8 closed sprints as vertical bars, scaled to the maximum
- * completed_points value. The most recent bar uses brand-primary for focus;
- * the others use semantic-info. A rolling average line sits behind the bars.
+ * completed_points value, behind a shaded **min–max band** with a dashed
+ * **P50 (median) line** so the at-a-glance read is "where throughput usually
+ * lands" — Alex's "see the velocity trend without exporting a spreadsheet" ask.
+ * The most recent bar uses brand-primary for focus; the others a muted variant.
  *
  * Empty states:
  * - velocity loading → skeleton block
  * - 0 closed sprints → "No closed sprints" copy
- * - 1 sprint → single centered bar with caption
- * - 2–8 sprints → full sparkline
+ * - 1 sprint → single centered bar with caption (band needs 2+)
+ * - 2–8 sprints → full sparkline with band + median line
  *
- * SVG carries an accessible aria-label with the underlying numeric series so
- * screen-reader users get the data even though the visual is graphical.
+ * SVG carries an accessible aria-label with the underlying numeric series plus
+ * the min / median / max so screen-reader users get the band data too.
  */
 export function VelocitySparkline({ velocity, isLoading = false }: Props) {
   const sprints = useMemo(() => {
@@ -34,6 +36,9 @@ export function VelocitySparkline({ velocity, isLoading = false }: Props) {
       .filter((s) => s.completed_points !== null)
       .slice(-MAX_BARS);
   }, [velocity]);
+
+  // Min / median (P50) / max of the completed-points series — the band overlay.
+  const band = useMemo(() => bandStats(sprints), [sprints]);
 
   if (isLoading) {
     return (
@@ -68,8 +73,32 @@ export function VelocitySparkline({ velocity, isLoading = false }: Props) {
           height={HEIGHT}
           viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
           role="img"
-          aria-label={buildAriaLabel(sprints, velocity)}
+          aria-label={buildAriaLabel(sprints, velocity, band)}
         >
+          {/* Min–max band + P50 line behind the bars. Needs 2+ sprints and a
+              non-degenerate range (min !== max) to be meaningful. */}
+          {band && band.max > band.min && (
+            <>
+              <rect
+                x={0}
+                y={yFor(band.max, max)}
+                width={WIDTH}
+                height={Math.max(1, yFor(band.min, max) - yFor(band.max, max))}
+                className="fill-brand-primary"
+                opacity={0.12}
+              />
+              <line
+                x1={0}
+                x2={WIDTH}
+                y1={yFor(band.median, max)}
+                y2={yFor(band.median, max)}
+                className="stroke-brand-primary"
+                strokeWidth={1}
+                strokeDasharray="2 2"
+                opacity={0.7}
+              />
+            </>
+          )}
           {sprints.map((s, i) => (
             <SparkBar
               key={s.id}
@@ -121,17 +150,44 @@ function SparkBar({ sprint, max, index, isLatest, total }: BarProps) {
   );
 }
 
+interface BandStats {
+  min: number;
+  median: number;
+  max: number;
+}
+
+/** Min / median (P50) / max of the completed-points series; null for <2 sprints. */
+function bandStats(sprints: VelocitySprintEntry[]): BandStats | null {
+  const values = sprints.map((s) => s.completed_points ?? 0);
+  if (values.length < 2) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  const median =
+    sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  return { min: sorted[0], median, max: sorted[sorted.length - 1] };
+}
+
+/** Map a points value to a y pixel, scaled to the chart's max (0 = top). */
+function yFor(value: number, max: number): number {
+  return HEIGHT - (value / max) * HEIGHT;
+}
+
 function buildAriaLabel(
   sprints: VelocitySprintEntry[],
   velocity: ProjectVelocity | undefined,
+  band: BandStats | null,
 ): string {
   const values = sprints.map((s) => s.completed_points ?? 0);
   const latest = values[values.length - 1] ?? 0;
   const avg = velocity?.rolling_avg_points;
   const avgPart = avg != null ? `; rolling average ${Math.round(avg)} points` : '';
+  const bandPart =
+    band && band.max > band.min
+      ? `; range ${band.min}–${band.max} points, median ${Math.round(band.median)}`
+      : '';
   return `Velocity over last ${sprints.length} sprint${
     sprints.length === 1 ? '' : 's'
-  }: ${values.join(', ')} points; latest ${latest} points${avgPart}.`;
+  }: ${values.join(', ')} points; latest ${latest} points${avgPart}${bandPart}.`;
 }
 
 function sprintsCaption(count: number, velocity: ProjectVelocity | undefined): string {

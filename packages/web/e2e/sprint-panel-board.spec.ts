@@ -135,6 +135,28 @@ async function setupSprintRoutes(
       }),
     }),
   );
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/forecast/`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        velocity: {
+          sprints: [],
+          rolling_avg_points: null,
+          rolling_stdev_points: null,
+          forecast_range_low: null,
+          forecast_range_high: null,
+          rolling_avg_tasks: null,
+          rolling_stdev_tasks: null,
+          team_velocity_per_day: null,
+        },
+        remaining_committed_points: 0,
+        sprints_to_complete_low: null,
+        sprints_to_complete_high: null,
+        milestones: [],
+      }),
+    }),
+  );
   await page.route('**/api/v1/me/active-sprints/', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
   );
@@ -228,6 +250,62 @@ test.describe('Board sprint panel (#482 / ADR-0073)', () => {
     await expect(chip).toBeVisible();
     await expect(chip).toHaveText(/WIP\s*6\/4/);
     await expect(chip).toHaveAttribute('aria-label', /over limit/i);
+  });
+
+  test('shows the velocity history band + a delivery forecast line (#607)', async ({
+    page,
+  }) => {
+    await setupSprintRoutes(page);
+    const SPRINTS = [
+      { id: 's1', name: 'S1', start_date: '2026-01-01', finish_date: '2026-01-14',
+        committed_points: 30, completed_points: 24, committed_task_count: 6, completed_task_count: 5 },
+      { id: 's2', name: 'S2', start_date: '2026-01-15', finish_date: '2026-01-28',
+        committed_points: 30, completed_points: 31, committed_task_count: 6, completed_task_count: 7 },
+      { id: 's3', name: 'S3', start_date: '2026-01-29', finish_date: '2026-02-11',
+        committed_points: 30, completed_points: 28, committed_task_count: 6, completed_task_count: 6 },
+    ];
+    // Re-register (last-wins) velocity + forecast with real history.
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/velocity/`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          sprints: SPRINTS,
+          rolling_avg_points: 28,
+          rolling_stdev_points: 4,
+          forecast_range_low: 24,
+          forecast_range_high: 32,
+          rolling_avg_tasks: 6,
+          rolling_stdev_tasks: 1,
+          team_velocity_per_day: 2,
+        }),
+      }),
+    );
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/forecast/`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          velocity: { sprints: SPRINTS, rolling_avg_points: 28, rolling_stdev_points: 4,
+            forecast_range_low: 24, forecast_range_high: 32, rolling_avg_tasks: 6,
+            rolling_stdev_tasks: 1, team_velocity_per_day: 2 },
+          remaining_committed_points: 60,
+          sprints_to_complete_low: 2,
+          sprints_to_complete_high: 3,
+          milestones: [],
+        }),
+      }),
+    );
+    await page.goto(BASE_URL);
+    const panel = page.getByRole('region', { name: /active sprint summary/i });
+    await expect(panel).toBeVisible({ timeout: 10_000 });
+    // Velocity chart with the min–max band exposes the range in its aria-label.
+    await expect(panel.getByTestId('velocity-sparkline')).toBeVisible();
+    await expect(panel.getByRole('img', { name: /range 24–31 points/i })).toBeVisible();
+    // Delivery forecast line answers "when does it ship" in PO language.
+    await expect(panel.getByTestId('velocity-forecast-line')).toContainText(
+      /more sprints to clear 60 pts/i,
+    );
   });
 
   test('hidden entirely for WATERFALL projects', async ({ page }) => {

@@ -347,6 +347,14 @@ export interface ProjectVelocity {
   rolling_stdev_tasks: number | null;
   /** Rolling 6-sprint team velocity in points-per-working-day (ADR-0065). */
   team_velocity_per_day: number | null;
+  /**
+   * Set by the server (ADR-0104 §2.1) when the requester's tier is below the
+   * velocity signal's audience: the per-sprint series and the point-based
+   * rolling/forecast numbers are nulled out. The client renders a "team-private"
+   * gated state instead of a misleading "no sprints" empty state. Absent/false
+   * for in-audience readers.
+   */
+  velocity_suppressed?: boolean;
 }
 
 /** GET /api/v1/projects/{id}/velocity/ — last-8 closed sprint stats. */
@@ -358,6 +366,61 @@ export function useProjectVelocity(projectId: string | null | undefined) {
       return res.data;
     },
     enabled: !!projectId,
+  });
+}
+
+/** A persisted milestone reforecast row (ADR-0106 §5, #860) — band + dates only. */
+export interface ForecastSnapshot {
+  id: string;
+  milestone_id: string | null;
+  milestone_name: string | null;
+  basis: string;
+  /** ISO date — the deterministic CPM finish. */
+  cpm_finish: string | null;
+  /** ISO date — Monte Carlo P50 / P80 finish. */
+  p50: string | null;
+  p80: string | null;
+  velocity_low: number | null;
+  velocity_high: number | null;
+  confidence: string | null;
+  unmodeled_dependency: boolean;
+  taken_at: string;
+}
+
+/**
+ * Project delivery forecast (ADR-0106 §5, #487/#860). `velocity` is the same
+ * payload as {@link useProjectVelocity} (and inherits the ADR-0104 suppression);
+ * `sprints_to_complete_*` re-paces the remaining committed backlog into a sprint
+ * count range; `milestones` is the latest snapshot per bound milestone.
+ */
+export interface ProjectForecast {
+  velocity: ProjectVelocity;
+  remaining_committed_points: number;
+  sprints_to_complete_low: number | null;
+  sprints_to_complete_high: number | null;
+  milestones: ForecastSnapshot[];
+}
+
+/**
+ * GET /api/v1/projects/{id}/forecast/ — the bridge delivery forecast read.
+ *
+ * Gate the call on velocity NOT being suppressed (pass `enabled: false` when the
+ * caller's velocity payload carries `velocity_suppressed`) so an out-of-audience
+ * reader never pulls the sprints-to-complete range (which indirectly reveals the
+ * team-private velocity band).
+ */
+export function useProjectForecast(
+  projectId: string | null | undefined,
+  options: { enabled?: boolean } = {},
+) {
+  const { enabled = true } = options;
+  return useQuery({
+    queryKey: ['project', projectId, 'forecast'],
+    queryFn: async () => {
+      const res = await apiClient.get<ProjectForecast>(`/projects/${projectId}/forecast/`);
+      return res.data;
+    },
+    enabled: !!projectId && enabled,
   });
 }
 

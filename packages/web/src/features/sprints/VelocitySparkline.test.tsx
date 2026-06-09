@@ -82,6 +82,30 @@ describe('VelocitySparkline', () => {
     expect(svg).toHaveAttribute('aria-label', expect.stringContaining('20, 25, 30, 38'));
   });
 
+  it('exposes the min–max band and P50 median in the aria-label', () => {
+    const sprints = [20, 25, 30, 38].map((p, i) =>
+      entry({ id: `${i}`, completed_points: p }),
+    );
+    render(<VelocitySparkline velocity={velocity({ sprints })} />);
+    const svg = screen.getByRole('img');
+    // median of [20,25,30,38] = 27.5 → rounded 28; range = min–max.
+    expect(svg).toHaveAttribute(
+      'aria-label',
+      expect.stringContaining('range 20–38 points, median 28'),
+    );
+  });
+
+  it('omits the band when the series is degenerate (all equal)', () => {
+    const sprints = [
+      entry({ id: '1', completed_points: 30 }),
+      entry({ id: '2', completed_points: 30 }),
+    ];
+    render(<VelocitySparkline velocity={velocity({ sprints })} />);
+    const svg = screen.getByRole('img');
+    // min === max → no band, so no "range" clause in the label.
+    expect(svg).toHaveAttribute('aria-label', expect.not.stringContaining('range'));
+  });
+
   it('drops sprints with null completed_points (still open)', () => {
     const sprints = [
       entry({ id: '1', completed_points: 20 }),
