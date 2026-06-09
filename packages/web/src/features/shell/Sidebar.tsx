@@ -387,28 +387,33 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
                 ))}
               </ul>
             ) : projectScope === 'all' ? (
-              /* All programs: grouped under collapsible program headers. */
-              <ul className="space-y-1 px-2">
-                {programGroups.length > 0 ? (
-                  programGroups.map((g) => (
-                    <ProjectGroup
-                      key={g.id}
-                      name={g.name}
-                      color={g.color}
-                      projects={g.projects}
-                      collapsed={!!collapsedGroups[g.id]}
-                      onToggle={() => setCollapsedGroups((s) => ({ ...s, [g.id]: !s[g.id] }))}
-                    />
-                  ))
-                ) : (
-                  <li
-                    role="status"
-                    className="px-3 py-3 text-center text-xs text-chrome-text-secondary"
-                  >
-                    No projects match
-                  </li>
-                )}
-              </ul>
+              /* All programs: grouped under collapsible program headers. Wrapped
+                 in a nav landmark so AT landmark navigation (VoiceOver VO+→, NVDA
+                 D) jumps between program groups without tabbing through every
+                 project (#1050). */
+              <nav aria-label="Program groups">
+                <ul className="space-y-1 px-2">
+                  {programGroups.length > 0 ? (
+                    programGroups.map((g) => (
+                      <ProjectGroup
+                        key={g.id}
+                        name={g.name}
+                        color={g.color}
+                        projects={g.projects}
+                        collapsed={!!collapsedGroups[g.id]}
+                        onToggle={() => setCollapsedGroups((s) => ({ ...s, [g.id]: !s[g.id] }))}
+                      />
+                    ))
+                  ) : (
+                    <li
+                      role="status"
+                      className="px-3 py-3 text-center text-xs text-chrome-text-secondary"
+                    >
+                      No projects match
+                    </li>
+                  )}
+                </ul>
+              </nav>
             ) : (
               /* Scoped to one program (or "No program"): flat list. */
               <ul className="space-y-0.5 px-2">

@@ -509,6 +509,28 @@ describe('BoardView', () => {
     expect(screen.getByText(/over WIP limit/i)).toBeInTheDocument();
   });
 
+  it('carries the WIP-limit state in the column header accessible name (#1033)', () => {
+    // Tight wipLimit trips the over-limit branch on IN_PROGRESS; TO DO has no
+    // limit so its header stays the plain form.
+    mockColumns = [
+      { status: 'BACKLOG',     label: 'BACKLOG',      visible: true },
+      { status: 'NOT_STARTED', label: 'TO DO',        visible: true },
+      { status: 'IN_PROGRESS', label: 'IN PROGRESS',  visible: true, wipLimit: 1 },
+      { status: 'REVIEW',      label: 'REVIEW',       visible: true },
+      { status: 'COMPLETE',    label: 'DONE',          visible: true },
+    ];
+    renderBoard();
+    // The header's accessible name (its aria-label) names the over-limit state,
+    // not just the inline WipBadge.
+    expect(
+      screen.getByRole('heading', { name: /^IN PROGRESS, \d+ tasks?, over limit$/i }),
+    ).toBeInTheDocument();
+    // A column with no limit keeps the plain "label, N tasks" name.
+    expect(
+      screen.getByRole('heading', { name: /^TO DO, \d+ tasks?$/i }),
+    ).toBeInTheDocument();
+  });
+
   it('renders the at-limit WIP chip when count equals the limit (#232)', () => {
     // Render once with no WIP gate to discover how many leaf IN_PROGRESS
     // cards the BoardView actually paints (summary tasks become phases and

@@ -253,7 +253,6 @@ function WipBadge({ count, limit }: WipBadgeProps) {
   );
 }
 
-
 /**
  * Confirm-prompt guard for moving a task into a column at or over its WIP
  * limit (#232). Returns ``true`` when the move should proceed (under limit
@@ -972,9 +971,8 @@ export function BoardView() {
   // Map a pending card to its latest pending scope-change row id (the
   // accept/reject target) before firing the mutation. ADR-0102.
   const pendingScopeChangeId = useCallback((task: Task): string | undefined => {
-    return (task.sprintScopeChanges ?? [])
-      .filter((sc) => sc.status === 'pending' && sc.id)
-      .at(-1)?.id;
+    return (task.sprintScopeChanges ?? []).filter((sc) => sc.status === 'pending' && sc.id).at(-1)
+      ?.id;
   }, []);
   const scopeActions: BoardCardScopeActions = useMemo(
     () => ({
@@ -1746,7 +1744,16 @@ export function BoardView() {
                         />
                         <h2
                           className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary"
-                          aria-label={`${col.label}, ${count} task${count !== 1 ? 's' : ''}`}
+                          // The inline WipBadge names the limit state visually; the
+                          // header's accessible name must carry it too so a screen
+                          // reader hears "at/over limit" on the column itself (#1033).
+                          aria-label={
+                            state === 'over'
+                              ? `${col.label}, ${count} task${count !== 1 ? 's' : ''}, over limit`
+                              : state === 'at'
+                                ? `${col.label}, ${count} task${count !== 1 ? 's' : ''}, at limit`
+                                : `${col.label}, ${count} task${count !== 1 ? 's' : ''}`
+                          }
                         >
                           {col.label}
                         </h2>

@@ -6,7 +6,13 @@
  * NotificationBell.handleClick.
  */
 
-import { useMemo, useState } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from 'react';
 import { Link } from 'react-router';
 import { useMarkAllRead, useNotifications } from '@/hooks/useNotifications';
 import { NotificationRow } from './NotificationRow';
@@ -28,6 +34,33 @@ export function NotificationPanel({ onClose }: Props) {
   const { notifications, isLoading, error } = useNotifications({ filter });
   const markAllRead = useMarkAllRead();
   const [announce, setAnnounce] = useState<string>('');
+  const firstFocusRef = useRef<HTMLButtonElement>(null);
+  const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+
+  // WAI-ARIA non-modal dialog pattern (#1031, WCAG 2.4.3): move focus to the
+  // first interactive control on open, and restore it to the trigger (the bell)
+  // on close so a keyboard user isn't dropped at the top of the document. Escape
+  // + outside-click close are handled by NotificationBell's document listeners.
+  useEffect(() => {
+    const trigger = document.activeElement as HTMLElement | null;
+    firstFocusRef.current?.focus();
+    return () => trigger?.focus();
+  }, []);
+
+  // Roving-tabindex arrow navigation across the filter tablist (WAI-ARIA tab
+  // pattern): the tablist is a single Tab stop; Left/Right move and wrap.
+  const handleFilterKeyDown = (e: ReactKeyboardEvent<HTMLButtonElement>) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    const idx = FILTERS.findIndex((f) => f.value === filter);
+    const nextIdx =
+      e.key === 'ArrowRight'
+        ? (idx + 1) % FILTERS.length
+        : (idx - 1 + FILTERS.length) % FILTERS.length;
+    const next = FILTERS[nextIdx].value;
+    setFilter(next);
+    tabRefs.current[next]?.focus();
+  };
 
   const sorted = useMemo(
     () => [...notifications].sort((a, b) => b.created_at.localeCompare(a.created_at)),
@@ -48,6 +81,7 @@ export function NotificationPanel({ onClose }: Props) {
         <h2 className="text-sm font-semibold text-neutral-text-primary">My mentions</h2>
         <div className="ml-auto flex items-center gap-1">
           <button
+            ref={firstFocusRef}
             type="button"
             onClick={() =>
               markAllRead.mutate(undefined, {
@@ -91,9 +125,16 @@ export function NotificationPanel({ onClose }: Props) {
           return (
             <button
               key={f.value}
+              ref={(el) => {
+                tabRefs.current[f.value] = el;
+              }}
               role="tab"
               type="button"
+              id={`notif-tab-${f.value}`}
+              aria-controls="notif-panel"
               aria-selected={active}
+              tabIndex={active ? 0 : -1}
+              onKeyDown={handleFilterKeyDown}
               onClick={() => setFilter(f.value)}
               className={`text-xs px-2 h-7 rounded border
                 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
@@ -115,8 +156,15 @@ export function NotificationPanel({ onClose }: Props) {
         {announce}
       </span>
 
-      {/* List */}
-      <div className="flex-1 overflow-y-auto p-3">
+      {/* List — the tabpanel for the active filter tab (#1022). One panel shows
+          the active tab's content, so its label tracks the current filter. */}
+      <div
+        role="tabpanel"
+        id="notif-panel"
+        aria-labelledby={`notif-tab-${filter}`}
+        tabIndex={0}
+        className="flex-1 overflow-y-auto p-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset"
+      >
         {isLoading && (
           <div aria-busy="true" aria-label="Loading notifications" className="flex flex-col gap-2">
             {[0, 1, 2].map((i) => (
