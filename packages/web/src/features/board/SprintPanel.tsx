@@ -8,6 +8,7 @@ import {
   sprintDayOf,
 } from '@/features/sprints/sprintMath';
 import { VelocitySparkline } from '@/features/sprints/VelocitySparkline';
+import { VelocityForecastLine } from '@/features/sprints/VelocityForecastLine';
 import { wipState } from '@/features/board/wip';
 import {
   useActiveSprint,
@@ -101,7 +102,12 @@ export function SprintPanel({ projectId, methodology }: Props) {
           <BurnChart sprintId={sprint.id} defaultVariant="burndown" />
         </div>
         <div className="flex flex-col gap-3 lg:w-60 flex-shrink-0">
-          <VelocityCard velocity={velocity} isLoading={velocityLoading} />
+          <VelocityCard
+            projectId={projectId}
+            velocity={velocity}
+            isLoading={velocityLoading}
+            targetMilestoneId={sprint.target_milestone}
+          />
           <CapacityCard
             sprint={sprint}
             canEdit={isScheduler}
@@ -275,17 +281,38 @@ function WipChip({ count, limit, onClick }: WipChipProps) {
 }
 
 interface VelocityCardProps {
+  projectId: string;
   velocity: ReturnType<typeof useProjectVelocity>['data'];
   isLoading: boolean;
+  targetMilestoneId: string | null;
 }
 
-function VelocityCard({ velocity, isLoading }: VelocityCardProps) {
+function VelocityCard({ projectId, velocity, isLoading, targetMilestoneId }: VelocityCardProps) {
+  // ADR-0104 §2.1: the server nulls the series and sets velocity_suppressed when
+  // the reader's tier is below the velocity audience (velocity is team-private by
+  // default). Render an explicit "team-private" state — not a misleading "no
+  // sprints" empty — and DON'T mount the forecast line (it would pull the
+  // sprints-to-complete range, which indirectly reveals the gated velocity band).
+  const suppressed = velocity?.velocity_suppressed === true;
   return (
     <div className="rounded-md border border-neutral-border bg-neutral-surface p-3">
       <h3 className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-2">
         Velocity
       </h3>
-      <VelocitySparkline velocity={velocity} isLoading={isLoading} />
+      {suppressed ? (
+        <p className="text-xs text-neutral-text-secondary" data-testid="velocity-suppressed">
+          <span aria-hidden="true">🔒 </span>Velocity is team-private (visible to the team).
+        </p>
+      ) : (
+        <>
+          <VelocitySparkline velocity={velocity} isLoading={isLoading} />
+          <VelocityForecastLine
+            projectId={projectId}
+            targetMilestoneId={targetMilestoneId}
+            enabled={!isLoading && !suppressed}
+          />
+        </>
+      )}
     </div>
   );
 }

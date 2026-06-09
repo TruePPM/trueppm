@@ -20,6 +20,7 @@ vi.mock('@/hooks/useSprints', async () => {
     ...actual,
     useActiveSprint: vi.fn(),
     useProjectVelocity: vi.fn(),
+    useProjectForecast: vi.fn(),
     useSprintMutations: vi.fn(),
   };
 });
@@ -33,26 +34,34 @@ import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import {
   useActiveSprint,
   useProjectVelocity,
+  useProjectForecast,
   useSprintMutations,
+  type ProjectVelocity,
 } from '@/hooks/useSprints';
 
 const useCurrentUserRoleMock = vi.mocked(useCurrentUserRole);
 const useActiveSprintMock = vi.mocked(useActiveSprint);
 const useProjectVelocityMock = vi.mocked(useProjectVelocity);
+const useProjectForecastMock = vi.mocked(useProjectForecast);
 const useSprintMutationsMock = vi.mocked(useSprintMutations);
 
 function renderPanel(opts: {
   methodology?: 'WATERFALL' | 'AGILE' | 'HYBRID' | undefined;
   sprint?: ApiSprint | null;
   role?: number | null;
+  velocity?: Partial<ProjectVelocity>;
 } = {}) {
-  const { methodology = 'AGILE', sprint = makeSprint({ state: 'ACTIVE' }), role = ROLE_SCHEDULER } = opts;
+  const { methodology = 'AGILE', sprint = makeSprint({ state: 'ACTIVE' }), role = ROLE_SCHEDULER, velocity } = opts;
   useActiveSprintMock.mockReturnValue({ sprint, isLoading: false });
   useCurrentUserRoleMock.mockReturnValue({ role, isLoading: role === null });
   useProjectVelocityMock.mockReturnValue({
-    data: undefined,
+    data: velocity as ProjectVelocity | undefined,
     isLoading: false,
   } as unknown as ReturnType<typeof useProjectVelocity>);
+  useProjectForecastMock.mockReturnValue({
+    data: undefined,
+    isLoading: false,
+  } as unknown as ReturnType<typeof useProjectForecast>);
   useSprintMutationsMock.mockReturnValue({
     updateSprint: { mutate: updateSprintMock, isPending: false },
   } as unknown as ReturnType<typeof useSprintMutations>);
@@ -310,5 +319,34 @@ describe('SprintPanel WIP limit (#546)', () => {
     expect(screen.getByTestId('burn-chart')).not.toBeVisible();
     fireEvent.click(screen.getByTestId('sprint-wip-chip'));
     expect(screen.getByTestId('burn-chart')).toBeVisible();
+  });
+});
+
+describe('SprintPanel velocity + forecast (#607)', () => {
+  const SPRINTS = [
+    { id: '1', name: 'S1', start_date: '2026-01-01', finish_date: '2026-01-14',
+      committed_points: 30, completed_points: 24, committed_task_count: 6, completed_task_count: 5 },
+    { id: '2', name: 'S2', start_date: '2026-01-15', finish_date: '2026-01-28',
+      committed_points: 30, completed_points: 32, committed_task_count: 6, completed_task_count: 7 },
+  ];
+
+  it('renders the velocity sparkline and mounts the forecast line when not suppressed', () => {
+    renderPanel({
+      role: ROLE_SCHEDULER,
+      velocity: { sprints: SPRINTS, rolling_avg_points: 28, rolling_stdev_points: 4 },
+    });
+    expect(screen.getByTestId('velocity-sparkline')).toBeInTheDocument();
+    expect(screen.queryByTestId('velocity-suppressed')).toBeNull();
+  });
+
+  it('renders the team-private gated state when velocity is suppressed (ADR-0104)', () => {
+    renderPanel({
+      role: ROLE_SCHEDULER,
+      velocity: { sprints: [], velocity_suppressed: true },
+    });
+    expect(screen.getByTestId('velocity-suppressed')).toHaveTextContent(/team-private/i);
+    // Neither the chart nor the forecast line render in the gated state.
+    expect(screen.queryByTestId('velocity-sparkline')).toBeNull();
+    expect(screen.queryByTestId('velocity-forecast-line')).toBeNull();
   });
 });
