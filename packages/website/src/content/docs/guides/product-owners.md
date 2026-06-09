@@ -93,7 +93,8 @@ The most important interface between the PO and the PM:
 
 - **Epic task type** — dedicated epic view with child story hierarchy, epic-level burn chart, release-scoped backlog
 - **Unified sprint planning** — interactive sprint planning session with capacity vs. commitment sidebar
-- **MCP server integration** — PO workflow via AI assistant (backlog refinement, story sizing suggestions)
+
+**Further out:** a **read-only MCP server** lands in 0.4 — point an AI assistant at your instance to query the backlog, forecast, and sprint status (computed server-side, self-hosted). PO write workflows via assistant (backlog refinement, story sizing suggestions) follow in 0.6.
 
 ## Getting started
 
