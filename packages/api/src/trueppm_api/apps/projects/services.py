@@ -713,6 +713,69 @@ def apply_carry_over(sprint: Any, carry_over_to: str) -> list[str]:
     return moved_ids
 
 
+def snapshot_sprint_task_outcomes(sprint: Any, *, carry_over_to: str) -> None:
+    """Record per-task membership-at-close for sprint review (ADR-0111 §2, #982).
+
+    Writes one ``SprintTaskOutcome`` row for every task linked to ``sprint`` at
+    close. MUST be called inside the close transaction, AFTER
+    ``snapshot_completed_metrics`` (so ``final_status`` matches the state the
+    completed_* snapshot used) and BEFORE ``apply_carry_over`` (which mutates
+    ``Task.sprint`` and would otherwise erase the membership set).
+
+    Disposition is derived from ``final_status`` + the carry-over *policy* (not
+    post-hoc from the moved-ID list) so it stays faithful even if #871 later
+    restructures the move: COMPLETE -> ``completed``; incomplete + a sprint
+    target -> ``carried`` (with ``next_sprint``); incomplete + ``backlog`` /
+    ``none`` -> ``dropped``. Idempotent: ``bulk_create(ignore_conflicts=True)``
+    against the ``(sprint, task)`` unique constraint, so an outbox re-drain is a
+    no-op. The caller does NOT wrap this in try/except — capturing the audit is
+    part of the close's definition of done, so a failure must roll the close back
+    and let the drain retry.
+    """
+    from trueppm_api.apps.projects.models import (
+        SprintTaskDisposition,
+        SprintTaskOutcome,
+        Task,
+        TaskStatus,
+    )
+
+    # "none" leaves incomplete tasks in the closed sprint; "backlog" nulls the FK;
+    # any other value is a destination sprint UUID. Only the last is a carry.
+    carries_to_sprint = carry_over_to not in ("none", "backlog")
+    next_sprint_id = carry_over_to if carries_to_sprint else None
+
+    rows = []
+    for task in Task.objects.filter(sprint_id=sprint.pk, is_deleted=False):
+        if task.status == TaskStatus.COMPLETE:
+            disposition = SprintTaskDisposition.COMPLETED
+            row_next_sprint_id = None
+        elif carries_to_sprint and task.status in _CARRY_OVER_INCOMPLETE_STATUSES:
+            # Only tasks apply_carry_over actually moves count as carried. A status
+            # outside the carry-over filter (e.g. ON_HOLD) is left in the closed
+            # sprint even under a sprint-target policy, so it is "dropped" (not
+            # carried forward), not "carried".
+            disposition = SprintTaskDisposition.CARRIED
+            row_next_sprint_id = next_sprint_id
+        else:
+            disposition = SprintTaskDisposition.DROPPED
+            row_next_sprint_id = None
+        rows.append(
+            SprintTaskOutcome(
+                sprint=sprint,
+                task=task,
+                task_short_id=f"T-{task.short_id}" if task.short_id else "",
+                task_title=task.name,
+                story_points=task.story_points,
+                final_status=task.status,
+                disposition=disposition,
+                next_sprint_id=row_next_sprint_id,
+                was_pending=task.sprint_pending,
+            )
+        )
+    if rows:
+        SprintTaskOutcome.objects.bulk_create(rows, ignore_conflicts=True)
+
+
 def snapshot_completed_metrics(sprint: Any) -> None:
     """Compute and store completed_points / completed_task_count from current task state.
 

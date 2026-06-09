@@ -16,6 +16,8 @@ from trueppm_api.apps.projects.models import (
     SprintCloseRequest,
     SprintCloseRequestStatus,
     SprintState,
+    SprintTaskDisposition,
+    SprintTaskOutcome,
     Task,
     TaskStatus,
 )
@@ -250,6 +252,143 @@ def test_apply_carry_over_none_returns_empty(project: Project) -> None:
     )
 
     assert apply_carry_over(s, "none") == []
+
+
+# ---------------------------------------------------------------------------
+# SprintTaskOutcome — membership-at-close capture (ADR-0111, #982)
+# ---------------------------------------------------------------------------
+
+
+@patch("trueppm_api.apps.sync.broadcast.broadcast_board_event")
+def test_close_records_task_outcomes_that_survive_carry_over(
+    _broadcast: object, user: object, project: Project
+) -> None:
+    """The closing membership set is recorded and survives the FK move (#982)."""
+    s = _make_active_sprint(project)
+    done = Task.objects.create(
+        project=project,
+        name="Done",
+        duration=1,
+        sprint=s,
+        story_points=5,
+        status=TaskStatus.COMPLETE,
+    )
+    Task.objects.create(
+        project=project,
+        name="Open",
+        duration=1,
+        sprint=s,
+        story_points=3,
+        status=TaskStatus.IN_PROGRESS,
+    )
+    req = SprintCloseRequest.objects.create(sprint=s, requested_by=user, carry_over_to="backlog")
+    close_sprint.run(str(req.id))
+
+    rows = {r.task_title: r for r in SprintTaskOutcome.objects.filter(sprint=s)}
+    assert set(rows) == {"Done", "Open"}
+    # Outcome rows persist even though the open task moved off the sprint.
+    assert Task.objects.get(name="Open").sprint_id is None
+    assert rows["Done"].disposition == SprintTaskDisposition.COMPLETED
+    assert rows["Done"].final_status == TaskStatus.COMPLETE
+    # Dropped to backlog under the "backlog" policy.
+    assert rows["Open"].disposition == SprintTaskDisposition.DROPPED
+    assert rows["Open"].next_sprint_id is None
+    assert rows["Open"].final_status == TaskStatus.IN_PROGRESS
+    # Denormalized identity captured.
+    assert rows["Open"].story_points == 3
+    assert rows["Open"].task_short_id.startswith("T-")
+    assert rows["Open"].task_id == Task.objects.get(name="Open").id
+    assert rows["Done"].task_id == done.id
+
+
+@patch("trueppm_api.apps.sync.broadcast.broadcast_board_event")
+def test_outcome_carried_to_next_sprint_records_next_sprint(
+    _broadcast: object, project: Project
+) -> None:
+    s = _make_active_sprint(project)
+    target = Sprint.objects.create(
+        project=project,
+        name="Next",
+        start_date=date(2026, 5, 1),
+        finish_date=date(2026, 5, 14),
+        state=SprintState.PLANNED,
+    )
+    Task.objects.create(
+        project=project,
+        name="Open",
+        duration=1,
+        sprint=s,
+        status=TaskStatus.REVIEW,
+    )
+    req = SprintCloseRequest.objects.create(sprint=s, carry_over_to=str(target.pk))
+    close_sprint.run(str(req.id))
+
+    row = SprintTaskOutcome.objects.get(sprint=s, task_title="Open")
+    assert row.disposition == SprintTaskDisposition.CARRIED
+    assert row.next_sprint_id == target.pk
+
+
+@patch("trueppm_api.apps.sync.broadcast.broadcast_board_event")
+def test_outcome_on_hold_is_dropped_not_carried(_broadcast: object, project: Project) -> None:
+    """ON_HOLD is outside the carry-over filter, so it stays in the sprint and is
+    recorded as dropped even under a sprint-target policy (faithful to apply_carry_over)."""
+    s = _make_active_sprint(project)
+    target = Sprint.objects.create(
+        project=project,
+        name="Next",
+        start_date=date(2026, 5, 1),
+        finish_date=date(2026, 5, 14),
+        state=SprintState.PLANNED,
+    )
+    Task.objects.create(
+        project=project,
+        name="Held",
+        duration=1,
+        sprint=s,
+        status=TaskStatus.ON_HOLD,
+    )
+    req = SprintCloseRequest.objects.create(sprint=s, carry_over_to=str(target.pk))
+    close_sprint.run(str(req.id))
+
+    row = SprintTaskOutcome.objects.get(sprint=s, task_title="Held")
+    assert row.disposition == SprintTaskDisposition.DROPPED
+    assert row.next_sprint_id is None
+    # And apply_carry_over left it in the closed sprint.
+    assert Task.objects.get(name="Held").sprint_id == s.pk
+
+
+@patch("trueppm_api.apps.sync.broadcast.broadcast_board_event")
+def test_outcome_captures_was_pending(_broadcast: object, project: Project) -> None:
+    s = _make_active_sprint(project)
+    Task.objects.create(
+        project=project,
+        name="Injected",
+        duration=1,
+        sprint=s,
+        status=TaskStatus.IN_PROGRESS,
+        sprint_pending=True,
+    )
+    req = SprintCloseRequest.objects.create(sprint=s, carry_over_to="none")
+    close_sprint.run(str(req.id))
+    row = SprintTaskOutcome.objects.get(sprint=s, task_title="Injected")
+    assert row.was_pending is True
+    # "none" leaves it in the sprint; recorded as dropped (not carried forward).
+    assert row.disposition == SprintTaskDisposition.DROPPED
+
+
+def test_snapshot_outcomes_is_idempotent(project: Project) -> None:
+    """A re-drain must not duplicate rows (bulk_create ignore_conflicts on the
+    (sprint, task) unique constraint)."""
+    from trueppm_api.apps.projects.services import snapshot_sprint_task_outcomes
+
+    s = _make_active_sprint(project)
+    Task.objects.create(
+        project=project, name="A", duration=1, sprint=s, status=TaskStatus.IN_PROGRESS
+    )
+    Task.objects.create(project=project, name="B", duration=1, sprint=s, status=TaskStatus.COMPLETE)
+    snapshot_sprint_task_outcomes(s, carry_over_to="backlog")
+    snapshot_sprint_task_outcomes(s, carry_over_to="backlog")
+    assert SprintTaskOutcome.objects.filter(sprint=s).count() == 2
 
 
 @patch("trueppm_api.apps.projects.tasks.close_sprint.delay")
