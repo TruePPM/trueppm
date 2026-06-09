@@ -80,6 +80,31 @@ describe('SprintHeader', () => {
     ).toBeDisabled();
   });
 
+  // Rule 122: disabled controls use the explicit neutral recipe, never
+  // disabled:opacity-50 (a faded-red "Close sprint" still reads as a clickable
+  // destructive action) — issue #1026.
+  it('disabled buttons use the explicit disabled recipe, not opacity-50', () => {
+    render(
+      <SprintHeader
+        sprint={makeSprint({ state: 'PLANNED' })}
+        sprintNumber={0}
+        hasPlannedSprint={true}
+        onPlanNext={noop}
+        onCloseSprint={noop}
+        onFilter={noop}
+      />,
+    );
+    const close = screen.getByRole('button', { name: /Close sprint/i });
+    expect(close.className).toContain('disabled:bg-neutral-surface-sunken');
+    expect(close.className).not.toContain('disabled:opacity-50');
+
+    const plan = screen.getByRole('button', {
+      name: /Plan next sprint \(a planned sprint already exists\)/i,
+    });
+    expect(plan.className).toContain('disabled:bg-neutral-surface-sunken');
+    expect(plan.className).not.toContain('disabled:opacity-50');
+  });
+
   it('fires onCloseSprint when the active Close button is clicked', async () => {
     const onClose = vi.fn();
     render(

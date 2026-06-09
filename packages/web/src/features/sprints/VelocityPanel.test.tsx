@@ -71,4 +71,35 @@ describe('VelocityPanel', () => {
     const link = screen.getByRole('link', { name: 'ADR-0036' });
     expect(link).toHaveAttribute('href', expect.stringContaining('0036-hybrid-pm-philosophy'));
   });
+
+  // Bar colour is the only sighted health signal; the <title> must carry the
+  // same classification as a non-color cue for screen-reader users (#1028).
+  it('encodes the health band as a non-color signal in each bar title', () => {
+    const { container } = render(
+      <VelocityPanel
+        velocity={makeVelocity({
+          sprints: [
+            makeSprint({ id: 'a', name: 'S1', committed_points: 20, completed_points: 20 }), // 1.0 → on track
+            makeSprint({ id: 'b', name: 'S2', committed_points: 20, completed_points: 14 }), // 0.7 → at risk
+            makeSprint({ id: 'c', name: 'S3', committed_points: 20, completed_points: 8 }), //  0.4 → below target
+          ],
+        })}
+      />,
+    );
+    const titles = Array.from(container.querySelectorAll('title')).map((t) => t.textContent);
+    expect(titles[0]).toContain('(on track)');
+    expect(titles[1]).toContain('(at risk)');
+    expect(titles[2]).toContain('(below target)');
+  });
+
+  it('describes the chart bands via aria-describedby (WCAG 1.4.1)', () => {
+    const { container } = render(
+      <VelocityPanel velocity={makeVelocity({ sprints: [makeSprint({})] })} />,
+    );
+    const chart = container.querySelector('svg[role="img"]');
+    expect(chart).toHaveAttribute('aria-describedby', 'velocity-band-legend');
+    const legend = container.querySelector('#velocity-band-legend');
+    expect(legend).toBeInTheDocument();
+    expect(legend?.textContent).toMatch(/on track/i);
+  });
 });

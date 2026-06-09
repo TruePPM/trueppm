@@ -221,7 +221,7 @@ export function BoardViewDropdown({
           )}
 
           {/* Built-in views */}
-          <p className="px-3 py-0.5 text-[11px] font-semibold tracking-widest uppercase text-neutral-text-disabled">
+          <p className="px-3 py-0.5 text-[11px] font-semibold tracking-widest uppercase text-neutral-text-secondary">
             Quick filters
           </p>
           {BUILTIN_VIEWS.map((bv) => (
@@ -246,7 +246,7 @@ export function BoardViewDropdown({
           {views.length > 0 && (
             <>
               <hr className="border-neutral-border my-1" />
-              <p className="px-3 py-0.5 text-[11px] font-semibold tracking-widest uppercase text-neutral-text-disabled">
+              <p className="px-3 py-0.5 text-[11px] font-semibold tracking-widest uppercase text-neutral-text-secondary">
                 Saved views
               </p>
               {views.map((sv) => (
@@ -276,7 +276,7 @@ export function BoardViewDropdown({
                       onClick={(e) => handleDelete(e, sv)}
                       aria-label={`Delete view "${sv.name}"`}
                       className="px-2 py-1.5 text-neutral-text-disabled opacity-0 group-hover:opacity-100
-                        hover:text-semantic-critical focus-visible:opacity-100
+                        hover:text-semantic-critical focus:opacity-100 focus-visible:opacity-100
                         focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none
                         transition-opacity"
                     >

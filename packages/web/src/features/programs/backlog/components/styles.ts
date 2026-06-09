@@ -23,25 +23,25 @@ export const INPUT_BASE =
 /** Primary (brand-fill) button. */
 export const BTN_PRIMARY =
   'inline-flex h-9 items-center justify-center gap-1.5 rounded bg-brand-primary px-3 text-xs font-medium ' +
-  'text-white hover:bg-brand-primary-dark disabled:cursor-not-allowed disabled:opacity-50 ' +
+  'text-white hover:bg-brand-primary-dark disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed ' +
   FOCUS_RING;
 
 /** Secondary (outline) button. */
 export const BTN_SECONDARY =
   'inline-flex h-9 items-center justify-center gap-1.5 rounded border border-neutral-border ' +
   'bg-neutral-surface px-3 text-xs font-medium text-neutral-text-primary hover:bg-neutral-surface-raised ' +
-  'disabled:cursor-not-allowed disabled:opacity-50 ' +
+  'disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed ' +
   FOCUS_RING;
 
 /** Ghost (text) button — footer Archive / Restore / Send-back actions. */
 export const BTN_GHOST =
   'inline-flex h-8 items-center justify-center gap-1.5 rounded px-2.5 text-xs font-medium ' +
   'text-neutral-text-secondary hover:bg-neutral-surface-sunken hover:text-neutral-text-primary ' +
-  'disabled:cursor-not-allowed disabled:opacity-50 ' +
+  'disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed ' +
   FOCUS_RING;
 
 /** Destructive ghost — Delete permanently. */
 export const BTN_DANGER =
   'inline-flex h-8 items-center justify-center gap-1.5 rounded px-2.5 text-xs font-medium ' +
-  'text-semantic-critical hover:bg-semantic-critical-bg disabled:cursor-not-allowed disabled:opacity-50 ' +
+  'text-semantic-critical hover:bg-semantic-critical-bg disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:cursor-not-allowed ' +
   FOCUS_RING;

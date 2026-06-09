@@ -177,6 +177,19 @@ describe('PreviewOverlay', () => {
       // Phase is idle → overlay not rendered → CP gone
       expect(screen.queryByText('CP')).toBeNull();
     });
+
+    // Font floor (rule 50): text-[10px] is not permitted in features/schedule;
+    // the CP badge must render at the text-xs (12px) legible floor (issue #1023).
+    it('renders the CP badge at the text-xs floor, not text-[10px]', () => {
+      vi.useFakeTimers();
+      useDragStore.getState().startDrag('t1');
+      useDragStore.getState().updatePreview([CRITICAL_RESULT], null, 0);
+      render(<PreviewOverlay scales={SCALES} scrollLeft={0} taskIds={TASK_IDS} />);
+      void act(() => vi.advanceTimersByTime(400));
+      const badge = screen.getByText('CP');
+      expect(badge.className).toContain('text-xs');
+      expect(badge.className).not.toContain('text-[10px]');
+    });
   });
 
   describe('overflow label (rule 32)', () => {

@@ -76,17 +76,21 @@ export function VelocityPanel({ velocity }: Props) {
           className="w-full h-auto"
           role="img"
           aria-label="Velocity bar chart"
+          aria-describedby="velocity-band-legend"
         >
           {sprints.map((s, i) => {
             const completed = s.completed_points ?? 0;
             const committed = s.committed_points ?? 0;
             const ratio = committed > 0 ? completed / committed : 0;
-            const cls =
+            // Health band: same thresholds drive the bar fill colour and the
+            // non-color <title> signal so screen-reader users get the same
+            // classification as sighted users (WCAG 1.4.1).
+            const { cls, band } =
               ratio >= 0.85
-                ? 'fill-semantic-on-track'
+                ? { cls: 'fill-semantic-on-track', band: 'on track' }
                 : ratio >= 0.6
-                  ? 'fill-semantic-at-risk'
-                  : 'fill-semantic-critical';
+                  ? { cls: 'fill-semantic-at-risk', band: 'at risk' }
+                  : { cls: 'fill-semantic-critical', band: 'below target' };
             const h = (completed / max) * CHART_H;
             const x = BAR_GAP + i * (BAR_W + BAR_GAP);
             return (
@@ -100,7 +104,7 @@ export function VelocityPanel({ velocity }: Props) {
                   rx={2}
                 >
                   <title>
-                    {s.name}: {completed}/{committed} pts
+                    {s.name}: {completed}/{committed} pts ({band})
                   </title>
                 </rect>
                 <text
@@ -117,7 +121,13 @@ export function VelocityPanel({ velocity }: Props) {
         </svg>
       )}
 
-      <p className="text-[11px] text-neutral-text-disabled italic">
+      <p id="velocity-band-legend" className="sr-only">
+        Bar colour indicates sprint health: on track is 85 percent or more of
+        committed points completed, at risk is 60 to 85 percent, below target is
+        under 60 percent.
+      </p>
+
+      <p className="text-xs text-neutral-text-secondary italic">
         Velocity feeds CPM duration estimates ·{' '}
         <a
           href="https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0036-hybrid-pm-philosophy-and-sprint-model.md"
