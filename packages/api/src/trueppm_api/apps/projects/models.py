@@ -2022,6 +2022,15 @@ class Sprint(VersionedModel):
     # planning target set" — the correct sentinel for teams that don't
     # size in points and for sprints created before ADR-0073.
     capacity_points = models.PositiveIntegerField(null=True, blank=True)
+    # Optional WIP-overload threshold for the active sprint (#546). The
+    # SprintPanel header surfaces "WIP: {in-progress count} / limit {wip_limit}"
+    # and flips to an at-risk color once the in-progress count exceeds it. This
+    # is the cheap per-sprint signal, NOT a flow engine — per-column WIP limits
+    # (BoardColumnConfig.wip_limit) and Kanban delivery_mode (#410) are separate.
+    # Null = no limit set (chip suppressed). Editable on PLANNED + ACTIVE,
+    # locked on COMPLETED + CANCELLED, SCHEDULER+ writes only — same field-level
+    # gate as capacity_points (ADR-0073 sovereignty rule).
+    wip_limit = models.PositiveIntegerField(null=True, blank=True)
     # Snapshotted on activation; never recomputed.  Stored values survive
     # HistoricalTask retention pruning (90-day cap).
     committed_points = models.PositiveIntegerField(null=True, blank=True)

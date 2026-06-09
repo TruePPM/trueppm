@@ -67,6 +67,7 @@ describe('fromApiProductBacklog', () => {
         ready_count: 1,
         ready_points: 5,
         capacity_points: 26,
+        wip_limit: null,
         unestimated: 1,
         ac_met: 4,
         ac_total: 6,

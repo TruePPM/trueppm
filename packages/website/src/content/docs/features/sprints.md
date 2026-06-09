@@ -16,6 +16,7 @@ Step 5 ([Sprint planning](/the-story/#5-sprint-planning--the-team-pulls-work)) a
 - **Advancing-to-milestone card** — milestone WBS, target date, days-out chip, deep-link to the Schedule view at the milestone task
 - **Sprint Cadence timeline** — Closed sprints (greyed) → Active (sticky-left, ringed) → Planned cards
 - [Burndown chart](/features/sprint-burndown/), [Capacity preflight](/features/capacity-preflight/), [Velocity panel](/features/velocity/), and [Sprint backlog](/features/sprint-backlog/) populate the rest of the page when an active sprint exists.
+- **WIP limit** *(optional)* — set a per-sprint ceiling on in-flight work (tasks in *In progress* or *Review*) and the Board's [sprint panel](/features/board/) header shows a `WIP {count} / {limit}` chip that turns amber once the count exceeds the limit. Editable by Scheduler+ on planned and active sprints; locked once completed or cancelled. Distinct from per-column board WIP limits.
 
 ## Where to find it in the app
 

@@ -211,3 +211,93 @@ describe('SprintPanel', () => {
     expect(screen.getByText(/Over by 10 \(\+33%\)/i)).toBeInTheDocument();
   });
 });
+
+describe('SprintPanel WIP limit (#546)', () => {
+  it('suppresses the WIP chip when wip_limit is null', () => {
+    renderPanel({ sprint: makeSprint({ state: 'ACTIVE', wip_limit: null }) });
+    expect(screen.queryByTestId('sprint-wip-chip')).toBeNull();
+  });
+
+  it('renders the WIP chip in neutral state when count is within the limit', () => {
+    renderPanel({
+      sprint: makeSprint({ state: 'ACTIVE', wip_limit: 5, wip_count: 3 }),
+    });
+    const chip = screen.getByTestId('sprint-wip-chip');
+    expect(chip).toHaveTextContent('WIP 3/5');
+    expect(chip).toHaveAttribute('aria-label', expect.stringMatching(/within limit/i));
+    expect(chip.className).not.toMatch(/at-risk/);
+  });
+
+  it('flips the WIP chip to at-risk when count exceeds the limit', () => {
+    renderPanel({
+      sprint: makeSprint({ state: 'ACTIVE', wip_limit: 4, wip_count: 6 }),
+    });
+    const chip = screen.getByTestId('sprint-wip-chip');
+    expect(chip).toHaveTextContent('WIP 6/4');
+    expect(chip).toHaveAttribute('aria-label', expect.stringMatching(/over limit/i));
+    expect(chip.className).toMatch(/at-risk/);
+  });
+
+  it('SCHEDULER+ can set a WIP limit and it saves wip_limit', () => {
+    renderPanel({
+      role: ROLE_SCHEDULER,
+      sprint: makeSprint({ state: 'ACTIVE', wip_limit: null, wip_count: 2 }),
+    });
+    fireEvent.click(screen.getByRole('button', { name: /set wip limit/i }));
+    const input = screen.getByLabelText(/wip limit/i);
+    fireEvent.change(input, { target: { value: '5' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(updateSprintMock).toHaveBeenCalledWith({
+      sprintId: 'sp-id',
+      payload: { wip_limit: 5 },
+    });
+  });
+
+  it('clears the WIP limit to null when the input is emptied', () => {
+    renderPanel({
+      role: ROLE_SCHEDULER,
+      sprint: makeSprint({ state: 'ACTIVE', wip_limit: 5, wip_count: 2 }),
+    });
+    fireEvent.click(screen.getByRole('button', { name: /edit wip limit/i }));
+    const input = screen.getByLabelText(/wip limit/i);
+    fireEvent.change(input, { target: { value: '' } });
+    fireEvent.blur(input);
+    expect(updateSprintMock).toHaveBeenCalledWith({
+      sprintId: 'sp-id',
+      payload: { wip_limit: null },
+    });
+  });
+
+  it('does not save a zero WIP limit (PositiveInteger floor)', () => {
+    renderPanel({
+      role: ROLE_SCHEDULER,
+      sprint: makeSprint({ state: 'ACTIVE', wip_limit: null, wip_count: 2 }),
+    });
+    fireEvent.click(screen.getByRole('button', { name: /set wip limit/i }));
+    const input = screen.getByLabelText(/wip limit/i);
+    fireEvent.change(input, { target: { value: '0' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(updateSprintMock).not.toHaveBeenCalled();
+  });
+
+  it('VIEWER sees the WIP limit read-only (no edit affordance)', () => {
+    renderPanel({
+      role: ROLE_VIEWER,
+      sprint: makeSprint({ state: 'ACTIVE', wip_limit: 5, wip_count: 2 }),
+    });
+    fireEvent.click(screen.getByRole('button', { name: /expand sprint panel/i }));
+    expect(screen.queryByRole('button', { name: /edit wip limit/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /set wip limit/i })).toBeNull();
+  });
+
+  it('clicking the WIP chip expands a collapsed panel', () => {
+    renderPanel({
+      role: ROLE_VIEWER,
+      sprint: makeSprint({ state: 'ACTIVE', wip_limit: 5, wip_count: 6 }),
+    });
+    // VIEWER collapses by default.
+    expect(screen.getByTestId('burn-chart')).not.toBeVisible();
+    fireEvent.click(screen.getByTestId('sprint-wip-chip'));
+    expect(screen.getByTestId('burn-chart')).toBeVisible();
+  });
+});

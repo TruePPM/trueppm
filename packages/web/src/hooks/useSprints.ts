@@ -148,6 +148,12 @@ export interface UpdateSprintPayload {
    * sprints; locked on COMPLETED and CANCELLED. Set to null to clear.
    */
   capacity_points?: number | null;
+  /**
+   * WIP-overload threshold (#546). Writable on PLANNED and ACTIVE sprints;
+   * locked on COMPLETED and CANCELLED — same gate as capacity_points. Set to
+   * null to clear (suppresses the WIP chip).
+   */
+  wip_limit?: number | null;
 }
 
 export interface CapacityWarning {

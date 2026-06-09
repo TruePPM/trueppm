@@ -17,6 +17,7 @@ from trueppm_api.apps.projects.models import (
     SprintCloseRequestStatus,
     SprintState,
     Task,
+    TaskStatus,
 )
 
 User = get_user_model()
@@ -331,6 +332,108 @@ def test_capacity_points_history_recorded(client: APIClient, project: Project) -
     history = list(s.history.order_by("history_date").values_list("capacity_points", flat=True))
     assert 30 in history
     assert 35 in history
+
+
+# ---------------------------------------------------------------------------
+# wip_limit (#546) — per-sprint WIP-overload threshold. Same field-level gate
+# as capacity_points: SCHEDULER+ writes, editable PLANNED + ACTIVE, locked on
+# COMPLETED + CANCELLED, history recorded. wip_count is a read-only annotation.
+# ---------------------------------------------------------------------------
+
+
+def test_planned_sprint_accepts_wip_limit(client: APIClient, project: Project) -> None:
+    s = _make_sprint(project)
+    resp = client.patch(f"/api/v1/sprints/{s.pk}/", {"wip_limit": 5}, format="json")
+    assert resp.status_code == 200, resp.content
+    s.refresh_from_db()
+    assert s.wip_limit == 5
+
+
+def test_active_sprint_accepts_wip_limit_patch(client: APIClient, project: Project) -> None:
+    s = _make_sprint(project, state=SprintState.ACTIVE)
+    resp = client.patch(f"/api/v1/sprints/{s.pk}/", {"wip_limit": 4}, format="json")
+    assert resp.status_code == 200, resp.content
+    s.refresh_from_db()
+    assert s.wip_limit == 4
+
+
+def test_completed_sprint_rejects_wip_limit_patch(client: APIClient, project: Project) -> None:
+    s = _make_sprint(project, state=SprintState.COMPLETED, wip_limit=5)
+    resp = client.patch(f"/api/v1/sprints/{s.pk}/", {"wip_limit": 9}, format="json")
+    assert resp.status_code == 400
+
+
+def test_cancelled_sprint_rejects_wip_limit_patch(client: APIClient, project: Project) -> None:
+    s = _make_sprint(project, state=SprintState.CANCELLED, wip_limit=5)
+    resp = client.patch(f"/api/v1/sprints/{s.pk}/", {"wip_limit": 9}, format="json")
+    assert resp.status_code == 400
+
+
+def test_viewer_cannot_patch_wip_limit(viewer_client: APIClient, project: Project) -> None:
+    s = _make_sprint(project)
+    resp = viewer_client.patch(f"/api/v1/sprints/{s.pk}/", {"wip_limit": 5}, format="json")
+    assert resp.status_code == 403
+
+
+def test_member_cannot_patch_wip_limit(member_client: APIClient, project: Project) -> None:
+    """WIP limit is a team planning knob — SCHEDULER+ only (same gate as capacity)."""
+    s = _make_sprint(project)
+    resp = member_client.patch(f"/api/v1/sprints/{s.pk}/", {"wip_limit": 5}, format="json")
+    assert resp.status_code == 400, resp.content
+    s.refresh_from_db()
+    assert s.wip_limit is None
+
+
+def test_scheduler_can_patch_wip_limit(scheduler_client: APIClient, project: Project) -> None:
+    s = _make_sprint(project)
+    resp = scheduler_client.patch(f"/api/v1/sprints/{s.pk}/", {"wip_limit": 5}, format="json")
+    assert resp.status_code == 200, resp.content
+    s.refresh_from_db()
+    assert s.wip_limit == 5
+
+
+def test_wip_limit_null_is_default(client: APIClient, project: Project) -> None:
+    s = _make_sprint(project)
+    resp = client.get(f"/api/v1/sprints/{s.pk}/")
+    assert resp.status_code == 200
+    assert resp.json()["wip_limit"] is None
+
+
+def test_wip_limit_can_be_cleared(client: APIClient, project: Project) -> None:
+    s = _make_sprint(project, wip_limit=5)
+    resp = client.patch(f"/api/v1/sprints/{s.pk}/", {"wip_limit": None}, format="json")
+    assert resp.status_code == 200, resp.content
+    s.refresh_from_db()
+    assert s.wip_limit is None
+
+
+def test_wip_limit_history_recorded(client: APIClient, project: Project) -> None:
+    s = _make_sprint(project)
+    client.patch(f"/api/v1/sprints/{s.pk}/", {"wip_limit": 3}, format="json")
+    client.patch(f"/api/v1/sprints/{s.pk}/", {"wip_limit": 6}, format="json")
+    s.refresh_from_db()
+    history = list(s.history.order_by("history_date").values_list("wip_limit", flat=True))
+    assert 3 in history
+    assert 6 in history
+
+
+def test_wip_count_annotation_counts_in_flight_tasks(client: APIClient, project: Project) -> None:
+    """wip_count = IN_PROGRESS + REVIEW only — not BACKLOG/NOT_STARTED/COMPLETE."""
+    s = _make_sprint(project, state=SprintState.ACTIVE, wip_limit=2)
+    Task.objects.create(
+        project=project, name="prog", duration=1, sprint=s, status=TaskStatus.IN_PROGRESS
+    )
+    Task.objects.create(project=project, name="rev", duration=1, sprint=s, status=TaskStatus.REVIEW)
+    Task.objects.create(
+        project=project, name="todo", duration=1, sprint=s, status=TaskStatus.NOT_STARTED
+    )
+    Task.objects.create(
+        project=project, name="done", duration=1, sprint=s, status=TaskStatus.COMPLETE
+    )
+    # Detail (via list queryset annotation):
+    resp = client.get(f"/api/v1/sprints/{s.pk}/")
+    assert resp.status_code == 200
+    assert resp.json()["wip_count"] == 2
 
 
 def test_destroy_only_when_planned(client: APIClient, project: Project) -> None:

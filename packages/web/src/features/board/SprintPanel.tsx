@@ -65,7 +65,19 @@ export function SprintPanel({ projectId, methodology }: Props) {
     updateSprint.mutate({ sprintId: sprint.id, payload: { capacity_points: value } });
   };
 
+  const handleSaveWip = (value: number | null) => {
+    updateSprint.mutate({ sprintId: sprint.id, payload: { wip_limit: value } });
+  };
+
   const isOpen = open ?? isScheduler;
+
+  // The header WIP chip opens (never toggles closed) the panel so its editor is
+  // reachable in one click — chip → expand → WipCard inline edit (#546).
+  const handleOpenForWip = () => {
+    if (isOpen) return;
+    setOpen(true);
+    writeStoredOpen(storageKey, true);
+  };
 
   return (
     <section
@@ -77,6 +89,7 @@ export function SprintPanel({ projectId, methodology }: Props) {
         sprint={sprint}
         isOpen={isOpen}
         onToggle={handleToggle}
+        onWipChipClick={handleOpenForWip}
       />
       <div
         id={`sprint-panel-body-${sprint.id}`}
@@ -94,6 +107,12 @@ export function SprintPanel({ projectId, methodology }: Props) {
             isSaving={updateSprint.isPending}
             onSave={handleSaveCapacity}
           />
+          <WipCard
+            sprint={sprint}
+            canEdit={isScheduler}
+            isSaving={updateSprint.isPending}
+            onSave={handleSaveWip}
+          />
         </div>
       </div>
     </section>
@@ -104,9 +123,10 @@ interface HeaderProps {
   sprint: ApiSprint;
   isOpen: boolean;
   onToggle: () => void;
+  onWipChipClick: () => void;
 }
 
-function Header({ sprint, isOpen, onToggle }: HeaderProps) {
+function Header({ sprint, isOpen, onToggle, onWipChipClick }: HeaderProps) {
   const daysRemaining = Math.max(0, daysUntil(sprint.finish_date));
   const { day: dayOf, total: totalDays } = sprintDayOf(
     sprint.start_date,
@@ -148,6 +168,16 @@ function Header({ sprint, isOpen, onToggle }: HeaderProps) {
             <>
               <span aria-hidden="true">·</span>
               <span className="tppm-mono">{sprint.committed_points} pts committed</span>
+            </>
+          )}
+          {sprint.wip_limit != null && (
+            <>
+              <span aria-hidden="true">·</span>
+              <WipChip
+                count={sprint.wip_count ?? 0}
+                limit={sprint.wip_limit}
+                onClick={onWipChipClick}
+              />
             </>
           )}
         </p>
@@ -194,6 +224,42 @@ function ChevronIcon({ open }: { open: boolean }) {
     >
       <path d="M3 10l5-5 5 5" />
     </svg>
+  );
+}
+
+interface WipChipProps {
+  count: number;
+  limit: number;
+  onClick: () => void;
+}
+
+/**
+ * Header-band WIP chip (#546): "WIP {count}/{limit}". Neutral while the
+ * in-flight count is within the limit; at-risk color once it exceeds it —
+ * Alex's "surface WIP overload before it's a team-health problem" signal.
+ * Clicking expands the panel so the inline WIP editor is reachable. Rendered
+ * only when ``Sprint.wip_limit`` is set (the caller suppresses it otherwise).
+ */
+function WipChip({ count, limit, onClick }: WipChipProps) {
+  const over = count > limit;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      data-testid="sprint-wip-chip"
+      aria-label={
+        over
+          ? `WIP over limit: ${count} in progress, limit ${limit}`
+          : `WIP within limit: ${count} in progress, limit ${limit}`
+      }
+      className={`tppm-mono inline-flex items-center gap-1 rounded px-1 -mx-1
+        focus-visible:ring-2 focus-visible:ring-brand-primary
+        focus-visible:ring-offset-1 focus-visible:outline-none hover:bg-chrome-row-hover
+        ${over ? 'text-semantic-at-risk font-semibold' : 'text-neutral-text-secondary'}`}
+    >
+      {over && <span aria-hidden="true">⚠</span>}
+      WIP {count}/{limit}
+    </button>
   );
 }
 
@@ -398,6 +464,148 @@ function capacityStatus(planned: number, committed: number): CapacityStatus {
     label: `Over by ${overBy} (+${pct}%)`,
     colorClass: 'text-semantic-critical',
   };
+}
+
+interface WipCardProps {
+  sprint: ApiSprint;
+  canEdit: boolean;
+  isSaving: boolean;
+  onSave: (value: number | null) => void;
+}
+
+/**
+ * Sibling to CapacityCard: edits ``Sprint.wip_limit`` and shows the live
+ * in-flight count (#546). SCHEDULER+ can set/clear the limit (cleared = empty
+ * input → null, which suppresses the header chip). Read-only for VIEWER/MEMBER.
+ */
+function WipCard({ sprint, canEdit, isSaving, onSave }: WipCardProps) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<string>('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [editing]);
+
+  // Normalize undefined (untyped fixtures) to null so every guard below reads
+  // cleanly as "limit set" vs "not set".
+  const limit = sprint.wip_limit ?? null;
+  const count = sprint.wip_count ?? 0;
+  const over = limit !== null && count > limit;
+
+  const startEdit = () => {
+    if (!canEdit) return;
+    setDraft(limit !== null ? String(limit) : '');
+    setEditing(true);
+  };
+
+  const commit = () => {
+    const trimmed = draft.trim();
+    if (trimmed === '') {
+      onSave(null);
+    } else {
+      const n = Number(trimmed);
+      // A WIP limit of 0 is meaningless (no work could ever be in flight) — treat
+      // only positive integers as a valid limit, mirroring the model's
+      // PositiveIntegerField.
+      if (Number.isFinite(n) && n >= 1 && Number.isInteger(n)) {
+        onSave(n);
+      }
+    }
+    setEditing(false);
+  };
+
+  const cancel = () => {
+    setEditing(false);
+    setDraft('');
+  };
+
+  return (
+    <div className="rounded-md border border-neutral-border bg-neutral-surface p-3">
+      <h3 className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-2">
+        Work in progress
+      </h3>
+      <div className="flex items-center justify-between gap-2 mb-1.5">
+        <span className="text-xs font-medium text-neutral-text-secondary">Limit</span>
+        {editing ? (
+          <input
+            ref={inputRef}
+            type="number"
+            min={1}
+            max={999}
+            step={1}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                commit();
+              } else if (e.key === 'Escape') {
+                e.preventDefault();
+                cancel();
+              }
+            }}
+            placeholder="e.g. 5"
+            disabled={isSaving}
+            aria-label="WIP limit (in-progress task ceiling)"
+            className="tppm-mono w-16 text-right text-sm font-semibold
+              border border-neutral-border rounded px-1 py-0.5
+              focus-visible:ring-2 focus-visible:ring-brand-primary
+              focus-visible:ring-offset-1 focus-visible:outline-none"
+          />
+        ) : canEdit ? (
+          <button
+            type="button"
+            onClick={startEdit}
+            aria-label={
+              limit === null
+                ? 'Set WIP limit'
+                : `Edit WIP limit, currently ${limit}`
+            }
+            className={`flex items-center gap-1 text-sm font-semibold rounded px-1 -mx-1
+              cursor-pointer hover:bg-chrome-row-hover
+              focus-visible:ring-2 focus-visible:ring-brand-primary
+              focus-visible:ring-offset-1 focus-visible:outline-none
+              ${limit !== null
+                ? 'text-neutral-text-primary tppm-mono'
+                : 'text-neutral-text-secondary'}`}
+          >
+            {limit !== null ? limit : 'Not set'}
+            <PencilIcon aria-hidden="true" />
+          </button>
+        ) : (
+          <span
+            className={`text-sm font-semibold ${
+              limit !== null
+                ? 'text-neutral-text-primary tppm-mono'
+                : 'text-neutral-text-secondary'
+            }`}
+          >
+            {limit !== null ? limit : 'Not set'}
+          </span>
+        )}
+      </div>
+      <p className="flex items-center justify-between text-xs">
+        <span className="font-medium text-neutral-text-secondary">In progress</span>
+        <span className="tppm-mono text-sm font-semibold text-neutral-text-primary">
+          {count}
+        </span>
+      </p>
+      {over && (
+        <p
+          className="mt-2 text-xs flex items-center gap-1 text-semantic-at-risk"
+          aria-live="polite"
+        >
+          <span aria-hidden="true">⚠</span>
+          <span>Over WIP by {count - (limit ?? 0)}</span>
+        </p>
+      )}
+    </div>
+  );
 }
 
 function readStoredOpen(key: string): boolean | null {

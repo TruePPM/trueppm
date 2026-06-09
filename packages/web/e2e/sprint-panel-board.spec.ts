@@ -43,6 +43,8 @@ const ACTIVE_SPRINT = {
   target_milestone: null,
   target_milestone_detail: null,
   capacity_points: 40,
+  wip_limit: 5,
+  wip_count: 3,
   committed_points: 42,
   committed_task_count: 9,
   completed_points: 18,
@@ -200,6 +202,32 @@ test.describe('Board sprint panel (#482 / ADR-0073)', () => {
     await expect(
       panelAfter.getByRole('button', { name: /expand sprint panel/i }),
     ).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  test('surfaces the WIP chip and flips it to at-risk when over the limit (#546)', async ({
+    page,
+  }) => {
+    await setupSprintRoutes(page);
+    // Re-register the sprints route last (last-wins) with an over-limit sprint.
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/sprints/**`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          count: 1,
+          next: null,
+          previous: null,
+          results: [{ ...ACTIVE_SPRINT, wip_limit: 4, wip_count: 6 }],
+        }),
+      }),
+    );
+    await page.goto(BASE_URL);
+    const panel = page.getByRole('region', { name: /active sprint summary/i });
+    await expect(panel).toBeVisible({ timeout: 10_000 });
+    const chip = panel.getByTestId('sprint-wip-chip');
+    await expect(chip).toBeVisible();
+    await expect(chip).toHaveText(/WIP\s*6\/4/);
+    await expect(chip).toHaveAttribute('aria-label', /over limit/i);
   });
 
   test('hidden entirely for WATERFALL projects', async ({ page }) => {
