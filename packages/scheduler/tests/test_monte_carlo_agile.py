@@ -238,3 +238,78 @@ def test_round_trip_waterfall_task_has_no_delivery_mode() -> None:
     restored = Task.from_dict(t.to_dict())
     assert restored.delivery_mode is None
     assert restored.story_points is None
+
+
+# ---------------------------------------------------------------------------
+# Working-day index sizing for velocity-sampled durations (#1067)
+# ---------------------------------------------------------------------------
+
+
+def test_velocity_completion_dates_are_not_clamped_by_index_sizing() -> None:
+    """A scrum task's sampled duration can dwarf its placeholder duration.
+
+    With a single velocity sample the distribution is degenerate: every run
+    takes exactly ceil(50/5) = 10 sprints x 10 working days = 100 working days.
+    Pre-fix, the index was sized from the 1-day placeholder duration only
+    (index_size = 32), and the completion offsets were silently clamped to its
+    last entry — reporting 2026-04-14, three months early (#1067).
+    """
+    proj = _project(
+        [_scrum_task("S", story_points=50, duration_days=1)],
+        velocity_samples=[5.0],
+        sprint_length_days=10,
+    )
+    r = monte_carlo(proj, runs=200, seed=0)
+    # 100th working day from Mon 2026-03-02.
+    expected = date(2026, 3, 2)
+    n = 1
+    while n < 100:
+        expected += timedelta(days=1)
+        if expected.weekday() < 5:
+            n += 1
+    assert r.p50 == r.p80 == r.p95 == expected
+
+
+def test_oversized_story_points_rejected_eagerly() -> None:
+    """Hostile story_points must hit the span guard, not allocate runs x max_sprints.
+
+    The sampler draws a (runs, max_sprints) matrix; pre-fix the span guard never
+    counted the velocity worst case, so this input reached the allocation (#1067).
+    """
+    from trueppm_scheduler import InvalidScheduleInput
+
+    proj = _project(
+        [_scrum_task("S", story_points=1e12, duration_days=1)],
+        velocity_samples=[1.0],
+        sprint_length_days=10,
+    )
+    with pytest.raises(InvalidScheduleInput, match="Total project span"):
+        monte_carlo(proj, runs=1000, seed=0)
+
+
+@pytest.mark.parametrize("bad_points", [float("inf"), float("nan")])
+def test_non_finite_story_points_rejected(bad_points: float) -> None:
+    """inf/NaN story_points crashed inside the sampler (int(np.ceil(...))) pre-fix (#1070)."""
+    from trueppm_scheduler import InvalidScheduleInput
+
+    proj = _project(
+        [_scrum_task("S", story_points=bad_points)],
+        velocity_samples=[10.0],
+        sprint_length_days=10,
+    )
+    with pytest.raises(InvalidScheduleInput, match="story_points"):
+        monte_carlo(proj, runs=10, seed=0)
+
+
+@pytest.mark.parametrize("bad_sample", [float("inf"), float("nan")])
+def test_non_finite_velocity_sample_rejected(bad_sample: float) -> None:
+    """An inf sample passes the > 0 filter and poisons the bootstrap mean (#1070)."""
+    from trueppm_scheduler import InvalidScheduleInput
+
+    proj = _project(
+        [_scrum_task("S", story_points=20)],
+        velocity_samples=[10.0, bad_sample],
+        sprint_length_days=10,
+    )
+    with pytest.raises(InvalidScheduleInput, match="velocity_samples"):
+        monte_carlo(proj, runs=10, seed=0)
