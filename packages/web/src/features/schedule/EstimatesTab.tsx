@@ -161,8 +161,8 @@ export function EstimatesTab({
               type="button"
               onClick={() => acceptSuggestion.mutate(pendingSuggestion.id)}
               disabled={acceptSuggestion.isPending || dismissSuggestion.isPending}
-              className="h-8 px-3 rounded text-xs font-semibold border border-brand-primary
-                text-white bg-brand-primary hover:bg-brand-primary-dark
+              className="h-8 px-3 rounded text-xs font-semibold border border-sage-600
+                text-navy-900 bg-sage-500 dark:bg-sage-400 dark:text-navy-900 hover:bg-sage-600
                 disabled:opacity-50 disabled:cursor-not-allowed
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >

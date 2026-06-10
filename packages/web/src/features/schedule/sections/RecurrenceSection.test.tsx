@@ -139,6 +139,19 @@ describe('RecurrenceSection form', () => {
     expect(screen.getByText('Next 4 occurrences')).toBeInTheDocument();
   });
 
+  it('selected frequency pill uses navy-on-sage fill, not white-on-sage (#1025, WCAG 1.4.3)', () => {
+    render();
+    fireEvent.click(screen.getByRole('button', { name: 'Add recurrence' }));
+    const freqGroup = screen.getByRole('group', { name: 'Repeat frequency' });
+    const selected = freqGroup.querySelector('button[aria-pressed="true"]');
+    expect(selected).not.toBeNull();
+    // The active toggle fill flips to sage-400 in dark mode; navy ink keeps it
+    // ≈ 6.8:1 (the old white-on-sage-400 was ≈ 1.8:1).
+    expect(selected!.className).toContain('text-navy-900');
+    expect(selected!.className).toContain('dark:bg-sage-400');
+    expect(selected!.className).not.toContain('text-white');
+  });
+
   it('blocks save and surfaces a message when a weekly rule has no weekday', () => {
     render();
     fireEvent.click(screen.getByRole('button', { name: 'Add recurrence' }));

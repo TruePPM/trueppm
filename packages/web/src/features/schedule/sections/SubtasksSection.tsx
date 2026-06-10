@@ -1,4 +1,5 @@
 import { useState, useRef, type FormEvent, type KeyboardEvent } from 'react';
+import { Button } from '@/components/Button';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useCreateTask } from '@/hooks/useTaskMutations';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
@@ -186,18 +187,14 @@ export function SubtasksSection({ taskId, projectId }: DrawerSectionProps) {
               'disabled:opacity-50 disabled:cursor-not-allowed',
             ].join(' ')}
           />
-          <button
+          <Button
             type="submit"
+            variant="primary"
+            size="md"
             disabled={!draftName.trim() || isPending}
-            className={[
-              'h-8 px-3 rounded text-xs font-medium text-white bg-brand-primary',
-              'hover:bg-brand-primary/90',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-brand-primary',
-              'disabled:opacity-50 disabled:cursor-not-allowed',
-            ].join(' ')}
           >
             Add
-          </button>
+          </Button>
           <button
             type="button"
             onClick={cancelAdding}

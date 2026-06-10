@@ -66,7 +66,7 @@ export function TaskDrawerHeader({ task }: TaskDrawerHeaderProps) {
         {task.assignees.length > 0 ? (
           <>
             <span
-              className="w-8 h-8 rounded-full bg-brand-primary text-white text-xs font-semibold
+              className="w-8 h-8 rounded-full bg-sage-500 text-navy-900 dark:bg-sage-400 dark:text-navy-900 text-xs font-semibold
                 flex items-center justify-center shrink-0 select-none"
               aria-hidden="true"
             >

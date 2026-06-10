@@ -155,8 +155,8 @@ export function DateInputPopover({ task, onConfirm, onClose }: Props) {
             <button
               type="submit"
               disabled={!startValue || !derivedFinish}
-              className="px-3 py-1 text-xs font-medium rounded bg-brand-primary text-white
-                hover:bg-brand-primary-dark disabled:opacity-40 disabled:cursor-not-allowed
+              className="px-3 py-1 text-xs font-medium rounded bg-sage-500 text-navy-900 dark:bg-sage-400 dark:text-navy-900
+                hover:bg-sage-600 disabled:opacity-40 disabled:cursor-not-allowed
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
               Confirm

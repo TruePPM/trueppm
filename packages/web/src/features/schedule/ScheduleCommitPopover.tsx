@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
+import { Button } from '@/components/Button';
 
 /**
  * Pull-to-commit popover anchored above a task bar on the Schedule canvas (ADR-0067).
@@ -253,15 +254,14 @@ export function ScheduleCommitPopover({
         >
           Cancel
         </button>
-        <button
+        <Button
           ref={confirmRef}
-          type="button"
+          variant="primary"
           onClick={onConfirm}
           disabled={isPending}
-          className="bg-brand-primary text-white px-3 h-8 rounded text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         >
           {isPending ? 'Saving…' : error !== null ? 'Retry' : verb}
-        </button>
+        </Button>
       </div>
 
       {/* Triangle pointer to the new bar */}
