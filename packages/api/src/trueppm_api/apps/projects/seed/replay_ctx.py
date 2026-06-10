@@ -1,4 +1,4 @@
-"""Seed event-replay context flag (ADR-0113).
+"""Seed event-replay context flag (ADR-0114).
 
 Replaying a v2 seed timeline writes hundreds of backdated rows. Those writes
 must not trigger the live side effects a real edit would — a demo load must not

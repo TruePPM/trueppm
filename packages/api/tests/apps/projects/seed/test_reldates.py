@@ -1,4 +1,4 @@
-"""Unit tests for the seed v2 relative-date resolver (ADR-0113).
+"""Unit tests for the seed v2 relative-date resolver (ADR-0114).
 
 Pure functions — no database. Covers anchor resolution, offset arithmetic,
 weekend-snapping via the calendar bitmask, the ``!`` snap opt-out, ISO

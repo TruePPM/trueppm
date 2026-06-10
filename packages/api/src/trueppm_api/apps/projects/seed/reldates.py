@@ -1,4 +1,4 @@
-"""Resolve seed v2 relative dates and timestamps (ADR-0113).
+"""Resolve seed v2 relative dates and timestamps (ADR-0114).
 
 A v2 seed authors dates as offsets from an ``anchor`` resolved at import day, so
 a bundled demo always looks current instead of aging into a museum piece:

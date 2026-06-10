@@ -19,7 +19,7 @@ import json
 import sys
 from pathlib import Path
 
-# Anchor-relative dates (ADR-0113, seed v2). Every date is emitted as an offset
+# Anchor-relative dates (ADR-0114, seed v2). Every date is emitted as an offset
 # from the import-day anchor "A", so the demo always reads as a program in flight
 # rather than a fixed-date museum piece — the importer resolves "A" to today.
 # ANCHOR_OFFSET places "today" partway through the program: day-0 kickoff work is

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://trueppm.com/schemas/seed/v2.json",
   "title": "TruePPM seed data v2",
-  "description": "Canonical JSON seed format, v2 (ADR-0113). Additive superset of v1: dates may be authored as offsets from a top-level `anchor` resolved at import day, and an ordered `events` timeline is replayed chronologically with backdated history so the demo tells a life, not a snapshot. v1 documents remain valid under the v1 validator; v2 adds `anchor`, the relative-date grammar, and `events`.",
+  "description": "Canonical JSON seed format, v2 (ADR-0114). Additive superset of v1: dates may be authored as offsets from a top-level `anchor` resolved at import day, and an ordered `events` timeline is replayed chronologically with backdated history so the demo tells a life, not a snapshot. v1 documents remain valid under the v1 validator; v2 adds `anchor`, the relative-date grammar, and `events`.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "program", "projects"],
@@ -44,7 +44,7 @@
     },
     "events": {
       "type": "array",
-      "description": "Ordered timeline (ADR-0113). Each event mutates a target through a real write path and writes a history row dated to `at`. Events are applied in `at` order (ties broken by array index). The synthesizer fills unauthored status moves; authored events always win.",
+      "description": "Ordered timeline (ADR-0114). Each event mutates a target through a real write path and writes a history row dated to `at`. Events are applied in `at` order (ties broken by array index). The synthesizer fills unauthored status moves; authored events always win.",
       "maxItems": 100000,
       "items": { "$ref": "#/$defs/event" }
     }
@@ -328,7 +328,7 @@
             "baseline.capture",
             "risk.status"
           ],
-          "description": "v2.0 replayed actions. retro.* (needs SprintRetro) and time.log (needs the #926 time-entry model) are deferred — see ADR-0113."
+          "description": "v2.0 replayed actions. retro.* (needs SprintRetro) and time.log (needs the #926 time-entry model) are deferred — see ADR-0114."
         },
         "target": {
           "type": "string",

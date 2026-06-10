@@ -123,7 +123,7 @@ class _SeedImporter:
         # global task / sprint indices keyed by (project_slug, local_id)
         self.tasks: dict[tuple[str, str], Task] = {}
         self.sprints: dict[tuple[str, str], Sprint] = {}
-        # v2 (ADR-0113): relative dates resolve against an anchor (import day),
+        # v2 (ADR-0114): relative dates resolve against an anchor (import day),
         # and an events timeline is replayed with backdated history. v1 docs set
         # the major to "1", so replay is off and dates are plain ISO literals.
         self.replay = str(payload.get("schema_version", "")).split(".")[0] == "2"

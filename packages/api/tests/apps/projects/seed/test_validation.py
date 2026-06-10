@@ -185,7 +185,7 @@ def test_unsupported_major_version() -> None:
     _expect_error(seed, "unsupported version")
 
 
-# --- v2: relative dates + events (ADR-0113) --------------------------------
+# --- v2: relative dates + events (ADR-0114) --------------------------------
 
 
 def _valid_v2_seed() -> dict[str, Any]:

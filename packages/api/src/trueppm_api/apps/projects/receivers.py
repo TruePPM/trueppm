@@ -37,7 +37,7 @@ def _on_task_status_changed(
     from trueppm_api.apps.projects.seed.replay_ctx import is_seed_replay_active
     from trueppm_api.apps.projects.services import upsert_burndown_for_sprint
 
-    # During seed event-replay (ADR-0113) the timeline drives backdated burndown
+    # During seed event-replay (ADR-0114) the timeline drives backdated burndown
     # per simulated day; the live receiver would instead stamp *today's* row and
     # collapse the curve to a single point, so skip it.
     if is_seed_replay_active():
@@ -167,7 +167,7 @@ def _register_milestone_rollup_receiver() -> None:
             return
         from trueppm_api.apps.projects.seed.replay_ctx import is_seed_replay_active
 
-        # During seed event-replay (ADR-0113) the rollup is computed-on-read and
+        # During seed event-replay (ADR-0114) the rollup is computed-on-read and
         # the post-import CPM pass refreshes it; firing here per backdated beat
         # would queue redundant milestone_rollup_updated broadcasts on commit.
         if is_seed_replay_active():

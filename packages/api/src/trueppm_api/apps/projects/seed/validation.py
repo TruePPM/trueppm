@@ -23,8 +23,8 @@ from jsonschema import Draft202012Validator, FormatChecker
 
 # Schema majors this validator understands. The major component is the
 # compatibility boundary: a payload whose major is unknown is rejected outright.
-# v2 (ADR-0113) is an additive superset of v1 — relative dates + an events
-# timeline — so both load through their own bundled schema. See ADR-0109/0113.
+# v2 (ADR-0114) is an additive superset of v1 — relative dates + an events
+# timeline — so both load through their own bundled schema. See ADR-0109/0114.
 SUPPORTED_MAJORS = ("1", "2")
 
 # Aggregate ceiling on materializable entities (tasks + dependencies + sprints +
@@ -138,7 +138,7 @@ _EVENT_TARGET_KIND = {
 
 
 def _event_errors(payload: dict[str, Any]) -> list[str]:
-    """Validate v2 event actor + target references against the document (ADR-0113).
+    """Validate v2 event actor + target references against the document (ADR-0114).
 
     Structural shape is already enforced by the v2 JSON Schema; this pass checks
     that every ``actor`` names an account and every ``target`` resolves to a

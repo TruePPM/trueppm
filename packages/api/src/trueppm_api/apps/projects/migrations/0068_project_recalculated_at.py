@@ -2,7 +2,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    """Add Project.recalculated_at (ADR-0113 / #1053).
+    """Add Project.recalculated_at (ADR-0114 / #1053).
 
     Stamped by the CPM recalc task on success so the web Schedule view can show
     a "recalculating" badge until the first post-import pass lands. The field is
@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
     """
 
     dependencies = [
-        ("projects", "0066_historicalproject_lead_project_lead"),
+        ("projects", "0067_sprint_exclude_from_velocity"),
     ]
 
     operations = [

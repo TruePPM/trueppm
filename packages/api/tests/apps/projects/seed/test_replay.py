@@ -1,4 +1,4 @@
-"""Integration tests for the seed v2 event-replay importer (ADR-0113, #1074).
+"""Integration tests for the seed v2 event-replay importer (ADR-0114, #1074).
 
 These exercise the replay engine end-to-end: a v2 seed with an explicit anchor
 (for determinism) is imported and we assert the demo reads as a program that has

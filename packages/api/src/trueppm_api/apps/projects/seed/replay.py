@@ -1,4 +1,4 @@
-"""Replay a v2 seed event timeline with backdated history (ADR-0113).
+"""Replay a v2 seed event timeline with backdated history (ADR-0114).
 
 The v1 importer materializes final state: one ORM write per row, every
 ``django-simple-history`` row dated ``now()`` by the importer. A v2 seed instead
@@ -565,7 +565,7 @@ def _save(instance: Any, when: datetime, user: Any, fields: list[str]) -> None:
     """Save ``instance`` writing a history row dated ``when`` by ``user``.
 
     django-simple-history honors ``_history_date``/``_history_user`` set on the
-    instance before save (ADR-0113 — the first backdated-history writer in the
+    instance before save (ADR-0114 — the first backdated-history writer in the
     codebase). update_fields keeps the write narrow.
     """
     instance._history_date = when
