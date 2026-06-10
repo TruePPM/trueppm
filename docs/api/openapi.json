@@ -14713,6 +14713,47 @@
                 }
             }
         },
+        "/api/v1/sprints/{id}/outcome/": {
+            "get": {
+                "operationId": "v1_sprints_outcome_retrieve",
+                "description": "Consolidated sprint-review read (#985, ADR-0111 §3).\n\nOne surface composing the goal verdict (#983), velocity delta + burn\nstatus (#984, ADR-0104 gated), the closing \"didn't ship\" membership\n(#982), commitment aggregates, and a retro summary — so the review UI and\nthe MCP adapter bind to a single endpoint instead of stitching calls or\nderiving the numbers client-side. Viewer+; privacy enforced in the service.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SprintOutcome"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/sprints/{id}/promote-to-milestone/": {
             "post": {
                 "operationId": "v1_sprints_promote_to_milestone_create",
@@ -19529,6 +19570,64 @@
                 "required": [
                     "predecessor",
                     "successor"
+                ]
+            },
+            "DidntShipItem": {
+                "type": "object",
+                "description": "One task that was in the sprint at close but didn't complete (#985).\n\n``story_points`` is nulled for readers below the velocity audience (ADR-0104\nside-channel guard). ``disposition`` is null for a provisional (not-yet-closed)\nsprint, where the carry/drop decision hasn't been made.",
+                "properties": {
+                    "task_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "task_short_id": {
+                        "type": "string"
+                    },
+                    "task_title": {
+                        "type": "string"
+                    },
+                    "story_points": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "final_status": {
+                        "type": "string"
+                    },
+                    "disposition": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/SprintTaskDispositionEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "next_sprint_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "next_sprint_name": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "was_pending": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "disposition",
+                    "final_status",
+                    "next_sprint_id",
+                    "next_sprint_name",
+                    "story_points",
+                    "task_id",
+                    "task_short_id",
+                    "task_title",
+                    "was_pending"
                 ]
             },
             "DorStateEnum": {
@@ -25103,6 +25202,89 @@
                 "type": "string",
                 "description": "* `MET` - Met\n* `PARTIAL` - Partially met\n* `MISSED` - Missed"
             },
+            "SprintOutcome": {
+                "type": "object",
+                "description": "Consolidated sprint-review read (#985, ADR-0111 §3) for\n``GET /api/sprints/{id}/outcome/``.\n\nThe single surface the #567 review UI and the MCP adapter bind to —\ncommitment aggregates, goal verdict (#983), velocity delta + burn status\n(#984, ADR-0104 gated, null when suppressed), the closing membership /\n\"didn't ship\" list (#982), and a retro summary. ``provisional`` is true for\nACTIVE/PLANNED (live, not snapshotted); ``outcome_recorded`` is false for\nsprints closed before the membership snapshot shipped.",
+                "properties": {
+                    "sprint_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "state": {
+                        "type": "string"
+                    },
+                    "provisional": {
+                        "type": "boolean"
+                    },
+                    "outcome_recorded": {
+                        "type": "boolean"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "finish_date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "closed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "goal": {
+                        "type": "string"
+                    },
+                    "goal_outcome": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "commitment": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    },
+                    "velocity": {
+                        "type": "object",
+                        "additionalProperties": {},
+                        "nullable": true
+                    },
+                    "didnt_ship": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/DidntShipItem"
+                        }
+                    },
+                    "didnt_ship_summary": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    },
+                    "retro_summary": {
+                        "type": "object",
+                        "additionalProperties": {},
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "closed_at",
+                    "commitment",
+                    "didnt_ship",
+                    "didnt_ship_summary",
+                    "finish_date",
+                    "goal",
+                    "goal_outcome",
+                    "name",
+                    "outcome_recorded",
+                    "provisional",
+                    "retro_summary",
+                    "sprint_id",
+                    "start_date",
+                    "state",
+                    "velocity"
+                ]
+            },
             "SprintRequest": {
                 "type": "object",
                 "description": "Read/write serializer for sprints.\n\nState, committed_*, completed_*, activated_at, closed_at are read-only —\nthey are written by the dedicated activate/close actions, not by PATCH.\n\ncompletion_ratio_* are computed from snapshotted committed/completed\nfields and only become non-null after sprint close.",
@@ -25164,6 +25346,15 @@
                     "name",
                     "start_date"
                 ]
+            },
+            "SprintTaskDispositionEnum": {
+                "enum": [
+                    "completed",
+                    "carried",
+                    "dropped"
+                ],
+                "type": "string",
+                "description": "* `completed` - Completed in sprint\n* `carried` - Carried to another sprint\n* `dropped` - Dropped (not carried forward)"
             },
             "StateEnum": {
                 "enum": [

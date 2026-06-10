@@ -855,6 +855,184 @@ def compute_sprint_burn_status(sprint: Any, snapshots: list[Any]) -> dict[str, A
     }
 
 
+def sprint_outcome_payload(sprint: Any, request: Any) -> dict[str, Any]:
+    """Assemble the consolidated sprint-review read (#985, ADR-0111 §3).
+
+    Composes the closing membership ("what didn't ship", #982), the goal verdict
+    (#983), the velocity delta + burn status (#984), the commitment aggregates,
+    and a retro summary into one read so the #567 UI and the MCP adapter bind to
+    a single endpoint instead of stitching five calls or deriving review numbers
+    client-side (the API-first contract).
+
+    Privacy (ADR-0104) is enforced here, once: when the requester's tier is below
+    the velocity audience, the whole ``velocity`` block is omitted AND the
+    per-task ``story_points`` in ``didnt_ship`` are nulled (so the suppressed
+    point total can't be reconstructed by summing line items) — titles, counts,
+    and dispositions stay. The commitment completion ratios stay (the
+    "milestone-health %" carve-out). Retro free text rides the RetroVisibility
+    gate.
+
+    Works for any state: CLOSED returns the snapshotted membership; ACTIVE/PLANNED
+    return a ``provisional`` live derivation (current incomplete tasks, disposition
+    not yet decided). ``outcome_recorded`` is False for sprints closed before #982
+    shipped (no SprintTaskOutcome rows) so the client can say so honestly.
+    """
+    from trueppm_api.apps.access.models import ProjectMembership, Role
+    from trueppm_api.apps.projects.models import (
+        SprintRetro,
+        SprintState,
+        SprintTaskDisposition,
+        SprintTaskOutcome,
+        Task,
+        TaskStatus,
+    )
+    from trueppm_api.apps.projects.signal_privacy_services import can_read_signal
+
+    is_closed = sprint.state == SprintState.COMPLETED
+    provisional = not is_closed
+    velocity_readable = can_read_signal(request, sprint.project_id, "velocity")
+
+    # --- didn't-ship list ---------------------------------------------------
+    outcome_recorded = False
+    didnt_ship: list[dict[str, Any]] = []
+    if is_closed:
+        rows = list(SprintTaskOutcome.objects.filter(sprint=sprint).select_related("next_sprint"))
+        outcome_recorded = len(rows) > 0
+        for r in rows:
+            if r.disposition == SprintTaskDisposition.COMPLETED:
+                continue
+            didnt_ship.append(
+                {
+                    "task_id": str(r.task_id) if r.task_id else None,
+                    "task_short_id": r.task_short_id,
+                    "task_title": r.task_title,
+                    "story_points": r.story_points if velocity_readable else None,
+                    "final_status": r.final_status,
+                    "disposition": r.disposition,
+                    "next_sprint_id": str(r.next_sprint_id) if r.next_sprint_id else None,
+                    "next_sprint_name": r.next_sprint.name if r.next_sprint else None,
+                    "was_pending": r.was_pending,
+                }
+            )
+    else:
+        # Provisional: current incomplete tasks; disposition is decided at close.
+        for t in Task.objects.filter(sprint_id=sprint.pk, is_deleted=False).exclude(
+            status=TaskStatus.COMPLETE
+        ):
+            didnt_ship.append(
+                {
+                    "task_id": str(t.pk),
+                    "task_short_id": f"T-{t.short_id}" if t.short_id else "",
+                    "task_title": t.name,
+                    "story_points": t.story_points if velocity_readable else None,
+                    "final_status": t.status,
+                    "disposition": None,  # not decided until close
+                    "next_sprint_id": None,
+                    "next_sprint_name": None,
+                    "was_pending": t.sprint_pending,
+                }
+            )
+
+    summary = {
+        "carried_count": sum(
+            1 for d in didnt_ship if d["disposition"] == SprintTaskDisposition.CARRIED
+        ),
+        "carried_points": sum(
+            d["story_points"] or 0
+            for d in didnt_ship
+            if d["disposition"] == SprintTaskDisposition.CARRIED
+        )
+        if velocity_readable
+        else None,
+        "dropped_count": sum(
+            1 for d in didnt_ship if d["disposition"] == SprintTaskDisposition.DROPPED
+        ),
+        "dropped_points": sum(
+            d["story_points"] or 0
+            for d in didnt_ship
+            if d["disposition"] == SprintTaskDisposition.DROPPED
+        )
+        if velocity_readable
+        else None,
+    }
+
+    # --- commitment (always; completion ratios are the carve-out) -----------
+    committed_p = sprint.committed_points
+    completed_p = sprint.completed_points
+    committed_t = sprint.committed_task_count
+    completed_t = sprint.completed_task_count
+    commitment = {
+        "committed_points": committed_p,
+        "committed_task_count": committed_t,
+        "completed_points": completed_p,
+        "completed_task_count": completed_t,
+        "completion_ratio_points": round((completed_p or 0) / committed_p, 4)
+        if committed_p
+        else None,
+        "completion_ratio_tasks": round((completed_t or 0) / committed_t, 4)
+        if committed_t
+        else None,
+    }
+
+    # --- velocity block (ADR-0104 gated) ------------------------------------
+    velocity_block: dict[str, Any] | None = None
+    if velocity_readable:
+        snapshot_list = list(sprint.burn_snapshots.all().order_by("snapshot_date"))
+        burn = compute_sprint_burn_status(sprint, snapshot_list)
+        summary_v = velocity_summary(sprint.project_id)
+        entry = next((e for e in summary_v["sprints"] if e["id"] == str(sprint.pk)), None)
+        velocity_block = {
+            "completed_points": completed_p,
+            "velocity_delta_points": entry["delta_vs_prior_points"] if entry else None,
+            "rolling_avg_points": summary_v["rolling_avg_points"],
+            "burn_status": burn["burn_status"],
+            "trend_points": burn["trend_points"],
+            "projected_finish_date": burn["projected_finish_date"],
+        }
+
+    # --- retro summary (free-text gated by RetroVisibility) ------------------
+    retro_summary: dict[str, Any] | None = None
+    retro = SprintRetro.objects.filter(sprint=sprint).prefetch_related("action_items").first()
+    if retro is not None:
+        membership = None
+        user = getattr(request, "user", None)
+        if user is not None and getattr(user, "is_authenticated", False):
+            membership = ProjectMembership.objects.filter(
+                project_id=sprint.project_id, user=user
+            ).first()
+        caller_role = membership.role if membership else None
+        # ADR-0071 §3: notes readable to PROJECT-visibility for any member, or to
+        # MEMBER+ when TEAM_ONLY. Counts are always visible.
+        from trueppm_api.apps.projects.models import RetroVisibility
+
+        can_read_notes = retro.team_visibility == RetroVisibility.PROJECT or (
+            caller_role is not None and caller_role >= Role.MEMBER
+        )
+        retro_summary = {
+            "retro_id": str(retro.pk),
+            "action_item_count": sum(1 for i in retro.action_items.all() if not i.is_deleted),
+            "has_notes": bool(retro.notes) and can_read_notes,
+        }
+
+    return {
+        "sprint_id": str(sprint.pk),
+        "state": sprint.state,
+        "provisional": provisional,
+        "outcome_recorded": outcome_recorded,
+        "name": sprint.name,
+        "start_date": sprint.start_date.isoformat(),
+        "finish_date": sprint.finish_date.isoformat(),
+        "closed_at": sprint.closed_at.isoformat() if sprint.closed_at else None,
+        "goal": sprint.goal,
+        "goal_outcome": sprint.goal_outcome,
+        "commitment": commitment,
+        "velocity": velocity_block,
+        "didnt_ship": didnt_ship,
+        "didnt_ship_summary": summary,
+        "retro_summary": retro_summary,
+    }
+
+
 def snapshot_completed_metrics(sprint: Any) -> None:
     """Compute and store completed_points / completed_task_count from current task state.
 

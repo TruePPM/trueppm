@@ -291,6 +291,11 @@ urlpatterns = [
         SprintViewSet.as_view({"get": "burndown"}),
         name="sprints-burndown",
     ),
+    path(
+        "sprints/<pk>/outcome/",
+        SprintViewSet.as_view({"get": "outcome"}),
+        name="sprints-outcome",
+    ),
     # Sprint↔milestone binding — the agile/waterfall bridge (ADR-0106 §2)
     path(
         "sprints/<pk>/promote-to-milestone/",

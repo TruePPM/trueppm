@@ -51,6 +51,7 @@ from trueppm_api.apps.projects.models import (
     SprintBurnSnapshot,
     SprintRetro,
     SprintState,
+    SprintTaskDisposition,
     Task,
     TaskAttachment,
     TaskComment,
@@ -2815,6 +2816,54 @@ class SprintBurndownSerializer(serializers.Serializer[dict[str, Any]]):
     burn_status = serializers.CharField(read_only=True)
     trend_points = serializers.IntegerField(read_only=True, allow_null=True)
     projected_finish_date = serializers.DateField(read_only=True, allow_null=True)
+
+
+class DidntShipItemSerializer(serializers.Serializer[dict[str, Any]]):
+    """One task that was in the sprint at close but didn't complete (#985).
+
+    ``story_points`` is nulled for readers below the velocity audience (ADR-0104
+    side-channel guard). ``disposition`` is null for a provisional (not-yet-closed)
+    sprint, where the carry/drop decision hasn't been made.
+    """
+
+    task_id = serializers.UUIDField(allow_null=True)
+    task_short_id = serializers.CharField()
+    task_title = serializers.CharField()
+    story_points = serializers.IntegerField(allow_null=True)
+    final_status = serializers.CharField()
+    disposition = serializers.ChoiceField(choices=SprintTaskDisposition.choices, allow_null=True)
+    next_sprint_id = serializers.UUIDField(allow_null=True)
+    next_sprint_name = serializers.CharField(allow_null=True)
+    was_pending = serializers.BooleanField()
+
+
+class SprintOutcomeSerializer(serializers.Serializer[dict[str, Any]]):
+    """Consolidated sprint-review read (#985, ADR-0111 §3) for
+    ``GET /api/sprints/{id}/outcome/``.
+
+    The single surface the #567 review UI and the MCP adapter bind to —
+    commitment aggregates, goal verdict (#983), velocity delta + burn status
+    (#984, ADR-0104 gated, null when suppressed), the closing membership /
+    "didn't ship" list (#982), and a retro summary. ``provisional`` is true for
+    ACTIVE/PLANNED (live, not snapshotted); ``outcome_recorded`` is false for
+    sprints closed before the membership snapshot shipped.
+    """
+
+    sprint_id = serializers.UUIDField()
+    state = serializers.CharField()
+    provisional = serializers.BooleanField()
+    outcome_recorded = serializers.BooleanField()
+    name = serializers.CharField()
+    start_date = serializers.DateField()
+    finish_date = serializers.DateField()
+    closed_at = serializers.DateTimeField(allow_null=True)
+    goal = serializers.CharField(allow_blank=True)
+    goal_outcome = serializers.CharField(allow_null=True)
+    commitment = serializers.DictField()
+    velocity = serializers.DictField(allow_null=True)
+    didnt_ship = DidntShipItemSerializer(many=True)
+    didnt_ship_summary = serializers.DictField()
+    retro_summary = serializers.DictField(allow_null=True)
 
 
 class SprintCloseRequestSerializer(serializers.Serializer[dict[str, Any]]):

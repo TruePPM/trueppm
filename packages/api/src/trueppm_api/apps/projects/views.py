@@ -127,6 +127,7 @@ from trueppm_api.apps.projects.serializers import (
     SignedDownloadUrlSerializer,
     SprintBurnSnapshotSerializer,
     SprintCloseRequestSerializer,
+    SprintOutcomeSerializer,
     SprintSerializer,
     TaskAttachmentSerializer,
     TaskBulkSerializer,
@@ -5392,7 +5393,7 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
     ordering_fields = ["start_date", "finish_date", "name", "state"]
 
     def get_permissions(self) -> list[BasePermission]:
-        if self.action in ("list", "retrieve", "burndown", "capacity"):
+        if self.action in ("list", "retrieve", "burndown", "capacity", "outcome"):
             return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
         # ADR-0106 §E1.1/§E1.4 (#928): the reforecast preview is a read-only dry
         # run (computes dates + the team-pace band, persists nothing, writes no
@@ -6045,6 +6046,28 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
             "trend_points": burn["trend_points"],
             "projected_finish_date": burn["projected_finish_date"],
         }
+        return Response(payload, status=status.HTTP_200_OK)
+
+    @extend_schema(responses=SprintOutcomeSerializer)
+    @action(detail=True, methods=["get"])
+    def outcome(self, request: Request, pk: str | None = None) -> Response:
+        """Consolidated sprint-review read (#985, ADR-0111 §3).
+
+        One surface composing the goal verdict (#983), velocity delta + burn
+        status (#984, ADR-0104 gated), the closing "didn't ship" membership
+        (#982), commitment aggregates, and a retro summary — so the review UI and
+        the MCP adapter bind to a single endpoint instead of stitching calls or
+        deriving the numbers client-side. Viewer+; privacy enforced in the service.
+        """
+        from trueppm_api.apps.projects.services import sprint_outcome_payload
+
+        sprint = get_object_or_404(
+            Sprint.objects.select_related("project", "created_by"),
+            pk=pk,
+            is_deleted=False,
+        )
+        self.check_object_permissions(request, sprint)
+        payload = sprint_outcome_payload(sprint, request)
         return Response(payload, status=status.HTTP_200_OK)
 
     @extend_schema(
