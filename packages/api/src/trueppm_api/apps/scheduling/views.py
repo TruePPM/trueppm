@@ -672,7 +672,9 @@ class VelocitySuggestionViewSet(
         self.check_object_permissions(request, suggestion.task)
 
         if suggestion.accepted_at is not None:
-            return Response(VelocitySuggestionSerializer(suggestion).data)
+            # get_serializer injects request context so the serializer's ADR-0104
+            # velocity gate fires on these action responses too (#949).
+            return Response(self.get_serializer(suggestion).data)
         if suggestion.dismissed_at is not None:
             return Response(
                 {"detail": "Suggestion has already been dismissed."},
@@ -700,7 +702,9 @@ class VelocitySuggestionViewSet(
             )
 
         suggestion.refresh_from_db()
-        return Response(VelocitySuggestionSerializer(suggestion).data)
+        # get_serializer injects request context so the serializer's ADR-0104
+        # velocity gate fires on these action responses too (#949).
+        return Response(self.get_serializer(suggestion).data)
 
     @action(
         detail=True,
@@ -718,7 +722,9 @@ class VelocitySuggestionViewSet(
         self.check_object_permissions(request, suggestion.task)
 
         if suggestion.dismissed_at is not None:
-            return Response(VelocitySuggestionSerializer(suggestion).data)
+            # get_serializer injects request context so the serializer's ADR-0104
+            # velocity gate fires on these action responses too (#949).
+            return Response(self.get_serializer(suggestion).data)
         if suggestion.accepted_at is not None:
             return Response(
                 {"detail": "Suggestion has already been accepted."},
@@ -730,4 +736,6 @@ class VelocitySuggestionViewSet(
             dismissed_by=request.user,
         )
         suggestion.refresh_from_db()
-        return Response(VelocitySuggestionSerializer(suggestion).data)
+        # get_serializer injects request context so the serializer's ADR-0104
+        # velocity gate fires on these action responses too (#949).
+        return Response(self.get_serializer(suggestion).data)

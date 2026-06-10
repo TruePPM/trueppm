@@ -6820,17 +6820,46 @@ class ProjectForecastView(APIView):
     @extend_schema(responses=ProjectForecastSerializer)
     def get(self, request: Request, pk: str) -> Response:
         from trueppm_api.apps.projects.services import project_forecast
+        from trueppm_api.apps.projects.signal_privacy_services import (
+            can_read_signal,
+            suppress_velocity_summary,
+        )
 
         project = get_object_or_404(Project, pk=pk, is_deleted=False)
         self.check_object_permissions(request, project)
         data = project_forecast(project.pk)
+        velocity = data["velocity"]
+        remaining = data["remaining_committed_points"]
+        stc_low = data["sprints_to_complete_low"]
+        stc_high = data["sprints_to_complete_high"]
+        milestones = ForecastSnapshotSerializer(data["milestones"], many=True).data
+        # ADR-0104 §2.1: the velocity gate must fire at every sink exposing the
+        # team-private velocity detail, not just /velocity/. project_forecast
+        # embeds the raw velocity series AND derives sprints-to-complete (plus the
+        # remaining-points basis) from it, so a below-audience reader suppressed on
+        # /velocity/ must be suppressed here too — otherwise /forecast/ is a
+        # side-channel back to the same band (#981).
+        if not can_read_signal(request, project.pk, "velocity"):
+            velocity = suppress_velocity_summary(velocity)
+            remaining = None
+            stc_low = None
+            stc_high = None
+            # ForecastSnapshot.velocity_low/high ARE the velocity forecast band:
+            # services.py seeds them straight from velocity_summary's
+            # forecast_range_low/high — the same two fields suppress_velocity_summary
+            # nulls — so they re-leak the band through milestones unless stripped
+            # here too. cpm_finish / p50 / p80 / confidence are milestone-date
+            # confidence artifacts (ADR-0106 §3), separately gated, and stay intact.
+            for milestone in milestones:
+                milestone["velocity_low"] = None
+                milestone["velocity_high"] = None
         return Response(
             {
-                "velocity": data["velocity"],
-                "remaining_committed_points": data["remaining_committed_points"],
-                "sprints_to_complete_low": data["sprints_to_complete_low"],
-                "sprints_to_complete_high": data["sprints_to_complete_high"],
-                "milestones": ForecastSnapshotSerializer(data["milestones"], many=True).data,
+                "velocity": velocity,
+                "remaining_committed_points": remaining,
+                "sprints_to_complete_low": stc_low,
+                "sprints_to_complete_high": stc_high,
+                "milestones": milestones,
             },
             status=status.HTTP_200_OK,
         )

@@ -26,6 +26,8 @@ from trueppm_api.apps.projects.models import (
     SignalAudience,
     Sprint,
     SprintState,
+    Task,
+    TaskStatus,
 )
 from trueppm_api.apps.teams.models import Team, TeamMembership, TeamRole
 
@@ -183,6 +185,50 @@ def test_velocity_hidden_from_pm_by_default_shared_after_opt_up(
     assert "velocity_suppressed" not in pm_shared.data
     # The ordinary member still reads after the upward share (never regressed).
     assert len(_client(dev).get(f"/api/v1/projects/{project.pk}/velocity/").data["sprints"]) == 2
+
+
+def test_forecast_applies_velocity_gate(
+    project: Project, pm: Any, dev: Any, closed_sprints: None
+) -> None:
+    """#981: /forecast/ embeds the velocity series and derives sprints-to-complete
+    (and the remaining-points basis) from it, so the ADR-0104 velocity gate must
+    fire here too. A PM suppressed on /velocity/ gets a suppressed velocity block
+    and null sprints-to-complete; an in-audience MEMBER reads the full payload."""
+    # An active sprint with an incomplete committed task so the member's
+    # sprints-to-complete band is genuinely non-null — proving the gate, not
+    # absent data, is what nulls it for the suppressed PM.
+    active = Sprint.objects.create(
+        project=project,
+        name="Active",
+        start_date=date(2026, 3, 1),
+        finish_date=date(2026, 3, 14),
+        state=SprintState.ACTIVE,
+    )
+    Task.objects.create(
+        project=project,
+        name="Remaining",
+        duration=3,
+        sprint=active,
+        story_points=8,
+        status=TaskStatus.IN_PROGRESS,
+    )
+
+    member_resp = _client(dev).get(f"/api/v1/projects/{project.pk}/forecast/")
+    assert member_resp.status_code == 200
+    assert len(member_resp.data["velocity"]["sprints"]) == 2
+    assert "velocity_suppressed" not in member_resp.data["velocity"]
+    assert member_resp.data["sprints_to_complete_low"] is not None
+    assert member_resp.data["remaining_committed_points"] is not None
+
+    pm_resp = _client(pm).get(f"/api/v1/projects/{project.pk}/forecast/")
+    assert pm_resp.status_code == 200
+    assert pm_resp.data["velocity"]["velocity_suppressed"] is True
+    assert pm_resp.data["velocity"]["sprints"] == []
+    assert pm_resp.data["sprints_to_complete_low"] is None
+    assert pm_resp.data["sprints_to_complete_high"] is None
+    assert pm_resp.data["remaining_committed_points"] is None
+    # Milestones are separately-gated ForecastSnapshot artifacts — still present.
+    assert "milestones" in pm_resp.data
 
 
 # --------------------------------------------------------------------------- #

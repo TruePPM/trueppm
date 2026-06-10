@@ -2976,15 +2976,19 @@ class ProjectForecastSerializer(serializers.Serializer[dict[str, Any]]):
     """Project forecast read response (ADR-0106 §5, #487/#860).
 
     ``velocity`` is the full ``velocity_summary`` payload (avg ± 1σ + the
-    per-sprint series — the velocity privacy gate of ADR-0104 / #553, not yet
-    merged, will suppress the series for below-tier readers once it lands).
-    ``sprints_to_complete_*`` is the remaining committed backlog re-paced by the
-    velocity band into a sprint count range; ``milestones`` is the latest snapshot
-    per bound milestone.
+    per-sprint series). The ADR-0104 velocity privacy gate (#553/#981) suppresses
+    the series — and nulls ``remaining_committed_points`` + ``sprints_to_complete_*``
+    and the milestone velocity band — for readers below the velocity audience, so
+    those fields are nullable. ``sprints_to_complete_*`` is the remaining committed
+    backlog re-paced by the velocity band into a sprint count range; ``milestones``
+    is the latest snapshot per bound milestone.
     """
 
     velocity = serializers.DictField()
-    remaining_committed_points = serializers.IntegerField()
+    # Nulled (with sprints_to_complete_*) for below-velocity-audience readers by
+    # the ADR-0104 gate (#981) — declared nullable so schema-driven clients (the
+    # MCP/SDK contract class of #997) see the suppressed shape.
+    remaining_committed_points = serializers.IntegerField(allow_null=True)
     sprints_to_complete_low = serializers.IntegerField(allow_null=True)
     sprints_to_complete_high = serializers.IntegerField(allow_null=True)
     milestones = ForecastSnapshotSerializer(many=True, read_only=True)
