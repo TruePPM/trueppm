@@ -38,7 +38,12 @@ export function VelocitySparkline({ velocity, isLoading = false }: Props) {
   }, [velocity]);
 
   // Min / median (P50) / max of the completed-points series — the band overlay.
-  const band = useMemo(() => bandStats(sprints), [sprints]);
+  // Excluded sprints (ADR-0113) are held out of the band/median; they still
+  // render as hollow bars so the trend the team sees matches the velocity stats.
+  const band = useMemo(
+    () => bandStats(sprints.filter((s) => !s.exclude_from_velocity)),
+    [sprints],
+  );
 
   if (isLoading) {
     return (
@@ -135,6 +140,24 @@ function SparkBar({ sprint, max, index, isLatest, total }: BarProps) {
   const offset = (MAX_BARS - total) * (BAR_W + BAR_GAP);
   const x = offset + index * (BAR_W + BAR_GAP);
   const y = HEIGHT - h;
+  // Excluded sprints (ADR-0113) render hollow — outline only, no fill — so they
+  // read as "present but not counted" at 64px where a hatch pattern won't fit.
+  // Shape (hollow vs solid) carries the signal, not colour alone (WCAG 1.4.1).
+  if (sprint.exclude_from_velocity) {
+    return (
+      <rect
+        x={x + 0.5}
+        y={y + 0.5}
+        width={BAR_W - 1}
+        height={Math.max(1, h - 1)}
+        rx={1}
+        fill="none"
+        className="stroke-neutral-text-disabled"
+        strokeWidth={1}
+        strokeDasharray="2 1.5"
+      />
+    );
+  }
   const fill = isLatest ? 'fill-brand-primary' : 'fill-brand-primary-dark';
   const opacity = isLatest ? 1 : 0.55;
   return (
@@ -185,9 +208,11 @@ function buildAriaLabel(
     band && band.max > band.min
       ? `; range ${band.min}–${band.max} points, median ${Math.round(band.median)}`
       : '';
+  const excluded = sprints.filter((s) => s.exclude_from_velocity).length;
+  const excludedPart = excluded > 0 ? `; ${excluded} excluded from velocity` : '';
   return `Velocity over last ${sprints.length} sprint${
     sprints.length === 1 ? '' : 's'
-  }: ${values.join(', ')} points; latest ${latest} points${avgPart}${bandPart}.`;
+  }: ${values.join(', ')} points; latest ${latest} points${avgPart}${bandPart}${excludedPart}.`;
 }
 
 function sprintsCaption(count: number, velocity: ProjectVelocity | undefined): string {

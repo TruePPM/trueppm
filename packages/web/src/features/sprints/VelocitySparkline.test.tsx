@@ -14,6 +14,7 @@ function entry(overrides: Partial<VelocitySprintEntry> = {}): VelocitySprintEntr
     completed_points: 30,
     committed_task_count: 5,
     completed_task_count: 5,
+    exclude_from_velocity: overrides.exclude_from_velocity ?? false,
     ...overrides,
   };
 }
@@ -28,6 +29,7 @@ function velocity(overrides: Partial<ProjectVelocity> = {}): ProjectVelocity {
     rolling_avg_tasks: null,
     rolling_stdev_tasks: null,
     team_velocity_per_day: null,
+    excluded_count: 0,
     ...overrides,
   };
 }
@@ -147,5 +149,24 @@ describe('VelocitySparkline', () => {
     );
     expect(screen.getByText(/avg 30 \/ sprint/i)).toBeInTheDocument();
     expect(screen.queryByText(/±/)).not.toBeInTheDocument();
+  });
+
+  // ADR-0113: an excluded sprint renders hollow (outline only) and is held out
+  // of the band/median, but is still shown and announced.
+  it('excludes a flagged sprint from the band and announces it', () => {
+    const sprints = [
+      entry({ id: '0', name: 'Sprint 0', completed_points: 4, exclude_from_velocity: true }),
+      entry({ id: '1', completed_points: 30 }),
+      entry({ id: '2', completed_points: 30 }),
+    ];
+    const { container } = render(<VelocitySparkline velocity={velocity({ sprints })} />);
+    const svg = screen.getByRole('img');
+    // The eligible series [30, 30] is degenerate → no band, even though the
+    // excluded 4-pt sprint would otherwise widen the range to 4–30.
+    expect(svg).toHaveAttribute('aria-label', expect.not.stringContaining('range'));
+    expect(svg).toHaveAttribute('aria-label', expect.stringContaining('1 excluded from velocity'));
+    // The hollow bar is rendered (fill="none"), not dropped.
+    const hollow = container.querySelector('rect[fill="none"]');
+    expect(hollow).toBeInTheDocument();
   });
 });

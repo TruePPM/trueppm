@@ -364,6 +364,15 @@ export interface ApiSprint {
    * a flow engine — per-column WIP limits live on BoardColumnConfig.
    */
   wip_limit: number | null;
+  /**
+   * Hold this sprint out of the velocity average/band and forecast (ADR-0113) —
+   * the "Sprint 0" / setup-iteration escape hatch. Writable by SCHEDULER+ in
+   * EVERY state, including COMPLETED (unlike capacity_points), because teams
+   * usually realise a ramp-up sprint is skewing velocity only in hindsight.
+   * Optional in the type so legacy fixtures need not set it; the API always
+   * sends it and consumers read with `?? false`.
+   */
+  exclude_from_velocity?: boolean;
   committed_points: number | null;
   committed_task_count: number | null;
   /**

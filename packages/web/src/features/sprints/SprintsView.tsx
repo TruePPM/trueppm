@@ -13,6 +13,7 @@ import {
   useSprintOutcome,
   type CapacityWarning,
 } from '@/hooks/useSprints';
+import { ExcludeFromVelocityToggle } from './ExcludeFromVelocityToggle';
 import { SprintClosedOutcome } from './SprintClosedOutcome';
 import { SprintHeader } from './SprintHeader';
 import { SprintGoalCard } from './SprintGoalCard';
@@ -502,6 +503,14 @@ export function SprintsView() {
                 </div>
               </div>
             )}
+
+            {/* ADR-0113: team-owned "Sprint 0" escape hatch. Available in every
+                state (settable post-close); SCHEDULER+ writes, others read-only. */}
+            <ExcludeFromVelocityToggle
+              sprint={selectedSprint}
+              projectId={projectId ?? ''}
+              canEdit={(currentRole ?? -1) >= ROLE_SCHEDULER}
+            />
 
             {/* ACTIVE — burndown + capacity + velocity (unchanged this MR; the
                 ADR-0094 "launcher" dedup is a follow-up). */}

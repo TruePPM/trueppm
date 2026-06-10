@@ -13,6 +13,7 @@ function makeSprint(overrides: Partial<VelocitySprintEntry>): VelocitySprintEntr
     completed_points: overrides.completed_points ?? 30,
     committed_task_count: 10,
     completed_task_count: 10,
+    exclude_from_velocity: overrides.exclude_from_velocity ?? false,
     ...overrides,
   };
 }
@@ -27,6 +28,7 @@ function makeVelocity(overrides: Partial<ProjectVelocity> = {}): ProjectVelocity
     rolling_avg_tasks: null,
     rolling_stdev_tasks: null,
     team_velocity_per_day: null,
+    excluded_count: 0,
     ...overrides,
   };
 }
@@ -101,5 +103,69 @@ describe('VelocityPanel', () => {
     const legend = container.querySelector('#velocity-band-legend');
     expect(legend).toBeInTheDocument();
     expect(legend?.textContent).toMatch(/on track/i);
+  });
+
+  // ADR-0113: excluded sprints are marked (not dropped), the effect is surfaced
+  // in plain language, and excluded bars opt out of the health palette.
+  it('renders the "N excluded" callout when sprints are excluded', () => {
+    render(
+      <VelocityPanel
+        velocity={makeVelocity({
+          sprints: [
+            makeSprint({ id: 'a', name: 'Sprint 0', exclude_from_velocity: true }),
+            makeSprint({ id: 'b', name: 'S1' }),
+          ],
+          excluded_count: 1,
+          rolling_avg_points: 30,
+        })}
+      />,
+    );
+    expect(screen.getByText(/1 excluded/)).toBeInTheDocument();
+    expect(
+      screen.getByLabelText(/1 sprint excluded from this forecast: Sprint 0/),
+    ).toBeInTheDocument();
+  });
+
+  it('omits the excluded callout when nothing is excluded', () => {
+    render(
+      <VelocityPanel
+        velocity={makeVelocity({ sprints: [makeSprint({})], excluded_count: 0 })}
+      />,
+    );
+    expect(screen.queryByText(/\d+ excluded/)).not.toBeInTheDocument();
+  });
+
+  it('marks an excluded bar with an "excl" label and an excluded title', () => {
+    const { container } = render(
+      <VelocityPanel
+        velocity={makeVelocity({
+          sprints: [makeSprint({ id: 'a', name: 'Sprint 0', exclude_from_velocity: true })],
+          excluded_count: 1,
+        })}
+      />,
+    );
+    const titles = Array.from(container.querySelectorAll('title')).map((t) => t.textContent);
+    expect(titles[0]).toContain('excluded from velocity');
+    // The "excl" sub-label is the non-color marker under the bar.
+    const texts = Array.from(container.querySelectorAll('text')).map((t) => t.textContent);
+    expect(texts).toContain('excl');
+  });
+
+  it('counts only eligible sprints in the "(last N)" rolling-avg label', () => {
+    render(
+      <VelocityPanel
+        velocity={makeVelocity({
+          sprints: [
+            makeSprint({ id: 'a', name: 'Sprint 0', exclude_from_velocity: true }),
+            makeSprint({ id: 'b', name: 'S1' }),
+            makeSprint({ id: 'c', name: 'S2' }),
+          ],
+          excluded_count: 1,
+          rolling_avg_points: 30,
+        })}
+      />,
+    );
+    // 3 displayed − 1 excluded = 2 counted.
+    expect(screen.getByText(/\(last 2\)/)).toBeInTheDocument();
   });
 });

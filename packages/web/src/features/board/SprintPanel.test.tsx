@@ -29,6 +29,18 @@ vi.mock('@/features/reports/BurnChart', () => ({
     <div data-testid="burn-chart">burn-chart:{sprintId}</div>
   ),
 }));
+// Stub the promote dialog so the entry-point test asserts open/close without
+// mounting the dialog's own API hooks (candidates / reforecast preview).
+vi.mock('@/features/sprints/PromoteMilestoneDialog', () => ({
+  PromoteMilestoneDialog: ({ sprint, onClose }: { sprint: ApiSprint; onClose: () => void }) => (
+    <div role="dialog" aria-label="Promote dialog stub">
+      promote:{sprint.id}
+      <button type="button" onClick={onClose}>
+        close stub
+      </button>
+    </div>
+  ),
+}));
 
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import {
@@ -221,6 +233,42 @@ describe('SprintPanel', () => {
   });
 });
 
+describe('SprintPanel promote-to-milestone entry point (#1052)', () => {
+  it('SCHEDULER+ sees "Link to milestone" when the active sprint has no bound milestone', () => {
+    renderPanel({
+      role: ROLE_SCHEDULER,
+      sprint: makeSprint({ state: 'ACTIVE', target_milestone: null }),
+    });
+    expect(screen.getByRole('button', { name: /link to milestone/i })).toBeInTheDocument();
+  });
+
+  it('hides "Link to milestone" once a milestone is bound (rebind lives in the dialog/Sprints view)', () => {
+    renderPanel({
+      role: ROLE_SCHEDULER,
+      sprint: makeSprint({ state: 'ACTIVE', target_milestone: 'm-1' }),
+    });
+    expect(screen.queryByRole('button', { name: /link to milestone/i })).toBeNull();
+  });
+
+  it('does not show "Link to milestone" for MEMBER (schedule-authoring gate)', () => {
+    renderPanel({
+      role: ROLE_MEMBER,
+      sprint: makeSprint({ state: 'ACTIVE', target_milestone: null }),
+    });
+    expect(screen.queryByRole('button', { name: /link to milestone/i })).toBeNull();
+  });
+
+  it('opens the promote dialog when "Link to milestone" is clicked', () => {
+    renderPanel({
+      role: ROLE_SCHEDULER,
+      sprint: makeSprint({ state: 'ACTIVE', target_milestone: null }),
+    });
+    expect(screen.queryByRole('dialog', { name: /promote dialog stub/i })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /link to milestone/i }));
+    expect(screen.getByRole('dialog', { name: /promote dialog stub/i })).toBeInTheDocument();
+  });
+});
+
 describe('SprintPanel WIP limit (#546)', () => {
   it('suppresses the WIP chip when wip_limit is null', () => {
     renderPanel({ sprint: makeSprint({ state: 'ACTIVE', wip_limit: null }) });
@@ -325,9 +373,11 @@ describe('SprintPanel WIP limit (#546)', () => {
 describe('SprintPanel velocity + forecast (#607)', () => {
   const SPRINTS = [
     { id: '1', name: 'S1', start_date: '2026-01-01', finish_date: '2026-01-14',
-      committed_points: 30, completed_points: 24, committed_task_count: 6, completed_task_count: 5 },
+      committed_points: 30, completed_points: 24, committed_task_count: 6, completed_task_count: 5,
+      exclude_from_velocity: false },
     { id: '2', name: 'S2', start_date: '2026-01-15', finish_date: '2026-01-28',
-      committed_points: 30, completed_points: 32, committed_task_count: 6, completed_task_count: 7 },
+      committed_points: 30, completed_points: 32, committed_task_count: 6, completed_task_count: 7,
+      exclude_from_velocity: false },
   ];
 
   it('renders the velocity sparkline and mounts the forecast line when not suppressed', () => {

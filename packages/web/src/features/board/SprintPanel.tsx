@@ -9,6 +9,7 @@ import {
 } from '@/features/sprints/sprintMath';
 import { VelocitySparkline } from '@/features/sprints/VelocitySparkline';
 import { VelocityForecastLine } from '@/features/sprints/VelocityForecastLine';
+import { PromoteMilestoneDialog } from '@/features/sprints/PromoteMilestoneDialog';
 import { wipState } from '@/features/board/wip';
 import {
   useActiveSprint,
@@ -44,6 +45,10 @@ export function SprintPanel({ projectId, methodology }: Props) {
   const isScheduler = role !== null && role >= ROLE_SCHEDULER;
   const storageKey = `trueppm.board.${projectId}.sprintPanel.open`;
   const [open, setOpen] = useState<boolean | null>(null);
+  // Promote-to-milestone dialog (DA-02 / ADR-0106, #1052). Binding is a
+  // schedule-authoring write, so the board entry point is SCHEDULER+ only — the
+  // server enforces the same gate; this is render-gate only.
+  const [promoting, setPromoting] = useState(false);
 
   // Restore prior choice or apply role-based default once we know the role.
   useEffect(() => {
@@ -92,6 +97,8 @@ export function SprintPanel({ projectId, methodology }: Props) {
         isOpen={isOpen}
         onToggle={handleToggle}
         onWipChipClick={handleOpenForWip}
+        canLinkMilestone={isScheduler && sprint.target_milestone == null}
+        onLinkMilestone={() => setPromoting(true)}
       />
       <div
         id={`sprint-panel-body-${sprint.id}`}
@@ -122,6 +129,13 @@ export function SprintPanel({ projectId, methodology }: Props) {
           />
         </div>
       </div>
+      {promoting && (
+        <PromoteMilestoneDialog
+          projectId={projectId}
+          sprint={sprint}
+          onClose={() => setPromoting(false)}
+        />
+      )}
     </section>
   );
 }
@@ -131,9 +145,20 @@ interface HeaderProps {
   isOpen: boolean;
   onToggle: () => void;
   onWipChipClick: () => void;
+  /** SCHEDULER+ and the active sprint has no bound milestone — show the promote
+   *  entry point so the bridge's keystone action is reachable on the board (#1052). */
+  canLinkMilestone: boolean;
+  onLinkMilestone: () => void;
 }
 
-function Header({ sprint, isOpen, onToggle, onWipChipClick }: HeaderProps) {
+function Header({
+  sprint,
+  isOpen,
+  onToggle,
+  onWipChipClick,
+  canLinkMilestone,
+  onLinkMilestone,
+}: HeaderProps) {
   const daysRemaining = Math.max(0, daysUntil(sprint.finish_date));
   const { day: dayOf, total: totalDays } = sprintDayOf(
     sprint.start_date,
@@ -198,6 +223,19 @@ function Header({ sprint, isOpen, onToggle, onWipChipClick }: HeaderProps) {
           </p>
         )}
       </div>
+      {canLinkMilestone && (
+        <button
+          type="button"
+          onClick={onLinkMilestone}
+          className="flex-shrink-0 inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium
+            text-brand-primary hover:bg-chrome-row-hover
+            focus-visible:ring-2 focus-visible:ring-brand-primary
+            focus-visible:ring-offset-1 focus-visible:outline-none"
+        >
+          <DiamondIcon />
+          Link to milestone
+        </button>
+      )}
       <button
         type="button"
         onClick={onToggle}
@@ -212,6 +250,22 @@ function Header({ sprint, isOpen, onToggle, onWipChipClick }: HeaderProps) {
         <ChevronIcon open={isOpen} />
       </button>
     </div>
+  );
+}
+
+/** Milestone diamond — the bridge's milestone glyph, echoing the ◆ used on the
+ *  Gantt and in the forecast line so "Link to milestone" reads at a glance. */
+function DiamondIcon() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path d="M8 1l7 7-7 7-7-7 7-7z" />
+    </svg>
   );
 }
 

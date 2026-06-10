@@ -1,5 +1,9 @@
+import { Link } from 'react-router';
 import { formatShortDate } from '@/features/sprints/sprintMath';
 import { useProjectForecast, type ProjectForecast } from '@/hooks/useSprints';
+
+/** Closed sprints needed before the velocity band (and a delivery date) is defensible. */
+const FORECAST_SPRINT_FLOOR = 3;
 
 interface Props {
   projectId: string;
@@ -21,7 +25,10 @@ interface Props {
  *    (real CPM/Monte-Carlo dates from the #860 bridge — ADR-0106).
  *  - Otherwise → "~{low}–{high} more sprints to clear {remaining} pts (~{date})",
  *    re-pacing the remaining committed backlog by the velocity band.
- *  - Insufficient history → "Need at least 3 closed sprints to forecast delivery."
+ *  - Insufficient history → an actionable warm-up nudge: "Sprint N of 3 toward
+ *    your first forecast" plus deep-links to the two inputs the forecast feeds on
+ *    (story points on the backlog, the sprint's capacity). A new team's first
+ *    impression must be a next step, not a dead-end string (#1052).
  */
 export function VelocityForecastLine({ projectId, targetMilestoneId, enabled }: Props) {
   const { data: forecast, isLoading } = useProjectForecast(projectId, { enabled });
@@ -56,7 +63,7 @@ export function VelocityForecastLine({ projectId, targetMilestoneId, enabled }: 
           p80={milestone.p80}
         />
       ) : (
-        <BacklogForecast forecast={forecast} />
+        <BacklogForecast forecast={forecast} projectId={projectId} />
       )}
     </p>
   );
@@ -85,10 +92,16 @@ function MilestoneForecast({
   );
 }
 
-function BacklogForecast({ forecast }: { forecast: ProjectForecast }) {
+function BacklogForecast({
+  forecast,
+  projectId,
+}: {
+  forecast: ProjectForecast;
+  projectId: string;
+}) {
   const { sprints_to_complete_low: low, sprints_to_complete_high: high } = forecast;
   if (low == null || high == null) {
-    return <span>Need at least 3 closed sprints to forecast delivery.</span>;
+    return <ForecastWarmup forecast={forecast} projectId={projectId} />;
   }
   const remaining = forecast.remaining_committed_points;
   if (remaining <= 0) {
@@ -110,6 +123,55 @@ function BacklogForecast({ forecast }: { forecast: ProjectForecast }) {
     </span>
   );
 }
+
+/**
+ * Warm-up state shown below the velocity floor (< 3 closed sprints, so no
+ * defensible band yet). Replaces the old dead-end "Need at least 3 closed
+ * sprints…" string with the team's progress toward the floor plus the two
+ * inputs the forecast depends on, each a deep-link to where it's set:
+ *   • story points → the product backlog (so remaining_committed_points exists)
+ *   • capacity → the board's sprint panel (the capacity editor)
+ *
+ * The closed-sprint count is the length of the velocity series (last-8 closed
+ * sprints). If the count has reached the floor but the band is still null (e.g.
+ * no story points anywhere, so there's nothing to re-pace), we drop the N-of-3
+ * progress framing — which would read as stalled — and keep just the input
+ * nudges, which are the actual fix.
+ */
+function ForecastWarmup({
+  forecast,
+  projectId,
+}: {
+  forecast: ProjectForecast;
+  projectId: string;
+}) {
+  const closed = forecast.velocity.sprints.length;
+  // The sprint the team is currently building toward the floor with — closed
+  // sprints plus the one in flight, capped at the floor.
+  const sprintOf = Math.min(closed + 1, FORECAST_SPRINT_FLOOR);
+  const reachedFloor = closed >= FORECAST_SPRINT_FLOOR;
+  return (
+    <span>
+      {reachedFloor
+        ? 'Not enough signal to forecast delivery yet.'
+        : `Sprint ${sprintOf} of ${FORECAST_SPRINT_FLOOR} toward your first forecast.`}{' '}
+      <Link to={`/projects/${projectId}/product-backlog`} className={WARMUP_LINK_CLASS}>
+        Story points on your backlog?
+      </Link>
+      <span aria-hidden="true" className="mx-1 text-neutral-text-disabled">
+        ·
+      </span>
+      <Link to={`/projects/${projectId}/board`} className={WARMUP_LINK_CLASS}>
+        Capacity set?
+      </Link>
+    </span>
+  );
+}
+
+const WARMUP_LINK_CLASS =
+  'font-medium text-brand-primary hover:text-brand-primary-dark ' +
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary ' +
+  'focus-visible:ring-offset-1 rounded';
 
 function fmt(iso: string | null): string {
   return iso ? formatShortDate(iso) : '—';

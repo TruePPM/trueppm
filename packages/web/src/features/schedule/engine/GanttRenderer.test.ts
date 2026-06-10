@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   drawDependencyArrows,
+  prepareDependencyLayout,
+  paintDependencyLayout,
   drawSummaryBar,
   drawActualDateBar,
   drawScheduleVarianceBadge,
@@ -1014,5 +1016,137 @@ describe('drawTaskBar — in-bar label contrast (#1032)', () => {
     expect(COLOR_DARK.chipTextOnSurface).toBe('#1A1917');
     expect(fills).toContain(COLOR_DARK.chipTextOnSurface);
     expect(fills).not.toContain('#FFFFFF');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// prepare/paint split + scroll re-projection (#1000)
+//
+// The dependency-arrow layer is split into a scroll-independent prepare step
+// (cached on the engine) and a paint step that re-projects by the current
+// scroll. These tests pin the two load-bearing guarantees:
+//   1. paint at scroll 0 is identical to the all-in-one drawDependencyArrows;
+//   2. re-painting ONE cached layout at a different scroll shifts every drawn
+//      coordinate by exactly the scroll delta — i.e. geometry is stored at
+//      canvas origin and the offset is applied only in paint, so scrolling never
+//      needs a rebuild.
+// ---------------------------------------------------------------------------
+describe('dependency arrows — cached layout + scroll re-projection (#1000)', () => {
+  const scales = buildScaleData('week', '2026-04-01', '2026-06-01');
+
+  function makeArrowCtxSpy() {
+    const { ctx, calls } = makeCtxSpy();
+    const augmented = ctx as unknown as Record<string, unknown>;
+    augmented.canvas = { width: 800, height: 600 };
+    augmented.bezierCurveTo = vi.fn((...args: unknown[]) => calls.push({ name: 'bezierCurveTo', args }));
+    augmented.quadraticCurveTo = vi.fn((...args: unknown[]) => calls.push({ name: 'quadraticCurveTo', args }));
+    augmented.closePath = vi.fn(() => calls.push({ name: 'closePath', args: [] }));
+    augmented.arc = vi.fn((...args: unknown[]) => calls.push({ name: 'arc', args }));
+    return { ctx, calls };
+  }
+
+  function leaf(id: string, start: string, finish: string): Task {
+    return {
+      id,
+      wbs: id,
+      name: `Task ${id}`,
+      start,
+      finish,
+      plannedStart: start,
+      duration: 5,
+      progress: 0,
+      isSummary: false,
+      isMilestone: false,
+      isCritical: false,
+      parentId: null,
+    } as unknown as Task;
+  }
+
+  const tasks: Task[] = [
+    leaf('a', '2026-04-08', '2026-04-12'),
+    leaf('b', '2026-04-20', '2026-04-24'),
+    leaf('c', '2026-05-04', '2026-05-08'),
+  ];
+  const links = [
+    { id: 'l1', sourceId: 'a', targetId: 'b', type: 'FS' as const, lag: 0, isCritical: false },
+    { id: 'l2', sourceId: 'b', targetId: 'c', type: 'FS' as const, lag: 0, isCritical: false },
+  ];
+
+  /** All (x, y) vertices the renderer moved/lined the pen to, in call order. */
+  function pointsFrom(calls: Array<{ name: string; args: unknown[] }>): Array<[number, number]> {
+    const pts: Array<[number, number]> = [];
+    for (const c of calls) {
+      if ((c.name === 'moveTo' || c.name === 'lineTo') && c.args.length >= 2) {
+        pts.push([c.args[0] as number, c.args[1] as number]);
+      }
+    }
+    return pts;
+  }
+
+  it('paint(layout) at scroll 0 matches the drawDependencyArrows wrapper', () => {
+    const direct = makeArrowCtxSpy();
+    drawDependencyArrows(direct.ctx, tasks, links, scales, 0, 0);
+
+    const split = makeArrowCtxSpy();
+    paintDependencyLayout(split.ctx, prepareDependencyLayout(tasks, links, scales), 0, 0);
+
+    expect(pointsFrom(split.calls)).toEqual(pointsFrom(direct.calls));
+  });
+
+  it('re-projects a cached layout by scrollLeft: every x shifts by exactly -scrollLeft, y unchanged', () => {
+    const layout = prepareDependencyLayout(tasks, links, scales);
+    const S = 60;
+
+    const base = makeArrowCtxSpy();
+    paintDependencyLayout(base.ctx, layout, 0, 0);
+    const scrolled = makeArrowCtxSpy();
+    paintDependencyLayout(scrolled.ctx, layout, S, 0); // SAME cached layout, no rebuild
+
+    const p0 = pointsFrom(base.calls);
+    const pS = pointsFrom(scrolled.calls);
+    expect(pS).toHaveLength(p0.length);
+    expect(p0.length).toBeGreaterThan(0);
+    for (let i = 0; i < p0.length; i++) {
+      expect(pS[i][0]).toBeCloseTo(p0[i][0] - S, 5);
+      expect(pS[i][1]).toBeCloseTo(p0[i][1], 5);
+    }
+  });
+
+  it('re-projects a cached layout by scrollTop: every y shifts by exactly -scrollTop, x unchanged', () => {
+    const layout = prepareDependencyLayout(tasks, links, scales);
+    const S = 18;
+
+    const base = makeArrowCtxSpy();
+    paintDependencyLayout(base.ctx, layout, 0, 0);
+    const scrolled = makeArrowCtxSpy();
+    paintDependencyLayout(scrolled.ctx, layout, 0, S);
+
+    const p0 = pointsFrom(base.calls);
+    const pS = pointsFrom(scrolled.calls);
+    expect(pS).toHaveLength(p0.length);
+    expect(p0.length).toBeGreaterThan(0);
+    for (let i = 0; i < p0.length; i++) {
+      expect(pS[i][0]).toBeCloseTo(p0[i][0], 5);
+      expect(pS[i][1]).toBeCloseTo(p0[i][1] - S, 5);
+    }
+  });
+
+  it('prepares once and re-paints across a scroll burst without rebuilding', () => {
+    // The engine caches this layout and only re-runs prepare on data/zoom change.
+    // Simulate the per-frame scroll path: one prepared layout, many paints.
+    const layout = prepareDependencyLayout(tasks, links, scales);
+    for (const [sl, st] of [[0, 0], [25, 10], [80, 30], [140, 0], [5, 18]]) {
+      const { ctx, calls } = makeArrowCtxSpy();
+      expect(() => paintDependencyLayout(ctx, layout, sl, st)).not.toThrow();
+      expect(pointsFrom(calls).length).toBeGreaterThan(0);
+    }
+  });
+
+  it('returns an empty, no-op layout when there are no links', () => {
+    const layout = prepareDependencyLayout(tasks, [], scales);
+    expect(layout.empty).toBe(true);
+    const { ctx, calls } = makeArrowCtxSpy();
+    paintDependencyLayout(ctx, layout, 0, 0);
+    expect(pointsFrom(calls)).toHaveLength(0);
   });
 });

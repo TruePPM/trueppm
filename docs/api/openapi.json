@@ -6383,7 +6383,7 @@
                                 }
                             }
                         },
-                        "description": "Monte Carlo simulation result. Includes the engine result fields (P50/P80/P95 finish dates, mean, std dev, etc.) plus histogram_buckets ([{date, count}]) and last_run_at (ISO 8601)."
+                        "description": "Monte Carlo simulation result. Includes the engine result fields (P50/P80/P95 finish dates, mean, std dev, etc.) plus cpm_finish (deterministic CPM project finish, ISO 8601 or null), delta_vs_cpm ({p50,p80,p95} signed calendar-day premium vs CPM), confidence_curve ([{date, pct}] cumulative finish-by-date S-curve), histogram_buckets ([{date, count}]) and last_run_at (ISO 8601)."
                     },
                     "400": {
                         "content": {
@@ -7252,6 +7252,57 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/sprint-health/": {
+            "get": {
+                "operationId": "v1_projects_sprint_health_retrieve",
+                "description": "``GET /api/v1/projects/<pk>/sprint-health/`` — server-owned Tier-3 signals (#988).\n\nThe Sprints view's read-only hygiene badges (orphan tasks, active-sprint phase\nspan, parent tasks in a sprint) were derived in the browser, re-parsing WBS\ndot-paths and synthesizing their own copy (violating web-rule 141). This\nendpoint moves the count, threshold, tone, and consequence copy server-side so\nthe verdict is identical for any API client and the web renders it verbatim.\n\nPermission: Member (any role ≥ Viewer) — a team+coach surface, not velocity.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Tier-3 sprint-health signals (ADR-0101 §4). {signals: [{key, count, tone, detail}]} — only tripped signals are present (orphan tasks, active sprint spanning ≥3 phases, parent tasks in a sprint). `tone` is info|warn; `detail` is the server-owned consequence copy the client renders verbatim. Empty list when the project is healthy."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Project does not exist."
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/status-summary/": {
             "get": {
                 "operationId": "v1_projects_status_summary_retrieve",
@@ -7796,7 +7847,7 @@
                                 }
                             }
                         },
-                        "description": "Sparse map of resource -> working day -> {hours, task_ids} for the requested window."
+                        "description": "Sparse map of resource -> working day -> {hours, task_ids, load_pct, load_band, overallocated} for the requested window. load_band is on-track | at-risk | critical (>100% load); each resource also carries a top-level overallocated flag (true if any day exceeds 100%)."
                     },
                     "409": {
                         "content": {
@@ -10622,7 +10673,7 @@
         "/api/v1/projects/{project_pk}/sprints/": {
             "get": {
                 "operationId": "v1_projects_sprints_list",
-                "description": "CRUD plus state-transition actions for sprints (ADR-0037).\n\nRoutes are nested under projects for list/create\n(``/projects/<project_pk>/sprints/``) and exposed at top level for detail\nand actions (``/sprints/<id>/``, ``.../activate/``, ``.../close/``,\n``.../cancel/``, ``.../burndown/``).\n\nPermission matrix:\n  list / retrieve / burndown      — Viewer+ (IsProjectMember)\n  create / update / activate /\n  close / cancel                  — Team Member+ (IsProjectMemberWrite)\n  destroy (PLANNED only)          — Project Manager+ (IsProjectAdmin)",
+                "description": "Attach batched target-milestone rollups to the page before serialization.\n\n``SprintSerializer.target_milestone_detail`` embeds the same rollup payload\nas ``TaskSerializer.milestone_rollup`` and was likewise O(milestones ×\nsprints) per row (#999). Batch every linked milestone in the page in 2\nqueries and stash the payload on each sprint instance.",
                 "parameters": [
                     {
                         "name": "ordering",
@@ -16263,7 +16314,7 @@
         "/api/v1/tasks/": {
             "get": {
                 "operationId": "v1_tasks_list",
-                "description": "CRUD for tasks within a project.\n\nCPM output fields (early_start, early_finish, late_start, late_finish,\ntotal_float, free_float, is_critical) are read-only and populated by\nthe auto-scheduling Celery task.\n\nPermission matrix (issue #11):\n  list/retrieve    — any member (IsProjectMember)\n  create           — Team Member+ (IsProjectMemberWrite)\n  update/destroy   — Project Manager+ or assignee (IsProjectMemberWriteOrOwn)",
+                "description": "Attach batched milestone rollups to the page before serialization.\n\n``TaskSerializer.milestone_rollup`` is O(milestones × sprints) when computed\nper row on the hot Gantt fetch (#999). Batch every milestone in the page in\n2 queries here and stash the payload on each task instance so the serializer\nreads an attribute instead of re-querying per milestone.",
                 "parameters": [
                     {
                         "in": "query",
@@ -22357,6 +22408,9 @@
                                 "$ref": "#/components/schemas/NullEnum"
                             }
                         ]
+                    },
+                    "exclude_from_velocity": {
+                        "type": "boolean"
                     }
                 }
             },
@@ -25171,6 +25225,9 @@
                             }
                         ]
                     },
+                    "exclude_from_velocity": {
+                        "type": "boolean"
+                    },
                     "committed_points": {
                         "type": "integer",
                         "readOnly": true,
@@ -25416,6 +25473,9 @@
                                 "$ref": "#/components/schemas/NullEnum"
                             }
                         ]
+                    },
+                    "exclude_from_velocity": {
+                        "type": "boolean"
                     }
                 },
                 "required": [
@@ -25682,6 +25742,19 @@
                         "description": "Compute schedule variance: actual_finish - baseline_finish in calendar days.\n\nUses the active-baseline snapshot date, not early_finish (CPM). early_finish\ndrifts toward actual_finish on each CPM recompute, making the variance appear\nto shrink even when work is running late. Without an active baseline the\nmetric is undefined — returns None rather than a misleading CPM-relative value.",
                         "readOnly": true
                     },
+                    "spi": {
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true,
+                        "description": "Per-task Schedule Performance Index = earned% / planned% (#990).\n\n``planned%`` is the fraction of the *active baseline* duration elapsed as\nof today; ``earned%`` is ``percent_complete``. SPI > 1 means ahead of the\nbaseline; < 1 means behind. Mirrors the formula the board card used to\nderive in the browser, now server-owned so MCP/headless clients read it.\n\nReturns ``None`` when the task has no active-baseline annotation (the\n``baseline_start``/``baseline_finish`` overlay is null) or has not started\nper baseline (no elapsed time) — the index is undefined, not zero.",
+                        "readOnly": true
+                    },
+                    "spi_band": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Threshold band for ``spi`` — on_track / at_risk / behind, or None.\n\nThresholds (≥0.95 on track, ≥0.85 at risk, else behind) match the\nproject-level SPI rollup (views.py project health) and the board-card chip\nso the verdict is identical wherever it renders. Returned as a plain string\n(not a Django enum) so drf-spectacular emits no shared enum component.",
+                        "readOnly": true
+                    },
                     "is_summary": {
                         "type": "boolean",
                         "readOnly": true,
@@ -25926,6 +25999,8 @@
                     "schedule_variance_days",
                     "server_version",
                     "short_id",
+                    "spi",
+                    "spi_band",
                     "sprint_pending",
                     "sprint_scope_changes",
                     "status_changed_at",

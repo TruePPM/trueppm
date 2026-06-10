@@ -17,10 +17,15 @@ import uuid
 from collections.abc import Iterable
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.db import transaction
 from django.utils import timezone
+
+if TYPE_CHECKING:
+    from django.db.models import QuerySet
+
+    from trueppm_api.apps.projects.models import Sprint
 
 logger = logging.getLogger(__name__)
 
@@ -384,8 +389,157 @@ def upsert_burndown_for_sprint(sprint: Any, snapshot_date: date | None = None) -
 
 
 # ---------------------------------------------------------------------------
+# Tier-3 sprint-health — read-time hygiene signals (ADR-0101 §4)
+# ---------------------------------------------------------------------------
+
+
+def sprint_health(project_id: str | uuid.UUID) -> dict[str, Any]:
+    """Tier-3 read-time sprint-health signals for a project (ADR-0101 §4, #988).
+
+    Returns the same orphan / active-sprint-phase-span / parent-task-in-sprint
+    signals the Sprints view used to derive in the browser — but the count, the
+    show/hide threshold (the verdict), the tone, AND the consequence copy are all
+    server-owned now, so a headless/MCP client gets identical guidance and the web
+    renders ``detail`` verbatim (web-rule 141: never re-invent WBS jargon).
+
+    Read-only; never blocks. Only *tripped* signals are returned (orphan > 0,
+    active sprint spans ≥ 3 phases, any parent task in a sprint); a healthy
+    project yields an empty list, mirroring the badge row that fades away when
+    there is nothing to act on. This is a team+coach surface, not a velocity
+    one — no signal-privacy gate applies (ADR-0101 §4).
+    """
+    from django.db.models import BooleanField, IntegerField, TextField
+    from django.db.models.expressions import RawSQL
+
+    from trueppm_api.apps.projects.models import Sprint, SprintState, Task
+
+    active_sprint_id = (
+        Sprint.objects.filter(project_id=project_id, state=SprintState.ACTIVE, is_deleted=False)
+        .values_list("id", flat=True)
+        .first()
+    )
+
+    # ``_has_child`` mirrors TaskViewSet.get_queryset()'s ``is_summary`` annotation
+    # verbatim: a task is a "parent" iff some other non-deleted task sits exactly
+    # one ltree level beneath it. Kept in lockstep with that query — if the summary
+    # shape changes there, change it here too.
+    has_child_sql = (
+        "EXISTS("
+        "  SELECT 1 FROM projects_task c"
+        "  WHERE c.project_id = projects_task.project_id"
+        "    AND c.is_deleted = false"
+        "    AND c.id != projects_task.id"
+        "    AND c.wbs_path IS NOT NULL"
+        "    AND projects_task.wbs_path IS NOT NULL"
+        "    AND c.wbs_path ~ (projects_task.wbs_path::text || '.*{1}')::lquery"
+        ")"
+    )
+    # ltree depth (nlevel) and L1 root label — the "phase" a task rolls up to.
+    # NULL wbs_path → depth 0 / no phase, matching the web's `!wbs` handling.
+    depth_sql = (
+        "CASE WHEN projects_task.wbs_path IS NULL THEN 0 ELSE nlevel(projects_task.wbs_path) END"
+    )
+    l1_sql = (
+        "CASE WHEN projects_task.wbs_path IS NULL THEN NULL "
+        "ELSE subpath(projects_task.wbs_path, 0, 1)::text END"
+    )
+
+    rows = list(
+        Task.objects.filter(project_id=project_id, is_deleted=False)
+        .annotate(
+            # nosec B611 — static SQL literals (no user input), empty params list;
+            # the ltree expressions can't be expressed in the ORM. Bandit flags any RawSQL.
+            _has_child=RawSQL(has_child_sql, [], output_field=BooleanField()),  # nosec B611
+            _depth=RawSQL(depth_sql, [], output_field=IntegerField()),  # nosec B611
+            _l1=RawSQL(l1_sql, [], output_field=TextField()),  # nosec B611
+        )
+        .values("is_milestone", "sprint_id", "_has_child", "_depth", "_l1")
+    )
+
+    # Orphan: a leaf, non-milestone task with no sprint and no phase ancestor
+    # (top-level wbs, depth ≤ 1). Mirrors the web `wbs.includes('.')` exclusion.
+    orphan_count = sum(
+        1
+        for r in rows
+        if not r["_has_child"]
+        and not r["is_milestone"]
+        and r["sprint_id"] is None
+        and r["_depth"] <= 1
+    )
+    # Parent (summary) task assigned to a sprint — double-counts velocity.
+    summary_in_sprint = sum(1 for r in rows if r["_has_child"] and r["sprint_id"] is not None)
+    # Distinct L1 phase roots the active sprint's tasks span.
+    phase_span = len(
+        {
+            r["_l1"]
+            for r in rows
+            if active_sprint_id is not None
+            and r["sprint_id"] == active_sprint_id
+            and r["_l1"] is not None
+        }
+    )
+
+    signals: list[dict[str, Any]] = []
+    if orphan_count > 0:
+        signals.append(
+            {
+                "key": "orphan",
+                "count": orphan_count,
+                "tone": "info",
+                "detail": (
+                    f"{orphan_count} task{'' if orphan_count == 1 else 's'} "
+                    "in no sprint and no phase"
+                ),
+            }
+        )
+    if phase_span >= 3:
+        signals.append(
+            {
+                "key": "phase_span",
+                "count": phase_span,
+                "tone": "info",
+                "detail": f"Active sprint spans {phase_span} phases",
+            }
+        )
+    if summary_in_sprint > 0:
+        # ADR-0101 §2: "parent task", never "summary task" — no WBS jargon.
+        signals.append(
+            {
+                "key": "summary_in_sprint",
+                "count": summary_in_sprint,
+                "tone": "warn",
+                "detail": (
+                    f"{summary_in_sprint} parent task"
+                    f"{'' if summary_in_sprint == 1 else 's'} in a sprint"
+                ),
+            }
+        )
+    return {"signals": signals}
+
+
+# ---------------------------------------------------------------------------
 # Velocity — rolling stats over closed sprints
 # ---------------------------------------------------------------------------
+
+
+def velocity_eligible_sprints(project_id: str | uuid.UUID) -> QuerySet[Sprint]:
+    """The canonical "counts toward velocity" sprint set for a project (ADR-0113).
+
+    A single source of truth for *which* sprints feed any velocity-derived number:
+    the rolling average/band, ``team_velocity_per_day``, and the future
+    ``Project.velocity_samples`` population that ADR-0065/0106 will hand to the
+    scheduler. Routing every consumer through this predicate guarantees the
+    ``exclude_from_velocity`` flag is applied exactly once and can never be baked
+    out at one call site. Ordered newest-first; callers slice their own window.
+    """
+    from trueppm_api.apps.projects.models import Sprint, SprintState
+
+    return Sprint.objects.filter(
+        project_id=project_id,
+        state=SprintState.COMPLETED,
+        is_deleted=False,
+        exclude_from_velocity=False,
+    ).order_by("-closed_at")
 
 
 def velocity_summary(project_id: str | uuid.UUID) -> dict[str, Any]:
@@ -395,11 +549,20 @@ def velocity_summary(project_id: str | uuid.UUID) -> dict[str, Any]:
     tasks) returns rolling avg, stdev, and a forecast range of avg ± 1 stdev
     rounded to int. Returns null fields when there are fewer than two closed
     sprints (stdev undefined).
+
+    Sprints flagged ``exclude_from_velocity`` (ADR-0113) stay **visible** in the
+    returned ``sprints`` list — each carries an ``exclude_from_velocity`` flag so
+    the UI can mark rather than silently drop them — but are omitted from every
+    computed statistic. ``excluded_count`` reports how many of the displayed
+    sprints were excluded so the UI can render "N excluded from this forecast".
     """
     import statistics
 
     from trueppm_api.apps.projects.models import Sprint, SprintState
 
+    # Display window: the last 8 closed sprints INCLUDING excluded ones, so a
+    # recently-closed Sprint 0 still appears in the chart (marked), rather than
+    # vanishing. Statistics below are computed over the eligible subset only.
     closed = list(
         Sprint.objects.filter(
             project_id=project_id,
@@ -408,9 +571,12 @@ def velocity_summary(project_id: str | uuid.UUID) -> dict[str, Any]:
         ).order_by("-closed_at")[:8]
     )
 
-    points: list[int] = [s.completed_points for s in closed if s.completed_points is not None]
+    eligible = [s for s in closed if not s.exclude_from_velocity]
+    excluded_count = len(closed) - len(eligible)
+
+    points: list[int] = [s.completed_points for s in eligible if s.completed_points is not None]
     counts: list[int] = [
-        s.completed_task_count for s in closed if s.completed_task_count is not None
+        s.completed_task_count for s in eligible if s.completed_task_count is not None
     ]
 
     def _stats(values: list[int]) -> tuple[float | None, float | None, int | None, int | None]:
@@ -437,10 +603,14 @@ def velocity_summary(project_id: str | uuid.UUID) -> dict[str, Any]:
     # Chronological (oldest -> newest) so each entry can carry its delta vs the
     # immediately prior closed sprint (#984) — server-owned so MCP/mobile don't
     # diff the series themselves. None when either side has no completed total.
+    # Deltas walk the *eligible* series only (ADR-0113): an excluded sprint never
+    # anchors a delta, and excluded sprints themselves carry no delta — the trend
+    # the team reads must match the velocity the stats above report.
     chronological = list(reversed(closed))
     sprint_entries = []
-    for i, s in enumerate(chronological):
-        prev = chronological[i - 1] if i > 0 else None
+    prev_eligible: Sprint | None = None
+    for s in chronological:
+        prev = None if s.exclude_from_velocity else prev_eligible
         delta_points = (
             s.completed_points - prev.completed_points
             if prev is not None
@@ -467,8 +637,13 @@ def velocity_summary(project_id: str | uuid.UUID) -> dict[str, Any]:
                 "completed_task_count": s.completed_task_count,
                 "delta_vs_prior_points": delta_points,
                 "delta_vs_prior_tasks": delta_tasks,
+                # ADR-0113: marked, not dropped — the UI greys/hatches excluded
+                # bars and skips them in the rolling-avg line and ± stdev band.
+                "exclude_from_velocity": s.exclude_from_velocity,
             }
         )
+        if not s.exclude_from_velocity:
+            prev_eligible = s
 
     return {
         "sprints": sprint_entries,
@@ -479,6 +654,9 @@ def velocity_summary(project_id: str | uuid.UUID) -> dict[str, Any]:
         "rolling_avg_tasks": avg_t,
         "rolling_stdev_tasks": sd_t,
         "team_velocity_per_day": float(velocity_per_day) if velocity_per_day else None,
+        # ADR-0113: how many of the displayed sprints are excluded, so the UI can
+        # render "N excluded from this forecast" without re-deriving it client-side.
+        "excluded_count": excluded_count,
     }
 
 
@@ -1562,12 +1740,7 @@ def compute_milestone_rollup_payload(milestone: Any) -> dict[str, Any] | None:
     backlog-points sum diverges from its activation-snapshot ``committed_points``
     — surfaced so the % can be trusted even when scope has shifted mid-sprint.
     """
-    from trueppm_api.apps.projects.models import (
-        Sprint,
-        SprintState,
-        TaskStatus,
-        committed_sprint_tasks,
-    )
+    from trueppm_api.apps.projects.models import Sprint
 
     targeting = list(
         Sprint.objects.filter(target_milestone_id=milestone.pk, is_deleted=False).only(
@@ -1581,6 +1754,77 @@ def compute_milestone_rollup_payload(milestone: Any) -> dict[str, Any] | None:
             "binding_committed_snapshot",
         )
     )
+    if not targeting:
+        return None
+    current_committed_by_sprint, live_completed_by_sprint = _sprint_rollup_aggregates(targeting)
+    return _assemble_milestone_rollup(
+        milestone, targeting, current_committed_by_sprint, live_completed_by_sprint
+    )
+
+
+def _sprint_rollup_aggregates(
+    sprints: list[Any],
+) -> tuple[dict[Any, int], dict[Any, tuple[int, int]]]:
+    """Per-sprint commitment aggregates for the milestone rollup, in ONE query.
+
+    Returns ``(current_committed_by_sprint, live_completed_by_sprint)`` keyed by
+    sprint pk. ``current_committed`` is the accepted (pending-excluded) committed
+    story-point sum used by the binding-drift and scope-changed checks;
+    ``live_completed`` is ``(points, count)`` of COMPLETE tasks (consumed only for
+    ACTIVE sprints).
+
+    Replaces the 2–4 ``committed_sprint_tasks()`` round-trips *per sprint* that
+    made the milestone rollup O(milestones × sprints) on the hot task-list fetch
+    (#999), collapsing them to one grouped aggregate over every sprint at once.
+    CANCELLED sprints are excluded (they contribute nothing to the rollup).
+    """
+    from django.db.models import Count, Q, Sum
+
+    from trueppm_api.apps.projects.models import SprintState, Task, TaskStatus
+
+    sprint_ids = [s.pk for s in sprints if s.state != SprintState.CANCELLED]
+    if not sprint_ids:
+        return {}, {}
+
+    # Mirrors committed_sprint_tasks() (sprint_pending=False) — inlined because that
+    # helper is single-sprint; the sprint_pending=False filter is the load-bearing
+    # ADR-0102 commitment invariant and must stay identical here.
+    rows = (
+        Task.objects.filter(sprint_id__in=sprint_ids, is_deleted=False, sprint_pending=False)
+        .values("sprint_id")
+        .annotate(
+            committed_points=Sum("story_points"),
+            complete_points=Sum("story_points", filter=Q(status=TaskStatus.COMPLETE)),
+            complete_count=Count("pk", filter=Q(status=TaskStatus.COMPLETE)),
+        )
+    )
+
+    current_committed: dict[Any, int] = {}
+    live_completed: dict[Any, tuple[int, int]] = {}
+    for row in rows:
+        current_committed[row["sprint_id"]] = row["committed_points"] or 0
+        live_completed[row["sprint_id"]] = (
+            row["complete_points"] or 0,
+            row["complete_count"] or 0,
+        )
+    return current_committed, live_completed
+
+
+def _assemble_milestone_rollup(
+    milestone: Any,
+    targeting: list[Any],
+    current_committed_by_sprint: dict[Any, int],
+    live_completed_by_sprint: dict[Any, tuple[int, int]],
+) -> dict[str, Any] | None:
+    """Assemble a milestone rollup payload from pre-fetched per-sprint aggregates.
+
+    Pure-Python — issues no queries. Shared by ``compute_milestone_rollup_payload``
+    (single milestone) and ``batch_compute_milestone_rollups`` (page-batched, #999)
+    so the two paths cannot drift. See ``compute_milestone_rollup_payload`` for the
+    state-by-state contribution rules.
+    """
+    from trueppm_api.apps.projects.models import SprintState
+
     if not targeting:
         return None
 
@@ -1604,19 +1848,12 @@ def compute_milestone_rollup_payload(milestone: Any) -> dict[str, Any] | None:
         committed_points += sprint.committed_points or 0
         committed_tasks += sprint.committed_task_count or 0
 
-        # Current accepted (pending-excluded) committed points. Computed at most
-        # once per sprint and reused by both the binding-drift (ADR-0106 §1) and
-        # the scope-changed (ADR-0102) checks below, so an ACTIVE sprint that is
-        # also bound does not issue the same query twice.
-        current_committed: int | None = None
-        if sprint.binding_committed_snapshot is not None or (
-            sprint.state == SprintState.ACTIVE and sprint.committed_points is not None
-        ):
-            current_committed = sum(
-                p
-                for p in committed_sprint_tasks(sprint.pk).values_list("story_points", flat=True)
-                if p is not None
-            )
+        # Current accepted (pending-excluded) committed points, pre-aggregated by
+        # _sprint_rollup_aggregates. Defaults to 0 for a sprint with no committed
+        # tasks — matching the empty-sum semantics of the prior per-sprint query.
+        # Only consulted under the binding-drift / scope-changed guards below, so a
+        # default for sprints meeting neither guard is harmless.
+        current_committed = current_committed_by_sprint.get(sprint.pk, 0)
 
         # ADR-0106 §1 — binding drift vs the baseline captured at promote time.
         # Distinct from ``scope_changed`` (which diffs against the *activation*
@@ -1634,21 +1871,16 @@ def compute_milestone_rollup_payload(milestone: Any) -> dict[str, Any] | None:
             completed_tasks += sprint.completed_task_count or 0
         elif sprint.state == SprintState.ACTIVE:
             # Live: count current COMPLETE tasks; the snapshot only fires on close.
-            # ADR-0102 §2: exclude pending injections so a pending task neither
-            # inflates the numerator nor trips ``scope_changed`` prematurely.
-            live = list(
-                committed_sprint_tasks(sprint.pk)
-                .filter(status=TaskStatus.COMPLETE)
-                .values_list("story_points", flat=True)
-            )
-            completed_points += sum(p for p in live if p is not None)
-            completed_tasks += len(live)
+            # ADR-0102 §2: pending injections are already excluded by the
+            # sprint_pending=False filter in _sprint_rollup_aggregates, so a pending
+            # task neither inflates the numerator nor trips ``scope_changed``.
+            live_points, live_count = live_completed_by_sprint.get(sprint.pk, (0, 0))
+            completed_points += live_points
+            completed_tasks += live_count
 
             # Scope-change detection: compare current ACCEPTED backlog points to
             # the activation-time snapshot. Diverges when the PM adds or removes
-            # *accepted* tasks after activation — a pending injection is excluded
-            # so it does not trip the flag before the team accepts it. Reuses the
-            # ``current_committed`` sum computed above.
+            # *accepted* tasks after activation.
             if sprint.committed_points is not None and current_committed != sprint.committed_points:
                 scope_changed = True
 
@@ -1691,6 +1923,56 @@ def compute_milestone_rollup_payload(milestone: Any) -> dict[str, Any] | None:
         "sprint_scope_changed": scope_changed,
         "binding_drifted": binding_drifted,
         "sprint_count": len(targeting),
+    }
+
+
+def batch_compute_milestone_rollups(milestones: Any) -> dict[Any, dict[str, Any] | None]:
+    """Compute rollup payloads for a page of milestones in 2 queries total.
+
+    Returns ``{milestone_pk: payload_or_None}``. Used by ``TaskViewSet.list`` and
+    ``SprintViewSet.list`` to fix the O(milestones × sprints) N+1 (#999): one query
+    for every targeting sprint across the whole page, one grouped aggregate for
+    every sprint's committed/complete points, then pure-Python assembly per
+    milestone. Behavior-identical to calling ``compute_milestone_rollup_payload``
+    once per milestone, but constant in query count regardless of page size.
+    A milestone with no targeting sprints maps to ``None`` (the no-rollup case).
+    """
+    from collections import defaultdict
+
+    from trueppm_api.apps.projects.models import Sprint
+
+    milestone_list = list(milestones)
+    milestone_pks = [m.pk for m in milestone_list]
+    if not milestone_pks:
+        return {}
+
+    targeting = list(
+        Sprint.objects.filter(target_milestone_id__in=milestone_pks, is_deleted=False).only(
+            "pk",
+            "state",
+            "finish_date",
+            "committed_points",
+            "committed_task_count",
+            "completed_points",
+            "completed_task_count",
+            "binding_committed_snapshot",
+            "target_milestone_id",
+        )
+    )
+    by_milestone: dict[Any, list[Any]] = defaultdict(list)
+    for sprint in targeting:
+        by_milestone[sprint.target_milestone_id].append(sprint)
+
+    current_committed_by_sprint, live_completed_by_sprint = _sprint_rollup_aggregates(targeting)
+
+    return {
+        m.pk: _assemble_milestone_rollup(
+            m,
+            by_milestone.get(m.pk, []),
+            current_committed_by_sprint,
+            live_completed_by_sprint,
+        )
+        for m in milestone_list
     }
 
 

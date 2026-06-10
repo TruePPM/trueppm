@@ -786,8 +786,11 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
             200: OpenApiResponse(
                 response=OpenApiTypes.OBJECT,
                 description=(
-                    "Sparse map of resource -> working day -> {hours, task_ids} for "
-                    "the requested window."
+                    "Sparse map of resource -> working day -> "
+                    "{hours, task_ids, load_pct, load_band, overallocated} for the "
+                    "requested window. load_band is on-track | at-risk | critical "
+                    "(>100% load); each resource also carries a top-level "
+                    "overallocated flag (true if any day exceeds 100%)."
                 ),
             ),
             409: OpenApiResponse(
@@ -1681,6 +1684,290 @@ def _planned_start_before_project_start_body(
     }
 
 
+def annotate_tasks_queryset(
+    qs: QuerySet[Task],
+    request: Request | None = None,
+    project_id: str | None = None,
+) -> QuerySet[Task]:
+    """Apply every read-only annotation/prefetch that ``TaskSerializer``'s
+    annotation- and method-backed fields depend on (is_summary, parent_id,
+    percent_complete_rollup, has_predecessors, predecessor_count, is_blocked,
+    linked_risks_*, baseline_*, assignee_is_overallocated, sprint scope changes,
+    acceptance criteria).
+
+    Shared by ``TaskViewSet.get_queryset`` and ``TaskBulkView.post`` so a bulk
+    create/update response re-fetches its tasks through this *annotated* queryset
+    instead of serializing bare instances — without it every annotation-backed
+    field on a bulk result degrades to a per-row live query or a silently-wrong
+    default (#998).
+
+    ``request`` supplies the optional ``?baseline=`` override; ``project_id`` scopes
+    the active-baseline lookup. Both are optional so the non-request bulk re-fetch
+    (which passes ``project_id`` explicitly) still gets the full annotation set.
+    """
+    # Base joins/prefetches matching TaskViewSet's class-level queryset, so a caller
+    # that starts from a bare ``Task.objects`` manager (the #998 bulk re-fetch) gets
+    # the same per-row-query-free serialization as the list path — not just the
+    # annotations below. Idempotent for the viewset path (already applied upstream).
+    qs = qs.select_related("project", "sprint").prefetch_related("assignments__resource")
+
+    # Summary task annotations: is_summary = has at least one direct child,
+    # parent_id = the task whose wbs_path is this task's parent path,
+    # percent_complete_rollup = duration-weighted average of direct children's
+    #   percent_complete (NULL for leaf tasks, avoids per-row raw query in serializer).
+    # Uses ltree operators via RawSQL for PostgreSQL-native performance.
+    qs = qs.annotate(
+        is_summary=RawSQL(
+            "EXISTS("
+            "  SELECT 1 FROM projects_task c"
+            "  WHERE c.project_id = projects_task.project_id"
+            "    AND c.is_deleted = false"
+            "    AND c.id != projects_task.id"
+            "    AND c.wbs_path IS NOT NULL"
+            "    AND projects_task.wbs_path IS NOT NULL"
+            "    AND c.wbs_path ~ (projects_task.wbs_path::text || '.*{1}')::lquery"
+            ")",
+            [],
+            output_field=BooleanField(),
+        ),
+        parent_id=RawSQL(
+            "("
+            "  SELECT p.id FROM projects_task p"
+            "  WHERE p.project_id = projects_task.project_id"
+            "    AND p.is_deleted = false"
+            "    AND projects_task.wbs_path IS NOT NULL"
+            "    AND nlevel(projects_task.wbs_path) > 1"
+            "    AND p.wbs_path = subpath("
+            "        projects_task.wbs_path, 0,"
+            "        nlevel(projects_task.wbs_path) - 1"
+            "    )"
+            "  LIMIT 1"
+            ")",
+            [],
+            output_field=db_models.UUIDField(),
+        ),
+        # Replaces the per-row Task.objects.raw() in TaskSerializer.to_representation.
+        # Returns the delivery-mode-aware weighted average percent_complete of ALL
+        # LEAF descendants, or NULL for leaf tasks (which the serializer leaves
+        # untouched). ADR-0108 §1: each leaf contributes a (weight, pct) pair from
+        # ITS OWN delivery_mode —
+        #   waterfall → pct=percent_complete,  weight=duration (working days)
+        #   scrum     → pct=story-point burndown (100 if COMPLETE, else
+        #               (1 - remaining/story_points)*100, fallback percent_complete),
+        #               weight=story_points (fallback duration)
+        #   kanban    → pct=100 if COMPLETE else 0,  weight=1 (→ parent %=done/total)
+        #   milestone → pct=100 if COMPLETE else 0,  weight=0 (a zero-work gate never
+        #               dilutes the phase percent)
+        # Mixed-mode subtrees sum weights in each leaf's native unit (documented
+        # approximation, ADR-0108). Recurring tasks have wbs_path=NULL so the ltree
+        # match already excludes them.
+        #
+        # Leaf selection: all descendants at any depth ('.*{1,}') minus any that
+        # themselves have children (non-leaf), so only leaves contribute — fixes the
+        # 3-level grandparent-reads-zero case (intermediate summaries aren't persisted).
+        percent_complete_rollup=RawSQL(
+            "("
+            "  SELECT CASE WHEN SUM(w.weight) > 0"
+            "              THEN SUM(w.weight * w.pct) / SUM(w.weight)"
+            "              ELSE NULL END"
+            "  FROM ("
+            "    SELECT"
+            "      CASE c.delivery_mode"
+            "        WHEN 'scrum' THEN COALESCE(c.story_points, c.duration)"
+            "        WHEN 'kanban' THEN 1"
+            "        WHEN 'milestone' THEN 0"
+            "        ELSE c.duration"
+            "      END AS weight,"
+            "      CASE c.delivery_mode"
+            "        WHEN 'scrum' THEN"
+            "          CASE WHEN c.status = 'COMPLETE' THEN 100.0"
+            "               WHEN COALESCE(c.story_points, 0) > 0"
+            "                 THEN (1.0 - COALESCE(c.remaining_points, c.story_points)::float"
+            "                              / c.story_points) * 100.0"
+            "               ELSE c.percent_complete END"
+            "        WHEN 'kanban' THEN"
+            "          CASE WHEN c.status = 'COMPLETE' THEN 100.0 ELSE 0.0 END"
+            "        WHEN 'milestone' THEN"
+            "          CASE WHEN c.status = 'COMPLETE' THEN 100.0 ELSE 0.0 END"
+            "        ELSE c.percent_complete"
+            "      END AS pct"
+            "    FROM projects_task c"
+            "    WHERE c.project_id = projects_task.project_id"
+            "      AND c.is_deleted = false"
+            "      AND projects_task.wbs_path IS NOT NULL"
+            "      AND c.wbs_path ~ (projects_task.wbs_path::text || '.*{1,}')::lquery"
+            "      AND NOT EXISTS ("
+            "        SELECT 1 FROM projects_task gc"
+            "        WHERE gc.project_id = projects_task.project_id"
+            "          AND gc.is_deleted = false"
+            "          AND gc.wbs_path ~ (c.wbs_path::text || '.*{1}')::lquery"
+            "      )"
+            "  ) w"
+            ")",
+            [],
+            output_field=db_models.FloatField(),
+        ),
+    )
+
+    # Readiness annotation: has_predecessors = task has at least one incoming
+    # Dependency edge.  Used by TaskSerializer.get_readiness() to distinguish
+    # 'estimated' (has owner, no predecessors) from 'ready' (has owner + predecessors).
+    qs = qs.annotate(has_predecessors=Exists(Dependency.objects.filter(successor=OuterRef("pk"))))
+
+    # Board batch 3 (#182, #188) — PPM signal annotations consumed by BoardCard:
+    #   predecessor_count       — count of live incoming Dependency edges.
+    #   is_blocked              — True when any predecessor is not yet COMPLETE.
+    #   linked_risks_count      — count of active linked risks (OPEN + MITIGATING only).
+    #   linked_risks_max_severity — Max(probability * impact) across active linked risks.
+    # All four are read-only annotations; no migration. ADR-0035.
+    active_risk_filter = Q(risks__is_deleted=False) & Q(
+        risks__status__in=[RiskStatus.OPEN, RiskStatus.MITIGATING]
+    )
+    qs = qs.annotate(
+        predecessor_count=Count(
+            "predecessors",
+            filter=Q(predecessors__is_deleted=False),
+            distinct=True,
+        ),
+        is_blocked=Exists(
+            Dependency.objects.filter(
+                successor=OuterRef("pk"),
+                is_deleted=False,
+            ).exclude(predecessor__status=TaskStatus.COMPLETE)
+        ),
+        linked_risks_count=Count(
+            "risks",
+            filter=active_risk_filter,
+            distinct=True,
+        ),
+        linked_risks_max_severity=Max(
+            F("risks__probability") * F("risks__impact"),
+            filter=active_risk_filter,
+        ),
+    )
+
+    # Baseline overlay: annotate each task with baseline_start / baseline_finish.
+    # Resolution order:
+    #   1. ?baseline=<id> explicit override
+    #   2. the project's active baseline (is_active=True)
+    #   3. no annotation (both fields are null in the response)
+    resolved_baseline_id: str | None = (
+        request.query_params.get("baseline") if request is not None else None
+    )
+    if resolved_baseline_id is None and project_id:
+        active = (
+            Baseline.objects.filter(project_id=project_id, is_active=True, is_deleted=False)
+            .values_list("id", flat=True)
+            .first()
+        )
+        if active is not None:
+            resolved_baseline_id = str(active)
+
+    if resolved_baseline_id is not None:
+        start_sub = BaselineTask.objects.filter(
+            baseline_id=resolved_baseline_id,
+            task_id=OuterRef("id"),
+        ).values("start")[:1]
+        finish_sub = BaselineTask.objects.filter(
+            baseline_id=resolved_baseline_id,
+            task_id=OuterRef("id"),
+        ).values("finish")[:1]
+        qs = qs.annotate(
+            baseline_start=Subquery(start_sub),
+            baseline_finish=Subquery(finish_sub),
+        )
+
+    # Wave 3 (#210) — passive overalloc indicator in the task detail drawer.
+    # Sum TaskResource.units across all active (non-COMPLETE, non-BACKLOG) tasks
+    # in this project where the assignee user matches the outer task's assignee.
+    # Resource has no direct user FK, so we join through Task.assignee instead of
+    # Resource.user — units allocated to any resource on a task assigned to the
+    # same user contribute to that user's overallocation total.
+    from trueppm_api.apps.resources.models import TaskResource as _TR
+
+    overallocated_subq = (
+        _TR.objects.filter(
+            task__assignee_id=OuterRef("assignee_id"),
+            task__project_id=OuterRef("project_id"),
+            task__status__in=[
+                TaskStatus.NOT_STARTED,
+                TaskStatus.IN_PROGRESS,
+                TaskStatus.REVIEW,
+            ],
+            task__is_deleted=False,
+        )
+        .values("task__assignee_id")
+        .annotate(total=Sum("units"))
+        .filter(total__gt=1.0)
+        .values("total")[:1]
+    )
+    qs = qs.annotate(assignee_is_overallocated=Exists(overallocated_subq))
+
+    # Prefetch sprint scope-change audit rows (ADR-0060) so TaskSerializer
+    # can include them without an N+1 query per task.
+    from trueppm_api.apps.projects.models import SprintScopeChange
+
+    qs = qs.prefetch_related(
+        db_models.Prefetch(
+            "sprint_scope_changes",
+            queryset=SprintScopeChange.objects.select_related("added_by"),
+            to_attr="_prefetched_sprint_scope_changes",
+        ),
+        # Prefetch acceptance criteria (ADR-0105) into the default related
+        # cache so the nested AcceptanceCriterionSerializer and all three
+        # ac_counts-backed method fields (criteria_met_count / criteria_total
+        # / dor_blockers) reuse a single set per task instead of re-querying
+        # per row — without this the four accesses are an N+1 over the task
+        # list (#922). select_related("met_by") collapses the review-trail
+        # name lookup so each criterion's met_by_name costs no extra query.
+        db_models.Prefetch(
+            "acceptance_criteria",
+            queryset=AcceptanceCriterion.objects.select_related("met_by"),
+        ),
+    )
+
+    return cast("QuerySet[Task]", qs)
+
+
+def _attach_milestone_rollups(tasks: list[Task]) -> None:
+    """Pre-compute and attach milestone rollups for a page of tasks (#999).
+
+    Batches every milestone task in ``tasks`` through
+    ``batch_compute_milestone_rollups`` (2 queries total) and stashes the payload
+    on each as ``_milestone_rollup`` so ``TaskSerializer.get_milestone_rollup``
+    reads an attribute instead of an O(milestones × sprints) per-row cascade.
+    Non-milestone tasks are skipped (the serializer short-circuits on them).
+    """
+    from trueppm_api.apps.projects.services import batch_compute_milestone_rollups
+
+    milestones = [t for t in tasks if t.is_milestone]
+    if not milestones:
+        return
+    rollups = batch_compute_milestone_rollups(milestones)
+    for task in milestones:
+        task._milestone_rollup = rollups.get(task.pk)  # type: ignore[attr-defined]
+
+
+def _attach_target_milestone_rollups(sprints: list[Sprint]) -> None:
+    """Pre-compute and attach target-milestone rollups for a page of sprints (#999).
+
+    Mirror of ``_attach_milestone_rollups`` for ``SprintSerializer
+    .get_target_milestone_detail`` — batches every linked target milestone in 2
+    queries and stashes the payload as ``_target_milestone_rollup`` on each sprint.
+    """
+    from trueppm_api.apps.projects.services import batch_compute_milestone_rollups
+
+    milestones = [s.target_milestone for s in sprints if s.target_milestone_id is not None]
+    if not milestones:
+        return
+    rollups = batch_compute_milestone_rollups(milestones)
+    for sprint in sprints:
+        if sprint.target_milestone_id is not None:
+            sprint._target_milestone_rollup = rollups.get(  # type: ignore[attr-defined]
+                sprint.target_milestone_id
+            )
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -1889,222 +2176,26 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         if finish_lte:
             qs = qs.filter(early_start__lte=finish_lte)
 
-        # Summary task annotations: is_summary = has at least one direct child,
-        # parent_id = the task whose wbs_path is this task's parent path,
-        # percent_complete_rollup = duration-weighted average of direct children's
-        #   percent_complete (NULL for leaf tasks, avoids per-row raw query in serializer).
-        # Uses ltree operators via RawSQL for PostgreSQL-native performance.
-        qs = qs.annotate(
-            is_summary=RawSQL(
-                "EXISTS("
-                "  SELECT 1 FROM projects_task c"
-                "  WHERE c.project_id = projects_task.project_id"
-                "    AND c.is_deleted = false"
-                "    AND c.id != projects_task.id"
-                "    AND c.wbs_path IS NOT NULL"
-                "    AND projects_task.wbs_path IS NOT NULL"
-                "    AND c.wbs_path ~ (projects_task.wbs_path::text || '.*{1}')::lquery"
-                ")",
-                [],
-                output_field=BooleanField(),
-            ),
-            parent_id=RawSQL(
-                "("
-                "  SELECT p.id FROM projects_task p"
-                "  WHERE p.project_id = projects_task.project_id"
-                "    AND p.is_deleted = false"
-                "    AND projects_task.wbs_path IS NOT NULL"
-                "    AND nlevel(projects_task.wbs_path) > 1"
-                "    AND p.wbs_path = subpath("
-                "        projects_task.wbs_path, 0,"
-                "        nlevel(projects_task.wbs_path) - 1"
-                "    )"
-                "  LIMIT 1"
-                ")",
-                [],
-                output_field=db_models.UUIDField(),
-            ),
-            # Replaces the per-row Task.objects.raw() in TaskSerializer.to_representation.
-            # Returns the delivery-mode-aware weighted average percent_complete of ALL
-            # LEAF descendants, or NULL for leaf tasks (which the serializer leaves
-            # untouched). ADR-0108 §1: each leaf contributes a (weight, pct) pair from
-            # ITS OWN delivery_mode —
-            #   waterfall → pct=percent_complete,  weight=duration (working days)
-            #   scrum     → pct=story-point burndown (100 if COMPLETE, else
-            #               (1 - remaining/story_points)*100, fallback percent_complete),
-            #               weight=story_points (fallback duration)
-            #   kanban    → pct=100 if COMPLETE else 0,  weight=1 (→ parent %=done/total)
-            #   milestone → pct=100 if COMPLETE else 0,  weight=0 (a zero-work gate never
-            #               dilutes the phase percent)
-            # Mixed-mode subtrees sum weights in each leaf's native unit (documented
-            # approximation, ADR-0108). Recurring tasks have wbs_path=NULL so the ltree
-            # match already excludes them.
-            #
-            # Leaf selection: all descendants at any depth ('.*{1,}') minus any that
-            # themselves have children (non-leaf), so only leaves contribute — fixes the
-            # 3-level grandparent-reads-zero case (intermediate summaries aren't persisted).
-            percent_complete_rollup=RawSQL(
-                "("
-                "  SELECT CASE WHEN SUM(w.weight) > 0"
-                "              THEN SUM(w.weight * w.pct) / SUM(w.weight)"
-                "              ELSE NULL END"
-                "  FROM ("
-                "    SELECT"
-                "      CASE c.delivery_mode"
-                "        WHEN 'scrum' THEN COALESCE(c.story_points, c.duration)"
-                "        WHEN 'kanban' THEN 1"
-                "        WHEN 'milestone' THEN 0"
-                "        ELSE c.duration"
-                "      END AS weight,"
-                "      CASE c.delivery_mode"
-                "        WHEN 'scrum' THEN"
-                "          CASE WHEN c.status = 'COMPLETE' THEN 100.0"
-                "               WHEN COALESCE(c.story_points, 0) > 0"
-                "                 THEN (1.0 - COALESCE(c.remaining_points, c.story_points)::float"
-                "                              / c.story_points) * 100.0"
-                "               ELSE c.percent_complete END"
-                "        WHEN 'kanban' THEN"
-                "          CASE WHEN c.status = 'COMPLETE' THEN 100.0 ELSE 0.0 END"
-                "        WHEN 'milestone' THEN"
-                "          CASE WHEN c.status = 'COMPLETE' THEN 100.0 ELSE 0.0 END"
-                "        ELSE c.percent_complete"
-                "      END AS pct"
-                "    FROM projects_task c"
-                "    WHERE c.project_id = projects_task.project_id"
-                "      AND c.is_deleted = false"
-                "      AND projects_task.wbs_path IS NOT NULL"
-                "      AND c.wbs_path ~ (projects_task.wbs_path::text || '.*{1,}')::lquery"
-                "      AND NOT EXISTS ("
-                "        SELECT 1 FROM projects_task gc"
-                "        WHERE gc.project_id = projects_task.project_id"
-                "          AND gc.is_deleted = false"
-                "          AND gc.wbs_path ~ (c.wbs_path::text || '.*{1}')::lquery"
-                "      )"
-                "  ) w"
-                ")",
-                [],
-                output_field=db_models.FloatField(),
-            ),
-        )
+        return annotate_tasks_queryset(qs, self.request, project_id)
 
-        # Readiness annotation: has_predecessors = task has at least one incoming
-        # Dependency edge.  Used by TaskSerializer.get_readiness() to distinguish
-        # 'estimated' (has owner, no predecessors) from 'ready' (has owner + predecessors).
-        qs = qs.annotate(
-            has_predecessors=Exists(Dependency.objects.filter(successor=OuterRef("pk")))
-        )
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Attach batched milestone rollups to the page before serialization.
 
-        # Board batch 3 (#182, #188) — PPM signal annotations consumed by BoardCard:
-        #   predecessor_count       — count of live incoming Dependency edges.
-        #   is_blocked              — True when any predecessor is not yet COMPLETE.
-        #   linked_risks_count      — count of active linked risks (OPEN + MITIGATING only).
-        #   linked_risks_max_severity — Max(probability * impact) across active linked risks.
-        # All four are read-only annotations; no migration. ADR-0035.
-        active_risk_filter = Q(risks__is_deleted=False) & Q(
-            risks__status__in=[RiskStatus.OPEN, RiskStatus.MITIGATING]
-        )
-        qs = qs.annotate(
-            predecessor_count=Count(
-                "predecessors",
-                filter=Q(predecessors__is_deleted=False),
-                distinct=True,
-            ),
-            is_blocked=Exists(
-                Dependency.objects.filter(
-                    successor=OuterRef("pk"),
-                    is_deleted=False,
-                ).exclude(predecessor__status=TaskStatus.COMPLETE)
-            ),
-            linked_risks_count=Count(
-                "risks",
-                filter=active_risk_filter,
-                distinct=True,
-            ),
-            linked_risks_max_severity=Max(
-                F("risks__probability") * F("risks__impact"),
-                filter=active_risk_filter,
-            ),
-        )
-
-        # Baseline overlay: annotate each task with baseline_start / baseline_finish.
-        # Resolution order:
-        #   1. ?baseline=<id> explicit override
-        #   2. the project's active baseline (is_active=True)
-        #   3. no annotation (both fields are null in the response)
-        resolved_baseline_id: str | None = self.request.query_params.get("baseline")
-        if resolved_baseline_id is None and project_id:
-            active = (
-                Baseline.objects.filter(project_id=project_id, is_active=True, is_deleted=False)
-                .values_list("id", flat=True)
-                .first()
-            )
-            if active is not None:
-                resolved_baseline_id = str(active)
-
-        if resolved_baseline_id is not None:
-            start_sub = BaselineTask.objects.filter(
-                baseline_id=resolved_baseline_id,
-                task_id=OuterRef("id"),
-            ).values("start")[:1]
-            finish_sub = BaselineTask.objects.filter(
-                baseline_id=resolved_baseline_id,
-                task_id=OuterRef("id"),
-            ).values("finish")[:1]
-            qs = qs.annotate(
-                baseline_start=Subquery(start_sub),
-                baseline_finish=Subquery(finish_sub),
-            )
-
-        # Wave 3 (#210) — passive overalloc indicator in the task detail drawer.
-        # Sum TaskResource.units across all active (non-COMPLETE, non-BACKLOG) tasks
-        # in this project where the assignee user matches the outer task's assignee.
-        # Resource has no direct user FK, so we join through Task.assignee instead of
-        # Resource.user — units allocated to any resource on a task assigned to the
-        # same user contribute to that user's overallocation total.
-        from trueppm_api.apps.resources.models import TaskResource as _TR
-
-        overallocated_subq = (
-            _TR.objects.filter(
-                task__assignee_id=OuterRef("assignee_id"),
-                task__project_id=OuterRef("project_id"),
-                task__status__in=[
-                    TaskStatus.NOT_STARTED,
-                    TaskStatus.IN_PROGRESS,
-                    TaskStatus.REVIEW,
-                ],
-                task__is_deleted=False,
-            )
-            .values("task__assignee_id")
-            .annotate(total=Sum("units"))
-            .filter(total__gt=1.0)
-            .values("total")[:1]
-        )
-        qs = qs.annotate(assignee_is_overallocated=Exists(overallocated_subq))
-
-        # Prefetch sprint scope-change audit rows (ADR-0060) so TaskSerializer
-        # can include them without an N+1 query per task.
-        from trueppm_api.apps.projects.models import SprintScopeChange
-
-        qs = qs.prefetch_related(
-            db_models.Prefetch(
-                "sprint_scope_changes",
-                queryset=SprintScopeChange.objects.select_related("added_by"),
-                to_attr="_prefetched_sprint_scope_changes",
-            ),
-            # Prefetch acceptance criteria (ADR-0105) into the default related
-            # cache so the nested AcceptanceCriterionSerializer and all three
-            # ac_counts-backed method fields (criteria_met_count / criteria_total
-            # / dor_blockers) reuse a single set per task instead of re-querying
-            # per row — without this the four accesses are an N+1 over the task
-            # list (#922). select_related("met_by") collapses the review-trail
-            # name lookup so each criterion's met_by_name costs no extra query.
-            db_models.Prefetch(
-                "acceptance_criteria",
-                queryset=AcceptanceCriterion.objects.select_related("met_by"),
-            ),
-        )
-
-        return cast("QuerySet[Task]", qs)
+        ``TaskSerializer.milestone_rollup`` is O(milestones × sprints) when computed
+        per row on the hot Gantt fetch (#999). Batch every milestone in the page in
+        2 queries here and stash the payload on each task instance so the serializer
+        reads an attribute instead of re-querying per milestone.
+        """
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            _attach_milestone_rollups(list(page))
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        tasks = list(queryset)
+        _attach_milestone_rollups(tasks)
+        serializer = self.get_serializer(tasks, many=True)
+        return Response(serializer.data)
 
     def perform_create(self, serializer: BaseSerializer[Task]) -> None:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
@@ -3808,6 +3899,13 @@ class TaskBulkView(IdempotencyMixin, APIView):
                 )
 
         result: dict[str, Any] = {"created": [], "updated": [], "deleted": []}
+        # #998: collect mutated PKs and serialize them in ONE annotated batch
+        # fetch after the loop. Serializing a bare freshly-created / locked Task
+        # degrades every annotation-backed TaskSerializer field (is_summary,
+        # has_predecessors, baseline_*, …) to a per-row live query or a
+        # silently-wrong default — O(N) extra queries on this hot write path.
+        created_ids: list[uuid.UUID] = []
+        updated_ids: list[uuid.UUID] = []
 
         # Fetch the caller's role once for the delete permission check below.
         # delete mirrors IsProjectMemberWriteOrOwn: Admin+ or task assignee.
@@ -3851,7 +3949,7 @@ class TaskBulkView(IdempotencyMixin, APIView):
                             status=status.HTTP_400_BAD_REQUEST,
                         )
                     task = task_serializer.save()
-                    result["created"].append(TaskSerializer(task).data)
+                    created_ids.append(task.pk)
 
                 elif op_type == "update":
                     task = locked_tasks[op["id"]]
@@ -3897,7 +3995,7 @@ class TaskBulkView(IdempotencyMixin, APIView):
                             status=status.HTTP_400_BAD_REQUEST,
                         )
                     task = task_serializer.save()
-                    result["updated"].append(TaskSerializer(task).data)
+                    updated_ids.append(task.pk)
 
                 elif op_type == "delete":
                     task = locked_tasks[op["id"]]
@@ -3921,6 +4019,25 @@ class TaskBulkView(IdempotencyMixin, APIView):
             transaction.on_commit(
                 lambda: broadcast_board_event(project_id, "tasks_bulk_mutated", {})
             )
+
+        # #998: one annotated batch fetch for every created/updated task, instead
+        # of serializing bare instances inside the loop. Runs after the atomic
+        # block commits so the re-fetch sees the final persisted state. Milestone
+        # rollups are batched too (#999) so a bulk milestone mutation does not fan
+        # out per-row on read. Order is preserved per bucket via the id lists.
+        all_ids = created_ids + updated_ids
+        if all_ids:
+            batch = annotate_tasks_queryset(
+                Task.objects.filter(pk__in=all_ids, is_deleted=False), request, str(project.pk)
+            )
+            by_id = {t.pk: t for t in batch}
+            _attach_milestone_rollups(list(by_id.values()))
+            result["created"] = [
+                TaskSerializer(by_id[tid]).data for tid in created_ids if tid in by_id
+            ]
+            result["updated"] = [
+                TaskSerializer(by_id[tid]).data for tid in updated_ids if tid in by_id
+            ]
 
         return Response(result, status=status.HTTP_200_OK)
 
@@ -5465,6 +5582,25 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
             ),
         )
         return cast(QuerySet[Sprint], qs)
+
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Attach batched target-milestone rollups to the page before serialization.
+
+        ``SprintSerializer.target_milestone_detail`` embeds the same rollup payload
+        as ``TaskSerializer.milestone_rollup`` and was likewise O(milestones ×
+        sprints) per row (#999). Batch every linked milestone in the page in 2
+        queries and stash the payload on each sprint instance.
+        """
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            _attach_target_milestone_rollups(list(page))
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        sprints = list(queryset)
+        _attach_target_milestone_rollups(sprints)
+        serializer = self.get_serializer(sprints, many=True)
+        return Response(serializer.data)
 
     def perform_create(self, serializer: BaseSerializer[Sprint]) -> None:
         from trueppm_api.apps.projects.services import recompute_milestone_rollup
@@ -7143,6 +7279,44 @@ class ProjectVelocityView(APIView):
         if not can_read_signal(request, project.pk, "velocity"):
             summary = suppress_velocity_summary(summary)
         return Response(summary, status=status.HTTP_200_OK)
+
+
+@extend_schema(
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description=(
+                "Tier-3 sprint-health signals (ADR-0101 §4). "
+                "{signals: [{key, count, tone, detail}]} — only tripped signals "
+                "are present (orphan tasks, active sprint spanning ≥3 phases, "
+                "parent tasks in a sprint). `tone` is info|warn; `detail` is the "
+                "server-owned consequence copy the client renders verbatim. "
+                "Empty list when the project is healthy."
+            ),
+        ),
+        404: OpenApiResponse(response=OpenApiTypes.OBJECT, description="Project does not exist."),
+    },
+)
+class ProjectSprintHealthView(APIView):
+    """``GET /api/v1/projects/<pk>/sprint-health/`` — server-owned Tier-3 signals (#988).
+
+    The Sprints view's read-only hygiene badges (orphan tasks, active-sprint phase
+    span, parent tasks in a sprint) were derived in the browser, re-parsing WBS
+    dot-paths and synthesizing their own copy (violating web-rule 141). This
+    endpoint moves the count, threshold, tone, and consequence copy server-side so
+    the verdict is identical for any API client and the web renders it verbatim.
+
+    Permission: Member (any role ≥ Viewer) — a team+coach surface, not velocity.
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
+
+    def get(self, request: Request, pk: str) -> Response:
+        from trueppm_api.apps.projects.services import sprint_health
+
+        project = get_object_or_404(Project, pk=pk, is_deleted=False)
+        self.check_object_permissions(request, project)
+        return Response(sprint_health(project.pk), status=status.HTTP_200_OK)
 
 
 class ProjectForecastView(APIView):

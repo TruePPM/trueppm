@@ -154,6 +154,13 @@ export interface UpdateSprintPayload {
    * null to clear (suppresses the WIP chip).
    */
   wip_limit?: number | null;
+  /**
+   * Hold this sprint out of the velocity average/band and forecast (ADR-0113) —
+   * the "Sprint 0" / setup-iteration escape hatch. SCHEDULER+ only. Unlike
+   * capacity_points, editable in EVERY state including COMPLETED (teams realise
+   * the contamination retrospectively).
+   */
+  exclude_from_velocity?: boolean;
 }
 
 export interface CapacityWarning {
@@ -251,6 +258,10 @@ export function useSprintMutations(projectId: string | null | undefined) {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['sprints', projectId] });
+      // exclude_from_velocity (ADR-0113) changes the velocity average/band and
+      // the milestone forecast, so refresh both cards — not just the sprint list.
+      void queryClient.invalidateQueries({ queryKey: ['project', projectId, 'velocity'] });
+      void queryClient.invalidateQueries({ queryKey: ['project', projectId, 'forecast'] });
     },
   });
 
@@ -376,6 +387,12 @@ export interface VelocitySprintEntry {
   completed_points: number | null;
   committed_task_count: number | null;
   completed_task_count: number | null;
+  /**
+   * ADR-0113: this sprint is held out of the velocity average/band and forecast
+   * (a setup/ramp-up "Sprint 0"). The bar is rendered muted + hatched and marked,
+   * not dropped — and it does not contribute to the rolling-avg line or ± band.
+   */
+  exclude_from_velocity: boolean;
 }
 
 export interface ProjectVelocity {
@@ -388,6 +405,11 @@ export interface ProjectVelocity {
   rolling_stdev_tasks: number | null;
   /** Rolling 6-sprint team velocity in points-per-working-day (ADR-0065). */
   team_velocity_per_day: number | null;
+  /**
+   * ADR-0113: how many of the displayed sprints are excluded from velocity, so
+   * the UI can render "N excluded from this forecast" without re-deriving it.
+   */
+  excluded_count: number;
   /**
    * Set by the server (ADR-0104 §2.1) when the requester's tier is below the
    * velocity signal's audience: the per-sprint series and the point-based

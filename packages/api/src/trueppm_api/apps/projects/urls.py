@@ -44,6 +44,7 @@ from trueppm_api.apps.projects.views import (
     ProjectMyTasksView,
     ProjectOverviewView,
     ProjectPresenceView,
+    ProjectSprintHealthView,
     ProjectVelocityView,
     ProjectViewSet,
     RiskCommentViewSet,
@@ -390,6 +391,11 @@ urlpatterns = [
         "projects/<pk>/velocity/",
         ProjectVelocityView.as_view(),
         name="project-velocity",
+    ),
+    path(
+        "projects/<pk>/sprint-health/",
+        ProjectSprintHealthView.as_view(),
+        name="project-sprint-health",
     ),
     # Bridge forecast read: velocity range + sprints-to-complete + per-milestone
     # latest ForecastSnapshot (ADR-0106 §5, #487/#860).

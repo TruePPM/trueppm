@@ -41,12 +41,14 @@ import {
   drawTaskBarLabel,
   drawSummaryBar,
   drawMilestone,
-  drawDependencyArrows,
+  prepareDependencyLayout,
+  paintDependencyLayout,
   drawDragShadow,
   drawResizeIndicator,
   drawActualDateBar,
   drawScheduleVarianceBadge,
 } from './GanttRenderer';
+import type { DependencyLayout } from './GanttRenderer';
 import { HEADER_HEIGHT } from '../scheduleConstants';
 
 // ---------------------------------------------------------------------------
@@ -97,6 +99,11 @@ export class GanttEngineImpl implements GanttEngine {
   private _tasks: Task[] = [];
   private _links: TaskLink[] = [];
   private _scales: GanttScaleData | null = null;
+  // Cached scroll-independent dependency-arrow geometry (#1000). Rebuilt only
+  // when tasks, links, or scales change — NOT on scroll — so panning a
+  // dependency-dense schedule re-projects the cached layout instead of
+  // rebuilding the full-N routing structures every frame. Invalidated to null.
+  private _depLayout: DependencyLayout | null = null;
   private _projectStart = '2024-01-01';
   private _projectEnd = '2025-01-01';
   // Continuous zoom (#351). `pxPerDay` is the source of truth; the discrete
@@ -283,6 +290,7 @@ export class GanttEngineImpl implements GanttEngine {
 
   setLinks(links: TaskLink[]): void {
     this._links = links;
+    this._depLayout = null; // links changed → arrow layout is stale (#1000)
     this._fullRepaintPending = true;
   }
 
@@ -292,6 +300,10 @@ export class GanttEngineImpl implements GanttEngine {
     this._tasks = this._tasks.slice();
     this._tasks[idx] = { ...this._tasks[idx], ...patch };
     this._rebuildHitIndex();
+    // The patch may move/resize/re-parent the task, changing its arrow geometry
+    // (and any arrow anchored to it). Drop the cache so the next full/bars
+    // repaint re-prepares — the dirty-row path itself draws no arrows (#1000).
+    this._depLayout = null;
     this._dirtyRows.add(idx);
   }
 
@@ -571,6 +583,9 @@ export class GanttEngineImpl implements GanttEngine {
       this._projectEnd,
       minWidthPx,
     );
+    // Arrow geometry is scale-dependent (dateToLeft/dateToRight) — drop the cache
+    // so the next paint rebuilds it. Covers setTasks (calls here) and zoom (#1000).
+    this._depLayout = null;
   }
 
   private _rebuildHitIndex(): void {
@@ -780,11 +795,16 @@ export class GanttEngineImpl implements GanttEngine {
       this._paintTaskAt(ctx, i, /* skipLabel */ true);
     }
 
-    drawDependencyArrows(
+    // Prepare the scroll-independent arrow geometry once per data/zoom change and
+    // reuse it across scroll/hover repaints (#1000). _onScroll only flips
+    // _fullRepaintPending; it never invalidates _depLayout, so panning re-projects
+    // the cache instead of rebuilding the full-N routing structures every frame.
+    if (!this._depLayout) {
+      this._depLayout = prepareDependencyLayout(this._tasks, this._links, this._scales);
+    }
+    paintDependencyLayout(
       ctx,
-      this._tasks,
-      this._links,
-      this._scales,
+      this._depLayout,
       this._scrollLeft,
       this._scrollTop,
       this._selectedTaskIds,
