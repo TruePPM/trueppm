@@ -29,6 +29,18 @@ vi.mock('@/features/reports/BurnChart', () => ({
     <div data-testid="burn-chart">burn-chart:{sprintId}</div>
   ),
 }));
+// Stub the promote dialog so the entry-point test asserts open/close without
+// mounting the dialog's own API hooks (candidates / reforecast preview).
+vi.mock('@/features/sprints/PromoteMilestoneDialog', () => ({
+  PromoteMilestoneDialog: ({ sprint, onClose }: { sprint: ApiSprint; onClose: () => void }) => (
+    <div role="dialog" aria-label="Promote dialog stub">
+      promote:{sprint.id}
+      <button type="button" onClick={onClose}>
+        close stub
+      </button>
+    </div>
+  ),
+}));
 
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import {
@@ -218,6 +230,42 @@ describe('SprintPanel', () => {
       }),
     });
     expect(screen.getByText(/Over by 10 \(\+33%\)/i)).toBeInTheDocument();
+  });
+});
+
+describe('SprintPanel promote-to-milestone entry point (#1052)', () => {
+  it('SCHEDULER+ sees "Link to milestone" when the active sprint has no bound milestone', () => {
+    renderPanel({
+      role: ROLE_SCHEDULER,
+      sprint: makeSprint({ state: 'ACTIVE', target_milestone: null }),
+    });
+    expect(screen.getByRole('button', { name: /link to milestone/i })).toBeInTheDocument();
+  });
+
+  it('hides "Link to milestone" once a milestone is bound (rebind lives in the dialog/Sprints view)', () => {
+    renderPanel({
+      role: ROLE_SCHEDULER,
+      sprint: makeSprint({ state: 'ACTIVE', target_milestone: 'm-1' }),
+    });
+    expect(screen.queryByRole('button', { name: /link to milestone/i })).toBeNull();
+  });
+
+  it('does not show "Link to milestone" for MEMBER (schedule-authoring gate)', () => {
+    renderPanel({
+      role: ROLE_MEMBER,
+      sprint: makeSprint({ state: 'ACTIVE', target_milestone: null }),
+    });
+    expect(screen.queryByRole('button', { name: /link to milestone/i })).toBeNull();
+  });
+
+  it('opens the promote dialog when "Link to milestone" is clicked', () => {
+    renderPanel({
+      role: ROLE_SCHEDULER,
+      sprint: makeSprint({ state: 'ACTIVE', target_milestone: null }),
+    });
+    expect(screen.queryByRole('dialog', { name: /promote dialog stub/i })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /link to milestone/i }));
+    expect(screen.getByRole('dialog', { name: /promote dialog stub/i })).toBeInTheDocument();
   });
 });
 

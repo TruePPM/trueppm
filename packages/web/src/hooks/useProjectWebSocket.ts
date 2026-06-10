@@ -419,6 +419,27 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         void queryClient.invalidateQueries({ queryKey: ['sprints', projectIdRef.current] });
       }
 
+      // --- Milestone forecast events (ADR-0106 §3.4, #1007) ---
+      else if (event_type === 'milestone_forecast_updated') {
+        // A sprint close or (re)bind reforecast a bound milestone and persisted a
+        // new ForecastSnapshot. The per-milestone snapshot is served by the
+        // project forecast read, and the promote dialog's live preview shares the
+        // same CPM spine — refresh both (plus the slim milestone list, whose
+        // early_finish may have shifted) so a peer viewing the forecast or promote
+        // surfaces on another tab sees the new range without reloading. The
+        // forecast read is project-scoped, so the payload's milestone_id is not
+        // needed to target it.
+        void queryClient.invalidateQueries({
+          queryKey: ['project', projectIdRef.current, 'forecast'],
+        });
+        void queryClient.invalidateQueries({
+          queryKey: ['project-milestones', projectIdRef.current],
+        });
+        void queryClient.invalidateQueries({
+          predicate: (q) => q.queryKey[0] === 'reforecast-preview',
+        });
+      }
+
       // --- Resource assignment events ---
       else if (
         event_type === 'assignment_created' ||

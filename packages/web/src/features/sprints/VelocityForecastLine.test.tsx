@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router';
 
 vi.mock('@/hooks/useSprints', async () => {
   const actual = await vi.importActual<typeof import('@/hooks/useSprints')>('@/hooks/useSprints');
@@ -50,12 +51,14 @@ function mockForecast(data: ProjectForecast | undefined, isLoading = false) {
 
 function renderLine(props: Partial<Parameters<typeof VelocityForecastLine>[0]> = {}) {
   return render(
-    <VelocityForecastLine
-      projectId="p1"
-      targetMilestoneId={null}
-      enabled
-      {...props}
-    />,
+    <MemoryRouter>
+      <VelocityForecastLine
+        projectId="p1"
+        targetMilestoneId={null}
+        enabled
+        {...props}
+      />
+    </MemoryRouter>,
   );
 }
 
@@ -107,12 +110,40 @@ describe('VelocityForecastLine (#607)', () => {
     expect(screen.getByTestId('velocity-forecast-line')).toHaveTextContent(/more sprints/i);
   });
 
-  it('shows the insufficient-history fallback when the range is unknown', () => {
+  it('shows the actionable warm-up nudge with N-of-3 progress and input links below the floor (#1052)', () => {
+    // One closed sprint → "Sprint 2 of 3" (closed + the one in flight).
     mockForecast(forecast({ sprints_to_complete_low: null, sprints_to_complete_high: null }));
     renderLine();
-    expect(screen.getByTestId('velocity-forecast-line')).toHaveTextContent(
-      /at least 3 closed sprints/i,
+    const line = screen.getByTestId('velocity-forecast-line');
+    expect(line).toHaveTextContent(/Sprint 2 of 3 toward your first forecast/i);
+    expect(screen.getByRole('link', { name: /story points on your backlog/i })).toHaveAttribute(
+      'href',
+      '/projects/p1/product-backlog',
     );
+    expect(screen.getByRole('link', { name: /capacity set/i })).toHaveAttribute(
+      'href',
+      '/projects/p1/board',
+    );
+  });
+
+  it('drops the N-of-3 progress framing once the closed-sprint floor is reached but the band is still null (#1052)', () => {
+    // Three closed sprints but no band (e.g. no story points to re-pace) — the
+    // progress line would read as stalled, so only the input nudges remain.
+    const threeClosed = forecast({
+      sprints_to_complete_low: null,
+      sprints_to_complete_high: null,
+    });
+    threeClosed.velocity.sprints = [
+      threeClosed.velocity.sprints[0],
+      { ...threeClosed.velocity.sprints[0], id: '2', name: 'S2' },
+      { ...threeClosed.velocity.sprints[0], id: '3', name: 'S3' },
+    ];
+    mockForecast(threeClosed);
+    renderLine();
+    const line = screen.getByTestId('velocity-forecast-line');
+    expect(line).not.toHaveTextContent(/of 3 toward/i);
+    expect(line).toHaveTextContent(/not enough signal/i);
+    expect(screen.getByRole('link', { name: /story points on your backlog/i })).toBeInTheDocument();
   });
 
   it('reports a fully-delivered scope when no committed backlog remains', () => {
