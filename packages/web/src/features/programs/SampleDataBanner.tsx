@@ -44,7 +44,7 @@ export function SampleDataBanner({ programId, canRemove }: SampleDataBannerProps
               type="button"
               onClick={onRemove}
               disabled={removeSample.isPending}
-              className="h-8 rounded bg-semantic-critical px-3 text-xs font-medium text-white hover:bg-semantic-critical/90 disabled:opacity-60"
+              className="h-8 rounded bg-semantic-critical px-3 text-xs font-medium text-white hover:bg-semantic-critical/90 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-semantic-critical"
             >
               {removeSample.isPending ? 'Removing…' : 'Remove'}
             </button>

@@ -88,7 +88,7 @@ export function SprintHeader({
           }
           className="h-8 px-3 rounded text-xs font-medium border border-neutral-border
             text-neutral-text-secondary hover:text-neutral-text-primary
-            disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-neutral-text-secondary
+            disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed disabled:hover:text-neutral-text-secondary
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         >
           Plan next sprint
@@ -103,7 +103,7 @@ export function SprintHeader({
           // still parses as a clickable destructive action — too subtle.
           className="h-8 px-3 rounded text-xs font-medium border bg-transparent
             border-semantic-critical/40 text-semantic-critical hover:bg-semantic-critical-bg
-            disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent
+            disabled:cursor-not-allowed disabled:bg-neutral-surface-sunken disabled:hover:bg-neutral-surface-sunken
             disabled:border-neutral-border disabled:text-neutral-text-disabled
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1"
         >

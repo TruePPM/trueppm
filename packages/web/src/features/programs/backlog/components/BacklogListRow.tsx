@@ -94,7 +94,7 @@ export function BacklogListRow({
         {draggable && (
           <DragHandleIcon
             aria-hidden="true"
-            className="absolute h-3.5 w-3.5 cursor-grab text-neutral-text-secondary opacity-0 group-hover:opacity-100"
+            className="absolute h-3.5 w-3.5 cursor-grab text-neutral-text-secondary opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
           />
         )}
       </span>

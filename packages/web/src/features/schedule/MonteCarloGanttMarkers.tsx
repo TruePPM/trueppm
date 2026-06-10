@@ -15,19 +15,19 @@ const MARKERS = [
   {
     key: 'p50' as const,
     label: 'P50',
-    lineClass: 'bg-semantic-on-track/40',
+    lineClass: 'bg-semantic-on-track-bg',
     chipClass: 'text-semantic-on-track border-semantic-on-track/40',
   },
   {
     key: 'p80' as const,
     label: 'P80',
-    lineClass: 'bg-semantic-at-risk/40',
+    lineClass: 'bg-semantic-at-risk-bg',
     chipClass: 'text-semantic-at-risk border-semantic-at-risk/40',
   },
   {
     key: 'p95' as const,
     label: 'P95',
-    lineClass: 'bg-semantic-critical/40',
+    lineClass: 'bg-semantic-critical-bg',
     chipClass: 'text-semantic-critical border-semantic-critical/40',
   },
 ] as const;

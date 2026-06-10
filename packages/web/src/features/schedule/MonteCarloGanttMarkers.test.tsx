@@ -95,4 +95,25 @@ describe('MonteCarloGanttMarkers', () => {
     const p80 = screen.getByTestId('mc-marker-p80');
     expect(p80.className).toContain('pointer-events-none');
   });
+
+  // Rule 8b: the /40 opacity modifier applies alpha to the token RGB and will
+  // not match the pre-computed dark-mode RGBA, so marker lines must use the
+  // -bg tokens (issue #1030).
+  it('renders marker lines with the -bg semantic tokens, not /40 opacity', () => {
+    const ref = createRef<HTMLDivElement>();
+    const { container } = render(
+      <MonteCarloGanttMarkers
+        result={FIXTURE_MC_RESULT}
+        scaleData={MOCK_SCALE_DATA}
+        canvasScrollRef={ref}
+      />,
+    );
+    const html = container.innerHTML;
+    expect(html).toContain('bg-semantic-on-track-bg');
+    expect(html).toContain('bg-semantic-at-risk-bg');
+    expect(html).toContain('bg-semantic-critical-bg');
+    expect(html).not.toContain('bg-semantic-on-track/40');
+    expect(html).not.toContain('bg-semantic-at-risk/40');
+    expect(html).not.toContain('bg-semantic-critical/40');
+  });
 });

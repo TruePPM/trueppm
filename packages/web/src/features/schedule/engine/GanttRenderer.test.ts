@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   drawDependencyArrows,
   drawSummaryBar,
@@ -972,5 +972,47 @@ describe('drawDependencyArrows — summary tasks are anchorable without plannedS
     const { ctx, calls } = makeArrowCtxSpy();
     drawDependencyArrows(ctx, tasks, links, scales, 0, 0);
     expect(calls.filter((c) => c.name === 'arc')).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// drawTaskBar — in-bar label contrast across palettes (#1032)
+// In dark mode the bar fills are the light 400 stops (sage-400, blue-400),
+// where white in-bar text fails WCAG 1.4.3; the dark palette flips the chip /
+// initial text to near-black ink. Light mode keeps white on its darker fills.
+// ---------------------------------------------------------------------------
+
+import { setRendererColorMode, COLOR_DARK } from './GanttRenderer';
+
+describe('drawTaskBar — in-bar label contrast (#1032)', () => {
+  const scales = buildScaleData('week', '2026-04-01', '2026-05-01');
+  const VIEWPORT_W = 800;
+  const labelledTask = () =>
+    makeBarTask({
+      progress: 50,
+      assignees: [{ name: 'Jane Doe' }] as unknown as Task['assignees'],
+    });
+
+  // Restore the default light palette so palette state never leaks into the
+  // surrounding suite (the active palette is module-global).
+  afterEach(() => setRendererColorMode(false));
+
+  it('uses white in-bar text on the darker light-mode fills', () => {
+    setRendererColorMode(false);
+    const { ctx, calls } = makeCtxSpy();
+    drawTaskBar(ctx, labelledTask(), 0, scales, 0, false, VIEWPORT_W);
+    const fills = calls.filter((c) => c.name === 'fillStyle').map((c) => c.args[0]);
+    expect(fills).toContain('#FFFFFF');
+    expect(fills).not.toContain('#1A1917');
+  });
+
+  it('uses near-black ink in-bar text on the light 400-stop dark-mode fills', () => {
+    setRendererColorMode(true);
+    const { ctx, calls } = makeCtxSpy();
+    drawTaskBar(ctx, labelledTask(), 0, scales, 0, false, VIEWPORT_W);
+    const fills = calls.filter((c) => c.name === 'fillStyle').map((c) => c.args[0]);
+    expect(COLOR_DARK.chipTextOnSurface).toBe('#1A1917');
+    expect(fills).toContain(COLOR_DARK.chipTextOnSurface);
+    expect(fills).not.toContain('#FFFFFF');
   });
 });

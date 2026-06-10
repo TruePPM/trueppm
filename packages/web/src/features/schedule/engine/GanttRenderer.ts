@@ -93,8 +93,10 @@ export const COLOR = {
   ghostBorder:    'rgba(100,116,139,0.55)',
   // Chip text tokens (ADR-0040 #212): named so a future high-contrast theme
   // can override them without touching draw call sites.
+  // Light mode uses the darker 500/600 bar stops, where white in-bar text reads
+  // (the dark palette flips these to ink — see COLOR_DARK, issue #1032).
   chipTextOnCritical: '#FFFFFF',  // semantic-on-critical
-  chipTextOnSurface:  '#FFFFFF',  // semantic-on-surface (white reads on every bar fill)
+  chipTextOnSurface:  '#FFFFFF',  // semantic-on-surface
 } as const;
 
 /** Semantic type for the color palette. Both COLOR and COLOR_DARK satisfy this. */
@@ -120,8 +122,14 @@ export const COLOR_DARK: ColorPalette = {
   selectionRing:  '#E9EDF3',   // reversed ink — pale ring, distinct from sage bars on dark (ADR-0103)
   ghostFill:      'rgba(100,116,139,0.12)',
   ghostBorder:    'rgba(100,116,139,0.55)',
-  chipTextOnCritical: '#FFFFFF',
-  chipTextOnSurface:  '#FFFFFF',
+  // In dark mode the bar fills are the 400 stops (sage-400 #66B998, blue-400,
+  // red-400) — light enough that white in-bar text fails WCAG 1.4.3 (white on
+  // sage-400 ≈ 2.27:1). Near-black reads on every 400 fill (≈15.5:1 on sage-400),
+  // so the dark-surface chip/initial text is ink, not white (brand SKILL §11,
+  // issue #1032). Light mode keeps white because its fills are the darker
+  // 500/600 stops.
+  chipTextOnCritical: '#1A1917',
+  chipTextOnSurface:  '#1A1917',
 };
 
 // Active palette — swapped by GanttEngineImpl before each paint pass.
