@@ -128,12 +128,12 @@ _EVENT_TARGET_KIND = {
     "task.ac_met": "task",
     "sprint.activate": "sprint",
     "sprint.close": "sprint",
-    "sprint.scope_inject": "sprint",
-    "sprint.scope_resolve": "sprint",
+    # Scope inject/resolve target the task being injected; its ACTIVE sprint is
+    # derived from task.sprint, matching record_sprint_scope_change(task, sprint).
+    "sprint.scope_inject": "task",
+    "sprint.scope_resolve": "task",
     "baseline.capture": "project",
     "risk.status": "risk",
-    "retro.action": None,
-    "retro.promote": "task",
 }
 
 

@@ -326,14 +326,13 @@
             "sprint.scope_inject",
             "sprint.scope_resolve",
             "baseline.capture",
-            "risk.status",
-            "retro.action",
-            "retro.promote"
-          ]
+            "risk.status"
+          ],
+          "description": "v2.0 replayed actions. retro.* (needs SprintRetro) and time.log (needs the #926 time-entry model) are deferred — see ADR-0113."
         },
         "target": {
           "type": "string",
-          "description": "\"task:<taskRef>\", \"sprint:<project-slug>:<sprint-slug>\", or \"risk:<slug>\". Required for every action except program-level retro events.",
+          "description": "What the event mutates: \"task:<project-slug>:<wbs-path>\" (task.*, scope_inject/resolve), \"sprint:<project-slug>:<sprint-slug>\" (sprint.activate/close), \"project:<project-slug>\" (baseline.capture), or \"risk:<slug>\" (risk.status).",
           "maxLength": 320
         },
         "from": { "type": "string", "maxLength": 64 },
