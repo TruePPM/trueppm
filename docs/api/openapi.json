@@ -7252,6 +7252,57 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/sprint-health/": {
+            "get": {
+                "operationId": "v1_projects_sprint_health_retrieve",
+                "description": "``GET /api/v1/projects/<pk>/sprint-health/`` — server-owned Tier-3 signals (#988).\n\nThe Sprints view's read-only hygiene badges (orphan tasks, active-sprint phase\nspan, parent tasks in a sprint) were derived in the browser, re-parsing WBS\ndot-paths and synthesizing their own copy (violating web-rule 141). This\nendpoint moves the count, threshold, tone, and consequence copy server-side so\nthe verdict is identical for any API client and the web renders it verbatim.\n\nPermission: Member (any role ≥ Viewer) — a team+coach surface, not velocity.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Tier-3 sprint-health signals (ADR-0101 §4). {signals: [{key, count, tone, detail}]} — only tripped signals are present (orphan tasks, active sprint spanning ≥3 phases, parent tasks in a sprint). `tone` is info|warn; `detail` is the server-owned consequence copy the client renders verbatim. Empty list when the project is healthy."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Project does not exist."
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/status-summary/": {
             "get": {
                 "operationId": "v1_projects_status_summary_retrieve",

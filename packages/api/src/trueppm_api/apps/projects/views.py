@@ -7240,6 +7240,44 @@ class ProjectVelocityView(APIView):
         return Response(summary, status=status.HTTP_200_OK)
 
 
+@extend_schema(
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description=(
+                "Tier-3 sprint-health signals (ADR-0101 §4). "
+                "{signals: [{key, count, tone, detail}]} — only tripped signals "
+                "are present (orphan tasks, active sprint spanning ≥3 phases, "
+                "parent tasks in a sprint). `tone` is info|warn; `detail` is the "
+                "server-owned consequence copy the client renders verbatim. "
+                "Empty list when the project is healthy."
+            ),
+        ),
+        404: OpenApiResponse(response=OpenApiTypes.OBJECT, description="Project does not exist."),
+    },
+)
+class ProjectSprintHealthView(APIView):
+    """``GET /api/v1/projects/<pk>/sprint-health/`` — server-owned Tier-3 signals (#988).
+
+    The Sprints view's read-only hygiene badges (orphan tasks, active-sprint phase
+    span, parent tasks in a sprint) were derived in the browser, re-parsing WBS
+    dot-paths and synthesizing their own copy (violating web-rule 141). This
+    endpoint moves the count, threshold, tone, and consequence copy server-side so
+    the verdict is identical for any API client and the web renders it verbatim.
+
+    Permission: Member (any role ≥ Viewer) — a team+coach surface, not velocity.
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
+
+    def get(self, request: Request, pk: str) -> Response:
+        from trueppm_api.apps.projects.services import sprint_health
+
+        project = get_object_or_404(Project, pk=pk, is_deleted=False)
+        self.check_object_permissions(request, project)
+        return Response(sprint_health(project.pk), status=status.HTTP_200_OK)
+
+
 class ProjectForecastView(APIView):
     """``GET /api/v1/projects/<pk>/forecast/`` — the bridge forecast read (ADR-0106 §5).
 
