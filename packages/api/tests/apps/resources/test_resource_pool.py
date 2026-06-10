@@ -489,6 +489,56 @@ class TestTaskSkillRequirementViewSet:
         req.refresh_from_db()
         assert req.min_proficiency == 1
 
+    def test_destroy_below_scheduler_on_target_project_is_forbidden(
+        self,
+        viewer_client: APIClient,
+        viewer_membership: ProjectMembership,
+        task: Task,
+        react_skill: Skill,
+    ) -> None:
+        """#995 sibling: a Viewer on the target project cannot DELETE a skill
+        requirement there even though they pass IsOrgScheduler elsewhere. The
+        membership-scoped get_queryset alone would let a low-role *member* reach
+        the row; perform_destroy must re-assert the SCHEDULER floor."""
+        other = Project.objects.create(name="Delta", start_date=date(2026, 4, 1))
+        ProjectMembership.objects.create(
+            project=other, user=viewer_membership.user, role=Role.SCHEDULER
+        )
+        req = TaskSkillRequirement.objects.create(task=task, skill=react_skill, min_proficiency=1)
+        res = viewer_client.delete(f"/api/v1/task-skill-requirements/{req.pk}/")
+        assert res.status_code == 403
+        assert TaskSkillRequirement.objects.filter(pk=req.pk, is_deleted=False).exists()
+
+    def test_update_repointing_task_to_non_member_project_is_forbidden(
+        self,
+        scheduler_client: APIClient,
+        scheduler_membership: ProjectMembership,
+        calendar: Calendar,
+        task: Task,
+        react_skill: Skill,
+    ) -> None:
+        """#995: perform_update guards the repointed ``task`` too. A SCHEDULER may
+        edit a requirement on their own project but cannot move it onto a task in
+        a project where they lack SCHEDULER — closing the repoint side-channel."""
+        req = TaskSkillRequirement.objects.create(task=task, skill=react_skill, min_proficiency=1)
+        other_project = Project.objects.create(
+            name="Echo", start_date=date(2026, 4, 1), calendar=calendar
+        )
+        other_task = Task.objects.create(
+            project=other_project,
+            name="E-task",
+            duration=3,
+            early_start=date(2026, 4, 1),
+            early_finish=date(2026, 4, 3),
+        )
+        res = scheduler_client.patch(
+            f"/api/v1/task-skill-requirements/{req.pk}/",
+            {"task": str(other_task.pk)},
+        )
+        assert res.status_code == 403
+        req.refresh_from_db()
+        assert req.task_id == task.pk
+
 
 # ---------------------------------------------------------------------------
 # Skill-fit annotation on resource list
