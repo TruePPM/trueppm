@@ -10,8 +10,10 @@ import {
   useSprintMutations,
   useSprintCapacity,
   useProjectVelocity,
+  useSprintOutcome,
   type CapacityWarning,
 } from '@/hooks/useSprints';
+import { SprintClosedOutcome } from './SprintClosedOutcome';
 import { SprintHeader } from './SprintHeader';
 import { SprintGoalCard } from './SprintGoalCard';
 import { AdvancingToMilestoneCard } from './AdvancingToMilestoneCard';
@@ -124,6 +126,33 @@ export function SprintsView() {
   const plannedSprint = buckets.planned[0] ?? null;
   const hasPlannedSprint = buckets.planned.length > 0;
   const projectName = projectQuery.data?.name;
+
+  // The timeline strip is a sprint SELECTOR (ADR-0094 + #567 amendment): the
+  // workspace body renders the state-appropriate surface for the SELECTED sprint
+  // so a user can review ANY past sprint, not just the most-recently-closed one.
+  // Lifecycle actions (Close/Plan/Activate) stay tied to the real active/planned
+  // sprint regardless of selection (one-active-sprint model). Default selection:
+  // active → next planned → most-recently-closed.
+  const [selectedSprintId, setSelectedSprintId] = useState<string | null>(null);
+  useEffect(() => {
+    if (selectedSprintId !== null) return;
+    const fallback =
+      activeSprint?.id ??
+      plannedSprint?.id ??
+      buckets.closed[buckets.closed.length - 1]?.id ??
+      null;
+    if (fallback) setSelectedSprintId(fallback);
+  }, [selectedSprintId, activeSprint, plannedSprint, buckets.closed]);
+  const selectedSprint = useMemo(
+    () => sprints.find((s) => s.id === selectedSprintId) ?? null,
+    [sprints, selectedSprintId],
+  );
+  // The consolidated review read (#985) — the server-owned source for the CLOSED
+  // outcome cards + "didn't ship". Only fetched for a closed selection; the
+  // active view keeps its existing burndown/capacity/velocity panels.
+  const outcomeQuery = useSprintOutcome(selectedSprint?.id, {
+    enabled: !!selectedSprint && selectedSprint.state === 'COMPLETED',
+  });
 
   // Metrics row queries — only fire when we have an active sprint.
   const capacity = useSprintCapacity(activeSprint?.id);
@@ -422,38 +451,55 @@ export function SprintsView() {
           </div>
         )}
 
-        {!isLoading && !error && activeSprint && (
+        {!isLoading && !error && selectedSprint && (
           <>
             <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
               <div className="md:col-span-3">
                 <SprintGoalCard
-                  sprint={activeSprint}
+                  sprint={selectedSprint}
                   projectId={projectId ?? ''}
-                  canEdit={canManageScope}
+                  canEdit={canManageScope && selectedSprint.state !== 'COMPLETED'}
                 />
               </div>
               <div className="md:col-span-2">
-                <AdvancingToMilestoneCard sprint={activeSprint} projectId={projectId ?? ''} />
+                <AdvancingToMilestoneCard sprint={selectedSprint} projectId={projectId ?? ''} />
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-              <div className="md:col-span-3">
-                <BurnChart sprintId={activeSprint.id} defaultVariant="burndown" />
+            {/* ACTIVE — burndown + capacity + velocity (unchanged this MR; the
+                ADR-0094 "launcher" dedup is a follow-up). */}
+            {selectedSprint.state === 'ACTIVE' && (
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                <div className="md:col-span-3">
+                  <BurnChart sprintId={selectedSprint.id} defaultVariant="burndown" />
+                </div>
+                <div className="md:col-span-2 flex flex-col gap-4">
+                  {capacity.data ? (
+                    <CapacityPreflight capacity={capacity.data} />
+                  ) : (
+                    <ChartSkeleton label="Capacity Preflight" />
+                  )}
+                  {velocity.data ? (
+                    <VelocityPanel velocity={velocity.data} />
+                  ) : (
+                    <ChartSkeleton label="Velocity" />
+                  )}
+                </div>
               </div>
-              <div className="md:col-span-2 flex flex-col gap-4">
-                {capacity.data ? (
-                  <CapacityPreflight capacity={capacity.data} />
+            )}
+
+            {/* CLOSED — read-only outcome (5-card row + "what didn't ship") bound
+                to /outcome/, plus the frozen historical burndown. */}
+            {selectedSprint.state === 'COMPLETED' && (
+              <div className="flex flex-col gap-4">
+                {outcomeQuery.data ? (
+                  <SprintClosedOutcome outcome={outcomeQuery.data} />
                 ) : (
-                  <ChartSkeleton label="Capacity Preflight" />
+                  <ChartSkeleton label="Sprint outcome" />
                 )}
-                {velocity.data ? (
-                  <VelocityPanel velocity={velocity.data} />
-                ) : (
-                  <ChartSkeleton label="Velocity" />
-                )}
+                <BurnChart sprintId={selectedSprint.id} defaultVariant="burndown" />
               </div>
-            </div>
+            )}
           </>
         )}
         </div>
@@ -463,6 +509,8 @@ export function SprintsView() {
             closed={buckets.closed}
             active={buckets.active}
             planned={buckets.planned}
+            selectedSprintId={selectedSprint?.id ?? null}
+            onSelect={setSelectedSprintId}
             onPlanNext={handlePlanNext}
             onActivate={handleActivateSprint}
             onEditPlanned={handleEditPlanned}
@@ -471,7 +519,8 @@ export function SprintsView() {
           />
         )}
 
-        {!isLoading && !error && activeSprint && projectId && (
+        {/* Editable backlog only for the active sprint when it is selected. */}
+        {!isLoading && !error && selectedSprint?.id === activeSprint?.id && activeSprint && projectId && (
           <SprintBacklogTable
             projectId={projectId}
             sprintId={activeSprint.id}
@@ -481,7 +530,8 @@ export function SprintsView() {
           />
         )}
 
-        {!isLoading && !error && !activeSprint && plannedSprint && projectId && (
+        {/* Planned backlog (with carryover lane) when the next planned sprint is selected. */}
+        {!isLoading && !error && selectedSprint?.id === plannedSprint?.id && plannedSprint && projectId && (
           <SprintBacklogTable
             projectId={projectId}
             sprintId={plannedSprint.id}
@@ -493,19 +543,17 @@ export function SprintsView() {
           />
         )}
 
-        {!isLoading && !error && (() => {
-          // Retro panel attaches to the active sprint while one is running,
-          // otherwise to the most-recently-closed sprint so the team can
-          // amend the retro after close. Hidden when neither exists.
-          const target = activeSprint ?? buckets.closed[buckets.closed.length - 1] ?? null;
-          if (!target) return null;
-          return (
+        {/* Retro follows the selected sprint when it is active or closed (the
+            two states a retro belongs to); hidden for a planned selection. */}
+        {!isLoading &&
+          !error &&
+          selectedSprint &&
+          (selectedSprint.state === 'ACTIVE' || selectedSprint.state === 'COMPLETED') && (
             <RetroPanel
-              sprintId={target.id}
-              isClosed={target.state === 'COMPLETED'}
+              sprintId={selectedSprint.id}
+              isClosed={selectedSprint.state === 'COMPLETED'}
             />
-          );
-        })()}
+          )}
       </main>
         </>
       )}
