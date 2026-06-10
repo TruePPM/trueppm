@@ -1138,6 +1138,10 @@ interface PendingPath {
   alpha?: number;
   arrowhead?: { tipX: number; tipY: number; angle: number };
   bezier?: { cx1: number; cx2: number };
+  /** Inclusive task-row span the path crosses, for the halo spatial index (#1000).
+   *  A path's segments only overlap bar bodies in these rows, so the halo pass
+   *  queries `barByRow` over this range instead of scanning every bar. */
+  rows?: { min: number; max: number };
 }
 
 interface PendingJunction {
@@ -1348,50 +1352,96 @@ export interface DepArrowHoverChain {
   successors: ReadonlySet<string>;
 }
 
-export function drawDependencyArrows(
-  ctx: CanvasRenderingContext2D,
+/**
+ * Scroll-independent geometry + link grouping for the dependency-arrow layer,
+ * computed once per (tasks, links, scales) change and re-projected by the
+ * current scroll on every paint (#1000). All coordinates are CANVAS-ORIGIN;
+ * `paintDependencyLayout` subtracts scrollLeft/scrollTop. Caching this on the
+ * engine and rebuilding it only on data/zoom changes (not per scroll frame) is
+ * what keeps panning a dependency-dense schedule at frame rate.
+ */
+export interface DependencyLayout {
+  /** taskId → anchor geometry (canvas-origin) + hierarchy, for arrow endpoints. */
+  nodes: Map<string, DepNode>;
+  /** Obstacle box per task ROW INDEX (canvas-origin); undefined for unscheduled
+   *  rows. Indexed by row so an arrow's obstacle/halo lookups touch only the
+   *  bars in its row span instead of scanning all N. */
+  barByRow: Array<(RoutingBox & { id: string }) | undefined>;
+  /** FS links grouped by target (merge-junction detection); redundant edges dropped. */
+  fsByTarget: Map<string, TaskLink[]>;
+  /** SS / FF / SF links (cubic Bézier; no Manhattan routing). */
+  nonFSLinks: TaskLink[];
+  /** Nothing to paint (no links). */
+  empty: boolean;
+}
+
+interface DepNode {
+  rowIndex: number;
+  /** canvas-origin (no scroll) anchor X of the bar's left/right arrow vertex. */
+  barLeft: number;
+  barRight: number;
+  isCritical: boolean;
+  isMilestone: boolean;
+  parentId: string | null;
+}
+
+/** Walk the parent chain (within `nodes`) to test ancestry — used for
+ *  redundant-edge suppression and target-transparent obstacle filtering. */
+function depIsAncestor(
+  nodes: Map<string, DepNode>,
+  candidateId: string,
+  descendantId: string,
+): boolean {
+  const desc = nodes.get(descendantId);
+  if (!desc) return false;
+  let parentId = desc.parentId;
+  while (parentId) {
+    if (parentId === candidateId) return true;
+    const parent = nodes.get(parentId);
+    if (!parent) return false;
+    parentId = parent.parentId;
+  }
+  return false;
+}
+
+export function prepareDependencyLayout(
   tasks: Task[],
   links: TaskLink[],
   scales: GanttScaleData,
-  scrollLeft: number,
-  scrollTop: number,
-  selectedTaskIds: ReadonlySet<string> = EMPTY_SELECTION,
-  hoverChain: DepArrowHoverChain | null = null,
-): void {
-  if (links.length === 0) return;
+): DependencyLayout {
+  const nodes = new Map<string, DepNode>();
+  const barByRow = new Array<(RoutingBox & { id: string }) | undefined>(tasks.length);
+  if (links.length === 0) {
+    return { nodes, barByRow, fsByTarget: new Map(), nonFSLinks: [], empty: true };
+  }
+  const milestoneHalfDiag = Math.ceil((MILESTONE_SIZE / 2) * Math.SQRT2); // = 9px
 
-  // Build a quick lookup: taskId → { rowIndex, barLeft, barRight }
-  // Skip unscheduled tasks (empty start/finish) — NaN coordinates in the map
-  // can cause degenerate Bézier paths or unexpected arrow rendering (#92).
-  // Anchor map: leaves, milestones, and summaries can ALL be arrow endpoints.
-  // Summary rollups have diamond endcaps that extend ±milestoneHalfDiag past
-  // the rectangular body, so we anchor arrows on the OUTER vertex of those
-  // endcaps (same as milestones) — otherwise the arrow's exit stub starts
-  // INSIDE the visible endcap diamond and reads as disconnected.
-  const taskMap = new Map<string, { rowIndex: number; barLeft: number; barRight: number; isCritical: boolean; isMilestone: boolean; parentId: string | null }>();
-  const milestoneHalfDiag = Math.ceil(MILESTONE_SIZE / 2 * Math.SQRT2); // = 9px
+  // Anchor map (CANVAS-ORIGIN): leaves, milestones, and summaries can ALL be
+  // arrow endpoints. Skip unscheduled tasks (empty start/finish) — NaN
+  // coordinates cause degenerate paths (#92). Summary rollups have diamond
+  // endcaps extending ±milestoneHalfDiag past the rect, so arrows anchor on the
+  // OUTER vertex of those endcaps (same as milestones).
   for (let i = 0; i < tasks.length; i++) {
     const t = tasks[i];
     if (!t.start || !t.finish) continue;
     if (!t.isSummary && !t.plannedStart && !t.sprintId) continue;
-    const cx = dateToLeft(t.start, scales) - scrollLeft;
+    const cx = dateToLeft(t.start, scales);
     // finish is inclusive — arrows attach at the true (exclusive) bar edge (#950).
-    const rectRight = dateToRight(t.finish, scales) - scrollLeft;
+    const rectRight = dateToRight(t.finish, scales);
     let anchorLeft: number, anchorRight: number;
     if (t.isMilestone) {
-      anchorLeft  = cx - milestoneHalfDiag;
+      anchorLeft = cx - milestoneHalfDiag;
       anchorRight = cx + milestoneHalfDiag;
     } else if (t.isSummary) {
-      // Endcap diamonds extend ±milestoneHalfDiag past the rect.
-      anchorLeft  = cx - milestoneHalfDiag;
+      anchorLeft = cx - milestoneHalfDiag;
       anchorRight = rectRight + milestoneHalfDiag;
     } else {
-      anchorLeft  = cx;
+      anchorLeft = cx;
       anchorRight = rectRight;
     }
-    taskMap.set(t.id, {
+    nodes.set(t.id, {
       rowIndex: i,
-      barLeft:  anchorLeft,
+      barLeft: anchorLeft,
       barRight: anchorRight,
       isCritical: t.isCritical,
       isMilestone: !!t.isMilestone,
@@ -1399,29 +1449,22 @@ export function drawDependencyArrows(
     });
   }
 
-
-  const cpWidth  = ctx.canvas.width  / (window.devicePixelRatio || 1);
-  const cpHeight = ctx.canvas.height / (window.devicePixelRatio || 1);
-
-  // Obstacle list — every rendered bar including summary rollups. We DO want
-  // arrows to route around visible summary bars in general; per-arrow filtering
-  // (below, via `obstaclesFor`) removes ancestor summaries so arrows into a
-  // phase's child don't see that phase as a wall.
-  const allBars: Array<RoutingBox & { id: string }> = [];
+  // Obstacle box per row (CANVAS-ORIGIN) — every rendered bar including summary
+  // rollups. Per-arrow filtering (in paint) removes the arrow's endpoints and
+  // ancestor summaries so a child arrow doesn't see its phase as a wall.
   for (let i = 0; i < tasks.length; i++) {
     const t = tasks[i];
     if (!t.start || !t.finish) continue;
-    const cx = dateToLeft(t.start, scales) - scrollLeft;
-    const rectLeft  = t.isMilestone ? cx - milestoneHalfDiag : cx;
+    const cx = dateToLeft(t.start, scales);
+    const rectLeft = t.isMilestone ? cx - milestoneHalfDiag : cx;
     // Non-milestone finish is inclusive — obstacle box ends at the true edge (#950).
-    const rectRight = t.isMilestone ? cx + milestoneHalfDiag : dateToRight(t.finish, scales) - scrollLeft;
-    const rowCenterY = i * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2 - scrollTop;
+    const rectRight = t.isMilestone ? cx + milestoneHalfDiag : dateToRight(t.finish, scales);
+    const rowCenterY = i * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2;
     let boxLeft: number, boxRight: number, halfH: number;
     if (t.isMilestone) {
       boxLeft = rectLeft; boxRight = rectRight;
       halfH = milestoneHalfDiag;
     } else if (t.isSummary) {
-      // Endcap diamonds extend ±milestoneHalfDiag past the rect bounds.
       boxLeft = rectLeft - milestoneHalfDiag;
       boxRight = rectRight + milestoneHalfDiag;
       halfH = milestoneHalfDiag;
@@ -1429,44 +1472,13 @@ export function drawDependencyArrows(
       boxLeft = rectLeft; boxRight = rectRight;
       halfH = BAR_HEIGHT / 2;
     }
-    allBars.push({
-      id:     t.id,
-      x:      boxLeft,
-      y:      rowCenterY - halfH,
-      width:  boxRight - boxLeft,
+    barByRow[i] = {
+      id: t.id,
+      x: boxLeft,
+      y: rowCenterY - halfH,
+      width: boxRight - boxLeft,
       height: halfH * 2,
-    });
-  }
-
-  // Hierarchy lookup for ancestor checks (target-transparent obstacles and
-  // redundant-edge suppression). taskMap already carries parentId so we walk
-  // the chain there.
-  const isAncestor = (candidateId: string, descendantId: string): boolean => {
-    const desc = taskMap.get(descendantId);
-    if (!desc) return false;
-    let parentId = desc.parentId;
-    while (parentId) {
-      if (parentId === candidateId) return true;
-      const parent = taskMap.get(parentId);
-      if (!parent) return false;
-      parentId = parent.parentId;
-    }
-    return false;
-  };
-
-  // Per-arrow obstacle filter: every bar is a WALL except (a) the arrow's own
-  // source and target and (b) any ancestor of the target. Ancestors are
-  // conceptually transparent — a summary rollup is a visual aggregation of its
-  // children, not a real wall. Without this exclusion, an arrow from an outside
-  // task to a deep descendant has to detour the full width of every containing
-  // summary bar (often a chart-spanning U), even though the descent could pass
-  // cleanly through the rollup's body.
-  function obstaclesFor(srcId: string, tgtId: string): RoutingBox[] {
-    return allBars.filter((b) => {
-      if (b.id === srcId || b.id === tgtId) return false;
-      if (isAncestor(b.id, tgtId)) return false;
-      return true;
-    });
+    };
   }
 
   // Pre-filter: suppress redundant FS edges. When a source has FS to a summary
@@ -1495,7 +1507,7 @@ export function drawDependencyArrows(
         const tgt = taskByIdFull.get(link.targetId);
         if (!tgt || tgt.isSummary) continue;
         for (const summaryId of summaryTargetIds) {
-          if (isAncestor(summaryId, link.targetId)) {
+          if (depIsAncestor(nodes, summaryId, link.targetId)) {
             droppedLinks.add(link);
             break;
           }
@@ -1504,11 +1516,7 @@ export function drawDependencyArrows(
     }
   }
 
-  // Group FS links by target (for merge junctions — convergences). Junction
-  // dots only mark TRUE convergences (multiple distinct arrow lines arriving
-  // at one point). Split T-junctions on a shared V column look like ordinary
-  // corners to the eye (one V line passing through + one H branching off) so
-  // they get no dot.
+  // Group FS links by target (merge junctions); collect non-FS for Bézier.
   const fsByTarget = new Map<string, TaskLink[]>();
   const nonFSLinks: TaskLink[] = [];
   for (const link of links) {
@@ -1522,6 +1530,96 @@ export function drawDependencyArrows(
     }
   }
 
+  return { nodes, barByRow, fsByTarget, nonFSLinks, empty: false };
+}
+
+type DepScreenNode = {
+  rowIndex: number;
+  barLeft: number;
+  barRight: number;
+  isCritical: boolean;
+  isMilestone: boolean;
+  parentId: string | null;
+};
+
+/**
+ * Paint a cached {@link DependencyLayout} at the current scroll offset. This is
+ * the per-scroll-frame hot path: it re-projects the cached canvas-origin
+ * geometry by scroll and re-routes only the on-screen arrows. Obstacle and halo
+ * lookups query `barByRow` over each arrow's row span (exact — findBlockingBar
+ * and the halo cut only ever touch bars whose rows overlap the path), so the
+ * cost is O(visible_rows + visible_links + visible_links²) with the O(N) setup
+ * amortized to `prepareDependencyLayout`.
+ */
+export function paintDependencyLayout(
+  ctx: CanvasRenderingContext2D,
+  layout: DependencyLayout,
+  scrollLeft: number,
+  scrollTop: number,
+  selectedTaskIds: ReadonlySet<string> = EMPTY_SELECTION,
+  hoverChain: DepArrowHoverChain | null = null,
+): void {
+  if (layout.empty) return;
+  const { nodes, barByRow, fsByTarget, nonFSLinks } = layout;
+  const milestoneHalfDiag = Math.ceil((MILESTONE_SIZE / 2) * Math.SQRT2); // = 9px
+
+  const cpWidth  = ctx.canvas.width  / (window.devicePixelRatio || 1);
+  const cpHeight = ctx.canvas.height / (window.devicePixelRatio || 1);
+
+  // Project a cached canvas-origin node into screen space. Called only for tasks
+  // touched by a link, so the paint stays O(visible) rather than rebuilding an
+  // N-entry map per frame.
+  const getScreen = (id: string): DepScreenNode | undefined => {
+    const n = nodes.get(id);
+    if (!n) return undefined;
+    return {
+      rowIndex: n.rowIndex,
+      barLeft: n.barLeft - scrollLeft,
+      barRight: n.barRight - scrollLeft,
+      isCritical: n.isCritical,
+      isMilestone: n.isMilestone,
+      parentId: n.parentId,
+    };
+  };
+
+  const rowY = (rowIndex: number): number =>
+    rowIndex * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2 - scrollTop;
+
+  // Per-arrow obstacle filter, row-banded (#1000). Every bar in the arrow's row
+  // span (±1 for endcap overhang) is a WALL except the arrow's own source/target
+  // and any ancestor of the target (transparent rollups). Restricting to the
+  // span is exact: findBlockingBar only crosses bars whose y overlaps the V-drop,
+  // which lies within these rows — replacing the prior O(N) allBars.filter run
+  // once per visible link. Returned boxes are screen-space.
+  const obstaclesFor = (srcId: string, tgtId: string, rA: number, rB: number): RoutingBox[] => {
+    const out: RoutingBox[] = [];
+    const lo = Math.max(0, Math.min(rA, rB) - 1);
+    const hi = Math.min(barByRow.length - 1, Math.max(rA, rB) + 1);
+    for (let r = lo; r <= hi; r++) {
+      const bar = barByRow[r];
+      if (!bar) continue;
+      if (bar.id === srcId || bar.id === tgtId) continue;
+      if (depIsAncestor(nodes, bar.id, tgtId)) continue;
+      out.push({ x: bar.x - scrollLeft, y: bar.y - scrollTop, width: bar.width, height: bar.height });
+    }
+    return out;
+  };
+
+  // Screen-space bars in a row band for the halo channel cut. Includes ALL bars
+  // in range (the halo cuts across any bar a line overlaps, including the arrow's
+  // own endpoints).
+  const screenBarsInRows = (rMin: number, rMax: number): RoutingBox[] => {
+    const out: RoutingBox[] = [];
+    const lo = Math.max(0, rMin - 1);
+    const hi = Math.min(barByRow.length - 1, rMax + 1);
+    for (let r = lo; r <= hi; r++) {
+      const bar = barByRow[r];
+      if (!bar) continue;
+      out.push({ x: bar.x - scrollLeft, y: bar.y - scrollTop, width: bar.width, height: bar.height });
+    }
+    return out;
+  };
+
   // ------------------------------------------------------------------------
   // PHASE 1 — collect every drawable path into pendingPaths without stroking.
   // The collect-then-draw pattern is required for Rule 15 Type A bridge hops:
@@ -1531,11 +1629,11 @@ export function drawDependencyArrows(
   const pendingPaths: PendingPath[] = [];
   const pendingJunctions: PendingJunction[] = [];
 
-  const pushSingleFS = (link: TaskLink, src: NonNullable<ReturnType<typeof taskMap.get>>): void => {
-    const srcY = src.rowIndex * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2 - scrollTop;
-    const tgt = taskMap.get(link.targetId);
+  const pushSingleFS = (link: TaskLink, src: DepScreenNode): void => {
+    const srcY = rowY(src.rowIndex);
+    const tgt = getScreen(link.targetId);
     if (!tgt) return;
-    const tgtY = tgt.rowIndex * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2 - scrollTop;
+    const tgtY = rowY(tgt.rowIndex);
     if (offScreen(src.barRight, tgt.barLeft, srcY, tgtY, cpWidth, cpHeight)) return;
     const isSelected = selectedTaskIds.has(link.sourceId) || selectedTaskIds.has(link.targetId);
     const role = arrowRole(link.sourceId, link.targetId, hoverChain);
@@ -1544,35 +1642,43 @@ export function drawDependencyArrows(
     const tipX = tgt.isMilestone ? tgt.barLeft : tgt.barLeft - 1;
     const srcBox = boxFor(src, srcY, milestoneHalfDiag);
     const tgtBox = boxFor(tgt, tgtY, milestoneHalfDiag);
-    const pts = calculateDependencyPath(srcBox, tgtBox, obstaclesFor(link.sourceId, link.targetId), cpHeight, tipX - arrowSize);
-    pendingPaths.push({ pts, stroke, lineWidth, alpha, arrowhead: { tipX, tipY: tgtY, angle: 0 } });
+    const obstacles = obstaclesFor(link.sourceId, link.targetId, src.rowIndex, tgt.rowIndex);
+    const pts = calculateDependencyPath(srcBox, tgtBox, obstacles, cpHeight, tipX - arrowSize);
+    pendingPaths.push({
+      pts,
+      stroke,
+      lineWidth,
+      alpha,
+      arrowhead: { tipX, tipY: tgtY, angle: 0 },
+      rows: { min: Math.min(src.rowIndex, tgt.rowIndex), max: Math.max(src.rowIndex, tgt.rowIndex) },
+    });
   };
 
   for (const [targetId, group] of fsByTarget) {
-    const tgt = taskMap.get(targetId);
+    const tgt = getScreen(targetId);
     if (!tgt) continue;
-    const tgtY = tgt.rowIndex * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2 - scrollTop;
+    const tgtY = rowY(tgt.rowIndex);
     const useMergeJunction = group.length >= 2;
 
     if (!useMergeJunction) {
       for (const link of group) {
-        const src = taskMap.get(link.sourceId);
+        const src = getScreen(link.sourceId);
         if (src) pushSingleFS(link, src);
       }
       continue;
     }
 
     let selectedGroup = selectedTaskIds.has(targetId);
-    const validPreds: { link: TaskLink; src: NonNullable<ReturnType<typeof taskMap.get>> }[] = [];
+    const validPreds: { link: TaskLink; src: DepScreenNode }[] = [];
     for (const link of group) {
-      const src = taskMap.get(link.sourceId);
+      const src = getScreen(link.sourceId);
       if (!src) continue;
       validPreds.push({ link, src });
       if (selectedTaskIds.has(link.sourceId)) selectedGroup = true;
     }
     if (validPreds.length < 2) {
       for (const link of group) {
-        const src = taskMap.get(link.sourceId);
+        const src = getScreen(link.sourceId);
         if (src) pushSingleFS(link, src);
       }
       continue;
@@ -1594,16 +1700,22 @@ export function drawDependencyArrows(
     // Each predecessor's path ends AT the junction (no arrowhead — the trunk
     // carries the only arrowhead).
     for (const { link, src } of validPreds) {
-      const srcY = src.rowIndex * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2 - scrollTop;
+      const srcY = rowY(src.rowIndex);
       const isSelected = selectedTaskIds.has(link.sourceId) || selectedTaskIds.has(link.targetId);
       const role = arrowRole(link.sourceId, link.targetId, hoverChain);
       const { stroke, lineWidth, alpha } = arrowPen(isSelected, role);
       const srcBox = boxFor(src, srcY, milestoneHalfDiag);
       const tgtBox = boxFor(tgt, tgtY, milestoneHalfDiag);
       if (offScreen(src.barRight, junctionX, srcY, junctionY, cpWidth, cpHeight)) continue;
-      const obstaclesForLink = obstaclesFor(link.sourceId, link.targetId);
+      const obstaclesForLink = obstaclesFor(link.sourceId, link.targetId, src.rowIndex, tgt.rowIndex);
       const pts = calculateDependencyPath(srcBox, tgtBox, obstaclesForLink, cpHeight, junctionX, true);
-      pendingPaths.push({ pts, stroke, lineWidth, alpha });
+      pendingPaths.push({
+        pts,
+        stroke,
+        lineWidth,
+        alpha,
+        rows: { min: Math.min(src.rowIndex, tgt.rowIndex), max: Math.max(src.rowIndex, tgt.rowIndex) },
+      });
     }
 
     // Trunk: 2-point horizontal from junction east to the arrowhead base.
@@ -1618,6 +1730,7 @@ export function drawDependencyArrows(
       lineWidth: trunkLineWidth,
       alpha: trunkAlpha,
       arrowhead: { tipX, tipY: junctionY, angle: 0 },
+      rows: { min: tgt.rowIndex, max: tgt.rowIndex },
     });
 
     pendingJunctions.push({ x: junctionX, y: junctionY, stroke: trunkStroke });
@@ -1630,11 +1743,11 @@ export function drawDependencyArrows(
   // SS / FF / SF — cubic Bézier. Skipped from hop detection (Bézier-vs-Manhattan
   // crossings are out of scope for Rule 15 v1).
   for (const link of nonFSLinks) {
-    const src = taskMap.get(link.sourceId);
-    const tgt = taskMap.get(link.targetId);
+    const src = getScreen(link.sourceId);
+    const tgt = getScreen(link.targetId);
     if (!src || !tgt) continue;
-    const srcY = src.rowIndex * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2 - scrollTop;
-    const tgtY = tgt.rowIndex * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2 - scrollTop;
+    const srcY = rowY(src.rowIndex);
+    const tgtY = rowY(tgt.rowIndex);
     let x1: number, x2: number, cx1: number, cx2: number;
     switch (link.type) {
       case 'SS': x1 = src.barLeft;  x2 = tgt.barLeft;  cx1 = x1 - 40; cx2 = x2 - 40; break;
@@ -1670,7 +1783,11 @@ export function drawDependencyArrows(
   // first's stroke.
   // ------------------------------------------------------------------------
   for (let i = 0; i < pendingPaths.length; i++) {
-    drawSegmentHalos(ctx, pendingPaths[i], allBars);
+    const p = pendingPaths[i];
+    // Bézier (SS/FF/SF) paths get no halo (drawSegmentHalos no-ops on them) and
+    // carry no row span — skip without a bar lookup. Manhattan paths query only
+    // the bars in their row band (#1000) instead of every bar on the chart.
+    if (p.rows) drawSegmentHalos(ctx, p, screenBarsInRows(p.rows.min, p.rows.max));
   }
 
   // ------------------------------------------------------------------------
@@ -1696,6 +1813,32 @@ export function drawDependencyArrows(
     ctx.fill();
     ctx.restore();
   }
+}
+
+/**
+ * Draw dependency arrows in one shot (prepare + paint). Retained for callers and
+ * tests that pass tasks/links directly; the engine's hot scroll path instead
+ * caches a {@link DependencyLayout} via `prepareDependencyLayout` and calls
+ * `paintDependencyLayout` per frame so the O(N) prepare runs only on data change.
+ */
+export function drawDependencyArrows(
+  ctx: CanvasRenderingContext2D,
+  tasks: Task[],
+  links: TaskLink[],
+  scales: GanttScaleData,
+  scrollLeft: number,
+  scrollTop: number,
+  selectedTaskIds: ReadonlySet<string> = EMPTY_SELECTION,
+  hoverChain: DepArrowHoverChain | null = null,
+): void {
+  paintDependencyLayout(
+    ctx,
+    prepareDependencyLayout(tasks, links, scales),
+    scrollLeft,
+    scrollTop,
+    selectedTaskIds,
+    hoverChain,
+  );
 }
 
 const EMPTY_SELECTION: ReadonlySet<string> = new Set();
