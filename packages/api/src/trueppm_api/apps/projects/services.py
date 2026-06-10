@@ -1496,12 +1496,7 @@ def compute_milestone_rollup_payload(milestone: Any) -> dict[str, Any] | None:
     backlog-points sum diverges from its activation-snapshot ``committed_points``
     — surfaced so the % can be trusted even when scope has shifted mid-sprint.
     """
-    from trueppm_api.apps.projects.models import (
-        Sprint,
-        SprintState,
-        TaskStatus,
-        committed_sprint_tasks,
-    )
+    from trueppm_api.apps.projects.models import Sprint
 
     targeting = list(
         Sprint.objects.filter(target_milestone_id=milestone.pk, is_deleted=False).only(
@@ -1515,6 +1510,77 @@ def compute_milestone_rollup_payload(milestone: Any) -> dict[str, Any] | None:
             "binding_committed_snapshot",
         )
     )
+    if not targeting:
+        return None
+    current_committed_by_sprint, live_completed_by_sprint = _sprint_rollup_aggregates(targeting)
+    return _assemble_milestone_rollup(
+        milestone, targeting, current_committed_by_sprint, live_completed_by_sprint
+    )
+
+
+def _sprint_rollup_aggregates(
+    sprints: list[Any],
+) -> tuple[dict[Any, int], dict[Any, tuple[int, int]]]:
+    """Per-sprint commitment aggregates for the milestone rollup, in ONE query.
+
+    Returns ``(current_committed_by_sprint, live_completed_by_sprint)`` keyed by
+    sprint pk. ``current_committed`` is the accepted (pending-excluded) committed
+    story-point sum used by the binding-drift and scope-changed checks;
+    ``live_completed`` is ``(points, count)`` of COMPLETE tasks (consumed only for
+    ACTIVE sprints).
+
+    Replaces the 2–4 ``committed_sprint_tasks()`` round-trips *per sprint* that
+    made the milestone rollup O(milestones × sprints) on the hot task-list fetch
+    (#999), collapsing them to one grouped aggregate over every sprint at once.
+    CANCELLED sprints are excluded (they contribute nothing to the rollup).
+    """
+    from django.db.models import Count, Q, Sum
+
+    from trueppm_api.apps.projects.models import SprintState, Task, TaskStatus
+
+    sprint_ids = [s.pk for s in sprints if s.state != SprintState.CANCELLED]
+    if not sprint_ids:
+        return {}, {}
+
+    # Mirrors committed_sprint_tasks() (sprint_pending=False) — inlined because that
+    # helper is single-sprint; the sprint_pending=False filter is the load-bearing
+    # ADR-0102 commitment invariant and must stay identical here.
+    rows = (
+        Task.objects.filter(sprint_id__in=sprint_ids, is_deleted=False, sprint_pending=False)
+        .values("sprint_id")
+        .annotate(
+            committed_points=Sum("story_points"),
+            complete_points=Sum("story_points", filter=Q(status=TaskStatus.COMPLETE)),
+            complete_count=Count("pk", filter=Q(status=TaskStatus.COMPLETE)),
+        )
+    )
+
+    current_committed: dict[Any, int] = {}
+    live_completed: dict[Any, tuple[int, int]] = {}
+    for row in rows:
+        current_committed[row["sprint_id"]] = row["committed_points"] or 0
+        live_completed[row["sprint_id"]] = (
+            row["complete_points"] or 0,
+            row["complete_count"] or 0,
+        )
+    return current_committed, live_completed
+
+
+def _assemble_milestone_rollup(
+    milestone: Any,
+    targeting: list[Any],
+    current_committed_by_sprint: dict[Any, int],
+    live_completed_by_sprint: dict[Any, tuple[int, int]],
+) -> dict[str, Any] | None:
+    """Assemble a milestone rollup payload from pre-fetched per-sprint aggregates.
+
+    Pure-Python — issues no queries. Shared by ``compute_milestone_rollup_payload``
+    (single milestone) and ``batch_compute_milestone_rollups`` (page-batched, #999)
+    so the two paths cannot drift. See ``compute_milestone_rollup_payload`` for the
+    state-by-state contribution rules.
+    """
+    from trueppm_api.apps.projects.models import SprintState
+
     if not targeting:
         return None
 
@@ -1538,19 +1604,12 @@ def compute_milestone_rollup_payload(milestone: Any) -> dict[str, Any] | None:
         committed_points += sprint.committed_points or 0
         committed_tasks += sprint.committed_task_count or 0
 
-        # Current accepted (pending-excluded) committed points. Computed at most
-        # once per sprint and reused by both the binding-drift (ADR-0106 §1) and
-        # the scope-changed (ADR-0102) checks below, so an ACTIVE sprint that is
-        # also bound does not issue the same query twice.
-        current_committed: int | None = None
-        if sprint.binding_committed_snapshot is not None or (
-            sprint.state == SprintState.ACTIVE and sprint.committed_points is not None
-        ):
-            current_committed = sum(
-                p
-                for p in committed_sprint_tasks(sprint.pk).values_list("story_points", flat=True)
-                if p is not None
-            )
+        # Current accepted (pending-excluded) committed points, pre-aggregated by
+        # _sprint_rollup_aggregates. Defaults to 0 for a sprint with no committed
+        # tasks — matching the empty-sum semantics of the prior per-sprint query.
+        # Only consulted under the binding-drift / scope-changed guards below, so a
+        # default for sprints meeting neither guard is harmless.
+        current_committed = current_committed_by_sprint.get(sprint.pk, 0)
 
         # ADR-0106 §1 — binding drift vs the baseline captured at promote time.
         # Distinct from ``scope_changed`` (which diffs against the *activation*
@@ -1568,21 +1627,16 @@ def compute_milestone_rollup_payload(milestone: Any) -> dict[str, Any] | None:
             completed_tasks += sprint.completed_task_count or 0
         elif sprint.state == SprintState.ACTIVE:
             # Live: count current COMPLETE tasks; the snapshot only fires on close.
-            # ADR-0102 §2: exclude pending injections so a pending task neither
-            # inflates the numerator nor trips ``scope_changed`` prematurely.
-            live = list(
-                committed_sprint_tasks(sprint.pk)
-                .filter(status=TaskStatus.COMPLETE)
-                .values_list("story_points", flat=True)
-            )
-            completed_points += sum(p for p in live if p is not None)
-            completed_tasks += len(live)
+            # ADR-0102 §2: pending injections are already excluded by the
+            # sprint_pending=False filter in _sprint_rollup_aggregates, so a pending
+            # task neither inflates the numerator nor trips ``scope_changed``.
+            live_points, live_count = live_completed_by_sprint.get(sprint.pk, (0, 0))
+            completed_points += live_points
+            completed_tasks += live_count
 
             # Scope-change detection: compare current ACCEPTED backlog points to
             # the activation-time snapshot. Diverges when the PM adds or removes
-            # *accepted* tasks after activation — a pending injection is excluded
-            # so it does not trip the flag before the team accepts it. Reuses the
-            # ``current_committed`` sum computed above.
+            # *accepted* tasks after activation.
             if sprint.committed_points is not None and current_committed != sprint.committed_points:
                 scope_changed = True
 
@@ -1625,6 +1679,56 @@ def compute_milestone_rollup_payload(milestone: Any) -> dict[str, Any] | None:
         "sprint_scope_changed": scope_changed,
         "binding_drifted": binding_drifted,
         "sprint_count": len(targeting),
+    }
+
+
+def batch_compute_milestone_rollups(milestones: Any) -> dict[Any, dict[str, Any] | None]:
+    """Compute rollup payloads for a page of milestones in 2 queries total.
+
+    Returns ``{milestone_pk: payload_or_None}``. Used by ``TaskViewSet.list`` and
+    ``SprintViewSet.list`` to fix the O(milestones × sprints) N+1 (#999): one query
+    for every targeting sprint across the whole page, one grouped aggregate for
+    every sprint's committed/complete points, then pure-Python assembly per
+    milestone. Behavior-identical to calling ``compute_milestone_rollup_payload``
+    once per milestone, but constant in query count regardless of page size.
+    A milestone with no targeting sprints maps to ``None`` (the no-rollup case).
+    """
+    from collections import defaultdict
+
+    from trueppm_api.apps.projects.models import Sprint
+
+    milestone_list = list(milestones)
+    milestone_pks = [m.pk for m in milestone_list]
+    if not milestone_pks:
+        return {}
+
+    targeting = list(
+        Sprint.objects.filter(target_milestone_id__in=milestone_pks, is_deleted=False).only(
+            "pk",
+            "state",
+            "finish_date",
+            "committed_points",
+            "committed_task_count",
+            "completed_points",
+            "completed_task_count",
+            "binding_committed_snapshot",
+            "target_milestone_id",
+        )
+    )
+    by_milestone: dict[Any, list[Any]] = defaultdict(list)
+    for sprint in targeting:
+        by_milestone[sprint.target_milestone_id].append(sprint)
+
+    current_committed_by_sprint, live_completed_by_sprint = _sprint_rollup_aggregates(targeting)
+
+    return {
+        m.pk: _assemble_milestone_rollup(
+            m,
+            by_milestone.get(m.pk, []),
+            current_committed_by_sprint,
+            live_completed_by_sprint,
+        )
+        for m in milestone_list
     }
 
 
