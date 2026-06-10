@@ -384,6 +384,133 @@ def upsert_burndown_for_sprint(sprint: Any, snapshot_date: date | None = None) -
 
 
 # ---------------------------------------------------------------------------
+# Tier-3 sprint-health — read-time hygiene signals (ADR-0101 §4)
+# ---------------------------------------------------------------------------
+
+
+def sprint_health(project_id: str | uuid.UUID) -> dict[str, Any]:
+    """Tier-3 read-time sprint-health signals for a project (ADR-0101 §4, #988).
+
+    Returns the same orphan / active-sprint-phase-span / parent-task-in-sprint
+    signals the Sprints view used to derive in the browser — but the count, the
+    show/hide threshold (the verdict), the tone, AND the consequence copy are all
+    server-owned now, so a headless/MCP client gets identical guidance and the web
+    renders ``detail`` verbatim (web-rule 141: never re-invent WBS jargon).
+
+    Read-only; never blocks. Only *tripped* signals are returned (orphan > 0,
+    active sprint spans ≥ 3 phases, any parent task in a sprint); a healthy
+    project yields an empty list, mirroring the badge row that fades away when
+    there is nothing to act on. This is a team+coach surface, not a velocity
+    one — no signal-privacy gate applies (ADR-0101 §4).
+    """
+    from django.db.models import BooleanField, IntegerField, TextField
+    from django.db.models.expressions import RawSQL
+
+    from trueppm_api.apps.projects.models import Sprint, SprintState, Task
+
+    active_sprint_id = (
+        Sprint.objects.filter(project_id=project_id, state=SprintState.ACTIVE, is_deleted=False)
+        .values_list("id", flat=True)
+        .first()
+    )
+
+    # ``_has_child`` mirrors TaskViewSet.get_queryset()'s ``is_summary`` annotation
+    # verbatim: a task is a "parent" iff some other non-deleted task sits exactly
+    # one ltree level beneath it. Kept in lockstep with that query — if the summary
+    # shape changes there, change it here too.
+    has_child_sql = (
+        "EXISTS("
+        "  SELECT 1 FROM projects_task c"
+        "  WHERE c.project_id = projects_task.project_id"
+        "    AND c.is_deleted = false"
+        "    AND c.id != projects_task.id"
+        "    AND c.wbs_path IS NOT NULL"
+        "    AND projects_task.wbs_path IS NOT NULL"
+        "    AND c.wbs_path ~ (projects_task.wbs_path::text || '.*{1}')::lquery"
+        ")"
+    )
+    # ltree depth (nlevel) and L1 root label — the "phase" a task rolls up to.
+    # NULL wbs_path → depth 0 / no phase, matching the web's `!wbs` handling.
+    depth_sql = (
+        "CASE WHEN projects_task.wbs_path IS NULL THEN 0 ELSE nlevel(projects_task.wbs_path) END"
+    )
+    l1_sql = (
+        "CASE WHEN projects_task.wbs_path IS NULL THEN NULL "
+        "ELSE subpath(projects_task.wbs_path, 0, 1)::text END"
+    )
+
+    rows = list(
+        Task.objects.filter(project_id=project_id, is_deleted=False)
+        .annotate(
+            _has_child=RawSQL(has_child_sql, [], output_field=BooleanField()),
+            _depth=RawSQL(depth_sql, [], output_field=IntegerField()),
+            _l1=RawSQL(l1_sql, [], output_field=TextField()),
+        )
+        .values("is_milestone", "sprint_id", "_has_child", "_depth", "_l1")
+    )
+
+    # Orphan: a leaf, non-milestone task with no sprint and no phase ancestor
+    # (top-level wbs, depth ≤ 1). Mirrors the web `wbs.includes('.')` exclusion.
+    orphan_count = sum(
+        1
+        for r in rows
+        if not r["_has_child"]
+        and not r["is_milestone"]
+        and r["sprint_id"] is None
+        and r["_depth"] <= 1
+    )
+    # Parent (summary) task assigned to a sprint — double-counts velocity.
+    summary_in_sprint = sum(1 for r in rows if r["_has_child"] and r["sprint_id"] is not None)
+    # Distinct L1 phase roots the active sprint's tasks span.
+    phase_span = len(
+        {
+            r["_l1"]
+            for r in rows
+            if active_sprint_id is not None
+            and r["sprint_id"] == active_sprint_id
+            and r["_l1"] is not None
+        }
+    )
+
+    signals: list[dict[str, Any]] = []
+    if orphan_count > 0:
+        signals.append(
+            {
+                "key": "orphan",
+                "count": orphan_count,
+                "tone": "info",
+                "detail": (
+                    f"{orphan_count} task{'' if orphan_count == 1 else 's'} "
+                    "in no sprint and no phase"
+                ),
+            }
+        )
+    if phase_span >= 3:
+        signals.append(
+            {
+                "key": "phase_span",
+                "count": phase_span,
+                "tone": "info",
+                "detail": f"Active sprint spans {phase_span} phases",
+            }
+        )
+    if summary_in_sprint > 0:
+        # ADR-0101 §2: "parent task", never "summary task" — no WBS jargon.
+        signals.append(
+            {
+                "key": "summary_in_sprint",
+                "count": summary_in_sprint,
+                "tone": "warn",
+                "detail": (
+                    f"{summary_in_sprint} parent task"
+                    f"{'' if summary_in_sprint == 1 else 's'} in a sprint"
+                ),
+            }
+        )
+    return {"signals": signals}
+
+
+# ---------------------------------------------------------------------------
 # Velocity — rolling stats over closed sprints
 # ---------------------------------------------------------------------------
 
