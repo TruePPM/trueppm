@@ -308,6 +308,41 @@ test.describe('Board sprint panel (#482 / ADR-0073)', () => {
     );
   });
 
+  test('SCHEDULER+ can open the promote dialog from the board "Link to milestone" entry point (#1052)', async ({
+    page,
+  }) => {
+    await setupSprintRoutes(page);
+    // The promote dialog reads the slim milestone candidates + a live reforecast
+    // preview; an empty candidate list is fine for opening the create-mode form.
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/milestones/**`, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+    );
+    await page.route(/\/api\/v1\/sprints\/.*\/reforecast-preview\/.*/, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          basis: 'velocity_band',
+          cpm_finish: null,
+          p50: null,
+          p80: null,
+          p95: null,
+          velocity_low: null,
+          velocity_high: null,
+          unmodeled_dependency: false,
+          unmodeled_predecessor_ids: [],
+        }),
+      }),
+    );
+    await page.goto(BASE_URL);
+    const panel = page.getByRole('region', { name: /active sprint summary/i });
+    await expect(panel).toBeVisible({ timeout: 10_000 });
+    await panel.getByRole('button', { name: /link to milestone/i }).click();
+    await expect(
+      page.getByRole('dialog', { name: /Promote sprint to milestone/i }),
+    ).toBeVisible();
+  });
+
   test('hidden entirely for WATERFALL projects', async ({ page }) => {
     await setupSprintRoutes(page, { methodology: 'WATERFALL' });
     await page.goto(BASE_URL);

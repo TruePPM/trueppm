@@ -197,6 +197,29 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
   });
 
+  // ADR-0106 §3.4 (#1007) — a sprint close reforecast pushes the new milestone
+  // range to peers; the forecast read + promote-dialog preview must refresh.
+  it('invalidates the project forecast, milestone list, and reforecast preview on milestone_forecast_updated', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatchEvent('milestone_forecast_updated');
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['project', 'proj-1', 'forecast'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['project-milestones', 'proj-1'] });
+    // The open promote dialog's live preview is keyed by sprint id, so it is
+    // matched by a predicate that targets the 'reforecast-preview' query family.
+    const predicateCall = invalidateSpy.mock.calls.find(
+      ([arg]) => typeof (arg as { predicate?: unknown }).predicate === 'function',
+    );
+    expect(predicateCall).toBeDefined();
+    const { predicate } = predicateCall![0] as unknown as {
+      predicate: (q: { queryKey: readonly unknown[] }) => boolean;
+    };
+    expect(predicate({ queryKey: ['reforecast-preview', 'sp-1', null] })).toBe(true);
+    expect(predicate({ queryKey: ['sprints', 'proj-1'] })).toBe(false);
+  });
+
   // ADR-0102 — a peer accepting/rejecting a pending scope injection must also
   // refetch the affected sprint's burndown (a separate query key from the
   // sprint list), or a peer with the chart open keeps the pre-decision curve.
