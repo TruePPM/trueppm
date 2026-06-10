@@ -270,7 +270,7 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
             return [IsAuthenticated(), IsProjectBacklogManager(), IsProjectNotArchived()]
         return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
 
-    queryset = Project.objects.select_related("calendar").order_by("start_date", "name")
+    queryset = Project.objects.select_related("calendar", "lead").order_by("start_date", "name")
     serializer_class = ProjectSerializer
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ["name"]

@@ -13,11 +13,25 @@ function wrap(ui: React.ReactElement, qc?: QueryClient) {
 function agileProjectClient(): QueryClient {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const project: ApiProjectDetail = {
-    id: 'p1', server_version: 1, name: 'Test Project', description: '',
-    start_date: '2026-01-01', calendar: null, estimation_mode: 'open',
-    agile_features: true, methodology: 'AGILE',
-    code: '', health: 'AUTO', visibility: 'WORKSPACE', timezone: '', default_view: 'SCHEDULE',
-    is_archived: false, archived_at: null, archived_by: null,
+    id: 'p1',
+    server_version: 1,
+    name: 'Test Project',
+    description: '',
+    start_date: '2026-01-01',
+    calendar: null,
+    estimation_mode: 'open',
+    agile_features: true,
+    methodology: 'AGILE',
+    code: '',
+    health: 'AUTO',
+    visibility: 'WORKSPACE',
+    timezone: '',
+    default_view: 'SCHEDULE',
+    lead: null,
+    lead_detail: null,
+    is_archived: false,
+    archived_at: null,
+    archived_by: null,
   };
   qc.setQueryData(['project', 'p1'], project);
   return qc;
@@ -100,7 +114,9 @@ describe('SprintPrompt', () => {
       agileProjectClient(),
     );
     fireEvent.click(screen.getByText('Backlog'));
-    fireEvent.change(screen.getByRole('spinbutton', { name: /story points/i }), { target: { value: '5' } });
+    fireEvent.change(screen.getByRole('spinbutton', { name: /story points/i }), {
+      target: { value: '5' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
     expect(onSelect).toHaveBeenCalledWith(null, 5);
   });

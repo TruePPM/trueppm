@@ -22,6 +22,12 @@ vi.mock('@/hooks/useProjectMutations', () => ({
     useUpdateProject(projectId) as { mutateAsync: (payload: unknown) => Promise<unknown> },
 }));
 
+// The lead MemberPicker fetches the project roster; stub it so the test makes no
+// network call. Picker interaction is covered by EntitySelectCombobox.test.tsx.
+vi.mock('@/hooks/useProjectMembers', () => ({
+  useProjectMembers: () => ({ members: [], isLoading: false }),
+}));
+
 function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -50,6 +56,8 @@ const SEED_PROJECT = {
   visibility: 'WORKSPACE',
   timezone: 'Europe/London',
   default_view: 'BOARD',
+  lead: null,
+  lead_detail: null,
 };
 
 let mutateAsync: ReturnType<typeof vi.fn>;
@@ -158,11 +166,13 @@ describe('ProjectGeneralPage', () => {
     expect(override).toHaveAttribute('title', expect.stringContaining('#968'));
   });
 
-  it('disables the project-lead "Change" button with the #966 picker reference', () => {
+  it('wires the project-lead picker — an enabled trigger opens the member listbox (#966)', () => {
     renderPage();
-    const change = screen.getByRole('button', { name: 'Change' });
-    expect(change).toBeDisabled();
-    expect(change).toHaveAttribute('title', expect.stringContaining('#966'));
+    // SEED has no lead → the trigger reads "Assign" and is enabled, not a #966 stub.
+    const trigger = screen.getByRole('button', { name: 'Assign' });
+    expect(trigger).toBeEnabled();
+    fireEvent.click(trigger);
+    expect(screen.getByRole('listbox', { name: 'Select project lead' })).toBeInTheDocument();
   });
 
   it('persists every edited field through the save mutation', async () => {

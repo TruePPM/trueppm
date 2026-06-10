@@ -22035,6 +22035,10 @@
                     "default_view": {
                         "$ref": "#/components/schemas/DefaultViewEnum"
                     },
+                    "lead": {
+                        "type": "integer",
+                        "nullable": true
+                    },
                     "estimation_mode": {
                         "$ref": "#/components/schemas/EstimationModeEnum"
                     },
@@ -23252,6 +23256,18 @@
                     "default_view": {
                         "$ref": "#/components/schemas/DefaultViewEnum"
                     },
+                    "lead": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "lead_detail": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/_UserSummary"
+                            }
+                        ],
+                        "readOnly": true
+                    },
                     "estimation_mode": {
                         "$ref": "#/components/schemas/EstimationModeEnum"
                     },
@@ -23303,6 +23319,7 @@
                     "archived_by",
                     "id",
                     "is_archived",
+                    "lead_detail",
                     "member_count",
                     "name",
                     "percent_complete",
@@ -23512,6 +23529,18 @@
                     "default_view": {
                         "$ref": "#/components/schemas/DefaultViewEnum"
                     },
+                    "lead": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "lead_detail": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/_UserSummary"
+                            }
+                        ],
+                        "readOnly": true
+                    },
                     "estimation_mode": {
                         "$ref": "#/components/schemas/EstimationModeEnum"
                     },
@@ -23572,6 +23601,7 @@
                     "archived_by",
                     "id",
                     "is_archived",
+                    "lead_detail",
                     "member_count",
                     "name",
                     "percent_complete",
@@ -23818,6 +23848,10 @@
                     },
                     "default_view": {
                         "$ref": "#/components/schemas/DefaultViewEnum"
+                    },
+                    "lead": {
+                        "type": "integer",
+                        "nullable": true
                     },
                     "estimation_mode": {
                         "$ref": "#/components/schemas/EstimationModeEnum"

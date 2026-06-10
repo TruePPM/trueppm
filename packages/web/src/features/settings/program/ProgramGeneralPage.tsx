@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams } from 'react-router';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
+import { MemberPicker } from '../components/MemberPicker';
 import { useDirtyForm } from '../hooks/useDirtyForm';
 import { useProgram } from '@/hooks/useProgram';
 import { useUpdateProgram } from '@/hooks/useProgramMutations';
@@ -33,15 +34,6 @@ const VISIBILITY_OPTIONS: Array<{ id: ProgramVisibility; label: string; hint: st
   { id: 'PRIVATE', label: 'Private', hint: 'Only invited members can see this program.' },
 ];
 
-/** 1–2 character display initials for a user, fallback "??" when no name parts. */
-function initialsFor(username: string | null | undefined): string {
-  if (!username) return '??';
-  const parts = username.split(/[._\s-]+/).filter(Boolean);
-  if (parts.length === 0) return username.slice(0, 2).toUpperCase();
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[1][0]).toUpperCase();
-}
-
 /**
  * Program > General settings page (issue #523).
  *
@@ -69,6 +61,8 @@ export function ProgramGeneralPage() {
   const [visibility, setVisibility] = useState<ProgramVisibility>('WORKSPACE');
   // null = no accent chosen (renders as a health-tinted neutral on the card).
   const [color, setColor] = useState<string | null>(null);
+  // null = Unassigned. User id of the program manager / lead (#966).
+  const [lead, setLead] = useState<string | null>(null);
 
   // Re-seed whenever the loaded program's identity changes. React Router reuses
   // this component across `:programId` changes (no `key` → no remount), so a
@@ -86,6 +80,7 @@ export function ProgramGeneralPage() {
   const [initialMethodology, setInitialMethodology] = useState<ProgramMethodology>('HYBRID');
   const [initialVisibility, setInitialVisibility] = useState<ProgramVisibility>('WORKSPACE');
   const [initialColor, setInitialColor] = useState<string | null>(null);
+  const [initialLead, setInitialLead] = useState<string | null>(null);
 
   useEffect(() => {
     if (!program || seededProgramIdRef.current === program.id) return;
@@ -97,6 +92,7 @@ export function ProgramGeneralPage() {
     setMethodology(program.methodology);
     setVisibility(program.visibility);
     setColor(program.color ?? null);
+    setLead(program.lead ?? null);
     setInitialName(program.name);
     setInitialDescription(program.description ?? '');
     setInitialCode(program.code ?? '');
@@ -104,11 +100,12 @@ export function ProgramGeneralPage() {
     setInitialMethodology(program.methodology);
     setInitialVisibility(program.visibility);
     setInitialColor(program.color ?? null);
+    setInitialLead(program.lead ?? null);
   }, [program]);
 
   const values = useMemo(
-    () => ({ name, description, code, health, methodology, visibility, color }),
-    [name, description, code, health, methodology, visibility, color],
+    () => ({ name, description, code, health, methodology, visibility, color, lead }),
+    [name, description, code, health, methodology, visibility, color, lead],
   );
   const initialValues = useMemo(
     () => ({
@@ -119,6 +116,7 @@ export function ProgramGeneralPage() {
       methodology: initialMethodology,
       visibility: initialVisibility,
       color: initialColor,
+      lead: initialLead,
     }),
     [
       initialName,
@@ -128,6 +126,7 @@ export function ProgramGeneralPage() {
       initialMethodology,
       initialVisibility,
       initialColor,
+      initialLead,
     ],
   );
 
@@ -135,7 +134,7 @@ export function ProgramGeneralPage() {
     if (!programId) return;
     await updateProgram.mutateAsync({
       programId,
-      patch: { name, description, code, health, methodology, visibility, color },
+      patch: { name, description, code, health, methodology, visibility, color, lead },
     });
     // Bump the snapshot — dirty flips back to false and the save bar collapses.
     setInitialName(name);
@@ -145,7 +144,19 @@ export function ProgramGeneralPage() {
     setInitialMethodology(methodology);
     setInitialVisibility(visibility);
     setInitialColor(color);
-  }, [programId, updateProgram, name, description, code, health, methodology, visibility, color]);
+    setInitialLead(lead);
+  }, [
+    programId,
+    updateProgram,
+    name,
+    description,
+    code,
+    health,
+    methodology,
+    visibility,
+    color,
+    lead,
+  ]);
 
   const handleReset = useCallback(() => {
     setName(initialName);
@@ -155,6 +166,7 @@ export function ProgramGeneralPage() {
     setMethodology(initialMethodology);
     setVisibility(initialVisibility);
     setColor(initialColor);
+    setLead(initialLead);
   }, [
     initialName,
     initialDescription,
@@ -163,6 +175,7 @@ export function ProgramGeneralPage() {
     initialMethodology,
     initialVisibility,
     initialColor,
+    initialLead,
   ]);
 
   useDirtyForm({
@@ -172,9 +185,6 @@ export function ProgramGeneralPage() {
     onReset: handleReset,
     apiReady: !!program,
   });
-
-  const leadName = program?.lead_detail?.username ?? null;
-  const leadInitials = initialsFor(leadName);
 
   return (
     <div>
@@ -267,38 +277,18 @@ export function ProgramGeneralPage() {
         </FieldRow>
 
         <FieldRow label="Program manager">
-          {leadName ? (
-            <div className="flex items-center gap-2">
-              <span
-                className="w-6 h-6 rounded-full inline-flex items-center justify-center text-[10px] font-bold text-white shrink-0 bg-brand-primary"
-                aria-hidden="true"
-              >
-                {leadInitials}
-              </span>
-              <span className="text-[13px] font-medium text-neutral-text-primary">{leadName}</span>
-              <span className="text-[12px] text-neutral-text-secondary">· Program Manager</span>
-              <button
-                type="button"
-                disabled
-                title="Changing the program manager isn't available yet — tracked in #966"
-                className="ml-1 text-[12px] text-brand-primary font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded disabled:text-neutral-text-secondary disabled:cursor-not-allowed disabled:no-underline"
-              >
-                Change
-              </button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              <span className="text-[13px] text-neutral-text-secondary italic">Unassigned</span>
-              <button
-                type="button"
-                disabled
-                title="Changing the program manager isn't available yet — tracked in #966"
-                className="ml-1 text-[12px] text-brand-primary font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded disabled:text-neutral-text-secondary disabled:cursor-not-allowed disabled:no-underline"
-              >
-                Assign
-              </button>
-            </div>
-          )}
+          {/* Real manager from the program record (Unassigned when null), set
+              via the member picker (#966). Selection updates page state → the
+              save bar commits; the server enforces Admin + member-of-scope. */}
+          <MemberPicker
+            scope="program"
+            scopeId={programId}
+            value={lead}
+            onChange={setLead}
+            label="program manager"
+            canEdit
+            selectedDetail={program?.lead_detail ?? null}
+          />
         </FieldRow>
 
         <FieldRow

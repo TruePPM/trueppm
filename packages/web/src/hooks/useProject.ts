@@ -31,6 +31,10 @@ export interface ApiProjectDetail {
   timezone: string;
   /** Default landing view when the project is opened without one in the URL. */
   default_view: ProjectDefaultView;
+  /** User id of the displayed project lead, or null when unset (#966). */
+  lead: string | null;
+  /** Read-only nested user payload for the lead — null when `lead` is null (#966). */
+  lead_detail: { id: string; username: string; email: string } | null;
   /** Lifecycle (#530) — archived projects are hard read-only across all writes. */
   is_archived: boolean;
   archived_at: string | null;

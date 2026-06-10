@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
+import { MemberPicker } from '../components/MemberPicker';
 import { useDirtyForm } from '../hooks/useDirtyForm';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
@@ -75,6 +76,8 @@ export function ProjectGeneralPage() {
   const [timezone, setTimezone] = useState('');
   const [defaultView, setDefaultView] = useState<ProjectDefaultView>('SCHEDULE');
   const [calendarId, setCalendarId] = useState<string | null>(null);
+  // null = Unassigned. User id of the project lead (#966).
+  const [lead, setLead] = useState<string | null>(null);
 
   // Re-seed whenever the loaded project's identity changes. React Router reuses
   // this component across `:projectId` changes (no `key` → no remount), so a
@@ -93,6 +96,7 @@ export function ProjectGeneralPage() {
   const [initialTimezone, setInitialTimezone] = useState('');
   const [initialDefaultView, setInitialDefaultView] = useState<ProjectDefaultView>('SCHEDULE');
   const [initialCalendarId, setInitialCalendarId] = useState<string | null>(null);
+  const [initialLead, setInitialLead] = useState<string | null>(null);
 
   useEffect(() => {
     if (!project || seededProjectIdRef.current === project.id) return;
@@ -105,6 +109,7 @@ export function ProjectGeneralPage() {
     setTimezone(project.timezone);
     setDefaultView(project.default_view);
     setCalendarId(project.calendar);
+    setLead(project.lead ?? null);
     setInitialName(project.name);
     setInitialDescription(project.description ?? '');
     setInitialCode(project.code);
@@ -113,6 +118,7 @@ export function ProjectGeneralPage() {
     setInitialTimezone(project.timezone);
     setInitialDefaultView(project.default_view);
     setInitialCalendarId(project.calendar);
+    setInitialLead(project.lead ?? null);
   }, [project]);
 
   const values = useMemo(
@@ -125,8 +131,9 @@ export function ProjectGeneralPage() {
       timezone,
       default_view: defaultView,
       calendar: calendarId,
+      lead,
     }),
-    [name, description, code, health, visibility, timezone, defaultView, calendarId],
+    [name, description, code, health, visibility, timezone, defaultView, calendarId, lead],
   );
   const initialValues = useMemo(
     () => ({
@@ -138,6 +145,7 @@ export function ProjectGeneralPage() {
       timezone: initialTimezone,
       default_view: initialDefaultView,
       calendar: initialCalendarId,
+      lead: initialLead,
     }),
     [
       initialName,
@@ -148,6 +156,7 @@ export function ProjectGeneralPage() {
       initialTimezone,
       initialDefaultView,
       initialCalendarId,
+      initialLead,
     ],
   );
 
@@ -161,6 +170,7 @@ export function ProjectGeneralPage() {
       timezone,
       default_view: defaultView,
       calendar: calendarId,
+      lead,
     });
     setInitialName(name);
     setInitialDescription(description);
@@ -170,6 +180,7 @@ export function ProjectGeneralPage() {
     setInitialTimezone(timezone);
     setInitialDefaultView(defaultView);
     setInitialCalendarId(calendarId);
+    setInitialLead(lead);
   }, [
     updateProject,
     name,
@@ -180,6 +191,7 @@ export function ProjectGeneralPage() {
     timezone,
     defaultView,
     calendarId,
+    lead,
   ]);
 
   const handleReset = useCallback(() => {
@@ -191,6 +203,7 @@ export function ProjectGeneralPage() {
     setTimezone(initialTimezone);
     setDefaultView(initialDefaultView);
     setCalendarId(initialCalendarId);
+    setLead(initialLead);
   }, [
     initialName,
     initialDescription,
@@ -200,6 +213,7 @@ export function ProjectGeneralPage() {
     initialTimezone,
     initialDefaultView,
     initialCalendarId,
+    initialLead,
   ]);
 
   useDirtyForm({
@@ -256,27 +270,18 @@ export function ProjectGeneralPage() {
         </FieldRow>
 
         <FieldRow label="Project lead">
-          <div className="flex items-center gap-2">
-            <span
-              className="w-6 h-6 rounded-full inline-flex items-center justify-center text-[10px] font-bold text-white shrink-0 bg-brand-primary"
-              aria-hidden="true"
-            >
-              AK
-            </span>
-            <span className="text-[13px] font-medium text-neutral-text-primary">
-              Anika Krishnan
-            </span>
-            <span className="text-[12px] text-neutral-text-secondary">· PM</span>
-            {/* Project-lead picker (and real lead display) not wired yet — disabled until it ships (#966). */}
-            <button
-              type="button"
-              disabled
-              title="Changing the project lead isn't available yet — tracked in #966"
-              className="ml-1 text-[12px] text-brand-primary font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded disabled:text-neutral-text-secondary disabled:cursor-not-allowed disabled:no-underline"
-            >
-              Change
-            </button>
-          </div>
+          {/* Real lead from the project record (Unassigned when null), set via
+              the member picker (#966). Selection updates page state → the save
+              bar commits; the server enforces Admin + member-of-scope. */}
+          <MemberPicker
+            scope="project"
+            scopeId={projectId}
+            value={lead}
+            onChange={setLead}
+            label="project lead"
+            canEdit
+            selectedDetail={project?.lead_detail ?? null}
+          />
         </FieldRow>
 
         <FieldRow
