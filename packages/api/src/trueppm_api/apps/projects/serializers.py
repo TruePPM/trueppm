@@ -7,7 +7,7 @@ import os
 import re
 import uuid
 from datetime import date
-from typing import Any
+from typing import Any, cast
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -62,6 +62,11 @@ from trueppm_api.apps.projects.models import (
 from trueppm_api.apps.resources.models import TaskResource
 
 User = get_user_model()
+
+# Sentinel for the milestone-rollup batch attach (#999). Distinguishes a milestone
+# whose batched rollup is legitimately ``None`` (no targeting sprints) from one that
+# was never batched (single retrieve / sync) and must compute its rollup on read.
+_ROLLUP_UNSET: Any = object()
 
 
 class _UserSummarySerializer(serializers.ModelSerializer):  # type: ignore[type-arg]
@@ -1495,6 +1500,14 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         """
         if not obj.is_milestone:
             return None
+        # Fast path (#999): TaskViewSet.list pre-computes every milestone in the
+        # page in 2 queries and attaches the payload as ``_milestone_rollup``. The
+        # sentinel distinguishes "batched, no targeting sprints → None" from "not
+        # batched" (single retrieve / sync / nested) so only the latter falls back
+        # to the per-milestone compute.
+        batched = getattr(obj, "_milestone_rollup", _ROLLUP_UNSET)
+        if batched is not _ROLLUP_UNSET:
+            return cast("dict[str, Any] | None", batched)
         from trueppm_api.apps.projects.services import compute_milestone_rollup_payload
 
         return compute_milestone_rollup_payload(obj)
@@ -2660,7 +2673,18 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
         milestone = obj.target_milestone
         if milestone is None:
             return None
-        from trueppm_api.apps.projects.services import compute_milestone_rollup_payload
+
+        # Fast path (#999): SprintViewSet.list batches every page milestone's rollup
+        # in 2 queries and attaches it as ``_target_milestone_rollup`` on the sprint.
+        # The sentinel separates "batched → None" from "not batched" (single
+        # retrieve / action), the latter computing on read.
+        batched = getattr(obj, "_target_milestone_rollup", _ROLLUP_UNSET)
+        if batched is not _ROLLUP_UNSET:
+            rollup = cast("dict[str, Any] | None", batched)
+        else:
+            from trueppm_api.apps.projects.services import compute_milestone_rollup_payload
+
+            rollup = compute_milestone_rollup_payload(milestone)
 
         wbs = milestone.wbs_path
         return {
@@ -2668,7 +2692,7 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
             "name": milestone.name,
             "wbs_path": str(wbs) if wbs else None,
             "finish": milestone.early_finish.isoformat() if milestone.early_finish else None,
-            "rollup": compute_milestone_rollup_payload(milestone),
+            "rollup": rollup,
         }
 
     def validate_target_milestone(self, value: Task | None) -> Task | None:
