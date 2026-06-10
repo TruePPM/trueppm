@@ -337,6 +337,10 @@
         },
         "from": { "type": "string", "maxLength": 64 },
         "to": { "type": "string", "maxLength": 64 },
+        "goal_impact": {
+          "type": "boolean",
+          "description": "On sprint.scope_inject: whether the injection threatens the sprint goal."
+        },
         "points": { "type": "integer", "minimum": 0 },
         "remaining_points": { "type": "integer", "minimum": 0 },
         "estimate": { "$ref": "#/$defs/estimate" },

@@ -179,13 +179,16 @@ ADR-0027). To give #1053 a signal that CPM is still pending, Project gains
 the `recalculate_schedule` task stamps it on success. The web Schedule view shows the
 existing `RecalculatingBadge` while `recalculated_at` is null/older than the import.
 
-### 7. Exporter
-`export_program` emits `schema_version: "2.0"`, an `anchor` derived from the program's
-earliest date, and an `events` array reconstructed from `*.history` rows + burn snapshots
-+ scope-change rows, with concrete dates rewritten as offsets from the anchor.
-Round-trip (export → import → export) stays byte-deterministic (#616): the slug allocator
-and the `Random(seed)` are both stable, and the synthesizer is skipped on export-sourced
-seeds (their events are already explicit).
+### 7. Exporter (event-timeline export deferred)
+The exporter keeps emitting **v1** (final-state, `schema_version: "1.0"`) for now, so the
+existing byte-identical round-trip guarantee (#616) is preserved unchanged and a live
+program still exports cleanly to share/edit. **Reconstructing the full `events` timeline
+from `*.history` + burn snapshots + scope-change rows is deferred to a follow-up** — it is
+a large, round-trip-determinism-sensitive change whose value is the import/edit workflow,
+not the demo on-ramp (which is entirely the import path). A v2 sample therefore exports as
+a v1 final-state document; re-importing it materializes final state without replay. The
+`events`-export AC of #1074 is explicitly carried to the follow-up (**#1109**, which also
+covers `retro.*` replay) rather than rushed.
 
 ## Alternatives Considered
 | Option | Pros | Cons |

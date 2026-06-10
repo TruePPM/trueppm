@@ -164,6 +164,10 @@ def _task_window(ctx: ReplayContext, key: tuple[str, str], task: Task) -> tuple[
     else:
         start = project.start_date
         end = ctx.anchor
+    # Clamp both ends to the anchor: a completed task whose nominal window sits
+    # in the future (relative to import day) still gets past-dated history, never
+    # future-dated — the demo's "today" is the anchor.
+    start = min(start, ctx.anchor)
     end = min(end, ctx.anchor)
     if end < start:
         end = start

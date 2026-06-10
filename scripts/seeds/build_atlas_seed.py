@@ -17,17 +17,19 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import date, timedelta
 from pathlib import Path
 
-# Program kickoff. All dates derive from this so the sample is internally
-# consistent; the loader does not shift them, so the demo reads as a program
-# already in flight.
-KICKOFF = date(2026, 1, 5)
+# Anchor-relative dates (ADR-0113, seed v2). Every date is emitted as an offset
+# from the import-day anchor "A", so the demo always reads as a program in flight
+# rather than a fixed-date museum piece — the importer resolves "A" to today.
+# ANCHOR_OFFSET places "today" partway through the program: day-0 kickoff work is
+# ~120 days in the past, late GTM work is still ahead. The event-replay importer
+# then synthesizes the history (backdated status moves, burndown) up to "today".
+ANCHOR_OFFSET = 120
 
 
 def d(offset_days: int) -> str:
-    return (KICKOFF + timedelta(days=offset_days)).isoformat()
+    return f"A{offset_days - ANCHOR_OFFSET:+d}"
 
 
 # --- people & capacity -----------------------------------------------------
@@ -613,7 +615,7 @@ def build_atlas() -> dict:
     gtm = build_gtm_readiness()
 
     return {
-        "schema_version": "1.0",
+        "schema_version": "2.0",
         "program": {
             "slug": "atlas-platform-launch",
             "name": "Atlas Platform Launch",

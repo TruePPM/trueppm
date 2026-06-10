@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from trueppm_api.apps.projects.seed.validation import (
-    SUPPORTED_SCHEMA_VERSION,
+    SUPPORTED_MAJORS,
     SeedValidationError,
     validate_seed,
 )
@@ -41,7 +41,7 @@ def __getattr__(name: str) -> object:
 
 
 __all__ = [
-    "SUPPORTED_SCHEMA_VERSION",
+    "SUPPORTED_MAJORS",
     "SeedValidationError",
     "export_program",
     "import_seed",
