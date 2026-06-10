@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date as _date
 from datetime import timedelta
+from typing import cast
 
 from celery import current_app
 from django.conf import settings
@@ -100,6 +101,38 @@ def trigger_schedule(request: Request, pk: str) -> Response:
     return Response({"queued": True}, status=status.HTTP_202_ACCEPTED)
 
 
+def _delta_vs_cpm_days(percentile: _date | None, cpm_finish: _date | None) -> int | None:
+    """Signed calendar-day delta of a percentile finish vs the deterministic CPM finish.
+
+    Positive means the probabilistic finish lands *later* than the deterministic
+    spine — the schedule risk pushes the date out (worse). ``None`` when either
+    input is missing. Server-owned so a headless/MCP client reads the risk
+    premium directly instead of re-subtracting dates (API-first, #987/#986).
+    """
+    if percentile is None or cpm_finish is None:
+        return None
+    return (percentile - cpm_finish).days
+
+
+def _confidence_curve(histogram: list[dict[str, object]], total: int) -> list[dict[str, object]]:
+    """Cumulative P(finish ≤ date) S-curve derived from the histogram buckets.
+
+    ``histogram`` is the already-binned ``[{date, count}]`` list in ascending date
+    order; ``total`` is the number of simulated runs. Returns one ``{date, pct}``
+    point per bucket carrying the cumulative share of runs that finished on or
+    before that bucket — the same value ``MonteCarloDetailPanel`` previously
+    accumulated in the browser (#987). Bounded to the bucket count (≤30 points).
+    """
+    if total <= 0:
+        return []
+    cumulative = 0
+    curve: list[dict[str, object]] = []
+    for bucket in histogram:
+        cumulative += cast(int, bucket["count"])
+        curve.append({"date": bucket["date"], "pct": round(cumulative / total * 100, 1)})
+    return curve
+
+
 @extend_schema(
     request=OpenApiTypes.OBJECT,
     responses={
@@ -108,6 +141,9 @@ def trigger_schedule(request: Request, pk: str) -> Response:
             description=(
                 "Monte Carlo simulation result. Includes the engine result fields "
                 "(P50/P80/P95 finish dates, mean, std dev, etc.) plus "
+                "cpm_finish (deterministic CPM project finish, ISO 8601 or null), "
+                "delta_vs_cpm ({p50,p80,p95} signed calendar-day premium vs CPM), "
+                "confidence_curve ([{date, pct}] cumulative finish-by-date S-curve), "
                 "histogram_buckets ([{date, count}]) and last_run_at (ISO 8601)."
             ),
         ),
@@ -303,26 +339,39 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     else:
         histogram = []
 
+    # The deterministic CPM spine is the max early_finish of the committed tasks
+    # already loaded above — no extra query. It anchors delta_vs_cpm (the risk
+    # premium each percentile adds over the deterministic finish) and is itself
+    # the project's deterministic schedule finish (#987 — single source, no
+    # duplicate project field). Computed before result_dict so the cached latest
+    # payload carries it.
+    cpm_finish = max(
+        (t.early_finish for t in db_tasks if t.early_finish is not None),
+        default=None,
+    )
+
     # `last_run_at` lets the frontend surface a "Last run: 2h ago" freshness
     # signal and decide whether to nudge a rerun (#335). Captured at cache-write
     # time so it always tracks the most recent successful simulation, never the
     # cache read.
     result_dict = {
         **mc_result.to_dict(),
+        "cpm_finish": cpm_finish.isoformat() if cpm_finish else None,
+        "delta_vs_cpm": {
+            "p50": _delta_vs_cpm_days(mc_result.p50, cpm_finish),
+            "p80": _delta_vs_cpm_days(mc_result.p80, cpm_finish),
+            "p95": _delta_vs_cpm_days(mc_result.p95, cpm_finish),
+        },
+        "confidence_curve": _confidence_curve(histogram, len(dist)),
         "histogram_buckets": histogram,
         "last_run_at": timezone.now().isoformat(),
     }
     cache.set(f"mc_latest:{pk}", result_dict, timeout=86400)
 
-    # Persist this run for the forecast-drift history (ADR-0109, #961). The
-    # deterministic CPM spine is the max early_finish of the committed tasks
-    # already loaded above — no extra query. Best-effort: a write failure inside
-    # the service is logged and swallowed so the simulation result is still
-    # returned; the response carries the run id when persistence succeeded.
-    cpm_finish = max(
-        (t.early_finish for t in db_tasks if t.early_finish is not None),
-        default=None,
-    )
+    # Persist this run for the forecast-drift history (ADR-0109, #961). Best-effort:
+    # a write failure inside the service is logged and swallowed so the simulation
+    # result is still returned; the response carries the run id when persistence
+    # succeeded.
     run = record_monte_carlo_run(
         str(project.pk),
         p50=mc_result.p50,
@@ -371,11 +420,23 @@ class MonteCarloLatestView(APIView):
                 {"detail": "No simulation result available."},
                 status=status.HTTP_404_NOT_FOUND,
             )
+        # cpm_finish + delta_vs_cpm survive the TTL because both are persisted on
+        # the run (ADR-0109); the confidence_curve does not — it needs the raw
+        # distribution, which is intentionally not persisted — so it falls back to
+        # empty, mirroring histogram_buckets. The chips render from history; the
+        # S-curve needs a fresh run (#987).
         return Response(
             {
                 "p50": latest.p50.isoformat() if latest.p50 else None,
                 "p80": latest.p80.isoformat() if latest.p80 else None,
                 "p95": latest.p95.isoformat() if latest.p95 else None,
+                "cpm_finish": latest.cpm_finish.isoformat() if latest.cpm_finish else None,
+                "delta_vs_cpm": {
+                    "p50": _delta_vs_cpm_days(latest.p50, latest.cpm_finish),
+                    "p80": _delta_vs_cpm_days(latest.p80, latest.cpm_finish),
+                    "p95": _delta_vs_cpm_days(latest.p95, latest.cpm_finish),
+                },
+                "confidence_curve": [],
                 "runs": latest.n_simulations,
                 "histogram_buckets": [],
                 "last_run_at": latest.taken_at.isoformat(),

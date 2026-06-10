@@ -170,6 +170,9 @@ def test_velocity_hidden_from_pm_by_default_shared_after_opt_up(
     assert pm_default.data["velocity_suppressed"] is True
     assert pm_default.data["sprints"] == []
     assert pm_default.data["rolling_avg_points"] is None
+    # ADR-0113: excluded_count is an org-fact ("N setup sprints flagged") and must
+    # be zeroed under suppression, not leaked to a below-audience reader (#1092).
+    assert pm_default.data["excluded_count"] == 0
 
     member_default = _client(dev).get(f"/api/v1/projects/{project.pk}/velocity/")
     assert len(member_default.data["sprints"]) == 2

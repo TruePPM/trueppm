@@ -214,20 +214,21 @@ def compute_team_velocity_per_day(
     its velocity is what we're calibrating *toward*, so feeding it back into
     the rolling window would double-weight it on the very first run).
 
+    Draws from ``velocity_eligible_sprints`` (ADR-0113) so a sprint flagged
+    ``exclude_from_velocity`` — a setup/ramp-up "Sprint 0" — never contaminates
+    the calibration the CPM duration suggestions are derived from. This is the
+    single source of truth for "counts toward velocity"; do not re-filter here.
+
     Returns ``None`` when fewer than ``MIN_CLOSED_SPRINTS_FOR_SUGGESTION``
     prior sprints have completed; callers must treat this as "not enough
     history to suggest" rather than "velocity is zero".
     """
-    from trueppm_api.apps.projects.models import Sprint, SprintState
+    from trueppm_api.apps.projects.services import velocity_eligible_sprints
 
-    qs = Sprint.objects.filter(
-        project_id=project_id,
-        state=SprintState.COMPLETED,
-        is_deleted=False,
-    )
+    qs = velocity_eligible_sprints(project_id)
     if exclude_sprint_id is not None:
         qs = qs.exclude(pk=exclude_sprint_id)
-    closed: list[Sprint] = list(qs.order_by("-closed_at")[:VELOCITY_ROLLING_WINDOW])
+    closed = list(qs[:VELOCITY_ROLLING_WINDOW])
 
     if len(closed) < MIN_CLOSED_SPRINTS_FOR_SUGGESTION:
         return None

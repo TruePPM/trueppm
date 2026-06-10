@@ -2077,6 +2077,14 @@ class Sprint(VersionedModel):
         null=True,
         blank=True,
     )
+    # Team-owned escape hatch (ADR-0113): keep a setup/ramp-up sprint (a "Sprint 0")
+    # out of the velocity average/band and the ADR-0106 milestone forecast, so its low
+    # throughput does not contaminate the baseline. Editable in EVERY state — including
+    # COMPLETED — because teams usually realise the contamination retrospectively; it only
+    # filters which sprints `velocity_eligible_sprints()` selects and never mutates the
+    # committed_*/completed_* snapshots. Change provenance is captured for free by the
+    # HistoricalRecords audit trail below (who/when/old→new).
+    exclude_from_velocity = models.BooleanField(default=False)
     # Snapshotted on activation; never recomputed.  Stored values survive
     # HistoricalTask retention pruning (90-day cap).
     committed_points = models.PositiveIntegerField(null=True, blank=True)
