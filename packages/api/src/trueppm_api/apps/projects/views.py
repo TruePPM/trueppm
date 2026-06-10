@@ -8209,7 +8209,13 @@ class CommentReactionViewSet(
     """
 
     serializer_class = CommentReactionSerializer
-    permission_classes: list[type[BasePermission]] = [IsAuthenticated, IsProjectMemberWrite]
+    # IsProjectNotArchived enforces the archived-read-only contract: reactions are
+    # a write on a board-scoped resource and must be blocked once a project is archived.
+    permission_classes: list[type[BasePermission]] = [
+        IsAuthenticated,
+        IsProjectMemberWrite,
+        IsProjectNotArchived,
+    ]
 
     def get_queryset(self) -> QuerySet[CommentReaction]:
         user = self.request.user

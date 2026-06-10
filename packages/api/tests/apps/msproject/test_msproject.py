@@ -887,8 +887,27 @@ class TestRoundTrip:
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture
+def non_member_client(db: object) -> APIClient:
+    """An authenticated user with no membership on the test project."""
+    outsider = User.objects.create_user(username="msp_outsider", password="pw")
+    c = APIClient()
+    c.force_authenticate(user=outsider)
+    return c
+
+
 @pytest.mark.django_db
 class TestImportAPI:
+    def test_import_non_member_403(self, non_member_client: APIClient, project: Project) -> None:
+        """A non-member is rejected by the declarative IsProjectMember gate (#1005)."""
+        xml = _build_sample_xml(tasks=[{"UID": "1", "Name": "Task A"}])
+        resp = non_member_client.post(
+            f"/api/v1/projects/{project.pk}/import/msproject/",
+            {"file": SimpleUploadedFile("schedule.xml", xml, content_type="application/xml")},
+            format="multipart",
+        )
+        assert resp.status_code == 403
+
     def test_import_requires_admin(self, viewer_client: APIClient, project: Project) -> None:
         xml = _build_sample_xml(tasks=[{"UID": "1", "Name": "Task A"}])
         resp = viewer_client.post(
@@ -1013,6 +1032,11 @@ class TestExportAPI:
     def test_export_viewer_allowed(self, viewer_client: APIClient, project: Project) -> None:
         resp = viewer_client.get(f"/api/v1/projects/{project.pk}/export/msproject.xml")
         assert resp.status_code == 200
+
+    def test_export_non_member_403(self, non_member_client: APIClient, project: Project) -> None:
+        """A non-member is rejected by the declarative IsProjectMember gate (#1005)."""
+        resp = non_member_client.get(f"/api/v1/projects/{project.pk}/export/msproject.xml")
+        assert resp.status_code == 403
 
     def test_export_nonexistent_project(self, admin_client: APIClient) -> None:
         fake_pk = "00000000-0000-0000-0000-000000000000"

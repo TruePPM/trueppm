@@ -11,6 +11,7 @@ from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.access.permissions import (
+    CanAssignResource,
     IsProjectAdmin,
     IsProjectMember,
     IsProjectMemberWrite,
@@ -167,6 +168,53 @@ class TestIsProjectScheduler:
         perm = IsProjectScheduler()
         req = _make_request(user)
         assert perm.has_object_permission(req, _make_view(), project) is True
+
+
+# ---------------------------------------------------------------------------
+# CanAssignResource (#1006: SCHEDULER floor is now declarative on nested routes)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestCanAssignResource:
+    """has_permission now enforces the SCHEDULER floor for unsafe methods when the
+    route exposes ``project_pk`` (nested/detail routes). Flat list-create routes that
+    carry the project in the body fall through to True — perform_create enforces there."""
+
+    def test_member_below_scheduler_denied_on_nested_write(
+        self, user: object, project: Project
+    ) -> None:
+        _add_member(user, project, Role.MEMBER)
+        perm = CanAssignResource()
+        req = _make_request(user, method="POST")
+        assert perm.has_permission(req, _make_view(project_pk=project.pk)) is False
+
+    def test_scheduler_allowed_on_nested_write(self, user: object, project: Project) -> None:
+        _add_member(user, project, Role.SCHEDULER)
+        perm = CanAssignResource()
+        req = _make_request(user, method="POST")
+        assert perm.has_permission(req, _make_view(project_pk=project.pk)) is True
+
+    def test_safe_method_allowed_for_member(self, user: object, project: Project) -> None:
+        _add_member(user, project, Role.MEMBER)
+        perm = CanAssignResource()
+        req = _make_request(user, method="GET")
+        assert perm.has_permission(req, _make_view(project_pk=project.pk)) is True
+
+    def test_flat_route_defers_to_perform_create(self, user: object, project: Project) -> None:
+        """No project_pk in the URL (body-project route): has_permission cannot resolve
+        the role here, so it returns True and perform_create enforces the floor."""
+        _add_member(user, project, Role.MEMBER)
+        perm = CanAssignResource()
+        req = _make_request(user, method="POST")
+        assert perm.has_permission(req, _make_view()) is True
+
+    def test_unauthenticated_denied(self) -> None:
+        anon = MagicMock()
+        anon.is_authenticated = False
+        perm = CanAssignResource()
+        req = _make_request(anon, method="POST")
+        assert perm.has_permission(req, _make_view()) is False
 
 
 # ---------------------------------------------------------------------------
