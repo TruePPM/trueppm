@@ -9,7 +9,7 @@
 
 import { useState } from 'react';
 import {
-  AUDIENCE_RUNG_LABEL,
+  AUDIENCE_RUNG_LABEL_FULL,
   SIGNAL_AUDIENCE_LADDER,
   audienceRank,
   type SignalAudience,
@@ -48,7 +48,10 @@ export function RaiseCeilingDialog({
       </p>
       <div role="radiogroup" className="mt-2 space-y-1">
         {options.map((rung) => (
-          <label key={rung} className="flex items-center gap-2 text-[12px] text-neutral-text-primary">
+          <label
+            key={rung}
+            className="flex items-center gap-2 text-[12px] text-neutral-text-primary"
+          >
             <input
               type="radio"
               name="raise-ceiling-target"
@@ -56,7 +59,7 @@ export function RaiseCeilingDialog({
               checked={target === rung}
               onChange={() => setTarget(rung)}
             />
-            {AUDIENCE_RUNG_LABEL[rung]}
+            {AUDIENCE_RUNG_LABEL_FULL[rung]}
           </label>
         ))}
       </div>

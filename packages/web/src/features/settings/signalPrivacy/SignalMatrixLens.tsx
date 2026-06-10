@@ -7,6 +7,7 @@
 
 import {
   AUDIENCE_RUNG_LABEL,
+  AUDIENCE_RUNG_LABEL_FULL,
   SIGNAL_AUDIENCE_LADDER,
   SIGNALS,
   audienceRank,
@@ -26,8 +27,18 @@ export function SignalMatrixLens({ signals }: SignalMatrixLensProps) {
           <tr className="border-b border-neutral-border bg-neutral-surface-sunken text-neutral-text-secondary">
             <th className="px-3 py-2 text-left font-semibold">Signal</th>
             {SIGNAL_AUDIENCE_LADDER.map((rung) => (
-              <th key={rung} className="px-3 py-2 text-center font-semibold">
-                {AUDIENCE_RUNG_LABEL[rung]}
+              // Full column name where the table has room, abbreviation as the
+              // narrow fallback; the spelled-out name is always the header's
+              // accessible name + hover title so "SM"/"PM" are never ambiguous (#975).
+              <th
+                key={rung}
+                scope="col"
+                aria-label={AUDIENCE_RUNG_LABEL_FULL[rung]}
+                title={AUDIENCE_RUNG_LABEL_FULL[rung]}
+                className="px-3 py-2 text-center font-semibold"
+              >
+                <span className="hidden md:inline">{AUDIENCE_RUNG_LABEL_FULL[rung]}</span>
+                <span className="md:hidden">{AUDIENCE_RUNG_LABEL[rung]}</span>
               </th>
             ))}
           </tr>

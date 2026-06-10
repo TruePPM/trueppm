@@ -9,19 +9,26 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tan
 import { apiClient } from '@/api/client';
 
 /** The ordered audience ladder (ADR-0104 §1). Order is load-bearing. */
-export const SIGNAL_AUDIENCE_LADDER = [
-  'team',
-  'team_sm',
-  'team_sm_pm',
-  'program_shared',
-] as const;
+export const SIGNAL_AUDIENCE_LADDER = ['team', 'team_sm', 'team_sm_pm', 'program_shared'] as const;
 export type SignalAudience = (typeof SIGNAL_AUDIENCE_LADDER)[number];
 
-/** Short rung labels for the ladder control (the ADR's long labels are verbose). */
+/** Short rung labels for the ladder control — the narrow/mobile fallback (#975). */
 export const AUDIENCE_RUNG_LABEL: Record<SignalAudience, string> = {
   team: 'Team',
   team_sm: 'SM',
   team_sm_pm: 'PM',
+  program_shared: 'Program',
+};
+
+/**
+ * Full rung labels — spelled out so "SM"/"PM" aren't ambiguous on first read (#975).
+ * Shown on the ladder where horizontal space allows, and always exposed via each
+ * rung's aria-label + title even when the abbreviation is the visible text.
+ */
+export const AUDIENCE_RUNG_LABEL_FULL: Record<SignalAudience, string> = {
+  team: 'Team',
+  team_sm: 'Scrum Master',
+  team_sm_pm: 'Project Manager',
   program_shared: 'Program',
 };
 
@@ -35,7 +42,8 @@ export const SIGNALS = [
   {
     key: 'throughput_rollup',
     title: 'Throughput rollup',
-    description: "Lets this team's throughput join the program rollup — only when you set it there.",
+    description:
+      "Lets this team's throughput join the program rollup — only when you set it there.",
   },
   {
     key: 'pulse',

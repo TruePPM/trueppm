@@ -10,6 +10,7 @@
 
 import {
   AUDIENCE_RUNG_LABEL,
+  AUDIENCE_RUNG_LABEL_FULL,
   SIGNAL_AUDIENCE_LADDER,
   audienceRank,
   type SignalAudience,
@@ -41,14 +42,14 @@ export function SignalLadder({
 }: SignalLadderProps) {
   const audienceIdx = audienceRank(pair.audience);
   const ceilingIdx = audienceRank(pair.ceiling);
-  const ceilingLabel = AUDIENCE_RUNG_LABEL[pair.ceiling];
+  const ceilingLabel = AUDIENCE_RUNG_LABEL_FULL[pair.ceiling];
 
   return (
     <li className="px-4 py-4">
       <div className="flex items-baseline justify-between gap-3">
         <h3 className="text-[13px] font-semibold text-neutral-text-primary">{title}</h3>
         <span className="tppm-mono text-[11px] text-neutral-text-secondary">
-          audience: {AUDIENCE_RUNG_LABEL[pair.audience]} · ceiling: {ceilingLabel}
+          audience: {AUDIENCE_RUNG_LABEL_FULL[pair.audience]} · ceiling: {ceilingLabel}
         </span>
       </div>
       <p className="mt-0.5 text-[12px] text-neutral-text-secondary">{description}</p>
@@ -72,10 +73,13 @@ export function SignalLadder({
               aria-checked={idx === audienceIdx}
               aria-disabled={!interactive}
               disabled={!interactive}
+              // aria-label carries the full rung name regardless of which visible
+              // label fits, so screen readers never hear a bare "SM"/"PM" (#975).
+              aria-label={AUDIENCE_RUNG_LABEL_FULL[rung]}
               title={
                 locked
-                  ? `Beyond the team's ceiling — raise the ceiling to allow ${AUDIENCE_RUNG_LABEL[rung]}`
-                  : undefined
+                  ? `Beyond the team's ceiling — raise the ceiling to allow ${AUDIENCE_RUNG_LABEL_FULL[rung]}`
+                  : AUDIENCE_RUNG_LABEL_FULL[rung]
               }
               onClick={() => interactive && onSetAudience(rung)}
               className={[
@@ -89,7 +93,10 @@ export function SignalLadder({
                 interactive ? 'cursor-pointer' : 'cursor-not-allowed',
               ].join(' ')}
             >
-              {AUDIENCE_RUNG_LABEL[rung]}
+              {/* Full label where the row has room; abbreviation as the narrow/mobile
+                  fallback. The full name is always in aria-label + title above. */}
+              <span className="hidden md:inline">{AUDIENCE_RUNG_LABEL_FULL[rung]}</span>
+              <span className="md:hidden">{AUDIENCE_RUNG_LABEL[rung]}</span>
               {isCeiling && <span aria-hidden="true">🔒</span>}
             </button>
           );
@@ -98,9 +105,7 @@ export function SignalLadder({
 
       {/* Ceiling controls */}
       <div className="mt-2 flex items-center justify-between">
-        <span className="text-[12px] text-neutral-text-secondary">
-          🔒 Ceiling: {ceilingLabel}
-        </span>
+        <span className="text-[12px] text-neutral-text-secondary">🔒 Ceiling: {ceilingLabel}</span>
         {canRaiseCeiling && (
           <span className="flex gap-3">
             {ceilingIdx < SIGNAL_AUDIENCE_LADDER.length - 1 && (

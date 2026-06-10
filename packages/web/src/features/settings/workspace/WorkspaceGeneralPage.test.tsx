@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react';
+import { userEvent } from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { describe, it, expect, vi } from 'vitest';
 import { WorkspaceGeneralPage } from './WorkspaceGeneralPage';
@@ -73,5 +74,18 @@ describe('WorkspaceGeneralPage — unwired buttons (#969, #641, Enterprise)', ()
   it('keeps the wired controls (workspace name input) interactive', () => {
     renderPage();
     expect(screen.getByDisplayValue('TrueScope')).toBeEnabled();
+  });
+
+  it('derives the toggle word from state so it never contradicts the switch (#978)', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const publicSharing = screen.getByRole('switch', { name: 'Allow public link sharing' });
+    // Off (fixture default): reads "Disabled", no stray "Enabled" on the page.
+    expect(publicSharing).toHaveAttribute('aria-checked', 'false');
+    expect(screen.queryByText('Enabled')).not.toBeInTheDocument();
+    // Turning it on flips the visible word with the switch — no green "Disabled".
+    await user.click(publicSharing);
+    expect(publicSharing).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByText('Enabled')).toBeInTheDocument();
   });
 });

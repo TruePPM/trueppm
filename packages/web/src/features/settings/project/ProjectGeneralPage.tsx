@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
 import { MemberPicker } from '../components/MemberPicker';
+import { DangerZoneLink } from '../components/DangerZoneLink';
 import { useDirtyForm } from '../hooks/useDirtyForm';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
@@ -447,6 +448,9 @@ export function ProjectGeneralPage() {
           </div>
         </FieldRow>
       </div>
+
+      {/* Destructive actions live on the Archive / Delete page (#977). */}
+      <DangerZoneLink to="../lifecycle" />
     </div>
   );
 }

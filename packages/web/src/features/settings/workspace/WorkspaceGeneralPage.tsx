@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useState } from 'react';
-import { Link } from 'react-router';
+import { DangerZoneLink } from '../components/DangerZoneLink';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
 import { useWorkspaceSettings } from '../hooks/useWorkspaceSettings';
 import { useUpdateWorkspaceSettings } from '../hooks/useUpdateWorkspaceSettings';
@@ -336,7 +336,6 @@ export function WorkspaceGeneralPage() {
             on={allowGuests}
             onChange={setAllowGuests}
             ariaLabel="Allow guest access"
-            label="Enabled"
             hint="3 guests currently in the workspace"
           />
         </FieldRow>
@@ -349,29 +348,15 @@ export function WorkspaceGeneralPage() {
             on={publicSharing}
             onChange={setPublicSharing}
             ariaLabel="Allow public link sharing"
-            label="Disabled"
           />
         </FieldRow>
       </div>
 
-      {/* Danger zone — the destructive, typed-confirmation actions live on their
-          own Archive / Delete page (#641) so they are isolated from everyday
-          settings. This is just the signpost. */}
-      <div className="px-6 pb-10 max-w-[920px]">
-        <div className="rounded-lg border border-neutral-border p-4 bg-neutral-surface-raised mt-6">
-          <p className="text-[13px] font-semibold text-neutral-text-primary mb-1">Danger zone</p>
-          <p className="text-[12px] text-neutral-text-secondary mb-3">
-            Export all data, transfer ownership, or permanently delete this workspace from the
-            dedicated Archive / Delete page.
-          </p>
-          <Link
-            to="/settings/danger"
-            className="inline-flex px-3 py-1.5 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-          >
-            Go to Archive / Delete
-          </Link>
-        </div>
-      </div>
+      {/* The destructive, typed-confirmation actions live on their own Archive /
+          Delete page (#641), always reachable via the DANGER nav section. A single
+          inline signpost here is enough — the old full card just duplicated that nav
+          entry and padded the page (#977). */}
+      <DangerZoneLink to="/settings/danger" />
     </div>
   );
 }
@@ -379,14 +364,26 @@ export function WorkspaceGeneralPage() {
 interface ToggleProps {
   on: boolean;
   onChange: (on: boolean) => void;
-  label?: string;
+  /** Words shown beside the switch for the on / off states. The visible word is
+   *  derived from `on`, so it can never contradict the switch — a green (on) switch
+   *  always reads "Enabled", never a stale hardcoded "Disabled" (#978). */
+  onLabel?: string;
+  offLabel?: string;
   hint?: string;
   /** Accessible name for the control. Without it the switch announces only its
    *  visible label ("Enabled"/"Disabled"), which does not say what it controls. */
   ariaLabel?: string;
 }
 
-function Toggle({ on, onChange, label, hint, ariaLabel }: ToggleProps) {
+function Toggle({
+  on,
+  onChange,
+  onLabel = 'Enabled',
+  offLabel = 'Disabled',
+  hint,
+  ariaLabel,
+}: ToggleProps) {
+  const label = on ? onLabel : offLabel;
   return (
     <button
       type="button"
