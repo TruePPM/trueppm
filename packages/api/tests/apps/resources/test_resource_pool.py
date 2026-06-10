@@ -278,6 +278,23 @@ class TestProjectResourceViewSet:
         )
         assert res.status_code == 403
 
+    def test_add_to_roster_member_forbidden(
+        self,
+        project: Project,
+        resource: Resource,
+    ) -> None:
+        """A Team Member (role 1, below SCHEDULER) cannot manage the roster (#1006)."""
+        member_user = User.objects.create_user(username="roster_member", password="pw")
+        ProjectMembership.objects.create(project=project, user=member_user, role=Role.MEMBER)
+        client = APIClient()
+        client.force_authenticate(user=member_user)
+        res = client.post(
+            "/api/v1/project-resources/",
+            {"project": str(project.pk), "resource": str(resource.pk)},
+        )
+        assert res.status_code == 403
+        assert not ProjectResource.objects.filter(project=project, resource=resource).exists()
+
     def test_units_override(
         self,
         scheduler_client: APIClient,

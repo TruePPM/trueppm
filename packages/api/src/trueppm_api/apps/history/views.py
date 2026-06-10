@@ -156,6 +156,9 @@ class TaskHistoryListView(APIView):
     receive null for that field.
     """
 
+    # IsProjectNotArchived is deliberately omitted: history is a read-only audit
+    # surface that must stay accessible after a project is archived. Do not add it
+    # "for consistency" — archived projects still need their audit trail readable.
     permission_classes = [IsAuthenticated, IsProjectMember]
 
     def get(self, request: Request, project_pk: str, task_pk: str) -> Response:
@@ -187,6 +190,9 @@ class ProjectHistoryListView(APIView):
     GET /api/v1/projects/{project_pk}/history/
     """
 
+    # IsProjectNotArchived is deliberately omitted: history is a read-only audit
+    # surface that must stay accessible after a project is archived. Do not add it
+    # "for consistency" — archived projects still need their audit trail readable.
     permission_classes = [IsAuthenticated, IsProjectMember]
 
     def get(self, request: Request, project_pk: str) -> Response:
@@ -224,6 +230,9 @@ class ProjectHistorySummaryView(APIView):
     as "last updated X ago" so users know the freshness of the data.
     """
 
+    # IsProjectNotArchived is deliberately omitted: history is a read-only audit
+    # surface that must stay accessible after a project is archived. Do not add it
+    # "for consistency" — archived projects still need their audit trail readable.
     permission_classes = [IsAuthenticated, IsProjectMember]
     _CACHE_TTL = 300  # 5 minutes
     # Cap the rows pulled into memory per object type. A 90-day window on a busy

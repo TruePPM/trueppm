@@ -686,7 +686,19 @@ class CanAssignResource(BasePermission):
     message = "You need at least Resource Manager role to assign resources."
 
     def has_permission(self, request: Request, view: APIView) -> bool:
-        return bool(request.user and request.user.is_authenticated)
+        if not (request.user and request.user.is_authenticated):
+            return False
+        # Nested/object routes expose ``project_pk``: enforce the SCHEDULER floor
+        # declaratively (mirrors IsProjectScheduler) so the gate is visible to
+        # DRF-level audits and OpenAPI security generation. List-level creates
+        # carry the project in the request body, which is not resolvable here —
+        # ProjectResourceViewSet.perform_create enforces the same floor on that
+        # path, and has_object_permission below covers detail mutations.
+        project_pk = _project_pk_from_view(view)
+        if project_pk is not None and request.method not in ("GET", "HEAD", "OPTIONS"):
+            role = _membership_role(request, project_pk)
+            return role is not None and role >= Role.SCHEDULER
+        return True
 
     def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
         project_id = _get_project_id_from_obj(obj)

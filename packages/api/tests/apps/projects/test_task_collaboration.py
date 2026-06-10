@@ -938,6 +938,26 @@ class TestCommentReaction:
         )
         assert r.status_code == 400
 
+    def test_reaction_on_archived_project_rejected(
+        self,
+        member_client: APIClient,
+        project: Project,
+        task: Task,
+        memberships: None,
+    ) -> None:
+        """Archived projects are hard read-only: adding a reaction must 403 (#1006)."""
+        c = member_client.post(_comment_list_url(project, task), {"body": "nice"}, format="json")
+        comment_pk = c.data["id"]
+        project.is_archived = True
+        project.save(update_fields=["is_archived"])
+        r = member_client.post(
+            self._reactions_url(project, task, comment_pk),
+            {"emoji": "👍"},
+            format="json",
+        )
+        assert r.status_code == 403
+        assert CommentReaction.objects.filter(comment_id=comment_pk).count() == 0
+
     def test_user_can_only_remove_own_reaction(
         self,
         member_client: APIClient,

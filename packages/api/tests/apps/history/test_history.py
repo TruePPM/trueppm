@@ -231,6 +231,22 @@ class TestTaskHistoryAPI:
         r = outsider_client.get(f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/")
         assert r.status_code == 403
 
+    def test_member_can_read_history_on_archived_project(
+        self,
+        owner_client: APIClient,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """History stays readable after archiving — IsProjectNotArchived is deliberately
+        omitted so the audit trail survives the project's archived (read-only) state (#1006)."""
+        task.name = "Updated before archive"
+        task.save()
+        project.is_archived = True
+        project.save(update_fields=["is_archived"])
+        r = owner_client.get(f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/")
+        assert r.status_code == 200
+
     def test_unauthenticated_gets_401(
         self,
         project: Project,

@@ -21,7 +21,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
-from trueppm_api.apps.access.permissions import IsProjectNotArchived
+from trueppm_api.apps.access.permissions import IsProjectMember, IsProjectNotArchived
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 
 logger = logging.getLogger(__name__)
@@ -149,7 +149,10 @@ class MsProjectImportView(IdempotencyMixin, APIView):
     # Exempt from the generic Idempotency-Key path (ADR-0083): this is a multipart
     # upload, and the import is already deduped at the table level via ImportRequest.
     idempotency_exempt = True
-    permission_classes = [IsAuthenticated, IsProjectNotArchived]
+    # IsProjectMember gates membership at the DRF layer (declarative, OpenAPI-visible);
+    # the in-body _check_project_role(..., Role.ADMIN) below enforces the stricter
+    # Admin requirement as defense-in-depth.
+    permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
     parser_classes = [MultiPartParser]
 
     @extend_schema(
@@ -302,7 +305,11 @@ class ImportRequestProvenanceListView(APIView):
     a recent-activity view, not durable audit history.
     """
 
-    permission_classes = [IsAuthenticated]
+    # IsProjectMember makes the membership gate declarative (was in-body only).
+    # IsProjectNotArchived is deliberately omitted: this is a read-only audit /
+    # provenance surface that must remain readable after a project is archived
+    # (mirrors the History views' archived-read policy).
+    permission_classes = [IsAuthenticated, IsProjectMember]
 
     @extend_schema(
         responses={
@@ -368,7 +375,9 @@ class MsProjectExportView(APIView):
     Requires project Member role (viewer or above).
     """
 
-    permission_classes = [IsAuthenticated, IsProjectNotArchived]
+    # IsProjectMember gates membership declaratively; the in-body
+    # _check_project_member below stays as defense-in-depth.
+    permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     def get(self, request: Request, project_pk: str) -> Response:
         _check_project_member(request.user, project_pk)
