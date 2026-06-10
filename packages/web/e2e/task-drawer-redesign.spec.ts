@@ -260,6 +260,35 @@ test.describe('TaskDetailDrawer redesign — tabs', () => {
     );
   });
 
+  test('tabs expose the ARIA tab/tabpanel relationship and arrow-key navigation (#1022)', async ({
+    page,
+  }) => {
+    const drawer = await openDrawer(page, 'Discovery & Design');
+
+    // The active panel is a tabpanel labelled by the active tab; the tab controls it.
+    const details = drawer.getByRole('tab', { name: 'Details' });
+    await expect(details).toHaveAttribute('aria-controls', 'drawer-panel-details');
+    const panel = drawer.getByRole('tabpanel');
+    await expect(panel).toHaveAttribute('id', 'drawer-panel-details');
+    await expect(panel).toHaveAttribute('aria-labelledby', 'drawer-tab-details');
+
+    // ArrowRight moves selection to the next tab without leaving the tablist.
+    await details.focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(drawer.getByRole('tab', { name: /^Subtasks/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    await expect(drawer.getByRole('tabpanel')).toHaveAttribute(
+      'aria-labelledby',
+      'drawer-tab-subtasks',
+    );
+
+    // ArrowLeft returns selection to Details.
+    await page.keyboard.press('ArrowLeft');
+    await expect(details).toHaveAttribute('aria-selected', 'true');
+  });
+
   test('header renders WBS pill and an editable task-name input', async ({ page }) => {
     const drawer = await openDrawer(page, 'Discovery & Design');
     await expect(drawer.getByText('1', { exact: true })).toBeVisible();

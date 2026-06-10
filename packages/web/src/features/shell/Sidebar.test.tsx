@@ -75,6 +75,17 @@ describe('Sidebar', () => {
     expect(screen.getByRole('navigation', { name: /project list/i })).toBeInTheDocument();
   });
 
+  // #1050: in "All programs" scope the grouped list is its own landmark so AT
+  // landmark navigation can jump between program groups without tabbing through
+  // every project.
+  it('wraps the grouped project list in a "Program groups" nav landmark', () => {
+    renderWithRouter(<Sidebar />); // default scope is "all" → grouped view
+    const groupsNav = screen.getByRole('navigation', { name: /program groups/i });
+    expect(groupsNav).toBeInTheDocument();
+    // Projects live inside the landmark.
+    expect(within(groupsNav).getByText('Alpha Platform Upgrade')).toBeInTheDocument();
+  });
+
   it('renders project names from fixture when expanded', () => {
     renderWithRouter(<Sidebar />);
     expect(screen.getByText('Alpha Platform Upgrade')).toBeInTheDocument();

@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type RefObject,
+} from 'react';
 import type { Task } from '@/types';
 import {
   registry,
@@ -357,6 +365,22 @@ function DrawerContent({
   onSave,
   onDiscard,
 }: DrawerContentProps) {
+  // WAI-ARIA tab pattern (#1022): ArrowLeft/Right move selection+focus across
+  // the tablist so a keyboard user reaches a sibling tab without Tab-cycling
+  // through the active panel's content. Focus follows selection (automatic
+  // activation) since switching tabs is cheap here.
+  const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const handleTabKeyDown = (e: ReactKeyboardEvent<HTMLButtonElement>) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    const idx = tabs.findIndex((t) => t.id === activeTab);
+    if (idx === -1) return;
+    const nextIdx =
+      e.key === 'ArrowRight' ? (idx + 1) % tabs.length : (idx - 1 + tabs.length) % tabs.length;
+    const nextId = tabs[nextIdx].id;
+    onTabChange(nextId);
+    tabRefs.current[nextId]?.focus();
+  };
   return (
     <>
       {/* Header — chips row, editable name, tab strip */}
@@ -406,7 +430,8 @@ function DrawerContent({
             focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-sm"
         />
 
-        {/* Tabs */}
+        {/* Tabs — arrow-key handling lives on each focusable tab button rather
+            than the tablist (the tablist itself is not a tab stop). */}
         <div role="tablist" aria-label="Task detail sections" className="flex gap-1 -mb-px">
           {tabs.map((tab) => {
             const selected = tab.id === activeTab;
@@ -414,9 +439,18 @@ function DrawerContent({
             return (
               <button
                 key={tab.id}
+                ref={(el) => {
+                  tabRefs.current[tab.id] = el;
+                }}
                 type="button"
                 role="tab"
+                id={`drawer-tab-${tab.id}`}
+                aria-controls={`drawer-panel-${tab.id}`}
                 aria-selected={selected}
+                // Roving tabindex: the tablist is a single Tab stop; ArrowLeft/
+                // Right move between tabs (WAI-ARIA tab pattern).
+                tabIndex={selected ? 0 : -1}
+                onKeyDown={handleTabKeyDown}
                 onClick={() => onTabChange(tab.id)}
                 className={[
                   'inline-flex items-center gap-1.5 px-3 py-2 text-sm border-b-2 -mb-px',
@@ -438,8 +472,15 @@ function DrawerContent({
         </div>
       </div>
 
-      {/* Active-tab body */}
-      <div className="flex-1 min-h-0 overflow-y-auto">
+      {/* Active-tab body — labelled by the active tab so AT announces the
+          panel/tab relationship (#1022). Only the active panel is rendered. */}
+      <div
+        role="tabpanel"
+        id={`drawer-panel-${activeTab}`}
+        aria-labelledby={`drawer-tab-${activeTab}`}
+        tabIndex={0}
+        className="flex-1 min-h-0 overflow-y-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset"
+      >
         {activeTab === 'details' &&
           (() => {
             // The Details tab is a curated layout (#962): the schedule strip,

@@ -138,4 +138,57 @@ describe('NotificationPanel', () => {
     fireEvent.click(screen.getByLabelText('Close notifications'));
     expect(onClose).toHaveBeenCalled();
   });
+
+  // WAI-ARIA non-modal dialog pattern (#1031, WCAG 2.4.3).
+  it('moves focus to the first control on open', () => {
+    useNotificationsMock.mockReturnValue({ notifications: [], isLoading: false, error: null });
+    useMarkAllReadMock.mockReturnValue({ mutate: vi.fn(), isPending: false });
+    renderWithRouter(<NotificationPanel onClose={vi.fn()} />);
+    expect(screen.getByText('Mark all read')).toHaveFocus();
+  });
+
+  it('restores focus to the trigger on close (WCAG 2.4.3)', () => {
+    useNotificationsMock.mockReturnValue({ notifications: [], isLoading: false, error: null });
+    useMarkAllReadMock.mockReturnValue({ mutate: vi.fn(), isPending: false });
+    // Stand-in for the bell trigger that has focus when the panel opens.
+    const trigger = document.createElement('button');
+    document.body.appendChild(trigger);
+    trigger.focus();
+    expect(trigger).toHaveFocus();
+
+    const { unmount } = renderWithRouter(<NotificationPanel onClose={vi.fn()} />);
+    expect(screen.getByText('Mark all read')).toHaveFocus();
+    unmount();
+    expect(trigger).toHaveFocus();
+    trigger.remove();
+  });
+
+  // Roving-tabindex arrow navigation across the filter tablist (#1022).
+  it('navigates filter tabs with arrow keys and roves tabindex', () => {
+    useNotificationsMock.mockReturnValue({ notifications: [], isLoading: false, error: null });
+    useMarkAllReadMock.mockReturnValue({ mutate: vi.fn(), isPending: false });
+    renderWithRouter(<NotificationPanel onClose={vi.fn()} />);
+    const unread = screen.getByRole('tab', { name: 'Unread' });
+    expect(unread).toHaveAttribute('aria-selected', 'true');
+    expect(unread).toHaveAttribute('tabindex', '0');
+    expect(screen.getByRole('tab', { name: 'All' })).toHaveAttribute('tabindex', '-1');
+    // FILTERS order is all, unread, archived → ArrowRight from unread selects archived.
+    fireEvent.keyDown(unread, { key: 'ArrowRight' });
+    expect(screen.getByRole('tab', { name: 'Archived' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  // WAI-ARIA tab pattern (#1022): the list is the tabpanel for the active filter.
+  it('exposes the list as a tabpanel labelled by the active filter tab', () => {
+    useNotificationsMock.mockReturnValue({ notifications: [], isLoading: false, error: null });
+    useMarkAllReadMock.mockReturnValue({ mutate: vi.fn(), isPending: false });
+    renderWithRouter(<NotificationPanel onClose={vi.fn()} />);
+    const panel = screen.getByRole('tabpanel');
+    expect(panel).toHaveAttribute('id', 'notif-panel');
+    // Default filter is "unread".
+    expect(panel).toHaveAttribute('aria-labelledby', 'notif-tab-unread');
+    for (const f of ['all', 'unread', 'archived']) {
+      const tab = document.getElementById(`notif-tab-${f}`);
+      expect(tab).toHaveAttribute('aria-controls', 'notif-panel');
+    }
+  });
 });

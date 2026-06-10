@@ -68,10 +68,23 @@ interface ScheduleAriaOverlayProps {
 // Component
 // ---------------------------------------------------------------------------
 
+/**
+ * Keyboard-reschedule is discoverable only if announced (#1031, WCAG 4.1.3):
+ * a task can be rescheduled with the keyboard unless it is a summary rollup or
+ * already complete (mirrors the gate in useKeyboardReschedule). When such a row
+ * is focused, the polite live region names it and states the Enter convention
+ * so a screen-reader user who doesn't know it can find it.
+ */
+export function rescheduleHint(task: Task): string | null {
+  if (task.isSummary || task.isComplete) return null;
+  return `${task.name}. Press Enter to reschedule via keyboard. Arrow keys to navigate rows.`;
+}
+
 export function ScheduleAriaOverlay({ engine, tasks, containerRef }: ScheduleAriaOverlayProps) {
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
   const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
+  const [liveMessage, setLiveMessage] = useState('');
   const gridRef = useRef<HTMLDivElement>(null);
 
   // Track scroll from engine events (rule 55: always unsubscribe)
@@ -123,6 +136,9 @@ export function ScheduleAriaOverlay({ engine, tasks, containerRef }: ScheduleAri
           const next = tasks[idx + 1];
           if (next) {
             setFocusedTaskId(next.id);
+            // Announce the reschedule convention for reschedulable rows; stay
+            // silent on summary/complete rows to avoid spamming (#1031).
+            setLiveMessage(rescheduleHint(next) ?? '');
             // Scroll into view if needed
             if (engine) engine.scrollToDate(next.start);
           }
@@ -133,6 +149,7 @@ export function ScheduleAriaOverlay({ engine, tasks, containerRef }: ScheduleAri
           const prev = tasks[idx - 1];
           if (prev) {
             setFocusedTaskId(prev.id);
+            setLiveMessage(rescheduleHint(prev) ?? '');
             if (engine) engine.scrollToDate(prev.start);
           }
           break;
@@ -155,6 +172,7 @@ export function ScheduleAriaOverlay({ engine, tasks, containerRef }: ScheduleAri
       role="grid"
       aria-rowcount={tasks.length}
       aria-label="Schedule chart"
+      aria-describedby="schedule-grid-help"
       style={{
         position: 'absolute',
         inset: 0,
@@ -162,6 +180,15 @@ export function ScheduleAriaOverlay({ engine, tasks, containerRef }: ScheduleAri
         overflow: 'hidden',
       }}
     >
+      {/* Static keyboard help announced when the grid is entered (#1031). */}
+      <span id="schedule-grid-help" className="sr-only">
+        Use arrow up and down to move between tasks. Press Enter on a reschedulable task to
+        reschedule it with the keyboard, then arrow keys to nudge the date and Enter to confirm.
+      </span>
+      {/* Polite live region — names the focused row and its reschedule hint. */}
+      <span role="status" aria-live="polite" className="sr-only">
+        {liveMessage}
+      </span>
       {tasks.slice(firstRow, lastRow + 1).map((task, sliceIdx) => {
         const rowIndex = firstRow + sliceIdx;
         const rowTop = rowIndex * ROW_HEIGHT + HEADER_HEIGHT - scrollTop;
