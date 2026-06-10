@@ -165,6 +165,13 @@ def _register_milestone_rollup_receiver() -> None:
         sprint_id = getattr(instance, "sprint_id", None)
         if sprint_id is None or getattr(instance, "is_deleted", False):
             return
+        from trueppm_api.apps.projects.seed.replay_ctx import is_seed_replay_active
+
+        # During seed event-replay (ADR-0113) the rollup is computed-on-read and
+        # the post-import CPM pass refreshes it; firing here per backdated beat
+        # would queue redundant milestone_rollup_updated broadcasts on commit.
+        if is_seed_replay_active():
+            return
         from trueppm_api.apps.projects.models import Sprint
 
         # One small query — index hit on PK. The cheap filter is paying for

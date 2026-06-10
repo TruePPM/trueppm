@@ -78,13 +78,13 @@
     },
     "seedDate": {
       "type": "string",
-      "description": "Either an ISO date (\"2026-01-05\") or an anchor-relative offset (\"A-120\", \"A+15\"). A trailing \"!\" opts out of weekend-snapping so the date lands exactly. Relative dates that fall on a non-working day snap forward to the next working day via the project calendar.",
-      "pattern": "^(\\d{4}-\\d{2}-\\d{2}|A[+-]\\d+!?)$"
+      "description": "Either an ISO date (\"2026-01-05\") or an anchor-relative offset (\"A-120\", \"A+15\"). The offset is capped at 4 digits (~27 years) so a crafted seed can't drive an unbounded replay span. A trailing \"!\" opts out of weekend-snapping so the date lands exactly. Relative dates that fall on a non-working day snap forward to the next working day via the project calendar.",
+      "pattern": "^(\\d{4}-\\d{2}-\\d{2}|A[+-]\\d{1,4}!?)$"
     },
     "seedTimestamp": {
       "type": "string",
-      "description": "An event time: ISO datetime (\"2026-01-05T14:10\"), or anchor-relative \"A-87T14:10\" / \"A-87\" (midnight). Timestamps are never weekend-snapped — an event occurs when it occurs.",
-      "pattern": "^(\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2})?|A[+-]\\d+(T\\d{2}:\\d{2})?)$"
+      "description": "An event time: ISO datetime (\"2026-01-05T14:10\"), or anchor-relative \"A-87T14:10\" / \"A-87\" (midnight). The offset is capped at 4 digits (~27 years). Timestamps are never weekend-snapped — an event occurs when it occurs.",
+      "pattern": "^(\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2})?|A[+-]\\d{1,4}(T\\d{2}:\\d{2})?)$"
     },
     "program": {
       "type": "object",

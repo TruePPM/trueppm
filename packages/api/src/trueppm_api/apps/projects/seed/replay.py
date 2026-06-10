@@ -62,6 +62,11 @@ _PROGRESSION = [
 ]
 _PROGRESSION_INDEX = {s: i for i, s in enumerate(_PROGRESSION)}
 
+# Upper bound on the day-by-day snapshot window (~10 years). The schema already
+# caps a single date offset at 4 digits; this bounds the *span* between the
+# earliest and latest beat so no crafted timeline drives an oversized loop.
+MAX_REPLAY_SPAN_DAYS = 3660
+
 
 @dataclass
 class ReplayContext:
@@ -286,8 +291,28 @@ def _run_sim_clock(beats: list[_Beat], ctx: ReplayContext) -> None:
     for b in beats:
         by_day.setdefault(b.when.date(), []).append(b)
 
-    day = min(by_day)
+    first = min(by_day)
     last = max(by_day)
+    # Bound the per-day snapshot loop. The schema caps any single offset at ~27
+    # years, but a seed could still author a multi-decade span; clamp the
+    # snapshotted window so a crafted timeline can't drive an oversized loop.
+    # Beats before the window are still applied (so task states entering the
+    # window are correct) — only their day-by-day snapshots are skipped.
+    window_start = first
+    if (last - first).days > MAX_REPLAY_SPAN_DAYS:
+        window_start = last - timedelta(days=MAX_REPLAY_SPAN_DAYS)
+        logger.warning(
+            "seed replay: span %sd exceeds %sd cap; snapshotting recent window only",
+            (last - first).days,
+            MAX_REPLAY_SPAN_DAYS,
+        )
+        for d in sorted(by_day):
+            if d >= window_start:
+                break
+            for beat in by_day[d]:
+                _apply(beat, ctx)
+
+    day = window_start
     while day <= last:
         for beat in by_day.get(day, []):
             _apply(beat, ctx)
