@@ -132,6 +132,11 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
 
     member_count = serializers.SerializerMethodField()
     percent_complete = serializers.SerializerMethodField()
+    # Read-only nested user payload so the General settings page can render the
+    # lead's name + initials without a second per-project user fetch. Null when
+    # ``lead`` is unset. The write side stays on the plain ``lead`` UUID field —
+    # ``lead_detail`` is response-only. Mirrors ``ProgramSerializer`` (#966).
+    lead_detail = _UserSummarySerializer(source="lead", read_only=True)
 
     class Meta:
         model = Project
@@ -147,6 +152,8 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "visibility",
             "timezone",
             "default_view",
+            "lead",
+            "lead_detail",
             "estimation_mode",
             "agile_features",
             "methodology",
@@ -164,6 +171,7 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         read_only_fields = [
             "id",
             "server_version",
+            "lead_detail",
             "is_archived",
             "archived_at",
             "archived_by",
@@ -199,6 +207,37 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             raise serializers.ValidationError(
                 "Project code must use uppercase letters, digits, and hyphens "
                 "only, and may not start or end with a hyphen."
+            )
+        return value
+
+    def validate_lead(self, value: Any) -> Any:
+        """Lead must hold an active ProjectMembership on this project (#966).
+
+        Mirrors ``ProgramSerializer.validate_lead``. Unsetting (lead=None) is
+        always permitted. On create the instance does not yet exist, so the
+        membership check is skipped — the current ``ProjectViewSet.create``
+        path does not forward ``lead`` anyway (lead is set from the General
+        page via partial_update, where the instance — and its membership rows —
+        already exist). Admin-only enforcement is handled in ``validate`` (lead
+        is not in ``_SCHEDULER_WRITABLE_FIELDS``), not here.
+        """
+        if value is None:
+            return value
+        instance = getattr(self, "instance", None)
+        if instance is None:
+            return value
+        # Lazy import avoids a circular dep — access imports from projects.
+        from trueppm_api.apps.access.models import ProjectMembership
+
+        has_membership = ProjectMembership.objects.filter(
+            project=instance,
+            user=value,
+            is_deleted=False,
+        ).exists()
+        if not has_membership:
+            raise serializers.ValidationError(
+                "The selected user must be a member of this project before they "
+                "can be assigned as lead."
             )
         return value
 

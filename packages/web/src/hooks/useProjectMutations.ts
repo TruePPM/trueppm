@@ -72,6 +72,9 @@ export interface UpdateProjectPayload {
   default_view?: ProjectDefaultView;
   /** Calendar UUID or null to inherit from the workspace. */
   calendar?: string | null;
+  /** Project lead — user id, or null to unassign. Admin+-only and must already
+   *  be a project member; both enforced server-side (#966). */
+  lead?: string | null;
   /** Project start date (ISO `YYYY-MM-DD`). Admin+-only server-side (#769). */
   start_date?: string;
 }
@@ -171,10 +174,7 @@ export function useTransferProject(projectId: string | null | undefined) {
   return useMutation({
     mutationFn: async (payload: TransferProjectPayload) => {
       if (!projectId) throw new Error('projectId is required');
-      const res = await apiClient.post<ApiProject>(
-        `/projects/${projectId}/transfer/`,
-        payload,
-      );
+      const res = await apiClient.post<ApiProject>(`/projects/${projectId}/transfer/`, payload);
       return res.data;
     },
     onSuccess: () => {

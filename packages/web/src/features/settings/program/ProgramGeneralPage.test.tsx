@@ -18,6 +18,14 @@ vi.mock('@/hooks/useProgramMutations', () => ({
   useUpdateProgram: () => ({ mutateAsync }),
 }));
 
+// The lead MemberPicker fetches the program roster; stub it so the test makes no
+// network call. The resting lead row renders from the record's lead_detail, so an
+// empty roster is fine here (the picker behavior itself is covered by
+// EntitySelectCombobox.test.tsx).
+vi.mock('@/features/programs/hooks/useProgramMembers', () => ({
+  useProgramMembers: () => ({ data: [], isLoading: false }),
+}));
+
 function makeProgram(overrides: Partial<Program> = {}): Program {
   return {
     id: 'p-1',
@@ -116,29 +124,24 @@ describe('ProgramGeneralPage (settings)', () => {
     expect(screen.getByText('AK')).toBeInTheDocument();
   });
 
-  it('renders the Unassigned placeholder when lead is null', () => {
+  it('renders the Unassigned placeholder + an enabled Assign trigger when lead is null (#966)', () => {
     useProgram.mockReturnValue({
       data: makeProgram({ lead: null, lead_detail: null }),
     });
     renderPage();
     expect(screen.getByText(/Unassigned/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Assign/i })).toBeDisabled();
+    // The picker is wired now — the trigger is enabled, not a #966 stub.
+    expect(screen.getByRole('button', { name: /Assign/i })).toBeEnabled();
   });
 
-  it('disables the manager Change button with the #966 picker reference (lead present)', () => {
+  it('opens the member picker from the lead Change trigger (#966)', async () => {
+    const user = userEvent.setup();
     useProgram.mockReturnValue({ data: makeProgram() });
     renderPage();
     const change = screen.getByRole('button', { name: 'Change' });
-    expect(change).toBeDisabled();
-    expect(change).toHaveAttribute('title', expect.stringContaining('#966'));
-  });
-
-  it('disables the manager Assign button with the #966 picker reference (lead null)', () => {
-    useProgram.mockReturnValue({ data: makeProgram({ lead: null, lead_detail: null }) });
-    renderPage();
-    const assign = screen.getByRole('button', { name: 'Assign' });
-    expect(assign).toBeDisabled();
-    expect(assign).toHaveAttribute('title', expect.stringContaining('#966'));
+    expect(change).toBeEnabled();
+    await user.click(change);
+    expect(screen.getByRole('listbox', { name: 'Select program manager' })).toBeInTheDocument();
   });
 
   it('publishes apiReady=true and dirty=false to the settings save store once seeded', () => {
@@ -180,6 +183,7 @@ describe('ProgramGeneralPage (settings)', () => {
         methodology: 'HYBRID',
         visibility: 'WORKSPACE',
         color: null,
+        lead: 'u-1',
       },
     });
   });
@@ -213,6 +217,7 @@ describe('ProgramGeneralPage (settings)', () => {
         methodology: 'HYBRID',
         visibility: 'WORKSPACE',
         color: '#0EA5E9',
+        lead: 'u-1',
       },
     });
   });
@@ -243,6 +248,7 @@ describe('ProgramGeneralPage (settings)', () => {
         methodology: 'HYBRID',
         visibility: 'WORKSPACE',
         color: null,
+        lead: 'u-1',
       },
     });
   });

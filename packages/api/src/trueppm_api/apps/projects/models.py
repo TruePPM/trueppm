@@ -651,6 +651,20 @@ class Project(VersionedModel):
         choices=DefaultView.choices,
         default=DefaultView.SCHEDULE,
     )
+    # The single "Project lead" displayed on Settings → General and the (future)
+    # project header (#966). A UI affordance pointing to one person — distinct
+    # from ``created_by`` (immutable historical fact) and from OWNER membership
+    # rows (multiple owners allowed; lead names one). Mirrors ``Program.lead``.
+    # SET_NULL so a user-account deletion does not break projects they once led.
+    # Member-of-scope (the lead must already hold a ProjectMembership) is
+    # enforced in ``ProjectSerializer.validate_lead``, not at the DB level.
+    lead = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="projects_led",
+    )
     # Per-project sequential counter for generating short_id values on Tasks
     # and Risks.  Incremented atomically via F() on every INSERT to either model.
     # Tasks and Risks share the same counter so that short_id is unique across
