@@ -47,7 +47,7 @@ function initialsFor(username: string | null | undefined): string {
  *
  * Wired fields: name, description, code, health, visibility, methodology, lead
  * (read-only display — the user picker is out of scope for #523; the Change
- * button is disabled and a follow-up will swap in the picker).
+ * button is disabled and tracked in #966, which will swap in the picker).
  *
  * Save contract: publishes (dirty, save, reset) up to ``SettingsShell`` via
  * ``useDirtyForm``. Initial values re-seed whenever the routed program changes
@@ -280,8 +280,8 @@ export function ProgramGeneralPage() {
               <button
                 type="button"
                 disabled
-                title="User picker is shipping separately"
-                className="ml-1 text-[12px] text-brand-primary font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded disabled:text-neutral-text-secondary disabled:cursor-not-allowed disabled:no-underline"
+                title="Changing the program manager isn't available yet — tracked in #966"
+                className="ml-1 text-[12px] text-brand-primary font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded disabled:text-neutral-text-secondary disabled:cursor-not-allowed disabled:no-underline"
               >
                 Change
               </button>
@@ -292,8 +292,8 @@ export function ProgramGeneralPage() {
               <button
                 type="button"
                 disabled
-                title="User picker is shipping separately"
-                className="ml-1 text-[12px] text-brand-primary font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded disabled:text-neutral-text-secondary disabled:cursor-not-allowed disabled:no-underline"
+                title="Changing the program manager isn't available yet — tracked in #966"
+                className="ml-1 text-[12px] text-brand-primary font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded disabled:text-neutral-text-secondary disabled:cursor-not-allowed disabled:no-underline"
               >
                 Assign
               </button>

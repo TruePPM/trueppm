@@ -217,11 +217,11 @@ export function WorkspaceGeneralPage() {
             <span className="w-14 h-14 rounded-lg bg-brand-primary inline-flex items-center justify-center text-white text-xl font-bold shrink-0">
               tS
             </span>
-            {/* Logo upload not wired yet — disabled until the endpoint ships (#791). */}
+            {/* Logo upload not wired yet — disabled until the endpoint ships (#969). */}
             <button
               type="button"
               disabled
-              title="Logo upload isn't available yet — tracked in #791"
+              title="Logo upload isn't available yet — tracked in #969"
               className="px-3 py-1.5 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
             >
               Replace
@@ -316,11 +316,11 @@ export function WorkspaceGeneralPage() {
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-brand-primary-light text-brand-primary text-[12px] font-medium">
               US federal · 2026
             </span>
-            {/* Holiday-calendar management not wired yet — disabled until it ships (#791). */}
+            {/* Holiday-calendar management not wired yet — disabled until it ships (#969). */}
             <button
               type="button"
               disabled
-              title="Adding a holiday calendar isn't available yet — tracked in #791"
+              title="Adding a holiday calendar isn't available yet — tracked in #969"
               className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-neutral-border text-[12px] text-neutral-text-secondary hover:text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
             >
               + Add calendar

@@ -89,7 +89,25 @@ export function WorkspaceEmailPage() {
                 <p className="text-[13px] text-neutral-text-secondary">
                   Email transport is read-only here. Binding the{' '}
                   <span className="tppm-mono">EMAIL_*</span> settings to environment
-                  variables / Helm values is not yet wired — see the{' '}
+                  variables / Helm values is not yet wired (tracked in{' '}
+                  <a
+                    href="https://gitlab.com/trueppm/trueppm/-/issues/764"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-brand-primary underline-offset-2 hover:underline"
+                  >
+                    #764
+                  </a>
+                  ; a writable in-app SMTP surface is{' '}
+                  <a
+                    href="https://gitlab.com/trueppm/trueppm/-/issues/712"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-brand-primary underline-offset-2 hover:underline"
+                  >
+                    #712
+                  </a>
+                  ) — see the{' '}
                   <a
                     href={docsUrl('administration/email')}
                     className="text-brand-primary underline-offset-2 hover:underline"

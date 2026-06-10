@@ -290,11 +290,11 @@ export function WorkspaceMembersPage() {
         subtitle="People with access to this workspace. Workspace role is the highest a member can act with anywhere."
         action={
           <div className="flex gap-2">
-            {/* Member CSV export not wired yet — disabled until it ships (#791). */}
+            {/* Member CSV export not wired yet — disabled until it ships (#969). */}
             <button
               type="button"
               disabled
-              title="Member CSV export isn't available yet — tracked in #791"
+              title="Member CSV export isn't available yet — tracked in #969"
               className="px-3 py-1.5 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
             >
               Export CSV
@@ -436,11 +436,11 @@ export function WorkspaceMembersPage() {
               {pendingInvites.length} pending invites
             </span>
             <div className="flex-1" />
-            {/* Bulk resend not wired yet — disabled until it ships (#791), same as per-row Resend. */}
+            {/* Bulk resend not wired yet — disabled until it ships (#969), same as per-row Resend. */}
             <button
               type="button"
               disabled
-              title="Resending invites isn't available yet — tracked in #791"
+              title="Resending invites isn't available yet — tracked in #969"
               className="text-[12px] text-brand-accent-dark font-semibold rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:text-neutral-text-secondary disabled:cursor-not-allowed"
             >
               Resend all →
@@ -532,11 +532,11 @@ export function WorkspaceMembersPage() {
                   <span className="text-[11px]">by {p.sentBy}</span>
                   <span className="flex flex-col items-end gap-0.5">
                     <span className="flex justify-end gap-1">
-                      {/* Resend-invite not wired yet — disabled until it ships (#791). */}
+                      {/* Resend-invite not wired yet — disabled until it ships (#969). */}
                       <button
                         type="button"
                         disabled
-                        title="Resending invites isn't available yet — tracked in #791"
+                        title="Resending invites isn't available yet — tracked in #969"
                         className="text-[11px] text-brand-primary font-semibold hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded disabled:text-neutral-text-secondary disabled:cursor-not-allowed disabled:no-underline disabled:hover:no-underline"
                       >
                         Resend

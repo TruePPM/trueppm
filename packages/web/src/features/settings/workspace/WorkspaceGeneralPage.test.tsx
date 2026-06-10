@@ -43,7 +43,7 @@ function renderPage() {
   );
 }
 
-describe('WorkspaceGeneralPage — unwired buttons (#791, #641, Enterprise)', () => {
+describe('WorkspaceGeneralPage — unwired buttons (#969, #641, Enterprise)', () => {
   it('treats "View change history" as an Enterprise affordance (disabled + EE badge)', () => {
     renderPage();
     expect(screen.getByRole('button', { name: 'View change history' })).toBeDisabled();
@@ -51,14 +51,14 @@ describe('WorkspaceGeneralPage — unwired buttons (#791, #641, Enterprise)', ()
     expect(ee).toHaveAttribute('href', 'https://trueppm.com/enterprise');
   });
 
-  it('disables the unwired OSS buttons (logo replace + add calendar) with the #791 reference', () => {
+  it('disables the unwired OSS buttons (logo replace + add calendar) with the #969 reference', () => {
     renderPage();
     const replace = screen.getByRole('button', { name: 'Replace' });
     const addCalendar = screen.getByRole('button', { name: '+ Add calendar' });
     expect(replace).toBeDisabled();
     expect(addCalendar).toBeDisabled();
-    expect(replace).toHaveAttribute('title', expect.stringContaining('#791'));
-    expect(addCalendar).toHaveAttribute('title', expect.stringContaining('#791'));
+    expect(replace).toHaveAttribute('title', expect.stringContaining('#969'));
+    expect(addCalendar).toHaveAttribute('title', expect.stringContaining('#969'));
   });
 
   it('points the danger zone at the dedicated Archive / Delete page (#641 wired)', () => {
