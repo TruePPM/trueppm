@@ -4,20 +4,19 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('projects', '0066_historicalproject_lead_project_lead'),
+        ("projects", "0066_historicalproject_lead_project_lead"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='historicalsprint',
-            name='exclude_from_velocity',
+            model_name="historicalsprint",
+            name="exclude_from_velocity",
             field=models.BooleanField(default=False),
         ),
         migrations.AddField(
-            model_name='sprint',
-            name='exclude_from_velocity',
+            model_name="sprint",
+            name="exclude_from_velocity",
             field=models.BooleanField(default=False),
         ),
     ]

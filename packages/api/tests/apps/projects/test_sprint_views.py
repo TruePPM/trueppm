@@ -407,9 +407,7 @@ def test_exclude_from_velocity_history_recorded(
         f"/api/v1/sprints/{s.pk}/", {"exclude_from_velocity": True}, format="json"
     )
     s.refresh_from_db()
-    flags = list(
-        s.history.order_by("history_date").values_list("exclude_from_velocity", flat=True)
-    )
+    flags = list(s.history.order_by("history_date").values_list("exclude_from_velocity", flat=True))
     # The audit trail (ADR-0113) captures the change — Marcus's visibility ask.
     assert True in flags
 
