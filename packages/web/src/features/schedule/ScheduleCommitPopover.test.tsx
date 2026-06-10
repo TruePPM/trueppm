@@ -153,6 +153,18 @@ describe('ScheduleCommitPopover', () => {
     expect(dialog).toHaveAttribute('aria-describedby', 'schedule-commit-change');
   });
 
+  it('Confirm button uses the navy-on-sage Button recipe, not white-on-sage (#1025, WCAG 1.4.3)', () => {
+    // The dark schedule canvas (rule 40) flips brand-primary to sage-400; the
+    // old `bg-brand-primary text-white` rendered white-on-sage-400 ≈ 1.8:1.
+    // The shared Button (variant="primary") puts navy ink on the sage fill in
+    // both modes (navy-on-sage ≈ 6.8:1).
+    renderPopover();
+    const confirm = screen.getByRole('button', { name: 'Reschedule' });
+    expect(confirm.className).toContain('text-navy-900');
+    expect(confirm.className).toContain('dark:bg-sage-400');
+    expect(confirm.className).not.toContain('text-white');
+  });
+
   it('Tab from Confirm focuses Cancel (focus trap)', () => {
     renderPopover();
     const confirm = screen.getByRole('button', { name: 'Reschedule' });

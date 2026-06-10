@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
+import { Button } from '@/components/Button';
 
 interface Props {
   open: boolean;
@@ -127,16 +128,14 @@ export function LinkInputModal({ open, onClose, onSubmit, submitting }: Props) {
           >
             Cancel
           </button>
-          <button
+          <Button
             type="submit"
+            variant="primary"
+            size="sm"
             disabled={submitting || !url.trim()}
-            className="text-xs bg-brand-primary text-white rounded px-3 h-7 font-medium
-              hover:opacity-90
-              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
-              disabled:opacity-50"
           >
             {submitting ? 'Pinning…' : 'Pin link'}
-          </button>
+          </Button>
         </div>
       </form>
     </div>

@@ -143,7 +143,7 @@ export function MilestoneDatePopover({ open, parents, onSelect, onClose }: Props
             type="button"
             onClick={handleCustomSubmit}
             disabled={!customDate}
-            className="text-xs px-1.5 py-0.5 rounded bg-brand-primary text-white disabled:opacity-40
+            className="text-xs px-1.5 py-0.5 rounded bg-sage-500 text-navy-900 dark:bg-sage-400 dark:text-navy-900 disabled:opacity-40
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
               focus-visible:ring-offset-1"
           >

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { Button } from '@/components/Button';
 
 export interface BuildModeEmptyStateProps {
   /** Called when the CTA button is clicked or Enter is pressed inside the panel. */
@@ -36,21 +37,18 @@ export function BuildModeEmptyState({ onAddFirstTask }: BuildModeEmptyStateProps
       <p className="text-[13px] text-neutral-text-secondary max-w-xs mb-5">
         Press Enter, or click below to add the first task.
       </p>
-      <button
+      <Button
         ref={buttonRef}
-        type="button"
+        variant="primary"
+        size="lg"
         onClick={onAddFirstTask}
-        className="inline-flex h-9 px-4 items-center gap-2 rounded
-          bg-brand-primary text-white text-[13px] font-medium
-          hover:opacity-95
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-          focus-visible:ring-offset-2 focus-visible:ring-offset-neutral-surface"
+        className="gap-2"
       >
         + Add first task
-        <kbd className="inline-flex h-5 px-1.5 items-center rounded border border-white/40 text-[11px] tppm-mono">
+        <kbd className="inline-flex h-5 px-1.5 items-center rounded border border-navy-900/40 text-[11px] tppm-mono">
           ⏎
         </kbd>
-      </button>
+      </Button>
       <p className="mt-6 text-[12px] text-neutral-text-secondary max-w-xs">
         New here? Press <kbd className="inline-flex h-4 px-1 items-center rounded border border-neutral-border text-[11px] tppm-mono">?</kbd> to see all keyboard shortcuts.
       </p>

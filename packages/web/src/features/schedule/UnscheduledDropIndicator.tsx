@@ -23,7 +23,7 @@ export function UnscheduledDropIndicator({ x, canvasRect, dateLabel }: Unschedul
       {/* Date pill above the line */}
       <div
         className="absolute -top-6 left-1/2 -translate-x-1/2 tppm-mono text-xs px-2 py-0.5
-          bg-brand-primary text-white rounded whitespace-nowrap"
+          bg-sage-500 text-navy-900 dark:bg-sage-400 dark:text-navy-900 rounded whitespace-nowrap"
       >
         {dateLabel}
       </div>

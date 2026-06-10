@@ -11,6 +11,7 @@
 
 import { useCallback, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, KeyboardEvent } from 'react';
+import { Button } from '@/components/Button';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useProjectMembers } from '@/hooks/useProjectMembers';
 import { useCreateComment } from '@/hooks/useTaskComments';
@@ -244,17 +245,14 @@ export function CommentComposer({ projectId, taskId, parentId, onSubmitted, onCa
               Cancel
             </button>
           )}
-          <button
-            type="button"
+          <Button
+            variant="primary"
+            size="sm"
             onClick={handleSubmit}
             disabled={!canSubmit}
-            className="text-xs bg-brand-primary text-white rounded px-3 h-7 font-medium
-              hover:opacity-90
-              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
-              disabled:opacity-50"
           >
             {createComment.isPending ? 'Posting…' : parentId ? 'Reply' : 'Post'}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

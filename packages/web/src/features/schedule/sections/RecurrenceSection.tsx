@@ -308,7 +308,7 @@ function RecurrenceForm({ taskId, rule, onClose }: FormProps) {
                 onClick={() => changeFrequency(opt.value)}
                 className={`${PILL_BASE} ${
                   active
-                    ? 'bg-brand-primary text-white'
+                    ? 'bg-sage-500 text-navy-900 dark:bg-sage-400 dark:text-navy-900'
                     : 'bg-neutral-surface text-neutral-text-secondary hover:bg-neutral-surface-raised'
                 }`}
               >
@@ -352,7 +352,7 @@ function RecurrenceForm({ taskId, rule, onClose }: FormProps) {
                   onClick={() => set('weekdays', toggleWeekday(draft.weekdays, wd.bit))}
                   className={`flex h-11 w-11 items-center justify-center rounded-full text-xs font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track ${
                     on
-                      ? 'bg-brand-primary text-white'
+                      ? 'bg-sage-500 text-navy-900 dark:bg-sage-400 dark:text-navy-900'
                       : 'bg-neutral-surface text-neutral-text-secondary hover:bg-neutral-surface-raised'
                   }`}
                 >
@@ -500,7 +500,7 @@ function RecurrenceForm({ taskId, rule, onClose }: FormProps) {
           type="button"
           onClick={handleSave}
           disabled={saving || clientError !== null}
-          className="rounded bg-brand-primary px-3 h-9 text-sm font-medium text-white hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track disabled:opacity-50"
+          className="rounded bg-sage-500 text-navy-900 dark:bg-sage-400 dark:text-navy-900 px-3 h-9 text-sm font-medium hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:opacity-50"
         >
           {saving ? 'Saving…' : rule ? 'Save recurrence' : 'Add recurrence'}
         </button>

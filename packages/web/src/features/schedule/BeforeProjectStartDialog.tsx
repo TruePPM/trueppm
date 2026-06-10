@@ -151,7 +151,7 @@ export function BeforeProjectStartDialog({
             disabled={isPending}
             className={
               'border border-brand-primary-dark rounded h-8 px-4 text-xs font-medium ' +
-              'bg-brand-primary text-white hover:bg-brand-primary-dark ' +
+              'bg-sage-500 text-navy-900 dark:bg-sage-400 dark:text-navy-900 hover:bg-sage-600 ' +
               'disabled:cursor-not-allowed disabled:opacity-80 ' +
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white ' +
               'focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary'

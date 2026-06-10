@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Button } from '@/components/Button';
 import { useProject } from '@/hooks/useProject';
 import { useSprintsByState } from '@/hooks/useSprints';
 
@@ -171,16 +172,13 @@ export function SprintPrompt({ open, projectId, onSelect, onDismiss }: Props) {
                 focus-visible:outline-none placeholder:text-neutral-text-disabled"
               aria-label="Story points (optional)"
             />
-            <button
-              type="button"
+            <Button
+              variant="primary"
+              size="md"
               onClick={commitPoints}
-              className="h-8 px-3 rounded bg-brand-primary text-white text-xs font-medium
-                hover:bg-brand-primary-dark
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white
-                focus-visible:ring-offset-1 focus-visible:ring-offset-brand-primary"
             >
               Done
-            </button>
+            </Button>
           </div>
           <p className="text-[11px] text-neutral-text-disabled px-1 pt-0.5">
             Enter to confirm · Esc to go back

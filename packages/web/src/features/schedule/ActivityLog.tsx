@@ -275,7 +275,7 @@ export function ActivityLog({ projectId, taskId }: ActivityLogProps) {
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
               ${
                 filter === key
-                  ? 'bg-brand-primary text-white border-brand-primary'
+                  ? 'bg-sage-500 text-navy-900 dark:bg-sage-400 dark:text-navy-900 border-sage-600'
                   : 'bg-transparent text-neutral-text-secondary border-neutral-border hover:border-brand-primary hover:text-neutral-text-primary'
               }`}
           >
