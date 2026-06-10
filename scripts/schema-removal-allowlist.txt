@@ -20,3 +20,10 @@
 # by CookieTokenRefreshView. The /api/v1/auth/token/refresh/ path is unchanged.
 schema:TokenRefresh
 schema:TokenRefreshRequest
+
+# #997 — login response no longer carries the refresh token: CookieTokenObtainPairView
+# delivers refresh as an httpOnly cookie and returns only `access` in the body
+# (the #897 cookie migration). An explicit @extend_schema replaces SimpleJWT's
+# inherited TokenObtainPair response, so that phantom schema is no longer emitted.
+# The /api/v1/auth/token/ path and its TokenObtainPairRequest body are unchanged.
+schema:TokenObtainPair
