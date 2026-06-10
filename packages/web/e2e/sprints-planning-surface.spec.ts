@@ -170,6 +170,13 @@ async function setup(
       }),
     }),
   );
+  // Any other task / retro / carryover-action queries → empty. Registered
+  // BEFORE the sprint-scoped route below so that the more specific handler,
+  // being registered last, takes precedence (Playwright matches routes in
+  // reverse registration order — last match wins).
+  await page.route(/\/api\/v1\/tasks\//, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
+  );
   // Sprint-scoped backlog tasks (the planned backlog + draft-points numerator).
   await page.route(/\/api\/v1\/tasks\/\?.*sprint=sp-planned/, (route) =>
     route.fulfill({
@@ -177,10 +184,6 @@ async function setup(
       contentType: 'application/json',
       body: JSON.stringify({ count: BACKLOG_TASKS.length, next: null, previous: null, results: BACKLOG_TASKS }),
     }),
-  );
-  // Any other task / retro / carryover-action queries → empty.
-  await page.route(/\/api\/v1\/tasks\//, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
   );
   await page.route(/\/api\/v1\/sprints\/.*\/retro\//, (route) =>
     route.fulfill({ status: 404, contentType: 'application/json', body: '{"detail":"None"}' }),
