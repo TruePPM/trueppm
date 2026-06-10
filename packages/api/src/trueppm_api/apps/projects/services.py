@@ -442,9 +442,11 @@ def sprint_health(project_id: str | uuid.UUID) -> dict[str, Any]:
     rows = list(
         Task.objects.filter(project_id=project_id, is_deleted=False)
         .annotate(
-            _has_child=RawSQL(has_child_sql, [], output_field=BooleanField()),
-            _depth=RawSQL(depth_sql, [], output_field=IntegerField()),
-            _l1=RawSQL(l1_sql, [], output_field=TextField()),
+            # nosec B611 — static SQL literals (no user input), empty params list;
+            # the ltree expressions can't be expressed in the ORM. Bandit flags any RawSQL.
+            _has_child=RawSQL(has_child_sql, [], output_field=BooleanField()),  # nosec B611
+            _depth=RawSQL(depth_sql, [], output_field=IntegerField()),  # nosec B611
+            _l1=RawSQL(l1_sql, [], output_field=TextField()),  # nosec B611
         )
         .values("is_milestone", "sprint_id", "_has_child", "_depth", "_l1")
     )
