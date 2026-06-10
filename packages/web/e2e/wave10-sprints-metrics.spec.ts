@@ -86,9 +86,10 @@ const CAPACITY_PAYLOAD = {
 
 const VELOCITY_PAYLOAD = {
   sprints: [
-    { id: 's1', name: 'Sprint 1', start_date: '2026-01-01', finish_date: '2026-01-14', committed_points: 30, completed_points: 28, committed_task_count: 12, completed_task_count: 11 },
-    { id: 's2', name: 'Sprint 2', start_date: '2026-01-15', finish_date: '2026-01-28', committed_points: 35, completed_points: 32, committed_task_count: 14, completed_task_count: 13 },
+    { id: 's1', name: 'Sprint 1', start_date: '2026-01-01', finish_date: '2026-01-14', committed_points: 30, completed_points: 28, committed_task_count: 12, completed_task_count: 11, exclude_from_velocity: false },
+    { id: 's2', name: 'Sprint 2', start_date: '2026-01-15', finish_date: '2026-01-28', committed_points: 35, completed_points: 32, committed_task_count: 14, completed_task_count: 13, exclude_from_velocity: false },
   ],
+  excluded_count: 0,
   rolling_avg_points: 30,
   rolling_stdev_points: 2.83,
   forecast_range_low: 27,
