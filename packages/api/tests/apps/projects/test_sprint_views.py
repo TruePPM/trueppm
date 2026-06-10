@@ -16,6 +16,7 @@ from trueppm_api.apps.projects.models import (
     SprintCloseRequest,
     SprintCloseRequestStatus,
     SprintState,
+    SprintTaskOutcome,
     Task,
     TaskStatus,
 )
@@ -774,3 +775,111 @@ def test_capacity_endpoint_requires_membership(
     s = _make_sprint(project)
     resp = stranger_client.get(f"/api/v1/sprints/{s.pk}/capacity/")
     assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# GET /sprints/{id}/outcome/ — consolidated sprint-review read (#985)
+# ---------------------------------------------------------------------------
+
+
+def _closed_with_outcomes(project: Project) -> Sprint:
+    s = _make_sprint(
+        project,
+        state=SprintState.COMPLETED,
+        committed_points=10,
+        completed_points=8,
+        completed_task_count=1,
+        committed_task_count=2,
+        goal_outcome="MET",
+    )
+    SprintTaskOutcome.objects.create(
+        sprint=s,
+        task=None,
+        task_short_id="T-1",
+        task_title="Done thing",
+        story_points=8,
+        final_status="COMPLETE",
+        disposition="completed",
+    )
+    SprintTaskOutcome.objects.create(
+        sprint=s,
+        task=None,
+        task_short_id="T-2",
+        task_title="Carried thing",
+        story_points=3,
+        final_status="IN_PROGRESS",
+        disposition="carried",
+    )
+    return s
+
+
+def test_outcome_closed_sprint_returns_review(member_client: APIClient, project: Project) -> None:
+    s = _closed_with_outcomes(project)
+    resp = member_client.get(f"/api/v1/sprints/{s.pk}/outcome/")
+    assert resp.status_code == 200, resp.content
+    body = resp.json()
+    assert body["state"] == "COMPLETED"
+    assert body["provisional"] is False
+    assert body["outcome_recorded"] is True
+    assert body["goal_outcome"] == "MET"
+    assert body["commitment"]["completion_ratio_points"] == 0.8
+    # Completed row excluded; only the carried one is "didn't ship".
+    assert len(body["didnt_ship"]) == 1
+    assert body["didnt_ship"][0]["disposition"] == "carried"
+    assert body["didnt_ship"][0]["story_points"] == 3  # MEMBER is in the team band
+    assert body["didnt_ship_summary"]["carried_count"] == 1
+    # MEMBER (TEAM band) reads the velocity block.
+    assert body["velocity"] is not None
+
+
+def test_outcome_velocity_suppressed_for_management_band(
+    client: APIClient, project: Project
+) -> None:
+    """OWNER (>= ADMIN → TEAM_SM_PM band) is above velocity's TEAM default."""
+    s = _closed_with_outcomes(project)
+    resp = client.get(f"/api/v1/sprints/{s.pk}/outcome/")
+    assert resp.status_code == 200, resp.content
+    body = resp.json()
+    assert body["velocity"] is None  # suppressed
+    # Side-channel guard: per-task points nulled, but titles/dispositions stay.
+    assert body["didnt_ship"][0]["story_points"] is None
+    assert body["didnt_ship"][0]["disposition"] == "carried"
+    assert body["didnt_ship"][0]["task_title"] == "Carried thing"
+    # Commitment completion ratio stays (the milestone-health carve-out).
+    assert body["commitment"]["completion_ratio_points"] == 0.8
+
+
+def test_outcome_active_sprint_is_provisional(member_client: APIClient, project: Project) -> None:
+    s = _make_sprint(project, state=SprintState.ACTIVE, committed_points=10)
+    Task.objects.create(
+        project=project, name="Open", duration=1, sprint=s, status=TaskStatus.IN_PROGRESS
+    )
+    resp = member_client.get(f"/api/v1/sprints/{s.pk}/outcome/")
+    assert resp.status_code == 200, resp.content
+    body = resp.json()
+    assert body["provisional"] is True
+    assert body["outcome_recorded"] is False
+    assert len(body["didnt_ship"]) == 1
+    assert body["didnt_ship"][0]["disposition"] is None  # decided at close
+
+
+def test_outcome_pre_feature_closed_sprint(member_client: APIClient, project: Project) -> None:
+    """A sprint closed before #982 has no outcome rows → outcome_recorded False."""
+    s = _make_sprint(project, state=SprintState.COMPLETED, committed_points=10, completed_points=10)
+    resp = member_client.get(f"/api/v1/sprints/{s.pk}/outcome/")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["outcome_recorded"] is False
+    assert body["didnt_ship"] == []
+
+
+def test_outcome_viewer_can_read(viewer_client: APIClient, project: Project) -> None:
+    s = _make_sprint(project, state=SprintState.COMPLETED)
+    resp = viewer_client.get(f"/api/v1/sprints/{s.pk}/outcome/")
+    assert resp.status_code == 200
+
+
+def test_outcome_non_member_denied(stranger_client: APIClient, project: Project) -> None:
+    s = _make_sprint(project, state=SprintState.COMPLETED)
+    resp = stranger_client.get(f"/api/v1/sprints/{s.pk}/outcome/")
+    assert resp.status_code in (403, 404)

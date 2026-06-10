@@ -732,5 +732,10 @@ SPECTACULAR_SETTINGS = {
         # existing components (same regression class as ScopeChangeStatus —
         # project memory project_drf_enum_name_collision).
         "SprintGoalOutcomeEnum": "trueppm_api.apps.projects.models.SprintGoalOutcome",
+        # #985: SprintTaskDisposition is exposed in the /outcome/ read serializer
+        # (DidntShipItemSerializer.disposition). Pin to a stable name so
+        # drf-spectacular does not hash-disambiguate it (project memory
+        # project_drf_enum_name_collision).
+        "SprintTaskDispositionEnum": "trueppm_api.apps.projects.models.SprintTaskDisposition",
     },
 }
