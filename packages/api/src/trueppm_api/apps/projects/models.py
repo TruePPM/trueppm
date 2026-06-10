@@ -1964,6 +1964,20 @@ class SprintState(models.TextChoices):
     CANCELLED = "CANCELLED", "Cancelled"
 
 
+class SprintGoalOutcome(models.TextChoices):
+    """Verdict on whether a sprint met its goal (#983), set at close.
+
+    Defaulted at close from completion_ratio_points (>=0.8 MET / >=0.5 PARTIAL /
+    else MISSED) and overridable by SCHEDULER+ — it is a team judgement, not a
+    pure math result, so the override stands above the derived default. Null when
+    no commitment baseline exists (teams that don't size in points).
+    """
+
+    MET = "MET", "Met"
+    PARTIAL = "PARTIAL", "Partially met"
+    MISSED = "MISSED", "Missed"
+
+
 class Sprint(VersionedModel):
     """A time-boxed iteration container for tasks (ADR-0037).
 
@@ -2031,6 +2045,17 @@ class Sprint(VersionedModel):
     # locked on COMPLETED + CANCELLED, SCHEDULER+ writes only — same field-level
     # gate as capacity_points (ADR-0073 sovereignty rule).
     wip_limit = models.PositiveIntegerField(null=True, blank=True)
+    # Goal verdict (#983) — defaulted at close from completion_ratio_points and
+    # overridable by SCHEDULER+ (the team's call beats the derived default). NOT
+    # locked on COMPLETED like the planning knobs above: it is the *post-close*
+    # judgement and stays editable. Null = no verdict (no commitment baseline, or
+    # not yet closed).
+    goal_outcome = models.CharField(  # noqa: DJ001 — null distinguishes "no verdict" from ""
+        max_length=12,
+        choices=SprintGoalOutcome.choices,
+        null=True,
+        blank=True,
+    )
     # Snapshotted on activation; never recomputed.  Stored values survive
     # HistoricalTask retention pruning (90-day cap).
     committed_points = models.PositiveIntegerField(null=True, blank=True)

@@ -436,6 +436,41 @@ def test_wip_count_annotation_counts_in_flight_tasks(client: APIClient, project:
     assert resp.json()["wip_count"] == 2
 
 
+# ---------------------------------------------------------------------------
+# goal_outcome (#983) — SCHEDULER+ writable, NOT locked on COMPLETED (it is the
+# post-close verdict), exposed read on the serializer.
+# ---------------------------------------------------------------------------
+
+
+def test_goal_outcome_exposed_on_serializer(client: APIClient, project: Project) -> None:
+    s = _make_sprint(project)
+    resp = client.get(f"/api/v1/sprints/{s.pk}/")
+    assert resp.status_code == 200
+    assert "goal_outcome" in resp.json()
+    assert resp.json()["goal_outcome"] is None
+
+
+def test_scheduler_can_set_goal_outcome_on_completed_sprint(
+    scheduler_client: APIClient, project: Project
+) -> None:
+    """Unlike capacity/WIP, goal_outcome is editable after close (the verdict)."""
+    s = _make_sprint(project, state=SprintState.COMPLETED)
+    resp = scheduler_client.patch(
+        f"/api/v1/sprints/{s.pk}/", {"goal_outcome": "PARTIAL"}, format="json"
+    )
+    assert resp.status_code == 200, resp.content
+    s.refresh_from_db()
+    assert s.goal_outcome == "PARTIAL"
+
+
+def test_member_cannot_set_goal_outcome(member_client: APIClient, project: Project) -> None:
+    s = _make_sprint(project)
+    resp = member_client.patch(f"/api/v1/sprints/{s.pk}/", {"goal_outcome": "MET"}, format="json")
+    assert resp.status_code == 400, resp.content
+    s.refresh_from_db()
+    assert s.goal_outcome is None
+
+
 def test_destroy_only_when_planned(client: APIClient, project: Project) -> None:
     s = _make_sprint(project, state=SprintState.ACTIVE)
     resp = client.delete(f"/api/v1/sprints/{s.pk}/")

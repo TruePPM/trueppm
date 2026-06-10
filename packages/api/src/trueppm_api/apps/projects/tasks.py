@@ -133,6 +133,7 @@ def close_sprint(self: object, request_id: str) -> None:
                 update_fields=[
                     "completed_points",
                     "completed_task_count",
+                    "goal_outcome",
                     "state",
                     "closed_at",
                 ]

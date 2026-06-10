@@ -434,8 +434,28 @@ def velocity_summary(project_id: str | uuid.UUID) -> dict[str, Any]:
 
     velocity_per_day = compute_team_velocity_per_day(project_id)
 
-    return {
-        "sprints": [
+    # Chronological (oldest -> newest) so each entry can carry its delta vs the
+    # immediately prior closed sprint (#984) — server-owned so MCP/mobile don't
+    # diff the series themselves. None when either side has no completed total.
+    chronological = list(reversed(closed))
+    sprint_entries = []
+    for i, s in enumerate(chronological):
+        prev = chronological[i - 1] if i > 0 else None
+        delta_points = (
+            s.completed_points - prev.completed_points
+            if prev is not None
+            and s.completed_points is not None
+            and prev.completed_points is not None
+            else None
+        )
+        delta_tasks = (
+            s.completed_task_count - prev.completed_task_count
+            if prev is not None
+            and s.completed_task_count is not None
+            and prev.completed_task_count is not None
+            else None
+        )
+        sprint_entries.append(
             {
                 "id": str(s.pk),
                 "name": s.name,
@@ -445,9 +465,13 @@ def velocity_summary(project_id: str | uuid.UUID) -> dict[str, Any]:
                 "completed_points": s.completed_points,
                 "committed_task_count": s.committed_task_count,
                 "completed_task_count": s.completed_task_count,
+                "delta_vs_prior_points": delta_points,
+                "delta_vs_prior_tasks": delta_tasks,
             }
-            for s in reversed(closed)
-        ],
+        )
+
+    return {
+        "sprints": sprint_entries,
         "rolling_avg_points": avg_p,
         "rolling_stdev_points": sd_p,
         "forecast_range_low": low_p,
@@ -776,6 +800,61 @@ def snapshot_sprint_task_outcomes(sprint: Any, *, carry_over_to: str) -> None:
         SprintTaskOutcome.objects.bulk_create(rows, ignore_conflicts=True)
 
 
+def compute_sprint_burn_status(sprint: Any, snapshots: list[Any]) -> dict[str, Any]:
+    """Server-compute a sprint's burn pace (#984).
+
+    Moves the burn math that lived in the web ``BurnChart`` server-side so MCP /
+    mobile / any REST consumer can read the pace verdict and projected finish
+    without re-deriving them. Uses the same linear-ideal + trend formula as the
+    ``my-active-sprints`` feed so the two never drift.
+
+    Returns ``{burn_status, trend_points, projected_finish_date}``:
+      - ``no_data`` — no points commitment baseline, or no snapshots yet;
+      - ``ahead`` — more than ~10% of committed ahead of the ideal line;
+      - ``behind`` — more than ~10% behind;
+      - ``on_track`` — within +/-10% of ideal.
+    ``trend_points`` is signed (positive = ahead of ideal). ``snapshots`` must be
+    ordered ascending by date (the caller passes the burndown series).
+    """
+    import math
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    committed = sprint.committed_points or 0
+    if committed <= 0 or not snapshots:
+        return {"burn_status": "no_data", "trend_points": None, "projected_finish_date": None}
+
+    today = timezone.localdate()
+    window = (sprint.finish_date - sprint.start_date).days + 1
+    elapsed = (today - sprint.start_date).days + 1
+    day = max(1, min(elapsed, window))
+    remaining = snapshots[-1].remaining_points
+    ideal_now = committed * (1 - day / window) if window > 0 else 0
+    trend_points = round(ideal_now - remaining)  # positive = ahead of ideal
+
+    threshold = max(1, round(committed * 0.1))
+    if trend_points > threshold:
+        burn_status = "ahead"
+    elif trend_points < -threshold:
+        burn_status = "behind"
+    else:
+        burn_status = "on_track"
+
+    # Projected finish: today + remaining / (points burned per day so far).
+    burn_rate = (committed - remaining) / day if day > 0 else 0
+    projected_finish_date = None
+    if burn_rate > 0 and remaining > 0:
+        forecast_days = math.ceil(remaining / burn_rate)
+        projected_finish_date = (today + timedelta(days=forecast_days)).isoformat()
+
+    return {
+        "burn_status": burn_status,
+        "trend_points": trend_points,
+        "projected_finish_date": projected_finish_date,
+    }
+
+
 def snapshot_completed_metrics(sprint: Any) -> None:
     """Compute and store completed_points / completed_task_count from current task state.
 
@@ -783,7 +862,7 @@ def snapshot_completed_metrics(sprint: Any) -> None:
     is the count of tasks that completed within the sprint window; subsequent
     carry-over reassignment never inflates these values.
     """
-    from trueppm_api.apps.projects.models import Task, TaskStatus
+    from trueppm_api.apps.projects.models import SprintGoalOutcome, Task, TaskStatus
 
     completed_qs = Task.objects.filter(
         sprint_id=sprint.pk, status=TaskStatus.COMPLETE, is_deleted=False
@@ -794,6 +873,22 @@ def snapshot_completed_metrics(sprint: Any) -> None:
     completed_count = completed_qs.count()
     sprint.completed_points = completed_points
     sprint.completed_task_count = completed_count
+
+    # #983: default the goal verdict from the points completion ratio. SCHEDULER+
+    # can override it afterward (the team's call beats the derived default), so
+    # this only sets the starting value at close. Null when there's no points
+    # commitment baseline to judge against.
+    committed = sprint.committed_points or 0
+    if committed > 0:
+        ratio = completed_points / committed
+        if ratio >= 0.8:
+            sprint.goal_outcome = SprintGoalOutcome.MET
+        elif ratio >= 0.5:
+            sprint.goal_outcome = SprintGoalOutcome.PARTIAL
+        else:
+            sprint.goal_outcome = SprintGoalOutcome.MISSED
+    else:
+        sprint.goal_outcome = None
 
 
 def snapshot_committed_metrics(sprint: Any) -> None:
