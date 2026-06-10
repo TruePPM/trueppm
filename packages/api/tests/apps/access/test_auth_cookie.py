@@ -185,3 +185,23 @@ def test_flush_expired_blacklisted_tokens_task_runs(user) -> None:
     _login(APIClient())
     result = flush_expired_blacklisted_tokens()
     assert result["status"] == "ok"
+
+
+def test_login_openapi_schema_omits_phantom_refresh_field() -> None:
+    """#997: the generated OpenAPI login response must NOT declare a ``refresh``
+    field. The body only ever carries ``access`` (refresh is an httpOnly cookie),
+    so a schema claiming a required ``refresh`` breaks every schema-driven client
+    (the 0.4 read-only MCP server, generated SDKs)."""
+    from drf_spectacular.generators import SchemaGenerator
+
+    schema = SchemaGenerator().get_schema(request=None, public=True)
+    login = schema["paths"]["/api/v1/auth/token/"]["post"]
+    ref = login["responses"]["200"]["content"]["application/json"]["schema"]["$ref"]
+    response_schema = schema["components"]["schemas"][ref.rsplit("/", 1)[-1]]
+
+    assert "access" in response_schema["properties"]
+    assert "refresh" not in response_schema["properties"]
+    assert "refresh" not in response_schema.get("required", [])
+    # The phantom simplejwt TokenObtainPair schema (which still declares a
+    # required refresh) must no longer be emitted at all.
+    assert "TokenObtainPair" not in schema["components"]["schemas"]
