@@ -23,8 +23,18 @@ vi.mock('./useSignalPrivacy', async (importOriginal) => {
       isError: false,
     }),
     useSignalPrivacyMutations: () => ({
-      setAudience: { mutate: setAudienceMutate, isPending: false, isError: false, variables: undefined },
-      raiseCeiling: { mutate: raiseCeilingMutate, isPending: false, isError: false, variables: undefined },
+      setAudience: {
+        mutate: setAudienceMutate,
+        isPending: false,
+        isError: false,
+        variables: undefined,
+      },
+      raiseCeiling: {
+        mutate: raiseCeilingMutate,
+        isPending: false,
+        isError: false,
+        variables: undefined,
+      },
       ratchetDown: { mutate: ratchetMutate, isPending: false, isError: false },
     }),
   };
@@ -58,21 +68,39 @@ describe('ProjectSignalPrivacyPage', () => {
     expect(screen.getByRole('radiogroup', { name: 'Retro pulse audience' })).toBeInTheDocument();
   });
 
-  it('sets the audience when an unlocked rung is clicked', async () => {
-    const user = userEvent.setup();
-    // throughput ceiling is program_shared, so its SM rung is unlocked.
+  it('spells out the SM/PM rungs as visible text and accessible name (#975)', () => {
     policyHolder.data = policy();
     renderWithRouter(<ProjectSignalPrivacyPage />);
     const group = screen.getByRole('radiogroup', { name: 'Throughput rollup audience' });
-    await user.click(within(group).getByRole('radio', { name: /SM/ }));
-    expect(setAudienceMutate).toHaveBeenCalledWith({ signal: 'throughput_rollup', audience: 'team_sm' });
+    // Full names are the rungs' accessible names (the SR/hover signal)…
+    expect(within(group).getByRole('radio', { name: 'Scrum Master' })).toBeInTheDocument();
+    expect(within(group).getByRole('radio', { name: 'Project Manager' })).toBeInTheDocument();
+    // …and are rendered as visible text, not the ambiguous "SM"/"PM".
+    expect(within(group).getByText('Scrum Master')).toBeInTheDocument();
+    expect(within(group).getByText('Project Manager')).toBeInTheDocument();
+  });
+
+  it('sets the audience when an unlocked rung is clicked', async () => {
+    const user = userEvent.setup();
+    // throughput ceiling is program_shared, so its Scrum Master rung is unlocked.
+    policyHolder.data = policy();
+    renderWithRouter(<ProjectSignalPrivacyPage />);
+    const group = screen.getByRole('radiogroup', { name: 'Throughput rollup audience' });
+    // Rung accessible name is the spelled-out label, never the bare "SM" (#975).
+    await user.click(within(group).getByRole('radio', { name: 'Scrum Master' }));
+    expect(setAudienceMutate).toHaveBeenCalledWith({
+      signal: 'throughput_rollup',
+      audience: 'team_sm',
+    });
   });
 
   it('opens the team-decision dialog for a raise, then confirms', async () => {
     const user = userEvent.setup();
     renderWithRouter(<ProjectSignalPrivacyPage />);
     // Velocity ceiling is team → "Raise ceiling…" is offered.
-    const velocityRow = screen.getByRole('radiogroup', { name: 'Velocity audience' }).closest('li')!;
+    const velocityRow = screen
+      .getByRole('radiogroup', { name: 'Velocity audience' })
+      .closest('li')!;
     await user.click(within(velocityRow).getByRole('button', { name: /Raise ceiling/ }));
     expect(screen.getByRole('alertdialog')).toBeInTheDocument();
     expect(raiseCeilingMutate).not.toHaveBeenCalled();
@@ -105,9 +133,15 @@ describe('ProjectSignalPrivacyPage', () => {
   });
 
   it('is read-only for a non-facilitator (no ladder controls, banner shown)', () => {
-    policyHolder.data = policy({ can_set_audience: false, can_raise_ceiling: false, requester_tier: 'team' });
+    policyHolder.data = policy({
+      can_set_audience: false,
+      can_raise_ceiling: false,
+      requester_tier: 'team',
+    });
     renderWithRouter(<ProjectSignalPrivacyPage />);
     expect(screen.getByText(/Only the Scrum Master can change signal privacy/)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Make everything team-only' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Make everything team-only' }),
+    ).not.toBeInTheDocument();
   });
 });

@@ -157,6 +157,23 @@ export function ProjectTeamPage() {
 
         {!isLoading && !isError && (
           <>
+            {/* Desktop column headers. The mobile layout (< sm) labels each control
+                inline per row, so these only show once the row goes horizontal.
+                aria-hidden: each control already carries its own accessible name
+                (the role <select> and the two facet switches), so headers here would
+                only add screen-reader noise — they are a sighted-user cue (#974). */}
+            {members.length > 0 && (
+              <div
+                aria-hidden="true"
+                data-testid="team-columns"
+                className="hidden items-center gap-3 px-4 pb-2 text-[11px] font-semibold uppercase tracking-wide text-neutral-text-secondary sm:flex"
+              >
+                <span className="flex-1">Member</span>
+                <span className="w-32">Role</span>
+                <span className="w-36">Scrum Master</span>
+                <span className="w-36">Product Owner</span>
+              </div>
+            )}
             <ul className="divide-y divide-neutral-border rounded-lg border border-neutral-border">
               {members.length === 0 ? (
                 <li className="px-4 py-6 text-[13px] text-neutral-text-disabled">

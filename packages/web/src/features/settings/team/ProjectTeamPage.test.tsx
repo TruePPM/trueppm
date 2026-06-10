@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { renderWithRouter } from '@/test/utils';
@@ -35,9 +35,18 @@ vi.mock('./useTeam', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./useTeam')>();
   return {
     ...actual,
-    useDefaultTeam: () => ({ data: { id: 'team-1', is_default: true }, isLoading: false, isError: false }),
+    useDefaultTeam: () => ({
+      data: { id: 'team-1', is_default: true },
+      isLoading: false,
+      isError: false,
+    }),
     useTeamMembers: () => ({ data: membersHolder.data, isLoading: false, isError: false }),
-    useUpdateTeamMember: () => ({ mutate: mockMutate, isPending: false, variables: undefined, isError: false }),
+    useUpdateTeamMember: () => ({
+      mutate: mockMutate,
+      isPending: false,
+      variables: undefined,
+      isError: false,
+    }),
   };
 });
 
@@ -45,7 +54,12 @@ beforeEach(() => {
   mockMutate.mockClear();
   roleHolder.role = 300;
   membersHolder.data = [
-    member({ id: 'tm-admin', user_detail: { id: 'u-admin', username: 'alice', email: 'a@x.com' }, role: 'admin', role_label: 'Admin' }),
+    member({
+      id: 'tm-admin',
+      user_detail: { id: 'u-admin', username: 'alice', email: 'a@x.com' },
+      role: 'admin',
+      role_label: 'Admin',
+    }),
     member(),
   ];
 });
@@ -56,6 +70,14 @@ describe('ProjectTeamPage', () => {
     expect(screen.getByText('bob')).toBeInTheDocument();
     expect(screen.getByRole('switch', { name: 'Scrum Master: bob' })).toBeInTheDocument();
     expect(screen.getByRole('switch', { name: 'Product Owner: bob' })).toBeInTheDocument();
+  });
+
+  it('labels the facet columns with headers so each toggle is unambiguous (#974)', () => {
+    renderWithRouter(<ProjectTeamPage />);
+    const headers = within(screen.getByTestId('team-columns'));
+    expect(headers.getByText('Scrum Master')).toBeInTheDocument();
+    expect(headers.getByText('Product Owner')).toBeInTheDocument();
+    expect(headers.getByText('Role')).toBeInTheDocument();
   });
 
   it('assigns a facet directly when no one else holds it', async () => {
@@ -71,7 +93,11 @@ describe('ProjectTeamPage', () => {
   it('confirms a reassignment when another member already holds the facet', async () => {
     const user = userEvent.setup();
     membersHolder.data = [
-      member({ id: 'tm-holder', user_detail: { id: 'u-2', username: 'carol', email: 'c@x.com' }, is_scrum_master: true }),
+      member({
+        id: 'tm-holder',
+        user_detail: { id: 'u-2', username: 'carol', email: 'c@x.com' },
+        is_scrum_master: true,
+      }),
       member(),
     ];
     renderWithRouter(<ProjectTeamPage />);
@@ -91,7 +117,11 @@ describe('ProjectTeamPage', () => {
   it('cancels a reassignment without mutating', async () => {
     const user = userEvent.setup();
     membersHolder.data = [
-      member({ id: 'tm-holder', user_detail: { id: 'u-2', username: 'carol', email: 'c@x.com' }, is_product_owner: true }),
+      member({
+        id: 'tm-holder',
+        user_detail: { id: 'u-2', username: 'carol', email: 'c@x.com' },
+        is_product_owner: true,
+      }),
       member(),
     ];
     renderWithRouter(<ProjectTeamPage />);

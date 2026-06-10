@@ -86,9 +86,10 @@ test.describe('Signal privacy — golden path', () => {
       return r.fallback();
     });
     await page.goto(`/projects/${PROJECT_ID}/settings/signal-privacy`);
-    // throughput's ceiling is program_shared, so its SM rung is unlocked.
+    // throughput's ceiling is program_shared, so its Scrum Master rung is unlocked.
     const group = page.getByRole('radiogroup', { name: 'Throughput rollup audience' });
-    await group.getByRole('radio', { name: /SM/ }).click();
+    // Rung accessible name is the spelled-out label, never the bare "SM" (#975).
+    await group.getByRole('radio', { name: 'Scrum Master' }).click();
     await expect.poll(() => patchBody).toEqual({ signal: 'throughput_rollup', audience: 'team_sm' });
   });
 
