@@ -65,6 +65,7 @@ From 0.3 onward each release **lands one primary persona** — it ships the feat
 - **Ongoing inbound sync** — continuous one-way Jira → TruePPM card sync (distinct from the one-time migration import at 0.6) so contributors never double-enter
 - **Offline hardening** — WebSocket event replay/resync, sync conflict detection, calm offline states
 - **Read-only MCP server** (#503 #504 #603) — point any MCP client (Claude Desktop and the like) at your self-hosted instance and ask real questions of the live schedule: critical path, a non-mutating Monte Carlo what-if ("slip this task three days — when do we ship?"), sprint status and velocity, the risk register, and My Work. Every answer is computed server-side by the same CPM/Monte Carlo engine the UI uses — never an LLM guess, never leaving your box. Per-team token scopes keep sprint internals private. Read-only by design; write tools are deliberately held to 0.6
+- **AI-native foundation** — alongside the read-only MCP server, three pieces make the engine something an AI can *trust* rather than guess at: a **provenance graph** (#1058) so every computed date, float, and P80 carries the server-side derivation an agent can cite; a **local natural-language query layer** (#1060) that compiles a question into engine calls, never into an answer; and a **bring-your-own local-model adapter** (#1061) so the AI runs against a self-hosted model and nothing — plan or inference — leaves your box. The point of "evolve *with* AI": the same deterministic engine is just as useful whether your team queries it or your agents do
 
 ### 0.5 — plan & people (target: Aug 24–31, 2026)
 
@@ -74,6 +75,7 @@ From 0.3 onward each release **lands one primary persona** — it ships the feat
 - **Pre-commit conflict warning** — over-allocation surfaced before the booking is confirmed, plus a 90-day "what if we hire one more" capacity model
 - **Timesheets** (#100) — actuals captured alongside the allocation they belong to
 - **Baselines** (#101) — with structured rebaseline reasons
+- **Decision & forecast memory** (#1059) — rebaseline reasons, scope-change decisions, and retro actions become a structured, queryable store, so the team — and any agent reasoning over the plan later — has the *why* behind every change, not just the what (cross-program calibration of that history stays enterprise)
 - **Deep CPM-aware bridge** (#372) — live finish-date forecast and incremental CPM recompute, reconciling sprint capacity with the schedule
 - **Durable execution (ADR-0080)** — default workflow backend, workflow versioning, transactional mobile sync upload
 
@@ -83,6 +85,7 @@ From 0.3 onward each release **lands one primary persona** — it ships the feat
 
 - **Multi-format import with preview** (epics #624, #613) — top-10 PM tools (Jira, Asana, Monday, Wrike, ClickUp, Planview, Trello, Notion, Linear, Basecamp) plus Primavera P6 (XER/PMXML), OmniPlan, GanttProject, MPX/ProjectLibre
 - **MCP write surface** (#505 #604) — write tools (create/update task, move card, log time, update status), session auth, and broader surface coverage layered on top of the read-only MCP server that lands in 0.4, with read restrictions on sprint-internal fields so automation never becomes surveillance
+- **Safe agent writes** — the write surface lands with guardrails so an agent can act without wrecking the plan: an **engine-as-referee** (#1062) that rejects any write which would create an impossible schedule, **agent-as-audited-actor** scoping (#1063) with a team-readable record of everything an agent did, and **standing subscriptions** (#1064) so an agent can be told "alert me when P80 crosses the committed date." Organizational governance of those agents — immutable audit, approval workflows — stays in the enterprise edition
 - **Public REST API depth** and JSON import/export
 - **Read-only shareable roadmap** — a now/next/later + timeline view a PO can hand to a stakeholder
 - **OSS integration connectors** — calendar export, Drive/Box/Dropbox preview, meeting links
@@ -111,6 +114,7 @@ From 0.3 onward each release **lands one primary persona** — it ships the feat
 - **First-run onboarding** — guided setup, first project, team invite
 - **Intuitiveness pass** — the "easier than MS Project / Planview / Smartsheet" promise, audited end to end
 - **GA hardening** — public API v1 freeze and rate limiting, WCAG 2.1 AA audit, performance/scale validation, i18n/l10n scope decision
+- **Reproducible answers** (#1065) — computed responses carry an engine-version + input hash, so an AI-surfaced number can be reproduced and audited later from the same inputs (the compliance archive of those answers is an enterprise overlay)
 - **Extension SDK** — custom fields, views, widgets, workflow actions, webhook events
 
 ### 1.0 — first stable release (target: Jan 18 – Feb 1, 2027)
@@ -141,3 +145,4 @@ These features live in a separate proprietary repository and overlay the OSS cor
 - Portfolio Monte Carlo
 - Multi-tenancy and HA deployment
 - Methodology Marketplace (1.5) and Automated Cohesion Inference (2.0)
+- **AI governance overlay** — the organizational counterpart to the OSS AI layer, registering against its extension points: immutable agent audit trail, approval workflows for agent writes, custom agent roles and capability policy, cross-program AI decision-memory and forecast calibration, portfolio AI scenario modeling, org-wide AI model-governance and data-egress policy, compliance evidence export for AI-assisted decisions, and bidirectional Integration-Hub AI-reconciliation
