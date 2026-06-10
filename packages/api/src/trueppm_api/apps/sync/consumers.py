@@ -95,13 +95,32 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
             await self._presence_heartbeat()
 
     async def board_event(self, event: dict[str, Any]) -> None:
-        """Handle channel layer group_send messages of type 'board.event'."""
-        await self.send_json(
-            {
-                "event_type": event.get("event_type"),
-                "payload": event.get("payload"),
-            }
-        )
+        """Handle channel layer group_send messages of type 'board.event'.
+
+        A board.event can be dispatched to this channel *after* its socket has
+        already closed: the client disconnects (or is evicted, code 4003) while
+        a group_send for the same project is still in flight. The channel is not
+        removed from the group until ``disconnect`` runs ``group_discard``, and
+        messages already queued are still delivered — and ``await_many_dispatch``
+        does not guarantee the ``websocket.disconnect`` is dispatched before an
+        already-queued ``board.event``, so a closed-state flag cannot fully
+        prevent the race. Sending on a closed socket raises ``RuntimeError`` from
+        the ASGI server, so guard the send and drop the stale event. Losing it is
+        safe: the broadcast is best-effort by design and clients reconcile via
+        the sync delta on reconnect (see ``broadcast.py``). (#1108)
+        """
+        try:
+            await self.send_json(
+                {
+                    "event_type": event.get("event_type"),
+                    "payload": event.get("payload"),
+                }
+            )
+        except RuntimeError:
+            logger.debug(
+                "Dropped board.event for closed socket on project %s",
+                getattr(self, "project_pk", "?"),
+            )
 
     async def connection_evict(self, event: dict[str, Any]) -> None:
         """Close this socket if its user's project access was just revoked (#813).
