@@ -160,3 +160,76 @@ def check_attachment_storage(
         debug=bool(getattr(settings, "DEBUG", False)),
         allow_local=bool(getattr(settings, "ALLOW_LOCAL_ATTACHMENT_STORAGE", False)),
     )
+
+
+# ---------------------------------------------------------------------------
+# Integration credential encryption key — refuse to boot in prod without a valid
+# Fernet key (#1002). Mirrors the fail-closed posture chosen for SECRET_KEY
+# (#566) and attachment storage (#775).
+# ---------------------------------------------------------------------------
+
+
+def validate_integration_encryption_key(
+    key: str | None,
+    *,
+    debug: bool,
+) -> list[CheckMessage]:
+    """Return a deploy error when ``INTEGRATION_ENCRYPTION_KEY`` is missing/malformed.
+
+    The key encrypts integration PATs at rest (ADR-0049). Its only existing guard
+    is ``integrations.encryption._load_fernet``, which raises on the *first*
+    encrypt/decrypt — so a prod deploy that forgets the key boots successfully and
+    only 500s the first time a user connects a PAT, potentially long after deploy.
+    This validator moves that failure to boot time. Returns an empty list under
+    ``debug`` so dev / CI keep booting with the deterministic test key.
+    """
+    if debug:
+        return []
+
+    if not key:
+        return [
+            Error(
+                "INTEGRATION_ENCRYPTION_KEY is empty in a non-DEBUG environment.",
+                hint=(
+                    "Integration credentials cannot be encrypted without it. "
+                    'Generate one with: python3 -c "from cryptography.fernet import '
+                    'Fernet; print(Fernet.generate_key().decode())"'
+                ),
+                id="trueppm.E005",
+            )
+        ]
+
+    # A truncated or garbled key must fail at boot, not at first encrypt. Fernet
+    # requires a 32-byte urlsafe-base64 key and raises ValueError otherwise.
+    from cryptography.fernet import Fernet
+
+    try:
+        Fernet(key.encode() if isinstance(key, str) else key)
+    except (ValueError, TypeError):
+        return [
+            Error(
+                "INTEGRATION_ENCRYPTION_KEY is not a valid Fernet key "
+                "(expected 32-byte urlsafe-base64).",
+                hint=(
+                    'Generate one with: python3 -c "from cryptography.fernet import '
+                    'Fernet; print(Fernet.generate_key().decode())"'
+                ),
+                id="trueppm.E006",
+            )
+        ]
+
+    return []
+
+
+@register(Tags.security, deploy=True)
+def check_integration_encryption_key(
+    app_configs: Sequence[object] | None = None,
+    **kwargs: object,
+) -> list[CheckMessage]:
+    """Django system check entry point — reads live settings."""
+    from django.conf import settings
+
+    return validate_integration_encryption_key(
+        getattr(settings, "INTEGRATION_ENCRYPTION_KEY", None),
+        debug=bool(getattr(settings, "DEBUG", False)),
+    )

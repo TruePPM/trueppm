@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 from django.contrib.auth import get_user_model
 
-from trueppm_api.apps.access.models import Role
+from trueppm_api.apps.access.models import ProgramMembership, Role
 from trueppm_api.apps.projects.models import (
     Baseline,
     BaselineTask,
@@ -352,3 +352,47 @@ def test_sample_import_reuses_existing_persona_resource_by_email(owner: Any) -> 
 
     assert Resource.objects.filter(email="alex@example.com").count() == 1
     assert TaskResource.objects.filter(resource=existing).exists()
+
+
+def test_generic_import_does_not_stamp_existing_victim_user_on_resource(owner: Any) -> None:
+    """#1057: on the generic path (create_users=False) a seed's accounts[].username
+    resolves to a pre-existing real User. That user must NOT be stamped onto the
+    freshly-created resource's user FK — otherwise a crafted seed could associate a
+    known victim's account with a resource inside the importer's own program."""
+    # Victim username matches the seed account "alex" (username "seed-alex").
+    victim = User.objects.create_user(username="seed-alex", email="victim@example.com")
+
+    import_seed(_seed(), owner=owner, create_users=False)
+
+    imported = Resource.objects.filter(name="Alex Rivera")
+    assert imported.exists()
+    assert all(r.user_id != victim.pk for r in imported)
+    assert all(r.user_id is None for r in imported)
+
+
+def test_generic_import_does_not_grant_existing_victim_program_membership(owner: Any) -> None:
+    """#1057: the same root cause (resolving a seed username to a pre-existing real
+    user on the generic path) must not pull a victim into the importer's program as
+    a member, lead, or assignee — not just off the resource FK."""
+    # Seed account "sam" (username "seed-sam", role ADMIN) and "alex" both collide.
+    victim_member = User.objects.create_user(username="seed-sam", email="sam-victim@example.com")
+    victim_lead = User.objects.create_user(username="seed-alex", email="alex-victim@example.com")
+
+    program = import_seed(_seed(), owner=owner, create_users=False)
+
+    # No membership was granted to either victim, and neither became the lead.
+    assert not ProgramMembership.objects.filter(program=program, user=victim_member).exists()
+    assert not ProgramMembership.objects.filter(program=program, user=victim_lead).exists()
+    assert program.lead_id != victim_lead.pk
+    assert program.lead is None
+    assert Task.objects.get(name="Build auth").assignee_id != victim_lead.pk
+
+
+def test_created_import_binds_minted_user_to_resource(owner: Any) -> None:
+    """The #1057 guard is scoped to the generic path: create_users=True (the trusted
+    management/seed path) still binds the minted account user onto its resource."""
+    import_seed(_seed(), owner=owner, create_users=True)
+
+    minted = User.objects.get(username="seed-alex")
+    res = Resource.objects.get(name="Alex Rivera")
+    assert res.user_id == minted.pk
