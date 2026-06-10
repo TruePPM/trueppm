@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import re
 from datetime import date, datetime, timedelta, tzinfo
+from typing import Any
 from zoneinfo import ZoneInfo
 
 # Mon=0 … Sun=6 (date.weekday) → bit Mon=1 … Sun=64 (Calendar.working_days).
@@ -68,7 +69,7 @@ class WorkingCalendar:
         return d  # unreachable in practice; never loop forever
 
 
-def resolve_anchor(payload: dict, today: date) -> date:
+def resolve_anchor(payload: dict[str, Any], today: date) -> date:
     """Resolve the program anchor: an explicit ``anchor`` date, else import day.
 
     An explicit anchor pins a fixed-date demo (discouraged); the common case is

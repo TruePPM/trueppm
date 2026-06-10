@@ -60,7 +60,7 @@ _PROGRESSION = [
     TaskStatus.REVIEW,
     TaskStatus.COMPLETE,
 ]
-_PROGRESSION_INDEX = {s: i for i, s in enumerate(_PROGRESSION)}
+_PROGRESSION_INDEX: dict[str, int] = {str(s): i for i, s in enumerate(_PROGRESSION)}
 
 # Upper bound on the day-by-day snapshot window (~10 years). The schema already
 # caps a single date offset at 4 digits; this bounds the *span* between the
