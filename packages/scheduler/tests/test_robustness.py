@@ -222,10 +222,12 @@ class TestProjectSpan:
             monte_carlo(p, runs=10, max_tasks=None)
 
     def test_span_counts_most_likely_estimate(self) -> None:
-        # Guard against the PERT bypass: zero deterministic/optimistic/pessimistic
-        # durations but a huge most_likely, which Monte Carlo samples as a
-        # constant when the [opt, pess] range is degenerate. The span must still
-        # count it, or the eager guard would never fire on these tasks.
+        # Guard against the PERT bypass: zero deterministic duration but huge
+        # estimates, which Monte Carlo samples as a constant when the
+        # [opt, pess] range is degenerate. The span must count the estimates,
+        # or the eager guard would never fire on these tasks. (Estimates must
+        # be ordered since #1069, so most_likely == pessimistic here; the
+        # deterministic duration alone still contributes nothing to the span.)
         n = MAX_PROJECT_SPAN_DAYS // MAX_DURATION_DAYS + 2
         tasks = [
             task(
@@ -233,7 +235,7 @@ class TestProjectSpan:
                 0,
                 optimistic_duration=timedelta(0),
                 most_likely_duration=timedelta(days=MAX_DURATION_DAYS),
-                pessimistic_duration=timedelta(0),
+                pessimistic_duration=timedelta(days=MAX_DURATION_DAYS),
             )
             for i in range(n)
         ]
@@ -305,3 +307,90 @@ class TestNonFiniteJson:
             Task.from_dict(
                 {"id": "a", "name": "A", "duration": 86400, "percent_complete": float("nan")}
             )
+
+
+class TestPertEstimateOrdering:
+    """A complete three-point estimate must be ordered (#1069).
+
+    Pre-fix, an inconsistent estimate was silently "handled" by _sample_pert's
+    degenerate fallback: every run sampled the constant most_likely — possibly
+    far beyond the user's own pessimistic bound — with zero spread and no error.
+    """
+
+    def test_most_likely_above_pessimistic_rejected(self) -> None:
+        p = make_project(
+            [
+                task(
+                    "A",
+                    5,
+                    optimistic_duration=timedelta(days=2),
+                    most_likely_duration=timedelta(days=30),
+                    pessimistic_duration=timedelta(days=4),
+                )
+            ]
+        )
+        with pytest.raises(InvalidScheduleInput, match="optimistic <= most_likely"):
+            monte_carlo(p, runs=10)
+        with pytest.raises(InvalidScheduleInput, match="optimistic <= most_likely"):
+            schedule(p)
+
+    def test_optimistic_above_pessimistic_rejected(self) -> None:
+        p = make_project(
+            [
+                task(
+                    "A",
+                    5,
+                    optimistic_duration=timedelta(days=10),
+                    most_likely_duration=timedelta(days=10),
+                    pessimistic_duration=timedelta(days=2),
+                )
+            ]
+        )
+        with pytest.raises(InvalidScheduleInput, match="optimistic <= most_likely"):
+            monte_carlo(p, runs=10)
+
+    def test_all_equal_estimates_allowed(self) -> None:
+        """A degenerate-but-consistent estimate is valid (constant sample)."""
+        p = make_project(
+            [
+                task(
+                    "A",
+                    5,
+                    optimistic_duration=timedelta(days=5),
+                    most_likely_duration=timedelta(days=5),
+                    pessimistic_duration=timedelta(days=5),
+                )
+            ]
+        )
+        r = monte_carlo(p, runs=10, seed=0)
+        assert r.p50 == r.p95
+
+    def test_partial_estimates_not_validated(self) -> None:
+        """Monte Carlo only samples when all three are present; a lone
+        most_likely (whatever its value) falls through to deterministic."""
+        p = make_project([task("A", 2, most_likely_duration=timedelta(days=99))])
+        r = monte_carlo(p, runs=10, seed=0)
+        assert r.p50 == r.p95 == date(2026, 3, 3)
+
+
+class TestEmptyChildrenSummary:
+    """A summary with an empty children list must be rejected clearly (#1070).
+
+    Pre-fix it survived expansion as its own leaf while being removed from the
+    task list, leaving a dangling edge that failed later with a generic
+    "unknown task" ValueError far from the actual mistake.
+    """
+
+    def test_expand_summary_dependencies_rejects_empty_children(self) -> None:
+        from trueppm_scheduler.engine import expand_summary_dependencies
+
+        with pytest.raises(InvalidScheduleInput, match="empty children"):
+            expand_summary_dependencies(
+                [task("A", 2), task("B", 2)],
+                [Dependency("S", "B")],
+                {"S": []},
+            )
+
+    def test_find_cycle_rejects_empty_children(self) -> None:
+        with pytest.raises(InvalidScheduleInput, match="empty children"):
+            find_cycle([("S", "B")], children_map={"S": []})

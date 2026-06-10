@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import math
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any
@@ -336,8 +337,9 @@ def find_cycle(
         unambiguous path. Returns ``None`` if the graph is acyclic.
 
     Raises:
-        InvalidScheduleInput: If ``children_map`` itself contains a cycle
-            (a summary that is its own ancestor) — distinct from a cycle in the
+        InvalidScheduleInput: If ``children_map`` itself is malformed — it
+            contains a cycle (a summary that is its own ancestor) or a summary
+            with an empty children list — distinct from a cycle in the
             ``edges`` being validated, which is returned, not raised.
     """
     if children_map:
@@ -367,6 +369,7 @@ def _expand_edges_for_cycle_check(
     summary_ids = set(children_map.keys())
     if not summary_ids:
         return edges
+    _check_children_map(children_map)
     seen: set[tuple[str, str]] = set()
     expanded: list[tuple[str, str]] = []
     for pred_id, succ_id in edges:
@@ -578,6 +581,23 @@ def _compute_floats(
 # ---------------------------------------------------------------------------
 
 
+def _check_children_map(children_map: dict[str, list[str]]) -> None:
+    """Reject a summary entry with an empty child list (#1070).
+
+    ``_collect_leaves`` treats a node with no children as a leaf, so an empty
+    entry made the summary id *itself* survive expansion as a leaf — while
+    ``expand_summary_dependencies`` removed it from the task list, leaving a
+    dangling edge that later failed with a generic "unknown task" ValueError
+    far from the actual mistake.
+    """
+    for sid, kids in children_map.items():
+        if not kids:
+            raise InvalidScheduleInput(
+                f"Summary task {sid!r} has an empty children list; remove it from "
+                "children_map or give it children."
+            )
+
+
 def _collect_leaves(
     task_id: str,
     children_map: dict[str, list[str]],
@@ -640,6 +660,7 @@ def expand_summary_dependencies(
     """
     if not children_map:
         return tasks, deps
+    _check_children_map(children_map)
 
     summary_ids = set(children_map.keys())
     leaf_tasks = [t for t in tasks if t.id not in summary_ids]
@@ -691,6 +712,35 @@ def _check_duration(td: timedelta, label: str) -> None:
         )
 
 
+def _velocity_worst_case_days(task: Task, project: Project) -> int:
+    """Upper bound (working days) on a scrum task's velocity-sampled duration.
+
+    Mirrors the ``max_sprints`` clamp in :func:`_sample_velocity_durations` —
+    the sampler never returns a duration above ``max_sprints * sprint_length_days``
+    — so this bound is exact, not heuristic. Used both to size the Monte Carlo
+    working-day index (a sampled completion past the index end would be silently
+    clamped to the last entry, #1067) and to count scrum tasks against
+    :data:`MAX_PROJECT_SPAN_DAYS` (the sampler allocates ``runs * max_sprints``
+    draws, so an unbounded ``story_points`` is a memory amplification, #1067).
+    Returns 0 when the task would not take the velocity path.
+    """
+    if (
+        task.delivery_mode != DeliveryMode.SCRUM
+        or task.story_points is None
+        or task.story_points <= 0
+        or not project.velocity_samples
+        or project.sprint_length_days is None
+        or project.sprint_length_days <= 0
+    ):
+        return 0
+    positive = [s for s in project.velocity_samples if s is not None and s > 0]
+    if not positive:
+        return 0
+    mean = sum(positive) / len(positive)
+    max_sprints = math.ceil(task.story_points / mean) * 4 + 10
+    return int(max_sprints) * project.sprint_length_days
+
+
 def _validate_project(project: Project) -> None:
     """Reject degenerate input before any calendar walk runs.
 
@@ -730,6 +780,17 @@ def _validate_project(project: Project) -> None:
     # (#749) so both engines reject identically at the validation layer.
     _next_working_day(project.start_date, project.calendar)
 
+    # Non-finite agile inputs crash deep inside the velocity sampler (NaN/inf
+    # story_points hit ``int(np.ceil(...))``; an inf velocity sample passes the
+    # ``> 0`` filter and poisons the bootstrap mean), so reject them eagerly
+    # with the documented exception type (#1070).
+    if project.velocity_samples is not None:
+        for s in project.velocity_samples:
+            if s is not None and not math.isfinite(s):
+                raise InvalidScheduleInput(
+                    f"velocity_samples must contain only finite numbers (got {s!r})."
+                )
+
     for t in project.tasks:
         _check_duration(t.duration, f"Task {t.id!r} duration")
         for field_name, value in (
@@ -739,6 +800,43 @@ def _validate_project(project: Project) -> None:
         ):
             if value is not None:
                 _check_duration(value, f"Task {t.id!r} {field_name}")
+        # A complete three-point estimate must be ordered. An inconsistent one
+        # (most_likely outside [optimistic, pessimistic], or optimistic above
+        # pessimistic) used to be silently "handled" by _sample_pert's degenerate
+        # fallback — every run sampling the constant most_likely, possibly beyond
+        # the user's own pessimistic bound (#1069). Partial estimates are not
+        # validated: Monte Carlo only samples when all three are present.
+        if (
+            t.optimistic_duration is not None
+            and t.most_likely_duration is not None
+            and t.pessimistic_duration is not None
+        ):
+            o = t.optimistic_duration.days
+            m = t.most_likely_duration.days
+            pe = t.pessimistic_duration.days
+            if not o <= m <= pe:
+                raise InvalidScheduleInput(
+                    f"Task {t.id!r} three-point estimates must satisfy "
+                    f"optimistic <= most_likely <= pessimistic "
+                    f"(got {o} <= {m} <= {pe} days)."
+                )
+        if t.story_points is not None and not math.isfinite(t.story_points):
+            raise InvalidScheduleInput(
+                f"Task {t.id!r} story_points must be a finite number (got {t.story_points!r})."
+            )
+        # planned_start (SNET) extends the schedule directly, so it is bounded by
+        # the same span cap as durations and lags — otherwise a pin in year 9999
+        # is accepted and drives the Monte Carlo working-day index build into a
+        # multi-million-entry walk (#1068).
+        if (
+            t.planned_start is not None
+            and (t.planned_start - project.start_date).days > MAX_PROJECT_SPAN_DAYS
+        ):
+            raise InvalidScheduleInput(
+                f"Task {t.id!r} planned_start is more than {MAX_PROJECT_SPAN_DAYS} days "
+                "after the project start; the schedule cannot be computed within a "
+                "representable date range."
+            )
     for dep in project.dependencies:
         if abs(dep.lag.days) > MAX_LAG_DAYS:
             raise InvalidScheduleInput(
@@ -752,17 +850,27 @@ def _validate_project(project: Project) -> None:
     # index build from spinning — or overflowing the date range — no matter how
     # many tasks are chained.
     total_span = 0
+    max_snet_days = 0
     for t in project.tasks:
         # Worst case across the deterministic duration AND every PERT estimate:
         # Monte Carlo samples within [optimistic, pessimistic] but falls back to
-        # most_likely when the range is degenerate, so most_likely (which may
-        # exceed pessimistic) must count too.
+        # most_likely when the range is degenerate, so most_likely (which a
+        # partial estimate may set above the deterministic duration) must count
+        # too. Scrum tasks count their velocity-sampling worst case — without it
+        # an oversized story_points bypassed this guard entirely (#1067).
         task_max_days = t.duration.days
         for est in (t.optimistic_duration, t.most_likely_duration, t.pessimistic_duration):
             if est is not None:
                 task_max_days = max(task_max_days, est.days)
+        task_max_days = max(task_max_days, _velocity_worst_case_days(t, project))
         total_span += max(0, task_max_days)
+        if t.planned_start is not None:
+            max_snet_days = max(max_snet_days, (t.planned_start - project.start_date).days)
     total_span += sum(abs(dep.lag.days) for dep in project.dependencies)
+    # A planned_start pin shifts the whole downstream chain, so the furthest pin
+    # adds to the span bound exactly once (pins don't accumulate the way
+    # durations on a chain do).
+    total_span += max_snet_days
     if total_span > MAX_PROJECT_SPAN_DAYS:
         raise InvalidScheduleInput(
             f"Total project span ({total_span} days across all task durations and lags) "
@@ -985,7 +1093,12 @@ def monte_carlo(
     finish-date distribution combining both sources of uncertainty.
 
     The CPM network is evaluated `runs` times with sampled durations.
-    All 4 dependency types are handled. Computation is vectorised with numpy:
+    All 4 dependency types are handled, ``planned_start`` is honored as the
+    same start-no-earlier-than floor the deterministic pass applies (#1068),
+    and zero-duration milestones occupy their start day exactly as in
+    :func:`schedule` (#1066) — a fully deterministic project (no estimates,
+    no velocity signal) simulates to precisely the CPM finish date.
+    Computation is vectorised with numpy:
     10 000 runs on a 200-task project completes in well under 100 ms — but note
     the ``max_runs`` cap defaults to 1 000, so a 10 000-run call must raise it
     (e.g. ``monte_carlo(project, runs=10_000, max_runs=10_000)``) or it raises
@@ -1105,15 +1218,27 @@ def monte_carlo(
     # lags; pad by the task count and a small buffer. The same index is reused for
     # the offset→date conversion below.
     dur_upper = 0
+    snet_upper = 0
     for t in task_map.values():
         d_days = t.duration.days
         if t.pessimistic_duration is not None:
             d_days = max(d_days, t.pessimistic_duration.days)
+        # Velocity-sampled scrum durations are bounded by the sampler's
+        # max_sprints clamp, not by duration/pessimistic — without this term a
+        # scrum task's completion offsets ran past the index end and were
+        # silently clamped to its last entry, reporting finish dates months
+        # early (#1067).
+        d_days = max(d_days, _velocity_worst_case_days(t, project))
         dur_upper += max(0, d_days)
+        # A planned_start pin (SNET, #1068) can push a task past every
+        # duration-derived bound; cover the furthest pin (calendar days are a
+        # safe over-estimate of working-day offsets).
+        if t.planned_start is not None:
+            snet_upper = max(snet_upper, (t.planned_start - project.start_date).days)
     lag_upper = sum(
         data["dep"].lag.days for _, _, data in g.edges(data=True) if data["dep"].lag.days > 0
     )
-    index_size = dur_upper + lag_upper + n_tasks + 30
+    index_size = dur_upper + lag_upper + snet_upper + n_tasks + 30
     wd_index = _build_working_day_index(project.start_date, calendar, index_size)
     offset_of = {d: i for i, d in enumerate(wd_index)}
 
@@ -1182,8 +1307,19 @@ def monte_carlo(
         idx = np.clip(np.rint(anchor).astype(np.int64), 0, len(delta_arr) - 1)
         return np.asarray(delta_arr[idx], dtype=np.float64)
 
+    # planned_start (SNET) floors, mirroring the deterministic forward pass
+    # (#1068): a pinned task may not start before its pin regardless of network
+    # logic. A pin at or before project start is the 0 floor every task already
+    # has. The index was sized to cover the furthest pin, so the lookup is total.
+    snet_floor: dict[str, float] = {}
+    for t in task_map.values():
+        if t.planned_start is not None and t.planned_start > project.start_date:
+            snapped = _next_working_day(t.planned_start, calendar)
+            off = offset_of.get(snapped)
+            snet_floor[t.id] = float(off) if off is not None else float(len(wd_index) - 1)
+
     for col, tid in enumerate(topo_order):
-        es_constraints = np.zeros(runs)  # project start = offset 0
+        es_constraints = np.full(runs, snet_floor.get(tid, 0.0))
         ef_constraints = np.zeros(runs)
         has_ef_constraint = False
 
@@ -1207,14 +1343,21 @@ def monte_carlo(
                 ef_constraints = np.maximum(ef_constraints, anchor + _lag_term(delta_arr, anchor))
                 has_ef_constraint = True
 
+        # Effective duration floors at one working day: a task occupies at least
+        # its start day, exactly as _finish_from_start returns the start day for
+        # a zero-duration milestone. With the raw duration, a milestone's
+        # exclusive EF collapsed onto its ES — FS successors started a working
+        # day early, lag anchors indexed the day *before* the milestone, and a
+        # terminal milestone's completion date converted one day early (#1066).
+        eff_dur = np.maximum(dur_matrix[:, col], 1.0)
         es = es_constraints
-        ef = es + dur_matrix[:, col]
+        ef = es + eff_dur
 
         if has_ef_constraint:
             ef = np.maximum(ef, ef_constraints)
             # Where EF was pushed by FF/SF, ES moves back (but not below es_constraints).
-            es = np.maximum(es_constraints, ef - dur_matrix[:, col])
-            ef = es + dur_matrix[:, col]
+            es = np.maximum(es_constraints, ef - eff_dur)
+            ef = es + eff_dur
 
         es_mat[:, col] = es
         ef_mat[:, col] = ef

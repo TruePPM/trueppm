@@ -797,8 +797,8 @@ class TestMonteCarlo:
     def test_mc_ss_weekend_lag_matches_cpm(self) -> None:
         """SS lag=3 off a Friday start (X→A lands A on Fri 6-Mar) snaps to Mon in
         CPM; MC must convert the lag against A's actual Friday start, not the
-        project-start reference (#824). planned_start is avoided because the MC
-        forward pass does not model SNET."""
+        project-start reference (#824). The X→A FS chain (rather than a
+        planned_start pin) is what lands A on a Friday."""
         p = make_project(
             tasks=[task("X", "X", 4), task("A", "A", 1), task("B", "B", 5)],
             dependencies=[
@@ -911,3 +911,183 @@ class TestScheduleResultOwnsItsSequences:
         cp.append("t-2")
         assert len(result.tasks) == 1
         assert result.critical_path == ["t-1"]
+
+
+# ---------------------------------------------------------------------------
+# monte_carlo() — zero-duration milestone parity with schedule() (#1066)
+# ---------------------------------------------------------------------------
+
+
+class TestMonteCarloMilestoneParity:
+    """MC must agree with CPM on zero-duration milestones.
+
+    The MC forward pass models finish as an exclusive working-day offset
+    (EF = ES + duration), which collapsed a milestone's EF onto its ES: FS
+    successors started a working day early, lag conversion anchored on the day
+    *before* the milestone, and a terminal milestone's completion converted one
+    day early. The effective-duration floor (a task occupies at least its start
+    day, mirroring _finish_from_start) restores parity (#1066).
+    """
+
+    def _assert_parity(self, p: Project) -> None:
+        cpm = schedule(p)
+        mc = monte_carlo(p, runs=50, seed=0)
+        assert mc.p50 == mc.p80 == mc.p95 == cpm.project_finish
+
+    def test_milestone_mid_chain(self) -> None:
+        """A(3d) → M(0d) → B(2d): MC finish must equal CPM's 2026-03-09."""
+        p = make_project(
+            tasks=[task("A", "A", 3), task("M", "M", 0), task("B", "B", 2)],
+            dependencies=[Dependency("A", "M"), Dependency("M", "B")],
+        )
+        self._assert_parity(p)
+
+    def test_terminal_milestone(self) -> None:
+        """A terminal milestone's completion date converted one day early pre-fix."""
+        p = make_project(
+            tasks=[task("A", "A", 3), task("M", "M", 0)],
+            dependencies=[Dependency("A", "M")],
+        )
+        self._assert_parity(p)
+
+    def test_milestone_at_project_start(self) -> None:
+        p = make_project(
+            tasks=[task("M", "M", 0), task("B", "B", 2)],
+            dependencies=[Dependency("M", "B")],
+        )
+        self._assert_parity(p)
+
+    def test_fs_lag_out_of_a_milestone_anchors_on_the_milestone_day(self) -> None:
+        """Pre-fix the lag delta indexed wd_index[k-1] — the day *before* the
+        milestone — so divergence could be in either direction."""
+        p = make_project(
+            tasks=[task("A", "A", 3), task("M", "M", 0), task("B", "B", 2)],
+            dependencies=[
+                Dependency("A", "M"),
+                Dependency("M", "B", lag=timedelta(days=1)),
+            ],
+        )
+        self._assert_parity(p)
+
+    def test_ff_out_of_a_milestone(self) -> None:
+        p = make_project(
+            tasks=[task("A", "A", 3), task("M", "M", 0), task("B", "B", 4)],
+            dependencies=[
+                Dependency("A", "M"),
+                Dependency("M", "B", dep_type=DependencyType.FF, lag=timedelta(days=2)),
+            ],
+        )
+        self._assert_parity(p)
+
+    def test_milestone_with_ef_constraint(self) -> None:
+        """A milestone pushed by an FF predecessor sits wholly on the constraint day."""
+        p = make_project(
+            tasks=[task("A", "A", 4), task("M", "M", 0), task("B", "B", 1)],
+            dependencies=[
+                Dependency("A", "M", dep_type=DependencyType.FF),
+                Dependency("M", "B"),
+            ],
+        )
+        self._assert_parity(p)
+
+    def test_randomized_parity_fuzz_with_milestones(self) -> None:
+        """Bounded differential fuzz: deterministic-duration MC == CPM, with
+        zero-duration tasks, every dependency type, ±lags, and calendar
+        exceptions in the mix. Seeded → reproducible. The 24/400 pre-fix
+        failures were all zero-duration cases (#1066)."""
+        import random
+
+        rnd = random.Random(20260610)
+        dep_types = list(DependencyType)
+        for _ in range(60):
+            n = rnd.randint(2, 8)
+            tasks = [task(f"T{i}", f"T{i}", rnd.choice([0, 1, 1, 2, 3, 5, 8])) for i in range(n)]
+            deps = []
+            for i in range(n):
+                for j in range(i + 1, n):
+                    if rnd.random() < 0.35:
+                        deps.append(
+                            Dependency(
+                                f"T{i}",
+                                f"T{j}",
+                                dep_type=rnd.choice(dep_types),
+                                lag=timedelta(days=rnd.choice([-3, -1, 0, 0, 0, 1, 2, 5])),
+                            )
+                        )
+            cal = Calendar(
+                exceptions=[DateRange(date(2026, 3, 11), date(2026, 3, 12))]
+                if rnd.random() < 0.5
+                else []
+            )
+            p = make_project(tasks, deps, calendar=cal)
+            cpm = schedule(p)
+            mc = monte_carlo(p, runs=8, seed=0)
+            dep_repr = [
+                (d.predecessor_id, d.successor_id, d.dep_type.value, d.lag.days) for d in deps
+            ]
+            assert mc.p50 == mc.p95 == cpm.project_finish, (
+                f"MC/CPM divergence: CPM={cpm.project_finish} MC={mc.p50} "
+                f"deps={dep_repr} durations={[t.duration.days for t in tasks]}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# monte_carlo() — planned_start (SNET) parity with schedule() (#1068)
+# ---------------------------------------------------------------------------
+
+
+class TestMonteCarloPlannedStart:
+    """MC honors planned_start as the same SNET floor the deterministic pass applies.
+
+    Pre-fix the MC forward pass floored every task at project start, so the P50
+    of a project with a pinned task could predate the deterministic early
+    finish by months (#1068).
+    """
+
+    def test_pinned_task_matches_cpm(self) -> None:
+        p = make_project(
+            tasks=[task("A", "A", 2, planned_start=date(2026, 6, 1))],
+        )
+        cpm = schedule(p)
+        mc = monte_carlo(p, runs=50, seed=0)
+        assert mc.p50 == mc.p95 == cpm.project_finish == date(2026, 6, 2)
+
+    def test_pin_cascades_through_chain(self) -> None:
+        p = make_project(
+            tasks=[
+                task("A", "A", 3, planned_start=date(2026, 3, 16)),
+                task("B", "B", 2),
+            ],
+            dependencies=[Dependency("A", "B")],
+        )
+        cpm = schedule(p)
+        mc = monte_carlo(p, runs=50, seed=0)
+        assert mc.p50 == mc.p95 == cpm.project_finish
+
+    def test_pin_before_project_start_is_ignored(self) -> None:
+        p = make_project(
+            tasks=[task("A", "A", 3, planned_start=date(2026, 2, 2))],
+        )
+        cpm = schedule(p)
+        mc = monte_carlo(p, runs=50, seed=0)
+        assert mc.p50 == mc.p95 == cpm.project_finish == date(2026, 3, 4)
+
+    def test_weekend_pin_snaps_to_next_working_day(self) -> None:
+        p = make_project(
+            tasks=[task("A", "A", 2, planned_start=date(2026, 3, 7))],  # Saturday
+        )
+        cpm = schedule(p)
+        mc = monte_carlo(p, runs=50, seed=0)
+        assert mc.p50 == mc.p95 == cpm.project_finish == date(2026, 3, 10)
+
+    def test_pin_beyond_span_cap_rejected(self) -> None:
+        """A pin in year 9999 must not drive a multi-million-entry index build."""
+        from trueppm_scheduler import InvalidScheduleInput
+
+        p = make_project(
+            tasks=[task("A", "A", 1, planned_start=date(9999, 1, 1))],
+        )
+        with pytest.raises(InvalidScheduleInput, match="planned_start"):
+            monte_carlo(p, runs=10, seed=0)
+        with pytest.raises(InvalidScheduleInput, match="planned_start"):
+            schedule(p)
