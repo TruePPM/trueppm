@@ -17,10 +17,15 @@ import uuid
 from collections.abc import Iterable
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.db import transaction
 from django.utils import timezone
+
+if TYPE_CHECKING:
+    from django.db.models import QuerySet
+
+    from trueppm_api.apps.projects.models import Sprint
 
 logger = logging.getLogger(__name__)
 
@@ -388,6 +393,26 @@ def upsert_burndown_for_sprint(sprint: Any, snapshot_date: date | None = None) -
 # ---------------------------------------------------------------------------
 
 
+def velocity_eligible_sprints(project_id: str | uuid.UUID) -> QuerySet[Sprint]:
+    """The canonical "counts toward velocity" sprint set for a project (ADR-0113).
+
+    A single source of truth for *which* sprints feed any velocity-derived number:
+    the rolling average/band, ``team_velocity_per_day``, and the future
+    ``Project.velocity_samples`` population that ADR-0065/0106 will hand to the
+    scheduler. Routing every consumer through this predicate guarantees the
+    ``exclude_from_velocity`` flag is applied exactly once and can never be baked
+    out at one call site. Ordered newest-first; callers slice their own window.
+    """
+    from trueppm_api.apps.projects.models import Sprint, SprintState
+
+    return Sprint.objects.filter(
+        project_id=project_id,
+        state=SprintState.COMPLETED,
+        is_deleted=False,
+        exclude_from_velocity=False,
+    ).order_by("-closed_at")
+
+
 def velocity_summary(project_id: str | uuid.UUID) -> dict[str, Any]:
     """Return rolling velocity stats and forecast range for a project.
 
@@ -395,11 +420,20 @@ def velocity_summary(project_id: str | uuid.UUID) -> dict[str, Any]:
     tasks) returns rolling avg, stdev, and a forecast range of avg ± 1 stdev
     rounded to int. Returns null fields when there are fewer than two closed
     sprints (stdev undefined).
+
+    Sprints flagged ``exclude_from_velocity`` (ADR-0113) stay **visible** in the
+    returned ``sprints`` list — each carries an ``exclude_from_velocity`` flag so
+    the UI can mark rather than silently drop them — but are omitted from every
+    computed statistic. ``excluded_count`` reports how many of the displayed
+    sprints were excluded so the UI can render "N excluded from this forecast".
     """
     import statistics
 
     from trueppm_api.apps.projects.models import Sprint, SprintState
 
+    # Display window: the last 8 closed sprints INCLUDING excluded ones, so a
+    # recently-closed Sprint 0 still appears in the chart (marked), rather than
+    # vanishing. Statistics below are computed over the eligible subset only.
     closed = list(
         Sprint.objects.filter(
             project_id=project_id,
@@ -408,9 +442,12 @@ def velocity_summary(project_id: str | uuid.UUID) -> dict[str, Any]:
         ).order_by("-closed_at")[:8]
     )
 
-    points: list[int] = [s.completed_points for s in closed if s.completed_points is not None]
+    eligible = [s for s in closed if not s.exclude_from_velocity]
+    excluded_count = len(closed) - len(eligible)
+
+    points: list[int] = [s.completed_points for s in eligible if s.completed_points is not None]
     counts: list[int] = [
-        s.completed_task_count for s in closed if s.completed_task_count is not None
+        s.completed_task_count for s in eligible if s.completed_task_count is not None
     ]
 
     def _stats(values: list[int]) -> tuple[float | None, float | None, int | None, int | None]:
@@ -437,10 +474,14 @@ def velocity_summary(project_id: str | uuid.UUID) -> dict[str, Any]:
     # Chronological (oldest -> newest) so each entry can carry its delta vs the
     # immediately prior closed sprint (#984) — server-owned so MCP/mobile don't
     # diff the series themselves. None when either side has no completed total.
+    # Deltas walk the *eligible* series only (ADR-0113): an excluded sprint never
+    # anchors a delta, and excluded sprints themselves carry no delta — the trend
+    # the team reads must match the velocity the stats above report.
     chronological = list(reversed(closed))
     sprint_entries = []
-    for i, s in enumerate(chronological):
-        prev = chronological[i - 1] if i > 0 else None
+    prev_eligible: Sprint | None = None
+    for s in chronological:
+        prev = None if s.exclude_from_velocity else prev_eligible
         delta_points = (
             s.completed_points - prev.completed_points
             if prev is not None
@@ -467,8 +508,13 @@ def velocity_summary(project_id: str | uuid.UUID) -> dict[str, Any]:
                 "completed_task_count": s.completed_task_count,
                 "delta_vs_prior_points": delta_points,
                 "delta_vs_prior_tasks": delta_tasks,
+                # ADR-0113: marked, not dropped — the UI greys/hatches excluded
+                # bars and skips them in the rolling-avg line and ± stdev band.
+                "exclude_from_velocity": s.exclude_from_velocity,
             }
         )
+        if not s.exclude_from_velocity:
+            prev_eligible = s
 
     return {
         "sprints": sprint_entries,
@@ -479,6 +525,9 @@ def velocity_summary(project_id: str | uuid.UUID) -> dict[str, Any]:
         "rolling_avg_tasks": avg_t,
         "rolling_stdev_tasks": sd_t,
         "team_velocity_per_day": float(velocity_per_day) if velocity_per_day else None,
+        # ADR-0113: how many of the displayed sprints are excluded, so the UI can
+        # render "N excluded from this forecast" without re-deriving it client-side.
+        "excluded_count": excluded_count,
     }
 
 

@@ -3,6 +3,14 @@
 ## Status
 Accepted
 
+> **Amendment (ADR-0113, 2026-06-10):** any velocity-sample / `velocity_per_day`
+> derivation for CPM feedback MUST draw from
+> `projects.services.velocity_eligible_sprints()`, the single predicate that
+> applies the `Sprint.exclude_from_velocity` flag, so a setup/ramp-up "Sprint 0"
+> never contaminates the calibration. `compute_team_velocity_per_day()` already
+> routes through it; when the planned `velocity_samples` population for the
+> scheduler lands, it must too — do not re-query closed sprints directly.
+
 ## Context
 
 ADR-0036 established the hybrid PM philosophy (sprints and schedule milestones are views of the same task

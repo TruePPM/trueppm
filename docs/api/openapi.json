@@ -22314,6 +22314,9 @@
                                 "$ref": "#/components/schemas/NullEnum"
                             }
                         ]
+                    },
+                    "exclude_from_velocity": {
+                        "type": "boolean"
                     }
                 }
             },
@@ -25128,6 +25131,9 @@
                             }
                         ]
                     },
+                    "exclude_from_velocity": {
+                        "type": "boolean"
+                    },
                     "committed_points": {
                         "type": "integer",
                         "readOnly": true,
@@ -25373,6 +25379,9 @@
                                 "$ref": "#/components/schemas/NullEnum"
                             }
                         ]
+                    },
+                    "exclude_from_velocity": {
+                        "type": "boolean"
                     }
                 },
                 "required": [
