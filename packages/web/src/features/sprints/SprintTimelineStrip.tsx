@@ -170,10 +170,13 @@ function SprintCard({
       : variant === 'closed'
         ? 'border-neutral-border bg-neutral-surface-sunken text-neutral-text-secondary'
         : 'border-neutral-border bg-neutral-surface';
-  // Selected card gets the full navy ring (rule 83); the active card otherwise
-  // keeps a lighter tint ring so it stays identifiable when not selected.
+  // Selected card gets a NAVY ring (rules 83/146): sage already carries
+  // action + on-track meaning (the active card has a sage tint + sage progress
+  // fill), so a sage selection ring would collide — selection is navy ink,
+  // never sage. The active-but-unselected card keeps a faint sage tint ring as
+  // its active cue; navy selection over it reads cleanly.
   const ring = isSelected
-    ? 'ring-2 ring-brand-primary ring-offset-1'
+    ? 'ring-2 ring-navy-700 ring-offset-1 dark:ring-reversed'
     : variant === 'active'
       ? 'ring-2 ring-brand-primary/30'
       : '';

@@ -106,10 +106,15 @@ function DeltaValue({ delta }: { delta: number }) {
         ? 'text-semantic-at-risk'
         : 'text-neutral-text-primary';
   const arrow = delta > 0 ? '▲' : delta < 0 ? '▼' : '·';
+  const direction = delta > 0 ? 'up' : delta < 0 ? 'down' : 'unchanged';
   return (
     <span
       className={`tppm-mono text-lg font-semibold ${tone}`}
-      aria-label={`Velocity ${delta >= 0 ? 'up' : 'down'} ${Math.abs(delta)} points vs prior sprint`}
+      aria-label={
+        delta === 0
+          ? 'Velocity unchanged vs prior sprint'
+          : `Velocity ${direction} ${Math.abs(delta)} points vs prior sprint`
+      }
     >
       <span aria-hidden="true">{arrow} </span>
       {delta > 0 ? '+' : ''}
