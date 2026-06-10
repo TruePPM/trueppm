@@ -319,7 +319,7 @@ test.describe('Wave 10 — Sprints view header', () => {
 
     const outcome = page.getByTestId('sprint-closed-outcome');
     await expect(outcome).toBeVisible();
-    await expect(outcome.getByLabelText(/Goal Met/i)).toBeVisible();
+    await expect(outcome.getByLabel(/Goal Met/i)).toBeVisible();
     const didntShip = page.getByTestId('didnt-ship');
     await expect(didntShip).toContainText('Flaky telemetry retry');
     await expect(didntShip).toContainText('→ Telemetry & FAT prep');
