@@ -17,6 +17,8 @@ import { SprintClosedOutcome } from './SprintClosedOutcome';
 import { SprintHeader } from './SprintHeader';
 import { SprintGoalCard } from './SprintGoalCard';
 import { AdvancingToMilestoneCard } from './AdvancingToMilestoneCard';
+import { SprintPlanningBridge } from './SprintPlanningBridge';
+import { IncomingCarryoverCard } from './IncomingCarryoverCard';
 import { SprintTimelineStrip } from './SprintTimelineStrip';
 import { BurnChart } from '@/features/reports/BurnChart';
 import { CapacityPreflight } from './CapacityPreflight';
@@ -159,6 +161,9 @@ export function SprintsView() {
   const velocity = useProjectVelocity(projectId);
   const backlog = useSprintBacklog(projectId, activeSprint?.id);
   const plannedBacklog = useSprintBacklog(projectId, plannedSprint?.id);
+  // Capacity for the PLANNED surface (#495/#864) — same per-person + aggregate
+  // read the ACTIVE view uses, plus the points chip derived below.
+  const plannedCapacity = useSprintCapacity(plannedSprint?.id);
   const myTeams = useMyActiveSprints();
   const queryClient = useQueryClient();
   const updateTask = useUpdateTask();
@@ -238,6 +243,23 @@ export function SprintsView() {
     [backlogTasks, filter, myResourceId],
   );
   const plannedBacklogTasks = useMemo(() => plannedBacklog.data ?? [], [plannedBacklog.data]);
+  // Draft points load (#864, ADR-0094 §3): sum of story points over *assigned*
+  // tasks in the planned backlog — the planning chip's numerator against
+  // capacity_points. Client-derived (the ADR sanctions it); the authoritative
+  // committed math stays server-side on committed_points.
+  const plannedDraftPoints = useMemo(
+    () =>
+      plannedBacklogTasks.reduce(
+        (sum, t) => (t.assignments.length > 0 ? sum + (t.story_points ?? 0) : sum),
+        0,
+      ),
+    [plannedBacklogTasks],
+  );
+  // Task ids committed to the planned sprint, for the bridge's predecessor count.
+  const plannedTaskIds = useMemo(
+    () => plannedBacklogTasks.map((t) => t.id),
+    [plannedBacklogTasks],
+  );
 
   function handlePlanNext() {
     if (hasPlannedSprint) return;
@@ -453,18 +475,33 @@ export function SprintsView() {
 
         {!isLoading && !error && selectedSprint && (
           <>
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-              <div className="md:col-span-3">
-                <SprintGoalCard
-                  sprint={selectedSprint}
-                  projectId={projectId ?? ''}
-                  canEdit={canManageScope && selectedSprint.state !== 'COMPLETED'}
-                />
+            {/* PLANNED (#495/#866) — the planning bridge banner (draft goal ↔
+                advancing milestone) replaces the generic two-card header so the
+                agile→waterfall link is explicit at planning time. ACTIVE/CLOSED
+                keep the standard goal + milestone grid. */}
+            {selectedSprint.state === 'PLANNED' ? (
+              <SprintPlanningBridge
+                sprint={selectedSprint}
+                projectId={projectId ?? ''}
+                canEdit={canManageScope}
+                sprintTaskIds={
+                  selectedSprint.id === plannedSprint?.id ? plannedTaskIds : []
+                }
+              />
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                <div className="md:col-span-3">
+                  <SprintGoalCard
+                    sprint={selectedSprint}
+                    projectId={projectId ?? ''}
+                    canEdit={canManageScope && selectedSprint.state !== 'COMPLETED'}
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <AdvancingToMilestoneCard sprint={selectedSprint} projectId={projectId ?? ''} />
+                </div>
               </div>
-              <div className="md:col-span-2">
-                <AdvancingToMilestoneCard sprint={selectedSprint} projectId={projectId ?? ''} />
-              </div>
-            </div>
+            )}
 
             {/* ACTIVE — burndown + capacity + velocity (unchanged this MR; the
                 ADR-0094 "launcher" dedup is a follow-up). */}
@@ -530,17 +567,54 @@ export function SprintsView() {
           />
         )}
 
-        {/* Planned backlog (with carryover lane) when the next planned sprint is selected. */}
+        {/* PLANNED unified surface (#495, ADR-0094 §1): priority-ordered backlog
+            on the left; capacity gauge (#864 points chip + footer), incoming
+            carryover preview (#865), and a collapsed velocity panel on the right
+            — the whole sprint-commitment conversation on one surface. */}
         {!isLoading && !error && selectedSprint?.id === plannedSprint?.id && plannedSprint && projectId && (
-          <SprintBacklogTable
-            projectId={projectId}
-            sprintId={plannedSprint.id}
-            tasks={plannedBacklogTasks}
-            onAddTask={() => setAddTaskForSprintId(plannedSprint.id)}
-            onRemoveTask={handleRemoveFromSprint}
-            showCarryoverLane
-            canPullCarryover={canPullCarryover}
-          />
+          <div className="px-6 grid grid-cols-1 lg:grid-cols-5 gap-4 items-start">
+            <div className="lg:col-span-3 rounded-md border border-neutral-border overflow-hidden">
+              <SprintBacklogTable
+                projectId={projectId}
+                sprintId={plannedSprint.id}
+                tasks={plannedBacklogTasks}
+                onAddTask={() => setAddTaskForSprintId(plannedSprint.id)}
+                onRemoveTask={handleRemoveFromSprint}
+                showCarryoverLane
+                canPullCarryover={canPullCarryover}
+              />
+            </div>
+            <div className="lg:col-span-2 flex flex-col gap-4">
+              {plannedCapacity.data ? (
+                <CapacityPreflight
+                  capacity={plannedCapacity.data}
+                  points={{
+                    committed: plannedDraftPoints,
+                    capacity: plannedSprint.capacity_points,
+                  }}
+                />
+              ) : (
+                <ChartSkeleton label="Capacity Preflight" />
+              )}
+              <IncomingCarryoverCard
+                sprintId={plannedSprint.id}
+                currentSprintShortId={plannedSprint.short_id_display}
+              />
+              {velocity.data && (
+                <details className="rounded-md border border-neutral-border bg-neutral-surface">
+                  <summary
+                    className="cursor-pointer px-4 py-2 text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary
+                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-md"
+                  >
+                    Velocity
+                  </summary>
+                  <div className="px-4 pb-4">
+                    <VelocityPanel velocity={velocity.data} />
+                  </div>
+                </details>
+              )}
+            </div>
+          </div>
         )}
 
         {/* Retro follows the selected sprint when it is active or closed (the

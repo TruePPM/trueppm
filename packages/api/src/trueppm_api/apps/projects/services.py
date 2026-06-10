@@ -800,6 +800,72 @@ def snapshot_sprint_task_outcomes(sprint: Any, *, carry_over_to: str) -> None:
         SprintTaskOutcome.objects.bulk_create(rows, ignore_conflicts=True)
 
 
+def incoming_carryover(sprint: Any) -> dict[str, Any]:
+    """Read-only "what rolled forward from the prior sprint" preview (#865, ADR-0094 §3).
+
+    Re-derives, for a PLANNED ``sprint``, the prior *closed* sprint's unfinished
+    tasks and whether each one was pulled into this sprint — surfacing the
+    close-time ``apply_carry_over`` decision as a Planning-side hint without
+    mutating anything.
+
+    The prior sprint is the most-recently-finished COMPLETED sprint in the same
+    project whose ``finish_date`` precedes this sprint's ``start_date``. Its
+    unfinished set is read from the immutable ``SprintTaskOutcome`` snapshot
+    (``final_status != COMPLETE``) rather than the live ``Sprint.tasks`` set:
+    carry-over reassigns the task ``sprint`` FK at close, so the closed sprint no
+    longer holds the carried tasks — only the snapshot does. The snapshot also
+    survives a later task hard-delete (``task`` FK is SET_NULL), so the preview
+    stays faithful. ``pulled_in_to_current`` is True when the live task is now
+    linked to *this* PLANNED sprint.
+
+    Returns ``{"prior_sprint": {...} | None, "tasks": [...]}`` — an empty
+    ``tasks`` list (and ``prior_sprint": None``) when there is no prior closed
+    sprint, which the Planning sidebar uses to suppress itself.
+    """
+    from trueppm_api.apps.projects.models import Sprint, SprintState, TaskStatus
+
+    prior = (
+        Sprint.objects.filter(
+            project_id=sprint.project_id,
+            state=SprintState.COMPLETED,
+            finish_date__lt=sprint.start_date,
+            is_deleted=False,
+        )
+        .order_by("-finish_date")
+        .first()
+    )
+    if prior is None:
+        return {"prior_sprint": None, "tasks": []}
+
+    outcomes = (
+        prior.task_outcomes.exclude(final_status=TaskStatus.COMPLETE)
+        .select_related("task")
+        .order_by("task_short_id")
+    )
+    tasks: list[dict[str, Any]] = []
+    for o in outcomes:
+        live = o.task if (o.task is not None and not o.task.is_deleted) else None
+        tasks.append(
+            {
+                "id": str(o.task_id) if o.task_id else None,
+                "short_id": o.task_short_id,
+                "name": o.task_title,
+                "story_points": o.story_points,
+                "pulled_in_to_current": bool(live is not None and live.sprint_id == sprint.pk),
+            }
+        )
+    return {
+        "prior_sprint": {
+            "id": str(prior.pk),
+            "short_id_display": f"SP-{prior.short_id}" if prior.short_id else "",
+            "name": prior.name,
+            "start_date": prior.start_date.isoformat(),
+            "finish_date": prior.finish_date.isoformat(),
+        },
+        "tasks": tasks,
+    }
+
+
 def compute_sprint_burn_status(sprint: Any, snapshots: list[Any]) -> dict[str, Any]:
     """Server-compute a sprint's burn pace (#984).
 

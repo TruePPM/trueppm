@@ -102,4 +102,31 @@ describe('CapacityPreflight', () => {
     render(<CapacityPreflight capacity={makeCapacity({ members: [] })} />);
     expect(screen.getByText(/No assignments yet for this sprint/)).toBeInTheDocument();
   });
+
+  describe('points chip + footer band (#864)', () => {
+    it('omits the chip and footer when no points ceiling is set', () => {
+      render(
+        <CapacityPreflight capacity={makeCapacity()} points={{ committed: 12, capacity: null }} />,
+      );
+      expect(screen.queryByText(/pts ·/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/of capacity/)).not.toBeInTheDocument();
+    });
+
+    it('renders a primary chip and "pts free" footer under capacity', () => {
+      render(
+        <CapacityPreflight capacity={makeCapacity()} points={{ committed: 18, capacity: 24 }} />,
+      );
+      expect(screen.getByText('18/24 pts · 75%')).toBeInTheDocument();
+      expect(screen.getByText('Team is at 75% of capacity. 6 pts free.')).toBeInTheDocument();
+    });
+
+    it('renders a critical chip and "pts over" footer when over capacity', () => {
+      render(
+        <CapacityPreflight capacity={makeCapacity()} points={{ committed: 30, capacity: 24 }} />,
+      );
+      const chip = screen.getByText('30/24 pts · 125%');
+      expect(chip.className).toMatch(/text-semantic-critical/);
+      expect(screen.getByText('Team is at 125% of capacity (6 pts over).')).toBeInTheDocument();
+    });
+  });
 });

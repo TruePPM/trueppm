@@ -10,6 +10,14 @@ import { PromoteMilestoneDialog } from './PromoteMilestoneDialog';
 interface Props {
   sprint: ApiSprint;
   projectId: string;
+  /**
+   * Predecessor-intersection summary (#866, ADR-0094 §3) — how many of the
+   * milestone's predecessor tasks are committed to this sprint. Passed only by
+   * the PLANNED-state bridge banner; omitted on the ACTIVE card. Renders a
+   * "{inSprint} of {total} predecessor tasks land in this sprint" caption when
+   * the milestone has predecessors.
+   */
+  predecessorsInSprint?: { inSprint: number; total: number };
 }
 
 /**
@@ -28,7 +36,11 @@ interface Props {
  * finish vs milestone) answer different questions and are stacked, not
  * collapsed.
  */
-export function AdvancingToMilestoneCard({ sprint, projectId }: Props) {
+export function AdvancingToMilestoneCard({
+  sprint,
+  projectId,
+  predecessorsInSprint,
+}: Props) {
   const detail = sprint.target_milestone_detail;
   const rollup = detail?.rollup ?? null;
 
@@ -72,13 +84,33 @@ export function AdvancingToMilestoneCard({ sprint, projectId }: Props) {
             <RollupBlock rollup={rollup} />
           )}
 
-          <Link
-            to={`/projects/${projectId}/schedule#task-${detail.id}`}
-            className="self-start text-xs font-medium text-brand-primary hover:text-brand-primary-dark
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
-          >
-            Open in Schedule view →
-          </Link>
+          {predecessorsInSprint && predecessorsInSprint.total > 0 && (
+            <p className="text-xs text-neutral-text-secondary">
+              <span className="tppm-mono">{predecessorsInSprint.inSprint}</span> of{' '}
+              <span className="tppm-mono">{predecessorsInSprint.total}</span> predecessor
+              {predecessorsInSprint.total === 1 ? ' task' : ' tasks'} land in this sprint
+            </p>
+          )}
+
+          <div className="flex items-center gap-4">
+            <Link
+              to={`/projects/${projectId}/schedule#task-${detail.id}`}
+              className="text-xs font-medium text-brand-primary hover:text-brand-primary-dark
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
+            >
+              Open in Schedule view →
+            </Link>
+            {canPromote && (
+              <button
+                type="button"
+                onClick={() => setPromoting(true)}
+                className="text-xs font-medium text-neutral-text-secondary hover:text-neutral-text-primary
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
+              >
+                Change milestone
+              </button>
+            )}
+          </div>
         </>
       ) : (
         <div className="flex flex-col items-start gap-2">

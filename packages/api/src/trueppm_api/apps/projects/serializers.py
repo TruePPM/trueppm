@@ -2660,14 +2660,26 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
         milestone = obj.target_milestone
         if milestone is None:
             return None
+        from trueppm_api.apps.projects.models import Dependency
         from trueppm_api.apps.projects.services import compute_milestone_rollup_payload
 
         wbs = milestone.wbs_path
+        # ADR-0094 §3 (#866): the planning bridge banner shows "N of M predecessor
+        # tasks land in this sprint". The intersection is derived client-side
+        # (vitest-tested) from the raw predecessor task ids exposed here — keeping
+        # the graph fact server-owned (API-first) without a per-sprint join here.
+        predecessor_ids = [
+            str(pid)
+            for pid in Dependency.objects.filter(
+                successor_id=milestone.pk, predecessor__is_deleted=False
+            ).values_list("predecessor_id", flat=True)
+        ]
         return {
             "id": str(milestone.pk),
             "name": milestone.name,
             "wbs_path": str(wbs) if wbs else None,
             "finish": milestone.early_finish.isoformat() if milestone.early_finish else None,
+            "predecessor_ids": predecessor_ids,
             "rollup": compute_milestone_rollup_payload(milestone),
         }
 

@@ -14,6 +14,11 @@ interface Props {
    * ``useCanManageScope``). When false the card is a read-only banner.
    */
   canEdit?: boolean;
+  /**
+   * Heading label. Defaults to "Sprint Goal"; the PLANNED-state planning bridge
+   * (#866) passes "Draft sprint goal" since the goal is still being shaped.
+   */
+  heading?: string;
 }
 
 /** The three "good sprint goal" heuristics surfaced as live, advisory hints. */
@@ -70,7 +75,12 @@ const HINTS: { key: keyof GoalQuality; label: string }[] = [
  *    commitment artifact, so editing happens in-place in the workspace rather
  *    than only inside the full Plan-sprint modal.
  */
-export function SprintGoalCard({ sprint, projectId, canEdit = false }: Props) {
+export function SprintGoalCard({
+  sprint,
+  projectId,
+  canEdit = false,
+  heading = 'Sprint Goal',
+}: Props) {
   const showDayOf = sprint.state === 'ACTIVE';
   const { day, total } = sprintDayOf(sprint.start_date, sprint.finish_date);
   const taskCount = sprint.committed_task_count ?? 0;
@@ -119,7 +129,7 @@ export function SprintGoalCard({ sprint, projectId, canEdit = false }: Props) {
           id="sprint-goal-heading"
           className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary"
         >
-          Sprint Goal
+          {heading}
         </h2>
         <span
           className="tppm-mono text-xs px-2 py-0.5 rounded border border-neutral-border text-neutral-text-secondary"

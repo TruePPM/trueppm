@@ -14713,6 +14713,49 @@
                 }
             }
         },
+        "/api/v1/sprints/{id}/incoming_carryover/": {
+            "get": {
+                "operationId": "v1_sprints_incoming_carryover_retrieve",
+                "description": "Read-only \"what rolled forward from the prior sprint\" preview (#865, ADR-0094 §3).\n\nRe-derives the prior closed sprint's unfinished tasks and whether each was\npulled into this PLANNED sprint, from the immutable ``SprintTaskOutcome``\nsnapshot — no mutation, no schema change. RBAC mirrors ``retrieve`` (any\nproject member): the payload exposes only denormalized task identity and a\nderived boolean, never the close-time decision write.",
+                "summary": "Incoming carryover preview for a PLANNED sprint",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "The prior closed sprint summary plus its unfinished tasks, each flagged pulled_in_to_current. Empty tasks when no prior sprint."
+                    }
+                }
+            }
+        },
         "/api/v1/sprints/{id}/outcome/": {
             "get": {
                 "operationId": "v1_sprints_outcome_retrieve",
