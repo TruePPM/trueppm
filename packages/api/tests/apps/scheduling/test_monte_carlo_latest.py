@@ -157,3 +157,70 @@ class TestMonteCarloLatest:
         # ISO 8601 — fromisoformat tolerates both naive and tz-aware strings.
         parsed = datetime.fromisoformat(data["last_run_at"])
         assert parsed is not None
+
+    # ── #987 — cpm_finish + delta_vs_cpm + confidence_curve ──────────────────
+
+    def _scheduled_task(self, project: Project) -> Task:
+        """A committed PERT task with a CPM finish so cpm_finish is non-null."""
+        return Task.objects.create(
+            project=project,
+            name="Scheduled",
+            duration=5,
+            optimistic_duration=3,
+            most_likely_duration=5,
+            pessimistic_duration=10,
+            early_start=date(2026, 1, 5),
+            early_finish=date(2026, 1, 9),
+        )
+
+    def test_latest_includes_cpm_finish_and_delta_vs_cpm(
+        self, member_client: APIClient, project: Project
+    ) -> None:
+        """cpm_finish (the deterministic spine) and the per-percentile premium
+        over it are server-owned on the latest payload (#987), so a headless
+        client reads the risk delta instead of subtracting dates."""
+        self._scheduled_task(project)
+        member_client.post(self.mc_url(project.pk), {"n_simulations": 200}, format="json")
+        data = member_client.get(self.url(project.pk)).json()
+
+        assert data["cpm_finish"] == "2026-01-09"
+        delta = data["delta_vs_cpm"]
+        assert set(delta) == {"p50", "p80", "p95"}
+        # All deltas are integer calendar-day offsets vs the CPM finish, and the
+        # band widens monotonically (p95 finishes no earlier than p50).
+        for key in ("p50", "p80", "p95"):
+            assert isinstance(delta[key], int)
+        assert delta["p50"] <= delta["p95"]
+
+    def test_confidence_curve_is_cumulative_and_tops_out_at_100(
+        self, member_client: APIClient, project: Project
+    ) -> None:
+        """confidence_curve is a cumulative P(finish ≤ date) S-curve derived from
+        the histogram buckets — non-decreasing, ending at 100% (#987)."""
+        self._scheduled_task(project)
+        member_client.post(self.mc_url(project.pk), {"n_simulations": 200}, format="json")
+        curve = member_client.get(self.url(project.pk)).json()["confidence_curve"]
+
+        assert isinstance(curve, list) and len(curve) >= 1
+        prev = -1.0
+        for point in curve:
+            assert set(point) == {"date", "pct"}
+            assert point["pct"] >= prev  # cumulative ⇒ never decreases
+            prev = point["pct"]
+        assert curve[-1]["pct"] == pytest.approx(100.0)
+
+    def test_history_fallback_keeps_cpm_delta_but_drops_curve(
+        self, member_client: APIClient, project: Project
+    ) -> None:
+        """After the cache TTL expires the persisted run still carries cpm_finish
+        + delta_vs_cpm (both stored), but the confidence_curve falls back to empty
+        because the raw distribution is intentionally not persisted (#987)."""
+        self._scheduled_task(project)
+        member_client.post(self.mc_url(project.pk), {"n_simulations": 200}, format="json")
+        cache.clear()  # simulate TTL expiry → history fallback path
+
+        data = member_client.get(self.url(project.pk)).json()
+        assert data["from_history"] is True
+        assert data["cpm_finish"] == "2026-01-09"
+        assert set(data["delta_vs_cpm"]) == {"p50", "p80", "p95"}
+        assert data["confidence_curve"] == []

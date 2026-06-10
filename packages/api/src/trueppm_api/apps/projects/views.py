@@ -786,8 +786,11 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
             200: OpenApiResponse(
                 response=OpenApiTypes.OBJECT,
                 description=(
-                    "Sparse map of resource -> working day -> {hours, task_ids} for "
-                    "the requested window."
+                    "Sparse map of resource -> working day -> "
+                    "{hours, task_ids, load_pct, load_band, overallocated} for the "
+                    "requested window. load_band is on-track | at-risk | critical "
+                    "(>100% load); each resource also carries a top-level "
+                    "overallocated flag (true if any day exceeds 100%)."
                 ),
             ),
             409: OpenApiResponse(

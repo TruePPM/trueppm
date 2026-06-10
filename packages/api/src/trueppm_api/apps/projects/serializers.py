@@ -880,10 +880,20 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         read_only=True, allow_null=True, default=None
     )
 
-    # TODO(#73): cpi, actual_cost, and budget_at_completion are intentionally
-    # absent from this serializer until the cost model (#73, #74) is
-    # implemented.  BoardCard.tsx renders CPI and cost chips that no-op
-    # gracefully when these fields are absent.  See ADR-0035 § Q5.
+    # Per-task Schedule Performance Index (#990 / API-first #986). Server-owned so
+    # a headless/MCP client reads the schedule-health verdict instead of the web
+    # re-deriving earned% / planned% from baseline dates. ``spi`` is the ratio
+    # (>1 = ahead); ``spi_band`` is the threshold classification. Both null when
+    # no active baseline is annotated or the task has not started per baseline.
+    spi = serializers.SerializerMethodField()
+    spi_band = serializers.SerializerMethodField()
+
+    # TODO(#73): cpi, actual_cost, and budget_at_completion remain intentionally
+    # absent until the cost model (#73, #74) ships — earned-value cost indices
+    # are not computable without an actual-cost source, so #990 adds SPI only and
+    # does not invent a phantom server field here. The dead BoardCard CPI/cost
+    # chips that read these never-populated fields are removed in the #992 web
+    # closer. See ADR-0035 § Q5.
 
     # Wave 3 (#210) — passive overalloc indicator in the task detail drawer.
     # True when the assignee's TaskResource.units across active tasks in this
@@ -942,6 +952,8 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "baseline_start",
             "baseline_finish",
             "schedule_variance_days",
+            "spi",
+            "spi_band",
             "is_summary",
             "parent_id",
             "assignments",
@@ -1001,6 +1013,8 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "baseline_start",
             "baseline_finish",
             "schedule_variance_days",
+            "spi",
+            "spi_band",
             "is_summary",
             "parent_id",
             "assignments",
@@ -1438,6 +1452,49 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         if actual and baseline:
             return (actual - baseline).days
         return None
+
+    def get_spi(self, obj: Task) -> float | None:
+        """Per-task Schedule Performance Index = earned% / planned% (#990).
+
+        ``planned%`` is the fraction of the *active baseline* duration elapsed as
+        of today; ``earned%`` is ``percent_complete``. SPI > 1 means ahead of the
+        baseline; < 1 means behind. Mirrors the formula the board card used to
+        derive in the browser, now server-owned so MCP/headless clients read it.
+
+        Returns ``None`` when the task has no active-baseline annotation (the
+        ``baseline_start``/``baseline_finish`` overlay is null) or has not started
+        per baseline (no elapsed time) — the index is undefined, not zero.
+        """
+        baseline_start: date | None = getattr(obj, "baseline_start", None)
+        baseline_finish: date | None = getattr(obj, "baseline_finish", None)
+        if baseline_start is None or baseline_finish is None:
+            return None
+        # Floor a same-day baseline at 1 day so a 1-day task's SPI isn't suppressed.
+        duration_days = max((baseline_finish - baseline_start).days, 1)
+        elapsed_days = (timezone.localdate() - baseline_start).days
+        if elapsed_days <= 0:
+            return None  # hasn't started per baseline
+        planned_pct = min(100.0, elapsed_days / duration_days * 100.0)
+        if planned_pct == 0:
+            return None
+        return round(obj.percent_complete / planned_pct, 3)
+
+    def get_spi_band(self, obj: Task) -> str | None:
+        """Threshold band for ``spi`` — on_track / at_risk / behind, or None.
+
+        Thresholds (≥0.95 on track, ≥0.85 at risk, else behind) match the
+        project-level SPI rollup (views.py project health) and the board-card chip
+        so the verdict is identical wherever it renders. Returned as a plain string
+        (not a Django enum) so drf-spectacular emits no shared enum component.
+        """
+        spi = self.get_spi(obj)
+        if spi is None:
+            return None
+        if spi >= 0.95:
+            return "on_track"
+        if spi >= 0.85:
+            return "at_risk"
+        return "behind"
 
     def get_readiness(self, obj: Task) -> str:
         """Derive board-card readiness from available task fields.

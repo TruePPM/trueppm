@@ -336,3 +336,64 @@ class TestUtilizationWindow:
     def test_start_after_end_returns_400(self) -> None:
         resp = self.client.get(_url(self.project), {"start": "2026-03-13", "end": "2026-03-02"})
         assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# #989 — server-owned per-day load% + band + overallocation verdict
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestUtilizationLoadVerdict:
+    """The server returns the same load%/band/overallocated verdict the heatmap's
+    ``u > 100`` check and resourceUtils.loadColor (web rule 91) produced, so a
+    headless/MCP client reads it instead of re-deriving from raw hours (#989)."""
+
+    def setup_method(self) -> None:
+        self.cal = Calendar.objects.create(name="StdV", working_days=31, hours_per_day=8.0)
+        self.project = Project.objects.create(
+            name="PV", start_date=date(2026, 3, 2), calendar=self.cal
+        )
+
+    def _day(self, units: str, max_units: str = "1.0", n_tasks: int = 1) -> dict:
+        resource = Resource.objects.create(name="R", max_units=max_units)
+        for i in range(n_tasks):
+            task = Task.objects.create(
+                project=self.project,
+                name=f"T{i}",
+                duration=1,
+                early_start=date(2026, 3, 2),
+                early_finish=date(2026, 3, 2),
+            )
+            TaskResource.objects.create(task=task, resource=resource, units=units)
+        resp = _auth_client(Role.SCHEDULER, self.project).get(_url(self.project))
+        assert resp.status_code == 200
+        return resp.data["resources"][0]
+
+    def test_below_85_is_on_track(self) -> None:
+        """0.5 units → 4h / 8h = 50% → on-track, not overallocated."""
+        res = self._day(units="0.5")
+        day = res["days"]["2026-03-02"]
+        assert day["load_pct"] == pytest.approx(50.0)
+        assert day["load_band"] == "on-track"
+        assert day["overallocated"] is False
+        assert res["overallocated"] is False
+
+    def test_full_allocation_is_at_risk_not_overallocated(self) -> None:
+        """Exactly 100% load is at-risk; >100 (not ==100) is the overallocation line."""
+        res = self._day(units="1.0")
+        day = res["days"]["2026-03-02"]
+        assert day["load_pct"] == pytest.approx(100.0)
+        assert day["load_band"] == "at-risk"
+        assert day["overallocated"] is False
+        assert res["overallocated"] is False
+
+    def test_over_100_is_critical_and_overallocated(self) -> None:
+        """Two 1.0-unit tasks on a 1.0-unit resource → 200% → critical + overallocated,
+        and the resource-level overallocated flag flips true."""
+        res = self._day(units="1.0", n_tasks=2)
+        day = res["days"]["2026-03-02"]
+        assert day["load_pct"] == pytest.approx(200.0)
+        assert day["load_band"] == "critical"
+        assert day["overallocated"] is True
+        assert res["overallocated"] is True
