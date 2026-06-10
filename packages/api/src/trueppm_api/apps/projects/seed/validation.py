@@ -21,10 +21,11 @@ from typing import Any
 
 from jsonschema import Draft202012Validator, FormatChecker
 
-# Highest schema version this validator understands. The major component is the
-# compatibility boundary: a payload whose major differs is rejected outright
-# (a future v2 importer would ship its own schema + shim). See ADR-0109.
-SUPPORTED_SCHEMA_VERSION = "1.0"
+# Schema majors this validator understands. The major component is the
+# compatibility boundary: a payload whose major is unknown is rejected outright.
+# v2 (ADR-0113) is an additive superset of v1 — relative dates + an events
+# timeline — so both load through their own bundled schema. See ADR-0109/0113.
+SUPPORTED_MAJORS = ("1", "2")
 
 # Aggregate ceiling on materializable entities (tasks + dependencies + sprints +
 # risks) across the whole document. Per-array maxItems in the schema bound each
@@ -33,7 +34,11 @@ SUPPORTED_SCHEMA_VERSION = "1.0"
 # bundled sample is a few hundred entities.
 MAX_SEED_NODES = 100_000
 
-_SCHEMA_PATH = Path(__file__).resolve().parent.parent / "schemas" / "seed_v1.json"
+_SCHEMAS_DIR = Path(__file__).resolve().parent.parent / "schemas"
+_SCHEMA_PATH_BY_MAJOR = {
+    "1": _SCHEMAS_DIR / "seed_v1.json",
+    "2": _SCHEMAS_DIR / "seed_v2.json",
+}
 
 
 class SeedValidationError(ValueError):
@@ -51,15 +56,15 @@ class SeedValidationError(ValueError):
         super().__init__(f"Seed validation failed with {count} {noun}:\n" + "\n".join(errors))
 
 
-@lru_cache(maxsize=1)
-def _validator() -> Draft202012Validator:
-    """Build (once) the schema validator with date/email format checking on.
+@lru_cache(maxsize=len(_SCHEMA_PATH_BY_MAJOR))
+def _validator(major: str) -> Draft202012Validator:
+    """Build (once per major) the schema validator with format checking on.
 
     ``format`` is an annotation in JSON Schema by default; we opt into checking
     it so ``"2026-13-40"`` in a ``planned_start`` is caught here rather than
     blowing up later at ``date.fromisoformat`` time during import.
     """
-    schema = json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
+    schema = json.loads(_SCHEMA_PATH_BY_MAJOR[major].read_text(encoding="utf-8"))
     return Draft202012Validator(schema, format_checker=FormatChecker())
 
 
@@ -88,20 +93,16 @@ def validate_seed(payload: Any) -> None:
     version = payload.get("schema_version")
     if version is None:
         raise SeedValidationError(["$.schema_version: required and missing"])
-    if (
-        not isinstance(version, str)
-        or version.split(".")[0] != SUPPORTED_SCHEMA_VERSION.split(".")[0]
-    ):
+    major = version.split(".")[0] if isinstance(version, str) else None
+    if major not in _SCHEMA_PATH_BY_MAJOR:
+        supported = ", ".join(f"{m}.x" for m in SUPPORTED_MAJORS)
         raise SeedValidationError(
-            [
-                f"$.schema_version: unsupported version {version!r}; "
-                f"this build supports {SUPPORTED_SCHEMA_VERSION!r}"
-            ]
+            [f"$.schema_version: unsupported version {version!r}; this build supports {supported}"]
         )
 
     errors: list[str] = [
         f"{_json_path(e.absolute_path)}: {e.message}"
-        for e in sorted(_validator().iter_errors(payload), key=lambda e: list(e.absolute_path))
+        for e in sorted(_validator(major).iter_errors(payload), key=lambda e: list(e.absolute_path))
     ]
 
     # Referential integrity only runs when the document is structurally sound —
@@ -109,9 +110,112 @@ def validate_seed(payload: Any) -> None:
     if not errors:
         errors.extend(_referential_errors(payload))
         errors.extend(_node_budget_errors(payload))
+        if major == "2":
+            errors.extend(_event_errors(payload))
 
     if errors:
         raise SeedValidationError(errors)
+
+
+# Which target kind each event action addresses, and whether a target is
+# required. retro.* events are program/team-level and may omit a target.
+_EVENT_TARGET_KIND = {
+    "task.status": "task",
+    "task.assign": "task",
+    "task.estimate": "task",
+    "task.points": "task",
+    "task.comment": "task",
+    "task.ac_met": "task",
+    "sprint.activate": "sprint",
+    "sprint.close": "sprint",
+    "sprint.scope_inject": "sprint",
+    "sprint.scope_resolve": "sprint",
+    "baseline.capture": "project",
+    "risk.status": "risk",
+    "retro.action": None,
+    "retro.promote": "task",
+}
+
+
+def _event_errors(payload: dict[str, Any]) -> list[str]:
+    """Validate v2 event actor + target references against the document (ADR-0113).
+
+    Structural shape is already enforced by the v2 JSON Schema; this pass checks
+    that every ``actor`` names an account and every ``target`` resolves to a
+    task / sprint / project / risk that the same document defines.
+    """
+    errors: list[str] = []
+    account_slugs = {a.get("slug", "") for a in payload.get("accounts", [])}
+
+    project_slugs: set[str] = set()
+    task_index: dict[str, set[str]] = {}
+    sprint_index: dict[str, set[str]] = {}
+    risk_slugs: set[str] = {r.get("slug", "") for r in payload.get("risks", [])}
+    for project in payload.get("projects", []):
+        slug = project.get("slug", "")
+        project_slugs.add(slug)
+        task_index[slug] = {t.get("wbs_path") for t in project.get("tasks", [])}
+        sprint_index[slug] = {s.get("slug") for s in project.get("sprints", [])}
+        risk_slugs |= {r.get("slug", "") for r in project.get("risks", [])}
+
+    for i, event in enumerate(payload.get("events", [])):
+        base = f"$.events[{i}]"
+        action = event.get("action", "")
+        _check_ref(event.get("actor"), account_slugs, f"{base}.actor", "account", errors)
+        assignee = event.get("assignee")
+        _check_ref(assignee, account_slugs, f"{base}.assignee", "account", errors)
+
+        kind = _EVENT_TARGET_KIND.get(action)
+        target = event.get("target")
+        if kind is None:
+            continue  # program-level event (retro.action), target optional
+        if target is None:
+            errors.append(f"{base}.target: action {action!r} requires a target")
+            continue
+        prefix, _, ref = target.partition(":")
+        if prefix != kind:
+            errors.append(
+                f"{base}.target: action {action!r} expects a {kind!r} target, got {target!r}"
+            )
+            continue
+        _check_event_target(
+            kind, ref, base, project_slugs, task_index, sprint_index, risk_slugs, errors
+        )
+
+    return errors
+
+
+def _check_event_target(
+    kind: str,
+    ref: str,
+    base: str,
+    project_slugs: set[str],
+    task_index: dict[str, set[str]],
+    sprint_index: dict[str, set[str]],
+    risk_slugs: set[str],
+    errors: list[str],
+) -> None:
+    """Resolve one event target ref of a given kind against the document."""
+    if kind == "task":
+        # Event task refs must be project-qualified (events are global/ordered,
+        # there is no enclosing project to fall back to).
+        if ":" not in ref:
+            errors.append(f'{base}.target: task ref {ref!r} must be "<project-slug>:<wbs-path>"')
+            return
+        _check_task_ref(ref, "", task_index, f"{base}.target", errors)
+    elif kind == "sprint":
+        project_slug, _, sprint_slug = ref.partition(":")
+        sprints = sprint_index.get(project_slug)
+        if sprints is None:
+            errors.append(f"{base}.target: no project {project_slug!r} for sprint ref {ref!r}")
+        elif sprint_slug not in sprints:
+            errors.append(f"{base}.target: no sprint {sprint_slug!r} in project {project_slug!r}")
+    elif kind == "project":
+        if ref not in project_slugs:
+            errors.append(f"{base}.target: no project with slug {ref!r}")
+    elif kind == "risk":
+        if ref not in risk_slugs:
+            errors.append(f"{base}.target: no risk with slug {ref!r}")
 
 
 def _node_budget_errors(payload: dict[str, Any]) -> list[str]:

@@ -1,0 +1,394 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trueppm.com/schemas/seed/v2.json",
+  "title": "TruePPM seed data v2",
+  "description": "Canonical JSON seed format, v2 (ADR-0113). Additive superset of v1: dates may be authored as offsets from a top-level `anchor` resolved at import day, and an ordered `events` timeline is replayed chronologically with backdated history so the demo tells a life, not a snapshot. v1 documents remain valid under the v1 validator; v2 adds `anchor`, the relative-date grammar, and `events`.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "program", "projects"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Schema major.minor. validate_seed() rejects unsupported majors.",
+      "const": "2.0"
+    },
+    "anchor": {
+      "type": "string",
+      "format": "date",
+      "description": "Optional explicit reference date for relative offsets (\"A\"). When omitted, the anchor resolves to the import day, so the demo always looks current. Authoring an explicit anchor pins a fixed-date demo (discouraged)."
+    },
+    "program": { "$ref": "#/$defs/program" },
+    "accounts": {
+      "type": "array",
+      "description": "User logins referenced by the seed. Created only when import runs with --create-users; on the sample path they resolve to namespaced unusable-password persona rows.",
+      "items": { "$ref": "#/$defs/account" }
+    },
+    "calendars": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/calendar" }
+    },
+    "resources": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/resource" }
+    },
+    "risks": {
+      "type": "array",
+      "description": "Program-scoped risks. Project-scoped risks live under each project.",
+      "items": { "$ref": "#/$defs/risk" }
+    },
+    "projects": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 200,
+      "items": { "$ref": "#/$defs/project" }
+    },
+    "events": {
+      "type": "array",
+      "description": "Ordered timeline (ADR-0113). Each event mutates a target through a real write path and writes a history row dated to `at`. Events are applied in `at` order (ties broken by array index). The synthesizer fills unauthored status moves; authored events always win.",
+      "maxItems": 100000,
+      "items": { "$ref": "#/$defs/event" }
+    }
+  },
+  "$defs": {
+    "slug": {
+      "type": "string",
+      "description": "File-local stable identifier, kebab-case. Capped at 40 so the program slug fits Program.code.",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "maxLength": 40
+    },
+    "wbsPath": {
+      "type": "string",
+      "description": "ltree path, e.g. \"1.2.3\". Per-project task identity.",
+      "pattern": "^[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)*$",
+      "maxLength": 255
+    },
+    "taskRef": {
+      "type": "string",
+      "description": "A task by wbs path. Bare for the enclosing project, or \"<project-slug>:<wbs-path>\" for a sibling project.",
+      "pattern": "^([a-z0-9]+(-[a-z0-9]+)*:)?[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)*$"
+    },
+    "sprintRef": {
+      "type": "string",
+      "description": "A sprint as \"<project-slug>:<sprint-slug>\".",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*:[a-z0-9]+(-[a-z0-9]+)*$"
+    },
+    "color": {
+      "type": "string",
+      "pattern": "^#[0-9A-Fa-f]{6}$"
+    },
+    "seedDate": {
+      "type": "string",
+      "description": "Either an ISO date (\"2026-01-05\") or an anchor-relative offset (\"A-120\", \"A+15\"). A trailing \"!\" opts out of weekend-snapping so the date lands exactly. Relative dates that fall on a non-working day snap forward to the next working day via the project calendar.",
+      "pattern": "^(\\d{4}-\\d{2}-\\d{2}|A[+-]\\d+!?)$"
+    },
+    "seedTimestamp": {
+      "type": "string",
+      "description": "An event time: ISO datetime (\"2026-01-05T14:10\"), or anchor-relative \"A-87T14:10\" / \"A-87\" (midnight). Timestamps are never weekend-snapped — an event occurs when it occurs.",
+      "pattern": "^(\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2})?|A[+-]\\d+(T\\d{2}:\\d{2})?)$"
+    },
+    "program": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["slug", "name", "methodology"],
+      "properties": {
+        "slug": {
+          "$ref": "#/$defs/slug",
+          "description": "Program natural key. Persisted into Program.code; re-import upserts on (workspace, code)."
+        },
+        "name": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "description": { "type": "string" },
+        "methodology": { "enum": ["WATERFALL", "AGILE", "HYBRID"] },
+        "color": { "$ref": "#/$defs/color" },
+        "lead": {
+          "$ref": "#/$defs/slug",
+          "description": "Account slug of the program lead."
+        }
+      }
+    },
+    "account": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["slug", "username"],
+      "properties": {
+        "slug": { "$ref": "#/$defs/slug" },
+        "username": { "type": "string", "minLength": 1, "maxLength": 150 },
+        "email": { "type": "string", "format": "email" },
+        "display_name": { "type": "string", "maxLength": 255 },
+        "role": {
+          "enum": ["VIEWER", "MEMBER", "SCHEDULER", "ADMIN", "OWNER"],
+          "description": "Program membership role granted on import."
+        }
+      }
+    },
+    "calendar": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["slug", "name"],
+      "properties": {
+        "slug": { "$ref": "#/$defs/slug" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "working_days": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 127,
+          "description": "Bitmask Mon=1..Sun=64. Default 31 (Mon-Fri)."
+        },
+        "hours_per_day": { "type": "number", "exclusiveMinimum": 0, "maximum": 24 },
+        "timezone": { "type": "string", "maxLength": 64 }
+      }
+    },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["slug", "name"],
+      "properties": {
+        "slug": { "$ref": "#/$defs/slug" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "email": { "type": "string", "format": "email" },
+        "job_role": { "type": "string", "maxLength": 120 },
+        "max_units": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 99.99,
+          "description": "Availability fraction. 1.0 = full-time. 0.1 = 10% advisor."
+        },
+        "calendar": { "$ref": "#/$defs/slug" },
+        "account": {
+          "$ref": "#/$defs/slug",
+          "description": "Optional account slug linking this resource to a user login (Resource.user)."
+        }
+      }
+    },
+    "estimate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["optimistic", "most_likely", "pessimistic"],
+      "description": "Three-point PERT estimate in working days. All-or-none: present means all three; omit entirely for unestimated tasks. Never set on summary or milestone tasks.",
+      "properties": {
+        "optimistic": { "type": "integer", "minimum": 0 },
+        "most_likely": { "type": "integer", "minimum": 0 },
+        "pessimistic": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["wbs_path", "name"],
+      "properties": {
+        "wbs_path": { "$ref": "#/$defs/wbsPath" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "type": { "enum": ["epic", "story", "task", "bug", "spike"] },
+        "status": {
+          "enum": ["BACKLOG", "NOT_STARTED", "IN_PROGRESS", "REVIEW", "ON_HOLD", "COMPLETE"],
+          "description": "Final state at import. The events timeline + synthesizer reconstruct how the task reached it."
+        },
+        "is_milestone": { "type": "boolean" },
+        "duration": { "type": "integer", "minimum": 0 },
+        "planned_start": { "$ref": "#/$defs/seedDate" },
+        "percent_complete": { "type": "number", "minimum": 0, "maximum": 100 },
+        "notes": { "type": "string" },
+        "estimate": { "$ref": "#/$defs/estimate" },
+        "story_points": { "type": "integer", "minimum": 0 },
+        "remaining_points": { "type": "integer", "minimum": 0 },
+        "assignee": { "$ref": "#/$defs/slug" },
+        "sprint": { "$ref": "#/$defs/slug" },
+        "parent_epic": {
+          "$ref": "#/$defs/wbsPath",
+          "description": "wbs_path of the epic task grouping this story (Task.parent_epic)."
+        },
+        "dor": { "enum": ["idea", "refine", "ready"] },
+        "sprint_rank": { "type": "integer", "minimum": 0 },
+        "governance_class": { "enum": ["gated", "flow", "hybrid"] },
+        "delivery_mode": { "enum": ["waterfall", "scrum", "kanban", "milestone"] },
+        "color": { "$ref": "#/$defs/color" },
+        "assignments": {
+          "type": "array",
+          "description": "Resource allocations on this task. assignee is the responsible user; assignments are capacity (Resource + units fraction of max_units).",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["resource"],
+            "properties": {
+              "resource": { "$ref": "#/$defs/slug" },
+              "units": { "type": "number", "exclusiveMinimum": 0, "maximum": 99.99 }
+            }
+          }
+        }
+      }
+    },
+    "dependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["predecessor", "successor", "dep_type"],
+      "properties": {
+        "predecessor": { "$ref": "#/$defs/taskRef" },
+        "successor": { "$ref": "#/$defs/taskRef" },
+        "dep_type": { "enum": ["FS", "SS", "FF", "SF"] },
+        "lag": {
+          "type": "integer",
+          "description": "Calendar days. Positive = delay, negative = lead."
+        }
+      }
+    },
+    "sprint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["slug", "name", "state", "start_date", "finish_date"],
+      "properties": {
+        "slug": { "$ref": "#/$defs/slug" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "goal": { "type": "string" },
+        "notes": { "type": "string" },
+        "start_date": { "$ref": "#/$defs/seedDate" },
+        "finish_date": { "$ref": "#/$defs/seedDate" },
+        "state": { "enum": ["PLANNED", "ACTIVE", "COMPLETED", "CANCELLED"] },
+        "committed_points": { "type": "integer", "minimum": 0 },
+        "completed_points": { "type": "integer", "minimum": 0 },
+        "capacity_points": { "type": "integer", "minimum": 0 },
+        "target_milestone": {
+          "$ref": "#/$defs/wbsPath",
+          "description": "wbs_path of a milestone task in the same project."
+        }
+      }
+    },
+    "baselineTask": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task"],
+      "properties": {
+        "task": { "$ref": "#/$defs/wbsPath" },
+        "start": { "$ref": "#/$defs/seedDate" },
+        "finish": { "$ref": "#/$defs/seedDate" },
+        "duration": { "type": "integer", "minimum": 0 },
+        "story_points": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "baseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "tasks"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "is_active": { "type": "boolean" },
+        "captured_at": {
+          "$ref": "#/$defs/seedDate",
+          "description": "When the baseline was captured (drives backdated Baseline history). Defaults to the project start."
+        },
+        "tasks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/baselineTask" }
+        }
+      }
+    },
+    "risk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["slug", "title", "status", "probability", "impact"],
+      "properties": {
+        "slug": { "$ref": "#/$defs/slug" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "description": { "type": "string" },
+        "status": { "enum": ["OPEN", "MITIGATING", "RESOLVED", "ACCEPTED", "CLOSED"] },
+        "probability": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "impact": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "category": { "enum": ["TECHNICAL", "EXTERNAL", "ORGANIZATIONAL", "PROJECT_MANAGEMENT"] },
+        "response": { "enum": ["AVOID", "MITIGATE", "TRANSFER", "ACCEPT"] },
+        "mitigation_due_date": { "$ref": "#/$defs/seedDate" },
+        "trigger": { "type": "string" },
+        "contingency": { "type": "string" },
+        "notes": { "type": "string" },
+        "owner": { "$ref": "#/$defs/slug" },
+        "tasks": {
+          "type": "array",
+          "description": "Task refs this risk is linked to. Bare wbs path = enclosing project; \"<slug>:<wbs>\" = sibling project (program-scoped risks only).",
+          "items": { "$ref": "#/$defs/taskRef" }
+        }
+      }
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["at", "action"],
+      "description": "One timeline beat. `target` identifies what is mutated (\"task:<taskRef>\", \"sprint:<sprintRef>\", \"risk:<slug>\"). `actor` is an account slug; the row's history_user is attributed to it.",
+      "properties": {
+        "at": { "$ref": "#/$defs/seedTimestamp" },
+        "actor": { "$ref": "#/$defs/slug" },
+        "action": {
+          "enum": [
+            "task.status",
+            "task.assign",
+            "task.estimate",
+            "task.points",
+            "task.comment",
+            "task.ac_met",
+            "sprint.activate",
+            "sprint.close",
+            "sprint.scope_inject",
+            "sprint.scope_resolve",
+            "baseline.capture",
+            "risk.status",
+            "retro.action",
+            "retro.promote"
+          ]
+        },
+        "target": {
+          "type": "string",
+          "description": "\"task:<taskRef>\", \"sprint:<project-slug>:<sprint-slug>\", or \"risk:<slug>\". Required for every action except program-level retro events.",
+          "maxLength": 320
+        },
+        "from": { "type": "string", "maxLength": 64 },
+        "to": { "type": "string", "maxLength": 64 },
+        "points": { "type": "integer", "minimum": 0 },
+        "remaining_points": { "type": "integer", "minimum": 0 },
+        "estimate": { "$ref": "#/$defs/estimate" },
+        "assignee": { "$ref": "#/$defs/slug" },
+        "body": { "type": "string", "maxLength": 10000 },
+        "goal_outcome": { "enum": ["MET", "PARTIAL", "MISSED"] }
+      }
+    },
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["slug", "name", "methodology", "start_date"],
+      "properties": {
+        "slug": { "$ref": "#/$defs/slug" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "description": { "type": "string" },
+        "methodology": { "enum": ["WATERFALL", "AGILE", "HYBRID"] },
+        "start_date": { "$ref": "#/$defs/seedDate" },
+        "calendar": { "$ref": "#/$defs/slug" },
+        "code": { "type": "string", "maxLength": 12 },
+        "default_view": { "enum": ["SCHEDULE", "BOARD", "TABLE", "OVERVIEW"] },
+        "estimation_mode": { "enum": ["open", "suggest_approve", "pm_only"] },
+        "agile_features": { "type": "boolean" },
+        "board_columns": {
+          "type": "array",
+          "description": "Kanban column labels, in order.",
+          "items": { "type": "string", "minLength": 1, "maxLength": 64 }
+        },
+        "tasks": {
+          "type": "array",
+          "maxItems": 20000,
+          "items": { "$ref": "#/$defs/task" }
+        },
+        "dependencies": {
+          "type": "array",
+          "maxItems": 50000,
+          "items": { "$ref": "#/$defs/dependency" }
+        },
+        "sprints": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/sprint" }
+        },
+        "baselines": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/baseline" }
+        },
+        "risks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/risk" }
+        }
+      }
+    }
+  }
+}
