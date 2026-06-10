@@ -8,6 +8,11 @@ interface Props {
   closed: ApiSprint[];
   active: ApiSprint | null;
   planned: ApiSprint[];
+  /** The sprint currently shown in the workspace body — the strip is its
+   *  selector (#567). The selected card gets a navy ring + aria-current. */
+  selectedSprintId?: string | null;
+  /** Select a sprint to review (click any card). */
+  onSelect?: (sprintId: string) => void;
   onPlanNext: () => void;
   /** Activate the given planned sprint (issue #299). When omitted, the
    *  Activate→ button on the last-planned card is hidden. */
@@ -34,6 +39,8 @@ export function SprintTimelineStrip({
   closed,
   active,
   planned,
+  selectedSprintId,
+  onSelect,
   onPlanNext,
   onActivate,
   onEditPlanned,
@@ -58,10 +65,22 @@ export function SprintTimelineStrip({
 
       <div className="flex items-stretch gap-3 overflow-x-auto pb-1">
         {closed.map((s) => (
-          <SprintCard key={s.id} sprint={s} variant="closed" />
+          <SprintCard
+            key={s.id}
+            sprint={s}
+            variant="closed"
+            isSelected={s.id === selectedSprintId}
+            onSelect={onSelect}
+          />
         ))}
         {active && (
-          <SprintCard sprint={active} variant="active" data-testid="active-sprint-card" />
+          <SprintCard
+            sprint={active}
+            variant="active"
+            isSelected={active.id === selectedSprintId}
+            onSelect={onSelect}
+            data-testid="active-sprint-card"
+          />
         )}
         {planned.map((s, idx) => {
           const isLast = idx === planned.length - 1;
@@ -78,6 +97,8 @@ export function SprintTimelineStrip({
               variant="planned"
               isLast={isLast}
               isReadyToActivate={isReadyToActivate}
+              isSelected={s.id === selectedSprintId}
+              onSelect={onSelect}
               onActivate={onActivate}
               onEditPlanned={onEditPlanned}
               onPlanNext={onPlanNext}
@@ -123,6 +144,8 @@ interface SprintCardProps {
   variant: 'closed' | 'active' | 'planned';
   isLast?: boolean;
   isReadyToActivate?: boolean;
+  isSelected?: boolean;
+  onSelect?: (sprintId: string) => void;
   onPlanNext?: () => void;
   onActivate?: (sprintId: string) => void;
   onEditPlanned?: (sprintId: string) => void;
@@ -134,6 +157,8 @@ function SprintCard({
   variant,
   isLast,
   isReadyToActivate,
+  isSelected,
+  onSelect,
   onPlanNext,
   onActivate,
   onEditPlanned,
@@ -141,10 +166,20 @@ function SprintCard({
 }: SprintCardProps) {
   const tone =
     variant === 'active'
-      ? 'border-brand-primary ring-2 ring-brand-primary/30 bg-semantic-on-track-bg sticky left-0 z-10'
+      ? 'border-brand-primary bg-semantic-on-track-bg sticky left-0 z-10'
       : variant === 'closed'
         ? 'border-neutral-border bg-neutral-surface-sunken text-neutral-text-secondary'
         : 'border-neutral-border bg-neutral-surface';
+  // Selected card gets a NAVY ring (rules 83/146): sage already carries
+  // action + on-track meaning (the active card has a sage tint + sage progress
+  // fill), so a sage selection ring would collide — selection is navy ink,
+  // never sage. The active-but-unselected card keeps a faint sage tint ring as
+  // its active cue; navy selection over it reads cleanly.
+  const ring = isSelected
+    ? 'ring-2 ring-navy-700 ring-offset-1 dark:ring-reversed'
+    : variant === 'active'
+      ? 'ring-2 ring-brand-primary/30'
+      : '';
 
   const committed = sprint.committed_points ?? 0;
   const completed = sprint.completed_points ?? 0;
@@ -153,9 +188,22 @@ function SprintCard({
   return (
     <article
       {...rest}
-      className={`shrink-0 w-56 rounded-md border p-3 flex flex-col gap-2 ${tone}`}
+      className={`relative shrink-0 w-56 rounded-md border p-3 flex flex-col gap-2 ${tone} ${ring}`}
       aria-label={`${sprint.short_id_display} ${sprint.name}, ${variant}`}
+      aria-current={isSelected || undefined}
     >
+      {/* Full-card overlay button = the selector. Sits above the (non-interactive)
+          text but below the planned-card action button (z-20), so clicking the
+          card selects it while the Activate/Edit button keeps its own handler. */}
+      {onSelect && (
+        <button
+          type="button"
+          onClick={() => onSelect(sprint.id)}
+          aria-label={`Review ${sprint.short_id_display} ${sprint.name}`}
+          className="absolute inset-0 z-10 rounded-md
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+        />
+      )}
       <div className="flex items-center justify-between gap-2">
         <span className="tppm-mono text-xs font-medium">{sprint.short_id_display}</span>
         <span className="text-xs uppercase tracking-wide text-neutral-text-disabled">
@@ -194,14 +242,16 @@ function SprintCard({
       )}
 
       {variant === 'planned' && (
-        <PlannedCardAction
-          sprint={sprint}
-          isLast={isLast ?? false}
-          isReadyToActivate={isReadyToActivate ?? false}
-          onActivate={onActivate}
-          onEditPlanned={onEditPlanned}
-          onPlanNext={onPlanNext}
-        />
+        <div className="relative z-20 flex">
+          <PlannedCardAction
+            sprint={sprint}
+            isLast={isLast ?? false}
+            isReadyToActivate={isReadyToActivate ?? false}
+            onActivate={onActivate}
+            onEditPlanned={onEditPlanned}
+            onPlanNext={onPlanNext}
+          />
+        </div>
       )}
     </article>
   );

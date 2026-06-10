@@ -30,6 +30,7 @@ vi.mock('@/hooks/useSprints', () => ({
   useSprintBurndown: () => ({ data: undefined, isLoading: false, error: null }),
   useSprintCapacity: () => ({ data: undefined, isLoading: false, error: null }),
   useProjectVelocity: () => ({ data: undefined, isLoading: false, error: null }),
+  useSprintOutcome: () => ({ data: undefined, isLoading: false, error: null }),
   useSprintRetro: () => ({ data: null, isLoading: false, error: null }),
   useSprintRetroPrior: () => ({ data: null, isLoading: false, error: null }),
   useSaveSprintRetro: () => ({

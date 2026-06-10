@@ -192,6 +192,62 @@ async function setupCommon(page: import('@playwright/test').Page) {
   await page.route('**/api/v1/me/active-sprints/', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
   );
+  // #985 consolidated review read — the closed-sprint outcome the #567 selector
+  // binds to when a closed timeline card is chosen.
+  await page.route(/\/api\/v1\/sprints\/.*\/outcome\//, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        sprint_id: 'sp-closed',
+        state: 'COMPLETED',
+        provisional: false,
+        outcome_recorded: true,
+        name: 'Retro & cleanup',
+        start_date: '2026-03-01',
+        finish_date: '2026-03-14',
+        closed_at: '2026-03-14T17:00:00Z',
+        goal: 'Pay down telemetry debt',
+        goal_outcome: 'MET',
+        commitment: {
+          committed_points: 30,
+          committed_task_count: 10,
+          completed_points: 26,
+          completed_task_count: 8,
+          completion_ratio_points: 0.87,
+          completion_ratio_tasks: 0.8,
+        },
+        velocity: {
+          completed_points: 26,
+          velocity_delta_points: 2,
+          rolling_avg_points: 25,
+          burn_status: 'on_track',
+          trend_points: 1,
+          projected_finish_date: null,
+        },
+        didnt_ship: [
+          {
+            task_id: 't-99',
+            task_short_id: 'T-99',
+            task_title: 'Flaky telemetry retry',
+            story_points: 4,
+            final_status: 'IN_PROGRESS',
+            disposition: 'carried',
+            next_sprint_id: 'sp-active',
+            next_sprint_name: 'Telemetry & FAT prep',
+            was_pending: false,
+          },
+        ],
+        didnt_ship_summary: {
+          carried_count: 1,
+          carried_points: 4,
+          dropped_count: 0,
+          dropped_points: 0,
+        },
+        retro_summary: null,
+      }),
+    }),
+  );
 }
 
 test.describe('Wave 10 — Sprints view header', () => {
@@ -234,6 +290,39 @@ test.describe('Wave 10 — Sprints view header', () => {
 
     // Close sprint enabled (sprint is ACTIVE)
     await expect(page.getByRole('button', { name: /Close active sprint/i })).toBeEnabled();
+  });
+
+  test('selecting a closed sprint shows its review outcome (#567)', async ({ page }) => {
+    await setupCommon(page);
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/sprints/`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          count: 3,
+          next: null,
+          previous: null,
+          results: [CLOSED_SPRINT, ACTIVE_SPRINT, PLANNED_SPRINT],
+        }),
+      }),
+    );
+    await page.goto(BASE_URL);
+
+    // Default selection is the ACTIVE sprint — its burndown shows, no outcome yet.
+    await expect(
+      page.getByRole('heading', { level: 1, name: /Telemetry & FAT prep/ }),
+    ).toBeVisible();
+    await expect(page.getByTestId('sprint-closed-outcome')).toHaveCount(0);
+
+    // Click the closed sprint's timeline card → review its outcome.
+    await page.getByRole('button', { name: /Review SP-A1B2/i }).click();
+
+    const outcome = page.getByTestId('sprint-closed-outcome');
+    await expect(outcome).toBeVisible();
+    await expect(outcome.getByLabel(/Goal Met/i)).toBeVisible();
+    const didntShip = page.getByTestId('didnt-ship');
+    await expect(didntShip).toContainText('Flaky telemetry retry');
+    await expect(didntShip).toContainText('→ Telemetry & FAT prep');
   });
 
   test('edits the sprint goal inline and shows the saved banner (DA-15, #920)', async ({

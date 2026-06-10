@@ -425,6 +425,87 @@ export function useProjectForecast(
 }
 
 
+/** One task that was in the sprint at close but didn't complete (#985). */
+export interface DidntShipItem {
+  task_id: string | null;
+  task_short_id: string;
+  task_title: string;
+  /** Null for readers below the velocity audience (ADR-0104 side-channel guard). */
+  story_points: number | null;
+  final_status: string;
+  /** Null on a provisional (not-yet-closed) sprint — decided at close. */
+  disposition: 'carried' | 'dropped' | 'completed' | null;
+  next_sprint_id: string | null;
+  next_sprint_name: string | null;
+  was_pending: boolean;
+}
+
+/**
+ * Consolidated sprint-review read (#985, ADR-0111 §3). The single server-owned
+ * surface for review: commitment, goal verdict (#983), velocity Δ + burn status
+ * (#984), the "didn't ship" list (#982), and a retro summary — nothing derived
+ * client-side. `velocity` is null when the reader is below the velocity audience
+ * (ADR-0104). `provisional` is true for ACTIVE/PLANNED (live, not snapshotted);
+ * `outcome_recorded` is false for sprints closed before membership was captured.
+ */
+export interface SprintOutcome {
+  sprint_id: string;
+  state: SprintState;
+  provisional: boolean;
+  outcome_recorded: boolean;
+  name: string;
+  start_date: string;
+  finish_date: string;
+  closed_at: string | null;
+  goal: string;
+  goal_outcome: 'MET' | 'PARTIAL' | 'MISSED' | null;
+  commitment: {
+    committed_points: number | null;
+    committed_task_count: number | null;
+    completed_points: number | null;
+    completed_task_count: number | null;
+    completion_ratio_points: number | null;
+    completion_ratio_tasks: number | null;
+  };
+  velocity: {
+    completed_points: number | null;
+    velocity_delta_points: number | null;
+    rolling_avg_points: number | null;
+    burn_status: 'ahead' | 'on_track' | 'behind' | 'no_data';
+    trend_points: number | null;
+    projected_finish_date: string | null;
+  } | null;
+  didnt_ship: DidntShipItem[];
+  didnt_ship_summary: {
+    carried_count: number;
+    carried_points: number | null;
+    dropped_count: number;
+    dropped_points: number | null;
+  };
+  retro_summary: {
+    retro_id: string;
+    action_item_count: number;
+    has_notes: boolean;
+  } | null;
+}
+
+/** GET /api/v1/sprints/{id}/outcome/ — the consolidated sprint-review read (#985). */
+export function useSprintOutcome(
+  sprintId: string | null | undefined,
+  options: { enabled?: boolean } = {},
+) {
+  const { enabled = true } = options;
+  return useQuery({
+    queryKey: ['sprint', sprintId, 'outcome'],
+    queryFn: async () => {
+      const res = await apiClient.get<SprintOutcome>(`/sprints/${sprintId}/outcome/`);
+      return res.data;
+    },
+    enabled: !!sprintId && enabled,
+  });
+}
+
+
 // ---------------------------------------------------------------------------
 // Sprint retrospective (issue #231)
 // ---------------------------------------------------------------------------
