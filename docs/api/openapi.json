@@ -6383,7 +6383,7 @@
                                 }
                             }
                         },
-                        "description": "Monte Carlo simulation result. Includes the engine result fields (P50/P80/P95 finish dates, mean, std dev, etc.) plus histogram_buckets ([{date, count}]) and last_run_at (ISO 8601)."
+                        "description": "Monte Carlo simulation result. Includes the engine result fields (P50/P80/P95 finish dates, mean, std dev, etc.) plus cpm_finish (deterministic CPM project finish, ISO 8601 or null), delta_vs_cpm ({p50,p80,p95} signed calendar-day premium vs CPM), confidence_curve ([{date, pct}] cumulative finish-by-date S-curve), histogram_buckets ([{date, count}]) and last_run_at (ISO 8601)."
                     },
                     "400": {
                         "content": {
@@ -7796,7 +7796,7 @@
                                 }
                             }
                         },
-                        "description": "Sparse map of resource -> working day -> {hours, task_ids} for the requested window."
+                        "description": "Sparse map of resource -> working day -> {hours, task_ids, load_pct, load_band, overallocated} for the requested window. load_band is on-track | at-risk | critical (>100% load); each resource also carries a top-level overallocated flag (true if any day exceeds 100%)."
                     },
                     "409": {
                         "content": {
@@ -25639,6 +25639,19 @@
                         "description": "Compute schedule variance: actual_finish - baseline_finish in calendar days.\n\nUses the active-baseline snapshot date, not early_finish (CPM). early_finish\ndrifts toward actual_finish on each CPM recompute, making the variance appear\nto shrink even when work is running late. Without an active baseline the\nmetric is undefined — returns None rather than a misleading CPM-relative value.",
                         "readOnly": true
                     },
+                    "spi": {
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true,
+                        "description": "Per-task Schedule Performance Index = earned% / planned% (#990).\n\n``planned%`` is the fraction of the *active baseline* duration elapsed as\nof today; ``earned%`` is ``percent_complete``. SPI > 1 means ahead of the\nbaseline; < 1 means behind. Mirrors the formula the board card used to\nderive in the browser, now server-owned so MCP/headless clients read it.\n\nReturns ``None`` when the task has no active-baseline annotation (the\n``baseline_start``/``baseline_finish`` overlay is null) or has not started\nper baseline (no elapsed time) — the index is undefined, not zero.",
+                        "readOnly": true
+                    },
+                    "spi_band": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Threshold band for ``spi`` — on_track / at_risk / behind, or None.\n\nThresholds (≥0.95 on track, ≥0.85 at risk, else behind) match the\nproject-level SPI rollup (views.py project health) and the board-card chip\nso the verdict is identical wherever it renders. Returned as a plain string\n(not a Django enum) so drf-spectacular emits no shared enum component.",
+                        "readOnly": true
+                    },
                     "is_summary": {
                         "type": "boolean",
                         "readOnly": true,
@@ -25883,6 +25896,8 @@
                     "schedule_variance_days",
                     "server_version",
                     "short_id",
+                    "spi",
+                    "spi_band",
                     "sprint_pending",
                     "sprint_scope_changes",
                     "status_changed_at",

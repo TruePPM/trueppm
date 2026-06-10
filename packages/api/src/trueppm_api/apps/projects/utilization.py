@@ -31,6 +31,21 @@ _DEFAULT_WORKING_DAYS = 31  # 0b0011111 = Mon–Fri
 _DEFAULT_HOURS_PER_DAY = 8.0
 
 
+def _load_band(load_pct: float) -> str:
+    """Daily load band — the server-owned overallocation verdict (#989 / #986).
+
+    Mirrors ``resourceUtils.loadColor`` (web rule 91) and the weekly heatmap's
+    ``u > 100`` overallocation check exactly, so a headless/MCP client reads the
+    same verdict the board renders: ``>100`` critical, ``85–100`` at-risk, else
+    on-track. Hyphenated to match the web ``LoadColor`` literals verbatim.
+    """
+    if load_pct > 100:
+        return "critical"
+    if load_pct >= 85:
+        return "at-risk"
+    return "on-track"
+
+
 def _is_working_day(
     working_days_mask: int,
     exception_ranges: list[tuple[datetime.date, datetime.date]],
@@ -108,8 +123,15 @@ def compute_utilization(
           "max_units": str,          # Decimal as string for stable serialization
           "calendar_id": str | null,
           "calendar_differs_from_project": bool,
+          "overallocated": bool,     # true if any day exceeds 100% load
           "days": {
-            "2026-03-03": {"hours": 6.4, "tasks": ["uuid", ...]},
+            "2026-03-03": {
+              "hours": 6.4,
+              "tasks": ["uuid", ...],
+              "load_pct": 80.0,            # hours / (hours_per_day × max_units) × 100
+              "load_band": "on-track",     # on-track | at-risk | critical (web rule 91)
+              "overallocated": false       # load_pct > 100
+            },
             ...
           }
         }
@@ -142,8 +164,28 @@ def compute_utilization(
     )
 
     # Build the public response — strip internal _mask/_exc_ranges/_days fields.
+    # Per-day capacity = hours_per_day × max_units (web rule 92). The server now
+    # emits load_pct / load_band / overallocated per day so the client renders the
+    # verdict rather than re-deriving it from raw hours (#989) — and a resource-
+    # level ``overallocated`` flag (any day over 100%) for the overallocation
+    # drawer, so it needn't re-scan every day client-side.
     resources_out = []
     for row in rows:
+        max_units_f = float(row["max_units"])
+        capacity = row["hours_per_day"] * max_units_f
+        days_out: dict[str, Any] = {}
+        resource_overallocated = False
+        for key, day in row["_days"].items():
+            load_pct = round(100.0 * day["hours"] / capacity, 1) if capacity > 0 else 0.0
+            day_over = load_pct > 100
+            resource_overallocated = resource_overallocated or day_over
+            days_out[key] = {
+                "hours": day["hours"],
+                "tasks": day["tasks"],
+                "load_pct": load_pct,
+                "load_band": _load_band(load_pct),
+                "overallocated": day_over,
+            }
         resources_out.append(
             {
                 "resource_id": row["resource_id"],
@@ -155,7 +197,8 @@ def compute_utilization(
                 "hours_per_day": row["hours_per_day"],
                 "calendar_id": row["calendar_id"],
                 "calendar_differs_from_project": row["calendar_differs_from_project"],
-                "days": dict(row["_days"]),
+                "overallocated": resource_overallocated,
+                "days": days_out,
             }
         )
 
