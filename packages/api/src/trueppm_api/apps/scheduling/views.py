@@ -58,6 +58,18 @@ from trueppm_api.apps.scheduling.serializers import (
 from trueppm_api.apps.scheduling.services import enqueue_recalculate, record_monte_carlo_run
 
 
+@extend_schema(
+    summary="Trigger a CPM recalculation for a project",
+    request=None,
+    responses={
+        202: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description='Recalculation queued via the outbox; body is {"queued": true}.',
+        ),
+        403: OpenApiResponse(description="Caller lacks the Scheduler role on the project."),
+        404: OpenApiResponse(description="Project not found."),
+    },
+)
 @api_view(["POST"])
 @permission_classes([IsAuthenticated, IsProjectScheduler, IsProjectNotArchived])
 def trigger_schedule(request: Request, pk: str) -> Response:

@@ -668,7 +668,7 @@ IDEMPOTENCY_MAX_BODY_BYTES: int = env.int("IDEMPOTENCY_MAX_BODY_BYTES", default=
 SPECTACULAR_SETTINGS = {
     "TITLE": "TruePPM API",
     "DESCRIPTION": "REST API for the TruePPM project scheduling platform.",
-    "VERSION": "0.2.0",
+    "VERSION": "0.3.0",
     "SERVE_INCLUDE_SCHEMA": False,
     "COMPONENT_SPLIT_REQUEST": True,
     # Pin state-enum names (ADR-0090). PurgeRun.state shares the field name "state"

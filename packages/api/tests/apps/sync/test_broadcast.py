@@ -93,3 +93,161 @@ async def test_abroadcast_swallows_group_send_failure() -> None:
 
     with patch(_GET_LAYER, return_value=_BoomLayer()):
         await abroadcast_board_event("p1", "presence_join", {"user_id": "u9"})
+
+
+# ---------------------------------------------------------------------------
+# WS event-type freeze (#1019) — the WebSocket analogue of test_event_type_cap.
+#
+# WS event types are scattered as string literals in broadcast_board_event() /
+# abroadcast_board_event() call sites rather than centralized in an enum (unlike
+# the webhook WebhookEventType cap). That makes the WS contract easy to drift: a
+# new mutation can broadcast a brand-new event_type with no review gate. The
+# 0.4 read-only MCP server and external integrators bind to this set, so it must
+# freeze before launch. This test re-derives the live set by AST-scanning the
+# source for the second positional (or event_type=) literal of those two helpers
+# and asserts it equals the frozen list below. Adding or removing a broadcast
+# event without updating FROZEN_WS_EVENT_TYPES fails loudly — the WS analogue of
+# the webhook OSS_WEBHOOK_EVENT_CAP guard.
+#
+# Two call sites pass event_type as a *variable* (the inbound-sync relay and the
+# generic services.py dispatcher), not a literal; they forward an already-frozen
+# type and so are intentionally excluded — there is nothing to freeze there.
+# ---------------------------------------------------------------------------
+
+FROZEN_WS_EVENT_TYPES = frozenset(
+    {
+        "api_token_minted",
+        "api_token_revoked",
+        "assignment_created",
+        "assignment_deleted",
+        "assignment_updated",
+        "backlog_reranked",
+        "baseline_activated",
+        "baseline_created",
+        "baseline_deleted",
+        "board_config_updated",
+        "board_view_created",
+        "board_view_deleted",
+        "board_view_updated",
+        "comment_created",
+        "cpm_complete",
+        "cpm_error",
+        "dependency_created",
+        "dependency_deleted",
+        "dependency_updated",
+        "member_added",
+        "member_removed",
+        "member_role_changed",
+        "milestone_forecast_updated",
+        "milestone_rollup_updated",
+        "phases_reordered",
+        "presence_join",
+        "presence_leave",
+        "program_closed",
+        "program_deleted",
+        "program_reopened",
+        "program_sponsorship_transferred",
+        "project_archived",
+        "project_created",
+        "project_custom_fields_updated",
+        "project_deleted",
+        "project_hard_deleted",
+        "project_transferred",
+        "project_unarchived",
+        "project_updated",
+        "risk_created",
+        "risk_deleted",
+        "risk_updated",
+        "roster_changed",
+        "sprint_activated",
+        "sprint_cancelled",
+        "sprint_closed",
+        "sprint_created",
+        "sprint_deleted",
+        "sprint_scope_changed",
+        "sprint_updated",
+        "suggestion_created",
+        "task_attachment_created",
+        "task_attachment_deleted",
+        "task_comment_ack_changed",
+        "task_comment_created",
+        "task_comment_deleted",
+        "task_comment_reaction_added",
+        "task_comment_reaction_removed",
+        "task_comment_updated",
+        "task_created",
+        "task_dates_updated",
+        "task_deleted",
+        "task_link_created",
+        "task_link_deleted",
+        "task_link_updated",
+        "task_updated",
+        "tasks_bulk_mutated",
+        "tasks_reordered",
+        "tasks_restructured",
+        "team_member_changed",
+        "workshop_ended",
+        "workshop_started",
+    }
+)
+
+
+def _broadcast_event_types_in_source() -> set[str]:
+    """AST-scan the API source for literal event types passed to the broadcast helpers.
+
+    Returns the set of distinct string literals appearing as the ``event_type``
+    argument (2nd positional, or ``event_type=`` keyword) of any
+    ``broadcast_board_event`` / ``abroadcast_board_event`` call.
+    """
+    import ast
+    import pathlib
+
+    import trueppm_api
+
+    root = pathlib.Path(trueppm_api.__file__).resolve().parent
+    helpers = {"broadcast_board_event", "abroadcast_board_event"}
+    found: set[str] = set()
+    for path in root.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            name = (
+                func.attr
+                if isinstance(func, ast.Attribute)
+                else func.id
+                if isinstance(func, ast.Name)
+                else None
+            )
+            if name not in helpers:
+                continue
+            if (
+                len(node.args) >= 2
+                and isinstance(node.args[1], ast.Constant)
+                and isinstance(node.args[1].value, str)
+            ):
+                found.add(node.args[1].value)
+            for kw in node.keywords:
+                if (
+                    kw.arg == "event_type"
+                    and isinstance(kw.value, ast.Constant)
+                    and isinstance(kw.value.value, str)
+                ):
+                    found.add(kw.value.value)
+    return found
+
+
+def test_ws_event_type_set_is_frozen() -> None:
+    """The set of WS event types broadcast from source must match the frozen list.
+
+    If this fails, a broadcast_board_event() / abroadcast_board_event() call added
+    or removed a literal event_type. Update FROZEN_WS_EVENT_TYPES *and* the WS↔
+    webhook taxonomy table in docs/api (packages/website/src/content/docs/api/
+    websockets.md) in the same change — the WS contract is frozen for MCP/external
+    consumers (#1019)."""
+    live = _broadcast_event_types_in_source()
+    missing = FROZEN_WS_EVENT_TYPES - live
+    added = live - FROZEN_WS_EVENT_TYPES
+    assert not missing, f"Frozen WS event types no longer broadcast in source: {sorted(missing)}"
+    assert not added, f"New WS event types broadcast without freezing them: {sorted(added)}"

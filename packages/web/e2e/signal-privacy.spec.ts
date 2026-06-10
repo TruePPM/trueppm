@@ -95,7 +95,7 @@ test.describe('Signal privacy — golden path', () => {
   test('raising a ceiling goes through the team-decision dialog', async ({ page }) => {
     await setup(page);
     let raiseDispatched = false;
-    await page.route(`**/api/v1/projects/${PROJECT_ID}/signal-privacy/raise_ceiling/`, (r) => {
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/signal-privacy/raise-ceiling/`, (r) => {
       raiseDispatched = true;
       return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(policy()) });
     });

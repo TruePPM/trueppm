@@ -247,7 +247,7 @@ def test_set_audience_above_ceiling_rejected(project: Project, pm: Any) -> None:
 
 def test_raise_ceiling_then_set_audience(project: Project, pm: Any) -> None:
     raise_resp = _client(pm).post(
-        f"{_url(project)}raise_ceiling/",
+        f"{_url(project)}raise-ceiling/",
         {"signal": "velocity", "ceiling": SignalAudience.TEAM_SM_PM},
     )
     assert raise_resp.status_code == 200
@@ -322,9 +322,22 @@ def test_ratchet_down_sets_all_to_team(project: Project, pm: Any) -> None:
     svc.raise_signal_ceiling(policy, "throughput_rollup", SignalAudience.PROGRAM_SHARED)
     svc.set_signal_audience(policy, "throughput_rollup", SignalAudience.PROGRAM_SHARED)
 
-    resp = _client(pm).post(f"{_url(project)}ratchet_down/")
+    resp = _client(pm).post(f"{_url(project)}ratchet-down/")
     assert resp.status_code == 200
     assert resp.data["signals"]["throughput_rollup"]["audience"] == SignalAudience.TEAM
+
+
+@pytest.mark.parametrize("legacy_segment", ["raise_ceiling", "ratchet_down"])
+def test_legacy_snake_case_action_paths_are_gone(
+    project: Project, pm: Any, legacy_segment: str
+) -> None:
+    """The pre-0.3 snake_case action URLs were renamed to kebab-case (#1017).
+
+    Signal privacy is unshipped before 0.3, so the rename is a clean break with no
+    redirect shim — the old paths must 404 so no external consumer silently binds
+    to a URL that will not exist."""
+    resp = _client(pm).post(f"{_url(project)}{legacy_segment}/")
+    assert resp.status_code == 404
 
 
 def test_get_shared_team_signals_none_until_opt_in(project: Project) -> None:

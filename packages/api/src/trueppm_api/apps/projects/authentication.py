@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import hashlib
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.contrib.auth.models import AnonymousUser
 from django.utils import timezone
+from drf_spectacular.extensions import OpenApiAuthenticationExtension
 from rest_framework import exceptions
 from rest_framework.authentication import BaseAuthentication, get_authorization_header
 
@@ -97,3 +98,33 @@ class ProjectApiTokenAuthentication(BaseAuthentication):
 
     def authenticate_header(self, request: Request) -> str:
         return self.keyword
+
+
+# drf-spectacular's OpenApiAuthenticationExtension registers subclasses via an
+# untyped __init_subclass__, which mypy --strict flags as an untyped call on the
+# class definition. The registration is the documented extension mechanism.
+class ProjectApiTokenScheme(OpenApiAuthenticationExtension):  # type: ignore[no-untyped-call]
+    """drf-spectacular security scheme for project-scoped API tokens (#1016).
+
+    Without this, drf-spectacular cannot map ``ProjectApiTokenAuthentication`` to a
+    security scheme, so endpoints that override ``authentication_classes`` with it
+    (``TaskSyncView``) silently inherit the global ``jwtAuth`` in the schema —
+    integrators read the schema, send a JWT, and get 401. Registering the scheme
+    here (next to the auth class, imported whenever a view references it) makes the
+    schema advertise the correct ``Authorization: Bearer tppm_<64-hex>`` contract.
+    """
+
+    target_class = "trueppm_api.apps.projects.authentication.ProjectApiTokenAuthentication"
+    name = "projectApiTokenAuth"
+
+    def get_security_definition(self, auto_schema: Any) -> dict[str, Any]:
+        return {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "tppm_<64-hex>",
+            "description": (
+                "Project-scoped API token (ADR-0068). Send as "
+                "`Authorization: Bearer tppm_<64-hex>`. Mint one in project settings; "
+                "it is scoped to a single project and the task-sync surface."
+            ),
+        }

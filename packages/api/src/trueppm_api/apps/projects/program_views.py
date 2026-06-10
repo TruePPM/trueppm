@@ -20,6 +20,8 @@ from django.db import transaction
 from django.db.models import Count, Exists, OuterRef, Q, QuerySet, Subquery
 from django.http import HttpResponse
 from django.utils import timezone
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission, IsAuthenticated
@@ -164,6 +166,10 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
         fresh = self.get_queryset().get(pk=program.pk)
         return Response(ProgramSerializer(fresh).data, status=status.HTTP_201_CREATED)
 
+    @extend_schema(
+        summary="Import a JSON seed bundle as a new program",
+        responses={201: ProgramSerializer},
+    )
     @action(detail=False, methods=["post"], url_path="import")
     def import_seed(self, request: Request) -> Response:
         """Import a JSON seed document, creating (or replacing) a program.
@@ -210,6 +216,15 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
         fresh = self.get_queryset().get(pk=program.pk)
         return Response(ProgramSerializer(fresh).data, status=status.HTTP_201_CREATED)
 
+    @extend_schema(
+        summary="Export the program as a downloadable JSON seed file",
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.BINARY,
+                description="Canonical JSON seed document as a file attachment.",
+            )
+        },
+    )
     @action(detail=True, methods=["get"], url_path="export")
     def export(self, request: Request, pk: str | None = None) -> HttpResponse:
         """Export this program as a downloadable canonical JSON seed file (#616)."""
@@ -222,6 +237,16 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
         response["Content-Disposition"] = f'attachment; filename="{filename}"'
         return response
 
+    @extend_schema(
+        summary="List bundled demo samples available to the loader",
+        responses={
+            200: OpenApiResponse(
+                description=(
+                    "Array of available samples, each with `key`, `title`, and `description`."
+                )
+            )
+        },
+    )
     @action(detail=False, methods=["get"], url_path="samples")
     def samples(self, request: Request) -> Response:
         """List the bundled samples available to the demo loader (#375)."""
@@ -234,6 +259,10 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
             ]
         )
 
+    @extend_schema(
+        summary="Load a bundled sample program",
+        responses={201: ProgramSerializer},
+    )
     @action(detail=False, methods=["post"], url_path="load-sample")
     def load_sample(self, request: Request) -> Response:
         """Load a bundled sample program — the "Load demo data" action (#375).
@@ -257,6 +286,10 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
         fresh = self.get_queryset().get(pk=program.pk)
         return Response(ProgramSerializer(fresh).data, status=status.HTTP_201_CREATED)
 
+    @extend_schema(
+        summary="Tear down a sample program",
+        responses={204: OpenApiResponse(description="Sample program purged; empty body.")},
+    )
     @action(detail=True, methods=["post"], url_path="remove-sample")
     def remove_sample(self, request: Request, pk: str | None = None) -> Response:
         """Tear down a sample program — the "Remove sample data" action (#375).
@@ -313,6 +346,10 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
     # Lifecycle actions (#530)
     # -----------------------------------------------------------------------
 
+    @extend_schema(
+        summary="Close the program",
+        responses={200: ProgramSerializer},
+    )
     @action(detail=True, methods=["post"], url_path="close")
     def close(self, request: Request, pk: str | None = None) -> Response:
         """Mark the program as closed (read-only shell). Owner only (#530).
@@ -336,6 +373,10 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
         fresh = self.get_queryset().get(pk=program.pk)
         return Response(ProgramSerializer(fresh).data, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        summary="Reopen a closed program",
+        responses={200: ProgramSerializer},
+    )
     @action(detail=True, methods=["post"], url_path="reopen")
     def reopen(self, request: Request, pk: str | None = None) -> Response:
         """Reopen a closed program. Owner only (#530)."""
@@ -354,6 +395,10 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
         fresh = self.get_queryset().get(pk=program.pk)
         return Response(ProgramSerializer(fresh).data, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        summary="Transfer program sponsorship to another member",
+        responses={200: ProgramSerializer},
+    )
     @action(detail=True, methods=["post"], url_path="transfer-sponsorship")
     def transfer_sponsorship(self, request: Request, pk: str | None = None) -> Response:
         """Transfer program sponsorship to another existing member (#530).
@@ -421,6 +466,18 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
         fresh = self.get_queryset().get(pk=program.pk)
         return Response(ProgramSerializer(fresh).data, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        summary="Split a program into sub-programs (not yet implemented)",
+        responses={
+            501: OpenApiResponse(
+                description=(
+                    "Not implemented. Body carries a `detail` message and the "
+                    "`tracking_issue` number; the request payload contract is "
+                    "validated before the 501 is returned."
+                )
+            )
+        },
+    )
     @action(detail=True, methods=["post"], url_path="split")
     def split(self, request: Request, pk: str | None = None) -> Response:
         """Split a program into sub-programs — stub for 0.2 (#530).
@@ -466,6 +523,10 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
     # Custom actions
     # -----------------------------------------------------------------------
 
+    @extend_schema(
+        summary="List projects in this program",
+        responses={200: ProjectSerializer(many=True)},
+    )
     @action(detail=True, methods=["get"], url_path="projects")
     def projects(self, request: Request, pk: str | None = None) -> Response:
         """List projects in this program.
@@ -484,6 +545,20 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
         )
         return Response(ProjectSerializer(qs, many=True).data)
 
+    @extend_schema(
+        summary="Get the program-scoped integrations summary",
+        responses={
+            200: OpenApiResponse(
+                description=(
+                    "Summary object with `webhooks` and `api_tokens` sections "
+                    "scoped to the program."
+                )
+            ),
+            503: OpenApiResponse(
+                description="A subservice failed; body names the `failed` section."
+            ),
+        },
+    )
     @action(detail=True, methods=["get"], url_path="integrations-summary")
     def integrations_summary(self, request: Request, pk: str | None = None) -> Response:
         """Program-scoped integrations summary (ADR-0076).
@@ -532,6 +607,10 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
 
         return Response(sections, status=drf_status.HTTP_200_OK)
 
+    @extend_schema(
+        summary="Read or update the program rollup KPIs config",
+        responses={200: ProgramRollupConfigSerializer},
+    )
     @action(detail=True, methods=["get", "patch"], url_path="rollup-config")
     def rollup_config(self, request: Request, pk: str | None = None) -> Response:
         """Read or update the program rollup KPIs config (ADR-0079, #527).
@@ -555,6 +634,17 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
         # serializer's validators.
         return Response(ProgramRollupConfigSerializer(program).data)
 
+    @extend_schema(
+        summary="Compute the program KPI rollup across its projects",
+        responses={
+            200: OpenApiResponse(
+                description=(
+                    "Computed rollup: program health dot, active aggregation "
+                    "policy, contributing project count, and a per-KPI value map."
+                )
+            )
+        },
+    )
     @action(detail=True, methods=["get"], url_path="rollup")
     def rollup(self, request: Request, pk: str | None = None) -> Response:
         """Computed rollup of the enabled KPIs across the program's projects.
@@ -575,6 +665,10 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
         program = self.get_object()
         return Response(compute_program_rollup(program))
 
+    @extend_schema(
+        summary="Read or update the program risk & dependencies policy",
+        responses={200: ProgramRiskPolicySerializer},
+    )
     @action(detail=True, methods=["get", "patch"], url_path="risk-policy")
     def risk_policy(self, request: Request, pk: str | None = None) -> Response:
         """Read or update the program risk & deps policy (#529).
