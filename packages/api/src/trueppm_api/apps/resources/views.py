@@ -341,6 +341,39 @@ class TaskSkillRequirementViewSet(IdempotencyMixin, viewsets.ModelViewSet[TaskSk
             return [IsAuthenticated()]
         return [IsAuthenticated(), IsOrgScheduler()]
 
+    def _require_scheduler_on_task(self, task: Task) -> None:
+        # IsOrgScheduler only proves SCHEDULER on *some* project; DRF never runs
+        # has_object_permission on create, so without a per-target check a
+        # SCHEDULER on project A could annotate a task in project B they've never
+        # joined (IDOR, #995). The membership-scoped get_queryset closes the
+        # non-member case on update/delete, but a low-role (Member/Viewer) member
+        # of the target project would still slip through IsOrgScheduler — so the
+        # same floor is enforced on every write, against the *target task's*
+        # project.
+        role = _membership_role(self.request, str(task.project_id))
+        if role is None or role < Role.SCHEDULER:
+            raise PermissionDenied("You need at least Scheduler role on the target task's project.")
+
+    def perform_create(self, serializer: BaseSerializer[TaskSkillRequirement]) -> None:
+        self._require_scheduler_on_task(serializer.validated_data["task"])
+        super().perform_create(serializer)
+
+    def perform_update(self, serializer: BaseSerializer[TaskSkillRequirement]) -> None:
+        # Guard both the current row's project and any repointed ``task`` so an
+        # update can neither mutate a row on a project the actor lacks SCHEDULER
+        # on, nor move a requirement onto a task in such a project.
+        instance = serializer.instance
+        if instance is not None:
+            self._require_scheduler_on_task(instance.task)
+        new_task = serializer.validated_data.get("task")
+        if new_task is not None:
+            self._require_scheduler_on_task(new_task)
+        super().perform_update(serializer)
+
+    def perform_destroy(self, instance: TaskSkillRequirement) -> None:
+        self._require_scheduler_on_task(instance.task)
+        super().perform_destroy(instance)
+
     def get_queryset(self) -> QuerySet[TaskSkillRequirement]:
         # Scope to tasks in projects where the requesting user is a member.
         from typing import cast

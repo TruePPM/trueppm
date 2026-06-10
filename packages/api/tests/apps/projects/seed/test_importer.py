@@ -274,3 +274,81 @@ def test_seed_fixture_is_isolated() -> None:
     b = copy.deepcopy(a)
     a["projects"].pop()
     assert len(b["projects"]) == 2
+
+
+# --------------------------------------------------------------------------- #
+# Security: cross-tenant replace + resource binding (#994 / #1004)
+# --------------------------------------------------------------------------- #
+
+
+def test_import_does_not_delete_another_owners_program_with_same_code(owner: Any) -> None:
+    """#994: a seed whose slug collides with *another* user's program code must
+    not hard-delete that victim program — the replace is scoped to programs the
+    importing owner holds an OWNER membership on."""
+    victim = User.objects.create_user(username="victim", email="victim@example.com")
+    victim_program = import_seed(_seed(), owner=victim, create_users=True)
+    victim_id = victim_program.pk
+    victim_task_count = Task.objects.filter(project__program_id=victim_id).count()
+    assert victim_task_count > 0
+
+    # Attacker imports the same slug ("atlas") via the generic path.
+    attacker_program = import_seed(_seed(), owner=owner, create_users=False)
+
+    # Victim program and every child task survive untouched.
+    assert Program.objects.filter(pk=victim_id, is_deleted=False).exists()
+    assert Task.objects.filter(project__program_id=victim_id).count() == victim_task_count
+    # Attacker got a *separate* program, not the victim's.
+    assert attacker_program.pk != victim_id
+    assert Program.objects.filter(code="atlas", is_deleted=False).count() == 2
+
+
+def test_sample_reload_refuses_to_delete_program_holding_real_work(owner: Any) -> None:
+    """#994: the demo/sample path must never purge a program containing real
+    (non-sample) projects, even one the caller owns with a colliding code."""
+    real = import_seed(_seed(), owner=owner, create_users=True)
+    assert not Project.objects.filter(program=real, is_sample=True).exists()
+
+    sample = import_seed(_seed(), owner=owner, create_users=True, is_sample=True)
+
+    # The real program is untouched; the sample is created alongside it.
+    assert Program.objects.filter(pk=real.pk, is_deleted=False).exists()
+    assert sample.pk != real.pk
+    assert Project.objects.filter(program=sample, is_sample=True).exists()
+
+
+def test_sample_reload_same_owner_is_idempotent(owner: Any) -> None:
+    """#994: re-importing the same sample as the same owner replaces (rebuilds)
+    the prior sample program rather than accumulating duplicates."""
+    p1 = import_seed(_seed(), owner=owner, create_users=True, is_sample=True)
+    p2 = import_seed(_seed(), owner=owner, create_users=True, is_sample=True)
+
+    assert Program.objects.filter(code="atlas", is_deleted=False).count() == 1
+    assert not Program.objects.filter(pk=p1.pk, is_deleted=False).exists()
+    assert Program.objects.filter(pk=p2.pk, is_deleted=False).exists()
+
+
+def test_generic_import_does_not_rebind_existing_real_resource(owner: Any) -> None:
+    """#1004: a generic import must not pull a pre-existing global resource (and
+    the real user FK it may carry) into the importer's project by email match."""
+    real_user = User.objects.create_user(username="real-alex", email="alex@example.com")
+    existing = Resource.objects.create(name="Real Alex", email="alex@example.com", user=real_user)
+
+    import_seed(_seed(), owner=owner, create_users=False)
+
+    # The pre-existing resource is never assigned to the imported project.
+    assert not TaskResource.objects.filter(resource=existing).exists()
+    # A fresh resource was created instead, carrying no real-user binding.
+    fresh = Resource.objects.filter(email="alex@example.com").exclude(pk=existing.pk)
+    assert fresh.exists()
+    assert all(r.user is None for r in fresh)
+
+
+def test_sample_import_reuses_existing_persona_resource_by_email(owner: Any) -> None:
+    """#1004: the demo/sample path still reuses the shared persona catalog by
+    email so a reload does not duplicate demo people."""
+    existing = Resource.objects.create(name="Persona Alex", email="alex@example.com")
+
+    import_seed(_seed(), owner=owner, create_users=True, is_sample=True)
+
+    assert Resource.objects.filter(email="alex@example.com").count() == 1
+    assert TaskResource.objects.filter(resource=existing).exists()

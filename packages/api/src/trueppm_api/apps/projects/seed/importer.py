@@ -66,6 +66,7 @@ def import_seed(
     *,
     owner: Any,
     create_users: bool = False,
+    is_sample: bool = False,
 ) -> Program:
     """Validate and import a seed document, returning the created ``Program``.
 
@@ -76,12 +77,18 @@ def import_seed(
             are created (used by ``make seed`` / the management command). When
             ``False`` (the REST default), missing accounts resolve to ``None`` —
             importing a seed must not silently mint logins on a live instance.
+        is_sample: when ``True`` this is the disposable demo/sample path
+            (``load_sample``). It marks every created project ``is_sample`` and
+            reuses the shared persona resource catalog. When ``False`` (the
+            generic ``import_seed`` path) imported resources are created fresh so
+            a seed can never bind a pre-existing global resource — and the real
+            user it may carry — into the importer's program (#1004).
 
     Raises:
         SeedValidationError: if the payload fails validation; nothing is written.
     """
     validate_seed(payload)
-    importer = _SeedImporter(payload, owner=owner, create_users=create_users)
+    importer = _SeedImporter(payload, owner=owner, create_users=create_users, is_sample=is_sample)
     with transaction.atomic():
         program = importer.run()
     return program
@@ -99,10 +106,18 @@ def _req_date(value: str) -> date:
 class _SeedImporter:
     """Holds the per-import symbol tables while materializing a seed document."""
 
-    def __init__(self, payload: dict[str, Any], *, owner: Any, create_users: bool) -> None:
+    def __init__(
+        self,
+        payload: dict[str, Any],
+        *,
+        owner: Any,
+        create_users: bool,
+        is_sample: bool = False,
+    ) -> None:
         self.payload = payload
         self.owner = owner
         self.create_users = create_users
+        self.is_sample = is_sample
         self.users: dict[str, Any] = {}
         self.calendars: dict[str, Calendar] = {}
         self.resources: dict[str, Resource] = {}
@@ -150,14 +165,41 @@ class _SeedImporter:
     # --- idempotency -------------------------------------------------------
 
     def _replace_existing(self) -> None:
-        """Hard-delete any live program already holding this seed's slug.
+        """Hard-delete a prior import the caller owns that holds this seed's slug.
 
-        Keyed on ``Program.code`` (which carries the program slug). Projects are
-        deleted directly so their tasks/deps/sprints/risks/baselines cascade;
-        memberships are PROTECTed and so must go before the program row.
+        Idempotent re-import rebuilds the *caller's own* program with this slug
+        (keyed on ``Program.code``, which carries it). The replace is scoped to
+        programs the importing ``owner`` holds an OWNER ``ProgramMembership`` on,
+        so an import can never delete another user's program that merely shares a
+        code — ``Program.code`` is user-assigned and non-unique, so collisions
+        are realistic and enumerable (#994). Without this scope any authenticated
+        user could hard-delete (no tombstone) a victim program plus every child
+        project/task/sprint/risk/baseline by crafting a seed whose ``slug``
+        matches the victim's code.
+
+        On the demo/sample path (``is_sample``) the guard is tightened to match
+        the ``remove_sample`` invariant: a program containing any real
+        (non-sample) project is never replaced, so a sample reload can never
+        purge real work even within the caller's own programs.
         """
         slug = self.payload["program"]["slug"]
-        for prog in Program.objects.filter(code=slug, is_deleted=False):
+        owned_program_ids = ProgramMembership.objects.filter(
+            user=self.owner, role=Role.OWNER, is_deleted=False
+        ).values_list("program_id", flat=True)
+        # select_for_update locks each candidate row so a concurrent member-add /
+        # project-assign can't resurrect a PROTECTed reference mid-teardown
+        # (mirrors remove_sample's lock in program_views.py).
+        candidates = Program.objects.select_for_update().filter(
+            code=slug, is_deleted=False, pk__in=owned_program_ids
+        )
+        for prog in candidates:
+            if self.is_sample:
+                has_real_project = Project.objects.filter(
+                    program=prog, is_sample=False, is_deleted=False
+                ).exists()
+                if has_real_project:
+                    # Refuse a partial/destructive delete of a mixed program.
+                    continue
             project_ids = list(Project.objects.filter(program=prog).values_list("pk", flat=True))
             # ProjectMembership.project is PROTECTed, so memberships must go
             # before the projects they guard; the project delete then cascades
@@ -197,21 +239,27 @@ class _SeedImporter:
         for res in self.payload.get("resources", []):
             calendar = self.calendars.get(res["calendar"]) if res.get("calendar") else None
             account_user = self.users.get(res["account"]) if res.get("account") else None
-            # Resources are global (not program-scoped) and have no slug column;
-            # reuse by email when present, else by name, so re-import does not
-            # accumulate duplicates.
-            lookup = {"email": res["email"]} if res.get("email") else {"name": res["name"]}
-            obj, _created = Resource.objects.get_or_create(
-                **lookup,
-                defaults={
-                    "name": res["name"],
-                    "email": res.get("email", ""),
-                    "job_role": res.get("job_role", ""),
-                    "max_units": res.get("max_units", 1.0),
-                    "calendar": calendar,
-                    "user": account_user,
-                },
-            )
+            defaults = {
+                "name": res["name"],
+                "email": res.get("email", ""),
+                "job_role": res.get("job_role", ""),
+                "max_units": res.get("max_units", 1.0),
+                "calendar": calendar,
+                "user": account_user,
+            }
+            if self.is_sample:
+                # Demo path: resources are a global catalog and have no slug
+                # column; reuse the shared persona rows by email (else name) so a
+                # sample reload does not accumulate duplicate demo people.
+                lookup = {"email": res["email"]} if res.get("email") else {"name": res["name"]}
+                obj, _created = Resource.objects.get_or_create(**lookup, defaults=defaults)
+            else:
+                # Generic import (#1004): never match a live global resource by
+                # email. Doing so would bind a pre-existing resource — and the
+                # real ``user`` FK it may carry — into the importer's project via
+                # ``_assign_resources``. Create a fresh row so an attacker-crafted
+                # seed cannot pull a real user's resource into their program.
+                obj = Resource.objects.create(**defaults)
             self.resources[res["slug"]] = obj
 
     def _create_program(self) -> Program:
@@ -257,6 +305,10 @@ class _SeedImporter:
             default_view=data.get("default_view", "SCHEDULE"),
             estimation_mode=data.get("estimation_mode", "open"),
             agile_features=data.get("agile_features", data["methodology"] != "WATERFALL"),
+            # is_sample is owned by the importer so the idempotency guard in
+            # _replace_existing can distinguish disposable demo data from real
+            # work on a later reload (#994).
+            is_sample=self.is_sample,
         )
         self.projects[data["slug"]] = project
         ProjectMembership.objects.update_or_create(

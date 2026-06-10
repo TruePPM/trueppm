@@ -5,9 +5,12 @@ Usage::
     python manage.py import_seed <path> [--owner <username>] [--create-users]
 
 Loads a seed document into the database via ``import_seed``. Re-running with the
-same file is idempotent on the program slug. ``--create-users`` mints any
-accounts the seed references that do not yet exist (intended for ``make seed``
-and local demos, not production).
+same file rebuilds the program subtree idempotently on the program slug; note
+that imported resources are created fresh each run (not deduplicated by email),
+so re-import can accumulate global resource rows — the deliberate cost of never
+rebinding a pre-existing resource into the importer's program (#1004).
+``--create-users`` mints any accounts the seed references that do not yet exist
+(intended for ``make seed`` and local demos, not production).
 """
 
 from __future__ import annotations

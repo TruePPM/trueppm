@@ -6242,21 +6242,45 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
 class SprintScopeChangeViewSet(IdempotencyMixin, viewsets.GenericViewSet[Any]):
     """Single-item accept/reject for mid-sprint scope injections (ADR-0102 §5).
 
-    ``POST /api/v1/scope-changes/{id}/accept/`` and ``/reject/``. Permission is
-    enforced entirely in the service layer (``_assert_scope_gate``): the actor
-    must hold a real ProjectMembership at role>=ADMIN on the scope-change's task's
-    project. A non-member (the only way an org/PMO principal arrives) is 403
-    ``scope_accept_forbidden`` *regardless of role ordinal* — closing the
-    Enterprise back-door (VoC 🔴 #1) at the OSS boundary. There is no auto-accept
-    path: these two actions are the only writers of ACCEPTED/REJECTED.
+    ``POST /api/v1/scope-changes/{id}/accept/`` and ``/reject/``. Authorization is
+    layered: ``get_queryset`` first scopes to the caller's member projects, so a
+    non-member gets a uniform 404 (no 403-vs-404 existence oracle, #996). The
+    service-layer gate (``_assert_scope_gate``) then requires a real
+    ProjectMembership at role>=ADMIN on the scope-change's task's project, so a
+    member below ADMIN gets 403 ``scope_accept_forbidden`` *regardless of role
+    ordinal* — closing the Enterprise back-door (VoC 🔴 #1) at the OSS boundary.
+    There is no auto-accept path: these two actions are the only writers of
+    ACCEPTED/REJECTED.
     """
 
+    # permission_classes is intentionally just IsAuthenticated: every action
+    # routes through _act -> _assert_scope_gate in the service layer, which is
+    # the real authorization gate (role >= ADMIN + project membership). The
+    # queryset below is the second half of that contract — it must stay scoped to
+    # the caller's member projects so a non-member gets 404 (not a 403-vs-404
+    # discriminator that leaks cross-project scope-change existence, #996).
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self) -> QuerySet[Any]:
+        from typing import cast
+
+        from django.contrib.auth.models import User
+
+        from trueppm_api.apps.access.models import ProjectMembership
         from trueppm_api.apps.projects.models import SprintScopeChange
 
-        return SprintScopeChange.objects.select_related("task", "sprint").all()
+        # Scope to scope-changes on projects the caller is a member of. Without
+        # this, get_object_or_404 over an unscoped .all() returns 403 (found, no
+        # permission) vs 404 (absent), letting any authenticated user probe
+        # whether an arbitrary scope-change UUID exists anywhere (IDOR, #996).
+        # IsAuthenticated has already excluded AnonymousUser; cast narrows for mypy.
+        user = cast(User, self.request.user)
+        member_project_ids = ProjectMembership.objects.filter(
+            user=user, is_deleted=False
+        ).values_list("project_id", flat=True)
+        return SprintScopeChange.objects.select_related("task", "sprint").filter(
+            task__project_id__in=member_project_ids
+        )
 
     def _act(self, request: Request, pk: str | None, *, accept: bool) -> Response:
         from trueppm_api.apps.projects.serializers import SprintScopeChangeSerializer

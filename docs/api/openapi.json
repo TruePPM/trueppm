@@ -13671,10 +13671,8 @@
                         "in": "path",
                         "name": "id",
                         "schema": {
-                            "type": "string",
-                            "format": "uuid"
+                            "type": "string"
                         },
-                        "description": "A UUID string identifying this sprint scope change.",
                         "required": true
                     }
                 ],
@@ -13705,10 +13703,8 @@
                         "in": "path",
                         "name": "id",
                         "schema": {
-                            "type": "string",
-                            "format": "uuid"
+                            "type": "string"
                         },
-                        "description": "A UUID string identifying this sprint scope change.",
                         "required": true
                     }
                 ],

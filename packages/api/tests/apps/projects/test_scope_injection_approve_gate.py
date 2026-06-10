@@ -380,6 +380,21 @@ def test_single_accept_endpoint_member_403(
     assert resp.data["code"] == "scope_accept_forbidden"
 
 
+def test_single_accept_endpoint_non_member_404(
+    project: Project, sprint: Sprint, owner: object, outsider: object
+) -> None:
+    """#996: a non-member must get 404 (absent), not the old 403 (found, no
+    permission). The membership-scoped queryset removes the 403-vs-404 oracle
+    that let any authenticated user probe scope-change UUID existence anywhere.
+    """
+    a = _task(project, "A", sprint=sprint, story_points=1)
+    sc = _inject(a, sprint, owner)
+    client = APIClient()
+    client.force_authenticate(user=outsider)
+    resp = client.post(f"/api/v1/scope-changes/{sc.pk}/accept/", {}, format="json")
+    assert resp.status_code == 404
+
+
 # --------------------------------------------------------------------------- #
 # Close lifecycle — carry-over (re-flag pending in next sprint) and reject.
 # --------------------------------------------------------------------------- #
