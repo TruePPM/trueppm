@@ -6,11 +6,17 @@ import environ
 
 from trueppm_api.core.security_checks import (
     validate_attachment_storage,
+    validate_integration_encryption_key,
     validate_secret_key,
 )
 
 from .base import *  # noqa: F403
-from .base import ALLOW_LOCAL_ATTACHMENT_STORAGE, DATABASES, STORAGES
+from .base import (
+    ALLOW_LOCAL_ATTACHMENT_STORAGE,
+    DATABASES,
+    INTEGRATION_ENCRYPTION_KEY,
+    STORAGES,
+)
 
 env = environ.Env()
 
@@ -57,3 +63,15 @@ _storage_errors = validate_attachment_storage(
 )
 if _storage_errors:
     raise RuntimeError("Refusing to start: " + "; ".join(str(e.msg) for e in _storage_errors))
+
+# Refuse to boot without a valid integration encryption key (#1002). The key
+# encrypts integration PATs at rest; without this guard a missing/malformed key
+# only surfaces as a 500 on the first PAT connect, long after deploy. Same
+# import-time enforcement as the SECRET_KEY and storage guards above.
+_integration_key_errors = validate_integration_encryption_key(
+    INTEGRATION_ENCRYPTION_KEY, debug=DEBUG
+)
+if _integration_key_errors:
+    raise RuntimeError(
+        "Refusing to start: " + "; ".join(str(e.msg) for e in _integration_key_errors)
+    )

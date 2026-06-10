@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import uuid
@@ -3602,6 +3603,73 @@ def _sanitize_attachment_filename(raw: str) -> str:
     return name or "upload"
 
 
+# Magic-byte signatures for the attachment allow-list (#1003). The client-declared
+# multipart Content-Type is attacker-controlled, so the allow-list check on
+# ``file.content_type`` is advisory — a payload (HTML/SVG/polyglot) can pose as
+# ``image/png`` and pass it. We sniff the real leading bytes and reject when they
+# contradict the declared type. A pure-Python signature table is used rather than
+# python-magic/libmagic to avoid adding a system dependency for a 7-entry allow-list.
+# OOXML formats (XLSX/DOCX) are ZIP containers and share the ``PK`` signature; we
+# verify the ZIP magic but do not distinguish the two (both are allow-listed).
+_ATTACHMENT_MAGIC: dict[str, tuple[bytes, ...]] = {
+    "application/pdf": (b"%PDF-",),
+    "image/jpeg": (b"\xff\xd8\xff",),
+    "image/png": (b"\x89PNG\r\n\x1a\n",),
+    "image/webp": (b"RIFF",),  # plus "WEBP" at offset 8, checked below
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": (
+        b"PK\x03\x04",
+        b"PK\x05\x06",
+        b"PK\x07\x08",
+    ),
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": (
+        b"PK\x03\x04",
+        b"PK\x05\x06",
+        b"PK\x07\x08",
+    ),
+}
+
+
+def _sniff_attachment_content(file: Any, declared_mime: str) -> str | None:
+    """Return an error message if the file's real bytes contradict ``declared_mime``.
+
+    ``declared_mime`` has already passed the allow-list. For the binary types this
+    checks the leading magic bytes; for ``text/csv`` (no binary signature) it
+    rejects content that begins like markup or matches another format's magic so a
+    HTML/SVG payload cannot be smuggled in as a CSV. Returns ``None`` when the
+    content is consistent with the declared type. The file pointer is reset to 0
+    so the subsequent ``.save()`` writes the full content.
+    """
+    try:
+        head = file.read(16)
+    except (AttributeError, OSError):
+        return None  # non-seekable/odd file object — fall back to allow-list only
+    finally:
+        # Reset the pointer so the subsequent .save() writes the full content.
+        with contextlib.suppress(AttributeError, OSError):
+            file.seek(0)
+
+    if not head:
+        return "Uploaded file is empty."
+
+    expected = _ATTACHMENT_MAGIC.get(declared_mime)
+    if expected is not None:
+        if not any(head.startswith(sig) for sig in expected):
+            return f"File contents do not match the declared type {declared_mime!r}."
+        if declared_mime == "image/webp" and head[8:12] != b"WEBP":
+            return "File contents do not match the declared type 'image/webp'."
+        return None
+
+    # text/csv and any future signature-less allow-list entry: reject content that
+    # opens like markup (HTML/XML/SVG) or carries another format's magic bytes.
+    stripped = head.lstrip(b"\xef\xbb\xbf").lstrip()  # drop UTF-8 BOM + leading whitespace
+    if stripped[:1] == b"<":
+        return f"File contents do not match the declared type {declared_mime!r}."
+    for signatures in _ATTACHMENT_MAGIC.values():
+        if any(head.startswith(sig) for sig in signatures):
+            return f"File contents do not match the declared type {declared_mime!r}."
+    return None
+
+
 class TaskAttachmentSerializer(serializers.ModelSerializer[TaskAttachment]):
     """File-XOR-URL attachment on a task.
 
@@ -3669,6 +3737,14 @@ class TaskAttachmentSerializer(serializers.ModelSerializer[TaskAttachment]):
                     f"File type {mime!r} is not allowed. Allowed types: "
                     "PDF, JPG, PNG, WebP, XLSX, CSV, DOCX.",
                     code="attachment_unsupported_mime",
+                )
+            # The declared MIME passed the allow-list, but the client controls it.
+            # Sniff the real bytes so a payload cannot pose as an allowed type (#1003).
+            sniff_error = _sniff_attachment_content(file, mime)
+            if sniff_error:
+                raise serializers.ValidationError(
+                    sniff_error,
+                    code="attachment_content_mismatch",
                 )
             attrs["file_size"] = size
             attrs["file_mime"] = mime

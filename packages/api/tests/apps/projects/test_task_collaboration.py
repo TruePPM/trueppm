@@ -319,6 +319,90 @@ class TestTaskAttachmentFileUpload:
             )
         assert r.status_code == 400
 
+    def test_html_payload_declared_as_png_rejected(
+        self,
+        member_client: APIClient,
+        project: Project,
+        task: Task,
+        memberships: None,
+    ) -> None:
+        """#1003: HTML bytes posing as image/png are caught by content sniffing.
+
+        The client-declared content_type passes the allow-list, but the real
+        bytes are not a PNG, so the upload must 400 (not be stored as an image).
+        """
+        upload = SimpleUploadedFile(
+            "payload.png",
+            b"<!DOCTYPE html><script>alert(1)</script>",
+            content_type="image/png",
+        )
+        r = member_client.post(
+            _att_list_url(project, task),
+            {"file": upload},
+            format="multipart",
+        )
+        assert r.status_code == 400
+        assert "image/png" in str(r.data)
+
+    def test_genuine_png_accepted(
+        self,
+        member_client: APIClient,
+        project: Project,
+        task: Task,
+        memberships: None,
+    ) -> None:
+        """A real PNG (correct magic bytes) declared image/png is accepted."""
+        png_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
+        upload = SimpleUploadedFile("real.png", png_bytes, content_type="image/png")
+        r = member_client.post(
+            _att_list_url(project, task),
+            {"file": upload},
+            format="multipart",
+        )
+        assert r.status_code == 201, r.data
+        assert r.data["file_mime"] == "image/png"
+
+    def test_html_payload_declared_as_csv_rejected(
+        self,
+        member_client: APIClient,
+        project: Project,
+        task: Task,
+        memberships: None,
+    ) -> None:
+        """#1003: markup posing as text/csv is rejected (csv has no binary magic)."""
+        upload = SimpleUploadedFile(
+            "data.csv",
+            b"<svg onload=alert(1)>",
+            content_type="text/csv",
+        )
+        r = member_client.post(
+            _att_list_url(project, task),
+            {"file": upload},
+            format="multipart",
+        )
+        assert r.status_code == 400
+
+    def test_genuine_csv_accepted(
+        self,
+        member_client: APIClient,
+        project: Project,
+        task: Task,
+        memberships: None,
+    ) -> None:
+        """A plain CSV body declared text/csv is accepted."""
+        upload = SimpleUploadedFile(
+            "data.csv",
+            b"name,role\nAlice,PM\nBob,Dev\n",
+            content_type="text/csv",
+        )
+        r = member_client.post(
+            _att_list_url(project, task),
+            {"file": upload},
+            format="multipart",
+        )
+        assert r.status_code == 201, r.data
+        assert r.data["file_mime"] == "text/csv"
+
 
 # ---------------------------------------------------------------------------
 # TaskAttachment — filename sanitization (#892 stored XSS / header injection)

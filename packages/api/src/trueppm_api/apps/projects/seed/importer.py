@@ -221,6 +221,22 @@ class _SeedImporter:
                     email=account.get("email", ""),
                     first_name=account.get("display_name", "").split(" ")[0],
                 )
+            # #1057: on the generic import path (create_users=False, the REST
+            # default) a seed's accounts[].username is attacker-controlled and may
+            # collide with a *pre-existing* real user. Binding that user here would
+            # let a crafted seed pull a known victim into the importer's program —
+            # as a ProgramMembership (_grant_program_memberships), the program lead,
+            # a task assignee, or a resource's user FK. Resolve such accounts to
+            # None so the generic path never associates a real account it did not
+            # create. The owner is exempt (their own account), and the server-
+            # curated sample/demo path (is_sample) binds personas freely.
+            if (
+                user is not None
+                and not self.create_users
+                and not self.is_sample
+                and user != self.owner
+            ):
+                user = None
             self.users[account["slug"]] = user
 
     def _resolve_calendars(self) -> None:
@@ -238,6 +254,9 @@ class _SeedImporter:
     def _resolve_resources(self) -> None:
         for res in self.payload.get("resources", []):
             calendar = self.calendars.get(res["calendar"]) if res.get("calendar") else None
+            # account_user is already None on the generic path for any account that
+            # resolved to a pre-existing real user — _resolve_accounts drops those
+            # (#1057), so the resource's user FK cannot bind a victim here.
             account_user = self.users.get(res["account"]) if res.get("account") else None
             defaults = {
                 "name": res["name"],
