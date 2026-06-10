@@ -207,7 +207,11 @@ def suppress_velocity_summary(summary: dict[str, Any]) -> dict[str, Any]:
     gated empty-state. The milestone-health % and schedule confidence (computed
     elsewhere) are never touched.
     """
-    redacted = {**summary, "sprints": [], "velocity_suppressed": True}
+    # excluded_count (ADR-0113) is zeroed alongside the emptied series: it is an
+    # organisational fact ("this team flagged N setup sprints") that the ADR-0104
+    # privacy boundary excludes from a below-audience reader, and a non-zero count
+    # over an empty sprints[] would be incoherent anyway.
+    redacted = {**summary, "sprints": [], "excluded_count": 0, "velocity_suppressed": True}
     for field in _VELOCITY_GATED_FIELDS:
         if field in redacted:
             redacted[field] = None

@@ -325,9 +325,11 @@ describe('SprintPanel WIP limit (#546)', () => {
 describe('SprintPanel velocity + forecast (#607)', () => {
   const SPRINTS = [
     { id: '1', name: 'S1', start_date: '2026-01-01', finish_date: '2026-01-14',
-      committed_points: 30, completed_points: 24, committed_task_count: 6, completed_task_count: 5 },
+      committed_points: 30, completed_points: 24, committed_task_count: 6, completed_task_count: 5,
+      exclude_from_velocity: false },
     { id: '2', name: 'S2', start_date: '2026-01-15', finish_date: '2026-01-28',
-      committed_points: 30, completed_points: 32, committed_task_count: 6, completed_task_count: 7 },
+      committed_points: 30, completed_points: 32, committed_task_count: 6, completed_task_count: 7,
+      exclude_from_velocity: false },
   ];
 
   it('renders the velocity sparkline and mounts the forecast line when not suppressed', () => {

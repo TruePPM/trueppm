@@ -336,6 +336,85 @@ def test_capacity_points_history_recorded(client: APIClient, project: Project) -
 
 
 # ---------------------------------------------------------------------------
+# exclude_from_velocity (ADR-0113, #1092) — Sprint 0 escape hatch. SCHEDULER+
+# field-gate like capacity_points, but UNLIKE it, editable in EVERY state
+# including COMPLETED (teams realise the contamination retrospectively).
+# ---------------------------------------------------------------------------
+
+
+def test_scheduler_can_set_exclude_from_velocity(
+    scheduler_client: APIClient, project: Project
+) -> None:
+    s = _make_sprint(project)
+    resp = scheduler_client.patch(
+        f"/api/v1/sprints/{s.pk}/", {"exclude_from_velocity": True}, format="json"
+    )
+    assert resp.status_code == 200, resp.content
+    s.refresh_from_db()
+    assert s.exclude_from_velocity is True
+
+
+def test_member_cannot_set_exclude_from_velocity(
+    member_client: APIClient, project: Project
+) -> None:
+    """Team-owned planning field — SCHEDULER+ only (ADR-0113)."""
+    s = _make_sprint(project)
+    resp = member_client.patch(
+        f"/api/v1/sprints/{s.pk}/", {"exclude_from_velocity": True}, format="json"
+    )
+    assert resp.status_code == 400, resp.content
+    s.refresh_from_db()
+    assert s.exclude_from_velocity is False
+
+
+def test_viewer_cannot_set_exclude_from_velocity(
+    viewer_client: APIClient, project: Project
+) -> None:
+    s = _make_sprint(project)
+    resp = viewer_client.patch(
+        f"/api/v1/sprints/{s.pk}/", {"exclude_from_velocity": True}, format="json"
+    )
+    assert resp.status_code == 403
+
+
+def test_completed_sprint_accepts_exclude_from_velocity(
+    scheduler_client: APIClient, project: Project
+) -> None:
+    """The distinguishing behaviour: editable AFTER close, unlike capacity_points."""
+    s = _make_sprint(project, state=SprintState.COMPLETED, completed_points=3)
+    resp = scheduler_client.patch(
+        f"/api/v1/sprints/{s.pk}/", {"exclude_from_velocity": True}, format="json"
+    )
+    assert resp.status_code == 200, resp.content
+    s.refresh_from_db()
+    assert s.exclude_from_velocity is True
+    # The flag must not mutate the close-time snapshot.
+    assert s.completed_points == 3
+
+
+def test_exclude_from_velocity_defaults_false(client: APIClient, project: Project) -> None:
+    s = _make_sprint(project)
+    resp = client.get(f"/api/v1/sprints/{s.pk}/")
+    assert resp.status_code == 200
+    assert resp.json()["exclude_from_velocity"] is False
+
+
+def test_exclude_from_velocity_history_recorded(
+    scheduler_client: APIClient, project: Project
+) -> None:
+    s = _make_sprint(project)
+    scheduler_client.patch(
+        f"/api/v1/sprints/{s.pk}/", {"exclude_from_velocity": True}, format="json"
+    )
+    s.refresh_from_db()
+    flags = list(
+        s.history.order_by("history_date").values_list("exclude_from_velocity", flat=True)
+    )
+    # The audit trail (ADR-0113) captures the change — Marcus's visibility ask.
+    assert True in flags
+
+
+# ---------------------------------------------------------------------------
 # wip_limit (#546) — per-sprint WIP-overload threshold. Same field-level gate
 # as capacity_points: SCHEDULER+ writes, editable PLANNED + ACTIVE, locked on
 # COMPLETED + CANCELLED, history recorded. wip_count is a read-only annotation.

@@ -2726,15 +2726,20 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
                         for field in locked
                     }
                 )
-        # capacity_points / wip_limit / goal_outcome are owned by the Scrum
-        # Master / lead — not per-contributor fields (ADR-0073 sovereignty rule).
-        # Field-level RBAC: SCHEDULER+ writes only. The viewset's
-        # IsProjectMemberWrite gate still applies to every other field; this check
-        # is layered on top for these team-owned fields. NOTE goal_outcome is
-        # SCHEDULER+-gated but deliberately NOT in the COMPLETED/CANCELLED lock
-        # above — it is the *post-close* verdict and stays editable after close.
+        # capacity_points / wip_limit / goal_outcome / exclude_from_velocity are
+        # owned by the Scrum Master / lead — not per-contributor fields (ADR-0073
+        # sovereignty rule). Field-level RBAC: SCHEDULER+ writes only. The
+        # viewset's IsProjectMemberWrite gate still applies to every other field;
+        # this check is layered on top for these team-owned fields. NOTE
+        # goal_outcome AND exclude_from_velocity are SCHEDULER+-gated but
+        # deliberately NOT in the COMPLETED/CANCELLED lock above — both are
+        # *post-close* judgements (the goal verdict, and the ADR-0113 decision to
+        # keep a setup sprint out of velocity once its contamination is apparent)
+        # and stay editable after the sprint closes.
         scheduler_fields = {
-            f for f in ("capacity_points", "wip_limit", "goal_outcome") if f in attrs
+            f
+            for f in ("capacity_points", "wip_limit", "goal_outcome", "exclude_from_velocity")
+            if f in attrs
         }
         if scheduler_fields and self.instance is not None:
             from trueppm_api.apps.access.models import ProjectMembership, Role
@@ -2780,6 +2785,7 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
             "capacity_points",
             "wip_limit",
             "goal_outcome",
+            "exclude_from_velocity",
             "committed_points",
             "committed_task_count",
             "completed_points",
@@ -2969,6 +2975,10 @@ class ProjectVelocitySerializer(serializers.Serializer[dict[str, Any]]):
     # ADR-0065: rolling team_velocity_per_day used by CPM velocity feedback.
     # Null until enough closed sprints exist (see MIN_CLOSED_SPRINTS_FOR_SUGGESTION).
     team_velocity_per_day = serializers.FloatField(allow_null=True)
+    # ADR-0113: how many of the displayed sprints are flagged exclude_from_velocity,
+    # so the UI can render "N excluded from this forecast". Each entry in `sprints`
+    # also carries its own `exclude_from_velocity` flag for per-bar marking.
+    excluded_count = serializers.IntegerField()
 
 
 class PromoteToMilestoneRequestSerializer(serializers.Serializer[dict[str, Any]]):
