@@ -25,15 +25,22 @@ _PROD = "trueppm_api.settings.prod"
 _STRONG_KEY = "k" * 50  # ≥ MIN_SECRET_KEY_LENGTH (32), no "django-insecure-" prefix
 _S3 = "storages.backends.s3.S3Storage"
 _LOCAL = "django.core.files.storage.FileSystemStorage"
+# A real, parseable Fernet key (32 url-safe-base64 bytes) so the #1002 boot guard
+# passes; the validator's own empty/malformed cases live in
+# test_integration_encryption_key_check.py.
+_VALID_FERNET_KEY = "cNHot7PnbAHGIuY4zUht8FwB5wYGv06O7ppzGyhzR84="
 
 
-def _load_prod(*, backend: str, allow_local: bool) -> ModuleType:
+def _load_prod(
+    *, backend: str, allow_local: bool, encryption_key: str = _VALID_FERNET_KEY
+) -> ModuleType:
     """Import (or re-import) settings/prod.py with controlled storage + env.
 
     prod.py reads ALLOWED_HOSTS/SECRET_KEY from the environment and STORAGES/
-    ALLOW_LOCAL_ATTACHMENT_STORAGE from ``base`` at import time. We patch both so
-    the guards run against known inputs without mutating the live settings (the
-    ``DATABASES`` patch keeps prod's CONN_MAX_AGE write off the shared dict).
+    ALLOW_LOCAL_ATTACHMENT_STORAGE/INTEGRATION_ENCRYPTION_KEY from ``base`` at
+    import time. We patch each so the guards run against known inputs without
+    mutating the live settings (the ``DATABASES`` patch keeps prod's CONN_MAX_AGE
+    write off the shared dict).
     """
     storages = {
         "default": {"BACKEND": backend},
@@ -50,6 +57,7 @@ def _load_prod(*, backend: str, allow_local: bool) -> ModuleType:
         ),
         mock.patch.object(base, "STORAGES", storages),
         mock.patch.object(base, "ALLOW_LOCAL_ATTACHMENT_STORAGE", allow_local),
+        mock.patch.object(base, "INTEGRATION_ENCRYPTION_KEY", encryption_key),
         mock.patch.object(base, "DATABASES", {"default": {}}),
     ):
         existing = sys.modules.get(_PROD)
@@ -86,3 +94,9 @@ def test_prod_boots_on_local_storage_when_opted_in() -> None:
     """TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE lets local storage through."""
     prod = _load_prod(backend=_LOCAL, allow_local=True)
     assert prod.STORAGES["default"]["BACKEND"] == _LOCAL
+
+
+def test_prod_refuses_empty_integration_encryption_key() -> None:
+    """An empty INTEGRATION_ENCRYPTION_KEY stops the boot (#1002)."""
+    with pytest.raises(RuntimeError, match="Refusing to start"):
+        _load_prod(backend=_S3, allow_local=False, encryption_key="")
