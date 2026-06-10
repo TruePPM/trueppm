@@ -116,10 +116,20 @@ def test_velocity_delta_vs_prior_sprint(project: Project) -> None:
 def test_velocity_excludes_flagged_sprint_from_stats(project: Project) -> None:
     """A flagged 'Sprint 0' must not drag the rolling average down."""
     # Without exclusion, avg would be (3 + 30 + 30) / 3 = 21.
-    _closed_sprint(project, name="Sprint 0", points_committed=10, points_completed=3,
-                   exclude_from_velocity=True, closed_offset_days=30)
-    _closed_sprint(project, name="S1", points_committed=30, points_completed=30, closed_offset_days=20)
-    _closed_sprint(project, name="S2", points_committed=30, points_completed=30, closed_offset_days=10)
+    _closed_sprint(
+        project,
+        name="Sprint 0",
+        points_committed=10,
+        points_completed=3,
+        exclude_from_velocity=True,
+        closed_offset_days=30,
+    )
+    _closed_sprint(
+        project, name="S1", points_committed=30, points_completed=30, closed_offset_days=20
+    )
+    _closed_sprint(
+        project, name="S2", points_committed=30, points_completed=30, closed_offset_days=10
+    )
     summary = velocity_summary(project.pk)
     # Average is over the two eligible sprints only.
     assert summary["rolling_avg_points"] == 30.0
@@ -128,9 +138,17 @@ def test_velocity_excludes_flagged_sprint_from_stats(project: Project) -> None:
 
 def test_velocity_keeps_excluded_sprint_visible_and_marked(project: Project) -> None:
     """Excluded sprints are marked, not dropped — the UI greys them, not hides them."""
-    _closed_sprint(project, name="Sprint 0", points_committed=10, points_completed=3,
-                   exclude_from_velocity=True, closed_offset_days=20)
-    _closed_sprint(project, name="S1", points_committed=30, points_completed=28, closed_offset_days=10)
+    _closed_sprint(
+        project,
+        name="Sprint 0",
+        points_committed=10,
+        points_completed=3,
+        exclude_from_velocity=True,
+        closed_offset_days=20,
+    )
+    _closed_sprint(
+        project, name="S1", points_committed=30, points_completed=28, closed_offset_days=10
+    )
     sprints = velocity_summary(project.pk)["sprints"]
     assert len(sprints) == 2  # both still present
     by_name = {s["name"]: s for s in sprints}
@@ -140,10 +158,20 @@ def test_velocity_keeps_excluded_sprint_visible_and_marked(project: Project) -> 
 
 def test_velocity_delta_skips_excluded_sprint(project: Project) -> None:
     """An excluded sprint never anchors a delta, and carries none itself."""
-    _closed_sprint(project, name="Sprint 0", points_committed=10, points_completed=3,
-                   exclude_from_velocity=True, closed_offset_days=30)
-    _closed_sprint(project, name="S1", points_committed=30, points_completed=20, closed_offset_days=20)
-    _closed_sprint(project, name="S2", points_committed=30, points_completed=26, closed_offset_days=10)
+    _closed_sprint(
+        project,
+        name="Sprint 0",
+        points_committed=10,
+        points_completed=3,
+        exclude_from_velocity=True,
+        closed_offset_days=30,
+    )
+    _closed_sprint(
+        project, name="S1", points_committed=30, points_completed=20, closed_offset_days=20
+    )
+    _closed_sprint(
+        project, name="S2", points_committed=30, points_completed=26, closed_offset_days=10
+    )
     sprints = velocity_summary(project.pk)["sprints"]  # chronological
     by_name = {s["name"]: s for s in sprints}
     # The excluded sprint carries no delta.
@@ -156,8 +184,13 @@ def test_velocity_delta_skips_excluded_sprint(project: Project) -> None:
 
 def test_velocity_all_eligible_excluded_falls_back_to_empty_stats(project: Project) -> None:
     """Excluding every closed sprint yields no computable average (not a crash)."""
-    _closed_sprint(project, name="Sprint 0", points_committed=10, points_completed=3,
-                   exclude_from_velocity=True)
+    _closed_sprint(
+        project,
+        name="Sprint 0",
+        points_committed=10,
+        points_completed=3,
+        exclude_from_velocity=True,
+    )
     summary = velocity_summary(project.pk)
     assert summary["rolling_avg_points"] is None
     assert summary["excluded_count"] == 1
@@ -167,8 +200,13 @@ def test_velocity_all_eligible_excluded_falls_back_to_empty_stats(project: Proje
 def test_velocity_eligible_sprints_predicate_excludes_flagged(project: Project) -> None:
     from trueppm_api.apps.projects.services import velocity_eligible_sprints
 
-    _closed_sprint(project, name="Sprint 0", points_committed=10, points_completed=3,
-                   exclude_from_velocity=True)
+    _closed_sprint(
+        project,
+        name="Sprint 0",
+        points_committed=10,
+        points_completed=3,
+        exclude_from_velocity=True,
+    )
     keep = _closed_sprint(project, name="S1", points_committed=30, points_completed=28)
     eligible = list(velocity_eligible_sprints(project.pk))
     assert eligible == [keep]
@@ -180,11 +218,18 @@ def test_team_velocity_per_day_excludes_flagged_sprint(project: Project) -> None
 
     # A flagged near-zero Sprint 0 plus three healthy sprints. If it leaked in,
     # the per-day average would be dragged down measurably.
-    _closed_sprint(project, name="Sprint 0", points_committed=10, points_completed=1,
-                   exclude_from_velocity=True, closed_offset_days=40)
+    _closed_sprint(
+        project,
+        name="Sprint 0",
+        points_committed=10,
+        points_completed=1,
+        exclude_from_velocity=True,
+        closed_offset_days=40,
+    )
     for i, off in enumerate((30, 20, 10)):
-        _closed_sprint(project, name=f"S{i}", points_committed=30, points_completed=30,
-                       closed_offset_days=off)
+        _closed_sprint(
+            project, name=f"S{i}", points_committed=30, points_completed=30, closed_offset_days=off
+        )
     with_flag = compute_team_velocity_per_day(project.pk)
     # All three eligible sprints completed 30 points over the same window, so the
     # per-day figure must reflect 30-point sprints, not a contaminated mix.
