@@ -50,7 +50,10 @@ The **Lifecycle** page handles a project's end-of-life:
 
 - **Archive / unarchive** — take a project out of active rotation without deleting it.
 - **Transfer ownership** — hand the Owner role to another member.
-- **Delete** — permanently remove the project (Owner only).
+- **Delete** — remove the project (Owner only). Deleting also removes the project's
+  tasks, sprints, risks, and baselines, and the project stops resolving at its URL.
+  Deleting a *program* is different: its projects are detached and kept intact rather
+  than deleted.
 
 The **Integrations** page provides full management of outbound webhooks and
 inbound API tokens — add, edit, test, and delete webhooks (with a format picker

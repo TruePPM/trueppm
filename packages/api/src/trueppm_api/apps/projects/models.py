@@ -761,6 +761,51 @@ class Project(VersionedModel):
     def __str__(self) -> str:
         return self.name
 
+    def soft_delete(self) -> None:
+        """Soft-delete the project and cascade-tombstone its child rows.
+
+        ``VersionedModel.soft_delete`` alone marks only this Project row, leaving
+        tasks, sprints, risks, and baselines orphaned with a stale FK pointing at
+        a deleted project. Those children all filter ``is_deleted=False`` on the
+        child row (not the parent), so an un-cascaded soft-delete leaks orphans
+        into "My Work", capacity rollups, active-sprint velocity math, and
+        portfolio counts. Cascade the soft-delete to each child so sync clients
+        receive proper tombstones and no orphan survives — mirroring
+        ``Task.soft_delete`` (which cascades to its dependency edges and subtasks)
+        and the ``delete_program_cascade`` service.
+
+        Each child goes through its own ``soft_delete`` rather than a bulk update
+        so per-model side effects fire: ``Task.soft_delete`` tombstones dependency
+        edges and subtask children, ``Risk.soft_delete`` emits ``risk_changed``.
+        Project deletes are infrequent, so the per-row cost is acceptable; the
+        whole thing runs inside the request's ATOMIC_REQUESTS transaction. (A
+        large project's cascade is offloaded to a background task in #1112 — for
+        now it runs synchronously.)
+
+        The hard-delete path (``?force=true``) is unaffected — Django's DB-level
+        CASCADE removes children directly; this cascade only governs soft-delete.
+        """
+        # Non-subtask tasks first: Task.soft_delete cascades each task's
+        # dependency edges and its drawer-subtask children, so subtasks are
+        # handled by their parent and must not be visited again here — a stale
+        # in-memory row would double-bump server_version and emit a redundant
+        # tombstone. The trailing sweep catches any subtask orphaned under an
+        # already-deleted parent (a pre-existing anomaly) so none is left live
+        # under the deleted project. No select_for_update: the project is being
+        # deleted, and pessimistically locking the whole task set for the full
+        # transaction is needless contention against concurrent task writes.
+        for task in self.tasks.filter(is_deleted=False, is_subtask=False):
+            task.soft_delete()
+        for orphan_subtask in self.tasks.filter(is_deleted=False):
+            orphan_subtask.soft_delete()
+        for sprint in self.sprints.filter(is_deleted=False):
+            sprint.soft_delete()
+        for risk in self.risks.filter(is_deleted=False):
+            risk.soft_delete()
+        for baseline in self.baselines.filter(is_deleted=False):
+            baseline.soft_delete()
+        super().soft_delete()
+
 
 # ---------------------------------------------------------------------------
 # Task
