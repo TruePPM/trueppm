@@ -245,6 +245,15 @@ async function setupCommon(page: import('@playwright/test').Page) {
           dropped_points: 0,
         },
         retro_summary: null,
+        milestone_slip: {
+          milestone_id: 'm-ga',
+          milestone_name: 'Telemetry GA',
+          milestone_short_id: 'T-200',
+          slip_days: 9,
+          baseline_finish: '2026-05-01',
+          forecast_finish: '2026-05-10',
+          basis: 'forecast',
+        },
       }),
     }),
   );
@@ -325,6 +334,12 @@ test.describe('Wave 10 — Sprints view header', () => {
     const didntShip = page.getByTestId('didnt-ship');
     await expect(didntShip).toContainText('Flaky telemetry retry');
     await expect(didntShip).toContainText('→ Telemetry & FAT prep');
+
+    // #1098: the realized milestone slip pairs the points miss with days-of-slip.
+    const slipLine = page.getByTestId('milestone-slip-line');
+    await expect(slipLine).toContainText('Rolled over 4 pts');
+    await expect(slipLine).toContainText('Telemetry GA');
+    await expect(slipLine).toContainText('+9d vs baseline');
   });
 
   test('edits the sprint goal inline and shows the saved banner (DA-15, #920)', async ({
