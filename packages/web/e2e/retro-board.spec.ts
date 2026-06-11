@@ -97,16 +97,24 @@ test.describe('Live retro board (#851)', () => {
 
     const panel = page.getByRole('region', { name: /Retrospective/i });
     await expect(panel).toBeVisible();
-    // Each column label renders in both the mobile segmented control and the desktop
-    // column header (and "What went well" a third time, as the default-active mobile
-    // column), so assert on the first match rather than tripping strict mode.
-    await expect(panel.getByText('What went well').first()).toBeVisible();
-    await expect(panel.getByText('What to improve').first()).toBeVisible();
-    await expect(panel.getByText('Ideas & discussion').first()).toBeVisible();
+    // The board renders both layouts into the DOM at once and shows one via CSS
+    // (mobile: a segmented control + the single active column; desktop ≥640px: three
+    // columns). The test viewport is desktop, so each label resolves to several nodes
+    // of mixed visibility — assert on the visible (desktop) instance, not a positional
+    // .first() (the mobile section renders first in DOM and is the hidden one).
+    await expect(panel.getByText('What went well').filter({ visible: true })).toBeVisible();
+    await expect(panel.getByText('What to improve').filter({ visible: true })).toBeVisible();
+    await expect(panel.getByText('Ideas & discussion').filter({ visible: true })).toBeVisible();
 
-    // Add a sticky to the first column (desktop column is the first match).
-    await panel.getByRole('button', { name: /\+ Add a card/i }).first().click();
-    await panel.getByRole('textbox', { name: /Add a card to What went well/i }).first()
+    // Add a sticky to the "What went well" column. Each column is a region named by
+    // its label; scope to the visible (desktop) one so the add button and editor
+    // resolve unambiguously to that column.
+    const wentWell = panel
+      .getByRole('region', { name: 'What went well' })
+      .filter({ visible: true });
+    await wentWell.getByRole('button', { name: /\+ Add a card/i }).click();
+    await wentWell
+      .getByRole('textbox', { name: /Add a card to What went well/i })
       .fill('Pairing cut the bug in half');
     await page.keyboard.press('Enter');
 
