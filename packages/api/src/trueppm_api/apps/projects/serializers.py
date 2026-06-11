@@ -3182,6 +3182,10 @@ class SprintOutcomeSerializer(serializers.Serializer[dict[str, Any]]):
     didnt_ship = DidntShipItemSerializer(many=True)
     didnt_ship_summary = serializers.DictField()
     retro_summary = serializers.DictField(allow_null=True)
+    # ADR-0118 (#924): accepted-vs-not breakdown (counts always; *_points ADR-0104
+    # gated), the shipped stories with acceptance + demo flag, and the team's demo
+    # list. DictField (like commitment/velocity) — shape per ``_sprint_review_block``.
+    review = serializers.DictField()
     milestone_slip = MilestoneSlipSerializer(allow_null=True)
 
 

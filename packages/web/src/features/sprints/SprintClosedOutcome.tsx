@@ -1,8 +1,10 @@
 import type { ReactNode } from 'react';
-import type { SprintOutcome } from '@/hooks/useSprints';
+import { useToggleDemo, type ReviewShippedStory, type SprintOutcome } from '@/hooks/useSprints';
 
 interface Props {
   outcome: SprintOutcome;
+  /** True when the requester is Member+ and may curate the demo list (#924). */
+  canCurateDemo?: boolean;
 }
 
 const GOAL_LABEL: Record<string, string> = {
@@ -19,7 +21,7 @@ const GOAL_LABEL: Record<string, string> = {
  * are rendered by the parent (existing components). Every value is server-owned;
  * nothing is derived here.
  */
-export function SprintClosedOutcome({ outcome }: Props) {
+export function SprintClosedOutcome({ outcome, canCurateDemo = false }: Props) {
   const c = outcome.commitment;
   const v = outcome.velocity;
   // #1097: "Rolled over" is the true carried-disposition point sum (the same source
@@ -60,10 +62,164 @@ export function SprintClosedOutcome({ outcome }: Props) {
         </OutcomeCard>
       </div>
 
+      <SprintReviewSection outcome={outcome} canCurate={canCurateDemo} />
       <MilestoneSlipLine outcome={outcome} />
 
       <DidntShipList outcome={outcome} />
     </div>
+  );
+}
+
+/**
+ * Sprint Review (#924, ADR-0118): the accepted-vs-not acceptance breakdown and the
+ * shipped-stories list with a per-story demo toggle. Distinct from the retro — this
+ * is Jordan's acceptance ceremony. Counts are server-owned; the demo list is the
+ * subset the team flagged for the stakeholder walkthrough.
+ */
+function SprintReviewSection({
+  outcome,
+  canCurate,
+}: {
+  outcome: SprintOutcome;
+  canCurate: boolean;
+}) {
+  const r = outcome.review;
+  const toggle = useToggleDemo(outcome.sprint_id);
+
+  return (
+    <div className="rounded-md border border-neutral-border bg-neutral-surface" data-testid="sprint-review">
+      <h3 className="px-3 py-2 text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary border-b border-neutral-border">
+        Sprint review
+      </h3>
+
+      {/* Acceptance breakdown — counts always; points only when readable (ADR-0104). */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2 text-sm border-b border-neutral-border">
+        <span className="text-semantic-on-track font-medium" data-testid="accepted-count">
+          <span aria-hidden="true">✓ </span>
+          {r.accepted_count} accepted
+          {r.accepted_points != null && (
+            <span className="text-neutral-text-secondary font-normal"> ({r.accepted_points} pts)</span>
+          )}
+        </span>
+        <span className="text-semantic-at-risk font-medium" data-testid="not-accepted-count">
+          <span aria-hidden="true">✗ </span>
+          {r.not_accepted_count} not accepted
+          {r.not_accepted_points != null && (
+            <span className="text-neutral-text-secondary font-normal">
+              {' '}
+              ({r.not_accepted_points} pts)
+            </span>
+          )}
+        </span>
+        {r.no_criteria_count > 0 && (
+          <span
+            className="text-neutral-text-secondary"
+            title="Committed stories with no acceptance criteria — a coverage gap to close in refinement."
+          >
+            {r.no_criteria_count} no criteria
+          </span>
+        )}
+      </div>
+
+      {/* Shipped stories + demo curation. */}
+      {r.shipped.length === 0 ? (
+        <p role="status" className="px-3 py-3 text-xs italic text-neutral-text-secondary">
+          No stories shipped this sprint.
+        </p>
+      ) : (
+        <>
+          <div className="px-3 pt-2 text-xs text-neutral-text-secondary">
+            Shipped ({r.shipped.length})
+            {r.demo_list.length > 0 && (
+              <> · <span aria-hidden="true">★ </span>{r.demo_list.length} for demo</>
+            )}
+          </div>
+          <ul className="divide-y divide-neutral-border">
+            {r.shipped.map((s) => (
+              <ShippedRow
+                key={s.outcome_id ?? s.task_short_id}
+                story={s}
+                canCurate={canCurate}
+                pending={toggle.isPending}
+                onToggle={(demoReady) =>
+                  s.outcome_id && toggle.mutate({ outcomeId: s.outcome_id, demoReady })
+                }
+              />
+            ))}
+          </ul>
+        </>
+      )}
+      {toggle.isError && (
+        <p role="alert" className="px-3 py-2 text-xs text-semantic-critical">
+          Couldn&apos;t update the demo list. Please try again.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function ShippedRow({
+  story,
+  canCurate,
+  pending,
+  onToggle,
+}: {
+  story: ReviewShippedStory;
+  canCurate: boolean;
+  pending: boolean;
+  onToggle: (demoReady: boolean) => void;
+}) {
+  const { acceptance: a } = story;
+  const fullyAccepted = a.total > 0 && a.met === a.total;
+  return (
+    <li className="flex items-center gap-3 px-3 py-2 text-sm">
+      <span className="tppm-mono text-xs text-neutral-text-secondary w-16 shrink-0">
+        {story.task_short_id}
+      </span>
+      <span className="flex-1 min-w-0 truncate text-neutral-text-primary">{story.task_title}</span>
+      {/* Acceptance badge — text label, never color alone (WCAG 1.4.1). */}
+      {a.total > 0 ? (
+        <span
+          className={`text-xs shrink-0 ${fullyAccepted ? 'text-semantic-on-track' : 'text-semantic-at-risk'}`}
+          aria-label={`${a.met} of ${a.total} acceptance criteria met${fullyAccepted ? ' — accepted' : ''}`}
+        >
+          <span aria-hidden="true">{fullyAccepted ? '✓ ' : ''}</span>
+          {a.met}/{a.total} criteria
+        </span>
+      ) : (
+        <span className="text-xs text-neutral-text-disabled shrink-0">no criteria</span>
+      )}
+      {story.story_points != null && (
+        <span className="tppm-mono text-xs text-neutral-text-secondary shrink-0">
+          {story.story_points} pts
+        </span>
+      )}
+      {/* Demo toggle (Member+) — or a static marker for read-only viewers. */}
+      {canCurate && story.outcome_id ? (
+        <button
+          type="button"
+          role="switch"
+          aria-checked={story.demo_ready}
+          aria-label={`${story.demo_ready ? 'Remove from' : 'Add to'} demo list: ${story.task_title}`}
+          disabled={pending}
+          onClick={() => onToggle(!story.demo_ready)}
+          className={`shrink-0 h-7 px-2 rounded text-xs font-medium border whitespace-nowrap
+            disabled:opacity-50 disabled:cursor-not-allowed
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+            ${
+              story.demo_ready
+                ? 'border-brand-primary bg-brand-primary/10 text-brand-primary'
+                : 'border-neutral-border text-neutral-text-secondary hover:border-brand-primary hover:text-brand-primary'
+            }`}
+        >
+          <span aria-hidden="true">{story.demo_ready ? '★' : '☆'} </span>Demo
+        </button>
+      ) : story.demo_ready ? (
+        <span className="shrink-0 text-xs text-brand-primary" aria-label="In the demo list">
+          <span aria-hidden="true">★ </span>Demo
+        </span>
+      ) : null}
+    </li>
   );
 }
 

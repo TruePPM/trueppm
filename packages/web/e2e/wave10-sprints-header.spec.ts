@@ -245,6 +245,16 @@ async function setupCommon(page: import('@playwright/test').Page) {
           dropped_points: 0,
         },
         retro_summary: null,
+        // #924 review block — required by the SprintReviewSection (ADR-0118).
+        review: {
+          accepted_count: 2,
+          not_accepted_count: 1,
+          no_criteria_count: 0,
+          accepted_points: 8,
+          not_accepted_points: 3,
+          shipped: [],
+          demo_list: [],
+        },
         milestone_slip: {
           milestone_id: 'm-ga',
           milestone_name: 'Telemetry GA',

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { ROLE_SCHEDULER } from '@/lib/roles';
+import { ROLE_MEMBER, ROLE_SCHEDULER } from '@/lib/roles';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
@@ -546,7 +546,10 @@ export function SprintsView() {
             {selectedSprint.state === 'COMPLETED' && (
               <div className="flex flex-col gap-4">
                 {outcomeQuery.data ? (
-                  <SprintClosedOutcome outcome={outcomeQuery.data} />
+                  <SprintClosedOutcome
+                    outcome={outcomeQuery.data}
+                    canCurateDemo={(currentRole ?? -1) >= ROLE_MEMBER}
+                  />
                 ) : (
                   <ChartSkeleton label="Sprint outcome" />
                 )}

@@ -10,6 +10,7 @@ from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import (
+    AcceptanceCriterion,
     Baseline,
     BaselineTask,
     Calendar,
@@ -963,6 +964,111 @@ def test_outcome_viewer_can_read(viewer_client: APIClient, project: Project) -> 
 def test_outcome_non_member_denied(stranger_client: APIClient, project: Project) -> None:
     s = _make_sprint(project, state=SprintState.COMPLETED)
     resp = stranger_client.get(f"/api/v1/sprints/{s.pk}/outcome/")
+    assert resp.status_code in (403, 404)
+
+
+# ---------------------------------------------------------------------------
+# Sprint Review: accepted-vs-not breakdown + demo list (#924, ADR-0118)
+# ---------------------------------------------------------------------------
+
+
+def _closed_with_review(project: Project) -> tuple[Sprint, SprintTaskOutcome]:
+    """A closed sprint with three shipped stories: one fully accepted (all criteria
+    met), one with an unmet criterion, one with no criteria. Returns the sprint and
+    the accepted story's outcome row (for demo-toggle tests)."""
+    s = _make_sprint(project, state=SprintState.COMPLETED, committed_points=12, completed_points=12)
+
+    def shipped(name: str, pts: int, criteria: list[bool]) -> SprintTaskOutcome:
+        task = Task.objects.create(
+            project=project,
+            name=name,
+            duration=1,
+            sprint=s,
+            status=TaskStatus.COMPLETE,
+            story_points=pts,
+        )
+        for i, met in enumerate(criteria):
+            AcceptanceCriterion.objects.create(task=task, text=f"AC{i}", met=met, position=i)
+        return SprintTaskOutcome.objects.create(
+            sprint=s,
+            task=task,
+            task_short_id=f"T-{name}",
+            task_title=name,
+            story_points=pts,
+            final_status="COMPLETE",
+            disposition="completed",
+        )
+
+    accepted_row = shipped("alpha", 5, [True, True])  # fully accepted
+    shipped("beta", 4, [True, False])  # has criteria, not all met → not_accepted
+    shipped("gamma", 3, [])  # no criteria
+    return s, accepted_row
+
+
+def test_review_accepted_buckets(member_client: APIClient, project: Project) -> None:
+    s, _ = _closed_with_review(project)
+    body = member_client.get(f"/api/v1/sprints/{s.pk}/outcome/").json()
+    r = body["review"]
+    assert r["accepted_count"] == 1
+    assert r["not_accepted_count"] == 1
+    assert r["no_criteria_count"] == 1
+    assert r["accepted_points"] == 5  # MEMBER is in the team band
+    assert r["not_accepted_points"] == 4
+    # shipped[] carries acceptance + the outcome row id for the demo toggle.
+    by_title = {row["task_title"]: row for row in r["shipped"]}
+    assert by_title["alpha"]["acceptance"] == {"met": 2, "total": 2}
+    assert by_title["beta"]["acceptance"] == {"met": 1, "total": 2}
+    assert by_title["gamma"]["acceptance"] == {"met": 0, "total": 0}
+    assert by_title["alpha"]["outcome_id"] is not None
+
+
+def test_review_points_gated_for_management_band(client: APIClient, project: Project) -> None:
+    """OWNER (>= ADMIN) is above velocity's TEAM default → points null, counts stay."""
+    s, _ = _closed_with_review(project)
+    r = client.get(f"/api/v1/sprints/{s.pk}/outcome/").json()["review"]
+    assert r["accepted_count"] == 1  # counts visible
+    assert r["accepted_points"] is None  # gated
+    assert r["not_accepted_points"] is None
+    assert all(row["story_points"] is None for row in r["shipped"])
+
+
+def test_demo_toggle_member_curates_list(member_client: APIClient, project: Project) -> None:
+    s, row = _closed_with_review(project)
+    resp = member_client.post(
+        f"/api/v1/sprint-task-outcomes/{row.pk}/toggle-demo/", {"demo_ready": True}, format="json"
+    )
+    assert resp.status_code == 200, resp.content
+    assert resp.json()["demo_ready"] is True
+    # The outcome read now lists it in the demo list + flags the shipped row.
+    r = member_client.get(f"/api/v1/sprints/{s.pk}/outcome/").json()["review"]
+    assert "T-alpha" in r["demo_list"]
+    assert next(x for x in r["shipped"] if x["task_title"] == "alpha")["demo_ready"] is True
+
+
+def test_demo_toggle_idempotent(member_client: APIClient, project: Project) -> None:
+    _, row = _closed_with_review(project)
+    url = f"/api/v1/sprint-task-outcomes/{row.pk}/toggle-demo/"
+    member_client.post(url, {"demo_ready": True}, format="json")
+    member_client.post(url, {"demo_ready": True}, format="json")
+    row.refresh_from_db()
+    assert row.demo_ready is True
+
+
+def test_demo_toggle_viewer_forbidden(viewer_client: APIClient, project: Project) -> None:
+    _, row = _closed_with_review(project)
+    resp = viewer_client.post(
+        f"/api/v1/sprint-task-outcomes/{row.pk}/toggle-demo/", {"demo_ready": True}, format="json"
+    )
+    assert resp.status_code in (403, 404)
+    row.refresh_from_db()
+    assert row.demo_ready is False
+
+
+def test_demo_toggle_non_member_denied(stranger_client: APIClient, project: Project) -> None:
+    _, row = _closed_with_review(project)
+    resp = stranger_client.post(
+        f"/api/v1/sprint-task-outcomes/{row.pk}/toggle-demo/", {"demo_ready": True}, format="json"
+    )
     assert resp.status_code in (403, 404)
 
 
