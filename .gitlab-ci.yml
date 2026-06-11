@@ -836,13 +836,45 @@ api:testdb-dump:
   # the api:test shards clone each pytest-xdist worker DB from it instead of
   # replaying ~147 migrations per worker (#688, follow-up to #680 sharding).
   # The dump preserves the ltree extension, the wbs_path GiST index, and the
-  # data backfills that `--no-migrations` would skip. Lives in the lint stage so
-  # it overlaps lint/type-check and stays off the critical path — the test stage
-  # consumes its artifact via needs, by which point it has long finished.
+  # data backfills that `--no-migrations` would skip. Runs in the lint stage,
+  # overlapping lint/type-check. Since #1121 trimmed api:test's gates to data
+  # deps only, api:test starts the moment this job's artifact is ready — so this
+  # job IS the api:test start-gate. To keep that gate cheap, the migrate + dump
+  # is cached on a migration-file fingerprint (#1122): on the ~70% of MRs that
+  # touch no migration, the cached dump is reused and the migrate is skipped.
   extends: .api
   stage: lint
   <<: *rules-api
+  cache:
+    # Two caches as a list (a list cache replaces the template's map, so the
+    # inherited pip cache is re-stated). The second entry persists the migrated
+    # schema dump + its fingerprint across pipelines under a static, branch-
+    # agnostic key, so a feature-branch run can reuse a dump built by a recent
+    # main pipeline. Correctness never depends on cache contents — the in-script
+    # fingerprint guard re-migrates on any drift (#1122). Bump -v1 to bust.
+    - <<: *api-cache
+      policy: pull
+    - key: api-testdb-schema-v1
+      paths:
+        - testdb-schema.sql
+        - .testdb-migrations.sha256
   script:
+    # Reuse a cached schema dump when no migration changed (#1122). Fingerprint
+    # every api migration file by content; if it matches the fingerprint saved
+    # next to a cached dump, the schema is identical and we skip the ~150s
+    # migrate + dump (and the #1039 cold-Postgres variance). The guard is
+    # authoritative — a cache miss or any drift (added/edited/deleted migration)
+    # falls through to a full migrate, so correctness never rests on the cache.
+    - |
+      MIG_FP=$(find packages/api/src -path '*/migrations/*.py' -not -name '__init__.py' \
+        | sort | xargs sha256sum | sha256sum | awk '{print $1}')
+      echo "migration fingerprint: $MIG_FP"
+      if [ -f testdb-schema.sql ] && [ -f .testdb-migrations.sha256 ] \
+         && [ "$(cat .testdb-migrations.sha256)" = "$MIG_FP" ]; then
+        echo "migrations unchanged since cached dump — reusing it, skipping migrate+pg_dump"
+        exit 0
+      fi
+      echo "migrations changed or no cached dump — running full migrate + dump"
     # Bootstrap fallback for a stale cached image. The ci-api image bakes
     # postgresql-client-16 (api.Dockerfile), but it ships under the mutable
     # :py3.11 tag, and runners here pull with if-not-present (they disallow
@@ -872,6 +904,9 @@ api:testdb-dump:
     # --no-owner/--no-privileges keep the dump role-portable so it reloads
     # cleanly into the `migrated` template under the same CI role on the shards.
     - pg_dump --no-owner --no-privileges --dbname "$DATABASE_URL" --file "$CI_PROJECT_DIR/testdb-schema.sql"
+    # Persist the fingerprint beside the dump so the next pipeline's guard can
+    # validate the cache. Written at repo root to match the cache: paths above.
+    - echo "$MIG_FP" > "$CI_PROJECT_DIR/.testdb-migrations.sha256"
   artifacts:
     paths:
       - testdb-schema.sql
@@ -881,23 +916,30 @@ api:testdb-dump:
 api:test:
   extends: .api
   stage: test
-  # Sharded across 2 runners with pytest-split; -n auto still fans each shard out
+  # Sharded across 4 runners with pytest-split; -n auto still fans each shard out
   # across that runner's 4 cores, and pytest-django gives every xdist worker its
   # own test DB (test_trueppm_test_gw0, _gw1, …) so isolation is preserved.
-  # pytest-split reads the committed packages/api/.test_durations baseline to
-  # balance the groups by wall-time; the api:test-durations job (manual +
-  # scheduled, #687) regenerates that file. If the baseline is ever missing,
-  # pytest-split falls back to an even test-count split. Each shard emits a
-  # partial coverage
-  # data file (.coverage.<index>); api:coverage combines them into coverage.xml
-  # for the diff-coverage gate and the package soft floor. Mirrors the
-  # web:e2e shard → web:e2e:report stitch pattern.
-  parallel: 2
+  # pytest-split reads the committed packages/api/.test_durations baseline and
+  # rebalances the per-test timings into N groups at runtime, so the same
+  # baseline works for any shard count — bumping 2→4 (#1120) needs no regen,
+  # though the api:test-durations job (manual + scheduled, #687) still refreshes
+  # it. If the baseline is ever missing, pytest-split falls back to an even
+  # test-count split. Each shard emits a partial coverage data file
+  # (.coverage.<index>); api:coverage combines them into coverage.xml for the
+  # diff-coverage gate and the package soft floor. Mirrors the web:e2e shard →
+  # web:e2e:report stitch pattern.
+  parallel: 4
+  # needs lists only api:test's true data dependencies (#1121): the lint gate
+  # (cheap fail-fast, keeps a full sharded run off obviously-broken code) and
+  # the testdb-dump artifact it clones the template DB from. type-check,
+  # migration-check, and openapi-check are independent quality gates — tests
+  # consume none of their output — so they no longer block test start; they run
+  # in parallel and still gate the MR merge. Trade-off: a run can proceed while
+  # one of those gates is failing (rare), spending runner minutes we'd
+  # previously have short-circuited. Worth it — they're the analyze-stage long
+  # poles, and decoupling lets the 4 shards start as soon as testdb-dump lands.
   needs:
     - api:lint
-    - api:type-check
-    - api:migration-check
-    - api:openapi-check
     - job: api:testdb-dump
       artifacts: true
     - job: ci:build-api-image
