@@ -114,8 +114,11 @@ export function EstimatesTab({
 
   return (
     <div className="flex flex-col gap-4">
-      {/* ADR-0065 — velocity-calibration suggestion (PM-only surface). */}
-      {pendingSuggestion && userIsAdmin && (
+      {/* ADR-0065 — velocity-calibration suggestion (PM-only surface).
+          suggested_duration is null when the ADR-0104 velocity gate suppresses it
+          for a below-audience reader (#1099); with no value to revise to, hide the
+          prompt rather than render an empty "suggests d". */}
+      {pendingSuggestion && userIsAdmin && pendingSuggestion.suggested_duration != null && (
         <div
           role="status"
           aria-label="Velocity calibration suggestion"
