@@ -285,6 +285,44 @@ async def test_board_event_forwarded_to_client(user: object, project: Project) -
     assert sent[0]["payload"]["project_finish"] == "2026-06-01"
 
 
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_board_event_on_closed_socket_is_dropped(user: object, project: Project) -> None:
+    """A board.event dispatched after the socket closed is swallowed, not raised.
+
+    Reproduces the fanout/disconnect race: a group_send reaches the channel
+    after the client disconnected, so the underlying send_json raises the ASGI
+    'send after close' RuntimeError. board_event must drop it rather than let it
+    bubble up as an unhandled ASGI application exception.
+    """
+    from trueppm_api.apps.sync.consumers import ProjectConsumer
+
+    scope = _make_scope(str(project.pk), token="valid.token")
+    consumer = ProjectConsumer()
+    consumer.scope = scope
+    consumer.channel_layer = AsyncMock()
+    consumer.channel_name = "test.channel"
+    consumer.group_name = f"project_{project.pk}"
+    consumer.project_pk = str(project.pk)
+
+    async def _send_json_closed(content: dict, close: bool = False) -> None:
+        raise RuntimeError(
+            "Unexpected ASGI message 'websocket.send', after sending "
+            "'websocket.close' or response already completed."
+        )
+
+    consumer.send_json = _send_json_closed  # type: ignore[method-assign]
+
+    event = {
+        "type": "board.event",
+        "event_type": "cpm_complete",
+        "payload": {"project_finish": "2026-06-01"},
+    }
+
+    # Must not raise — the stale event is dropped.
+    await consumer.board_event(event)
+
+
 # ---------------------------------------------------------------------------
 # Presence — join and leave broadcasts (#7)
 # ---------------------------------------------------------------------------
