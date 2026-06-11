@@ -132,6 +132,7 @@ FROZEN_WS_EVENT_TYPES = frozenset(
         "comment_created",
         "cpm_complete",
         "cpm_error",
+        "demo_toggled",
         "dependency_created",
         "dependency_deleted",
         "dependency_updated",

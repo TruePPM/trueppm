@@ -2936,7 +2936,7 @@ class AcceptanceCriterionViewSet(IdempotencyMixin, viewsets.ModelViewSet[Accepta
         transaction.on_commit(lambda: broadcast_board_event(pid, "task_updated", {"id": tid}))
 
 
-class SprintTaskOutcomeViewSet(viewsets.GenericViewSet[SprintTaskOutcome]):
+class SprintTaskOutcomeViewSet(IdempotencyMixin, viewsets.GenericViewSet[SprintTaskOutcome]):
     """Review-time curation of the demo-ready flag on a closing-membership row (ADR-0118).
 
     Flat route ``/api/v1/sprint-task-outcomes/<pk>/toggle-demo/``. The team curates
