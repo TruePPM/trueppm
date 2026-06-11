@@ -7,13 +7,16 @@ import os
 import re
 import uuid
 from datetime import date
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import timezone
 from rest_framework import serializers
 from trueppm_scheduler import find_cycle
+
+if TYPE_CHECKING:
+    from trueppm_api.apps.workspace.models import Workspace
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import (
@@ -143,6 +146,10 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
     # ``lead`` is unset. The write side stays on the plain ``lead`` UUID field —
     # ``lead_detail`` is response-only. Mirrors ``ProgramSerializer`` (#966).
     lead_detail = _UserSummarySerializer(source="lead", read_only=True)
+    # Server-resolved iteration-container label (ADR-0116, #1106): project override
+    # ?? program override ?? workspace default ?? "Sprint". Clients read THIS, not the
+    # raw nullable ``iteration_label`` override — so web/mobile/MCP share one value.
+    effective_iteration_label = serializers.SerializerMethodField()
 
     class Meta:
         model = Project
@@ -166,9 +173,12 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             # Product-backlog prioritization model (ADR-0105 §3). Admin+-gated write,
             # enforced in ProjectViewSet alongside estimation_mode.
             "prioritization_model",
-            # Iteration-container display label (ADR-0111, #862). Admin+-gated write
-            # by the allowlist default (not in _SCHEDULER_WRITABLE_FIELDS). Display-only.
+            # Iteration-container display label OVERRIDE (ADR-0111/0116). Nullable:
+            # NULL = inherit program/workspace. Admin+-gated write by the allowlist
+            # default (not in _SCHEDULER_WRITABLE_FIELDS).
             "iteration_label",
+            # Read-only server-resolved effective label (ADR-0116) — what clients render.
+            "effective_iteration_label",
             "program",
             "member_count",
             "percent_complete",
@@ -181,6 +191,7 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "id",
             "server_version",
             "lead_detail",
+            "effective_iteration_label",
             "is_archived",
             "archived_at",
             "archived_by",
@@ -321,20 +332,44 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
     # until deliberately added here (#769; ADR-0041 estimation governance).
     _SCHEDULER_WRITABLE_FIELDS = frozenset({"methodology", "estimation_mode"})
 
-    def validate_iteration_label(self, value: str) -> str:
-        """Strip and require a non-empty container label (ADR-0111, #862).
+    def validate_iteration_label(self, value: str | None) -> str | None:
+        """Strip the override, or clear it to inherit (ADR-0111/0116).
 
-        The DB default is "Sprint"; an empty/whitespace label would erase the
-        word entirely across every UI surface, so reject it rather than store it.
-        ``max_length=32`` is enforced by the model field — a longer noun breaks
-        tab/heading layouts.
+        ``None`` clears the override so the project inherits the program/workspace
+        label (ADR-0116) — the "use inherited" affordance PATCHes ``null``. A
+        non-null but *empty/whitespace* string is still rejected: it would erase the
+        word across every UI surface, and "inherit" already has an explicit
+        representation (null). ``max_length=32`` is enforced by the model field.
         """
+        if value is None:
+            return None
         stripped = value.strip()
         if not stripped:
             raise serializers.ValidationError(
-                "Enter a label for the iteration container (e.g. Sprint, Iteration, PI)."
+                "Enter a label for the iteration container (e.g. Sprint, Iteration, PI), "
+                "or clear it to inherit the program/workspace default."
             )
         return stripped
+
+    def get_effective_iteration_label(self, obj: Project) -> str:
+        from .iteration_label import resolve_effective_iteration_label
+
+        return resolve_effective_iteration_label(obj, workspace=self._iteration_workspace())
+
+    def _iteration_workspace(self) -> Workspace:
+        """Load the Workspace singleton once per serializer instance.
+
+        A list of N projects then resolves its effective labels with a single
+        Workspace query, not N (ADR-0116 perf note; ``program`` is select_related
+        in the viewset so the program tier adds no per-row query either).
+        """
+        ws = getattr(self, "_ws_cache", None)
+        if ws is None:
+            from trueppm_api.apps.workspace.models import Workspace
+
+            ws = Workspace.load()
+            self._ws_cache = ws
+        return ws
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         """Field-level governance for edits below Admin (#769).
@@ -407,6 +442,9 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             "description",
             "code",
             "methodology",
+            # Iteration-container label override for the program (ADR-0116, #1106).
+            # Nullable: NULL = inherit the workspace default.
+            "iteration_label",
             "health",
             "visibility",
             "color",
@@ -452,6 +490,22 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
         # Backed by the viewset's ``_is_sample`` annotation (Exists over
         # is_sample projects); defensive False when the annotation is absent.
         return bool(getattr(obj, "_is_sample", False))
+
+    def validate_iteration_label(self, value: str | None) -> str | None:
+        """Strip the program override, or clear it to inherit the workspace (ADR-0116).
+
+        ``None`` clears the override (inherit); a non-null empty/whitespace string is
+        rejected — "inherit" already has an explicit representation (null).
+        """
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped:
+            raise serializers.ValidationError(
+                "Enter a label for the iteration container, or clear it to inherit "
+                "the workspace default."
+            )
+        return stripped
 
     def validate_lead(self, value: Any) -> Any:
         """Lead must hold an active ProgramMembership on this program.

@@ -101,6 +101,22 @@ def _default_work_week() -> list[bool]:
     return [True, True, True, True, True, False, False]
 
 
+class TermOverridePolicy(models.TextChoices):
+    """How a workspace terminology default cascades to programs/projects (ADR-0116).
+
+    OSS honors ``INHERIT`` and ``SUGGEST`` identically as "lower levels may
+    override" — they differ only in whether the workspace default pre-fills a new
+    project's create form. ``ENFORCE`` (locking the term so a program/project
+    cannot override it) is an Enterprise capability: in the community edition it
+    degrades to ``SUGGEST`` (no-op) unless a terminology-enforcement provider is
+    registered (``apps.projects.iteration_label``, ``trueppm-enterprise#154``).
+    """
+
+    INHERIT = "inherit", "Inherit"
+    SUGGEST = "suggest", "Suggest"
+    ENFORCE = "enforce", "Enforce"
+
+
 class Workspace(models.Model):
     """Singleton installation-wide configuration (#517).
 
@@ -136,6 +152,18 @@ class Workspace(models.Model):
     default_project_view = models.CharField(max_length=32, default="board")
     allow_guests = models.BooleanField(default=True)
     public_sharing = models.BooleanField(default=False)
+    # Iteration-container label default for the whole workspace (ADR-0116, #1106) —
+    # the non-null root of the Workspace → Program → Project inheritance chain. A
+    # program/project whose own override is NULL resolves up to this value.
+    # Display-only (ADR-0038/0111); never gates tabs, routes, or CPM.
+    iteration_label = models.CharField(max_length=32, default="Sprint")
+    # INHERIT/SUGGEST (OSS) allow lower-level overrides; ENFORCE (Enterprise) locks
+    # the term downstream and is a no-op in the community edition (ADR-0116).
+    iteration_label_override_policy = models.CharField(
+        max_length=16,
+        choices=TermOverridePolicy.choices,
+        default=TermOverridePolicy.SUGGEST,
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

@@ -24,8 +24,11 @@ export function useIterationLabel(projectId?: string | null): IterationLabelForm
   const routeProjectId = useProjectId();
   const id = projectId ?? routeProjectId;
   const { data } = useProject(id);
-  return useMemo(
-    () => iterationLabelForms(data?.iteration_label ?? DEFAULT_ITERATION_LABEL),
-    [data?.iteration_label],
-  );
+  // Read the server-resolved effective label (ADR-0116, #1106) — the workspace →
+  // program → project inheritance is computed server-side, so the client never
+  // re-derives precedence. Falls back to the raw override then the "Sprint" default
+  // while the project query is loading or on a pre-#1106 payload.
+  const effective =
+    data?.effective_iteration_label ?? data?.iteration_label ?? DEFAULT_ITERATION_LABEL;
+  return useMemo(() => iterationLabelForms(effective), [effective]);
 }

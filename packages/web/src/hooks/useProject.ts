@@ -36,11 +36,18 @@ export interface ApiProjectDetail {
   /** Read-only nested user payload for the lead — null when `lead` is null (#966). */
   lead_detail: { id: string; username: string; email: string } | null;
   /**
-   * Display noun for the iteration container (ADR-0111, #862): "Sprint" (default),
-   * "Iteration", "PI", or a custom string. Display-only — never gates behavior.
-   * Stored singular; derive plural/possessive via `useIterationLabel` / `iterationLabelForms`.
+   * Iteration-container label OVERRIDE for this project (ADR-0111/0116). NULL =
+   * inherit the program/workspace default. Display-only — never gates behavior.
+   * To render the label use `useIterationLabel` (which reads the resolved value
+   * below), not this raw override.
    */
-  iteration_label: string;
+  iteration_label: string | null;
+  /**
+   * Server-resolved effective label (ADR-0116, #1106): project override ??
+   * program override ?? workspace default ?? "Sprint". This is the single value
+   * clients render — the inheritance precedence lives on the server, not here.
+   */
+  effective_iteration_label: string;
   /** Lifecycle (#530) — archived projects are hard read-only across all writes. */
   is_archived: boolean;
   archived_at: string | null;
