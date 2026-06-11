@@ -17,14 +17,18 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import date, timedelta
 from pathlib import Path
 
-KICKOFF = date(2026, 1, 5)
+# Anchor-relative dates (ADR-0114, seed v2). Dates are emitted as offsets from
+# the import-day anchor "A" so each demo always reads as a program in flight; the
+# event-replay importer synthesizes the backdated history (status moves, burndown,
+# velocity) up to "today". ANCHOR_OFFSET places "today" ~90 days in: early work is
+# done, later work is still ahead. These samples span ~100 days.
+ANCHOR_OFFSET = 90
 
 
 def d(offset: int) -> str:
-    return (KICKOFF + timedelta(days=offset)).isoformat()
+    return f"A{offset - ANCHOR_OFFSET:+d}"
 
 
 def three_point(ml: int) -> dict:
@@ -60,11 +64,13 @@ def build_aurora() -> dict:
     people = [
         ("priya", "Priya Nair", "OWNER"),
         ("sam", "Sam Okafor", "ADMIN"),
+        ("raj", "Raj Mehta", "SCHEDULER"),
         ("mei", "Mei Tanaka", "MEMBER"),
         ("diego", "Diego Santos", "MEMBER"),
         ("nadia", "Nadia Hassan", "MEMBER"),
         ("tom", "Tom Becker", "MEMBER"),
         ("clara", "Clara Mendes", "MEMBER"),
+        ("ada", "Ada Boyega", "VIEWER"),
     ]
     devs = ["mei", "diego", "nadia", "tom"]
 
@@ -150,7 +156,7 @@ def build_aurora() -> dict:
         )
 
     return {
-        "schema_version": "1.0",
+        "schema_version": "2.0",
         "program": {
             "slug": "aurora-mobile-app",
             "name": "Aurora Mobile App",
@@ -160,15 +166,35 @@ def build_aurora() -> dict:
             "lead": "priya",
         },
         "accounts": _accounts([(ns, p) for p in people]),
+        "calendars": [
+            {"slug": "aurora-core", "name": "Aurora core hours", "working_days": 31},
+            {
+                "slug": "aurora-flex",
+                "name": "Aurora advisor (Mon/Wed/Fri)",
+                "working_days": 21,
+                "hours_per_day": 6.0,
+            },
+        ],
+        # Capacity profiles (#621): full-time devs, a part-time Scrum Master, and
+        # a 10% advisor on a non-default 3-day calendar.
         "resources": [
-            {"slug": s, "name": dn, "job_role": role, "max_units": 1.0, "account": s}
-            for s, dn, role in [
-                ("priya", "Priya Nair", "Product Owner"),
-                ("sam", "Sam Okafor", "Scrum Master"),
-                ("mei", "Mei Tanaka", "Engineer"),
-                ("diego", "Diego Santos", "Engineer"),
-                ("nadia", "Nadia Hassan", "Engineer"),
-                ("tom", "Tom Becker", "QA Engineer"),
+            {
+                "slug": s,
+                "name": dn,
+                "job_role": role,
+                "max_units": u,
+                "calendar": cal,
+                "account": s,
+            }
+            for s, dn, role, u, cal in [
+                ("priya", "Priya Nair", "Product Owner", 1.0, "aurora-core"),
+                ("sam", "Sam Okafor", "Scrum Master", 0.5, "aurora-core"),
+                ("raj", "Raj Mehta", "Delivery Scheduler", 1.0, "aurora-core"),
+                ("mei", "Mei Tanaka", "Engineer", 1.0, "aurora-core"),
+                ("diego", "Diego Santos", "Engineer", 1.0, "aurora-core"),
+                ("nadia", "Nadia Hassan", "Engineer", 1.0, "aurora-core"),
+                ("tom", "Tom Becker", "QA Engineer", 1.0, "aurora-core"),
+                ("ada", "Ada Boyega", "Accessibility Advisor", 0.1, "aurora-flex"),
             ]
         ],
         "projects": [
@@ -177,6 +203,7 @@ def build_aurora() -> dict:
                 "name": "Aurora App",
                 "methodology": "AGILE",
                 "start_date": d(0),
+                "calendar": "aurora-core",
                 "default_view": "BOARD",
                 "agile_features": True,
                 "board_columns": [
@@ -188,6 +215,55 @@ def build_aurora() -> dict:
                 ],
                 "tasks": tasks,
                 "sprints": sprints,
+                "risks": [
+                    {
+                        "slug": "scope-creep",
+                        "title": "Stakeholder scope creep on the launch increment",
+                        "description": "New 'must-have' stories keep arriving mid-sprint, threatening the goal.",
+                        "status": "OPEN",
+                        "probability": 4,
+                        "impact": 3,
+                        "category": "ORGANIZATIONAL",
+                        "response": "MITIGATE",
+                        "owner": "priya",
+                        "tasks": ["8", "19"],
+                    },
+                    {
+                        "slug": "external-api",
+                        "title": "Push/notifications vendor API instability",
+                        "description": "The third-party messaging API has had two outages this quarter.",
+                        "status": "MITIGATING",
+                        "probability": 3,
+                        "impact": 4,
+                        "category": "EXTERNAL",
+                        "response": "MITIGATE",
+                        "owner": "sam",
+                        "tasks": ["2", "12"],
+                    },
+                    {
+                        "slug": "key-person",
+                        "title": "Biometric-auth expertise concentrated in one engineer",
+                        "status": "OPEN",
+                        "probability": 2,
+                        "impact": 4,
+                        "category": "ORGANIZATIONAL",
+                        "response": "ACCEPT",
+                        "owner": "priya",
+                        "tasks": ["5"],
+                    },
+                    {
+                        "slug": "store-review",
+                        "title": "App-store review rejection delays release",
+                        "status": "RESOLVED",
+                        "probability": 2,
+                        "impact": 3,
+                        "category": "EXTERNAL",
+                        "response": "MITIGATE",
+                        "owner": "sam",
+                        "notes": "Pre-review checklist added; first submission approved on time.",
+                        "tasks": ["20"],
+                    },
+                ],
             }
         ],
     }
@@ -317,7 +393,7 @@ def build_bayside() -> dict:
             cursor += max(ml, 1)
 
     return {
-        "schema_version": "1.0",
+        "schema_version": "2.0",
         "program": {
             "slug": "bayside-civic-center",
             "name": "Bayside Civic Center Construction",
@@ -333,9 +409,11 @@ def build_bayside() -> dict:
                 for p in [
                     ("sam", "Sam Okafor", "OWNER"),
                     ("diego", "Diego Santos", "ADMIN"),
+                    ("raj", "Raj Mehta", "SCHEDULER"),
                     ("tom", "Tom Becker", "MEMBER"),
                     ("nadia", "Nadia Hassan", "MEMBER"),
                     ("omar", "Omar Aziz", "MEMBER"),
+                    ("ada", "Ada Boyega", "VIEWER"),
                 ]
             ]
         ),
@@ -393,6 +471,22 @@ def build_bayside() -> dict:
                 "job_role": "Inspector",
                 "max_units": 0.5,
                 "account": "omar",
+                "calendar": "site",
+            },
+            {
+                "slug": "raj",
+                "name": "Raj Mehta",
+                "job_role": "Project Scheduler",
+                "max_units": 1.0,
+                "account": "raj",
+                "calendar": "site",
+            },
+            {
+                "slug": "ada",
+                "name": "Ada Boyega",
+                "job_role": "Owner's Rep (advisor)",
+                "max_units": 0.1,
+                "account": "ada",
                 "calendar": "site",
             },
         ],
@@ -457,6 +551,98 @@ def build_bayside() -> dict:
                         "response": "MITIGATE",
                         "owner": "tom",
                         "tasks": ["2.3"],
+                    },
+                    {
+                        "slug": "permit-delay",
+                        "title": "Building permit approval slips",
+                        "description": "The municipal permit office is running 3 weeks behind; gates site prep sign-off.",
+                        "status": "MITIGATING",
+                        "probability": 3,
+                        "impact": 5,
+                        "category": "EXTERNAL",
+                        "response": "MITIGATE",
+                        "owner": "sam",
+                        "tasks": ["1.4"],
+                    },
+                    {
+                        "slug": "design-change",
+                        "title": "Owner-requested design change order",
+                        "status": "OPEN",
+                        "probability": 3,
+                        "impact": 4,
+                        "category": "PROJECT_MANAGEMENT",
+                        "response": "MITIGATE",
+                        "owner": "diego",
+                        "tasks": ["3.1"],
+                    },
+                    {
+                        "slug": "soil-conditions",
+                        "title": "Unexpected soil conditions at excavation",
+                        "status": "CLOSED",
+                        "probability": 2,
+                        "impact": 4,
+                        "category": "TECHNICAL",
+                        "response": "ACCEPT",
+                        "owner": "tom",
+                        "notes": "Geotech survey confirmed bearing capacity; no remediation needed.",
+                        "tasks": ["2.1"],
+                    },
+                    {
+                        "slug": "subcontractor-default",
+                        "title": "MEP subcontractor financial risk",
+                        "description": "Primary MEP sub is over-extended; default would strand the rough-in.",
+                        "status": "OPEN",
+                        "probability": 2,
+                        "impact": 5,
+                        "category": "EXTERNAL",
+                        "response": "TRANSFER",
+                        "owner": "sam",
+                        "tasks": ["4.4"],
+                    },
+                    {
+                        "slug": "electrical-inspection",
+                        "title": "Electrical rough-in inspection rework",
+                        "status": "MITIGATING",
+                        "probability": 3,
+                        "impact": 3,
+                        "category": "TECHNICAL",
+                        "response": "MITIGATE",
+                        "owner": "nadia",
+                        "tasks": ["4.2"],
+                    },
+                    {
+                        "slug": "material-escalation",
+                        "title": "Steel & concrete price escalation",
+                        "status": "ACCEPTED",
+                        "probability": 4,
+                        "impact": 3,
+                        "category": "EXTERNAL",
+                        "response": "ACCEPT",
+                        "owner": "omar",
+                        "tasks": ["3.2"],
+                    },
+                    {
+                        "slug": "crane-availability",
+                        "title": "Tower crane scheduling conflict",
+                        "status": "RESOLVED",
+                        "probability": 2,
+                        "impact": 3,
+                        "category": "ORGANIZATIONAL",
+                        "response": "MITIGATE",
+                        "owner": "tom",
+                        "notes": "Crane window booked and confirmed for the structural phase.",
+                        "tasks": ["3.3"],
+                    },
+                    {
+                        "slug": "commissioning-delay",
+                        "title": "Building-systems commissioning slips occupancy",
+                        "status": "OPEN",
+                        "probability": 3,
+                        "impact": 4,
+                        "category": "TECHNICAL",
+                        "response": "MITIGATE",
+                        "owner": "diego",
+                        "tasks": ["5.2"],
                     },
                 ],
             }
@@ -603,7 +789,7 @@ def build_helios() -> dict:
     deps.append({"predecessor": "1.5", "successor": "2.17", "dep_type": "FS", "lag": 0})
 
     return {
-        "schema_version": "1.0",
+        "schema_version": "2.0",
         "program": {
             "slug": "helios-crm-replacement",
             "name": "Helios CRM Replacement",
@@ -619,19 +805,32 @@ def build_helios() -> dict:
                 for p in [
                     ("jordan", "Jordan Blake", "OWNER"),
                     ("ivan", "Ivan Petrov", "ADMIN"),
+                    ("raj", "Raj Mehta", "SCHEDULER"),
                     ("mei", "Mei Tanaka", "MEMBER"),
                     ("nadia", "Nadia Hassan", "MEMBER"),
+                    ("ada", "Ada Boyega", "VIEWER"),
                 ]
             ]
         ),
+        "calendars": [
+            {"slug": "helios-core", "name": "Helios core hours", "working_days": 31},
+            {
+                "slug": "helios-advisor",
+                "name": "Helios advisor (Tue/Thu)",
+                "working_days": 10,
+                "hours_per_day": 6.0,
+            },
+        ],
+        # Capacity profiles (#621): full-time engineers, a part-time architect who
+        # advises through build, and a 10% executive advisor on a 2-day calendar.
         "resources": [
-            # the architect is full-time in planning, then a 10% advisor in build
             {
                 "slug": "ivan",
                 "name": "Ivan Petrov",
                 "job_role": "Solutions Architect",
-                "max_units": 1.0,
+                "max_units": 0.5,
                 "account": "ivan",
+                "calendar": "helios-core",
             },
             {
                 "slug": "jordan",
@@ -639,6 +838,15 @@ def build_helios() -> dict:
                 "job_role": "Product Owner",
                 "max_units": 1.0,
                 "account": "jordan",
+                "calendar": "helios-core",
+            },
+            {
+                "slug": "raj",
+                "name": "Raj Mehta",
+                "job_role": "Delivery Scheduler",
+                "max_units": 1.0,
+                "account": "raj",
+                "calendar": "helios-core",
             },
             {
                 "slug": "mei",
@@ -646,6 +854,23 @@ def build_helios() -> dict:
                 "job_role": "Engineer",
                 "max_units": 1.0,
                 "account": "mei",
+                "calendar": "helios-core",
+            },
+            {
+                "slug": "nadia",
+                "name": "Nadia Hassan",
+                "job_role": "Engineer",
+                "max_units": 1.0,
+                "account": "nadia",
+                "calendar": "helios-core",
+            },
+            {
+                "slug": "ada",
+                "name": "Ada Boyega",
+                "job_role": "Executive Advisor",
+                "max_units": 0.1,
+                "account": "ada",
+                "calendar": "helios-advisor",
             },
         ],
         "projects": [
@@ -654,6 +879,7 @@ def build_helios() -> dict:
                 "name": "Helios CRM",
                 "methodology": "HYBRID",
                 "start_date": d(0),
+                "calendar": "helios-core",
                 "default_view": "OVERVIEW",
                 "agile_features": True,
                 "tasks": tasks,
@@ -681,6 +907,41 @@ def build_helios() -> dict:
                         "response": "MITIGATE",
                         "owner": "mei",
                         "tasks": ["2.17"],
+                    },
+                    {
+                        "slug": "integration-defects",
+                        "title": "CRM integration mapping defects (realized)",
+                        "description": "Realized in the build phase: the integration suite found mapping defects.",
+                        "status": "RESOLVED",
+                        "probability": 4,
+                        "impact": 4,
+                        "category": "TECHNICAL",
+                        "response": "MITIGATE",
+                        "owner": "mei",
+                        "notes": "Realized: 3 field-mapping defects found in sprint 2; fixed, cost ~4 days of rework.",
+                        "tasks": ["2.8"],
+                    },
+                    {
+                        "slug": "scope-injection",
+                        "title": "Late requirements injected into the build sprints",
+                        "status": "OPEN",
+                        "probability": 3,
+                        "impact": 3,
+                        "category": "PROJECT_MANAGEMENT",
+                        "response": "MITIGATE",
+                        "owner": "jordan",
+                        "tasks": ["2.12"],
+                    },
+                    {
+                        "slug": "team-ramp",
+                        "title": "Build-team ramp-up on the new stack",
+                        "status": "ACCEPTED",
+                        "probability": 2,
+                        "impact": 3,
+                        "category": "ORGANIZATIONAL",
+                        "response": "ACCEPT",
+                        "owner": "ivan",
+                        "tasks": ["2.1"],
                     },
                 ],
             }
