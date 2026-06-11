@@ -19,9 +19,10 @@ likewise deferred to ``transaction.on_commit``.
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import date, datetime, timedelta
 from functools import partial
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
@@ -41,6 +42,12 @@ from trueppm_api.apps.projects.models import (
     Sprint,
     Task,
 )
+from trueppm_api.apps.projects.seed.reldates import (
+    WorkingCalendar,
+    resolve_anchor,
+    resolve_date,
+)
+from trueppm_api.apps.projects.seed.replay import ReplayContext, replay_timeline
 from trueppm_api.apps.projects.seed.validation import validate_seed
 from trueppm_api.apps.resources.models import Resource, TaskResource
 from trueppm_api.apps.resources.services import ensure_project_resource
@@ -94,15 +101,6 @@ def import_seed(
     return program
 
 
-def _parse_date(value: str | None) -> date | None:
-    return date.fromisoformat(value) if value else None
-
-
-def _req_date(value: str) -> date:
-    """Parse a schema-required date (validation guarantees it is present)."""
-    return date.fromisoformat(value)
-
-
 class _SeedImporter:
     """Holds the per-import symbol tables while materializing a seed document."""
 
@@ -125,6 +123,17 @@ class _SeedImporter:
         # global task / sprint indices keyed by (project_slug, local_id)
         self.tasks: dict[tuple[str, str], Task] = {}
         self.sprints: dict[tuple[str, str], Sprint] = {}
+        # v2 (ADR-0114): relative dates resolve against an anchor (import day),
+        # and an events timeline is replayed with backdated history. v1 docs set
+        # the major to "1", so replay is off and dates are plain ISO literals.
+        self.replay = str(payload.get("schema_version", "")).split(".")[0] == "2"
+        self.anchor: date = resolve_anchor(payload, date.today())
+        self.working_calendars: dict[str, WorkingCalendar] = {}
+        self.risks_by_slug: dict[str, Risk] = {}
+        # Desired END states for replay — tasks/sprints are created at a base
+        # state and walked forward to these by the timeline + synthesizer.
+        self.final_status: dict[tuple[str, str], str] = {}
+        self.final_sprint: dict[tuple[str, str], dict[str, Any]] = {}
 
     def run(self) -> Program:
         self._replace_existing()
@@ -151,6 +160,13 @@ class _SeedImporter:
 
         self._create_program_risks(program)
 
+        # Pass C (v2 only): replay the events timeline + synthesized fill so the
+        # demo reads as a program that has run for months — backdated history,
+        # real burndown/velocity, scope-injection audit. Runs inside this same
+        # transaction under the seed_replay flag (side effects suppressed).
+        if self.replay:
+            replay_timeline(self.payload, self._replay_context())
+
         project_ids = [str(p.pk) for p in self.projects.values()]
         # Seeded tasks have no CPM dates; recompute so the schedule renders.
         # Both effects are deferred to post-commit so they never fire on a
@@ -161,6 +177,74 @@ class _SeedImporter:
                 partial(broadcast_board_event, pid, "project_created", {"id": pid})
             )
         return program
+
+    # --- v2 date resolution + replay --------------------------------------
+
+    def _build_working_calendar(self, cal: Calendar | None) -> WorkingCalendar:
+        """Calendar facts for weekend-snapping: bitmask + materialized exceptions."""
+        if cal is None:
+            return WorkingCalendar()
+        exc: set[date] = set()
+        for e in cal.exceptions.all()[:500]:
+            d = e.exc_start
+            while d <= e.exc_end and len(exc) < 5000:
+                exc.add(d)
+                d += timedelta(days=1)
+        try:
+            tz = ZoneInfo(cal.timezone) if cal.timezone else ZoneInfo("UTC")
+        except Exception:
+            tz = ZoneInfo("UTC")
+        return WorkingCalendar(working_days=cal.working_days, exception_dates=frozenset(exc), tz=tz)
+
+    def _wc(self, project_slug: str | None) -> WorkingCalendar:
+        if project_slug is None:
+            return WorkingCalendar()
+        return self.working_calendars.get(project_slug) or WorkingCalendar()
+
+    def _date(self, value: str, project_slug: str | None) -> date:
+        """Resolve a required seed date. v1 ISO literals pass straight through."""
+        return resolve_date(value, anchor=self.anchor, calendar=self._wc(project_slug))
+
+    def _date_opt(self, value: str | None, project_slug: str | None) -> date | None:
+        return self._date(value, project_slug) if value else None
+
+    def _creation_dt(self, when: date) -> datetime:
+        """A backdated creation timestamp (UTC 09:00) for replay history rows."""
+        return datetime(when.year, when.month, when.day, 9, 0, tzinfo=ZoneInfo("UTC"))
+
+    def _save_new(self, instance: Any, created_on: date) -> Any:
+        """Insert ``instance``, backdating its creation history row under replay.
+
+        Under v2 replay the creation row is dated to when the entity came into
+        being (its window/sprint start), not import time, so the History tab and
+        activity timeline read chronologically. v1 import saves normally.
+        """
+        if self.replay:
+            instance._history_date = self._creation_dt(created_on)
+            instance._history_user = self.owner
+        instance.save()
+        return instance
+
+    def _replay_context(self) -> ReplayContext:
+        lead_project = next(iter(self.projects.values()), None)
+        try:
+            tz = ZoneInfo(getattr(lead_project, "timezone", "") or "UTC")
+        except Exception:
+            tz = ZoneInfo("UTC")
+        return ReplayContext(
+            anchor=self.anchor,
+            program_code=self.payload["program"]["slug"],
+            default_actor=self.owner,
+            users=self.users,
+            tasks=self.tasks,
+            sprints=self.sprints,
+            projects=self.projects,
+            project_calendars=self.working_calendars,
+            risks=self.risks_by_slug,
+            final_status=self.final_status,
+            final_sprint=self.final_sprint,
+            tz=tz,
+        )
 
     # --- idempotency -------------------------------------------------------
 
@@ -313,12 +397,17 @@ class _SeedImporter:
     # --- per-project structure (Pass A) ------------------------------------
 
     def _create_project_structure(self, program: Program, data: dict[str, Any]) -> None:
+        slug = data["slug"]
+        calendar = self.calendars.get(data["calendar"]) if data.get("calendar") else None
+        # Build the working-calendar facts first so relative dates snap against
+        # this project's calendar (weekends + exceptions).
+        self.working_calendars[slug] = self._build_working_calendar(calendar)
         project = Project.objects.create(
             program=program,
             name=data["name"],
             description=data.get("description", ""),
-            start_date=_req_date(data["start_date"]),
-            calendar=self.calendars.get(data["calendar"]) if data.get("calendar") else None,
+            start_date=self._date(data["start_date"], slug),
+            calendar=calendar,
             methodology=data["methodology"],
             code=data.get("code", ""),
             default_view=data.get("default_view", "SCHEDULE"),
@@ -329,28 +418,40 @@ class _SeedImporter:
             # work on a later reload (#994).
             is_sample=self.is_sample,
         )
-        self.projects[data["slug"]] = project
+        self.projects[slug] = project
         ProjectMembership.objects.update_or_create(
             project=project, user=self.owner, defaults={"role": Role.OWNER}
         )
 
         for sprint_data in data.get("sprints", []):
-            sprint = Sprint.objects.create(
+            start = self._date(sprint_data["start_date"], slug)
+            finish = self._date(sprint_data["finish_date"], slug)
+            # Under replay the sprint is born PLANNED and walked to its end state
+            # by activate/close beats (authored or synthesized); points are
+            # snapshotted at those beats. v1 import sets the end state directly.
+            sprint = Sprint(
                 project=project,
                 name=sprint_data["name"],
                 goal=sprint_data.get("goal", ""),
                 notes=sprint_data.get("notes", ""),
-                start_date=_req_date(sprint_data["start_date"]),
-                finish_date=_req_date(sprint_data["finish_date"]),
-                state=sprint_data["state"],
-                committed_points=sprint_data.get("committed_points"),
-                completed_points=sprint_data.get("completed_points"),
+                start_date=start,
+                finish_date=finish,
+                state="PLANNED" if self.replay else sprint_data["state"],
+                committed_points=None if self.replay else sprint_data.get("committed_points"),
+                completed_points=None if self.replay else sprint_data.get("completed_points"),
                 capacity_points=sprint_data.get("capacity_points"),
             )
-            self.sprints[(data["slug"], sprint_data["slug"])] = sprint
+            self._save_new(sprint, start)
+            self.sprints[(slug, sprint_data["slug"])] = sprint
+            if self.replay:
+                self.final_sprint[(slug, sprint_data["slug"])] = {
+                    "state": sprint_data["state"],
+                    "committed_points": sprint_data.get("committed_points"),
+                    "completed_points": sprint_data.get("completed_points"),
+                }
 
         for task_data in data.get("tasks", []):
-            self._create_task(project, data["slug"], task_data)
+            self._create_task(project, slug, task_data)
 
     def _create_task(self, project: Project, project_slug: str, data: dict[str, Any]) -> None:
         sprint = self.sprints.get((project_slug, data["sprint"])) if data.get("sprint") else None
@@ -372,19 +473,31 @@ class _SeedImporter:
             else {}
         )
 
-        task = Task.objects.create(
+        final_status = data.get("status", "NOT_STARTED")
+        planned_start = self._date_opt(data.get("planned_start"), project_slug)
+        story_points = data.get("story_points")
+
+        # Under replay a task that ends in-flight/done is born NOT_STARTED and
+        # walked forward by the timeline + synthesizer; its creation row is
+        # backdated to when work could have begun (sprint/planned/project start).
+        progresses = self.replay and final_status in ("IN_PROGRESS", "REVIEW", "COMPLETE")
+        base_status = "NOT_STARTED" if progresses else final_status
+        base_percent = 0.0 if progresses else data.get("percent_complete", 0.0)
+        base_remaining = story_points if progresses else data.get("remaining_points")
+
+        task = Task(
             project=project,
             name=data["name"],
             wbs_path=data["wbs_path"],
             type=data.get("type", "task"),
-            status=data.get("status", "NOT_STARTED"),
+            status=base_status,
             is_milestone=is_milestone,
             duration=0 if is_milestone else data.get("duration", 1),
-            planned_start=_parse_date(data.get("planned_start")),
-            percent_complete=data.get("percent_complete", 0.0),
+            planned_start=planned_start,
+            percent_complete=base_percent,
             notes=data.get("notes", ""),
-            story_points=data.get("story_points"),
-            remaining_points=data.get("remaining_points"),
+            story_points=story_points,
+            remaining_points=base_remaining,
             assignee=assignee,
             sprint=sprint,
             sprint_rank=data.get("sprint_rank"),
@@ -393,8 +506,14 @@ class _SeedImporter:
             color=data.get("color"),
             **estimate_fields,
         )
+        created_on = (
+            sprint.start_date if sprint is not None else (planned_start or project.start_date)
+        )
+        self._save_new(task, created_on)
 
         self.tasks[(project_slug, data["wbs_path"])] = task
+        if self.replay:
+            self.final_status[(project_slug, data["wbs_path"])] = final_status
 
     # --- cross-cutting links (Pass B) --------------------------------------
 
@@ -461,8 +580,8 @@ class _SeedImporter:
             has_dates = True
             for bt in bl_data.get("tasks", []):
                 task = self.tasks[(slug, bt["task"])]
-                start = _parse_date(bt.get("start"))
-                finish = _parse_date(bt.get("finish"))
+                start = self._date_opt(bt.get("start"), slug)
+                finish = self._date_opt(bt.get("finish"), slug)
                 has_dates = has_dates and start is not None
                 rows.append(
                     BaselineTask(
@@ -504,12 +623,17 @@ class _SeedImporter:
                 impact=data["impact"],
                 category=data.get("category"),
                 response=data.get("response"),
-                mitigation_due_date=_parse_date(data.get("mitigation_due_date")),
+                mitigation_due_date=self._date_opt(
+                    data.get("mitigation_due_date"), enclosing_project
+                ),
                 trigger=data.get("trigger", ""),
                 contingency=data.get("contingency", ""),
                 notes=data.get("notes", ""),
                 owner=self.users.get(data["owner"]) if data.get("owner") else None,
             )
+            # Slug map lets risk.status replay beats resolve their target.
+            if data.get("slug"):
+                self.risks_by_slug[data["slug"]] = risk
             for ref in data.get("tasks", []):
                 # Program-scoped risks (enclosing_project is None) always carry
                 # qualified refs, so the enclosing fallback is never consulted.

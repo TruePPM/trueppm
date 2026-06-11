@@ -122,6 +122,31 @@ def test_schedule_lock_collision_requeues(project: Project) -> None:
         )
 
 
+@pytest.mark.django_db
+def test_successful_recalc_stamps_recalculated_at(project: Project, task: Task) -> None:
+    """A successful CPM pass stamps recalculated_at — the signal the web Schedule
+    view's "recalculating" badge clears against (#1053). Acquire the lock so the
+    task body runs through to the post-_run_schedule stamp."""
+    from trueppm_api.apps.scheduling.tasks import recalculate_schedule
+
+    assert project.recalculated_at is None
+
+    mock_redis = MagicMock()
+    # SET NX returns truthy → lock acquired, task body executes.
+    mock_redis.set.return_value = "OK"
+
+    with (
+        patch("trueppm_api.core.idempotent.redis_lib") as mock_redis_module,
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
+    ):
+        mock_redis_module.from_url.return_value = mock_redis
+        recalculate_schedule.run(str(project.pk))
+
+    project.refresh_from_db()
+    assert project.recalculated_at is not None
+
+
 # ---------------------------------------------------------------------------
 # Reason plumbing (#355) — outbox row must record what triggered the recalc
 # so "why did this fire?" debugging doesn't require correlating timestamps.

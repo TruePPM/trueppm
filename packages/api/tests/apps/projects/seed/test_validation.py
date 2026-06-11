@@ -13,7 +13,7 @@ from typing import Any
 import pytest
 
 from trueppm_api.apps.projects.seed import (
-    SUPPORTED_SCHEMA_VERSION,
+    SUPPORTED_MAJORS,
     SeedValidationError,
     validate_seed,
 )
@@ -166,7 +166,7 @@ def test_valid_seed_passes() -> None:
 
 
 def test_supported_version_constant() -> None:
-    assert SUPPORTED_SCHEMA_VERSION == "1.0"
+    assert "1" in SUPPORTED_MAJORS and "2" in SUPPORTED_MAJORS
 
 
 def test_non_dict_rejected() -> None:
@@ -181,8 +181,98 @@ def test_missing_schema_version() -> None:
 
 def test_unsupported_major_version() -> None:
     seed = _valid_seed()
-    seed["schema_version"] = "2.0"
+    seed["schema_version"] = "9.0"
     _expect_error(seed, "unsupported version")
+
+
+# --- v2: relative dates + events (ADR-0114) --------------------------------
+
+
+def _valid_v2_seed() -> dict[str, Any]:
+    """A minimal but cross-referenced v2 doc: anchor, relative dates, events."""
+    return {
+        "schema_version": "2.0",
+        "anchor": "2026-02-01",
+        "program": {"slug": "demo", "name": "Demo", "methodology": "AGILE"},
+        "accounts": [{"slug": "alex", "username": "alex", "role": "OWNER"}],
+        "projects": [
+            {
+                "slug": "core",
+                "name": "Core",
+                "methodology": "AGILE",
+                "start_date": "A-25",
+                "tasks": [{"wbs_path": "1", "name": "Auth", "status": "COMPLETE"}],
+                "sprints": [
+                    {
+                        "slug": "s1",
+                        "name": "S1",
+                        "state": "COMPLETED",
+                        "start_date": "A-20",
+                        "finish_date": "A-6",
+                    }
+                ],
+                "risks": [
+                    {"slug": "r1", "title": "Risk", "status": "OPEN", "probability": 3, "impact": 3}
+                ],
+            }
+        ],
+        "events": [
+            {
+                "at": "A-10T09:00",
+                "actor": "alex",
+                "action": "task.status",
+                "target": "task:core:1",
+                "to": "COMPLETE",
+            },
+            {
+                "at": "A-8",
+                "actor": "alex",
+                "action": "risk.status",
+                "target": "risk:r1",
+                "to": "MITIGATING",
+            },
+        ],
+    }
+
+
+def test_valid_v2_seed_passes() -> None:
+    validate_seed(_valid_v2_seed())  # does not raise
+
+
+def test_v2_relative_date_grammar_enforced() -> None:
+    seed = _valid_v2_seed()
+    seed["projects"][0]["start_date"] = "A--5"  # malformed offset
+    _expect_error(seed, "start_date")
+
+
+def test_v2_event_unknown_action_rejected() -> None:
+    seed = _valid_v2_seed()
+    seed["events"][0]["action"] = "task.teleport"
+    _expect_error(seed, "action")
+
+
+def test_v2_event_dangling_task_target_rejected() -> None:
+    seed = _valid_v2_seed()
+    seed["events"][0]["target"] = "task:core:99"
+    _expect_error(seed, "no task '99'")
+
+
+def test_v2_event_unqualified_task_target_rejected() -> None:
+    seed = _valid_v2_seed()
+    seed["events"][0]["target"] = "task:1"
+    _expect_error(seed, "must be")
+
+
+def test_v2_event_unknown_actor_rejected() -> None:
+    seed = _valid_v2_seed()
+    seed["events"][0]["actor"] = "ghost"
+    _expect_error(seed, "no account")
+
+
+def test_v2_event_wrong_target_kind_rejected() -> None:
+    seed = _valid_v2_seed()
+    seed["events"][1]["target"] = "task:core:1"  # risk.status expects a risk target
+    _expect_error(seed, "expects a 'risk' target")
 
 
 def test_unknown_top_level_field_rejected() -> None:

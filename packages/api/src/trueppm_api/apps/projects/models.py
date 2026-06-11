@@ -734,7 +734,14 @@ class Project(VersionedModel):
     # lets operators distinguish disposable demo content from real projects.
     is_sample = models.BooleanField(default=False, db_index=True)
 
-    history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_BASE)
+    # Set by the CPM recalc task on success (ADR-0114). Null until the first
+    # schedule pass completes — the web Schedule view shows a "recalculating"
+    # badge while it is null/older than the import so a freshly-imported demo
+    # never reads as broken with uncomputed dates (#1053). Not a domain field
+    # (excluded from history); updated via bulk .update() to avoid a sync bump.
+    recalculated_at = models.DateTimeField(null=True, blank=True)
+
+    history = HistoricalRecords(excluded_fields=[*_HISTORY_EXCLUDED_BASE, "recalculated_at"])
 
     class Meta:
         db_table = "projects_project"

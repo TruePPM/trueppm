@@ -67,6 +67,15 @@ def recalculate_schedule(
             task_name="scheduling.recalculate",
         ) as tracker:
             _run_schedule(project_id, tracker, changed_task_ids=changed_task_ids)
+        # Stamp the successful CPM completion so the web Schedule view can show
+        # the "recalculating" badge until the first post-import pass lands
+        # (#1053). A bulk update avoids a save() + history row + server_version
+        # bump for a non-domain timestamp.
+        from django.utils import timezone
+
+        from trueppm_api.apps.projects.models import Project
+
+        Project.objects.filter(pk=project_id).update(recalculated_at=timezone.now())
     except SoftTimeLimitExceeded:
         logger.error(
             "recalculate_schedule: soft time limit exceeded for project %s",
