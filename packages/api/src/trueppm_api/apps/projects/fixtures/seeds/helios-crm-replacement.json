@@ -24,6 +24,13 @@
       "role": "ADMIN"
     },
     {
+      "slug": "raj",
+      "username": "helios-raj",
+      "display_name": "Raj Mehta",
+      "email": "raj@helios.example",
+      "role": "SCHEDULER"
+    },
+    {
       "slug": "mei",
       "username": "helios-mei",
       "display_name": "Mei Tanaka",
@@ -36,6 +43,26 @@
       "display_name": "Nadia Hassan",
       "email": "nadia@helios.example",
       "role": "MEMBER"
+    },
+    {
+      "slug": "ada",
+      "username": "helios-ada",
+      "display_name": "Ada Boyega",
+      "email": "ada@helios.example",
+      "role": "VIEWER"
+    }
+  ],
+  "calendars": [
+    {
+      "slug": "helios-core",
+      "name": "Helios core hours",
+      "working_days": 31
+    },
+    {
+      "slug": "helios-advisor",
+      "name": "Helios advisor (Tue/Thu)",
+      "working_days": 10,
+      "hours_per_day": 6.0
     }
   ],
   "resources": [
@@ -43,22 +70,49 @@
       "slug": "ivan",
       "name": "Ivan Petrov",
       "job_role": "Solutions Architect",
-      "max_units": 1.0,
-      "account": "ivan"
+      "max_units": 0.5,
+      "account": "ivan",
+      "calendar": "helios-core"
     },
     {
       "slug": "jordan",
       "name": "Jordan Blake",
       "job_role": "Product Owner",
       "max_units": 1.0,
-      "account": "jordan"
+      "account": "jordan",
+      "calendar": "helios-core"
+    },
+    {
+      "slug": "raj",
+      "name": "Raj Mehta",
+      "job_role": "Delivery Scheduler",
+      "max_units": 1.0,
+      "account": "raj",
+      "calendar": "helios-core"
     },
     {
       "slug": "mei",
       "name": "Mei Tanaka",
       "job_role": "Engineer",
       "max_units": 1.0,
-      "account": "mei"
+      "account": "mei",
+      "calendar": "helios-core"
+    },
+    {
+      "slug": "nadia",
+      "name": "Nadia Hassan",
+      "job_role": "Engineer",
+      "max_units": 1.0,
+      "account": "nadia",
+      "calendar": "helios-core"
+    },
+    {
+      "slug": "ada",
+      "name": "Ada Boyega",
+      "job_role": "Executive Advisor",
+      "max_units": 0.1,
+      "account": "ada",
+      "calendar": "helios-advisor"
     }
   ],
   "projects": [
@@ -67,6 +121,7 @@
       "name": "Helios CRM",
       "methodology": "HYBRID",
       "start_date": "A-90",
+      "calendar": "helios-core",
       "default_view": "OVERVIEW",
       "agile_features": true,
       "tasks": [

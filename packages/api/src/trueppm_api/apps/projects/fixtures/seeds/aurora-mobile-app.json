@@ -24,6 +24,13 @@
       "role": "ADMIN"
     },
     {
+      "slug": "raj",
+      "username": "aurora-raj",
+      "display_name": "Raj Mehta",
+      "email": "raj@aurora.example",
+      "role": "SCHEDULER"
+    },
+    {
       "slug": "mei",
       "username": "aurora-mei",
       "display_name": "Mei Tanaka",
@@ -57,6 +64,26 @@
       "display_name": "Clara Mendes",
       "email": "clara@aurora.example",
       "role": "MEMBER"
+    },
+    {
+      "slug": "ada",
+      "username": "aurora-ada",
+      "display_name": "Ada Boyega",
+      "email": "ada@aurora.example",
+      "role": "VIEWER"
+    }
+  ],
+  "calendars": [
+    {
+      "slug": "aurora-core",
+      "name": "Aurora core hours",
+      "working_days": 31
+    },
+    {
+      "slug": "aurora-flex",
+      "name": "Aurora advisor (Mon/Wed/Fri)",
+      "working_days": 21,
+      "hours_per_day": 6.0
     }
   ],
   "resources": [
@@ -65,20 +92,31 @@
       "name": "Priya Nair",
       "job_role": "Product Owner",
       "max_units": 1.0,
+      "calendar": "aurora-core",
       "account": "priya"
     },
     {
       "slug": "sam",
       "name": "Sam Okafor",
       "job_role": "Scrum Master",
-      "max_units": 1.0,
+      "max_units": 0.5,
+      "calendar": "aurora-core",
       "account": "sam"
+    },
+    {
+      "slug": "raj",
+      "name": "Raj Mehta",
+      "job_role": "Delivery Scheduler",
+      "max_units": 1.0,
+      "calendar": "aurora-core",
+      "account": "raj"
     },
     {
       "slug": "mei",
       "name": "Mei Tanaka",
       "job_role": "Engineer",
       "max_units": 1.0,
+      "calendar": "aurora-core",
       "account": "mei"
     },
     {
@@ -86,6 +124,7 @@
       "name": "Diego Santos",
       "job_role": "Engineer",
       "max_units": 1.0,
+      "calendar": "aurora-core",
       "account": "diego"
     },
     {
@@ -93,6 +132,7 @@
       "name": "Nadia Hassan",
       "job_role": "Engineer",
       "max_units": 1.0,
+      "calendar": "aurora-core",
       "account": "nadia"
     },
     {
@@ -100,7 +140,16 @@
       "name": "Tom Becker",
       "job_role": "QA Engineer",
       "max_units": 1.0,
+      "calendar": "aurora-core",
       "account": "tom"
+    },
+    {
+      "slug": "ada",
+      "name": "Ada Boyega",
+      "job_role": "Accessibility Advisor",
+      "max_units": 0.1,
+      "calendar": "aurora-flex",
+      "account": "ada"
     }
   ],
   "projects": [
@@ -109,6 +158,7 @@
       "name": "Aurora App",
       "methodology": "AGILE",
       "start_date": "A-90",
+      "calendar": "aurora-core",
       "default_view": "BOARD",
       "agile_features": true,
       "board_columns": [

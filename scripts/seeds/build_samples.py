@@ -64,11 +64,13 @@ def build_aurora() -> dict:
     people = [
         ("priya", "Priya Nair", "OWNER"),
         ("sam", "Sam Okafor", "ADMIN"),
+        ("raj", "Raj Mehta", "SCHEDULER"),
         ("mei", "Mei Tanaka", "MEMBER"),
         ("diego", "Diego Santos", "MEMBER"),
         ("nadia", "Nadia Hassan", "MEMBER"),
         ("tom", "Tom Becker", "MEMBER"),
         ("clara", "Clara Mendes", "MEMBER"),
+        ("ada", "Ada Boyega", "VIEWER"),
     ]
     devs = ["mei", "diego", "nadia", "tom"]
 
@@ -164,15 +166,35 @@ def build_aurora() -> dict:
             "lead": "priya",
         },
         "accounts": _accounts([(ns, p) for p in people]),
+        "calendars": [
+            {"slug": "aurora-core", "name": "Aurora core hours", "working_days": 31},
+            {
+                "slug": "aurora-flex",
+                "name": "Aurora advisor (Mon/Wed/Fri)",
+                "working_days": 21,
+                "hours_per_day": 6.0,
+            },
+        ],
+        # Capacity profiles (#621): full-time devs, a part-time Scrum Master, and
+        # a 10% advisor on a non-default 3-day calendar.
         "resources": [
-            {"slug": s, "name": dn, "job_role": role, "max_units": 1.0, "account": s}
-            for s, dn, role in [
-                ("priya", "Priya Nair", "Product Owner"),
-                ("sam", "Sam Okafor", "Scrum Master"),
-                ("mei", "Mei Tanaka", "Engineer"),
-                ("diego", "Diego Santos", "Engineer"),
-                ("nadia", "Nadia Hassan", "Engineer"),
-                ("tom", "Tom Becker", "QA Engineer"),
+            {
+                "slug": s,
+                "name": dn,
+                "job_role": role,
+                "max_units": u,
+                "calendar": cal,
+                "account": s,
+            }
+            for s, dn, role, u, cal in [
+                ("priya", "Priya Nair", "Product Owner", 1.0, "aurora-core"),
+                ("sam", "Sam Okafor", "Scrum Master", 0.5, "aurora-core"),
+                ("raj", "Raj Mehta", "Delivery Scheduler", 1.0, "aurora-core"),
+                ("mei", "Mei Tanaka", "Engineer", 1.0, "aurora-core"),
+                ("diego", "Diego Santos", "Engineer", 1.0, "aurora-core"),
+                ("nadia", "Nadia Hassan", "Engineer", 1.0, "aurora-core"),
+                ("tom", "Tom Becker", "QA Engineer", 1.0, "aurora-core"),
+                ("ada", "Ada Boyega", "Accessibility Advisor", 0.1, "aurora-flex"),
             ]
         ],
         "projects": [
@@ -181,6 +203,7 @@ def build_aurora() -> dict:
                 "name": "Aurora App",
                 "methodology": "AGILE",
                 "start_date": d(0),
+                "calendar": "aurora-core",
                 "default_view": "BOARD",
                 "agile_features": True,
                 "board_columns": [
@@ -386,9 +409,11 @@ def build_bayside() -> dict:
                 for p in [
                     ("sam", "Sam Okafor", "OWNER"),
                     ("diego", "Diego Santos", "ADMIN"),
+                    ("raj", "Raj Mehta", "SCHEDULER"),
                     ("tom", "Tom Becker", "MEMBER"),
                     ("nadia", "Nadia Hassan", "MEMBER"),
                     ("omar", "Omar Aziz", "MEMBER"),
+                    ("ada", "Ada Boyega", "VIEWER"),
                 ]
             ]
         ),
@@ -446,6 +471,22 @@ def build_bayside() -> dict:
                 "job_role": "Inspector",
                 "max_units": 0.5,
                 "account": "omar",
+                "calendar": "site",
+            },
+            {
+                "slug": "raj",
+                "name": "Raj Mehta",
+                "job_role": "Project Scheduler",
+                "max_units": 1.0,
+                "account": "raj",
+                "calendar": "site",
+            },
+            {
+                "slug": "ada",
+                "name": "Ada Boyega",
+                "job_role": "Owner's Rep (advisor)",
+                "max_units": 0.1,
+                "account": "ada",
                 "calendar": "site",
             },
         ],
@@ -764,19 +805,32 @@ def build_helios() -> dict:
                 for p in [
                     ("jordan", "Jordan Blake", "OWNER"),
                     ("ivan", "Ivan Petrov", "ADMIN"),
+                    ("raj", "Raj Mehta", "SCHEDULER"),
                     ("mei", "Mei Tanaka", "MEMBER"),
                     ("nadia", "Nadia Hassan", "MEMBER"),
+                    ("ada", "Ada Boyega", "VIEWER"),
                 ]
             ]
         ),
+        "calendars": [
+            {"slug": "helios-core", "name": "Helios core hours", "working_days": 31},
+            {
+                "slug": "helios-advisor",
+                "name": "Helios advisor (Tue/Thu)",
+                "working_days": 10,
+                "hours_per_day": 6.0,
+            },
+        ],
+        # Capacity profiles (#621): full-time engineers, a part-time architect who
+        # advises through build, and a 10% executive advisor on a 2-day calendar.
         "resources": [
-            # the architect is full-time in planning, then a 10% advisor in build
             {
                 "slug": "ivan",
                 "name": "Ivan Petrov",
                 "job_role": "Solutions Architect",
-                "max_units": 1.0,
+                "max_units": 0.5,
                 "account": "ivan",
+                "calendar": "helios-core",
             },
             {
                 "slug": "jordan",
@@ -784,6 +838,15 @@ def build_helios() -> dict:
                 "job_role": "Product Owner",
                 "max_units": 1.0,
                 "account": "jordan",
+                "calendar": "helios-core",
+            },
+            {
+                "slug": "raj",
+                "name": "Raj Mehta",
+                "job_role": "Delivery Scheduler",
+                "max_units": 1.0,
+                "account": "raj",
+                "calendar": "helios-core",
             },
             {
                 "slug": "mei",
@@ -791,6 +854,23 @@ def build_helios() -> dict:
                 "job_role": "Engineer",
                 "max_units": 1.0,
                 "account": "mei",
+                "calendar": "helios-core",
+            },
+            {
+                "slug": "nadia",
+                "name": "Nadia Hassan",
+                "job_role": "Engineer",
+                "max_units": 1.0,
+                "account": "nadia",
+                "calendar": "helios-core",
+            },
+            {
+                "slug": "ada",
+                "name": "Ada Boyega",
+                "job_role": "Executive Advisor",
+                "max_units": 0.1,
+                "account": "ada",
+                "calendar": "helios-advisor",
             },
         ],
         "projects": [
@@ -799,6 +879,7 @@ def build_helios() -> dict:
                 "name": "Helios CRM",
                 "methodology": "HYBRID",
                 "start_date": d(0),
+                "calendar": "helios-core",
                 "default_view": "OVERVIEW",
                 "agile_features": True,
                 "tasks": tasks,
