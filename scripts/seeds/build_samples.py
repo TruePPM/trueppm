@@ -17,14 +17,18 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import date, timedelta
 from pathlib import Path
 
-KICKOFF = date(2026, 1, 5)
+# Anchor-relative dates (ADR-0114, seed v2). Dates are emitted as offsets from
+# the import-day anchor "A" so each demo always reads as a program in flight; the
+# event-replay importer synthesizes the backdated history (status moves, burndown,
+# velocity) up to "today". ANCHOR_OFFSET places "today" ~90 days in: early work is
+# done, later work is still ahead. These samples span ~100 days.
+ANCHOR_OFFSET = 90
 
 
 def d(offset: int) -> str:
-    return (KICKOFF + timedelta(days=offset)).isoformat()
+    return f"A{offset - ANCHOR_OFFSET:+d}"
 
 
 def three_point(ml: int) -> dict:
@@ -150,7 +154,7 @@ def build_aurora() -> dict:
         )
 
     return {
-        "schema_version": "1.0",
+        "schema_version": "2.0",
         "program": {
             "slug": "aurora-mobile-app",
             "name": "Aurora Mobile App",
@@ -317,7 +321,7 @@ def build_bayside() -> dict:
             cursor += max(ml, 1)
 
     return {
-        "schema_version": "1.0",
+        "schema_version": "2.0",
         "program": {
             "slug": "bayside-civic-center",
             "name": "Bayside Civic Center Construction",
@@ -603,7 +607,7 @@ def build_helios() -> dict:
     deps.append({"predecessor": "1.5", "successor": "2.17", "dep_type": "FS", "lag": 0})
 
     return {
-        "schema_version": "1.0",
+        "schema_version": "2.0",
         "program": {
             "slug": "helios-crm-replacement",
             "name": "Helios CRM Replacement",

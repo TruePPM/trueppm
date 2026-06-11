@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "2.0",
   "program": {
     "slug": "helios-crm-replacement",
     "name": "Helios CRM Replacement",
@@ -66,7 +66,7 @@
       "slug": "helios",
       "name": "Helios CRM",
       "methodology": "HYBRID",
-      "start_date": "2026-01-05",
+      "start_date": "A-90",
       "default_view": "OVERVIEW",
       "agile_features": true,
       "tasks": [
@@ -82,7 +82,7 @@
           "status": "COMPLETE",
           "percent_complete": 100.0,
           "duration": 6,
-          "planned_start": "2026-01-05",
+          "planned_start": "A-90",
           "estimate": {
             "optimistic": 4,
             "most_likely": 6,
@@ -98,7 +98,7 @@
           "status": "COMPLETE",
           "percent_complete": 100.0,
           "duration": 5,
-          "planned_start": "2026-01-11",
+          "planned_start": "A-84",
           "estimate": {
             "optimistic": 4,
             "most_likely": 5,
@@ -114,7 +114,7 @@
           "status": "COMPLETE",
           "percent_complete": 100.0,
           "duration": 7,
-          "planned_start": "2026-01-16",
+          "planned_start": "A-79",
           "estimate": {
             "optimistic": 5,
             "most_likely": 7,
@@ -130,7 +130,7 @@
           "status": "COMPLETE",
           "percent_complete": 100.0,
           "duration": 5,
-          "planned_start": "2026-01-23",
+          "planned_start": "A-72",
           "estimate": {
             "optimistic": 4,
             "most_likely": 5,
@@ -146,7 +146,7 @@
           "status": "COMPLETE",
           "percent_complete": 100.0,
           "duration": 6,
-          "planned_start": "2026-01-28",
+          "planned_start": "A-67",
           "estimate": {
             "optimistic": 4,
             "most_likely": 6,
@@ -162,7 +162,7 @@
           "status": "COMPLETE",
           "percent_complete": 100.0,
           "duration": 4,
-          "planned_start": "2026-02-03",
+          "planned_start": "A-61",
           "estimate": {
             "optimistic": 3,
             "most_likely": 4,
@@ -438,8 +438,8 @@
           "slug": "he-sprint-1",
           "name": "Build Sprint 1",
           "state": "COMPLETED",
-          "start_date": "2026-03-06",
-          "finish_date": "2026-03-19",
+          "start_date": "A-30",
+          "finish_date": "A-17",
           "committed_points": 30,
           "completed_points": 28,
           "capacity_points": 32
@@ -448,8 +448,8 @@
           "slug": "he-sprint-2",
           "name": "Build Sprint 2",
           "state": "ACTIVE",
-          "start_date": "2026-03-20",
-          "finish_date": "2026-04-02",
+          "start_date": "A-16",
+          "finish_date": "A-3",
           "committed_points": 32,
           "capacity_points": 32
         },
@@ -457,8 +457,8 @@
           "slug": "he-sprint-3",
           "name": "Build Sprint 3",
           "state": "PLANNED",
-          "start_date": "2026-04-03",
-          "finish_date": "2026-04-16",
+          "start_date": "A-2",
+          "finish_date": "A+11",
           "capacity_points": 32
         }
       ],

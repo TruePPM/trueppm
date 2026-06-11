@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "2.0",
   "program": {
     "slug": "aurora-mobile-app",
     "name": "Aurora Mobile App",
@@ -108,7 +108,7 @@
       "slug": "aurora",
       "name": "Aurora App",
       "methodology": "AGILE",
-      "start_date": "2026-01-05",
+      "start_date": "A-90",
       "default_view": "BOARD",
       "agile_features": true,
       "board_columns": [
@@ -516,8 +516,8 @@
           "name": "Sprint 1",
           "goal": "Mobile increment 1.",
           "state": "COMPLETED",
-          "start_date": "2026-01-05",
-          "finish_date": "2026-01-18",
+          "start_date": "A-90",
+          "finish_date": "A-77",
           "capacity_points": 28,
           "committed_points": 26,
           "completed_points": 22
@@ -527,8 +527,8 @@
           "name": "Sprint 2",
           "goal": "Mobile increment 2.",
           "state": "COMPLETED",
-          "start_date": "2026-01-19",
-          "finish_date": "2026-02-01",
+          "start_date": "A-76",
+          "finish_date": "A-63",
           "capacity_points": 28,
           "committed_points": 26,
           "completed_points": 27
@@ -538,8 +538,8 @@
           "name": "Sprint 3",
           "goal": "Mobile increment 3.",
           "state": "ACTIVE",
-          "start_date": "2026-02-02",
-          "finish_date": "2026-02-15",
+          "start_date": "A-62",
+          "finish_date": "A-49",
           "capacity_points": 28,
           "committed_points": 26
         },
@@ -548,8 +548,8 @@
           "name": "Sprint 4",
           "goal": "Mobile increment 4.",
           "state": "PLANNED",
-          "start_date": "2026-02-16",
-          "finish_date": "2026-03-01",
+          "start_date": "A-48",
+          "finish_date": "A-35",
           "capacity_points": 28
         }
       ]

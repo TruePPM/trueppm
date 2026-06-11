@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "2.0",
   "program": {
     "slug": "bayside-civic-center",
     "name": "Bayside Civic Center Construction",
@@ -106,7 +106,7 @@
       "slug": "bayside",
       "name": "Bayside Civic Center",
       "methodology": "WATERFALL",
-      "start_date": "2026-01-05",
+      "start_date": "A-90",
       "calendar": "site",
       "default_view": "SCHEDULE",
       "tasks": [
@@ -125,7 +125,7 @@
           "delivery_mode": "waterfall",
           "assignee": "nadia",
           "duration": 4,
-          "planned_start": "2026-01-05",
+          "planned_start": "A-90",
           "estimate": {
             "optimistic": 3,
             "most_likely": 4,
@@ -141,7 +141,7 @@
           "delivery_mode": "waterfall",
           "assignee": "omar",
           "duration": 6,
-          "planned_start": "2026-01-13",
+          "planned_start": "A-82",
           "estimate": {
             "optimistic": 4,
             "most_likely": 6,
@@ -157,7 +157,7 @@
           "delivery_mode": "waterfall",
           "assignee": "diego",
           "duration": 3,
-          "planned_start": "2026-01-25",
+          "planned_start": "A-70",
           "estimate": {
             "optimistic": 2,
             "most_likely": 3,
@@ -173,7 +173,7 @@
           "delivery_mode": "waterfall",
           "assignee": "tom",
           "duration": 2,
-          "planned_start": "2026-01-31",
+          "planned_start": "A-64",
           "estimate": {
             "optimistic": 1,
             "most_likely": 2,
@@ -195,7 +195,7 @@
           "delivery_mode": "waterfall",
           "assignee": "omar",
           "duration": 5,
-          "planned_start": "2026-02-04",
+          "planned_start": "A-60",
           "estimate": {
             "optimistic": 4,
             "most_likely": 5,
@@ -211,7 +211,7 @@
           "delivery_mode": "waterfall",
           "assignee": "diego",
           "duration": 6,
-          "planned_start": "2026-02-14",
+          "planned_start": "A-50",
           "estimate": {
             "optimistic": 4,
             "most_likely": 6,
@@ -227,7 +227,7 @@
           "delivery_mode": "waterfall",
           "assignee": "tom",
           "duration": 3,
-          "planned_start": "2026-02-26",
+          "planned_start": "A-38",
           "estimate": {
             "optimistic": 2,
             "most_likely": 3,
@@ -243,7 +243,7 @@
           "delivery_mode": "waterfall",
           "assignee": "nadia",
           "duration": 3,
-          "planned_start": "2026-03-04",
+          "planned_start": "A-32",
           "estimate": {
             "optimistic": 2,
             "most_likely": 3,
@@ -259,7 +259,7 @@
           "delivery_mode": "waterfall",
           "assignee": "omar",
           "duration": 4,
-          "planned_start": "2026-03-10",
+          "planned_start": "A-26",
           "estimate": {
             "optimistic": 3,
             "most_likely": 4,
@@ -281,7 +281,7 @@
           "delivery_mode": "waterfall",
           "assignee": "diego",
           "duration": 8,
-          "planned_start": "2026-03-18",
+          "planned_start": "A-18",
           "estimate": {
             "optimistic": 6,
             "most_likely": 8,
@@ -297,7 +297,7 @@
           "delivery_mode": "waterfall",
           "assignee": "tom",
           "duration": 6,
-          "planned_start": "2026-04-03",
+          "planned_start": "A-2",
           "estimate": {
             "optimistic": 4,
             "most_likely": 6,
@@ -313,7 +313,7 @@
           "delivery_mode": "waterfall",
           "assignee": "nadia",
           "duration": 7,
-          "planned_start": "2026-04-15",
+          "planned_start": "A+10",
           "estimate": {
             "optimistic": 5,
             "most_likely": 7,
@@ -329,7 +329,7 @@
           "delivery_mode": "waterfall",
           "assignee": "omar",
           "duration": 2,
-          "planned_start": "2026-04-29",
+          "planned_start": "A+24",
           "estimate": {
             "optimistic": 1,
             "most_likely": 2,
@@ -351,7 +351,7 @@
           "delivery_mode": "waterfall",
           "assignee": "tom",
           "duration": 7,
-          "planned_start": "2026-05-03",
+          "planned_start": "A+28",
           "estimate": {
             "optimistic": 5,
             "most_likely": 7,
@@ -367,7 +367,7 @@
           "delivery_mode": "waterfall",
           "assignee": "nadia",
           "duration": 6,
-          "planned_start": "2026-05-17",
+          "planned_start": "A+42",
           "estimate": {
             "optimistic": 4,
             "most_likely": 6,
@@ -383,7 +383,7 @@
           "delivery_mode": "waterfall",
           "assignee": "omar",
           "duration": 8,
-          "planned_start": "2026-05-29",
+          "planned_start": "A+54",
           "estimate": {
             "optimistic": 6,
             "most_likely": 8,
@@ -399,7 +399,7 @@
           "delivery_mode": "waterfall",
           "assignee": "diego",
           "duration": 5,
-          "planned_start": "2026-06-14",
+          "planned_start": "A+70",
           "estimate": {
             "optimistic": 4,
             "most_likely": 5,
@@ -415,7 +415,7 @@
           "delivery_mode": "waterfall",
           "assignee": "tom",
           "duration": 3,
-          "planned_start": "2026-06-24",
+          "planned_start": "A+80",
           "estimate": {
             "optimistic": 2,
             "most_likely": 3,
@@ -437,7 +437,7 @@
           "delivery_mode": "waterfall",
           "assignee": "nadia",
           "duration": 8,
-          "planned_start": "2026-06-30",
+          "planned_start": "A+86",
           "estimate": {
             "optimistic": 6,
             "most_likely": 8,
@@ -453,7 +453,7 @@
           "delivery_mode": "waterfall",
           "assignee": "omar",
           "duration": 6,
-          "planned_start": "2026-07-16",
+          "planned_start": "A+102",
           "estimate": {
             "optimistic": 4,
             "most_likely": 6,
@@ -469,7 +469,7 @@
           "delivery_mode": "waterfall",
           "assignee": "diego",
           "duration": 5,
-          "planned_start": "2026-07-28",
+          "planned_start": "A+114",
           "estimate": {
             "optimistic": 4,
             "most_likely": 5,
@@ -495,7 +495,7 @@
           "delivery_mode": "waterfall",
           "assignee": "nadia",
           "duration": 3,
-          "planned_start": "2026-08-09",
+          "planned_start": "A+126",
           "estimate": {
             "optimistic": 2,
             "most_likely": 3,
@@ -674,134 +674,134 @@
           "tasks": [
             {
               "task": "1.1",
-              "start": "2026-01-05",
-              "finish": "2026-01-09",
+              "start": "A-90",
+              "finish": "A-86",
               "duration": 4
             },
             {
               "task": "1.2",
-              "start": "2026-01-13",
-              "finish": "2026-01-19",
+              "start": "A-82",
+              "finish": "A-76",
               "duration": 6
             },
             {
               "task": "1.3",
-              "start": "2026-01-25",
-              "finish": "2026-01-28",
+              "start": "A-70",
+              "finish": "A-67",
               "duration": 3
             },
             {
               "task": "1.4",
-              "start": "2026-01-31",
-              "finish": "2026-02-02",
+              "start": "A-64",
+              "finish": "A-62",
               "duration": 2
             },
             {
               "task": "2.1",
-              "start": "2026-02-04",
-              "finish": "2026-02-09",
+              "start": "A-60",
+              "finish": "A-55",
               "duration": 5
             },
             {
               "task": "2.2",
-              "start": "2026-02-14",
-              "finish": "2026-02-20",
+              "start": "A-50",
+              "finish": "A-44",
               "duration": 6
             },
             {
               "task": "2.3",
-              "start": "2026-02-26",
-              "finish": "2026-03-01",
+              "start": "A-38",
+              "finish": "A-35",
               "duration": 3
             },
             {
               "task": "2.4",
-              "start": "2026-03-04",
-              "finish": "2026-03-07",
+              "start": "A-32",
+              "finish": "A-29",
               "duration": 3
             },
             {
               "task": "2.5",
-              "start": "2026-03-10",
-              "finish": "2026-03-14",
+              "start": "A-26",
+              "finish": "A-22",
               "duration": 4
             },
             {
               "task": "3.1",
-              "start": "2026-03-18",
-              "finish": "2026-03-26",
+              "start": "A-18",
+              "finish": "A-10",
               "duration": 8
             },
             {
               "task": "3.2",
-              "start": "2026-04-03",
-              "finish": "2026-04-09",
+              "start": "A-2",
+              "finish": "A+4",
               "duration": 6
             },
             {
               "task": "3.3",
-              "start": "2026-04-15",
-              "finish": "2026-04-22",
+              "start": "A+10",
+              "finish": "A+17",
               "duration": 7
             },
             {
               "task": "3.4",
-              "start": "2026-04-29",
-              "finish": "2026-05-01",
+              "start": "A+24",
+              "finish": "A+26",
               "duration": 2
             },
             {
               "task": "4.1",
-              "start": "2026-05-03",
-              "finish": "2026-05-10",
+              "start": "A+28",
+              "finish": "A+35",
               "duration": 7
             },
             {
               "task": "4.2",
-              "start": "2026-05-17",
-              "finish": "2026-05-23",
+              "start": "A+42",
+              "finish": "A+48",
               "duration": 6
             },
             {
               "task": "4.3",
-              "start": "2026-05-29",
-              "finish": "2026-06-06",
+              "start": "A+54",
+              "finish": "A+62",
               "duration": 8
             },
             {
               "task": "4.4",
-              "start": "2026-06-14",
-              "finish": "2026-06-19",
+              "start": "A+70",
+              "finish": "A+75",
               "duration": 5
             },
             {
               "task": "4.5",
-              "start": "2026-06-24",
-              "finish": "2026-06-27",
+              "start": "A+80",
+              "finish": "A+83",
               "duration": 3
             },
             {
               "task": "5.1",
-              "start": "2026-06-30",
-              "finish": "2026-07-08",
+              "start": "A+86",
+              "finish": "A+94",
               "duration": 8
             },
             {
               "task": "5.2",
-              "start": "2026-07-16",
-              "finish": "2026-07-22",
+              "start": "A+102",
+              "finish": "A+108",
               "duration": 6
             },
             {
               "task": "5.3",
-              "start": "2026-07-28",
-              "finish": "2026-08-02",
+              "start": "A+114",
+              "finish": "A+119",
               "duration": 5
             },
             {
               "task": "5.5",
-              "start": "2026-08-09",
-              "finish": "2026-08-12",
+              "start": "A+126",
+              "finish": "A+129",
               "duration": 3
             }
           ]
