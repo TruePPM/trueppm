@@ -86,7 +86,7 @@ import { CalmToolbar } from './CalmToolbar';
 import { SprintPanel } from './SprintPanel';
 import { useBoardToolbarPrefs } from '@/hooks/useBoardToolbarPrefs';
 import { useProject } from '@/hooks/useProject';
-import { useActiveSprint } from '@/hooks/useSprints';
+import { useActiveSprint, useSprints } from '@/hooks/useSprints';
 import { useCanManageScope } from '@/hooks/useCanManageScope';
 import { useScopeChangeActions } from '@/hooks/useScopeChangeActions';
 import { ScopePendingReviewPanel } from '@/features/sprints/ScopePendingReviewPanel';
@@ -852,6 +852,32 @@ export function BoardView() {
   const COLUMNS = rawColumns.filter((c) => c.visible && c.status !== 'BACKLOG');
   const [searchParams, setSearchParams] = useSearchParams();
 
+  // Board sprint view (#429). The selected sprint scopes the phase columns to a
+  // single sprint; `null` = Project view (all committed tasks). Persisted in the
+  // `?sprint=` URL param (a distinct, shareable axis from the `?view=` saved
+  // views) so a sprint board link can be shared. The backlog band is unaffected
+  // — it stays the intake source you drag from.
+  const { sprints } = useSprints(projectId || null);
+  const selectedSprintId = searchParams.get('sprint');
+  const selectedSprint = useMemo(
+    () => sprints.find((s) => s.id === selectedSprintId) ?? null,
+    [sprints, selectedSprintId],
+  );
+  const setSelectedSprintId = useCallback(
+    (id: string | null) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (id) next.set('sprint', id);
+          else next.delete('sprint');
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
   const [activeId, setActiveId] = useState<string | null>(null);
   const [overCell, setOverCell] = useState<string | null>(null); // `${phaseId}:${status}`
   const [workshopMode, setWorkshopMode] = useState(false);
@@ -1024,12 +1050,17 @@ export function BoardView() {
     for (const t of tasks ?? []) {
       if (t.status === 'BACKLOG' && !t.isSummary) {
         backlog.push(t);
+      } else if (selectedSprintId && t.sprintId !== selectedSprintId && !t.isSummary) {
+        // Sprint view (#429): a committed task not in the selected sprint is
+        // hidden from the phase columns. Summary tasks are kept so their phase
+        // lane still renders as a drop target for pulling cards into the sprint.
+        continue;
       } else {
         committed.push(t);
       }
     }
     return { committedTasks: committed, backlogTasks: backlog };
-  }, [tasks]);
+  }, [tasks, selectedSprintId]);
 
   const phases = useMemo(() => {
     const built = buildPhases(committedTasks, workshopMode);
@@ -1364,18 +1395,43 @@ export function BoardView() {
       ) {
         return;
       }
+      // Sprint view drag-to-assign (#429): dropping a card into a phase while
+      // scoped to a PLANNED/ACTIVE sprint it isn't yet in assigns it to that
+      // sprint. The backend auto-sets sprint_pending for an ACTIVE sprint
+      // (ADR-0102 post-activation injection); PLANNED links are part of the
+      // commitment baseline with no pending gate. A COMPLETED sprint view is
+      // read-only for assignment — we never back-date scope into a closed sprint.
+      const assignSprintId =
+        selectedSprint &&
+        (selectedSprint.state === 'ACTIVE' || selectedSprint.state === 'PLANNED') &&
+        activeTask.sprintId !== selectedSprint.id
+          ? selectedSprint.id
+          : undefined;
       updateStatus.mutate({
         projectId,
         taskId: activeTask.id,
         status: newStatus as TaskStatus,
         ...(phaseChanged ? { parentId: newPhaseId } : {}),
+        ...(assignSprintId ? { sprintId: assignSprintId } : {}),
       });
       if (ariaLiveRef.current) {
         const colLabel = COLUMNS.find((c) => c.status === newStatus)?.label ?? newStatus;
-        ariaLiveRef.current.textContent = `${activeTask.name} moved to ${colLabel}`;
+        const intoSprint = assignSprintId ? ` and added to ${selectedSprint?.name}` : '';
+        ariaLiveRef.current.textContent = `${activeTask.name} moved to ${colLabel}${intoSprint}`;
       }
     },
-    [activeTask, projectId, updateStatus, COLUMNS, phaseOrder, phaseReorder, workshopMode],
+    [
+      activeTask,
+      projectId,
+      updateStatus,
+      COLUMNS,
+      phaseOrder,
+      phaseReorder,
+      workshopMode,
+      selectedSprint,
+      showWip,
+      totalByStatus,
+    ],
   );
 
   const handleDragCancel = useCallback(() => {
@@ -1586,6 +1642,9 @@ export function BoardView() {
             currentViewConfig={currentViewConfig}
             activeViewId={activeViewId}
             onApplyView={applyViewConfig}
+            sprints={sprints}
+            selectedSprintId={selectedSprintId}
+            onSelectSprint={setSelectedSprintId}
             groupBy="Phase (WBS rollup)"
             sort={sort}
             onSortChange={setSort}

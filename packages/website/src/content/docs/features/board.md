@@ -74,6 +74,19 @@ When a column exceeds its configured WIP limit, the column header turns amber an
 
 When a sprint is active, committed tasks appear in the **To Do → In Progress → Review → Done** columns as normal. Sprint-committed tasks are never shown in the Unscheduled gutter on the Schedule view, regardless of whether they have a planned start date.
 
+### Sprint view
+
+:::note[0.3]
+The board sprint-view switcher lands in 0.3.
+:::
+
+By default the board shows every committed task in the project. A **scope switcher** in the toolbar (next to the saved-views dropdown) will let you focus the phase columns on a single sprint:
+
+- **Project** — the default; all committed tasks.
+- **A sprint** — only tasks committed to the selected sprint. The dropdown lists **active**, **planned**, and **completed** sprints (viewing a closed sprint's board is a legitimate retrospective read).
+
+The selection persists in a `?sprint=` URL parameter, so a sprint-scoped board is a shareable link. The **backlog rail is unaffected** — it stays the intake source you drag from. While viewing an **active** or **planned** sprint, dragging a card from the backlog (or another phase) into a phase column **assigns it to that sprint** — for an active sprint it enters the team's [scope-injection review](/features/sprints/) as a pending item. A completed-sprint view is read-only for assignment.
+
 ## Mobile
 
 On viewports below 768px the board switches to a horizontal snap-scroll layout: one column visible at a time (85vw width, `scroll-snap-align: start`). A dot-strip indicator below the board shows which column is visible. The mobile FAB creates a task in the first visible column.

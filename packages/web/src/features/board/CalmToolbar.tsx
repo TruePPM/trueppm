@@ -17,7 +17,9 @@ import type { BoardSortKey } from '@/hooks/useBoardSavedViews';
 import type { BoardDensity, EvmMode } from './BoardCard';
 import type { BoardLayoutVariant, BacklogDensity } from '@/hooks/useBoardToolbarPrefs';
 import { BoardViewDropdown } from './BoardViewDropdown';
+import { BoardSprintSwitcher } from './BoardSprintSwitcher';
 import type { BoardViewConfig } from '@/hooks/useBoardSavedViews';
+import type { ApiSprint } from '@/types';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
 import {
   ToolbarOverflowMenu,
@@ -220,6 +222,11 @@ export interface CalmToolbarProps {
   currentViewConfig: BoardViewConfig;
   activeViewId: string | null;
   onApplyView: (cfg: Partial<BoardViewConfig>, viewId: string | null) => void;
+  // Sprint view (#429) — scope the phase columns to a single sprint vs the
+  // whole project. Distinct axis from saved views.
+  sprints: ApiSprint[];
+  selectedSprintId: string | null;
+  onSelectSprint: (id: string | null) => void;
   // Group (single option for now — chip kept for future grouping modes)
   groupBy: string;
   // Sort
@@ -312,6 +319,11 @@ export function CalmToolbar(props: CalmToolbarProps) {
           currentConfig={props.currentViewConfig}
           activeViewId={props.activeViewId}
           onApply={props.onApplyView}
+        />
+        <BoardSprintSwitcher
+          sprints={props.sprints}
+          selectedSprintId={props.selectedSprintId}
+          onSelectSprint={props.onSelectSprint}
         />
         {props.projectName && (
           <span className="text-neutral-text-primary font-medium truncate max-w-[160px]">
