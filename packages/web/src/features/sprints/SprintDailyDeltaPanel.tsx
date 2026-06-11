@@ -34,7 +34,10 @@ export function SprintDailyDeltaPanel({ sprintId }: Props) {
       <div className="h-24 rounded-md border border-neutral-border bg-neutral-surface-raised animate-pulse" />
     );
   }
-  if (!query.data) return null;
+  // Defensive: this panel lives inside the active-sprint view, so an unexpected
+  // response shape must never blank the whole page — render nothing instead of
+  // crashing on a missing array (e.g. a non-delta body from a lenient mock/proxy).
+  if (!query.data || !Array.isArray(query.data.task_changes)) return null;
 
   const d = query.data;
   const empty =

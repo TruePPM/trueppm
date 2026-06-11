@@ -56,6 +56,12 @@ async function setup(page: Page) {
     status, contentType: 'application/json', body: JSON.stringify(body),
   });
 
+  // Catch-all FIRST so every specific route below wins — Playwright matches
+  // routes in reverse-registration order (the last-registered handler is tried
+  // first). Registered last, this would clobber the sprints-list + daily-delta
+  // mocks and the active sprint would never render.
+  await page.route('**/api/v1/**', (r) => r.fulfill(json({ count: 0, next: null, previous: null, results: [] })));
+
   await page.route('**/api/v1/projects/', (r) =>
     r.fulfill(json({ count: 1, next: null, previous: null, results: [
       { id: PROJECT_ID, name: 'Standup Project', description: '', start_date: '2026-04-01', calendar: 'default', methodology: 'AGILE' },
@@ -75,8 +81,6 @@ async function setup(page: Page) {
   await page.route('**/api/v1/edition/', (r) => r.fulfill(json({ edition: 'community' })));
   await page.route('**/api/v1/auth/me/', (r) => r.fulfill(json({ id: 'e2e-user', username: 'e2e', display_name: 'E2E', initials: 'E', email: 'e2e@example.com' })));
   await page.route(`**/api/v1/projects/${PROJECT_ID}/members/`, (r) => r.fulfill(json([{ id: 'mem-1', role: 100 }])));
-  // Catch-all so any other active-sprint fetch resolves (skeleton) instead of hanging.
-  await page.route('**/api/v1/**', (r) => r.fulfill(json({ count: 0, next: null, previous: null, results: [] })));
 }
 
 test.describe('Daily standup delta (#925)', () => {
