@@ -2075,6 +2075,7 @@ def recompute_milestone_rollup(
             "rollup_basis": "none",
             "variance_days": None,
             "sprint_scope_changed": False,
+            "scope_change_sprint_id": None,
             "binding_drifted": False,
             "sprint_count": 0,
         }

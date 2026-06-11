@@ -91,6 +91,7 @@ export interface ApiTask {
     rollup_basis: 'points' | 'tasks' | 'none';
     variance_days: number | null;
     sprint_scope_changed: boolean;
+    scope_change_sprint_id?: string | null;
     sprint_count: number;
   } | null;
   // 8-hex-digit project-scoped ID (ADR-0016 / issue #50).

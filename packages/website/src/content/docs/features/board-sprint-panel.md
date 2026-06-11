@@ -3,6 +3,13 @@ title: Board sprint panel
 description: Active-sprint summary embedded above the Board lanes — goal, dates, burndown, velocity, and planning capacity in one collapsible surface.
 ---
 
+:::note[Ships in 0.3]
+The **mid-sprint scope-change badge** and its **scope-change audit drawer**
+ship in 0.3 (the agile team release). They are not yet in a tagged build — see
+the [roadmap](/overview/roadmap/). The rest of this page describes shipped
+behavior.
+:::
+
 When a project has an ACTIVE sprint, the Board view renders a sprint panel
 directly above the Kanban lanes. The panel composes the existing burndown
 chart, an inline 8-sprint velocity sparkline, and a `capacity_points`
@@ -68,6 +75,34 @@ team available?". All three are useful at different points in the cadence.
 - Every change is recorded in `Sprint.history` (django-simple-history) so
   a coach or PM can see the audit trail of capacity revisions.
 
+## Mid-sprint scope changes
+
+:::note[Ships in 0.3]
+This badge and its audit drawer ship in 0.3.
+:::
+
+When tasks are injected into a sprint **after** it goes ACTIVE, the panel
+header surfaces a `⚠ N tasks added mid-sprint` badge. The count is the number
+of tasks added to the sprint since its activation timestamp — the scope the
+team did not commit to at planning.
+
+Clicking the badge opens a **read-only scope-change audit drawer**. Each row
+records one mid-sprint change:
+
+- **Who** added the task and **when**.
+- The **task** (key + title, deep-linking to the card).
+- Its **point value** at the time it was added.
+- Its **status** — `accepted`, `pending`, or `rejected` — so the team can
+  tell committed scope creep from a proposal still awaiting a decision.
+
+The drawer reads from the [`GET /sprints/{id}/scope-changes/`](#api-endpoints-touched)
+endpoint and never mutates sprint state — it is a visibility surface, not an
+approval gate. The same audit is reachable from the milestone side via the
+[scope-changed chip](/features/sprint-milestone-rollup/#scope-change-audit-chip).
+
+*Screenshot TODO: Board sprint panel header showing the `⚠ 3 tasks added
+mid-sprint` badge, and the open scope-change audit drawer.*
+
 ## Where to find it in the app
 
 - Route: any project Board, `/projects/:projectId/board`
@@ -81,8 +116,10 @@ team available?". All three are useful at different points in the cadence.
 | `PATCH` | `/api/v1/sprints/{id}/` | Updates `capacity_points` (field-gated to SCHEDULER+) |
 | `GET`  | `/api/v1/sprints/{id}/burndown/` | Burndown series for the active sprint |
 | `GET`  | `/api/v1/projects/{id}/velocity/` | Rolling 8-sprint velocity for the sparkline |
+| `GET`  | `/api/v1/sprints/{id}/scope-changes/` | Read-only audit of tasks added to the sprint after activation — backs the mid-sprint scope-change badge and drawer *(ships in 0.3)* |
 
-No new endpoints — the panel is a UI composition over existing data.
+The `scope-changes` endpoint is the one new addition (ships in 0.3); the rest
+of the panel is a UI composition over existing data.
 
 ## Related
 
