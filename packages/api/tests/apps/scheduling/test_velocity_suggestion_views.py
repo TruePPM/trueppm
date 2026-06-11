@@ -334,3 +334,19 @@ def test_accept_still_applies_suggested_duration_when_suppressed_for_pm(
     # ...but the task duration was set from the model's real value.
     task.refresh_from_db()
     assert task.most_likely_duration == suggestion.suggested_duration
+
+
+@pytest.mark.django_db
+def test_serializer_fails_closed_without_request_context(
+    suggestion: VelocitySuggestion,
+) -> None:
+    """#1099: the velocity gate cannot establish a reader's tier without request
+    context, so a render with no request in context must suppress both the raw
+    rate and the velocity-derived suggestion rather than leak them. Exercises the
+    fail-closed branch the HTTP views never hit (they always carry a request)."""
+    from trueppm_api.apps.scheduling.serializers import VelocitySuggestionSerializer
+
+    data = VelocitySuggestionSerializer(suggestion, context={}).data
+
+    assert data["team_velocity_per_day"] is None
+    assert data["suggested_duration"] is None
