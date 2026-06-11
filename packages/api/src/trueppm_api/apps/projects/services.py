@@ -1714,6 +1714,65 @@ def sprint_pending_count(sprint_id: str | uuid.UUID) -> int:
     return Task.objects.filter(sprint_id=sprint_id, sprint_pending=True, is_deleted=False).count()
 
 
+def sprint_scope_change_payload(sprint: Any) -> dict[str, Any]:
+    """Audit + delta read of a sprint's mid-sprint scope changes (#543/#550).
+
+    Surfaces the existing ``SprintScopeChange`` injection rows (no new table) as a
+    team-readable audit — actor, timestamp, item, point value, accept/reject
+    status — plus the aggregate the persistent "Scope changed (+N / −M pts)" chip
+    and the SprintPanel "N added mid-sprint" badge render from. Aggregated point
+    sums + ids only, never per-assignee (Morgan VoC guardrail, ADR-0074).
+
+    Direction semantics (the model records only *additions*; a removal is an
+    injection later rejected — ADR-0102): ``points_added`` sums ``story_points``
+    over rows still in the sprint (status pending or accepted); ``points_removed``
+    sums over rejected rows. ``added_mid_sprint_count`` counts the still-in rows —
+    the #543 badge number. Rows are cleared on sprint close, so this is the live
+    in-sprint picture, not a cross-sprint history.
+    """
+    from trueppm_api.apps.projects.models import ScopeChangeStatus, SprintScopeChange
+
+    rows = (
+        SprintScopeChange.objects.filter(sprint_id=sprint.pk)
+        .select_related("task", "added_by")
+        .order_by("-added_at")
+    )
+
+    events: list[dict[str, Any]] = []
+    points_added = 0
+    points_removed = 0
+    added_mid_sprint_count = 0
+    for r in rows:
+        points = (r.task.story_points or 0) if r.task_id is not None else 0
+        rejected = r.status == ScopeChangeStatus.REJECTED
+        if rejected:
+            points_removed += points
+        else:
+            points_added += points
+            added_mid_sprint_count += 1
+        events.append(
+            {
+                "id": str(r.pk),
+                "item_name": r.item_name,
+                "story_points": (r.task.story_points if r.task_id is not None else None),
+                "added_by_name": r.added_by.get_full_name() if r.added_by else None,
+                "added_at": r.added_at.isoformat(),
+                "goal_impact": r.goal_impact,
+                "status": r.status,
+            }
+        )
+
+    return {
+        "summary": {
+            "points_added": points_added,
+            "points_removed": points_removed,
+            "added_mid_sprint_count": added_mid_sprint_count,
+            "total": len(events),
+        },
+        "events": events,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Sprint → milestone rollup (ADR-0074)
 # ---------------------------------------------------------------------------
@@ -1834,6 +1893,9 @@ def _assemble_milestone_rollup(
     completed_tasks = 0
     latest_active_planned_finish: Any = None
     scope_changed = False
+    # The ACTIVE sprint whose scope diverged — lets a milestone-surface chip open
+    # the scope-change drawer for the right sprint (#550) without a second lookup.
+    scope_change_sprint_id: Any = None
     binding_drifted = False
 
     for sprint in targeting:
@@ -1883,6 +1945,7 @@ def _assemble_milestone_rollup(
             # *accepted* tasks after activation.
             if sprint.committed_points is not None and current_committed != sprint.committed_points:
                 scope_changed = True
+                scope_change_sprint_id = sprint.pk
 
             if sprint.finish_date is not None and (
                 latest_active_planned_finish is None
@@ -1921,6 +1984,7 @@ def _assemble_milestone_rollup(
         "rollup_basis": rollup_basis,
         "variance_days": variance_days,
         "sprint_scope_changed": scope_changed,
+        "scope_change_sprint_id": (str(scope_change_sprint_id) if scope_change_sprint_id else None),
         "binding_drifted": binding_drifted,
         "sprint_count": len(targeting),
     }

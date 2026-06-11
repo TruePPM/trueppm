@@ -5517,6 +5517,7 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
             "capacity",
             "incoming_carryover",
             "outcome",
+            "scope_changes",
         ):
             return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
         # ADR-0106 §E1.1/§E1.4 (#928): the reforecast preview is a read-only dry
@@ -6157,6 +6158,38 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         Returns ``{"rejected": [...], "pending_count": N}``.
         """
         return self._bulk_scope_change(request, pk, accept=False)
+
+    @extend_schema(
+        summary="List a sprint's mid-sprint scope changes (audit + delta)",
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "Body includes a summary (points_added/points_removed/"
+                    "added_mid_sprint_count/total) and the ordered scope-change events."
+                ),
+            )
+        },
+    )
+    @action(detail=True, methods=["get"], url_path="scope-changes")
+    def scope_changes(self, request: Request, pk: str | None = None) -> Response:
+        """Read the sprint's mid-sprint scope-change audit + delta (#543/#550).
+
+        Read-only; any project member (Viewer+) — the audit is team-readable first
+        (sprint sovereignty). Surfaces the existing ``SprintScopeChange`` injection
+        rows as actor/timestamp/item/points/status plus the aggregate the
+        persistent scope-change chip and the SprintPanel badge render from. No
+        mutation, no new table.
+        """
+        from trueppm_api.apps.projects.services import sprint_scope_change_payload
+
+        sprint = get_object_or_404(
+            Sprint.objects.select_related("project"),
+            pk=pk,
+            is_deleted=False,
+        )
+        self.check_object_permissions(request, sprint)
+        return Response(sprint_scope_change_payload(sprint), status=status.HTTP_200_OK)
 
     @extend_schema(
         summary="Get a sprint's burndown series",

@@ -282,6 +282,10 @@ export interface MilestoneRollup {
    *  its activation-snapshot committed_points. The PM cap on % at 100% is
    *  honest when this flag is set. */
   sprint_scope_changed: boolean;
+  /** The ACTIVE sprint whose scope diverged (#550) — lets a milestone-surface
+   *  scope-change chip open the audit drawer for the right sprint. Null when no
+   *  sprint has changed scope (`sprint_scope_changed` is then false). */
+  scope_change_sprint_id?: string | null;
   /** True when a bound sprint's current committed points diverge from the
    *  snapshot captured at promote time (ADR-0106 §1) — the milestone chip /
    *  bridge banner show a "scope changed since bound" caveat. Optional until

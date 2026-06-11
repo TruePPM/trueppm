@@ -315,6 +315,13 @@ urlpatterns = [
         name="sprints-reforecast-preview",
     ),
     # Mid-sprint scope-injection approve-gate (ADR-0102 §5)
+    # GET list (audit + delta, #543/#550) is registered before the /accept|/reject
+    # POSTs; all three share the scope-changes/ prefix but resolve distinctly.
+    path(
+        "sprints/<pk>/scope-changes/",
+        SprintViewSet.as_view({"get": "scope_changes"}),
+        name="sprints-scope-changes",
+    ),
     path(
         "sprints/<pk>/scope-changes/accept/",
         SprintViewSet.as_view({"post": "scope_changes_accept"}),

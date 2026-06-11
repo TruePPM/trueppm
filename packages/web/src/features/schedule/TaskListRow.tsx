@@ -4,6 +4,7 @@ import { useProjectId } from '@/hooks/useProjectId';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import type { Task } from '@/types';
 import { ROW_HEIGHT, WBS_INDENT } from './scheduleConstants';
+import { ScopeChangedChip } from '@/features/sprints/ScopeChangedChip';
 import type { ColumnWidths } from '@/hooks/useColumnWidths';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import {
@@ -1238,6 +1239,9 @@ function MilestoneProgressCell({ task, widthPx }: { task: Task; widthPx: number 
           <span className={`tppm-mono text-xs ${varianceClass}`} aria-hidden="true">
             {varianceLabel}
           </span>
+        )}
+        {rollup.sprint_scope_changed && rollup.scope_change_sprint_id && (
+          <ScopeChangedChip sprintId={rollup.scope_change_sprint_id} iconOnly />
         )}
       </div>
     );

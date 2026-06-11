@@ -132,18 +132,36 @@ describe('AdvancingToMilestoneCard', () => {
     expect(screen.queryByText(/by tasks/i)).not.toBeInTheDocument();
   });
 
-  it('shows scope-changed indicator (ⓘ) when sprint_scope_changed is true', () => {
+  it('shows the persistent scope-changed chip when sprint_scope_changed is true (#550)', () => {
     renderWithRouter(
       <AdvancingToMilestoneCard
         sprint={makeSprint({
           target_milestone_detail: makeMilestone({
-            rollup: makeRollup({ sprint_scope_changed: true }),
+            rollup: makeRollup({
+              sprint_scope_changed: true,
+              scope_change_sprint_id: 'sp-active',
+            }),
           }),
         })}
         projectId="proj-1"
       />,
     );
-    expect(screen.getByLabelText(/Sprint scope changed/i)).toBeInTheDocument();
+    // Persistent, clickable chip — no longer a hover-only ⓘ.
+    expect(screen.getByRole('button', { name: /Scope changed/i })).toBeInTheDocument();
+  });
+
+  it('omits the scope-changed chip when no scope_change_sprint_id is set', () => {
+    renderWithRouter(
+      <AdvancingToMilestoneCard
+        sprint={makeSprint({
+          target_milestone_detail: makeMilestone({
+            rollup: makeRollup({ sprint_scope_changed: true, scope_change_sprint_id: null }),
+          }),
+        })}
+        projectId="proj-1"
+      />,
+    );
+    expect(screen.queryByRole('button', { name: /Scope changed/i })).not.toBeInTheDocument();
   });
 
   it('shows positive variance chip with at-risk color (+3d slip)', () => {
