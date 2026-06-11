@@ -43,7 +43,9 @@ def _project(user: Any, **kwargs: Any) -> Project:
 
 
 def test_detail_exposes_demo_fields_for_a_sample_project(client: APIClient, user: Any) -> None:
-    program = create_program(name="Atlas Platform Launch", methodology="HYBRID", created_by=user)
+    program = create_program(
+        name="Atlas Platform Launch", description="", methodology="HYBRID", created_by=user
+    )
     project = _project(
         user,
         program=program,

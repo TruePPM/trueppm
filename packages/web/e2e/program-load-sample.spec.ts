@@ -86,6 +86,23 @@ async function setup(page: Page) {
   await page.route(`**/api/v1/programs/${PROGRAM_ID}/**`, (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_PROGRAM) }),
   );
+  // The program overview also fetches the rollup; the catch-all above would
+  // otherwise return the program shape, and `Object.entries(rollup.kpis)`
+  // throws on the missing `kpis`, crashing the page before the banner renders.
+  // Registered last so it wins over the catch-all for this specific path.
+  await page.route(`**/api/v1/programs/${PROGRAM_ID}/rollup/`, (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj({
+        aggregation_policy: 'average',
+        policy_available: true,
+        project_count: 3,
+        program_health: 'on_track',
+        kpis: {},
+      }),
+    }),
+  );
 }
 
 test.describe('Load demo data', () => {
