@@ -131,6 +131,7 @@ from trueppm_api.apps.projects.serializers import (
     SignedDownloadUrlSerializer,
     SprintBurnSnapshotSerializer,
     SprintCloseRequestSerializer,
+    SprintDailyDeltaSerializer,
     SprintOutcomeSerializer,
     SprintSerializer,
     TaskAttachmentSerializer,
@@ -5656,6 +5657,7 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
             "capacity",
             "incoming_carryover",
             "outcome",
+            "daily_delta",
             "scope_changes",
         ):
             return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
@@ -6394,6 +6396,40 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         )
         self.check_object_permissions(request, sprint)
         payload = sprint_outcome_payload(sprint, request)
+        return Response(payload, status=status.HTTP_200_OK)
+
+    @extend_schema(responses=SprintDailyDeltaSerializer)
+    @action(detail=True, methods=["get"], url_path="daily-delta")
+    def daily_delta(self, request: Request, pk: str | None = None) -> Response:
+        """Team standup "what changed since yesterday" read (#925, ADR-0121).
+
+        Server-computed delta for the team's Daily Scrum: status moves, new blockers
+        (→ ON_HOLD), scope injections, the burndown swing, and a per-actor count
+        rollup — all from existing history/snapshot data, no model. Pull-only.
+        ``?since=<iso8601>`` sets the window (default 24h ago, floored at sprint
+        activation). Team-private by membership: a PMO/org non-member is denied;
+        the read is status-level only (never hours/keystroke — Morgan's hard-NO).
+        """
+        from datetime import timedelta
+
+        from django.utils import timezone
+        from django.utils.dateparse import parse_datetime
+
+        from trueppm_api.apps.projects.services import sprint_daily_delta
+
+        sprint = get_object_or_404(
+            Sprint.objects.select_related("project"), pk=pk, is_deleted=False
+        )
+        self.check_object_permissions(request, sprint)
+
+        raw = request.query_params.get("since")
+        since = parse_datetime(raw) if raw else None
+        if since is None:
+            since = timezone.now() - timedelta(hours=24)
+        elif timezone.is_naive(since):
+            since = timezone.make_aware(since)
+
+        payload = sprint_daily_delta(sprint, since, request)
         return Response(payload, status=status.HTTP_200_OK)
 
     @extend_schema(

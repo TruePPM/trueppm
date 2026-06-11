@@ -14973,6 +14973,47 @@
                 }
             }
         },
+        "/api/v1/sprints/{id}/daily-delta/": {
+            "get": {
+                "operationId": "v1_sprints_daily_delta_retrieve",
+                "description": "Team standup \"what changed since yesterday\" read (#925, ADR-0119).\n\nServer-computed delta for the team's Daily Scrum: status moves, new blockers\n(→ ON_HOLD), scope injections, the burndown swing, and a per-actor count\nrollup — all from existing history/snapshot data, no model. Pull-only.\n``?since=<iso8601>`` sets the window (default 24h ago, floored at sprint\nactivation). Team-private by membership: a PMO/org non-member is denied;\nthe read is status-level only (never hours/keystroke — Morgan's hard-NO).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SprintDailyDelta"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/sprints/{id}/incoming_carryover/": {
             "get": {
                 "operationId": "v1_sprints_incoming_carryover_retrieve",
@@ -26125,6 +26166,67 @@
                     "target_milestone_detail",
                     "updated_at",
                     "wip_count"
+                ]
+            },
+            "SprintDailyDelta": {
+                "type": "object",
+                "description": "Team standup \"what changed since yesterday\" read (#925, ADR-0119).\n\nServer-computed from existing data (HistoricalTask status moves, SprintScopeChange\ninjections, SprintBurnSnapshot swing) — no model. Status-level only; the per-actor\nrollup is counts, never durations or edit-counts (Morgan's surveillance hard-NO).\nTeam-private by membership (PMO is a non-member → denied). Shape per\n``services.sprint_daily_delta``; DictField children keep it additive + MCP-flat.",
+                "properties": {
+                    "sprint_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "since": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "until": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "task_changes": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": {}
+                        }
+                    },
+                    "scope_added": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": {}
+                        }
+                    },
+                    "new_blockers": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": {}
+                        }
+                    },
+                    "burndown_delta": {
+                        "type": "object",
+                        "additionalProperties": {},
+                        "nullable": true
+                    },
+                    "per_actor": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": {}
+                        }
+                    }
+                },
+                "required": [
+                    "burndown_delta",
+                    "new_blockers",
+                    "per_actor",
+                    "scope_added",
+                    "since",
+                    "sprint_id",
+                    "task_changes",
+                    "until"
                 ]
             },
             "SprintGoalOutcomeEnum": {
