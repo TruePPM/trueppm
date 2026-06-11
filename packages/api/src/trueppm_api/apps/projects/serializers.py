@@ -3509,9 +3509,36 @@ class ProjectDetailSerializer(ProjectSerializer):
 
     unresolved_assignee_count = serializers.SerializerMethodField()
     start_floor = serializers.SerializerMethodField()
+    # Read-only: ``recalculated_at`` is stamped by the CPM recalc task and
+    # ``is_sample`` by the seed importer — never client-writable. The web shows a
+    # "recalculating" badge while a freshly-imported sample's first CPM pass is
+    # still pending (recalculated_at is null), and a per-project demo indicator
+    # when is_sample (#1053). ``program_detail`` gives that indicator the program
+    # name for its "part of …" link.
+    recalculated_at = serializers.DateTimeField(read_only=True)
+    is_sample = serializers.BooleanField(read_only=True)
+    program_detail = serializers.SerializerMethodField()
 
     class Meta(ProjectSerializer.Meta):
-        fields = [*ProjectSerializer.Meta.fields, "unresolved_assignee_count", "start_floor"]
+        fields = [
+            *ProjectSerializer.Meta.fields,
+            "unresolved_assignee_count",
+            "start_floor",
+            "recalculated_at",
+            "is_sample",
+            "program_detail",
+        ]
+
+    def get_program_detail(self, obj: Project) -> dict[str, str] | None:
+        """The project's program as ``{id, name}`` for the demo indicator link.
+
+        Detail-only serializer (single object), so the ``obj.program`` access is
+        not the N+1 risk it would be on the list serializer.
+        """
+        program = obj.program
+        if program is None:
+            return None
+        return {"id": str(program.pk), "name": program.name}
 
     def get_start_floor(self, obj: Project) -> str:
         """First working day on or after ``start_date`` — the effective schedule

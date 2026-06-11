@@ -2,6 +2,7 @@ import { Outlet } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProjectWebSocket } from '@/hooks/useProjectWebSocket';
 import { useSchedulerStore } from '@/stores/schedulerStore';
+import { ProjectSampleIndicator } from './ProjectSampleIndicator';
 import { RecalculatingBadge } from './RecalculatingBadge';
 
 /**
@@ -20,6 +21,10 @@ export function ProjectShell() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
+      {/* Demo-data indicator — present on every project-level view of a sample
+          program so the "this is demo data" cue survives navigation (#1053). */}
+      <ProjectSampleIndicator projectId={projectId} />
+
       {/* RecalculatingBadge strip — visible while CPM is running (issue #40) */}
       {isRecalculating && (
         <div className="flex justify-end px-4 py-1 border-b border-neutral-border bg-neutral-surface-raised flex-shrink-0">

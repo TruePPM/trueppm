@@ -1074,7 +1074,16 @@ export function ScheduleView() {
           />
         )}
         {buildModeActive && <BuildModePill onShowCheatsheet={() => setCheatsheetOpen(true)} />}
-        <RecalculatingBadge isVisible={pendingTaskIds.size > 0} />
+        {/* Show the badge for in-flight optimistic edits, and also while a
+            freshly-imported sample's first post-import CPM pass is still pending
+            (recalculated_at null) so the demo never reads as broken with
+            uncomputed dates (#1053). */}
+        <RecalculatingBadge
+          isVisible={
+            pendingTaskIds.size > 0 ||
+            (projectDetail?.is_sample === true && projectDetail?.recalculated_at == null)
+          }
+        />
 
         {toolbarShowSecondaryInline && (
           <>
