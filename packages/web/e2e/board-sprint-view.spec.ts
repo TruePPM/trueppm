@@ -127,8 +127,8 @@ test.describe('Board sprint view (#429)', () => {
     await page.goto(`${BASE_URL}/board`);
 
     // Project view: both tasks visible.
-    await expect(page.getByText('In the sprint')).toBeVisible();
-    await expect(page.getByText('Not in the sprint')).toBeVisible();
+    await expect(page.getByText('In the sprint', { exact: true })).toBeVisible();
+    await expect(page.getByText('Not in the sprint', { exact: true })).toBeVisible();
 
     // Open the sprint switcher (defaults to "Project") and pick Atlas 4.
     await page.getByRole('button', { name: /Board scope: Project/i }).click();
@@ -136,13 +136,13 @@ test.describe('Board sprint view (#429)', () => {
 
     // URL carries the sprint scope; the out-of-sprint card is hidden.
     await expect(page).toHaveURL(/[?&]sprint=sprint-atlas-4/);
-    await expect(page.getByText('In the sprint')).toBeVisible();
-    await expect(page.getByText('Not in the sprint')).toHaveCount(0);
+    await expect(page.getByText('In the sprint', { exact: true })).toBeVisible();
+    await expect(page.getByText('Not in the sprint', { exact: true })).toHaveCount(0);
 
     // Switch back to the full project board.
     await page.getByRole('button', { name: /Sprint view: Atlas 4/i }).click();
     await page.getByRole('menuitemradio', { name: /All tasks/ }).click();
     await expect(page).not.toHaveURL(/sprint=/);
-    await expect(page.getByText('Not in the sprint')).toBeVisible();
+    await expect(page.getByText('Not in the sprint', { exact: true })).toBeVisible();
   });
 });
