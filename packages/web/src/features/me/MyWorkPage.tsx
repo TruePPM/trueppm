@@ -1,10 +1,14 @@
 /**
- * My Work page — cross-project contributor surface (issue #499, ADR-0065 Gap 2).
+ * My Work page — cross-project contributor surface (issue #499, ADR-0065 Gap 2;
+ * grouping reworked in #484 / ADR-0118).
  *
- * Route: /me/work. Grouped client-side by active sprint, then a single "Not
- * in a sprint" group at the end. No CPM vocabulary anywhere on the surface;
- * the API returns a deliberately flat shape with `is_critical` as a single
- * boolean rendered as an icon plus plain-English tooltip.
+ * Route: /me/work. Grouped into Today / This Sprint / Upcoming — the buckets a
+ * contributor thinks in, computed server-side (`task.group`) and returned
+ * pre-sorted so the page groups by a contiguous walk and never re-derives date
+ * math. No CPM vocabulary anywhere on the surface; the API returns a
+ * deliberately flat shape with `is_critical` as a single boolean rendered as an
+ * icon plus plain-English tooltip, and a `blocked_reason` that drives a
+ * prominent blocked badge.
  *
  * Loading shows a row skeleton (no spinners — rule 3 / progressive
  * disclosure). Errors surface as a banner with retry; cached data, if any,
@@ -15,36 +19,41 @@
  * with header ``X-Source: my_work`` (see ``useMyWorkStatusUpdate``).
  */
 import { useMemo } from 'react';
-import { useMyWork, type MyWorkActiveSprint, type MyWorkTask } from '@/hooks/useMyWork';
+import { useMyWork, type MyWorkGroup, type MyWorkTask } from '@/hooks/useMyWork';
 import { useProjects } from '@/hooks/useProjects';
 import { MyWorkTaskRow } from './MyWorkTaskRow';
 import { MyWorkEmptyState } from './MyWorkEmptyState';
 import { MyWorkRetroSection } from './MyWorkRetroSection';
 
-interface SprintGroup {
-  sprint: MyWorkActiveSprint;
+interface WorkGroup {
+  group: MyWorkGroup;
   tasks: MyWorkTask[];
 }
 
-function partitionBySprintId(
-  tasks: MyWorkTask[],
-  activeSprints: MyWorkActiveSprint[],
-): { sprintGroups: SprintGroup[]; orphanTasks: MyWorkTask[] } {
-  const bySprint = new Map<string, MyWorkTask[]>();
-  const orphans: MyWorkTask[] = [];
+// Render order + contributor-facing labels (#484). Deliberately plain language —
+// "Today" / "This Sprint" / "Upcoming", never "Phase" / "Early Finish" / "WBS".
+const GROUP_ORDER: MyWorkGroup[] = ['today', 'this_sprint', 'upcoming'];
+const GROUP_LABEL: Record<MyWorkGroup, string> = {
+  today: 'Today',
+  this_sprint: 'This Sprint',
+  upcoming: 'Upcoming',
+};
+
+/**
+ * Partition the flat list into its contiguous server-assigned buckets. The
+ * response is already sorted group_rank → blocked-first → due, so this is a
+ * stable group-by that preserves the server ordering within each section.
+ */
+function groupByBucket(tasks: MyWorkTask[]): WorkGroup[] {
+  const buckets = new Map<MyWorkGroup, MyWorkTask[]>();
   for (const t of tasks) {
-    if (t.sprint_id) {
-      const bucket = bySprint.get(t.sprint_id) ?? [];
-      bucket.push(t);
-      bySprint.set(t.sprint_id, bucket);
-    } else {
-      orphans.push(t);
-    }
+    const bucket = buckets.get(t.group) ?? [];
+    bucket.push(t);
+    buckets.set(t.group, bucket);
   }
-  const sprintGroups = activeSprints
-    .map((s) => ({ sprint: s, tasks: bySprint.get(s.id) ?? [] }))
-    .filter((g) => g.tasks.length > 0);
-  return { sprintGroups, orphanTasks: orphans };
+  return GROUP_ORDER.map((g) => ({ group: g, tasks: buckets.get(g) ?? [] })).filter(
+    (g) => g.tasks.length > 0,
+  );
 }
 
 export function MyWorkPage() {
@@ -66,10 +75,7 @@ export function MyWorkPage() {
   const totalCount = allTasks.length + retroItemCount;
   const dueTodayCount = firstPage?.due_today_count ?? 0;
 
-  const { sprintGroups, orphanTasks } = useMemo(
-    () => partitionBySprintId(allTasks, firstPage?.active_sprints ?? []),
-    [allTasks, firstPage],
-  );
+  const workGroups = useMemo(() => groupByBucket(allTasks), [allTasks]);
 
   return (
     <main className="flex flex-col h-full overflow-y-auto bg-neutral-surface">
@@ -112,13 +118,13 @@ export function MyWorkPage() {
           {firstPage?.retro_action_items && firstPage.retro_action_items.length > 0 && (
             <MyWorkRetroSection items={firstPage.retro_action_items} />
           )}
-          {sprintGroups.map((group) => (
+          {workGroups.map((group) => (
             <section
-              key={group.sprint.id}
-              aria-labelledby={`group-${group.sprint.id}`}
+              key={group.group}
+              aria-labelledby={`group-${group.group}`}
               className="flex flex-col"
             >
-              <SprintGroupHeader sprint={group.sprint} taskCount={group.tasks.length} />
+              <WorkGroupHeader group={group.group} taskCount={group.tasks.length} />
               <ul className="flex flex-col">
                 {group.tasks.map((t) => (
                   <MyWorkTaskRow key={t.id} task={t} />
@@ -126,16 +132,6 @@ export function MyWorkPage() {
               </ul>
             </section>
           ))}
-          {orphanTasks.length > 0 && (
-            <section aria-labelledby="group-not-in-sprint" className="flex flex-col">
-              <NonSprintGroupHeader taskCount={orphanTasks.length} />
-              <ul className="flex flex-col">
-                {orphanTasks.map((t) => (
-                  <MyWorkTaskRow key={t.id} task={t} />
-                ))}
-              </ul>
-            </section>
-          )}
           {hasNextPage && (
             <div className="flex justify-center py-4">
               <button
@@ -158,33 +154,16 @@ export function MyWorkPage() {
   );
 }
 
-function SprintGroupHeader({ sprint, taskCount }: { sprint: MyWorkActiveSprint; taskCount: number }) {
+function WorkGroupHeader({ group, taskCount }: { group: MyWorkGroup; taskCount: number }) {
+  const label = GROUP_LABEL[group];
   return (
     <h2
-      id={`group-${sprint.id}`}
-      className="px-4 md:px-3 pt-4 pb-1 flex items-baseline justify-between gap-3
+      id={`group-${group}`}
+      className="px-4 md:px-3 pt-5 pb-1 flex items-baseline justify-between gap-3
         text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary"
-      aria-label={`${sprint.name}, ${sprint.project_name}, ${sprint.days_remaining} days remaining, ${taskCount} tasks`}
+      aria-label={`${label}, ${taskCount} task${taskCount === 1 ? '' : 's'}`}
     >
-      <span className="truncate">
-        {sprint.name} · {sprint.project_name}
-      </span>
-      <span className="tppm-mono shrink-0 text-[11px]">
-        {sprint.days_remaining}d · {taskCount} task{taskCount === 1 ? '' : 's'}
-      </span>
-    </h2>
-  );
-}
-
-function NonSprintGroupHeader({ taskCount }: { taskCount: number }) {
-  return (
-    <h2
-      id="group-not-in-sprint"
-      className="px-4 md:px-3 pt-6 pb-1 flex items-baseline justify-between gap-3
-        text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary"
-      aria-label={`Not in a sprint, ${taskCount} tasks`}
-    >
-      <span>Not in a sprint</span>
+      <span className="truncate border-l-2 border-brand-primary/60 pl-2 -ml-2">{label}</span>
       <span className="tppm-mono shrink-0 text-[11px]">
         {taskCount} task{taskCount === 1 ? '' : 's'}
       </span>

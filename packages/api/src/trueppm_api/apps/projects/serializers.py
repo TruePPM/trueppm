@@ -1082,6 +1082,9 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "readiness",
             "predecessor_count",
             "is_blocked",
+            # Explicit human blocker (#476) — writable, distinct from the computed
+            # dependency-readiness ``is_blocked`` above. Non-empty ⇒ flagged blocked.
+            "blocked_reason",
             "linked_risks_count",
             "linked_risks_max_severity",
             "status_changed_at",
@@ -3639,8 +3642,31 @@ class MeWorkTaskSerializer(serializers.Serializer[Any]):
     due = serializers.SerializerMethodField()
     due_source = serializers.SerializerMethodField()
     is_critical = serializers.SerializerMethodField()
+    # Explicit human blocker (#476/#855). On this contributor surface "blocked"
+    # means the human flag (a teammate said this can't proceed) — the dependency-
+    # readiness ``is_blocked`` that the board card carries is deliberately absent
+    # here, so within My Work ``is_blocked`` is unambiguous.
+    is_blocked = serializers.SerializerMethodField()
+    blocked_reason = serializers.CharField(read_only=True)
+    # Server-computed bucket (#484): "today" | "this_sprint" | "upcoming". The
+    # grouping decision is a server fact (API-first) so every client — web, mobile,
+    # MCP — renders the same three sections without re-deriving date math.
+    group = serializers.SerializerMethodField()
     server_version = serializers.IntegerField(read_only=True)
     url = serializers.SerializerMethodField()
+
+    # Map of the ``_group_rank`` annotation (set by MeWorkView.get_queryset) to the
+    # contributor-facing bucket name. Kept here so the rank ordering and the string
+    # label share one source of truth.
+    _GROUP_BY_RANK = {0: "today", 1: "this_sprint", 2: "upcoming"}
+
+    def get_is_blocked(self, obj: Any) -> bool:
+        return bool((getattr(obj, "blocked_reason", "") or "").strip())
+
+    def get_group(self, obj: Any) -> str:
+        # ``_group_rank`` is annotated by the view; default to "upcoming" for any
+        # caller that bypasses the viewset (e.g. nested serialization in tests).
+        return self._GROUP_BY_RANK.get(getattr(obj, "_group_rank", 2), "upcoming")
 
     def get_project_name(self, obj: Any) -> str:
         return str(obj.project.name)

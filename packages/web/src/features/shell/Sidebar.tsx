@@ -4,6 +4,7 @@ import { useShellStore, selectSidebarWidth } from '@/stores/shellStore';
 import { useProjects } from '@/hooks/useProjects';
 import { usePrograms } from '@/hooks/usePrograms';
 import { useMyWork } from '@/hooks/useMyWork';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { ProjectListItem } from './ProjectListItem';
 import { ProjectGroup } from './ProjectGroup';
 import { ProjectScopePicker } from './ProjectScopePicker';
@@ -30,6 +31,14 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
   // so this adds at most one request per session unless the user opens the page.
   const { data: myWorkData } = useMyWork();
   const dueTodayCount = myWorkData?.pages[0]?.due_today_count ?? 0;
+  // #856: a contributor (no admin access anywhere) goes straight to their own
+  // notification settings; the admin Workspace/Project shell stays hidden from
+  // them. Admins keep the full settings shell. The admin routes are also
+  // route-guarded (RequireAdminSettings), so this is the affordance half.
+  const { user: currentUser } = useCurrentUser();
+  const canAccessAdminSettings = currentUser?.can_access_admin_settings ?? true;
+  const settingsTo = canAccessAdminSettings ? '/settings' : '/me/settings/notifications';
+  const settingsLabel = canAccessAdminSettings ? 'Workspace settings' : 'Notification settings';
   const [showNewProject, setShowNewProject] = useState(false);
   const [showNewProgram, setShowNewProgram] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -463,8 +472,8 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               Resources
             </NavLink>
             <NavLink
-              to="/settings"
-              aria-label="Workspace settings"
+              to={settingsTo}
+              aria-label={settingsLabel}
               className={({ isActive }) =>
                 [
                   'flex items-center gap-2 w-full px-2 py-2 rounded text-sm transition-colors',
@@ -521,8 +530,8 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               </svg>
             </NavLink>
             <NavLink
-              to="/settings"
-              aria-label="Workspace settings"
+              to={settingsTo}
+              aria-label={settingsLabel}
               className={({ isActive }) =>
                 [
                   'flex items-center justify-center w-11 h-11 rounded transition-colors',

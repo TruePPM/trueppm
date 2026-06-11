@@ -34,6 +34,13 @@ urlpatterns = [
         NotificationPreferenceViewSet.as_view({"get": "list"}),
         name="me-notification-preferences-list",
     ),
+    # Signal-only / everything preset (#855). Explicit path because this app wires
+    # the viewset with as_view() rather than a router, so @action isn't auto-routed.
+    path(
+        "me/notification-preferences/apply-preset/",
+        NotificationPreferenceViewSet.as_view({"post": "apply_preset"}),
+        name="me-notification-preferences-apply-preset",
+    ),
     path(
         "me/notification-preferences/<int:pk>/",
         NotificationPreferenceViewSet.as_view({"patch": "partial_update"}),

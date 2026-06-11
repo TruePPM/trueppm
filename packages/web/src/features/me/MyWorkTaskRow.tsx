@@ -62,8 +62,13 @@ export function MyWorkTaskRow({ task }: Props) {
 
   return (
     <li
-      className="relative flex flex-col gap-1 px-3 py-3 border-b border-neutral-border/40
-        md:flex-row md:items-center md:gap-3 md:py-2 md:min-h-11"
+      className={[
+        'relative flex flex-col gap-1 px-3 py-3 border-b border-neutral-border/40',
+        'md:flex-row md:items-center md:gap-3 md:py-2 md:min-h-11',
+        // Blocked tasks (#476/#855) carry a left accent so they read as
+        // "needs attention" at a glance — they also sort first within a group.
+        task.is_blocked ? 'border-l-2 border-l-semantic-critical' : '',
+      ].join(' ')}
     >
       {/* Top line on mobile / leading slot on md+: critical indicator + short_id */}
       <div className="flex items-center gap-2 md:w-32 md:shrink-0">
@@ -114,6 +119,21 @@ export function MyWorkTaskRow({ task }: Props) {
             </>
           )}
         </p>
+        {/* Blocked badge (#476/#855) — prominent, with the reason inline. The
+            human flag, not the board's dependency-readiness signal. */}
+        {task.is_blocked && (
+          <p className="mt-1 flex items-start gap-1.5 text-xs text-semantic-critical">
+            <span
+              className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 font-semibold
+                bg-semantic-critical-bg border border-semantic-critical/40"
+            >
+              <span aria-hidden="true">●</span> Blocked
+            </span>
+            {task.blocked_reason && (
+              <span className="min-w-0 text-neutral-text-secondary">{task.blocked_reason}</span>
+            )}
+          </p>
+        )}
       </div>
 
       {/* Status chip — opens StatusPicker popover on tap. */}

@@ -1905,6 +1905,55 @@
                 }
             }
         },
+        "/api/v1/me/notification-preferences/apply-preset/": {
+            "post": {
+                "operationId": "v1_me_notification_preferences_apply_preset_create",
+                "description": "Apply a wholesale preference preset (#855) and return the new matrix.\n\nBody: ``{\"preset\": \"signal_only\" | \"everything\"}``.\n\n- ``signal_only`` — the contributor profile: in-app ON for the two\n  attention-worthy events (task.blocked, task.due_date_changed), every\n  other (event, channel) row OFF. This is Priya's escape from a noisy\n  default without auditing the full grid cell-by-cell.\n- ``everything`` — restore the enabled state from DEFAULT_PREFERENCES.\n\nImplemented as a bulk write over the existing per-(event, channel) rows\nrather than a new \"profile\" model, so the matrix stays the single source\nof truth and the data-driven settings page (ADR-0085) needs no special\ncasing. Scoped to ``request.user`` by construction.",
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/NotificationPreferenceRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/NotificationPreferenceRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/NotificationPreferenceRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/NotificationPreference"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/me/notifications/": {
             "get": {
                 "operationId": "v1_me_notifications_list",
@@ -20727,14 +20776,31 @@
                     "email": {
                         "type": "string",
                         "format": "email"
+                    },
+                    "max_project_role": {
+                        "type": "integer",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "workspace_role": {
+                        "type": "integer",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "can_access_admin_settings": {
+                        "type": "boolean",
+                        "readOnly": true
                     }
                 },
                 "required": [
+                    "can_access_admin_settings",
                     "display_name",
                     "email",
                     "id",
                     "initials",
-                    "username"
+                    "max_project_role",
+                    "username",
+                    "workspace_role"
                 ]
             },
             "MeWorkTask": {
@@ -20806,6 +20872,18 @@
                         "type": "boolean",
                         "readOnly": true
                     },
+                    "is_blocked": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "blocked_reason": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "group": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "server_version": {
                         "type": "integer",
                         "readOnly": true
@@ -20816,9 +20894,12 @@
                     }
                 },
                 "required": [
+                    "blocked_reason",
                     "due",
                     "due_source",
+                    "group",
                     "id",
+                    "is_blocked",
                     "is_critical",
                     "name",
                     "project_id",
@@ -21114,6 +21195,18 @@
                     "event_type",
                     "id",
                     "updated_at"
+                ]
+            },
+            "NotificationPreferenceRequest": {
+                "type": "object",
+                "description": "Per-user (event_type, channel) toggle.\n\nPATCH on the viewset only modifies `enabled` — event_type / channel /\nuser are immutable.",
+                "properties": {
+                    "enabled": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "enabled"
                 ]
             },
             "NotificationRequest": {
@@ -23206,6 +23299,10 @@
                                 "$ref": "#/components/schemas/NullEnum"
                             }
                         ]
+                    },
+                    "blocked_reason": {
+                        "type": "string",
+                        "description": "Why the task is blocked; empty means not blocked (drives the My Work badge)."
                     },
                     "priority_rank": {
                         "type": "integer",
@@ -26613,6 +26710,10 @@
                         "readOnly": true,
                         "default": false
                     },
+                    "blocked_reason": {
+                        "type": "string",
+                        "description": "Why the task is blocked; empty means not blocked (drives the My Work badge)."
+                    },
                     "linked_risks_count": {
                         "type": "integer",
                         "readOnly": true,
@@ -27452,6 +27553,10 @@
                                 "$ref": "#/components/schemas/NullEnum"
                             }
                         ]
+                    },
+                    "blocked_reason": {
+                        "type": "string",
+                        "description": "Why the task is blocked; empty means not blocked (drives the My Work badge)."
                     },
                     "priority_rank": {
                         "type": "integer",

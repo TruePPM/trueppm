@@ -1030,6 +1030,25 @@ class Task(VersionedModel):
     percent_complete = models.FloatField(default=0.0)
     notes = models.TextField(blank=True, default="")
 
+    # Contributor "blocked" signal (#476). A team member raises this from the
+    # board / My Work to flag that the work cannot proceed — it is the data source
+    # for the My Work blocked badge (#484) and the ``task.blocked`` notification
+    # (#855). The flag IS the reason: a non-empty ``blocked_reason`` means flagged
+    # blocked, an empty string means clear. Modeling it as reason-only (rather than
+    # a separate boolean) keeps it to one field AND avoids a name collision with
+    # the existing computed ``is_blocked`` annotation (ADR-0035), which is a
+    # *dependency-readiness* signal ("has incomplete predecessors") — a different
+    # concept that the board card owns. This is the EXPLICIT human flag, never
+    # derived from predecessors. Rides the existing ``PATCH /tasks/{id}/`` write
+    # path, so it is gated to Member+ by task-edit permission — a Viewer cannot
+    # set it. Always-present-when-blocked because a blocker with no reason is
+    # low-signal ("a button that silently fails is worse than no button").
+    blocked_reason = models.TextField(
+        blank=True,
+        default="",
+        help_text="Why the task is blocked; empty means not blocked (drives the My Work badge).",
+    )
+
     # SNET constraint — set by the PM (e.g. via Gantt drag-to-reschedule).
     # The CPM forward pass applies this as a floor:
     #   early_start = max(CPM-computed early_start, planned_start)

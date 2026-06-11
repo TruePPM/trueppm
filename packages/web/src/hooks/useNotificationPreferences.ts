@@ -93,3 +93,31 @@ export function useUpdateNotificationPreference() {
     },
   });
 }
+
+/** Notification preset keys (#855, ADR-0118). */
+export type NotificationPreset = 'signal_only' | 'everything';
+
+/**
+ * POST /api/v1/me/notification-preferences/apply-preset/
+ *
+ * Wholesale-applies a preset and seeds the cache with the returned matrix.
+ * `signal_only` is Priya's one-click escape from a noisy default (in-app ON for
+ * blocked + deadline-changed only); `everything` restores the recommended
+ * defaults. The server returns the full refreshed row list, so we write it
+ * straight into the shared cache instead of re-fetching.
+ */
+export function useApplyNotificationPreset() {
+  const queryClient = useQueryClient();
+  return useMutation<NotificationPreferenceRow[], Error, NotificationPreset>({
+    mutationFn: async (preset) => {
+      const res = await apiClient.post<NotificationPreferenceRow[]>(
+        '/me/notification-preferences/apply-preset/',
+        { preset },
+      );
+      return res.data;
+    },
+    onSuccess: (rows) => {
+      queryClient.setQueryData<NotificationPreferenceRow[]>(PREFS_KEY, rows);
+    },
+  });
+}
