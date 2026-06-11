@@ -104,4 +104,17 @@ test.describe('Load demo data', () => {
 
     await expect(page).toHaveURL(new RegExp(`/programs/${PROGRAM_ID}/overview`));
   });
+
+  test('remove-sample confirm warns that user changes are also deleted (#1053)', async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.goto(`/programs/${PROGRAM_ID}/overview`);
+
+    // The sample banner is owner-visible (my_role 400); revealing its confirm
+    // step must spell out that the teardown also removes the evaluator's edits.
+    await page.getByRole('button', { name: /Remove sample data/i }).click();
+    await expect(page.getByText(/including any changes you made/i)).toBeVisible();
+    await expect(page.getByText(/your own projects are not affected/i)).toBeVisible();
+  });
 });

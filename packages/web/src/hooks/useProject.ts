@@ -39,6 +39,16 @@ export interface ApiProjectDetail {
   is_archived: boolean;
   archived_at: string | null;
   archived_by: string | null;
+  /**
+   * Set by the CPM recalc task on success; null until the first schedule pass
+   * completes after import (#1053). The Schedule view shows a non-blocking
+   * "recalculating" badge while this is null on a sample project.
+   */
+  recalculated_at: string | null;
+  /** True when this project is bundled demo data (#375 / #1053). */
+  is_sample: boolean;
+  /** The project's program as {id, name} — drives the per-project demo indicator's "part of …" link. Null for unassigned projects. */
+  program_detail: { id: string; name: string } | null;
 }
 
 /**

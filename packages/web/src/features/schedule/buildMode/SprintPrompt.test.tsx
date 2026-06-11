@@ -32,6 +32,9 @@ function agileProjectClient(): QueryClient {
     is_archived: false,
     archived_at: null,
     archived_by: null,
+    recalculated_at: '2026-01-02T00:00:00Z',
+    is_sample: false,
+    program_detail: null,
   };
   qc.setQueryData(['project', 'p1'], project);
   return qc;
