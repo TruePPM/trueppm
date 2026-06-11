@@ -184,12 +184,7 @@ export function SprintGoalCard({ sprint, projectId, canEdit = false, heading }: 
             <Button variant="ghost" size="md" onClick={handleCancel}>
               Cancel
             </Button>
-            <Button
-              variant="primary"
-              size="md"
-              onClick={handleSave}
-              disabled={!canSave}
-            >
+            <Button variant="primary" size="md" onClick={handleSave} disabled={!canSave}>
               {updateSprint.isPending ? 'Saving…' : 'Save goal'}
             </Button>
           </div>

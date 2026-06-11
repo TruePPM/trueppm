@@ -38,11 +38,7 @@ interface Props {
  * finish vs milestone) answer different questions and are stacked, not
  * collapsed.
  */
-export function AdvancingToMilestoneCard({
-  sprint,
-  projectId,
-  predecessorsInSprint,
-}: Props) {
+export function AdvancingToMilestoneCard({ sprint, projectId, predecessorsInSprint }: Props) {
   const itl = useIterationLabel(projectId);
   const detail = sprint.target_milestone_detail;
   const rollup = detail?.rollup ?? null;
@@ -73,12 +69,8 @@ export function AdvancingToMilestoneCard({
               {detail.name}
             </p>
             <div className="flex items-center gap-3 text-xs text-neutral-text-secondary">
-              {detail.wbs_path && (
-                <span className="tppm-mono">WBS {detail.wbs_path}</span>
-              )}
-              {detail.finish && (
-                <span className="tppm-mono">{formatShortDate(detail.finish)}</span>
-              )}
+              {detail.wbs_path && <span className="tppm-mono">WBS {detail.wbs_path}</span>}
+              {detail.finish && <span className="tppm-mono">{formatShortDate(detail.finish)}</span>}
               {detail.finish && <DaysOutChip targetIso={detail.finish} />}
             </div>
           </div>
@@ -154,7 +146,10 @@ interface RollupBlockProps {
 function RollupBlock({ rollup, label }: RollupBlockProps) {
   const percent = rollup.percent_complete!;
   return (
-    <div className="flex flex-col gap-1" aria-label={`Milestone progress ${Math.round(percent)} percent`}>
+    <div
+      className="flex flex-col gap-1"
+      aria-label={`Milestone progress ${Math.round(percent)} percent`}
+    >
       <div className="flex items-baseline gap-1">
         <span className="text-2xl tppm-mono text-neutral-text-primary leading-none">
           {Math.round(percent)}%

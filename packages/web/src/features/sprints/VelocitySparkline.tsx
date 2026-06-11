@@ -35,18 +35,13 @@ export function VelocitySparkline({ velocity, isLoading = false }: Props) {
   const itl = useIterationLabel();
   const sprints = useMemo(() => {
     if (!velocity) return [];
-    return velocity.sprints
-      .filter((s) => s.completed_points !== null)
-      .slice(-MAX_BARS);
+    return velocity.sprints.filter((s) => s.completed_points !== null).slice(-MAX_BARS);
   }, [velocity]);
 
   // Min / median (P50) / max of the completed-points series — the band overlay.
   // Excluded sprints (ADR-0113) are held out of the band/median; they still
   // render as hollow bars so the trend the team sees matches the velocity stats.
-  const band = useMemo(
-    () => bandStats(sprints.filter((s) => !s.exclude_from_velocity)),
-    [sprints],
-  );
+  const band = useMemo(() => bandStats(sprints.filter((s) => !s.exclude_from_velocity)), [sprints]);
 
   if (isLoading) {
     return (
@@ -163,17 +158,7 @@ function SparkBar({ sprint, max, index, isLatest, total }: BarProps) {
   }
   const fill = isLatest ? 'fill-brand-primary' : 'fill-brand-primary-dark';
   const opacity = isLatest ? 1 : 0.55;
-  return (
-    <rect
-      x={x}
-      y={y}
-      width={BAR_W}
-      height={h}
-      rx={1}
-      className={fill}
-      opacity={opacity}
-    />
-  );
+  return <rect x={x} y={y} width={BAR_W} height={h} rx={1} className={fill} opacity={opacity} />;
 }
 
 interface BandStats {
@@ -188,8 +173,7 @@ function bandStats(sprints: VelocitySprintEntry[]): BandStats | null {
   if (values.length < 2) return null;
   const sorted = [...values].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
-  const median =
-    sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  const median = sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
   return { min: sorted[0], median, max: sorted[sorted.length - 1] };
 }
 

@@ -212,10 +212,7 @@ export function ScheduleCommitPopover({
       className="fixed z-[70] hidden lg:block bg-neutral-surface border border-neutral-border rounded-lg p-3"
       style={{ top: position.top, left: position.left, width: POPOVER_WIDTH }}
     >
-      <div
-        id="schedule-commit-title"
-        className="text-sm font-semibold text-neutral-text-primary"
-      >
+      <div id="schedule-commit-title" className="text-sm font-semibold text-neutral-text-primary">
         {title}
       </div>
 
@@ -256,22 +253,13 @@ export function ScheduleCommitPopover({
         >
           Cancel
         </button>
-        <Button
-          ref={confirmRef}
-          variant="primary"
-          onClick={onConfirm}
-          disabled={isPending}
-        >
+        <Button ref={confirmRef} variant="primary" onClick={onConfirm} disabled={isPending}>
           {isPending ? 'Saving…' : error !== null ? 'Retry' : verb}
         </Button>
       </div>
 
       {/* Triangle pointer to the new bar */}
-      <span
-        aria-hidden="true"
-        className="absolute w-0 h-0"
-        style={triangleStyle}
-      />
+      <span aria-hidden="true" className="absolute w-0 h-0" style={triangleStyle} />
     </div>,
     document.body,
   );

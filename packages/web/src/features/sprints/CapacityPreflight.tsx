@@ -118,18 +118,15 @@ export function CapacityPreflight({ capacity, points }: Props) {
           <p className="text-sm font-medium text-neutral-text-primary">
             <span className="tppm-mono">{totals.committed_hours}</span>
             {' / '}
-            <span className="tppm-mono">{totals.available_hours}</span>{' '}
-            hours committed
+            <span className="tppm-mono">{totals.available_hours}</span> hours committed
           </p>
           <p className={`text-xs ${LABEL_COLOR[totals.label]}`}>
             {LABEL_COPY[totals.label]}
             {totals.buffer_hours !== 0 && (
               <span className="text-neutral-text-secondary">
                 {' · '}
-                <span className="tppm-mono">
-                  {Math.abs(totals.buffer_hours)}
-                </span>{' '}
-                hours of {totals.buffer_hours >= 0 ? 'buffer' : 'overrun'}
+                <span className="tppm-mono">{Math.abs(totals.buffer_hours)}</span> hours of{' '}
+                {totals.buffer_hours >= 0 ? 'buffer' : 'overrun'}
               </span>
             )}
           </p>
