@@ -120,8 +120,7 @@ class WorkspaceSettingsSerializer(serializers.ModelSerializer[Workspace]):
         stripped = (value or "").strip()
         if not stripped:
             raise serializers.ValidationError(
-                "Enter a default label for the iteration container (e.g. Sprint, "
-                "Iteration, PI)."
+                "Enter a default label for the iteration container (e.g. Sprint, Iteration, PI)."
             )
         return stripped
 

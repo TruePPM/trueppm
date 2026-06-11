@@ -1,7 +1,9 @@
+from typing import Any
+
 from django.db import migrations
 
 
-def backfill_sprint_to_inherit(apps, schema_editor):
+def backfill_sprint_to_inherit(apps: Any, schema_editor: Any) -> None:
     """Clear the ADR-0111 default "Sprint" to NULL (inherit) on existing projects.
 
     ADR-0116: #1106 lands ~1 day after #862, so an *explicit* project label of
@@ -17,7 +19,7 @@ def backfill_sprint_to_inherit(apps, schema_editor):
     Project.objects.filter(iteration_label="Sprint").update(iteration_label=None)
 
 
-def restore_inherit_to_sprint(apps, schema_editor):
+def restore_inherit_to_sprint(apps: Any, schema_editor: Any) -> None:
     """Reverse: re-materialize NULL (inherit) back to the literal "Sprint"."""
     Project = apps.get_model("projects", "Project")
     Project.objects.filter(iteration_label__isnull=True).update(iteration_label="Sprint")
