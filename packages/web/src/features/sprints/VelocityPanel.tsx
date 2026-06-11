@@ -1,4 +1,5 @@
 import type { ProjectVelocity } from '@/hooks/useSprints';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 
 interface Props {
   velocity: ProjectVelocity;
@@ -17,6 +18,7 @@ const LABEL_H = 30;
  * amber on 0.6–0.85, red below. ADR-0036 footer note references the CPM feed.
  */
 export function VelocityPanel({ velocity }: Props) {
+  const itl = useIterationLabel();
   const sprints = velocity.sprints;
   const max = Math.max(
     1,
@@ -86,7 +88,7 @@ export function VelocityPanel({ velocity }: Props) {
           </>
         ) : (
           <span className="italic text-neutral-text-disabled">
-            No closed sprints yet
+            No closed {itl.lowerPlural} yet
           </span>
         )}
       </p>

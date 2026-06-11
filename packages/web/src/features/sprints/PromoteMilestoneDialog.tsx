@@ -25,6 +25,8 @@ import {
   type ReforecastPreview,
 } from '@/hooks/usePromoteMilestone';
 import type { ApiSprint } from '@/types';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
+import type { IterationLabelForms } from '@/lib/iterationLabel';
 import { formatShortDate } from './sprintMath';
 
 /**
@@ -108,6 +110,7 @@ export function PromoteMilestoneDialog({
   onBound,
   compact = false,
 }: PromoteMilestoneDialogProps) {
+  const itl = useIterationLabel(projectId);
   const alreadyBound = sprint.target_milestone != null;
 
   // View state: the conflict view shows whenever the sprint is bound and the
@@ -271,8 +274,8 @@ export function PromoteMilestoneDialog({
           aria-modal="true"
           aria-label={
             conflict && !rebinding
-              ? 'Sprint already bound to a milestone'
-              : 'Promote sprint to milestone'
+              ? `${itl.singular} already bound to a milestone`
+              : `Promote ${itl.lower} to milestone`
           }
           className={`w-full ${widthClass} max-h-[90vh] overflow-auto rounded-lg border border-neutral-border bg-neutral-surface pointer-events-auto`}
         >
@@ -286,7 +289,7 @@ export function PromoteMilestoneDialog({
               </h2>
               <p className="text-xs text-neutral-text-secondary leading-relaxed">
                 {conflict && !rebinding
-                  ? 'A sprint commitment advances one milestone at a time. Rebinding is recorded in the sprint history.'
+                  ? `A ${itl.lower} commitment advances one milestone at a time. Rebinding is recorded in the ${itl.lower} history.`
                   : `Link ${sprint.short_id_display}'s commitment to a schedule milestone so its velocity reforecasts the CPM finish — no copy-paste between tools.`}
               </p>
             </div>
@@ -321,6 +324,7 @@ export function PromoteMilestoneDialog({
             <ConflictBody
               sprint={sprint}
               busy={busy}
+              iterationLower={itl.lower}
               onClose={onClose}
               onUnbind={handleUnbind}
               onRebind={() => {
@@ -375,6 +379,7 @@ export function PromoteMilestoneDialog({
                     onNameChange={setCreateName}
                     targetDate={createTargetDate}
                     onTargetDateChange={setCreateTargetDate}
+                    iterationLower={itl.lower}
                   />
                 ) : (
                   <BindModeBody
@@ -395,6 +400,7 @@ export function PromoteMilestoneDialog({
                     preview={preview}
                     hasTarget={hasTarget}
                     mode={mode}
+                    label={itl}
                   />
                 </div>
               )}
@@ -405,7 +411,7 @@ export function PromoteMilestoneDialog({
           {showForm && (
             <div className="flex items-center gap-3 border-t border-neutral-border p-4">
               <p className="flex-1 text-xs text-neutral-text-secondary tppm-mono">
-                Reforecasts on sprint close · recorded in history
+                Reforecasts on {itl.lower} close · recorded in history
               </p>
               <Button variant="ghost" size="md" onClick={onClose} disabled={busy}>
                 Cancel
@@ -479,11 +485,13 @@ function CreateModeBody({
   onNameChange,
   targetDate,
   onTargetDateChange,
+  iterationLower,
 }: {
   name: string;
   onNameChange: (v: string) => void;
   targetDate: string;
   onTargetDateChange: (v: string) => void;
+  iterationLower: string;
 }) {
   return (
     <div className="flex flex-col gap-3">
@@ -523,8 +531,8 @@ function CreateModeBody({
         </span>
       </label>
       <p className="text-xs text-neutral-text-secondary leading-relaxed">
-        Defaults to the sprint’s goal and finish date — edit either here, or move the
-        milestone in the Schedule view later.
+        Defaults to the {iterationLower}’s goal and finish date — edit either here, or move
+        the milestone in the Schedule view later.
       </p>
     </div>
   );
@@ -656,10 +664,12 @@ function ReforecastPreviewPanel({
   preview,
   hasTarget,
   mode,
+  label,
 }: {
   preview: ReforecastPreview | null;
   hasTarget: boolean;
   mode: Mode;
+  label: IterationLabelForms;
 }) {
   return (
     <>
@@ -671,13 +681,13 @@ function ReforecastPreviewPanel({
       {!hasTarget ? (
         <p className="text-xs text-neutral-text-secondary leading-relaxed">
           {mode === 'bind'
-            ? 'Select a milestone to preview how this sprint’s pace reforecasts its finish.'
-            : 'A reforecast appears once the sprint window is set.'}
+            ? `Select a milestone to preview how this ${label.lower}’s pace reforecasts its finish.`
+            : `A reforecast appears once the ${label.lower} window is set.`}
         </p>
       ) : !preview ? (
         <p className="text-xs text-neutral-text-secondary leading-relaxed">
-          This sprint’s velocity reforecasts the milestone finish as a range when the
-          sprint closes. The range is recorded in the sprint history.
+          This {label.lower}’s velocity reforecasts the milestone finish as a range when the
+          {' '}{label.lower} closes. The range is recorded in the {label.lower} history.
         </p>
       ) : (
         <>
@@ -694,7 +704,7 @@ function ReforecastPreviewPanel({
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-xs">
-                  <span className="font-medium text-neutral-text-primary">With this sprint’s pace</span>
+                  <span className="font-medium text-neutral-text-primary">With this {label.lower}’s pace</span>
                   <span
                     className={`tppm-mono font-bold ${hit ? 'text-semantic-on-track' : 'text-semantic-at-risk'}`}
                   >
@@ -716,12 +726,12 @@ function ReforecastPreviewPanel({
               <span className="tppm-mono font-medium text-neutral-text-primary">
                 {preview.teamPaceLow}–{preview.teamPaceHigh} pts
               </span>{' '}
-              per sprint feeds this milestone’s forecast. Projection — the committed
+              per {label.lower} feeds this milestone’s forecast. Projection — the committed
               range is set on close.
             </p>
           ) : (
             <p className="text-xs text-neutral-text-secondary leading-relaxed">
-              Not enough closed sprints yet for a team-pace band — the range is set
+              Not enough closed {label.lowerPlural} yet for a team-pace band — the range is set
               on close as velocity accrues.
             </p>
           )}
@@ -729,7 +739,7 @@ function ReforecastPreviewPanel({
           {preview.unmodeledDependency && (
             <p className="flex items-start gap-1.5 rounded-md bg-semantic-at-risk-bg px-2.5 py-2 text-xs text-semantic-at-risk">
               <WarningIcon className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
-              Excludes an upstream item not in this sprint — the range may be optimistic.
+              Excludes an upstream item not in this {label.lower} — the range may be optimistic.
             </p>
           )}
         </>
@@ -810,12 +820,14 @@ function PercentileBar({ preview }: { preview: ReforecastPreview }) {
 function ConflictBody({
   sprint,
   busy,
+  iterationLower,
   onClose,
   onUnbind,
   onRebind,
 }: {
   sprint: ApiSprint;
   busy: boolean;
+  iterationLower: string;
   onClose: () => void;
   onUnbind: () => void;
   onRebind: () => void;
@@ -830,7 +842,7 @@ function ConflictBody({
             {sprint.short_id_display} is bound to{' '}
             <span className="font-semibold">{detail?.name ?? 'a milestone'}</span>. Rebinding moves
             the velocity reforecast to a new target and reverts the old milestone to its
-            CPM-only forecast. The change is recorded in the sprint history.
+            CPM-only forecast. The change is recorded in the {iterationLower} history.
           </p>
         </div>
 

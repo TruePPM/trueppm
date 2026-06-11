@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { screen, fireEvent } from '@testing-library/react';
+import { renderWithProviders as render } from '@/test/utils';
 import { BoardScopeInjectionBanner } from './BoardScopeInjectionBanner';
 import type { Task } from '@/types';
 

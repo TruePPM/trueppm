@@ -1,6 +1,7 @@
 import { memo, useState, useRef, useCallback, useEffect } from 'react';
 import type React from 'react';
 import { useProjectId } from '@/hooks/useProjectId';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 import type { Task } from '@/types';
 import { ROW_HEIGHT, WBS_INDENT } from './scheduleConstants';
 import type { ColumnWidths } from '@/hooks/useColumnWidths';
@@ -1184,6 +1185,7 @@ export const TaskListRow = memo(TaskListRowInner);
  * + variance pill), otherwise leave the cell empty (today's behaviour).
  */
 function MilestoneProgressCell({ task, widthPx }: { task: Task; widthPx: number }) {
+  const itl = useIterationLabel();
   const rollup = task.milestoneRollup ?? null;
   const hasRollup =
     task.isMilestone && rollup && rollup.rollup_basis !== 'none' && rollup.percent_complete != null;
@@ -1207,16 +1209,16 @@ function MilestoneProgressCell({ task, widthPx }: { task: Task; widthPx: number 
           : variance <= 5
             ? 'text-semantic-at-risk'
             : 'text-semantic-critical';
-    const ariaLabelParts = [`Progress ${pct}% (sprint rollup, locked)`];
+    const ariaLabelParts = [`Progress ${pct}% (${itl.lower} rollup, locked)`];
     if (variance != null && variance !== 0) {
       ariaLabelParts.push(
         variance < 0
-          ? `Sprint plan ${Math.abs(variance)} days ahead.`
-          : `Sprint plan ${variance} days slip.`,
+          ? `${itl.singular} plan ${Math.abs(variance)} days ahead.`
+          : `${itl.singular} plan ${variance} days slip.`,
       );
     }
     if (rollup.sprint_scope_changed) {
-      ariaLabelParts.push('Sprint scope changed since activation.');
+      ariaLabelParts.push(`${itl.singular} scope changed since activation.`);
     }
     return (
       <div

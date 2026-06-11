@@ -166,6 +166,9 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             # Product-backlog prioritization model (ADR-0105 §3). Admin+-gated write,
             # enforced in ProjectViewSet alongside estimation_mode.
             "prioritization_model",
+            # Iteration-container display label (ADR-0111, #862). Admin+-gated write
+            # by the allowlist default (not in _SCHEDULER_WRITABLE_FIELDS). Display-only.
+            "iteration_label",
             "program",
             "member_count",
             "percent_complete",
@@ -317,6 +320,21 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
     # is an explicit allowlist — any new writable field is Admin-only by default
     # until deliberately added here (#769; ADR-0041 estimation governance).
     _SCHEDULER_WRITABLE_FIELDS = frozenset({"methodology", "estimation_mode"})
+
+    def validate_iteration_label(self, value: str) -> str:
+        """Strip and require a non-empty container label (ADR-0111, #862).
+
+        The DB default is "Sprint"; an empty/whitespace label would erase the
+        word entirely across every UI surface, so reject it rather than store it.
+        ``max_length=32`` is enforced by the model field — a longer noun breaks
+        tab/heading layouts.
+        """
+        stripped = value.strip()
+        if not stripped:
+            raise serializers.ValidationError(
+                "Enter a label for the iteration container (e.g. Sprint, Iteration, PI)."
+            )
+        return stripped
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         """Field-level governance for edits below Admin (#769).

@@ -1,4 +1,5 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { screen, fireEvent } from '@testing-library/react';
+import { renderWithProviders as render } from '@/test/utils';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ComponentProps } from 'react';
 import { ScheduleCommitPopover, type CommitAction } from './ScheduleCommitPopover';

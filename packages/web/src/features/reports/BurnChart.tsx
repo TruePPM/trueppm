@@ -13,6 +13,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { useSprintBurndown } from '@/hooks/useSprints';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 import type { ApiSprint } from '@/types';
 import { daysBetween, forecastScopeCaption, sprintDayOf } from '@/features/sprints/sprintMath';
 import { useBurnChart, type BurnVariant, type BurnMetric, type BurnPoint, type CombinedPoint } from './hooks/useBurnChart';
@@ -252,6 +253,7 @@ export function BurnChart({ projectId, sprintId, defaultVariant = 'burndown' }: 
   const chartRef = useRef<HTMLDivElement>(null);
 
   const isSprintCtx = !!sprintId;
+  const itl = useIterationLabel(projectId);
 
   // --- Sprint data ---
   const sprintQuery = useSprintBurndown(sprintId ?? null);
@@ -397,7 +399,7 @@ export function BurnChart({ projectId, sprintId, defaultVariant = 'burndown' }: 
     />
   ));
 
-  const heading = isSprintCtx ? 'Sprint Burndown' : 'Burn Chart';
+  const heading = isSprintCtx ? `${itl.singular} Burndown` : 'Burn Chart';
 
   return (
     <section
@@ -527,7 +529,13 @@ export function BurnChart({ projectId, sprintId, defaultVariant = 'burndown' }: 
             </button>
           </div>
         )}
-        {showEmpty && !isError && <ChartEmpty isSprintCtx={isSprintCtx} sprint={sprintQuery.data?.sprint} />}
+        {showEmpty && !isError && (
+          <ChartEmpty
+            isSprintCtx={isSprintCtx}
+            sprint={sprintQuery.data?.sprint}
+            iterationLabel={itl.singular}
+          />
+        )}
         {!isLoading && !isError && !showEmpty && points && (
           <ResponsiveContainer width="100%" height={320}>
             {variant === 'burndown' ? (
@@ -722,16 +730,18 @@ function ChartSkeleton() {
 function ChartEmpty({
   isSprintCtx,
   sprint,
+  iterationLabel,
 }: {
   isSprintCtx: boolean;
   sprint?: ApiSprint;
+  iterationLabel: string;
 }) {
   if (isSprintCtx && sprint) {
     const now = new Date().toISOString().slice(0, 10);
     if (sprint.start_date > now) {
       return (
         <div className="flex items-center justify-center h-48 text-xs text-neutral-text-secondary" role="status">
-          Sprint starts {sprint.start_date} · Check back then to track burn.
+          {iterationLabel} starts {sprint.start_date} · Check back then to track burn.
         </div>
       );
     }

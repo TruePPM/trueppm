@@ -6,6 +6,7 @@ import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
 import { isTabVisibleForMethodology } from '@/features/shell/methodologyTabs';
 import { ROLE_SCHEDULER } from '@/lib/roles';
+import { iterationLabelForms } from '@/lib/iterationLabel';
 import type { ComponentType } from 'react';
 
 interface NavItem {
@@ -42,6 +43,9 @@ export function BottomNav() {
   // Default to HYBRID (all tabs visible) until the project loads.
   const methodology = project.data?.methodology ?? 'HYBRID';
 
+  // Sprints tab adopts the project's configured container label (ADR-0111, #862).
+  const sprintsLabel = iterationLabelForms(project.data?.iteration_label).plural;
+
   const visibleItems = NAV_ITEMS.filter(
     (t) =>
       isTabVisibleForMethodology(t.view, methodology) &&
@@ -73,7 +77,7 @@ export function BottomNav() {
               className={isActive ? 'text-brand-primary' : 'text-neutral-text-disabled'}
               aria-hidden="true"
             />
-            <span>{label}</span>
+            <span>{view === 'sprints' ? sprintsLabel : label}</span>
           </NavLink>
         );
       })}

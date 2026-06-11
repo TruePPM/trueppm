@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from '@/components/Button';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 
 /**
  * Pull-to-commit popover anchored above a task bar on the Schedule canvas (ADR-0067).
@@ -66,6 +67,7 @@ export function ScheduleCommitPopover({
   onCancel,
   onDismissByOutsideClick,
 }: ScheduleCommitPopoverProps) {
+  const itl = useIterationLabel();
   const popoverRef = useRef<HTMLDivElement>(null);
   const confirmRef = useRef<HTMLButtonElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
@@ -210,10 +212,7 @@ export function ScheduleCommitPopover({
       className="fixed z-[70] hidden lg:block bg-neutral-surface border border-neutral-border rounded-lg p-3"
       style={{ top: position.top, left: position.left, width: POPOVER_WIDTH }}
     >
-      <div
-        id="schedule-commit-title"
-        className="text-sm font-semibold text-neutral-text-primary"
-      >
+      <div id="schedule-commit-title" className="text-sm font-semibold text-neutral-text-primary">
         {title}
       </div>
 
@@ -228,9 +227,9 @@ export function ScheduleCommitPopover({
         <div
           className="mt-2 border-l-2 border-semantic-at-risk bg-semantic-at-risk-bg text-semantic-at-risk pl-2 py-1 pr-2 text-xs truncate"
           data-testid="commit-popover-active-sprint-notice"
-          title={`Committed in Sprint ${activeSprintName}`}
+          title={`Committed in ${itl.singular} ${activeSprintName}`}
         >
-          Committed in Sprint <span className="font-medium">{activeSprintName}</span>
+          Committed in {itl.singular} <span className="font-medium">{activeSprintName}</span>
         </div>
       )}
 
@@ -254,22 +253,13 @@ export function ScheduleCommitPopover({
         >
           Cancel
         </button>
-        <Button
-          ref={confirmRef}
-          variant="primary"
-          onClick={onConfirm}
-          disabled={isPending}
-        >
+        <Button ref={confirmRef} variant="primary" onClick={onConfirm} disabled={isPending}>
           {isPending ? 'Saving…' : error !== null ? 'Retry' : verb}
         </Button>
       </div>
 
       {/* Triangle pointer to the new bar */}
-      <span
-        aria-hidden="true"
-        className="absolute w-0 h-0"
-        style={triangleStyle}
-      />
+      <span aria-hidden="true" className="absolute w-0 h-0" style={triangleStyle} />
     </div>,
     document.body,
   );

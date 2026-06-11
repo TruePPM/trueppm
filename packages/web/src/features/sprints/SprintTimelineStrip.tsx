@@ -1,4 +1,5 @@
 import type { ApiSprint } from '@/types';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { formatDateRange, daysUntil } from './sprintMath';
 
 /** Threshold (in days) at which the planned card flips from `Edit` → `Activate →`. */
@@ -47,6 +48,7 @@ export function SprintTimelineStrip({
   iterationWeeks,
   milestoneName,
 }: Props) {
+  const itl = useIterationLabel();
   const showPlanSlot = planned.length === 0;
 
   return (
@@ -59,7 +61,7 @@ export function SprintTimelineStrip({
           id="sprint-timeline-heading"
           className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary"
         >
-          Sprint Cadence
+          {itl.singular} Cadence
         </h2>
       </div>
 
@@ -115,24 +117,24 @@ export function SprintTimelineStrip({
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
               flex items-center justify-center min-h-[88px] px-3"
           >
-            + Plan next sprint
+            + Plan next {itl.lower}
           </button>
         )}
       </div>
 
       <p className="text-xs text-neutral-text-secondary flex items-center justify-between gap-3">
         <span>
-          Project sprint cadence
+          Project {itl.lower} cadence
           {iterationWeeks ? (
             <>
               {' · '}
-              <span className="tppm-mono">{iterationWeeks}-week</span> iterations
+              <span className="tppm-mono">{iterationWeeks}-week</span> {itl.lowerPlural}
             </>
           ) : null}
           {milestoneName ? <> toward <strong className="font-medium text-neutral-text-primary">{milestoneName}</strong></> : null}
         </span>
         <span className="text-neutral-text-disabled italic">
-          one active sprint per project
+          one active {itl.lower} per project
         </span>
       </p>
     </section>

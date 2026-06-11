@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import type { TaskStatus } from '@/types';
 import type { SprintBacklogTask } from '@/hooks/useSprintBacklog';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { CarryoverLane } from './CarryoverLane';
 
 interface Props {
@@ -58,6 +59,7 @@ export function SprintBacklogTable({
   showCarryoverLane = false,
   canPullCarryover = false,
 }: Props) {
+  const itl = useIterationLabel(projectId);
   const groups = useMemo(() => {
     const byStatus = new Map<TaskStatus, SprintBacklogTask[]>();
     for (const t of tasks) {
@@ -87,7 +89,7 @@ export function SprintBacklogTable({
             id="sprint-backlog-heading"
             className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary"
           >
-            Sprint Backlog
+            {itl.singular} Backlog
           </h2>
           <p className="text-xs text-neutral-text-secondary">
             <span className="tppm-mono text-neutral-text-primary">{tasks.length}</span>{' '}
@@ -128,7 +130,7 @@ export function SprintBacklogTable({
           className="rounded-md border border-dashed border-neutral-border bg-neutral-surface-raised p-6 text-center flex flex-col items-center gap-3"
         >
           <p className="text-sm font-medium text-neutral-text-primary">
-            No tasks committed to this sprint yet
+            No tasks committed to this {itl.lower} yet
           </p>
           {onAddTask ? (
             <button
@@ -142,7 +144,7 @@ export function SprintBacklogTable({
             </button>
           ) : (
             <p className="text-xs text-neutral-text-secondary">
-              Plan the next sprint or add tasks from the board.
+              Plan the next {itl.lower} or add tasks from the board.
             </p>
           )}
         </div>
@@ -160,7 +162,13 @@ export function SprintBacklogTable({
             </tr>
           </thead>
           {groups.map((g) => (
-            <BacklogGroup key={g.status} sprintId={sprintId} group={g} onRemoveTask={onRemoveTask} />
+            <BacklogGroup
+              key={g.status}
+              sprintId={sprintId}
+              group={g}
+              onRemoveTask={onRemoveTask}
+              iterationLower={itl.lower}
+            />
           ))}
         </table>
       )}
@@ -176,9 +184,11 @@ interface GroupProps {
     rows: SprintBacklogTask[];
   };
   onRemoveTask?: (taskId: string) => void;
+  /** Lowercase container-noun form (ADR-0111) for the "Remove … from {x}" aria. */
+  iterationLower: string;
 }
 
-function BacklogGroup({ sprintId, group, onRemoveTask }: GroupProps) {
+function BacklogGroup({ sprintId, group, onRemoveTask, iterationLower }: GroupProps) {
   const key = persistKey(sprintId, group.status);
   const [collapsed, setCollapsed] = useState<boolean>(false);
 
@@ -275,8 +285,8 @@ function BacklogGroup({ sprintId, group, onRemoveTask }: GroupProps) {
                 <button
                   type="button"
                   onClick={() => onRemoveTask(t.id)}
-                  title="Remove from sprint"
-                  aria-label={`Remove ${t.name} from sprint`}
+                  title={`Remove from ${iterationLower}`}
+                  aria-label={`Remove ${t.name} from ${iterationLower}`}
                   className="opacity-0 group-hover/row:opacity-100 text-neutral-text-disabled hover:text-semantic-critical
                     focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
                 >

@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import type { Task } from '@/types';
 import { isTaskScheduled } from '@/lib/task';
 import { formatShortDate } from '@/features/schedule/scheduleUtils';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 
 export interface CardPopoverBodyAProps {
   task: Task;
@@ -67,6 +68,7 @@ function MetaRow({ label, children }: MetaRowProps) {
  * single body import in `index.tsx`.
  */
 export function CardPopoverBodyA({ task, sprintName }: CardPopoverBodyAProps) {
+  const itl = useIterationLabel();
   const scheduled = isTaskScheduled(task);
   const showCp = task.isCritical && scheduled;
   // Float chip is meaningful only on scheduled tasks (#332). CP tasks render
@@ -97,9 +99,9 @@ export function CardPopoverBodyA({ task, sprintName }: CardPopoverBodyAProps) {
           {sprintName && (
             <span
               className="inline-flex items-center px-1.5 py-0.5 rounded border border-brand-primary/40 bg-transparent text-brand-primary text-[11px] font-medium"
-              title={`Sprint: ${sprintName}`}
+              title={`${itl.singular}: ${sprintName}`}
             >
-              <span className="truncate max-w-[14ch]">Sprint: {sprintName}</span>
+              <span className="truncate max-w-[14ch]">{itl.singular}: {sprintName}</span>
             </span>
           )}
           <span className="flex-1" />

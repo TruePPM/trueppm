@@ -468,12 +468,28 @@ const suggestionFixture = {
 };
 
 describe('EstimatesTab — velocity suggestion banner', () => {
+  // EstimatesTab now reads the project (via useIterationLabel → useProject) in
+  // addition to the velocity-suggestions endpoint (#862). Both go through
+  // apiClient.get, so the mock routes by URL: /projects/ resolves the project
+  // detail (label falls back to the default "Sprint"), /velocity-suggestions/
+  // returns the fixture set per test.
+  function routeGet(suggestionResults: unknown[]) {
+    getMock.mockImplementation((url: string) => {
+      if (url.includes('/velocity-suggestions/')) {
+        return Promise.resolve({
+          data: { count: suggestionResults.length, results: suggestionResults },
+        });
+      }
+      return Promise.resolve({ data: { id: 'p1', name: 'P1' } });
+    });
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   it('does not render the banner for non-admin users', () => {
-    getMock.mockResolvedValueOnce({ data: { count: 1, results: [suggestionFixture] } });
+    routeGet([suggestionFixture]);
     renderWithProviders(
       <EstimatesTab
         task={baseTask}
@@ -488,11 +504,15 @@ describe('EstimatesTab — velocity suggestion banner', () => {
     expect(
       screen.queryByLabelText(/Velocity calibration suggestion/i),
     ).not.toBeInTheDocument();
-    expect(getMock).not.toHaveBeenCalled();
+    // The project read may fire (label resolution), but the suggestions
+    // endpoint must never be hit for a non-admin.
+    expect(getMock).not.toHaveBeenCalledWith(
+      expect.stringContaining('/velocity-suggestions/'),
+    );
   });
 
   it('renders the banner when a pending suggestion exists and user is admin', async () => {
-    getMock.mockResolvedValueOnce({ data: { count: 1, results: [suggestionFixture] } });
+    routeGet([suggestionFixture]);
     renderWithProviders(
       <EstimatesTab
         task={baseTask}
@@ -514,7 +534,7 @@ describe('EstimatesTab — velocity suggestion banner', () => {
   });
 
   it('shows current vs suggested duration when most_likely_duration is set', async () => {
-    getMock.mockResolvedValueOnce({ data: { count: 1, results: [suggestionFixture] } });
+    routeGet([suggestionFixture]);
     renderWithProviders(
       <EstimatesTab
         task={{ ...baseTask, mostLikelyDuration: 7 }}

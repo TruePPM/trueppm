@@ -22145,6 +22145,11 @@
                     "prioritization_model": {
                         "$ref": "#/components/schemas/PrioritizationModelEnum"
                     },
+                    "iteration_label": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 32
+                    },
                     "program": {
                         "type": "string",
                         "format": "uuid",
@@ -23377,6 +23382,10 @@
                     "prioritization_model": {
                         "$ref": "#/components/schemas/PrioritizationModelEnum"
                     },
+                    "iteration_label": {
+                        "type": "string",
+                        "maxLength": 32
+                    },
                     "program": {
                         "type": "string",
                         "format": "uuid",
@@ -23649,6 +23658,10 @@
                     },
                     "prioritization_model": {
                         "$ref": "#/components/schemas/PrioritizationModelEnum"
+                    },
+                    "iteration_label": {
+                        "type": "string",
+                        "maxLength": 32
                     },
                     "program": {
                         "type": "string",
@@ -23961,6 +23974,11 @@
                     },
                     "prioritization_model": {
                         "$ref": "#/components/schemas/PrioritizationModelEnum"
+                    },
+                    "iteration_label": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 32
                     },
                     "program": {
                         "type": "string",

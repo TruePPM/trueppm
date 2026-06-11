@@ -1,4 +1,5 @@
 import { type ChangeEvent, useState } from 'react';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useUpdateTask, parseProgressAnchorError } from '@/hooks/useTaskMutations';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
@@ -35,6 +36,7 @@ const DEMOTION_GUARD: ReadonlySet<TaskStatus> = new Set(['IN_PROGRESS', 'REVIEW'
  * confirmation via BacklogDemoteConfirmDialog.
  */
 export function OverviewSection({ taskId, projectId }: DrawerSectionProps) {
+  const itl = useIterationLabel(projectId);
   const { tasks } = useScheduleTasks();
   const task = tasks?.find((t) => t.id === taskId);
   const { mutate: updateTask, isPending } = useUpdateTask();
@@ -146,7 +148,7 @@ export function OverviewSection({ taskId, projectId }: DrawerSectionProps) {
           <div className={`${LABEL_CLASS} flex items-center justify-between gap-2`}>
             <span>
               {milestoneRollupActive
-                ? 'Progress (sprint rollup)'
+                ? `Progress (${itl.lower} rollup)`
                 : task.isSummary
                   ? 'Progress (rolled up)'
                   : 'Progress'}
@@ -210,6 +212,7 @@ function MilestoneRollupReadOnly({
 }: {
   rollup: NonNullable<ReturnType<typeof useScheduleTasks>['tasks']>[number]['milestoneRollup'];
 }) {
+  const itl = useIterationLabel();
   if (!rollup || rollup.percent_complete == null) return null;
   const pct = Math.round(rollup.percent_complete);
   const basis = rollup.rollup_basis === 'tasks' ? 'tasks' : 'points';
@@ -219,17 +222,17 @@ function MilestoneRollupReadOnly({
       <p
         className="text-sm tppm-mono text-neutral-text-primary"
         aria-readonly="true"
-        aria-label={`Milestone progress ${pct} percent, rolled up from ${rollup.sprint_count} sprint${rollup.sprint_count === 1 ? '' : 's'}`}
+        aria-label={`Milestone progress ${pct} percent, rolled up from ${rollup.sprint_count} ${rollup.sprint_count === 1 ? itl.lower : itl.lowerPlural}`}
       >
         {pct}%
       </p>
       <p className="text-xs text-neutral-text-secondary">
         by {basis}
-        {rollup.sprint_count > 1 ? ` across ${rollup.sprint_count} sprints` : ''}
+        {rollup.sprint_count > 1 ? ` across ${rollup.sprint_count} ${itl.lowerPlural}` : ''}
         {rollup.sprint_scope_changed && (
           <>
             {' · '}
-            <span title="Sprint scope changed since activation — committed baseline preserved.">
+            <span title={`${itl.singular} scope changed since activation — committed baseline preserved.`}>
               scope changed
             </span>
           </>
@@ -237,7 +240,7 @@ function MilestoneRollupReadOnly({
       </p>
       <p className="text-xs text-neutral-text-secondary flex items-start gap-1.5 mt-1">
         <span aria-hidden="true">🔒</span>
-        <span>Progress rolls up from sprint(s) — close or unlink to edit.</span>
+        <span>Progress rolls up from {itl.lower}(s) — close or unlink to edit.</span>
       </p>
       {variance != null && variance !== 0 && (
         <p
@@ -250,7 +253,7 @@ function MilestoneRollupReadOnly({
                 : 'text-semantic-critical',
           ].join(' ')}
         >
-          {variance < 0 ? `Sprint plan: ${variance}d ahead` : `Sprint plan: +${variance}d slip`}
+          {variance < 0 ? `${itl.singular} plan: ${variance}d ahead` : `${itl.singular} plan: +${variance}d slip`}
         </p>
       )}
     </div>

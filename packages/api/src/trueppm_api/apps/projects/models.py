@@ -700,6 +700,17 @@ class Project(VersionedModel):
         choices=PrioritizationModel.choices,
         default=PrioritizationModel.NONE,
     )
+    # Display noun for the time-boxed iteration container (ADR-0111, #862).
+    # Free text (Sprint / Iteration / PI / custom) so Scrumban/SAFe-adjacent teams
+    # are not forced into Scrum-Guide vocabulary. Display-ONLY: it never gates tabs,
+    # routes, API semantics, or CPM — the code symbol stays ``Sprint`` (ADR-0038).
+    # Stored singular; the web derives plural/possessive forms. Default "Sprint"
+    # backfills existing rows for zero visible behavior change. No ``choices=`` (and
+    # thus no drf-spectacular enum pin) — the presets are a UI affordance, not a DB set.
+    iteration_label = models.CharField(
+        max_length=32,
+        default="Sprint",
+    )
     # Optional grouping into a Program (ADR-0070). NULL = standalone project.
     # SET_NULL on program delete so projects survive the cascade as standalone.
     # Program membership is independent of project membership: a project member

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { ApiSprint } from '@/types';
 import type { SprintBacklogTask } from '@/hooks/useSprintBacklog';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { sprintDayOf } from './sprintMath';
 
 export type CarryOverChoice = 'next' | 'backlog' | 'none';
@@ -43,6 +44,7 @@ export function CloseSprintDialog({
   onCancel,
   onConfirm,
 }: Props) {
+  const itl = useIterationLabel();
   const defaultChoice: CarryOverChoice = nextPlannedSprintId ? 'next' : 'backlog';
   const [choice, setChoice] = useState<CarryOverChoice>(defaultChoice);
   // Pending-scope disposition (ADR-0102 §7). Defaults to carry-over — never
@@ -119,7 +121,7 @@ export function CloseSprintDialog({
                 className="mt-0.5 accent-brand-primary"
               />
               <span>
-                <span className="font-medium">→ Next planned sprint</span>
+                <span className="font-medium">→ Next planned {itl.lower}</span>
                 {nextPlannedSprintName && (
                   <span className="text-xs text-neutral-text-secondary">
                     {' '}({nextPlannedSprintName})
@@ -141,14 +143,14 @@ export function CloseSprintDialog({
             <span>
               <span className="font-medium">→ Project backlog</span>
               <span className="block text-xs text-neutral-text-secondary">
-                Tasks return to BACKLOG status; sprint membership clears.
+                Tasks return to BACKLOG status; {itl.lower} membership clears.
               </span>
             </span>
           </label>
           <label htmlFor="close-sprint-carryover-none" className="flex items-start gap-2 cursor-pointer">
             <input
               id="close-sprint-carryover-none"
-              aria-label="Leave on this sprint"
+              aria-label={`Leave on this ${itl.lower}`}
               type="radio"
               name="close-sprint-carryover"
               checked={choice === 'none'}
@@ -156,9 +158,9 @@ export function CloseSprintDialog({
               className="mt-0.5 accent-brand-primary"
             />
             <span>
-              <span className="font-medium">Leave on this sprint</span>
+              <span className="font-medium">Leave on this {itl.lower}</span>
               <span className="block text-xs text-neutral-text-secondary">
-                Preserves the sprint&apos;s history for retrospectives.
+                Preserves the {itl.lower}&apos;s history for retrospectives.
               </span>
             </span>
           </label>
@@ -179,8 +181,8 @@ export function CloseSprintDialog({
               {pendingCount === 1 ? '' : 's'} pending acceptance
             </legend>
             <p className="text-xs text-neutral-text-secondary">
-              These were added after the sprint started and were never counted in the
-              commitment, so closing now keeps this sprint&apos;s velocity correct either way.
+              These were added after the {itl.lower} started and were never counted in the
+              commitment, so closing now keeps this {itl.lower}&apos;s velocity correct either way.
             </p>
             <label
               htmlFor="close-sprint-pending-carry"
@@ -188,7 +190,7 @@ export function CloseSprintDialog({
             >
               <input
                 id="close-sprint-pending-carry"
-                aria-label="Carry them to the next sprint"
+                aria-label={`Carry them to the next ${itl.lower}`}
                 type="radio"
                 name="close-sprint-pending"
                 checked={pendingDisposition === 'carry'}
@@ -196,9 +198,9 @@ export function CloseSprintDialog({
                 className="mt-0.5 accent-brand-primary"
               />
               <span>
-                <span className="font-medium">Carry them to the next sprint</span>
+                <span className="font-medium">Carry them to the next {itl.lower}</span>
                 <span className="block text-xs text-neutral-text-secondary">
-                  They stay pending acceptance on the incoming sprint.
+                  They stay pending acceptance on the incoming {itl.lower}.
                 </span>
               </span>
             </label>
@@ -218,7 +220,7 @@ export function CloseSprintDialog({
               <span>
                 <span className="font-medium">Reject them</span>
                 <span className="block text-xs text-neutral-text-secondary">
-                  They are removed from the sprint.
+                  They are removed from the {itl.lower}.
                 </span>
               </span>
             </label>
@@ -246,7 +248,7 @@ export function CloseSprintDialog({
               disabled:opacity-50 disabled:cursor-not-allowed
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1"
           >
-            {isClosing ? 'Closing…' : 'Close sprint'}
+            {isClosing ? 'Closing…' : `Close ${itl.lower}`}
           </button>
         </div>
       </div>

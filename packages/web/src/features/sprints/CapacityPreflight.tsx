@@ -1,5 +1,6 @@
 import type { SprintCapacity } from '@/hooks/useSprints';
 import { capacityPointsChip } from './sprintMath';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 
 interface Props {
   capacity: SprintCapacity;
@@ -36,6 +37,7 @@ const LABEL_COLOR: Record<SprintCapacity['totals']['label'], string> = {
  * to the API's threshold bands (on_track < 90% < at_risk ≤ 100% < over_capacity).
  */
 export function CapacityPreflight({ capacity, points }: Props) {
+  const itl = useIterationLabel();
   const { totals, members } = capacity;
   const pointsChip = points ? capacityPointsChip(points.committed, points.capacity) : null;
   const ratioCapped = Math.min(totals.ratio, 1.5);
@@ -116,18 +118,15 @@ export function CapacityPreflight({ capacity, points }: Props) {
           <p className="text-sm font-medium text-neutral-text-primary">
             <span className="tppm-mono">{totals.committed_hours}</span>
             {' / '}
-            <span className="tppm-mono">{totals.available_hours}</span>{' '}
-            hours committed
+            <span className="tppm-mono">{totals.available_hours}</span> hours committed
           </p>
           <p className={`text-xs ${LABEL_COLOR[totals.label]}`}>
             {LABEL_COPY[totals.label]}
             {totals.buffer_hours !== 0 && (
               <span className="text-neutral-text-secondary">
                 {' · '}
-                <span className="tppm-mono">
-                  {Math.abs(totals.buffer_hours)}
-                </span>{' '}
-                hours of {totals.buffer_hours >= 0 ? 'buffer' : 'overrun'}
+                <span className="tppm-mono">{Math.abs(totals.buffer_hours)}</span> hours of{' '}
+                {totals.buffer_hours >= 0 ? 'buffer' : 'overrun'}
               </span>
             )}
           </p>
@@ -145,7 +144,7 @@ export function CapacityPreflight({ capacity, points }: Props) {
       >
         {members.length === 0 ? (
           <li className="text-xs italic text-neutral-text-disabled">
-            No assignments yet for this sprint.
+            No assignments yet for this {itl.lower}.
           </li>
         ) : (
           members.map((m) => (

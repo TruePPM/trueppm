@@ -3,6 +3,7 @@ import { Navigate, useLocation } from 'react-router';
 import type { HealthState } from '@/types';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
+import { iterationLabelForms } from '@/lib/iterationLabel';
 import { usePrograms } from '@/hooks/usePrograms';
 import { useProjects } from '@/hooks/useProjects';
 import { SettingsShell, type SettingsContextOption, type SettingsNavGroup } from './SettingsShell';
@@ -63,6 +64,8 @@ export function ProjectSettingsPage() {
   // tab, so it is gated by methodology rather than team count in 0.3 (waterfall
   // projects never see Team UI). HYBRID is the default for pre-methodology rows.
   const showTeamTab = project?.methodology === 'AGILE' || project?.methodology === 'HYBRID';
+  // Guardrails nav label adopts the project's configured container label (ADR-0111, #862).
+  const iterationSingular = iterationLabelForms(project?.iteration_label).singular;
 
   const navGroups: SettingsNavGroup[] = [
     {
@@ -80,7 +83,7 @@ export function ProjectSettingsPage() {
       label: 'Configuration',
       items: [
         { id: 'workflow',      label: 'Workflow & fields', to: `/projects/${projectId}/settings/workflow`,      icon: <NavIcon><WbsIcon aria-hidden="true" /></NavIcon> },
-        { id: 'guardrails',    label: 'Sprint guardrails', to: `/projects/${projectId}/settings/guardrails`,    icon: <NavIcon><WarningIcon aria-hidden="true" /></NavIcon> },
+        { id: 'guardrails',    label: `${iterationSingular} guardrails`, to: `/projects/${projectId}/settings/guardrails`,    icon: <NavIcon><WarningIcon aria-hidden="true" /></NavIcon> },
         // Signal privacy is agile/hybrid-only (ADR-0104): velocity/throughput/pulse
         // are sprint signals; waterfall projects never see it (same gate as Team).
         ...(showTeamTab

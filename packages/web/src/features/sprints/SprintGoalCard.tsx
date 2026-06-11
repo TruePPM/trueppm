@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ApiSprint } from '@/types';
 import { useSprintMutations } from '@/hooks/useSprints';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { Button } from '@/components/Button';
 import { formatDateRange, sprintDayOf } from './sprintMath';
 
@@ -15,8 +16,10 @@ interface Props {
    */
   canEdit?: boolean;
   /**
-   * Heading label. Defaults to "Sprint Goal"; the PLANNED-state planning bridge
-   * (#866) passes "Draft sprint goal" since the goal is still being shaped.
+   * Heading label. Defaults to "<iteration label> Goal" (e.g. "Sprint Goal",
+   * "Iteration Goal") derived from the project's configurable iteration
+   * terminology (ADR-0111, #862); the PLANNED-state planning bridge (#866)
+   * passes "Draft sprint goal" since the goal is still being shaped.
    */
   heading?: string;
 }
@@ -75,12 +78,8 @@ const HINTS: { key: keyof GoalQuality; label: string }[] = [
  *    commitment artifact, so editing happens in-place in the workspace rather
  *    than only inside the full Plan-sprint modal.
  */
-export function SprintGoalCard({
-  sprint,
-  projectId,
-  canEdit = false,
-  heading = 'Sprint Goal',
-}: Props) {
+export function SprintGoalCard({ sprint, projectId, canEdit = false, heading }: Props) {
+  const itl = useIterationLabel(projectId);
   const showDayOf = sprint.state === 'ACTIVE';
   const { day, total } = sprintDayOf(sprint.start_date, sprint.finish_date);
   const taskCount = sprint.committed_task_count ?? 0;
@@ -129,11 +128,11 @@ export function SprintGoalCard({
           id="sprint-goal-heading"
           className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary"
         >
-          {heading}
+          {heading ?? `${itl.singular} Goal`}
         </h2>
         <span
           className="tppm-mono text-xs px-2 py-0.5 rounded border border-neutral-border text-neutral-text-secondary"
-          aria-label={`Sprint id ${sprint.short_id_display}`}
+          aria-label={`${itl.singular} id ${sprint.short_id_display}`}
         >
           {sprint.short_id_display}
         </span>
@@ -162,7 +161,7 @@ export function SprintGoalCard({
               onChange={(e) => setDraft(e.target.value)}
               rows={3}
               maxLength={1000}
-              placeholder="What outcome does this sprint deliver?"
+              placeholder={`What outcome does this ${itl.lower} deliver?`}
               className="px-3 py-2 rounded border border-brand-primary bg-neutral-surface
                 text-sm text-neutral-text-primary placeholder:text-neutral-text-disabled resize-none
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
@@ -185,12 +184,7 @@ export function SprintGoalCard({
             <Button variant="ghost" size="md" onClick={handleCancel}>
               Cancel
             </Button>
-            <Button
-              variant="primary"
-              size="md"
-              onClick={handleSave}
-              disabled={!canSave}
-            >
+            <Button variant="primary" size="md" onClick={handleSave} disabled={!canSave}>
               {updateSprint.isPending ? 'Saving…' : 'Save goal'}
             </Button>
           </div>
@@ -200,7 +194,7 @@ export function SprintGoalCard({
           <p className="text-sm text-neutral-text-primary leading-relaxed">
             {sprint.goal || (
               <span className="italic text-neutral-text-disabled">
-                No goal set for this sprint.
+                No goal set for this {itl.lower}.
               </span>
             )}
           </p>

@@ -11,12 +11,9 @@ import { VelocitySparkline } from '@/features/sprints/VelocitySparkline';
 import { VelocityForecastLine } from '@/features/sprints/VelocityForecastLine';
 import { PromoteMilestoneDialog } from '@/features/sprints/PromoteMilestoneDialog';
 import { wipState } from '@/features/board/wip';
-import {
-  useActiveSprint,
-  useProjectVelocity,
-  useSprintMutations,
-} from '@/hooks/useSprints';
+import { useActiveSprint, useProjectVelocity, useSprintMutations } from '@/hooks/useSprints';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { ROLE_SCHEDULER } from '@/lib/roles';
 import type { ApiSprint } from '@/types';
 
@@ -39,6 +36,7 @@ interface Props {
  */
 export function SprintPanel({ projectId, methodology }: Props) {
   const { sprint } = useActiveSprint(projectId);
+  const itl = useIterationLabel(projectId);
   const { role } = useCurrentUserRole(projectId);
   const { data: velocity, isLoading: velocityLoading } = useProjectVelocity(projectId);
   const { updateSprint } = useSprintMutations(projectId);
@@ -88,7 +86,7 @@ export function SprintPanel({ projectId, methodology }: Props) {
 
   return (
     <section
-      aria-label="Active sprint summary"
+      aria-label={`Active ${itl.lower} summary`}
       className="border-b border-neutral-border bg-neutral-surface-raised"
       data-testid="sprint-panel"
     >
@@ -99,6 +97,7 @@ export function SprintPanel({ projectId, methodology }: Props) {
         onWipChipClick={handleOpenForWip}
         canLinkMilestone={isScheduler && sprint.target_milestone == null}
         onLinkMilestone={() => setPromoting(true)}
+        iterationLower={itl.lower}
       />
       <div
         id={`sprint-panel-body-${sprint.id}`}
@@ -149,6 +148,7 @@ interface HeaderProps {
    *  entry point so the bridge's keystone action is reachable on the board (#1052). */
   canLinkMilestone: boolean;
   onLinkMilestone: () => void;
+  iterationLower: string;
 }
 
 function Header({
@@ -158,12 +158,10 @@ function Header({
   onWipChipClick,
   canLinkMilestone,
   onLinkMilestone,
+  iterationLower,
 }: HeaderProps) {
   const daysRemaining = Math.max(0, daysUntil(sprint.finish_date));
-  const { day: dayOf, total: totalDays } = sprintDayOf(
-    sprint.start_date,
-    sprint.finish_date,
-  );
+  const { day: dayOf, total: totalDays } = sprintDayOf(sprint.start_date, sprint.finish_date);
 
   return (
     <div className="flex items-center gap-3 px-4 py-3">
@@ -187,8 +185,7 @@ function Header({
           </span>
           <span aria-hidden="true">·</span>
           <span>
-            Day{' '}
-            <span className="tppm-mono">{dayOf}</span> of{' '}
+            Day <span className="tppm-mono">{dayOf}</span> of{' '}
             <span className="tppm-mono">{totalDays}</span>
           </span>
           <span aria-hidden="true">·</span>
@@ -241,7 +238,7 @@ function Header({
         onClick={onToggle}
         aria-expanded={isOpen}
         aria-controls={`sprint-panel-body-${sprint.id}`}
-        aria-label={isOpen ? 'Collapse sprint panel' : 'Expand sprint panel'}
+        aria-label={isOpen ? `Collapse ${iterationLower} panel` : `Expand ${iterationLower} panel`}
         className="flex-shrink-0 w-11 h-11 rounded-md flex items-center justify-center
           text-neutral-text-secondary hover:bg-chrome-row-hover
           focus-visible:ring-2 focus-visible:ring-brand-primary
@@ -257,13 +254,7 @@ function Header({
  *  Gantt and in the forecast line so "Link to milestone" reads at a glance. */
 function DiamondIcon() {
   return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 16 16"
-      fill="currentColor"
-      aria-hidden="true"
-    >
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
       <path d="M8 1l7 7-7 7-7-7 7-7z" />
     </svg>
   );
@@ -417,9 +408,7 @@ function CapacityCard({ sprint, canEdit, isSaving, onSave }: CapacityCardProps) 
     setDraft('');
   };
 
-  const status = planned !== null && committed !== null
-    ? capacityStatus(planned, committed)
-    : null;
+  const status = planned !== null && committed !== null ? capacityStatus(planned, committed) : null;
 
   return (
     <div className="rounded-md border border-neutral-border bg-neutral-surface p-3">
@@ -468,9 +457,11 @@ function CapacityCard({ sprint, canEdit, isSaving, onSave }: CapacityCardProps) 
               cursor-pointer hover:bg-chrome-row-hover
               focus-visible:ring-2 focus-visible:ring-brand-primary
               focus-visible:ring-offset-1 focus-visible:outline-none
-              ${planned !== null
-                ? 'text-neutral-text-primary tppm-mono'
-                : 'text-neutral-text-secondary'}`}
+              ${
+                planned !== null
+                  ? 'text-neutral-text-primary tppm-mono'
+                  : 'text-neutral-text-secondary'
+              }`}
           >
             {planned !== null ? planned : 'Not set'}
             <PencilIcon aria-hidden="true" />
@@ -653,18 +644,16 @@ function WipCard({ sprint, canEdit, isSaving, onSave }: WipCardProps) {
           <button
             type="button"
             onClick={startEdit}
-            aria-label={
-              limit === null
-                ? 'Set WIP limit'
-                : `Edit WIP limit, currently ${limit}`
-            }
+            aria-label={limit === null ? 'Set WIP limit' : `Edit WIP limit, currently ${limit}`}
             className={`flex items-center gap-1 text-sm font-semibold rounded px-1 -mx-1
               cursor-pointer hover:bg-chrome-row-hover
               focus-visible:ring-2 focus-visible:ring-brand-primary
               focus-visible:ring-offset-1 focus-visible:outline-none
-              ${limit !== null
-                ? 'text-neutral-text-primary tppm-mono'
-                : 'text-neutral-text-secondary'}`}
+              ${
+                limit !== null
+                  ? 'text-neutral-text-primary tppm-mono'
+                  : 'text-neutral-text-secondary'
+              }`}
           >
             {limit !== null ? limit : 'Not set'}
             <PencilIcon aria-hidden="true" />
@@ -672,9 +661,7 @@ function WipCard({ sprint, canEdit, isSaving, onSave }: WipCardProps) {
         ) : (
           <span
             className={`text-sm font-semibold ${
-              limit !== null
-                ? 'text-neutral-text-primary tppm-mono'
-                : 'text-neutral-text-secondary'
+              limit !== null ? 'text-neutral-text-primary tppm-mono' : 'text-neutral-text-secondary'
             }`}
           >
             {limit !== null ? limit : 'Not set'}
@@ -683,9 +670,7 @@ function WipCard({ sprint, canEdit, isSaving, onSave }: WipCardProps) {
       </div>
       <p className="flex items-center justify-between text-xs">
         <span className="font-medium text-neutral-text-secondary">In progress</span>
-        <span className="tppm-mono text-sm font-semibold text-neutral-text-primary">
-          {count}
-        </span>
+        <span className="tppm-mono text-sm font-semibold text-neutral-text-primary">{count}</span>
       </p>
       {(state === 'at' || state === 'over') && (
         <p
@@ -695,9 +680,7 @@ function WipCard({ sprint, canEdit, isSaving, onSave }: WipCardProps) {
           aria-live="polite"
         >
           <span aria-hidden="true">⚠</span>
-          <span>
-            {state === 'over' ? `Over WIP by ${count - (limit ?? 0)}` : 'At WIP limit'}
-          </span>
+          <span>{state === 'over' ? `Over WIP by ${count - (limit ?? 0)}` : 'At WIP limit'}</span>
         </p>
       )}
     </div>
