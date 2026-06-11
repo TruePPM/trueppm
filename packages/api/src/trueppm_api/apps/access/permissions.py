@@ -817,9 +817,14 @@ class ProjectScopedViewSet(IdempotencyMixin, viewsets.GenericViewSet):  # type: 
         if "predecessor" in field_names:
             # Dependency: filter through predecessor's project
             return qs.filter(predecessor__project_id__in=member_project_ids)
-        # Project itself — filter by PK membership
+        # Project itself — filter by PK membership, excluding soft-deleted
+        # projects. Without is_deleted=False a soft-deleted project still
+        # resolves on retrieve/list/update/destroy (the membership row survives
+        # the project's soft-delete), leaving a "zombie" project reachable at its
+        # old URL — the same defect the explicit is_deleted=False guard prevents
+        # on every other project lookup (#1111).
         if model.__name__ == "Project":
-            return qs.filter(pk__in=member_project_ids)
+            return qs.filter(pk__in=member_project_ids, is_deleted=False)
         # Calendar and other non-project-scoped models: fall through unfiltered.
         # Calendars are org-level shared resources; scoping is documented as
         # intentional for the OSS single-tenant model (M2 decision: accept).

@@ -4519,7 +4519,10 @@ class ProjectOverviewView(APIView):
     )
     def get(self, request: Request, pk: str) -> Response:
         """Return KPI data for the project overview page."""
-        project = get_object_or_404(Project, pk=pk)
+        # is_deleted=False so a soft-deleted project 404s here as it does on
+        # every other detail endpoint — without it the deleted-project URL keeps
+        # resolving to an empty "zombie" overview shell (#1111).
+        project = get_object_or_404(Project, pk=pk, is_deleted=False)
         self.check_object_permissions(request, project)
 
         today = datetime.date.today()
@@ -4707,7 +4710,8 @@ class ProjectAttentionView(APIView):
     )
     def get(self, request: Request, pk: str) -> Response:
         """Return attention items for the project overview page."""
-        project = get_object_or_404(Project, pk=pk)
+        # is_deleted=False — same zombie-URL guard as the overview KPI endpoint (#1111).
+        project = get_object_or_404(Project, pk=pk, is_deleted=False)
         self.check_object_permissions(request, project)
 
         today = datetime.date.today()

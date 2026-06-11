@@ -19,7 +19,16 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
-from trueppm_api.apps.projects.models import Calendar, Program, Project
+from trueppm_api.apps.projects.models import (
+    Calendar,
+    Dependency,
+    Program,
+    Project,
+    Risk,
+    Sprint,
+    SprintState,
+    Task,
+)
 
 User = get_user_model()
 
@@ -206,6 +215,83 @@ def test_force_delete_archived_project_hard_deletes(owner: object, project: Proj
     resp = client.delete(f"/api/v1/projects/{project.pk}/?force=true")
     assert resp.status_code == 204
     assert not Project.objects.filter(pk=project.pk).exists()
+
+
+# ---------------------------------------------------------------------------
+# Project soft-delete cascade + zombie-URL guard (#1111)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def populated_project(owner: object, calendar: Calendar) -> Project:
+    """A project with one of each board-scoped child, for cascade assertions."""
+    p = Project.objects.create(name="Cascade", start_date=date(2026, 4, 1), calendar=calendar)
+    ProjectMembership.objects.create(project=p, user=owner, role=Role.OWNER)
+    t1 = Task.objects.create(project=p, name="T1", duration=1)
+    t2 = Task.objects.create(project=p, name="T2", duration=1)
+    Dependency.objects.create(predecessor=t1, successor=t2, dep_type="FS")
+    Task.objects.create(project=p, name="Sub", duration=1, is_subtask=True)
+    Sprint.objects.create(
+        project=p,
+        name="S1",
+        start_date=date(2026, 4, 1),
+        finish_date=date(2026, 4, 14),
+        state=SprintState.PLANNED,
+    )
+    Risk.objects.create(project=p, title="R1", probability=3, impact=4, created_by=owner)
+    return p
+
+
+@pytest.mark.django_db
+def test_soft_delete_cascades_to_all_children(owner: object, populated_project: Project) -> None:
+    """A soft-deleted project leaves no live child row — no orphans (#1111)."""
+    resp = _client(owner).delete(f"/api/v1/projects/{populated_project.pk}/")
+    assert resp.status_code == 204
+
+    populated_project.refresh_from_db()
+    assert populated_project.is_deleted is True
+    assert not Task.objects.filter(project=populated_project, is_deleted=False).exists()
+    assert not Sprint.objects.filter(project=populated_project, is_deleted=False).exists()
+    assert not Risk.objects.filter(project=populated_project, is_deleted=False).exists()
+    # Dependency edges between the project's tasks are tombstoned via Task.soft_delete.
+    assert not Dependency.objects.filter(
+        predecessor__project=populated_project, is_deleted=False
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_soft_delete_tombstones_subtask_via_sweep(
+    owner: object, populated_project: Project
+) -> None:
+    """The is_subtask row is skipped by the non-subtask loop and caught by the sweep."""
+    _client(owner).delete(f"/api/v1/projects/{populated_project.pk}/")
+    assert not Task.objects.filter(
+        project=populated_project, is_subtask=True, is_deleted=False
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_deleted_project_overview_and_attention_404(
+    owner: object, populated_project: Project
+) -> None:
+    """The deleted-project URL stops resolving — no empty 'zombie' overview shell."""
+    client = _client(owner)
+    assert client.get(f"/api/v1/projects/{populated_project.pk}/overview/").status_code == 200
+    client.delete(f"/api/v1/projects/{populated_project.pk}/")
+    assert client.get(f"/api/v1/projects/{populated_project.pk}/overview/").status_code == 404
+    assert client.get(f"/api/v1/projects/{populated_project.pk}/attention/").status_code == 404
+
+
+@pytest.mark.django_db
+def test_deleted_project_excluded_from_retrieve_and_list(owner: object, project: Project) -> None:
+    """A soft-deleted project 404s on retrieve and drops out of the list."""
+    client = _client(owner)
+    client.delete(f"/api/v1/projects/{project.pk}/")
+    assert client.get(f"/api/v1/projects/{project.pk}/").status_code == 404
+    listing = client.get("/api/v1/projects/")
+    assert listing.status_code == 200
+    rows = listing.data["results"] if isinstance(listing.data, dict) else listing.data
+    assert str(project.pk) not in [row["id"] for row in rows]
 
 
 # ---------------------------------------------------------------------------
