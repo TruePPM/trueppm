@@ -1256,5 +1256,25 @@ describe('BoardView', () => {
         screen.getByRole('progressbar', { name: /No committed tasks/i }),
       ).toBeInTheDocument();
     });
+
+    it('reads the phase summary task percent_complete, not the leaf mean (#991/ADR-0115)', () => {
+      // A real phase (WBS L1 summary task) carries the server-owned, delivery-mode-
+      // weighted rollup (ADR-0108). The lane renders that, not a divergent client mean.
+      const base: Omit<Task, 'id' | 'name' | 'plannedStart' | 'progress' | 'status'> = {
+        wbs: '', isSummary: false, isMilestone: false, parentId: null,
+        isCritical: false, isComplete: false, assignees: [], notes: '',
+        start: '2026-10-05', finish: '2026-10-05', duration: 0,
+      };
+      mockTasks = [
+        // Phase header carries the server rollup (72%).
+        { ...base, id: 's1', name: 'Build Phase', isSummary: true, progress: 72, plannedStart: '2026-10-05', status: 'IN_PROGRESS' },
+        // Two committed leaves whose naive mean (100 + 0)/2 = 50% must NOT win.
+        { ...base, id: 'l1', name: 'Leaf done', parentId: 's1', progress: 100, plannedStart: '2026-10-05', status: 'COMPLETE' },
+        { ...base, id: 'l2', name: 'Leaf todo', parentId: 's1', progress: 0, plannedStart: '2026-10-05', status: 'IN_PROGRESS' },
+      ];
+      renderBoard();
+      const bar = screen.getByRole('progressbar', { name: /Phase progress 72 percent/i });
+      expect(bar).toHaveAttribute('aria-valuenow', '72');
+    });
   });
 });

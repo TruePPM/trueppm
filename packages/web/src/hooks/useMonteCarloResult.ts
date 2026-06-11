@@ -22,6 +22,20 @@ interface MonteCarloLatestResponse {
   // Captured at cache-write time on the backend (#335). Optional for
   // resilience against older cached payloads written before the field existed.
   last_run_at?: string;
+  // Server-computed CPM finish + per-percentile risk deltas + cumulative
+  // S-curve (#987). The server owns these derivations so the UI renders them
+  // instead of recomputing in the browser. Optional for resilience against
+  // older cached payloads written before the fields existed. On the `/latest/`
+  // from-history path (cache TTL expired) `confidence_curve` and
+  // `histogram_buckets` are empty — only the percentiles, `cpm_finish`, and
+  // `delta_vs_cpm` survive.
+  cpm_finish?: string | null;
+  delta_vs_cpm?: {
+    p50: number | null;
+    p80: number | null;
+    p95: number | null;
+  } | null;
+  confidence_curve?: { date: string; pct: number }[];
 }
 
 function mapResponse(api: MonteCarloLatestResponse): MonteCarloResult {
@@ -38,6 +52,15 @@ function mapResponse(api: MonteCarloLatestResponse): MonteCarloResult {
   const buckets = Array.from(merged.entries())
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([weekStart, count]) => ({ weekStart, count }));
+  // Server-owned risk derivations (#987). Default defensively so a legacy cached
+  // payload that predates these fields still maps to a well-formed result rather
+  // than `undefined` deltas: cpmFinish → null, deltas → null, curve → []. An
+  // empty curve is also the legitimate from-history state past the cache TTL.
+  const deltaVsCpm = {
+    p50: api.delta_vs_cpm?.p50 ?? null,
+    p80: api.delta_vs_cpm?.p80 ?? null,
+    p95: api.delta_vs_cpm?.p95 ?? null,
+  };
   return {
     projectId: api.project_id,
     runs: api.runs,
@@ -46,6 +69,9 @@ function mapResponse(api: MonteCarloLatestResponse): MonteCarloResult {
     p95: api.p95,
     buckets,
     lastRunAt: api.last_run_at,
+    cpmFinish: api.cpm_finish ?? null,
+    deltaVsCpm,
+    confidenceCurve: api.confidence_curve ?? [],
   };
 }
 

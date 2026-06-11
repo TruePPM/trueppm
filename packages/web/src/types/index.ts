@@ -117,6 +117,23 @@ export interface Task {
   linkedRisksCount?: number;
   /** Max(probability * impact) across active linked risks; null when none. */
   linkedRisksMaxSeverity?: number | null;
+  /**
+   * Server-owned per-task Schedule Performance Index = earned% / planned% from the
+   * active baseline (#990, ADR-0115). Null when no active baseline is annotated or
+   * the task has not started per baseline. The board renders this; it no longer
+   * derives SPI from baseline dates in the browser.
+   */
+  spi?: number | null;
+  /** Server-owned SPI threshold band — on_track / at_risk / behind, or null (#990). */
+  spiBand?: 'on_track' | 'at_risk' | 'behind' | null;
+  /**
+   * Server-owned 'stalled' verdict (#992): the task has sat in its current status
+   * for more than 3 days and is not yet complete. The board renders this instead of
+   * re-deriving the policy from statusEnteredAt.
+   */
+  isStalled?: boolean;
+  /** Server-owned raw dwell fact — full days in the current status column (#992). Null when never stamped. */
+  dwellDays?: number | null;
   /** Cost Performance Index = EV / AC. Null until cost data is available (board batch 4). */
   cpi?: number | null;
   /** Total planned cost (Budget at Completion). Null until cost data is available (board batch 4). */
@@ -416,6 +433,32 @@ export interface McBucket {
 }
 
 /**
+ * Server-computed risk premium each percentile finish adds over the
+ * deterministic CPM finish, in signed calendar days (#987). Positive means the
+ * probabilistic finish lands *later* than the CPM spine. Each field is null when
+ * the percentile or the CPM finish is unavailable. API-first: the server owns
+ * this subtraction so a headless/MCP client reads it directly.
+ */
+export interface McDeltaVsCpm {
+  p50: number | null;
+  p80: number | null;
+  p95: number | null;
+}
+
+/**
+ * One point on the server-computed cumulative finish-by-date S-curve: the share
+ * of simulated runs that finished on or before `date` (#987). `pct` is a
+ * percentage (0–100, one decimal place). The browser renders this directly
+ * instead of re-accumulating it from the histogram buckets.
+ */
+export interface McConfidencePoint {
+  /** ISO date string for the bucket */
+  date: string;
+  /** Cumulative percent of runs finishing on or before this date (0–100) */
+  pct: number;
+}
+
+/**
  * Monte Carlo simulation result. Fixture data uses pre-bucketed distribution
  * to keep file size small; real API returns the same shape.
  */
@@ -432,6 +475,20 @@ export interface MonteCarloResult {
   buckets: McBucket[];
   /** ISO timestamp of when the simulation was run, captured at cache-write time. */
   lastRunAt?: string;
+  /**
+   * Deterministic CPM project finish (max early-finish), ISO string or null.
+   * Server-owned single source of truth — preferred over the client's
+   * max(task.finish) derivation when present (#987).
+   */
+  cpmFinish: string | null;
+  /** Server-computed signed-day risk premium per percentile vs the CPM finish. */
+  deltaVsCpm: McDeltaVsCpm;
+  /**
+   * Server-computed cumulative finish-by-date S-curve. Empty when served from
+   * persisted history past the 24h cache TTL (the raw distribution is not
+   * persisted) — consumers must degrade gracefully and not re-derive it.
+   */
+  confidenceCurve: McConfidencePoint[];
 }
 
 // ---------------------------------------------------------------------------

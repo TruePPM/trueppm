@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useRef, type RefObject } from 'react';
-import { capacityHours, loadPercent } from './resourceUtils';
+import { capacityHours } from './resourceUtils';
 import type { UtilizationDayEntry } from './resourceUtils';
 
 export interface OverallocationTarget {
@@ -202,7 +202,8 @@ export function ResourceOverallocationDrawer({ target, isOpen, onClose }: Props)
   }, [isOpen]);
 
   const capacity = target ? capacityHours(target.hoursPerDay, target.maxUnits) : 0;
-  const pct = target ? loadPercent(target.entry.hours, capacity) : 0;
+  // load% is server-owned (#989); capacity stays local only for the over-hours math.
+  const pct = target ? target.entry.load_pct : 0;
   const overHours = target ? Math.max(0, target.entry.hours - capacity) : 0;
   const drawerTitle = target
     ? `Overallocation — ${target.resourceName} on ${formatDate(target.iso)}`

@@ -600,12 +600,18 @@ export function ScheduleView() {
   // Increments on any successful task reschedule/resize — signals MonteCarloRow to show stale state.
   const [mcMutationVersion, setMcMutationVersion] = useState(0);
 
-  // CPM finish for Monte Carlo delta — max finish across all scheduled non-milestone tasks.
+  // CPM finish for Monte Carlo delta. The server owns this value and returns it
+  // on the MC latest payload (#987 — `cpm_finish` is the deterministic project
+  // finish, max early-finish of committed tasks). Prefer it so the panel/row
+  // deltas line up exactly with the server-computed `delta_vs_cpm`. Fall back to
+  // the client max(task.finish) only when no MC result is available yet, so the
+  // schedule still shows a finish before the first simulation run.
   const cpmFinish = useMemo<string | null>(() => {
+    if (mcResult?.cpmFinish) return mcResult.cpmFinish;
     const finishes = allTasks.filter((t) => !t.isMilestone && t.finish).map((t) => t.finish);
     if (finishes.length === 0) return null;
     return finishes.reduce((a, b) => (a > b ? a : b));
-  }, [allTasks]);
+  }, [mcResult?.cpmFinish, allTasks]);
 
   // Sync vertical scroll between task list and canvas container
   const isSyncingRef = useRef(false);

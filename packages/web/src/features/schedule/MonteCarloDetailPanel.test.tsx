@@ -165,19 +165,20 @@ describe('MonteCarloDetailPanel', () => {
     expect(within(desktopPanel).queryByText('Phase 1')).not.toBeInTheDocument();
   });
 
-  it('Confidence by date dedupes repeated dates and sorts ascending', () => {
-    // Crafted result with: out-of-order dates, repeated weekStart values.
-    // Expected: each date appears at most once, in ascending order.
+  it('renders Confidence by date from the server confidenceCurve (no client re-derivation)', () => {
+    // #987: the cumulative S-curve is now server-computed. The panel renders the
+    // server `confidenceCurve` directly — it does NOT accumulate from buckets.
+    // Buckets are deliberately left empty here to prove the rows come from the
+    // curve, not the histogram.
     const result = {
       ...FIXTURE_MC_RESULT,
-      buckets: [
-        { weekStart: '2026-06-21', count: 10 },
-        { weekStart: '2026-05-31', count: 5 },
-        { weekStart: '2026-06-21', count: 10 },
-        { weekStart: '2026-06-21', count: 10 },
-        { weekStart: '2026-06-07', count: 8 },
-        { weekStart: '2026-06-24', count: 12 },
-        { weekStart: '2026-06-24', count: 12 },
+      buckets: [],
+      confidenceCurve: [
+        { date: '2026-05-31', pct: 12 },
+        { date: '2026-06-07', pct: 28 },
+        { date: '2026-06-14', pct: 47 },
+        { date: '2026-06-21', pct: 70 },
+        { date: '2026-06-28', pct: 91 },
       ],
     };
     render(
@@ -195,14 +196,59 @@ describe('MonteCarloDetailPanel', () => {
     const dateLabels = within(section)
       .getAllByText(/^[A-Z][a-z]{2} \d{1,2}$/)
       .map((el) => el.textContent ?? '');
-    // No duplicates
-    expect(new Set(dateLabels).size).toBe(dateLabels.length);
-    // Ascending order — convert "Mon DD" to a sortable index against the
-    // unique input dates (May 31, Jun 7, Jun 21, Jun 24).
-    const order = ['May 31', 'Jun 7', 'Jun 21', 'Jun 24'];
-    const indices = dateLabels.map((d) => order.indexOf(d)).filter((i) => i >= 0);
-    const sorted = [...indices].sort((a, b) => a - b);
-    expect(indices).toEqual(sorted);
+    // Display samples every other curve point plus the last, dropping pct ≤5 /
+    // =100. From the 5-point curve above that yields the 1st, 3rd, and 5th
+    // points (dates rendered short via Intl, which formats in local time).
+    expect(dateLabels).toHaveLength(3);
+    // Percent labels come straight from the rounded server pct.
+    expect(within(section).getByText('12%')).toBeInTheDocument();
+    expect(within(section).getByText('47%')).toBeInTheDocument();
+    expect(within(section).getByText('91%')).toBeInTheDocument();
+  });
+
+  it('omits the Confidence by date section when the server confidenceCurve is empty (from-history past TTL)', () => {
+    // Past the cache TTL the /latest/ payload is served from history: the raw
+    // distribution is not persisted, so confidenceCurve (and buckets) come back
+    // empty. The panel must degrade gracefully — render nothing — rather than
+    // re-deriving the curve client-side.
+    const result = {
+      ...FIXTURE_MC_RESULT,
+      buckets: [],
+      confidenceCurve: [],
+    };
+    render(
+      <MonteCarloDetailPanel
+        result={result}
+        cpmFinish="2026-10-05"
+        tasks={[]}
+        isOpen
+        onClose={() => {}}
+      />,
+    );
+    expect(screen.queryByText(/Confidence by date/i)).not.toBeInTheDocument();
+  });
+
+  it('reads risk deltas from the server deltaVsCpm, not a client subtraction', () => {
+    // #987: deltas are server-computed. Override deltaVsCpm to a value that does
+    // NOT match daysBetween(cpmFinish, pXX) to prove the panel reads the server
+    // field rather than recomputing from the dates.
+    const result = {
+      ...FIXTURE_MC_RESULT,
+      deltaVsCpm: { p50: 3, p80: 17, p95: 41 },
+    };
+    render(
+      <MonteCarloDetailPanel
+        result={result}
+        cpmFinish="2026-10-05"
+        tasks={[]}
+        isOpen
+        onClose={() => {}}
+      />,
+    );
+    const desktopPanel = screen.getByTestId('mc-detail-panel');
+    expect(within(desktopPanel).getByText('+3d vs CPM')).toBeInTheDocument();
+    expect(within(desktopPanel).getByText('+17d vs CPM')).toBeInTheDocument();
+    expect(within(desktopPanel).getByText('+41d vs CPM')).toBeInTheDocument();
   });
 
   it('shows PERT hint when no leaf tasks have estimates', () => {

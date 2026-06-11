@@ -906,6 +906,15 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     spi = serializers.SerializerMethodField()
     spi_band = serializers.SerializerMethodField()
 
+    # Stalled verdict (#992 / API-first #986). ``dwell_days`` is the raw fact — how
+    # long the task has sat in its current status column — and ``is_stalled`` is the
+    # server-owned verdict the board card renders. Exposing both mirrors the
+    # ``spi`` (fact) / ``spi_band`` (verdict) precedent so an MCP/headless client can
+    # apply its own threshold instead of the web re-deriving the policy from
+    # ``status_changed_at`` (ADR-0115 § Implementation Notes).
+    dwell_days = serializers.SerializerMethodField()
+    is_stalled = serializers.SerializerMethodField()
+
     # TODO(#73): cpi, actual_cost, and budget_at_completion remain intentionally
     # absent until the cost model (#73, #74) ships — earned-value cost indices
     # are not computable without an actual-cost source, so #990 adds SPI only and
@@ -972,6 +981,8 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "schedule_variance_days",
             "spi",
             "spi_band",
+            "dwell_days",
+            "is_stalled",
             "is_summary",
             "parent_id",
             "assignments",
@@ -1033,6 +1044,8 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "schedule_variance_days",
             "spi",
             "spi_band",
+            "dwell_days",
+            "is_stalled",
             "is_summary",
             "parent_id",
             "assignments",
@@ -1513,6 +1526,35 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         if spi >= 0.85:
             return "at_risk"
         return "behind"
+
+    def get_dwell_days(self, obj: Task) -> int | None:
+        """Days the task has sat in its current status column (#992).
+
+        The raw 'dwell' fact behind the stalled verdict: full calendar days since
+        ``status_changed_at`` (when the task last entered its current status). None
+        when the column was never stamped (legacy rows / never moved). Exposed
+        alongside ``is_stalled`` so an MCP/headless client can re-threshold rather
+        than inherit the web's 3-day policy (ADR-0115).
+        """
+        changed = obj.status_changed_at
+        if changed is None:
+            return None
+        return (timezone.now() - changed).days
+
+    def get_is_stalled(self, obj: Task) -> bool:
+        """Server-owned 'stalled' verdict the board card renders (#992).
+
+        A task is stalled when it has sat in its current status for more than 3 days
+        *and* is not yet complete (``percent_complete < 100``). A complete task is
+        never stalled regardless of dwell; a task whose column was never stamped
+        (``status_changed_at`` is null) is treated as not stalled. Moving the policy
+        server-side stops the web re-deriving it from ``status_changed_at`` and keeps
+        the threshold consistent with ``dwell_days`` for headless clients.
+        """
+        if obj.percent_complete >= 100:
+            return False
+        dwell = self.get_dwell_days(obj)
+        return dwell is not None and dwell > 3
 
     def get_readiness(self, obj: Task) -> str:
         """Derive board-card readiness from available task fields.

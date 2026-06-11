@@ -96,41 +96,27 @@ function entryStamp(task: Task): { text: string; isStalled: boolean; daysAgo: nu
     return { text: '', isStalled: false, daysAgo: null };
   }
 
-  const now = Date.now();
+  // dwell + the stalled verdict are server-owned (#992, ADR-0115): the API returns
+  // dwell_days (the raw fact) and is_stalled (the verdict). Fall back to a client
+  // derivation only for tasks not carrying the server fields yet (legacy fixtures /
+  // optimistic rows) so the stamp never blanks mid-migration.
   const enteredMs = new Date(task.statusEnteredAt).getTime();
-  const daysAgo = Math.floor((now - enteredMs) / 86_400_000);
+  const derivedDays = Math.floor((Date.now() - enteredMs) / 86_400_000);
+  const daysAgo = task.dwellDays ?? derivedDays;
   const daysLabel = daysAgo === 1 ? '1d ago' : `${daysAgo}d ago`;
 
   // COMPLETE implies 100% regardless of the stored progress value, so the
   // entry stamp matches the column it lives in.  Stalled is also a no-op on
   // DONE — a card sitting in DONE for weeks isn't "stalled," it's finished.
   const effectiveProgress = task.status === 'COMPLETE' ? 100 : task.progress;
-  const isStalled = task.status !== 'COMPLETE' && daysAgo > 3 && effectiveProgress < 100;
+  const isStalled =
+    task.isStalled ?? (task.status !== 'COMPLETE' && daysAgo > 3 && effectiveProgress < 100);
 
   return {
     text: `Entered at ${effectiveProgress}% · ${daysLabel}${isStalled ? ' — stalled' : ''}`,
     isStalled,
     daysAgo,
   };
-}
-
-/**
- * Compute a simplified SPI (Schedule Performance Index) from baseline dates.
- * SPI = earned% / planned% where planned% = fraction of baseline duration elapsed.
- * Returns null when no baseline data or when the task hasn't started per baseline yet.
- */
-function computeTaskSpi(task: Task): number | null {
-  if (!task.baselineStart || !task.baselineFinish) return null;
-  const baselineStartMs = new Date(task.baselineStart).getTime();
-  const baselineFinishMs = new Date(task.baselineFinish).getTime();
-  // Treat same-day (1-day) baselines as 1 day long so SPI is not silently suppressed.
-  const duration = Math.max(baselineFinishMs - baselineStartMs, 86_400_000);
-  const now = Date.now();
-  const elapsed = now - baselineStartMs;
-  if (elapsed <= 0) return null; // hasn't started per baseline
-  const plannedPct = Math.min(100, (elapsed / duration) * 100);
-  if (plannedPct === 0) return null;
-  return task.progress / plannedPct;
 }
 
 /** Format a currency value compactly (e.g. 125000 → "$125K"). */
@@ -308,8 +294,12 @@ export function BoardCard({
   const isPending = task.sprintPending === true;
   const showCriticalState = task.isCritical && isScheduled && !isPending;
 
-  // EVM indicators (issue #185): SPI computed client-side from baseline; CPI from API field.
-  const spi = computeTaskSpi(task);
+  // EVM indicators (issue #185): SPI + its band are server-owned (#990 / API-first
+  // #986) — the card renders them, it no longer re-derives earned%/planned% from
+  // baseline dates in the browser. CPI stays sourced from the (currently unpopulated)
+  // cost field until the cost model ships (#73).
+  const spi = task.spi ?? null;
+  const spiBand = task.spiBand ?? null;
   const cpi = task.cpi ?? null;
   const showSpiChip =
     !isCompact && showEvm !== 'off' && (showEvm === 'spi' || showEvm === 'both') && spi !== null;
@@ -838,21 +828,21 @@ export function BoardCard({
           </div>
         )}
 
-        {/* SPI chip — comfortable + detailed, when showEvm includes 'spi' (issue #185).
-            SPI computed from baseline dates client-side. Green ≥ 0.95, amber 0.85–0.95, red < 0.85. */}
-        {showSpiChip && (
+        {/* SPI chip — comfortable + detailed, when showEvm includes 'spi' (issue #185 / #990).
+            SPI value + band are server-owned: on_track = green, at_risk = amber, behind = red. */}
+        {showSpiChip && spi !== null && (
           <div className="mt-1">
             <span
               className={[
                 'inline-flex items-center gap-0.5 text-xs px-1 py-px rounded border',
-                spi >= 0.95
+                spiBand === 'on_track'
                   ? 'bg-semantic-on-track-bg border-semantic-on-track/30 text-semantic-on-track'
-                  : spi >= 0.85
+                  : spiBand === 'at_risk'
                     ? 'bg-brand-accent/10 border-brand-accent/30 text-brand-accent-dark'
                     : 'bg-semantic-critical-bg border-semantic-critical/30 text-semantic-critical',
               ].join(' ')}
               title={`Schedule Performance Index: ${spi.toFixed(2)}`}
-              aria-label={`SPI ${spi.toFixed(2)} — ${spi >= 0.95 ? 'on track' : spi >= 0.85 ? 'at risk' : 'behind schedule'}`}
+              aria-label={`SPI ${spi.toFixed(2)} — ${spiBand === 'on_track' ? 'on track' : spiBand === 'at_risk' ? 'at risk' : 'behind schedule'}`}
             >
               <span className="tppm-mono">SPI {spi.toFixed(2)}</span>
             </span>

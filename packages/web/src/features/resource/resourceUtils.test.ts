@@ -215,7 +215,13 @@ describe('fitToProjectWindow', () => {
           hours_per_day: 8,
           calendar_id: null,
           calendar_differs_from_project: false,
-          days: Object.fromEntries(days.map((d) => [d, { hours: 8, tasks: ['t1'] }])),
+          overallocated: false,
+          days: Object.fromEntries(
+            days.map((d) => [
+              d,
+              { hours: 8, tasks: ['t1'], load_pct: 100, load_band: 'at-risk' as const, overallocated: false },
+            ]),
+          ),
         },
       ],
     };
