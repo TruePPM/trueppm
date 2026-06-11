@@ -102,10 +102,6 @@ The two interact for **email on comment mentions**. A comment mention emails you
 
 The in-app inbox row for a mention, by contrast, is governed by the project matrix alone. This lets you keep mention emails off globally while still routing other project events to email per-project.
 
-:::note[Email delivery is still being wired up]
-The dedicated email-notifications app (issue #639, in flight via MR !369) seeds per-user email defaults for own-task events and registers OSS email against the notification-channel registry. Until that lands, the **Email** toggles in this matrix record your routing intent, but end-to-end email delivery for the full event set is being completed in that work. The matrix, quiet hours, and pause switch on this page are live today.
-:::
-
 ## FAQ
 
 **Can a project admin change my notifications for me?**

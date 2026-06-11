@@ -378,6 +378,50 @@ export function useIncomingCarryover(sprintId: string | null | undefined) {
   });
 }
 
+/** A single mid-sprint scope-change audit event (#543/#550). */
+export interface ScopeChangeEvent {
+  id: string;
+  item_name: string;
+  story_points: number | null;
+  added_by_name: string | null;
+  added_at: string;
+  goal_impact: boolean;
+  status: 'pending' | 'accepted' | 'rejected';
+}
+
+export interface SprintScopeChanges {
+  summary: {
+    /** Story points still in the sprint (pending + accepted injections). */
+    points_added: number;
+    /** Story points injected then rejected (removed back out). */
+    points_removed: number;
+    /** Count of injected tasks still in the sprint — the SprintPanel badge number. */
+    added_mid_sprint_count: number;
+    /** Total scope-change rows (added + removed). */
+    total: number;
+  };
+  events: ScopeChangeEvent[];
+}
+
+/**
+ * GET /api/v1/sprints/{id}/scope-changes/ — mid-sprint scope-change audit + delta
+ * (#543/#550). Drives the persistent "Scope changed" chip, its delta drawer, and
+ * the SprintPanel "N added mid-sprint" badge. Aggregated point sums + ids only,
+ * no per-assignee data (Morgan VoC guardrail).
+ */
+export function useSprintScopeChanges(sprintId: string | null | undefined) {
+  return useQuery({
+    queryKey: ['sprint', sprintId, 'scope-changes'],
+    queryFn: async () => {
+      const res = await apiClient.get<SprintScopeChanges>(
+        `/sprints/${sprintId}/scope-changes/`,
+      );
+      return res.data;
+    },
+    enabled: !!sprintId,
+  });
+}
+
 export interface VelocitySprintEntry {
   id: string;
   name: string;

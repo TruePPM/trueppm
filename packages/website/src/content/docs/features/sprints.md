@@ -5,6 +5,10 @@ description: Sprint header, goal, milestone link, and the cadence timeline strip
 
 The Sprints workspace is the agile-side surface — Maya the Scrum Master and Tom the engineer live here. It composes five panels (header, goal, milestone link, timeline, backlog) into a single route at `/projects/:id/sprints`.
 
+:::note[Ships in 0.3]
+Three of the capabilities below — the read-only **closed-sprint review**, the per-sprint **WIP limit** chip, and **Exclude from velocity** — ship in 0.3. They are merged but not yet in a tagged build — see the [roadmap](/overview/roadmap/).
+:::
+
 ## Where this lives in the story
 
 Step 5 ([Sprint planning](/the-story/#5-sprint-planning--the-team-pulls-work)) and Step 6 ([Execute](/the-story/#6-execute--daily-cadence-two-worlds-in-sync)) of the [hybrid PM flow](/the-story/).
@@ -14,10 +18,10 @@ Step 5 ([Sprint planning](/the-story/#5-sprint-planning--the-team-pulls-work)) a
 - **Sprint header** — H1 (`Sprint N — name`), state pill, Filter / Plan next / Close sprint actions
 - **Sprint goal card** — narrative + day-N-of-M + task count + points committed
 - **Advancing-to-milestone card** — milestone WBS, target date, days-out chip, deep-link to the Schedule view at the milestone task
-- **Sprint Cadence timeline** — Closed sprints (greyed) → Active (sticky-left, ringed) → Planned cards. The strip is also a **selector**: click any card to load that sprint in the workspace (the selected card carries a navy ring).
+- **Sprint Cadence timeline** — Closed sprints (grayed) → Active (sticky-left, ringed) → Planned cards. Each card leads with the sprint **name**, and its points bar makes over-commitment visible: a sprint that finishes **over** its committed points shows the overage as a distinct segment past a capacity marker with a `+N over` flag, rather than a "full" bar that reads as simply done. The strip is also a **selector**: click any card to load that sprint in the workspace (the selected card carries a navy ring).
 - **Reviewing a past sprint** — selecting a **closed** sprint shows a read-only review: a five-card outcome row (goal verdict, committed/completed points, rolled-over, velocity Δ), the frozen historical burndown, the retrospective, and a **"what didn't ship"** list (each unfinished task with whether it carried to another sprint or was dropped). All of it reads from the consolidated sprint-outcome API; velocity figures stay team-private for readers outside the velocity audience.
 - [Burndown chart](/features/sprint-burndown/), [Capacity preflight](/features/capacity-preflight/), [Velocity panel](/features/velocity/), and [Sprint backlog](/features/sprint-backlog/) populate the rest of the page when an active sprint is selected.
-- **WIP limit** *(optional)* — set a per-sprint ceiling on in-flight work (tasks in *In progress* or *Review*) and the Board's [sprint panel](/features/board/) header shows a `WIP {count} / {limit}` chip that turns amber once the count exceeds the limit. Editable by Scheduler+ on planned and active sprints; locked once completed or cancelled. Distinct from per-column board WIP limits.
+- **WIP limit** *(optional)* — set a per-sprint ceiling on in-flight work (tasks in *In progress* or *Review*) and the Board's [sprint panel](/features/board/) header shows a `WIP {count} / {limit}` chip that turns amber once the count exceeds the limit. Editable by Scheduler+ on planned and active sprints; locked once completed or canceled. Distinct from per-column board WIP limits.
 - **Exclude from velocity** *(optional)* — a Scheduler+ toggle that holds a setup or ramp-up sprint (a "Sprint 0") out of the team's velocity average, forecast band, and milestone forecast, so its low throughput doesn't skew the numbers. Unlike the WIP limit it stays editable **after the sprint closes** (teams often realize the skew in hindsight). The sprint stays visible in your history, marked rather than dropped. See [Setup work & Sprint 0](/features/velocity/#setup-work--sprint-0).
 
 ## Planning a sprint — the unified planning surface (ships in 0.3)

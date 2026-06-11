@@ -36,6 +36,8 @@ It's pure Python with just `networkx` and `numpy` underneath — no Django, no w
 pip install trueppm-scheduler
 ```
 
+Requires Python 3.11+.
+
 ## Quick start
 
 ```python

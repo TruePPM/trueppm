@@ -38,7 +38,7 @@ The REST API provides full access to all project data — tasks, schedules, CPM 
 
 ## What's coming
 
-The features most relevant to executives and PMO directors are on the enterprise roadmap:
+The features most relevant to executives and PMO directors are split across the community and enterprise roadmaps:
 
 | Feature | Description | Edition |
 |---------|-------------|---------|
@@ -49,8 +49,9 @@ The features most relevant to executives and PMO directors are on the enterprise
 | SSO/SAML/OIDC | Enterprise single sign-on | Enterprise |
 | LDAP sync | Automatic user provisioning | Enterprise |
 | Immutable audit trail | Compliance-ready change history | Enterprise |
-| Board-ready exports | Formatted reports for executive presentations | Enterprise |
-| Email/Slack digests | Proactive risk alerts and status summaries | Enterprise |
+| Board-ready exports | Client-ready Gantt PDF (planned 0.4) and the reporting suite (planned 0.8) | Community (planned) |
+| Email/Slack notifications | Event notifications by email and Slack webhook shipped in 0.2; a single-program health digest is planned for 0.8 | Community |
+| Portfolio digests | Proactive risk alerts and status summaries across the portfolio | Enterprise |
 
 :::note[Why enterprise?]
 These features require coordinating across multiple programs and enforcing governance at the portfolio level — which is the defining characteristic of the enterprise edition. The community edition handles everything a PM or program manager needs (including multi-project programs); the enterprise edition handles the portfolio and org-level governance layer on top.

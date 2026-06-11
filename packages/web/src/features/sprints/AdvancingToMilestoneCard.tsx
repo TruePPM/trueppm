@@ -8,6 +8,8 @@ import { Button } from '@/components/Button';
 import { daysUntil, formatShortDate } from './sprintMath';
 import { PromoteMilestoneDialog } from './PromoteMilestoneDialog';
 import type { IterationLabelForms } from '@/lib/iterationLabel';
+import { ScopeChangedChip } from './ScopeChangedChip';
+import { useSprintScopeChanges } from '@/hooks/useSprints';
 
 interface Props {
   sprint: ApiSprint;
@@ -139,31 +141,26 @@ interface RollupBlockProps {
 /**
  * Stacked rollup display: the rolled-up percent (large mono number),
  * the basis label ("by points · 18 of 24"), and a variance chip when the
- * sprint plan is anchored against the milestone. Scope-change indicator (ⓘ)
- * sits inline with the percent and surfaces a native `title=` tooltip — never
- * a banner (deliberate: rule "no banners for soft signals").
+ * sprint plan is anchored against the milestone. The scope-change signal is a
+ * persistent, clickable chip (#550) — replacing the former hover-only ⓘ — that
+ * opens the scope-change audit drawer with the per-event delta.
  */
 function RollupBlock({ rollup, label }: RollupBlockProps) {
   const percent = rollup.percent_complete!;
+  const scopeSprintId = rollup.scope_change_sprint_id ?? null;
+  // Fetch the delta only for this one card (single instance) so the chip can
+  // show "+N / −M pts"; enabled-gated, so it no-ops until a sprint is known.
+  const { data: scopeData } = useSprintScopeChanges(
+    rollup.sprint_scope_changed ? scopeSprintId : null,
+  );
   return (
     <div
       className="flex flex-col gap-1"
       aria-label={`Milestone progress ${Math.round(percent)} percent`}
     >
-      <div className="flex items-baseline gap-1">
-        <span className="text-2xl tppm-mono text-neutral-text-primary leading-none">
-          {Math.round(percent)}%
-        </span>
-        {rollup.sprint_scope_changed && (
-          <span
-            aria-label={`${label.singular} scope changed since activation`}
-            title={`${label.singular} scope changed since activation — committed baseline preserved.`}
-            className="ml-1 text-neutral-text-secondary cursor-help"
-          >
-            ⓘ
-          </span>
-        )}
-      </div>
+      <span className="text-2xl tppm-mono text-neutral-text-primary leading-none">
+        {Math.round(percent)}%
+      </span>
       <p className="text-xs text-neutral-text-secondary">
         {rollup.rollup_basis === 'tasks' ? 'by tasks' : 'by points'}
         {' · '}
@@ -173,6 +170,11 @@ function RollupBlock({ rollup, label }: RollupBlockProps) {
       </p>
       {rollup.variance_days != null && (
         <VarianceChip days={rollup.variance_days} iterationSingular={label.singular} />
+      )}
+      {rollup.sprint_scope_changed && scopeSprintId && (
+        <span className="mt-0.5 self-start">
+          <ScopeChangedChip sprintId={scopeSprintId} summary={scopeData?.summary} />
+        </span>
       )}
     </div>
   );

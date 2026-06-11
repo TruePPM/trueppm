@@ -9,7 +9,7 @@ My Work shipped in 0.1.
 
 **My Work** is the contributor's page. It lists every task assigned to you, across every project you're on, grouped by your active sprints. There's no Gantt chart, no work-breakdown tree, no critical-path math — just a flat list of what's yours, what's due, and what you can update with a tap.
 
-Open it from the **Me** section in the sidebar (`My Work`) or from your avatar menu. The route is `/me/work`.
+Open it from **My Work**, pinned at the top of the sidebar (with a due-today count badge when there's something actionable), or from your avatar menu. The route is `/me/work`.
 
 ## What you see
 
@@ -52,9 +52,9 @@ Tasks appear in My Work when:
 
 - A **project manager assigns** you to a task in their project.
 - You **create a task** in a project you're a member of and put yourself on the assignee field.
-- A future release adds **external sync** from Jira, Linear, or GitHub — tasks pushed from those tools land here automatically once the inbound webhook is configured.
+- **An external tool pushes** a task into the project via [Inbound task sync](/features/inbound-task-sync/) — Jira, Linear, GitHub Issues, or any custom source. The payload's assignee email is resolved to a TruePPM user, so a pushed task that's yours lands here automatically.
 
-External sync is a planned follow-up (issue [#500](https://gitlab.com/trueppm/trueppm/-/issues/500)). Until it ships, the only way to land work in My Work is through TruePPM itself.
+Separately, [Connected accounts](/features/connected-accounts/) let you attach your own GitLab/GitHub credentials to see live MR, PR, and issue status on the tasks themselves.
 
 ## What you don't see
 
@@ -75,6 +75,6 @@ The PM-facing "My Tasks" view inside each project is a different surface. It sho
 
 ## API
 
-`GET /api/v1/me/work/` returns the same data the page consumes. Cursor paginated (default page size 100, max 200). The response is a deliberately flat shape with no CPM fields. See the [API reference](/api/) for the schema.
+`GET /api/v1/me/work/` returns the same data the page consumes. Limit/offset paginated (default page size 100, max 200). The response is a deliberately flat shape with no CPM fields. See the [API reference](/api/reference/) for the schema.
 
 Status updates use the standard task PATCH endpoint with a `X-Source: my_work` header so downstream webhook subscribers can distinguish a status flip from My Work from a status flip from the schedule canvas.

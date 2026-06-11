@@ -34,8 +34,8 @@ Never use the default `SECRET_KEY` or `ALLOWED_HOSTS=*` in production. The defau
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `TRUEPPM_EDITION` | `community` | Edition discriminator read by `/api/v1/edition/`. Set to `enterprise` in the enterprise Helm chart so the React shell can make the post-login redirect decision without importing enterprise code (ADR-0029). Never set this in an OSS deployment. |
-| `HISTORY_RETENTION_DAYS` | `90` | How many days of object-change history to keep. Records older than this are purged nightly by Celery beat. Set to `0` to disable automatic purging entirely (enterprise unlimited-retention tier does this). |
-| `TASK_RUN_RETENTION_DAYS` | `30` | How many days of completed/failed/cancelled Celery task-run records to keep before the nightly purge. Set to `0` to disable. |
+| `HISTORY_RETENTION_DAYS` | `90` | How many days of object-change history to keep. Records older than this are purged nightly by Celery beat. To disable automatic purging, set the Django setting to `None` in a settings override or toggle the table off in the [Retention & purge](/administration/retention/) editor. **Do not set `0`** — a zero-day window makes the cutoff "now" and purges all rows on the next run. |
+| `TASK_RUN_RETENTION_DAYS` | `30` | How many days of completed/failed/canceled Celery task-run records to keep before the nightly purge. To disable, set the Django setting to `None` in a settings override or toggle the table off in the [Retention & purge](/administration/retention/) editor. **Do not set `0`** — a zero-day window purges all rows on the next run. |
 | `MSPROJECT_MAX_UPLOAD_MB` | `50` | Per-file size cap for MS Project (`.mpp` / `.xml`) imports, in megabytes. See [MS Project import limit](#ms-project-import-limit) below. |
 | `VITE_FEATURE_FLAGS` | `{}` | Build-time JSON blob of feature flag overrides for the React frontend, e.g. `'{"schedule_build_mode_v1":true}'`. Set in `packages/web/.env` or `.env.production` before `npm run build`. Per-user `localStorage` overrides win over this default at runtime. |
 | `INTEGRATION_ENCRYPTION_KEY` | _(empty)_ | Fernet key used to encrypt stored integration credentials (connected-account PATs). **Required once any user connects an account** — the app raises `ImproperlyConfigured` on first integration use if unset. Generate with `python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. |
@@ -72,9 +72,12 @@ limit close to the practical MS Project file ceiling rather than maximizing it.
 :::caution[Do not configure above the hard ceiling]
 `MSPROJECT_MAX_UPLOAD_MB` must stay **at or below 100 MB**. The global Django
 `DATA_UPLOAD_MAX_MEMORY_SIZE` (100 MB) and the operator-configured nginx
-`client_max_body_size` (recommend `100m`) are the hard edge cap — set both, and
-keep `MSPROJECT_MAX_UPLOAD_MB` under them. Setting it higher has no effect: the
-larger request is rejected at the edge before the importer ever sees it.
+`client_max_body_size` are the hard edge cap — the shipped reference nginx
+templates set `client_max_body_size 20M`, so the 50 MB import default is
+unreachable until you raise it to at least your `MSPROJECT_MAX_UPLOAD_MB`. Set
+both, and keep `MSPROJECT_MAX_UPLOAD_MB` under them. Setting it higher has no
+effect: the larger request is rejected at the edge before the importer ever
+sees it.
 :::
 
 ```bash
@@ -108,11 +111,6 @@ Also set `CSRF_TRUSTED_ORIGINS` (above) for any split-origin deploy.
 
 ## First user setup
 
-After starting the stack and running migrations:
+No manual steps are needed: the api container runs migrations and the `create_admin` bootstrap automatically on startup. Retrieve the generated admin password as described in [Admin password setup](/administration/admin-password/).
 
-```bash
-docker compose exec api python manage.py migrate
-docker compose exec api python manage.py createsuperuser
-```
-
-The superuser can then authenticate via the API and create projects. When a user creates a project, they automatically become its Owner.
+The admin user can then authenticate via the API and create projects. When a user creates a project, they automatically become its Owner.

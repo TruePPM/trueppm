@@ -44,6 +44,25 @@ planned/active/closed sprints with burndown, board state, and a retrospective.
 The command is **idempotent** — re-running clears any prior "Platform Migration"
 project and re-seeds it from scratch, so it is safe to run repeatedly while exploring.
 
+## Sample data & JSON seed
+
+Three commands cover bundled sample projects and the canonical JSON seed format
+(ADR-0109). See [Sample projects](/getting-started/sample-projects/) for the
+user-facing guide.
+
+- **`load_sample_project [--sample <key>] [--owner <username>]`** — imports a
+  bundled sample seed (default: the Atlas hybrid-large launch demo) and flags its
+  projects as sample data. Idempotent — re-running replaces the sample. The owner
+  defaults to the first superuser.
+- **`import_seed <path> [--owner <username>] [--create-users]`** — imports a
+  TruePPM JSON seed file into the database. Re-running with the same file rebuilds
+  the program subtree idempotently on the program slug. `--create-users` mints any
+  accounts the seed references that do not yet exist (intended for local demos,
+  not production).
+- **`export_program <slug> [--out <path>]`** — exports a program (matched by
+  `Program.code`) to the canonical JSON seed format, to `--out` or stdout. The
+  output round-trips: re-importing it reproduces the program.
+
 ## Maintenance commands
 
 These exist for specific operational situations and are not part of routine use:

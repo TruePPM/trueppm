@@ -279,9 +279,11 @@ test.describe('Wave 10 — Sprints view header', () => {
 
     // Timeline strip — all three cards should appear
     const cadence = page.getByRole('region', { name: /Sprint Cadence/i });
-    await expect(cadence.getByText('SP-A1B2')).toBeVisible();
-    await expect(cadence.getByText('SP-C0FF')).toBeVisible();
-    await expect(cadence.getByText('SP-D33D')).toBeVisible();
+    // short_id_display is demoted off the card face into each card's accessible
+    // name (#1107) — the sprint name leads visually, the id stays for SR/selector.
+    await expect(cadence.getByRole('article', { name: /SP-A1B2/ })).toBeVisible();
+    await expect(cadence.getByRole('article', { name: /SP-C0FF/ })).toBeVisible();
+    await expect(cadence.getByRole('article', { name: /SP-D33D/ })).toBeVisible();
 
     // Plan next disabled because a planned sprint exists
     await expect(

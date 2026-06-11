@@ -15360,6 +15360,49 @@
                 }
             }
         },
+        "/api/v1/sprints/{id}/scope-changes/": {
+            "get": {
+                "operationId": "v1_sprints_scope_changes_retrieve",
+                "description": "Read the sprint's mid-sprint scope-change audit + delta (#543/#550).\n\nRead-only; any project member (Viewer+) — the audit is team-readable first\n(sprint sovereignty). Surfaces the existing ``SprintScopeChange`` injection\nrows as actor/timestamp/item/points/status plus the aggregate the\npersistent scope-change chip and the SprintPanel badge render from. No\nmutation, no new table.",
+                "summary": "List a sprint's mid-sprint scope changes (audit + delta)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Body includes a summary (points_added/points_removed/added_mid_sprint_count/total) and the ordered scope-change events."
+                    }
+                }
+            }
+        },
         "/api/v1/sprints/{id}/scope-changes/accept/": {
             "post": {
                 "operationId": "v1_sprints_scope_changes_accept_create",
@@ -23704,6 +23747,24 @@
                         "type": "string",
                         "description": "First working day on or after ``start_date`` — the effective schedule\nfloor (#884).\n\nThe CPM engine floors every task's ``early_start`` here, so the web\nclient uses this (not the literal ``start_date``) for its pre-emptive\nbefore-start prompt and its \"snap to project start\" target. Equal to\n``start_date`` when the start is already a working day.",
                         "readOnly": true
+                    },
+                    "recalculated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "is_sample": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "program_detail": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string"
+                        },
+                        "nullable": true,
+                        "description": "The project's program as ``{id, name}`` for the demo indicator link.\n\nDetail-only serializer (single object), so the ``obj.program`` access is\nnot the N+1 risk it would be on the list serializer.",
+                        "readOnly": true
                     }
                 },
                 "required": [
@@ -23711,10 +23772,13 @@
                     "archived_by",
                     "id",
                     "is_archived",
+                    "is_sample",
                     "lead_detail",
                     "member_count",
                     "name",
                     "percent_complete",
+                    "program_detail",
+                    "recalculated_at",
                     "server_version",
                     "start_date",
                     "start_floor",

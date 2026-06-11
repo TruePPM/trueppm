@@ -275,7 +275,7 @@ describe('OverviewSection — milestone rollup', () => {
     expect(variance.className).toMatch(/text-semantic-critical/);
   });
 
-  it('shows "scope changed" pill when sprint_scope_changed is true', () => {
+  it('shows the persistent "scope changed" chip when sprint_scope_changed is true (#550)', () => {
     mockTasks.splice(0, mockTasks.length, {
       ...baseTask,
       isMilestone: true,
@@ -285,11 +285,13 @@ describe('OverviewSection — milestone rollup', () => {
         rollup_basis: 'points',
         variance_days: 0,
         sprint_scope_changed: true,
+        scope_change_sprint_id: 'sp-active',
         sprint_count: 1,
       },
     });
     renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
-    expect(screen.getByText(/scope changed/i)).toBeInTheDocument();
+    // Persistent, clickable chip replaces the former hover-only inline text.
+    expect(screen.getByRole('button', { name: /Scope changed/i })).toBeInTheDocument();
   });
 
   it('falls back to editable input when basis is "none"', () => {

@@ -14,7 +14,7 @@ Most project management tools force a choice: Jira speaks Agile and translates p
 TruePPM is an open-core Project, Program, and Portfolio Management (P3M) platform — built scheduling-first, with a fully native agile surface layered on top. CPM is the engine, not a bolt-on. Agile boards and sprints are an overlay on the schedule, not a parallel system.
 
 > **Status: 0.2-alpha — pre-GA. Not ready for production use.**
-> The core engine and API are solid; the UI is functional but still maturing. 0.2 has shipped as the `0.2.0-alpha.1` pre-release; the stable 0.2.0 release targets June 2026. Expect breaking API changes between alpha and beta. **Hold off on deploying for real teams until the first beta release** — we don't know yet what needs to change based on early feedback, and locking in users before we do will make that harder.
+> The core engine and API are solid; the UI is functional but still maturing. 0.2 has shipped as the `0.2.0-alpha.1` pre-release; releases stay alpha through 0.3, and 0.4 will be the first beta. Expect breaking API changes between alpha and beta. **Hold off on deploying for real teams until the first beta release** — we don't know yet what needs to change based on early feedback, and locking in users before we do will make that harder.
 
 ## Why TruePPM?
 
@@ -22,9 +22,9 @@ TruePPM is an open-core Project, Program, and Portfolio Management (P3M) platfor
 
 **Monte Carlo risk analysis built in.** Add three-point estimates (optimistic / most likely / pessimistic) to any task and run a probabilistic simulation. Get P50, P80, and P95 completion dates instead of a single optimistic number. That P80 date is the one you should commit to stakeholders.
 
-**Agile-native, schedule-aware.** Full sprint lifecycle (plan → activate → close), board with WIP limits, velocity tracking, burndown charts, retrospective-to-backlog automation. The Scrum Master gets a native agile surface and never opens the Gantt. Sprint velocity automatically feeds the CPM forecast.
+**Agile-native, schedule-aware.** Full sprint lifecycle (plan → activate → close), board with WIP limits, velocity tracking, burndown charts, retrospective-to-backlog automation. The Scrum Master gets a native agile surface and never opens the Gantt. Sprint velocity feeds non-destructive duration suggestions back to the schedule; automatic sprint→schedule reforecast ships in 0.3.
 
-**Hybrid bridge built in.** The same task is both a WBS node and a sprint story. When a team member marks a story done, the PM's Gantt re-forecasts in real time. No status meetings, no reconciliation spreadsheets.
+**Hybrid bridge built in.** The same task is both a WBS node and a sprint story. When a team member marks a story done, the schedule recalculates on the spot and the PM's Gantt updates in real time — and automatic sprint→schedule reforecast lands in 0.3. No status meetings, no reconciliation spreadsheets.
 
 **Open source, self-hosted, no vendor lock-in.** The community edition is Apache 2.0. Run it on your own infrastructure. Your data stays yours. The scheduling engine ships as a standalone Python package — use it without the API if you just need the math.
 
@@ -37,7 +37,7 @@ TruePPM is an open-core Project, Program, and Portfolio Management (P3M) platfor
 | Component | Status | Notes |
 |-----------|--------|-------|
 | **Scheduling engine** | ✅ Stable | CPM (all 4 dependency types, calendar-aware lag, cycle detection) + Monte Carlo. Standalone PyPI package. |
-| **REST API** | ✅ Stable | Full CRUD for projects, tasks, dependencies, resources, calendars, members, sprints. Auto-scheduling via Celery. OpenAPI 3.1 schema. |
+| **REST API** | ✅ Stable | Full CRUD for projects, tasks, dependencies, resources, calendars, members, sprints. Auto-scheduling via Celery. OpenAPI 3.0 schema. |
 | **RBAC** | ✅ Stable | 5-role per-project permissions on every endpoint, WebSocket, and UI surface. Members management UI. |
 | **Real-time** | ✅ Stable | WebSocket broadcasts for every mutation, deferred to transaction commit. |
 | **Offline sync** | ✅ Stable | WatermelonDB-compatible delta protocol with soft-delete tombstones. |
@@ -45,7 +45,7 @@ TruePPM is an open-core Project, Program, and Portfolio Management (P3M) platfor
 | **Board / Kanban** | ✅ Wired | Phase-grid + rail/drawer/queue layouts, calm toolbar, drag-to-promote, WIP control. |
 | **Sprints** | ✅ Wired | Plan/activate/close workflow, burndown, velocity, capacity preflight, multi-team lens, retrospective. |
 | **Monte Carlo UI** | ✅ Wired | P50/P80/P95 distribution, live rerun, freshness indicator, burn-up and burn-down charts. |
-| **Helm chart** | ✅ Functional | Kubernetes deployment with Bitnami sub-charts for PostgreSQL and Valkey (BSD-licensed Redis fork). Published to GHCR OCI registry. |
+| **Helm chart** | ✅ Functional | Kubernetes deployment with bundled first-party PostgreSQL and Valkey subcharts (official images; Valkey is the BSD-licensed Redis fork). Published to GHCR OCI registry. |
 
 **Added in 0.2:** a settings & administration platform, the Program entity (OSS) with program backlog, MS Project XML import/export UI, recurring tasks, board + schedule depth, durable-execution hardening, and Slack/email notifications. **Coming in 0.3** (the agile-team release): a first-class sprint container, velocity-with-range, sprint→schedule reforecast, and git PR→card auto-move. CSV/Excel and MS Project `.mpp` import are sequenced for 0.6.
 
@@ -63,6 +63,7 @@ TruePPM is an open-core Project, Program, and Portfolio Management (P3M) platfor
 Full documentation at **[docs.trueppm.com](https://docs.trueppm.com)** (published via GitLab Pages on every release tag).
 
 - **[Installation](https://docs.trueppm.com/getting-started/installation/)** — Docker Compose, Helm/Kubernetes, single-server, or scheduler library
+- **[Sample projects](https://docs.trueppm.com/getting-started/sample-projects/)** — load a populated demo program in one click, or import/export any program as JSON
 - **[Upgrading](https://docs.trueppm.com/getting-started/upgrade/)** — rolling upgrades and rollback for each deployment path
 - **[Guides](https://docs.trueppm.com/guides/project-managers/)** — role-specific guides for project managers, team members, resource managers, and executives
 - **[Administration](https://docs.trueppm.com/administration/deployment/)** — deployment, configuration, RBAC, security
@@ -114,7 +115,7 @@ docker compose exec api python manage.py seed_demo_project --with-personas
 # Demo logins (password: demo):
 #   maya  — Scrum Master    raj    — Project Manager
 #   diana — PMO Director    sarah  — Resource Manager
-#   carlos — Exec Sponsor   tom    — Team Member
+#   carlos — Exec Sponsor   tom    — Senior Engineer
 ```
 
 ### Production (single server)
@@ -143,16 +144,26 @@ pip install trueppm-scheduler
 ```
 
 ```python
-from trueppm_scheduler import schedule, Calendar, Project, Task, Dependency
+from datetime import date, timedelta
+from trueppm_scheduler import schedule, Calendar, Project, Task, Dependency, DependencyType
 
-calendar = Calendar(id="cal-1", name="Standard")
-project = Project(id="p-1", name="My Project", start_date="2026-01-01", calendar=calendar)
-task_a = Task(id="t-1", name="Design", duration=5, project_id="p-1")
-task_b = Task(id="t-2", name="Build", duration=10, project_id="p-1")
-dep = Dependency(id="d-1", predecessor_id="t-1", successor_id="t-2", dep_type="FS")
+calendar = Calendar()  # Mon–Fri, no holidays (whole-day scheduling)
+task_a = Task(id="t-1", name="Design", duration=timedelta(days=5))
+task_b = Task(id="t-2", name="Build",  duration=timedelta(days=10))
+dep = Dependency(predecessor_id="t-1", successor_id="t-2", dep_type=DependencyType.FS)
 
-result = schedule(project, [task_a, task_b], [dep], calendar)
-print(result.tasks["t-2"].early_finish)  # 2026-01-20
+project = Project(
+    id="p-1",
+    name="My Project",
+    start_date=date(2026, 1, 5),
+    tasks=[task_a, task_b],
+    dependencies=[dep],
+    calendar=calendar,
+)
+
+result = schedule(project)
+build = next(t for t in result.tasks if t.id == "t-2")
+print(build.early_finish)  # 2026-01-23 (15 working days from 2026-01-05, across two weekends)
 ```
 
 ## Development
@@ -202,9 +213,9 @@ Public milestones: [gitlab.com/trueppm/trueppm/-/milestones](https://gitlab.com/
 From 0.3 onward each release **lands one primary persona** while the hybrid agile/waterfall bridge deepens underneath. The sequence expands by org scope; everything is OSS, with portfolio governance reserved for the enterprise edition after 1.0.
 
 - **0.3 — the agile team**: real sprint container, velocity-with-range, sprint sovereignty (audited scope changes, team-owned velocity), sprint→schedule reforecast, git PR→card auto-move, sample-data launch demo
-- **0.4 — mobile & the field PM**: native React Native editor (Android-first), iOS PWA fallback, basic client-ready PDF, ongoing one-way Jira sync, offline hardening
+- **0.4 — mobile & the field PM**: native React Native editor (Android-first), iOS PWA fallback, basic client-ready PDF, ongoing one-way Jira sync, read-only MCP server (team-scoped), offline hardening
 - **0.5 — plan & people**: partial resource allocation + pre-commit conflict warning, timesheets, baselines, deep CPM-aware bridge, durable-execution default backend
-- **0.6 — open & portable**: multi-format import with preview, MCP server (team-scoped), public REST API depth, read-only shareable roadmap
+- **0.6 — open & portable**: multi-format import with preview, MCP write surface, public REST API depth, read-only shareable roadmap
 - **0.7 — the product owner**: editable product roadmap surface with release-target lanes, release planning, backlog↔schedule reconciliation
 - **0.8 — present & relate**: reporting (PDF, what-if, baseline variance, auto-narrative), program web view, single-program health digest, cost reports
 - **0.9 — GA candidate**: first-run onboarding, intuitiveness pass, GA hardening (API v1 freeze, WCAG 2.1 AA, perf/scale, i18n), extension SDK

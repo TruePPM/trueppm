@@ -93,6 +93,7 @@ export default defineConfig({
             { slug: "administration/security" },
             { slug: "administration/project-settings" },
             { slug: "administration/management-commands" },
+            { slug: "administration/data-export" },
             { slug: "administration/durability" },
             { slug: "administration/dead-letter-alerting" },
             { slug: "administration/system-health" },
@@ -212,6 +213,7 @@ export default defineConfig({
           items: [
             { slug: "architecture/overview" },
             { slug: "architecture/decisions" },
+            { slug: "architecture/seed-data-schema" },
           ],
         },
         // --- Contributing ---

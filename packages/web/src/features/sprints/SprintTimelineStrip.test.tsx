@@ -17,9 +17,11 @@ describe('SprintTimelineStrip', () => {
         onPlanNext={noop}
       />,
     );
-    expect(screen.getByText('SP-C1')).toBeInTheDocument();
-    expect(screen.getByText('SP-A1')).toBeInTheDocument();
-    expect(screen.getByText('SP-P1')).toBeInTheDocument();
+    // The short_id_display is demoted off the card face (#1107) — it lives in the
+    // card's accessible name, not as visible text, so the name leads visually.
+    expect(screen.getByRole('article', { name: /SP-C1/ })).toBeInTheDocument();
+    expect(screen.getByRole('article', { name: /SP-A1/ })).toBeInTheDocument();
+    expect(screen.getByRole('article', { name: /SP-P1/ })).toBeInTheDocument();
   });
 
   it('renders a Plan-next slot when there are no planned sprints', () => {
@@ -78,6 +80,31 @@ describe('SprintTimelineStrip', () => {
     const bar = screen.getByRole('progressbar', { name: /20 of 40/i });
     expect(bar).toHaveAttribute('aria-valuenow', '20');
     expect(bar).toHaveAttribute('aria-valuemax', '40');
+  });
+
+  it('surfaces over-commitment instead of a clamped full bar (#1107)', () => {
+    render(
+      <SprintTimelineStrip
+        closed={[
+          makeSprint({
+            id: 'c-over',
+            state: 'COMPLETED',
+            committed_points: 26,
+            completed_points: 27,
+          }),
+        ]}
+        active={null}
+        planned={[]}
+        onPlanNext={noop}
+      />,
+    );
+    // Non-colour cue: the "+N over" label is present (WCAG 1.4.1).
+    expect(screen.getByText(/\+1 over/)).toBeInTheDocument();
+    // The bar scales to the completed total so the overage is visible, and the
+    // accessible name names the overage rather than reading "done".
+    const bar = screen.getByRole('progressbar', { name: /27 of 26 points committed, 1 over commitment/i });
+    expect(bar).toHaveAttribute('aria-valuemax', '27');
+    expect(bar).toHaveAttribute('aria-valuenow', '27');
   });
 
   it('clicking the Plan-next slot fires onPlanNext', async () => {

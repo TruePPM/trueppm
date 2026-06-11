@@ -54,8 +54,19 @@ The **Lifecycle** page handles a project's end-of-life:
 
 The **Integrations** page provides full management of outbound webhooks and
 inbound API tokens — add, edit, test, and delete webhooks (with a format picker
-and delivery log) and mint and revoke API tokens. See [Webhooks](../features/webhooks.md) and
-[Inbound task sync](../features/inbound-task-sync.md) for details.
+and delivery log) and mint and revoke API tokens. See [Webhooks](/features/webhooks/) and
+[Inbound task sync](/features/inbound-task-sync/) for details.
+
+## Sprint guardrails
+
+The **Sprint guardrails** page configures the per-project guardrail policy as a
+rule-by-rule matrix: each sprint/phase composition rule is either **Warn**
+(default — the team sees a warning and may override) or **Block** (no override).
+Only the project **Owner** may escalate a composition rule to Block — sprint
+composition stays team-owned. The `subtasks_split` rule is advisory-only and
+cannot be escalated. When the policy was supplied externally (an Enterprise
+resolver), the page shows a banner naming who set it, and composition Blocks
+stay inert until the team toggles acknowledgement.
 
 ## Not yet available
 
@@ -75,3 +86,4 @@ The functional pages map to these endpoints:
 | Workflow & fields | `GET`/`PUT /api/v1/projects/{id}/board-config/`, `…/custom-fields/…` |
 | Lifecycle | `POST /api/v1/projects/{id}/archive/`, `…/unarchive/`, `…/transfer/`, `DELETE /api/v1/projects/{id}/` |
 | Integrations | `GET`/`POST`/`PATCH`/`DELETE /api/v1/projects/{id}/webhooks/…`, `…/api-tokens/…` |
+| Sprint guardrails | `GET`/`PATCH /api/v1/projects/{id}/guardrail-policy/` |

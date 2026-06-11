@@ -57,7 +57,11 @@ function makeSprint(rollup: RollupShape, scopeChanged = false): object {
       name: 'FAT review',
       wbs_path: '1.4.2',
       finish: '2026-04-21',
-      rollup: { ...rollup, sprint_scope_changed: scopeChanged },
+      rollup: {
+        ...rollup,
+        sprint_scope_changed: scopeChanged,
+        scope_change_sprint_id: scopeChanged ? 'sp-active' : null,
+      },
     },
     capacity_points: 40,
     committed_points: 47,
@@ -225,9 +229,7 @@ test.describe('Sprint → milestone rollup card (ADR-0074)', () => {
     await expect(card.getByLabel(/Sprint plan: \+3d slip/i)).toBeVisible();
   });
 
-  test('shows scope-changed indicator when sprint_scope_changed is true', async ({
-    page,
-  }) => {
+  test('persistent scope-changed chip opens the audit drawer (#550)', async ({ page }) => {
     await setupCommon(page);
     await page.route(`**/api/v1/projects/${PROJECT_ID}/sprints/`, (route) =>
       route.fulfill({
@@ -241,11 +243,40 @@ test.describe('Sprint → milestone rollup card (ADR-0074)', () => {
         }),
       }),
     );
+    await page.route(/\/api\/v1\/sprints\/sp-active\/scope-changes\//, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          summary: { points_added: 5, points_removed: 0, added_mid_sprint_count: 1, total: 1 },
+          events: [
+            {
+              id: 'ev-1',
+              item_name: 'Late telemetry fix',
+              story_points: 5,
+              added_by_name: 'Sam Rivera',
+              added_at: '2026-04-08T10:00:00Z',
+              goal_impact: false,
+              status: 'accepted',
+            },
+          ],
+        }),
+      }),
+    );
 
     await page.goto(BASE_URL);
     const card = page.getByRole('region', { name: /Advancing to Milestone/i });
     await expect(card).toBeVisible({ timeout: 10_000 });
-    await expect(card.getByLabel(/Sprint scope changed/i)).toBeVisible();
+
+    // Persistent, visible chip (no hover needed) — then click → audit drawer.
+    const chip = card.getByRole('button', { name: /Scope changed/i });
+    await expect(chip).toBeVisible();
+    await chip.click();
+
+    const drawer = page.getByRole('dialog', { name: /Scope changes/i });
+    await expect(drawer).toBeVisible();
+    await expect(drawer.getByText('Late telemetry fix')).toBeVisible();
+    await expect(drawer.getByText('Sam Rivera', { exact: false })).toBeVisible();
   });
 
   test('falls back to "by tasks" when rollup_basis is tasks', async ({ page }) => {

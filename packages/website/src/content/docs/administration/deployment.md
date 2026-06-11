@@ -4,12 +4,12 @@ description: Deploy TruePPM with Docker Compose or Kubernetes Helm chart.
 ---
 
 :::caution[Pre-GA]
-TruePPM 0.2 has shipped (as the `0.2.0-alpha.1` pre-release) and is suitable for evaluation and early-adopter deployments; the stable 0.2.0 release targets Jun 8, 2026. Expect API contract changes across 0.x point releases; a stable contract arrives at 1.0.
+TruePPM 0.2 has shipped (as the `0.2.0-alpha.1` pre-release) and is suitable for evaluation and early-adopter deployments; the release line stays alpha through 0.3, and 0.4 is planned as the first beta. Expect API contract changes across 0.x point releases; a stable contract arrives at 1.0.
 :::
 
 ## Docker Compose (recommended for evaluation)
 
-The fastest way to get TruePPM running. A single command starts all five services.
+The fastest way to get TruePPM running. A single command starts all six services.
 
 ```bash
 git clone git@gitlab.com:trueppm/trueppm.git
@@ -23,13 +23,13 @@ docker compose up -d
 | `valkey` | 6379 | Celery broker + Django Channels layer ([Valkey](https://valkey.io) — BSD-licensed Redis fork, wire-compatible) |
 | `api` | 8000 | Django ASGI (uvicorn) |
 | `celery` | — | CPM auto-scheduling worker |
-| `web` | 5173 | React frontend (nginx) |
+| `celery-beat` | — | Periodic task runner (Beat) |
+| `web` | 5173 | React frontend (Vite dev server) |
 
-After startup:
+Migrations and the `create_admin` bootstrap run automatically when the `api` container starts. Retrieve the generated admin password as described in [Admin password setup](/administration/admin-password/):
 
 ```bash
-docker compose exec api python manage.py migrate
-docker compose exec api python manage.py createsuperuser
+docker compose exec api cat /tmp/trueppm_admin_password
 ```
 
 **Good for:** local development, evaluation, small teams, demos.
@@ -103,7 +103,7 @@ must always be supplied via a Kubernetes Secret referenced through `env`.
 
 :::note
 The Helm chart is functional with dev and prod values overlays and was hardened
-for secure-by-default installs; further updates landed in 0.2 (available since the `0.2.0-alpha.1` pre-release; stable 0.2.0 targets Jun 8, 2026).
+for secure-by-default installs; further updates landed in 0.2 (available since the `0.2.0-alpha.1` pre-release).
 Large-scale production hardening (HA Postgres, dedicated Valkey, autoscaling
 policies) is on the pre-1.0 roadmap.
 :::
@@ -120,7 +120,7 @@ TruePPM runs as a set of cooperating services:
 | **Valkey** | Valkey 8 (Redis-compatible) | Celery task broker, Django Channels layer, scheduling locks |
 | **Web** | React 19 (Vite build, served via nginx) | Browser-based user interface |
 
-All services share the same Valkey instance. Celery-originated broadcasts (e.g., `schedule_updated`) reach WebSocket clients connected to any API container, making horizontal scaling of the API safe.
+All services share the same Valkey instance. Celery-originated broadcasts (e.g., `cpm_complete`) reach WebSocket clients connected to any API container, making horizontal scaling of the API safe.
 
 ## Backups
 

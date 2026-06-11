@@ -3,6 +3,13 @@ title: Sprint → milestone rollup
 description: Sprints linked to a Schedule-view milestone now propagate their progress live — the milestone's percent complete and date variance reflect sprint state without a status meeting or spreadsheet reconciliation.
 ---
 
+:::note[Ships in 0.3]
+The **persistent, clickable scope-changed chip** and its **scope-change audit
+drawer** ship in 0.3 (the agile team release). They are not yet in a tagged
+build — see the [roadmap](/overview/roadmap/). The live rollup itself is shipped
+behavior.
+:::
+
 Linking a sprint to a Schedule-view milestone via `Sprint.target_milestone` makes that
 milestone's `percent_complete` *live*. The number a PM sees on the Schedule view and the
 number a Scrum Master sees on the Sprints view are the same number, computed
@@ -26,10 +33,15 @@ When at least one sprint targets a milestone task:
   `Sprint plan: -2d ahead`. This is computed from the latest ACTIVE / PLANNED
   sprint's `finish_date` against the milestone's CPM date. Sprint dates are
   never automatically mutated.
-- A **scope-change indicator** (ⓘ) appears when an active sprint's current
-  backlog points sum diverges from its activation-time `committed_points`
-  snapshot. The percent stays bounded; the indicator surfaces the discrepancy
-  so the value remains honest.
+- A **scope-changed chip** appears when an active sprint's current backlog
+  points sum diverges from its activation-time `committed_points` snapshot.
+  *(Ships in 0.3.)* The percent stays bounded; the chip surfaces the
+  discrepancy so the value remains honest. The chip is **persistent and
+  clickable** — not a hover-only tooltip — and shows the net scope delta
+  (`+N / −M points`). It appears in all three milestone surfaces: the
+  Schedule-view task list, the milestone Overview drawer, and the
+  sprint-workspace AdvancingToMilestone card. See
+  [scope-change audit chip](#scope-change-audit-chip) below.
 - The milestone's `percent_complete` becomes **read-only against manual
   writes**. The API rejects writes with a structured 400 (`code:
   milestone_rollup_locked`). To override, unlink or close the sprint first;
@@ -59,6 +71,36 @@ sprint alone.
 
 `CANCELLED` sprints are skipped entirely — they contribute nothing to
 either the denominator or the numerator.
+
+## Scope-change audit chip
+
+:::note[Ships in 0.3]
+This chip and its audit drawer ship in 0.3.
+:::
+
+The scope-changed chip is the milestone-side entry point into the same audit
+the team sees on the Board. One click opens a **read-only scope-change audit
+drawer** listing each per-task scope change behind the net delta — who added
+or removed the task, when, the task, its point value, and whether the change
+is `accepted`, `pending`, or `rejected`.
+
+The chip is rendered identically in all three milestone surfaces — the
+Schedule-view task list, the milestone Overview drawer, and the
+sprint-workspace AdvancingToMilestone card — so the **PM** (looking from the
+Gantt/Overview) and the **team** (looking from the sprint workspace) open the
+**same audit from either side**. There is no team-private vs PM-private split
+here: a scope change is a fact about the sprint's commitment, not a velocity
+signal, so both audiences read it.
+
+The drawer is backed by
+[`GET /sprints/{id}/scope-changes/`](/features/board-sprint-panel/#api-endpoints-touched) —
+the same endpoint that powers the [Board mid-sprint scope-change
+badge](/features/board-sprint-panel/#mid-sprint-scope-changes). It is a
+visibility surface only; it never accepts or rejects a change.
+
+*Screenshot TODO: a milestone row in the Schedule-view task list showing the
+persistent `Scope changed +5 / −2 pts` chip, and the open scope-change audit
+drawer.*
 
 ## What is broadcast
 
@@ -92,7 +134,7 @@ stay on the sprint side and remain bounded by the sprint board's permissions.
   write; the next state change reconciles).
 
 The authoritative recompute always runs inside the
-[`SprintCloseRequest` outbox drain](/architecture/durable-execution/) on
+[`SprintCloseRequest` outbox drain](/administration/durability/) on
 close, after the immutable `completed_*` snapshot lands, so the final value
 is correct even if a live recompute was missed during an outage.
 
@@ -119,6 +161,6 @@ is gone.
 ## See also
 
 - [ADR-0074](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0074-sprint-to-milestone-rollup.md) — design rationale and broadcast payload contract
-- [ADR-0036 — Hybrid PM philosophy](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0036-hybrid-pm-philosophy-and-sprint-model.md) — the auto-advance promise this feature realises
+- [ADR-0036 — Hybrid PM philosophy](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0036-hybrid-pm-philosophy-and-sprint-model.md) — the auto-advance promise this feature realizes
 - [Sprint planning capacity (ADR-0073)](/features/board-sprint-panel/) — the planning surface that feeds `committed_points`
 - [Sprint burndown](/features/sprint-burndown/) — sprint-side view of the same numbers

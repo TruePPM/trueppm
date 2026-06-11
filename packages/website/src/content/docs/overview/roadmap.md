@@ -26,7 +26,7 @@ Foundation for self-hosted, scheduling-first PPM. Everything below is in `main` 
 
 ### 0.2 — settings, administration & consolidation (alpha: May 31, 2026)
 
-A broad consolidation release — the settings/administration platform, program foundations, board and schedule depth, and the first import/export migration path. Shipped as the **0.2.0-alpha.1** pre-release (tagged May 31, 2026), with `trueppm-scheduler` published to PyPI at **0.2.0a1**. Everything below is in `main` and tagged. The stable **0.2.0** release follows (target Jun 8, 2026).
+A broad consolidation release — the settings/administration platform, program foundations, board and schedule depth, and the first import/export migration path. Shipped as the **0.2.0-alpha.1** pre-release (tagged May 31, 2026), with `trueppm-scheduler` published to PyPI at **0.2.0a1**. Everything below is in `main` and tagged. 0.2 is an alpha release — there is no separate stable 0.2.0. The release line stays alpha through 0.3, and 0.4 is planned as the first beta.
 
 - **Settings shell** — Workspace / Program / Project scope switcher with General, Members, Groups & teams, Roles, Methodology, Workflow, Notifications, Access, Integrations, and lifecycle pages on real APIs
 - **Program entity (OSS)** (#502) — container for related projects with rollup KPIs, cadence, and cross-project risk policy; program backlog with epic/feature/story/task item types and proposed→pulled→archived lifecycle (#733 #737 #739)
@@ -57,7 +57,7 @@ From 0.3 onward each release **lands one primary persona** — it ships the feat
 
 ### 0.4 — mobile & the field PM (target: Jul 27 – Aug 3, 2026)
 
-**For the project manager on a job site with no signal.** A real native editor in your pocket — not a read-only viewer — so the schedule updates from the truck and the client PDF goes out before you drive back.
+**For the project manager on a job site with no signal — and TruePPM's first beta release.** A real native editor in your pocket — not a read-only viewer — so the schedule updates from the truck and the client PDF goes out before you drive back.
 
 - **Mobile** — React Native / Expo + WatermelonDB, **Android phones first, tablets second** (iPhone at 1.0); My Tasks, 15-second time capture, on-device WASM CPM, offline sync, store submission
 - **iOS PWA fallback** — a scoped mobile-web time-entry and read surface so iPhone users aren't blocked until 1.0 native

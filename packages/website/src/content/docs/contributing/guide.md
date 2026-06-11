@@ -71,6 +71,8 @@ cd packages/web && npm test
 
 All MRs require a green pipeline before merge.
 
+Run `make pre-push` before every `git push` — it mirrors the blocking CI gates (lint, typecheck, migrations-check, schema-check).
+
 ## Code style
 
 | Package | Formatter | Linter | Type checker |
@@ -95,8 +97,8 @@ make typecheck  # runs all type checkers
 
 Before writing code for a new feature, determine if it belongs in the community or enterprise repo:
 
-- **Community (this repo):** features an individual PM or small team needs
-- **Enterprise (separate repo):** features requiring cross-project, cross-team, or organizational coordination
+- **Community (this repo):** everything a PM or program team needs to run a program (including multi-project programs)
+- **Enterprise (separate repo):** cross-program/portfolio governance, compliance, and org-level policy
 
 The community edition must never import from `trueppm_enterprise`. Verify with:
 

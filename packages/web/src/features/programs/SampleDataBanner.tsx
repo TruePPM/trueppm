@@ -39,7 +39,10 @@ export function SampleDataBanner({ programId, canRemove }: SampleDataBannerProps
       {canRemove &&
         (confirming ? (
           <div className="flex items-center gap-2">
-            <span className="text-xs text-neutral-text-secondary">Remove the demo program?</span>
+            <span className="text-xs text-neutral-text-secondary">
+              This removes the entire demo program, including any changes you made. Your own
+              projects are not affected.
+            </span>
             <button
               type="button"
               onClick={onRemove}

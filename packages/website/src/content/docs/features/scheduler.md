@@ -16,7 +16,7 @@ pip install trueppm-scheduler
 | [`01-cpm-quickstart.ipynb`](https://gitlab.com/trueppm/trueppm/-/blob/main/packages/scheduler/notebooks/01-cpm-quickstart.ipynb) | Project definition, CPM run, per-task float table, custom calendar, SS dependency, cycle detection, JSON round-trip |
 | [`02-monte-carlo.ipynb`](https://gitlab.com/trueppm/trueppm/-/blob/main/packages/scheduler/notebooks/02-monte-carlo.ipynb) | PERT three-point estimates, Monte Carlo run, P50/P80/P95 output, matplotlib histogram, scenario comparison |
 | [`03-calendar-aware.ipynb`](https://gitlab.com/trueppm/trueppm/-/blob/main/packages/scheduler/notebooks/03-calendar-aware.ipynb) | Mon–Sat weeks, public holiday exceptions, multi-week shutdown blocks, calendar-aware lag, JSON round-trip |
-| [`04-incremental-scheduling.ipynb`](https://gitlab.com/trueppm/trueppm/-/blob/main/packages/scheduler/notebooks/04-incremental-scheduling.ipynb) | Incremental CPM, equivalence verification, fallback behaviour, local bench |
+| [`04-incremental-scheduling.ipynb`](https://gitlab.com/trueppm/trueppm/-/blob/main/packages/scheduler/notebooks/04-incremental-scheduling.ipynb) | Incremental CPM, equivalence verification, fallback behavior, local bench |
 
 ```bash
 # Run locally (from repo root)
@@ -146,7 +146,7 @@ trueppm-scheduler schedule project.json --json
 
 ## Monte Carlo Simulation
 
-`monte_carlo()` runs probabilistic simulation using PERT-Beta distributions (method-of-moments parameterisation). Vectorised with numpy; 10,000 runs on a 200-task chain completes in under 5 seconds.
+`monte_carlo()` runs probabilistic simulation using PERT-Beta distributions (method-of-moments parameterization). Vectorized with numpy; 10,000 runs on a 200-task chain completes in under 5 seconds.
 
 ### Three-point estimates
 
@@ -288,6 +288,6 @@ The `recalculate_schedule` Celery task fires automatically via `transaction.on_c
 2. Fetches all live (non-deleted) tasks and dependencies for the project
 3. Calls `trueppm-scheduler`'s `schedule()` function
 4. Writes CPM output fields back to Task rows
-5. Broadcasts a `schedule_updated` WebSocket event to all connected clients
+5. Broadcasts a `cpm_complete` WebSocket event (plus per-task `task_dates_updated` deltas) to all connected clients
 
 If the lock is already held, the task re-queues itself with a 10-second countdown.
