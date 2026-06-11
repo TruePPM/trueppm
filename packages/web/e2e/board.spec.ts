@@ -157,8 +157,10 @@ test.describe('Board view', () => {
 
   test('renders LaneMeta with phase name, progress %, and task count', async ({ page }) => {
     await expect(page.getByText('Alpha Phase')).toBeVisible();
-    // Average is computed from all leaf tasks: (100 + 60 + 0 + 40) / 4 = 50%
-    await expect(page.getByText('50%')).toBeVisible();
+    // #991 (ADR-0115): the lane renders the phase summary task's server-owned,
+    // delivery-mode-weighted percent_complete rollup (b1.percent_complete = 55),
+    // not a divergent client mean of the leaf tasks.
+    await expect(page.getByText('55%')).toBeVisible();
     await expect(page.getByText('4 tasks')).toBeVisible();
   });
 
