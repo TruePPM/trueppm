@@ -20,6 +20,8 @@ interface WorkspaceSettingsPatchRaw {
   default_project_view?: string;
   allow_guests?: boolean;
   public_sharing?: boolean;
+  iteration_label?: string;
+  iteration_label_override_policy?: 'inherit' | 'suggest' | 'enforce';
 }
 
 function toRaw(patch: WorkspaceSettingsPatch): WorkspaceSettingsPatchRaw {
@@ -33,6 +35,9 @@ function toRaw(patch: WorkspaceSettingsPatch): WorkspaceSettingsPatchRaw {
   if (patch.defaultProjectView !== undefined) raw.default_project_view = patch.defaultProjectView;
   if (patch.allowGuests !== undefined) raw.allow_guests = patch.allowGuests;
   if (patch.publicSharing !== undefined) raw.public_sharing = patch.publicSharing;
+  if (patch.iterationLabel !== undefined) raw.iteration_label = patch.iterationLabel;
+  if (patch.iterationLabelOverridePolicy !== undefined)
+    raw.iteration_label_override_policy = patch.iterationLabelOverridePolicy;
   return raw;
 }
 

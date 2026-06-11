@@ -47,6 +47,7 @@ from trueppm_api.apps.projects.product_backlog_services import (
     seed_sprint_rank,
     split_story,
 )
+from trueppm_api.apps.teams.models import Team, TeamMembership, TeamRole
 
 User = get_user_model()
 
@@ -724,3 +725,161 @@ def test_reorder_broadcasts_backlog_reranked(
     spy.assert_called_once_with(
         str(project.pk), "backlog_reranked", {"project_id": str(project.pk)}
     )
+
+
+# --------------------------------------------------------------------------- #
+# Product Owner facet widens the backlog-manager gate (ADR-0078/#1095)
+# --------------------------------------------------------------------------- #
+#
+# The on_commit signal that auto-creates the default team + team membership does
+# NOT fire inside a plain ``django_db`` transaction, so these tests materialize the
+# default team and the facet-bearing membership row explicitly — the same pattern
+# the teams-services tests use.
+
+
+def _grant_facet(
+    project: Project,
+    user: object,
+    *,
+    is_product_owner: bool = False,
+    is_scrum_master: bool = False,
+) -> None:
+    """Create the project's default team and a facet-bearing membership for ``user``.
+
+    Mirrors the production invariant (one default team per project; facets live on
+    the TeamMembership row) without relying on the on_commit mirror signal, which
+    does not run under the test transaction.
+    """
+    team, _ = Team.objects.get_or_create(
+        project=project,
+        is_default=True,
+        is_deleted=False,
+        defaults={"name": "Default Team", "short_id": "T01", "server_version": 1},
+    )
+    TeamMembership.objects.update_or_create(
+        team=team,
+        user=user,
+        is_deleted=False,
+        defaults={
+            "role": TeamRole.MEMBER,
+            "is_product_owner": is_product_owner,
+            "is_scrum_master": is_scrum_master,
+        },
+    )
+
+
+def test_product_owner_facet_member_can_auto_rank(project: Project, member: object) -> None:
+    """A Member holding the PO facet may auto-rank — the facet widens the Admin-only gate."""
+    _grant_facet(project, member, is_product_owner=True)
+    client = APIClient()
+    client.force_authenticate(user=member)
+    resp = client.post(
+        f"/api/v1/projects/{project.pk}/product-backlog/auto-rank/", {}, format="json"
+    )
+    assert resp.status_code == 200
+
+
+def test_product_owner_facet_member_can_reorder(project: Project, member: object) -> None:
+    """A Member holding the PO facet may manually reorder the backlog."""
+    _grant_facet(project, member, is_product_owner=True)
+    a = _story(project, name="a", priority_rank=1)
+    b = _story(project, name="b", priority_rank=2)
+    client = APIClient()
+    client.force_authenticate(user=member)
+    resp = client.post(
+        REORDER_URL.format(pk=project.pk),
+        {"stories": [_entry(b), _entry(a)]},
+        format="json",
+    )
+    assert resp.status_code == 200
+    a.refresh_from_db()
+    b.refresh_from_db()
+    assert (b.priority_rank, a.priority_rank) == (1, 2)
+
+
+def test_product_owner_facet_member_can_write_scoring(project: Project, member: object) -> None:
+    """The PO facet also widens the serializer-level structural-field gate (scoring)."""
+    _grant_facet(project, member, is_product_owner=True)
+    t = _story(project, name="s")
+    client = APIClient()
+    client.force_authenticate(user=member)
+    resp = client.patch(f"/api/v1/tasks/{t.pk}/", {"business_value": 9}, format="json")
+    assert resp.status_code == 200
+
+
+def test_product_owner_facet_does_not_widen_writes_to_schedule_tasks(
+    project: Project, member: object
+) -> None:
+    """The PO write-widening is scoped to EPIC/STORY work items — a PO facet must not
+    grant a non-Admin write access to an unowned schedule task (type=task)."""
+    _grant_facet(project, member, is_product_owner=True)
+    t = _story(project, name="sched", type=TaskType.TASK, status=TaskStatus.NOT_STARTED)
+    client = APIClient()
+    client.force_authenticate(user=member)
+    resp = client.patch(f"/api/v1/tasks/{t.pk}/", {"name": "renamed"}, format="json")
+    assert resp.status_code == 403
+
+
+def test_product_owner_facet_cannot_delete_unowned_story(project: Project, member: object) -> None:
+    """The PO write-widening is edit-only — deleting another member's story stays an
+    Admin/assignee act, so a PO-facet Member cannot DELETE an unowned STORY."""
+    _grant_facet(project, member, is_product_owner=True)
+    t = _story(project, name="del-me")
+    client = APIClient()
+    client.force_authenticate(user=member)
+    resp = client.delete(f"/api/v1/tasks/{t.pk}/")
+    assert resp.status_code == 403
+
+
+def test_scrum_master_facet_member_still_denied_backlog(project: Project, member: object) -> None:
+    """The SM facet does NOT grant backlog management — only the PO facet does."""
+    _grant_facet(project, member, is_scrum_master=True)
+    client = APIClient()
+    client.force_authenticate(user=member)
+    resp = client.post(
+        f"/api/v1/projects/{project.pk}/product-backlog/auto-rank/", {}, format="json"
+    )
+    assert resp.status_code == 403
+
+
+def test_plain_member_without_facet_denied_backlog(project: Project, member: object) -> None:
+    """A Member with no facet remains denied (the unchanged Admin-only baseline)."""
+    _grant_facet(project, member)  # team membership but no facet
+    client = APIClient()
+    client.force_authenticate(user=member)
+    resp = client.post(
+        f"/api/v1/projects/{project.pk}/product-backlog/auto-rank/", {}, format="json"
+    )
+    assert resp.status_code == 403
+
+
+# --------------------------------------------------------------------------- #
+# my_facets exposure on the project detail serializer (#1095)
+# --------------------------------------------------------------------------- #
+
+
+def test_project_detail_my_facets_reflects_product_owner(project: Project, member: object) -> None:
+    """Project detail GET exposes the caller's own facets; PO sees is_product_owner=true."""
+    _grant_facet(project, member, is_product_owner=True)
+    client = APIClient()
+    client.force_authenticate(user=member)
+    resp = client.get(f"/api/v1/projects/{project.pk}/")
+    assert resp.status_code == 200
+    assert resp.data["my_facets"] == {
+        "is_scrum_master": False,
+        "is_product_owner": True,
+    }
+
+
+def test_project_detail_my_facets_false_for_non_facet_member(
+    project: Project, member: object
+) -> None:
+    """A member with no facet sees both flags False."""
+    client = APIClient()
+    client.force_authenticate(user=member)
+    resp = client.get(f"/api/v1/projects/{project.pk}/")
+    assert resp.status_code == 200
+    assert resp.data["my_facets"] == {
+        "is_scrum_master": False,
+        "is_product_owner": False,
+    }

@@ -164,6 +164,40 @@ async function setupCommon(
   await page.route(`**/api/v1/projects/${PROJECT_ID}/members/`, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id: 'mem-1', role: 300 }]) }),
   );
+  // Live retro board + pulse (ADR-0117). Default fixture: empty board, no own
+  // pulse response, and a GATED trend (this fixture's user is role 300 / PM) so
+  // the existing single-author retro tests see the board + a private-pulse wall.
+  await page.route(/\/api\/v1\/sprints\/.*\/retro-board\//, (route) => {
+    if (route.request().method() === 'POST') {
+      const body = route.request().postDataJSON() as { column: string; text: string };
+      return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({
+        id: `bi-${Date.now()}`, retro: 'retro-1', column: body.column, text: body.text,
+        author: 1, author_username: 'e2e', position: 1, color: '',
+        converted_action_item_id: null, created_at: '2026-04-15T00:00:00Z', updated_at: '2026-04-15T00:00:00Z',
+      }) });
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      columns: [
+        { key: 'went_well', label: 'What went well' },
+        { key: 'to_improve', label: 'What to improve' },
+        { key: 'ideas', label: 'Ideas & discussion' },
+      ],
+      items: [],
+    }) });
+  });
+  await page.route(/\/api\/v1\/sprints\/.*\/pulse-trend\//, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ gated: true }) }),
+  );
+  await page.route(/\/api\/v1\/sprints\/.*\/pulse\//, (route) => {
+    if (route.request().method() === 'PUT') {
+      const b = route.request().postDataJSON() as Record<string, number | null>;
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+        id: 'pr-1', retro: 'retro-1', mood: b.mood, energy: b.energy, confidence: b.confidence ?? null,
+        updated_at: '2026-04-15T00:00:00Z',
+      }) });
+    }
+    return route.fulfill({ status: 204, body: '' });
+  });
 }
 
 test.describe('Wave 10 — Sprint retrospective panel', () => {
@@ -188,7 +222,7 @@ test.describe('Wave 10 — Sprint retrospective panel', () => {
     await panel.getByLabel(/Action item 1 text/i).fill('Add deploy gate');
     await panel.getByLabel(/Action item 1 story points/i).fill('3');
 
-    await panel.getByRole('button', { name: /Save retro/i }).click();
+    await panel.getByRole('button', { name: /Save notes & actions/i }).click();
 
     const post = await postPromise;
     const body = post.postDataJSON() as Record<string, unknown>;

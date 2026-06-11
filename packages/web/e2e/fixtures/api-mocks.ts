@@ -341,6 +341,29 @@ export async function setupApiMocks(page: Page, opts: ApiMockOptions = {}): Prom
   await page.route(`**/api/v1/projects/${projectId}/sprints/**`, (route) =>
     route.fulfill(jsonResponse(paginated([]))),
   );
+  // Live retro board + team-health pulse (ADR-0117). The retro panel fires these
+  // on mount for any ACTIVE/COMPLETED sprint, so every sprints-view spec needs a
+  // safe default: empty board, no own response, GATED trend (renders the
+  // private-pulse wall — no data leaks). Specs that exercise the board override
+  // these with their own page.route(...) after setup.
+  await page.route(/\/api\/v1\/sprints\/.*\/retro-board\//, (route) =>
+    route.fulfill(
+      jsonResponse({
+        columns: [
+          { key: 'went_well', label: 'What went well' },
+          { key: 'to_improve', label: 'What to improve' },
+          { key: 'ideas', label: 'Ideas & discussion' },
+        ],
+        items: [],
+      }),
+    ),
+  );
+  await page.route(/\/api\/v1\/sprints\/.*\/pulse-trend\//, (route) =>
+    route.fulfill(jsonResponse({ gated: true })),
+  );
+  await page.route(/\/api\/v1\/sprints\/.*\/pulse\//, (route) =>
+    route.fulfill({ status: 204, body: '' }),
+  );
   // Per-task history endpoint — paginated, opens via the modal "Last edited by" footer.
   await page.route(`**/api/v1/projects/${projectId}/tasks/*/history/**`, (route) =>
     route.fulfill(jsonResponse({ count: 0, next: null, previous: null, results: [] })),

@@ -109,6 +109,11 @@ export interface Program {
   /** Optional short code; empty string when unset. */
   code: string;
   methodology: ProgramMethodology;
+  /** Iteration-container label override (ADR-0116, #1106). null = inherit the
+   *  workspace default. */
+  iteration_label: string | null;
+  /** Read-only label inherited when the override is null — the workspace default. */
+  inherited_iteration_label: string;
   /** PM health override; AUTO defers to the rollup. */
   health: ProgramHealth;
   /** Workspace or private listing scope. */
@@ -265,6 +270,12 @@ export interface WorkspaceSettings {
   defaultProjectView: string;
   allowGuests: boolean;
   publicSharing: boolean;
+  /** Workspace-wide default iteration-container label (ADR-0116, #1106) — the
+   *  root of the Workspace → Program → Project inheritance chain. */
+  iterationLabel: string;
+  /** Cascade policy. `inherit`/`suggest` (OSS) let lower scopes override;
+   *  `enforce` locks the term and is an Enterprise capability (no-op in OSS). */
+  iterationLabelOverridePolicy: 'inherit' | 'suggest' | 'enforce';
 }
 
 /**

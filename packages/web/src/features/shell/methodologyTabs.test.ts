@@ -9,6 +9,7 @@ const MATRIX: Record<'WATERFALL' | 'AGILE' | 'HYBRID', Record<string, boolean>> 
   WATERFALL: {
     overview: true,
     board: true,
+    'product-backlog': false,
     sprints: false,
     schedule: true,
     grid: true,
@@ -19,6 +20,7 @@ const MATRIX: Record<'WATERFALL' | 'AGILE' | 'HYBRID', Record<string, boolean>> 
   AGILE: {
     overview: true,
     board: true,
+    'product-backlog': true,
     sprints: true,
     schedule: false,
     grid: true,
@@ -29,6 +31,7 @@ const MATRIX: Record<'WATERFALL' | 'AGILE' | 'HYBRID', Record<string, boolean>> 
   HYBRID: {
     overview: true,
     board: true,
+    'product-backlog': true,
     sprints: true,
     schedule: true,
     grid: true,

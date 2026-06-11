@@ -1,7 +1,10 @@
+import axios from 'axios';
 import { Outlet } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
+import { useProject } from '@/hooks/useProject';
 import { useProjectWebSocket } from '@/hooks/useProjectWebSocket';
 import { useSchedulerStore } from '@/stores/schedulerStore';
+import { ProjectNotFound } from './ProjectNotFound';
 import { ProjectSampleIndicator } from './ProjectSampleIndicator';
 import { RecalculatingBadge } from './RecalculatingBadge';
 
@@ -17,7 +20,20 @@ export function ProjectShell() {
 
   useProjectWebSocket(projectId);
 
+  // Gate every project route on the project record: a deleted (or missing)
+  // project 404s server-side (#1111), and we surface that as a single honest
+  // not-found state rather than letting each child view render an empty shell.
+  // React Query dedupes this against the same ['project', id] query the tab bar
+  // already issues, so it adds no extra request.
+  const { error: projectError } = useProject(projectId);
+  const projectNotFound =
+    axios.isAxiosError(projectError) && projectError.response?.status === 404;
+
   const isRecalculating = useSchedulerStore((s) => s.isRecalculating);
+
+  if (projectNotFound) {
+    return <ProjectNotFound />;
+  }
 
   return (
     <div className="flex flex-col h-full overflow-hidden">

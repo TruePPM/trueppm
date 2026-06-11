@@ -76,6 +76,8 @@ const FIXTURE_TASKS = [
     duration: 12, percent_complete: 40, is_critical: false,
     is_milestone: false, is_summary: false, parent_id: 'b1',
     status: 'IN_PROGRESS', assignees: [],
+    // SPI + band are server-owned now (#990); the card renders them directly.
+    spi: 0.62, spi_band: 'behind',
     total_float: -3,
     predecessor_count: 0, is_blocked: false,
     linked_risks_count: 0, linked_risks_max_severity: null,
@@ -155,8 +157,10 @@ test.describe('Board view', () => {
 
   test('renders LaneMeta with phase name, progress %, and task count', async ({ page }) => {
     await expect(page.getByText('Alpha Phase')).toBeVisible();
-    // Average is computed from all leaf tasks: (100 + 60 + 0 + 40) / 4 = 50%
-    await expect(page.getByText('50%')).toBeVisible();
+    // #991 (ADR-0115): the lane renders the phase summary task's server-owned,
+    // delivery-mode-weighted percent_complete rollup (b1.percent_complete = 55),
+    // not a divergent client mean of the leaf tasks.
+    await expect(page.getByText('55%')).toBeVisible();
     await expect(page.getByText('4 tasks')).toBeVisible();
   });
 
@@ -484,8 +488,8 @@ test.describe('Board view', () => {
   test('SPI chip renders on card when EVM mode is "spi" (issue #185)', async ({ page }) => {
     await page.getByRole('button', { name: 'More board controls' }).click();
     await page.getByLabel('EVM indicators').selectOption('spi');
-    // b5 QA Gate has baseline_start 2026-01-01, baseline_finish 2026-01-10,
-    // early_start 2026-01-05, early_finish 2026-01-20 → SPI computed client-side
+    // b5 QA Gate carries server-owned spi 0.62 / band 'behind' (#990) — the card
+    // renders the chip from those fields rather than deriving it from baseline dates.
     await expect(page.getByLabel(/SPI \d+\.\d+ —/)).toBeVisible({ timeout: 3_000 });
   });
 });

@@ -80,6 +80,7 @@ function outcome(overrides: Partial<SprintOutcome> = {}): SprintOutcome {
     didnt_ship_summary: { carried_count: 1, carried_points: 5, dropped_count: 0, dropped_points: 0 },
     retro_summary: null,
     review: review(),
+    milestone_slip: null,
     ...overrides,
   };
 }
@@ -91,8 +92,37 @@ describe('SprintClosedOutcome (#567)', () => {
     expect(screen.getByText('34')).toBeInTheDocument(); // committed
     expect(screen.getByText('28')).toBeInTheDocument(); // completed
     expect(screen.getByText('(82%)')).toBeInTheDocument();
-    expect(screen.getByText('6')).toBeInTheDocument(); // rolled over = 34-28
+    // #1097: rolled over is the carried-disposition sum (5), NOT the committed−completed
+    // proxy (34−28=6) that used to contradict the disposition list.
+    expect(screen.getByText('5')).toBeInTheDocument();
     expect(screen.getByLabelText(/Velocity up 4 points/i)).toBeInTheDocument();
+  });
+
+  it('#1097: drives Rolled over from carried points, not committed−completed', () => {
+    // Scope was injected mid-sprint: 3 carried tasks (8 pts) + drops, so the proxy
+    // (34−28=6) disagrees with the disposition list. The headline must equal the
+    // carried sum (8) so it can never contradict the breakdown below it.
+    render(
+      <SprintClosedOutcome
+        outcome={outcome({
+          didnt_ship_summary: {
+            carried_count: 3,
+            carried_points: 8,
+            dropped_count: 2,
+            dropped_points: 9,
+          },
+        })}
+      />,
+    );
+    expect(screen.getByText('8')).toBeInTheDocument(); // carried sum
+    expect(screen.queryByText('6')).toBeNull(); // never the proxy
+  });
+
+  it('#1097: shows — for rolled over when disposition was not recorded (pre-#982)', () => {
+    render(<SprintClosedOutcome outcome={outcome({ outcome_recorded: false, didnt_ship: [] })} />);
+    // The rolled-over card falls to "—" rather than a derived guess.
+    const cards = screen.getAllByText('—');
+    expect(cards.length).toBeGreaterThan(0);
   });
 
   it('lists what didn\'t ship with the carried-to-sprint chip', () => {
@@ -185,5 +215,65 @@ describe('SprintClosedOutcome — Sprint Review breakdown (#924)', () => {
     const sec = screen.getByTestId('sprint-review');
     expect(sec).toHaveTextContent('3 accepted');
     expect(screen.getByTestId('accepted-count')).not.toHaveTextContent('pts');
+  });
+});
+
+describe('SprintClosedOutcome — milestone slip line (#1098)', () => {
+  const slip = (over: Partial<NonNullable<SprintOutcome['milestone_slip']>> = {}) => ({
+    milestone_id: 'm1',
+    milestone_name: 'Login redesign',
+    milestone_short_id: 'T-9',
+    slip_days: 12,
+    baseline_finish: '2026-05-01',
+    forecast_finish: '2026-05-13',
+    basis: 'forecast' as const,
+    ...over,
+  });
+
+  it('pairs rolled-over points with the milestone slip in one line', () => {
+    render(<SprintClosedOutcome outcome={outcome({ milestone_slip: slip() })} />);
+    const line = screen.getByTestId('milestone-slip-line');
+    expect(line).toHaveTextContent('Rolled over 5 pts');
+    expect(line).toHaveTextContent('Login redesign');
+    expect(line).toHaveTextContent('now +12d vs baseline');
+  });
+
+  it('hides the line when no milestone slip is present', () => {
+    render(<SprintClosedOutcome outcome={outcome({ milestone_slip: null })} />);
+    expect(screen.queryByTestId('milestone-slip-line')).toBeNull();
+  });
+
+  it('reads as "ahead of baseline" when the milestone is early', () => {
+    render(<SprintClosedOutcome outcome={outcome({ milestone_slip: slip({ slip_days: -3 }) })} />);
+    expect(screen.getByTestId('milestone-slip-line')).toHaveTextContent('3d ahead of baseline');
+  });
+
+  it('uses past-tense "finished" copy once the milestone has actually finished', () => {
+    render(
+      <SprintClosedOutcome
+        outcome={outcome({ milestone_slip: slip({ basis: 'actual', slip_days: 4 }) })}
+      />,
+    );
+    expect(screen.getByTestId('milestone-slip-line')).toHaveTextContent('finished 4d late vs baseline');
+  });
+
+  it('drops the points clause but keeps the slip when points are velocity-suppressed', () => {
+    render(
+      <SprintClosedOutcome
+        outcome={outcome({
+          milestone_slip: slip(),
+          velocity: null,
+          didnt_ship_summary: {
+            carried_count: 1,
+            carried_points: null,
+            dropped_count: 0,
+            dropped_points: null,
+          },
+        })}
+      />,
+    );
+    const line = screen.getByTestId('milestone-slip-line');
+    expect(line).not.toHaveTextContent('Rolled over');
+    expect(line).toHaveTextContent('now +12d vs baseline');
   });
 });

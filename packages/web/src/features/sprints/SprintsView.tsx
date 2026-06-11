@@ -39,6 +39,7 @@ import {
 import { CloseSprintDialog } from './CloseSprintDialog';
 import { ScopePendingReviewPanel } from './ScopePendingReviewPanel';
 import { useCanManageScope } from '@/hooks/useCanManageScope';
+import { useCanEditSprintGoal } from '@/hooks/useCanEditSprintGoal';
 import { RetroPanel } from './RetroPanel';
 import { useSprintBacklog } from '@/hooks/useSprintBacklog';
 import { useMyActiveSprints } from '@/hooks/useMyActiveSprints';
@@ -183,6 +184,9 @@ export function SprintsView() {
   // banner's Review button. Gated by useCanManageScope (render-gate only).
   const [scopeReviewOpen, setScopeReviewOpen] = useState(false);
   const canManageScope = useCanManageScope(projectId ?? undefined);
+  // Goal-edit follows the Scrum-Master facet (or Admin+), distinct from the
+  // scope-accept gate above (#1095 / ADR-0078).
+  const canEditGoal = useCanEditSprintGoal(projectId ?? undefined);
   // Task create modal — opens with the target sprint pre-populated.
   // null = modal closed; a sprint id string = modal open targeting that sprint.
   const [addTaskForSprintId, setAddTaskForSprintId] = useState<string | null>(null);
@@ -395,11 +399,12 @@ export function SprintsView() {
         />
       )}
 
-      {/* Tier-3 health badges (ADR-0101 §4) — read-only signals computed
-          client-side from `projectTasks`; renders nothing when all counts
-          are zero so the surface fades away on healthy projects. */}
+      {/* Tier-3 health badges (ADR-0101 §4, #988) — read-only signals owned by
+          the server (count, verdict, tone, and copy); renders nothing when the
+          endpoint returns no signals so the surface fades away on healthy
+          projects. */}
       <div className="mx-6 mt-2 flex items-center justify-between gap-2 flex-wrap">
-        <GuardrailHealthBadges tasks={projectTasks ?? []} activeSprint={activeSprint} />
+        <GuardrailHealthBadges projectId={projectId} />
         {/* Alt entry to the scope-injection review (ADR-0102 §5) — mirrors the
             board banner's Review button. Render-gated by canManageScope; the
             server is the real gate. */}
@@ -486,7 +491,7 @@ export function SprintsView() {
               <SprintPlanningBridge
                 sprint={selectedSprint}
                 projectId={projectId ?? ''}
-                canEdit={canManageScope}
+                canEdit={canEditGoal}
                 sprintTaskIds={
                   selectedSprint.id === plannedSprint?.id ? plannedTaskIds : []
                 }
@@ -497,7 +502,7 @@ export function SprintsView() {
                   <SprintGoalCard
                     sprint={selectedSprint}
                     projectId={projectId ?? ''}
-                    canEdit={canManageScope && selectedSprint.state !== 'COMPLETED'}
+                    canEdit={canEditGoal && selectedSprint.state !== 'COMPLETED'}
                   />
                 </div>
                 <div className="md:col-span-2">
@@ -640,6 +645,7 @@ export function SprintsView() {
             <RetroPanel
               sprintId={selectedSprint.id}
               isClosed={selectedSprint.state === 'COMPLETED'}
+              sprintState={selectedSprint.state}
             />
           )}
       </main>

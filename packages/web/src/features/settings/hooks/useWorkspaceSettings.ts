@@ -18,6 +18,8 @@ interface WorkspaceSettingsRaw {
   default_project_view: string;
   allow_guests: boolean;
   public_sharing: boolean;
+  iteration_label: string;
+  iteration_label_override_policy: 'inherit' | 'suggest' | 'enforce';
 }
 
 /** Maps snake_case wire shape to the camelCase interface consumed by pages. */
@@ -33,6 +35,8 @@ function mapSettings(raw: WorkspaceSettingsRaw): WorkspaceSettings {
     defaultProjectView: raw.default_project_view,
     allowGuests: raw.allow_guests,
     publicSharing: raw.public_sharing,
+    iterationLabel: raw.iteration_label,
+    iterationLabelOverridePolicy: raw.iteration_label_override_policy,
   };
 }
 

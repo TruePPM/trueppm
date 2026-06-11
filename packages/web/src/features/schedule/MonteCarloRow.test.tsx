@@ -172,6 +172,20 @@ describe('MonteCarloRow', () => {
       expect(screen.getByText(/P80:.*\(\+29d\)/)).toBeInTheDocument();
     });
 
+    it('reads the P80 delta from the server deltaVsCpm, not a client subtraction', () => {
+      // #987: the chip's delta comes from the server. Override deltaVsCpm.p80 to
+      // a value that does NOT equal daysBetween(cpmFinish, p80) to prove it.
+      mockResult = {
+        data: { ...FIXTURE_MC_RESULT, deltaVsCpm: { p50: 0, p80: 11, p95: 56 } },
+        isLoading: false,
+        error: null,
+      };
+      renderWithProviders(
+        <MonteCarloRow engine={null} projectId="proj-1" taskListWidth={364} cpmFinish="2026-10-05" />,
+      );
+      expect(screen.getByText(/P80:.*\(\+11d\)/)).toBeInTheDocument();
+    });
+
     it('omits delta suffix when cpmFinish is not provided', () => {
       mockResult = { data: FIXTURE_MC_RESULT, isLoading: false, error: null };
       renderWithProviders(

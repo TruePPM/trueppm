@@ -34,4 +34,30 @@ export const FIXTURE_MC_RESULT: MonteCarloResult = {
     { weekStart: '2026-12-21', count: 5 },
     { weekStart: '2026-12-28', count: 2 },
   ],
+  // Server-computed CPM finish + risk deltas + cumulative S-curve (#987). The
+  // UI renders these directly. cpmFinish 2026-10-05 → P50 +0d, P80 +29d,
+  // P95 +56d. The confidence curve mirrors the cumulative share of the buckets
+  // above (1000 runs), the same value the panel previously accumulated client-side.
+  cpmFinish: '2026-10-05',
+  deltaVsCpm: { p50: 0, p80: 29, p95: 56 },
+  confidenceCurve: [
+    { date: '2026-08-31', pct: 0.2 },
+    { date: '2026-09-07', pct: 1.0 },
+    { date: '2026-09-14', pct: 3.2 },
+    { date: '2026-09-21', pct: 8.0 },
+    { date: '2026-09-28', pct: 17.5 },
+    { date: '2026-10-05', pct: 32.3 },
+    { date: '2026-10-12', pct: 48.5 },
+    { date: '2026-10-19', pct: 62.3 },
+    { date: '2026-10-26', pct: 73.5 },
+    { date: '2026-11-02', pct: 82.3 },
+    { date: '2026-11-09', pct: 88.5 },
+    { date: '2026-11-16', pct: 92.7 },
+    { date: '2026-11-23', pct: 95.5 },
+    { date: '2026-11-30', pct: 97.3 },
+    { date: '2026-12-07', pct: 98.5 },
+    { date: '2026-12-14', pct: 99.3 },
+    { date: '2026-12-21', pct: 99.8 },
+    { date: '2026-12-28', pct: 100 },
+  ],
 };

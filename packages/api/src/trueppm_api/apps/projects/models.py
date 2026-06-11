@@ -339,6 +339,12 @@ class Program(VersionedModel):
         choices=Methodology.choices,
         default=Methodology.HYBRID,
     )
+    # Optional program-level override of the iteration-container label (ADR-0116,
+    # #1106). NULL = inherit the workspace default; a value overrides it for every
+    # project in this program whose own override is NULL. Display-only (ADR-0038/0111).
+    iteration_label = models.CharField(  # noqa: DJ001 — null distinguishes "inherit" from ""
+        max_length=32, null=True, blank=True
+    )
     # PM override for the program health chip. Defaults to AUTO so existing rows
     # render via the (future) rollup rather than implying a manual judgment.
     health = models.CharField(
@@ -704,12 +710,15 @@ class Project(VersionedModel):
     # Free text (Sprint / Iteration / PI / custom) so Scrumban/SAFe-adjacent teams
     # are not forced into Scrum-Guide vocabulary. Display-ONLY: it never gates tabs,
     # routes, API semantics, or CPM — the code symbol stays ``Sprint`` (ADR-0038).
-    # Stored singular; the web derives plural/possessive forms. Default "Sprint"
-    # backfills existing rows for zero visible behavior change. No ``choices=`` (and
-    # thus no drf-spectacular enum pin) — the presets are a UI affordance, not a DB set.
-    iteration_label = models.CharField(
+    # Stored singular; the web derives plural/possessive forms. NULL = inherit the
+    # program/workspace default (ADR-0116, #1106) — the effective label is resolved
+    # server-side; clients read ``effective_iteration_label``, never this raw column.
+    # No ``choices=`` (and thus no drf-spectacular enum pin) — the presets are a UI
+    # affordance, not a DB set.
+    iteration_label = models.CharField(  # noqa: DJ001 — null distinguishes "inherit" from ""
         max_length=32,
-        default="Sprint",
+        null=True,
+        blank=True,
     )
     # Optional grouping into a Program (ADR-0070). NULL = standalone project.
     # SET_NULL on program delete so projects survive the cascade as standalone.
@@ -760,6 +769,51 @@ class Project(VersionedModel):
 
     def __str__(self) -> str:
         return self.name
+
+    def soft_delete(self) -> None:
+        """Soft-delete the project and cascade-tombstone its child rows.
+
+        ``VersionedModel.soft_delete`` alone marks only this Project row, leaving
+        tasks, sprints, risks, and baselines orphaned with a stale FK pointing at
+        a deleted project. Those children all filter ``is_deleted=False`` on the
+        child row (not the parent), so an un-cascaded soft-delete leaks orphans
+        into "My Work", capacity rollups, active-sprint velocity math, and
+        portfolio counts. Cascade the soft-delete to each child so sync clients
+        receive proper tombstones and no orphan survives — mirroring
+        ``Task.soft_delete`` (which cascades to its dependency edges and subtasks)
+        and the ``delete_program_cascade`` service.
+
+        Each child goes through its own ``soft_delete`` rather than a bulk update
+        so per-model side effects fire: ``Task.soft_delete`` tombstones dependency
+        edges and subtask children, ``Risk.soft_delete`` emits ``risk_changed``.
+        Project deletes are infrequent, so the per-row cost is acceptable; the
+        whole thing runs inside the request's ATOMIC_REQUESTS transaction. (A
+        large project's cascade is offloaded to a background task in #1112 — for
+        now it runs synchronously.)
+
+        The hard-delete path (``?force=true``) is unaffected — Django's DB-level
+        CASCADE removes children directly; this cascade only governs soft-delete.
+        """
+        # Non-subtask tasks first: Task.soft_delete cascades each task's
+        # dependency edges and its drawer-subtask children, so subtasks are
+        # handled by their parent and must not be visited again here — a stale
+        # in-memory row would double-bump server_version and emit a redundant
+        # tombstone. The trailing sweep catches any subtask orphaned under an
+        # already-deleted parent (a pre-existing anomaly) so none is left live
+        # under the deleted project. No select_for_update: the project is being
+        # deleted, and pessimistically locking the whole task set for the full
+        # transaction is needless contention against concurrent task writes.
+        for task in self.tasks.filter(is_deleted=False, is_subtask=False):
+            task.soft_delete()
+        for orphan_subtask in self.tasks.filter(is_deleted=False):
+            orphan_subtask.soft_delete()
+        for sprint in self.sprints.filter(is_deleted=False):
+            sprint.soft_delete()
+        for risk in self.risks.filter(is_deleted=False):
+            risk.soft_delete()
+        for baseline in self.baselines.filter(is_deleted=False):
+            baseline.soft_delete()
+        super().soft_delete()
 
 
 # ---------------------------------------------------------------------------
@@ -2462,6 +2516,150 @@ class RetroActionItem(VersionedModel):
 
     def __str__(self) -> str:
         return f"RetroActionItem({self.id}, retro={self.retro_id})"
+
+
+# ---------------------------------------------------------------------------
+# Live multi-writer retro board + team-health pulse (ADR-0117, #851 / #923)
+# ---------------------------------------------------------------------------
+
+
+class RetroColumn(models.TextChoices):
+    """The three fixed columns of the live retro board (ADR-0117 §2).
+
+    Stored as a string key (not an FK) so a future per-team configurable
+    column template (ADR-0107) is additive with no data migration of existing
+    stickies. The three columns cover the dominant retro formats — Glad/Sad/Mad
+    and Start/Stop/Continue both map onto went-well / to-improve / ideas.
+    """
+
+    WENT_WELL = "went_well", "What went well"
+    TO_IMPROVE = "to_improve", "What to improve"
+    IDEAS = "ideas", "Ideas & discussion"
+
+
+class RetroBoardItem(VersionedModel):
+    """A single live sticky-note on the multi-writer retro board (ADR-0117 §1).
+
+    Distinct from ``RetroActionItem``: a board item is *discussion* content the
+    whole team brainstorms concurrently during the live ceremony, whereas an
+    action item is a *distilled outcome* that carries an assignee + story points
+    and promotes to the backlog (#858). Conflating them was rejected (ADR-0117
+    Alternative B) — the outcome fields would pollute a brainstorm sticky and the
+    single-author upsert endpoint is the wrong write path for concurrent editing.
+
+    Concurrency is per-item last-write-wins on ``server_version`` (ADR-0117 §3):
+    each sticky is an independent row, the common case is different people editing
+    different stickies, and the rare same-sticky collision resolves by
+    last-save-wins with the loser reconciling on the next sync delta — the same
+    contract the board-event channel already runs on. ``VersionedModel`` makes the
+    board ride the existing WatermelonDB delta protocol offline for free.
+    """
+
+    retro = models.ForeignKey(
+        SprintRetro,
+        on_delete=models.CASCADE,
+        related_name="board_items",
+    )
+    column = models.CharField(
+        max_length=12,
+        choices=RetroColumn.choices,
+        default=RetroColumn.WENT_WELL,
+    )
+    text = models.TextField()
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="retro_board_items",
+    )
+    # Fractional index for ordering within a column: inserting between two
+    # neighbours uses the midpoint of their positions, so a drag-reorder rewrites
+    # one row, not the whole column (ADR-0110 reorder idiom). Float is sufficient
+    # at retro scale (a few dozen short stickies, rare reorders).
+    position = models.FloatField(default=0.0)
+    # Optional Design-System swatch key (presentation only, e.g. "sage"); never
+    # carries meaning — color is decorative on a sticky (ADR-0117 §8 a11y).
+    color = models.CharField(max_length=16, blank=True, default="")
+    # Set to the RetroActionItem.id once this sticky has been converted to an
+    # action item (ADR-0117 §1). Makes convert-to-action idempotent: a second
+    # convert is a no-op returning the existing action item (ADR-0117 §DE.7).
+    converted_action_item_id = models.UUIDField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "projects_retroboarditem"
+        ordering = ["column", "position", "created_at"]
+        indexes = [
+            # Board read groups by column then position; sync delta filters on
+            # server_version after joining via retro (#810 pattern).
+            models.Index(fields=["retro", "column", "position"], name="rbi_retro_col_pos_idx"),
+            models.Index(fields=["retro", "server_version"], name="rbi_retro_serverver_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"RetroBoardItem({self.id}, retro={self.retro_id}, col={self.column})"
+
+    @property
+    def project_id(self) -> Any:
+        """Project PK via retro→sprint, so RBAC's ``_get_project_id_from_obj`` resolves.
+
+        Object-level permission checks read ``obj.project_id``; the board item reaches
+        the project through ``retro.sprint``. Viewsets ``select_related('retro__sprint')``
+        so this property never N+1s on a list.
+        """
+        return self.retro.sprint.project_id
+
+
+class PulseResponse(VersionedModel):
+    """One team member's mood/energy/confidence answer for a sprint's retro (#923).
+
+    The team-health pulse (ADR-0117 §5) consumes ADR-0104's already-built ``pulse``
+    signal gate verbatim: the per-sprint trend is read **only** by the team + Scrum
+    Master/coach band, omitted *entirely* (no redacted aggregate) for the PM/PMO
+    band, and denied to non-members — Morgan's hard 🔴. This model stores only the
+    raw responses; the trend is computed as an aggregate (never an individual's raw
+    answer is exposed, except the requester's own echoed back so they can change it).
+
+    ``unique(retro, respondent)`` makes the answer a one-tap upsert: re-tapping
+    updates rather than duplicating, satisfying "one tap" without locking the
+    answer. ``confidence`` is the optional third dimension.
+    """
+
+    retro = models.ForeignKey(
+        SprintRetro,
+        on_delete=models.CASCADE,
+        related_name="pulse_responses",
+    )
+    respondent = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="retro_pulse_responses",
+    )
+    mood = models.PositiveSmallIntegerField()  # 1..5
+    energy = models.PositiveSmallIntegerField()  # 1..5
+    confidence = models.PositiveSmallIntegerField(null=True, blank=True)  # 1..5, optional
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "projects_pulseresponse"
+        constraints = [
+            # One response per person per sprint retro — the upsert key. Scoped to
+            # live rows so a soft-deleted prior response never blocks a re-answer.
+            models.UniqueConstraint(
+                fields=["retro", "respondent"],
+                condition=models.Q(is_deleted=False),
+                name="uniq_pulse_retro_respondent_live",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["retro", "server_version"], name="pulse_retro_serverver_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"PulseResponse({self.id}, retro={self.retro_id}, by={self.respondent_id})"
 
 
 class SuggestionSource(models.TextChoices):

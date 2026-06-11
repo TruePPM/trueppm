@@ -5,7 +5,8 @@
  * Note: task UUIDs are shown until the tasks API is wired in for name resolution.
  */
 import { useEffect, useRef } from 'react';
-import { loadPercent, loadColor, LOAD_TEXT_CLASS, capacityHours } from './resourceUtils';
+import { LOAD_TEXT_CLASS, capacityHours } from './resourceUtils';
+import type { LoadColor } from './resourceUtils';
 
 interface Props {
   iso: string;
@@ -13,15 +14,29 @@ interface Props {
   taskIds: string[];
   hoursPerDay: number;
   maxUnits: number;
+  /** Server-owned per-day load% and band (#989) — rendered, not re-derived. */
+  loadPct: number;
+  loadBand: LoadColor;
   /** Called when the tooltip should close (Escape key or pointer-leave). */
   onClose: () => void;
 }
 
-export function LoadTooltip({ iso, hours, taskIds, hoursPerDay, maxUnits, onClose }: Props) {
+export function LoadTooltip({
+  iso,
+  hours,
+  taskIds,
+  hoursPerDay,
+  maxUnits,
+  loadPct,
+  loadBand,
+  onClose,
+}: Props) {
   const ref = useRef<HTMLDivElement>(null);
+  // Capacity is still derived locally for the "X h / Y h" breakdown display; the
+  // percentage and band come from the server so the verdict can't drift (#989).
   const capacity = capacityHours(hoursPerDay, maxUnits);
-  const pct = loadPercent(hours, capacity);
-  const color = loadColor(pct);
+  const pct = loadPct;
+  const color = loadBand;
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {

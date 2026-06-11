@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("projects", "0069_iteration_label"),
+        ("projects", "0072_pulseresponse_retroboarditem"),
     ]
 
     operations = [

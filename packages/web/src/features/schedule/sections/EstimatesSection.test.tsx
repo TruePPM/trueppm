@@ -119,6 +119,9 @@ const mcResult = {
   p80: '2026-10-01',
   p95: '2026-10-20',
   buckets: [],
+  cpmFinish: null,
+  deltaVsCpm: { p50: null, p80: null, p95: null },
+  confidenceCurve: [],
 };
 
 // ---------------------------------------------------------------------------

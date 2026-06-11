@@ -36,11 +36,24 @@ export interface ApiProjectDetail {
   /** Read-only nested user payload for the lead — null when `lead` is null (#966). */
   lead_detail: { id: string; username: string; email: string } | null;
   /**
-   * Display noun for the iteration container (ADR-0111, #862): "Sprint" (default),
-   * "Iteration", "PI", or a custom string. Display-only — never gates behavior.
-   * Stored singular; derive plural/possessive via `useIterationLabel` / `iterationLabelForms`.
+   * Iteration-container label OVERRIDE for this project (ADR-0111/0116). NULL =
+   * inherit the program/workspace default. Display-only — never gates behavior.
+   * To render the label use `useIterationLabel` (which reads the resolved value
+   * below), not this raw override.
    */
-  iteration_label: string;
+  iteration_label: string | null;
+  /**
+   * Server-resolved effective label (ADR-0116, #1106): project override ??
+   * program override ?? workspace default ?? "Sprint". This is the single value
+   * clients render — the inheritance precedence lives on the server, not here.
+   */
+  effective_iteration_label: string;
+  /**
+   * Read-only label this project would show if its own override were cleared
+   * (program ?? workspace default ?? "Sprint"). Drives the settings "Inherit (X)"
+   * affordance (ADR-0116, #1106).
+   */
+  inherited_iteration_label: string;
   /** Lifecycle (#530) — archived projects are hard read-only across all writes. */
   is_archived: boolean;
   archived_at: string | null;
@@ -55,6 +68,15 @@ export interface ApiProjectDetail {
   is_sample: boolean;
   /** The project's program as {id, name} — drives the per-project demo indicator's "part of …" link. Null for unassigned projects. */
   program_detail: { id: string; name: string } | null;
+  /**
+   * The caller's own Scrum-Master / Product-Owner team facets on this project
+   * (ADR-0078 / #1095). Drives the render-gates for the sprint-goal edit (SM)
+   * and the backlog manage controls (PO) — see `useMyFacets` / `useCanManageBacklog`.
+   * Detail responses only; both false for non-facet members and anonymous reads.
+   * Optional in the type so pre-#1095 fixtures need not set it; `useMyFacets`
+   * defaults both facets to false when absent.
+   */
+  my_facets?: { is_scrum_master: boolean; is_product_owner: boolean };
 }
 
 /**

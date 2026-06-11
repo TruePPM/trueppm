@@ -175,6 +175,12 @@ describe('PromoteMilestoneDialog', () => {
     expect(screen.getByText('-2d')).toBeInTheDocument();
     // velocity is framed as "team pace", never a raw management gauge
     expect(screen.getByText(/Team pace/i)).toBeInTheDocument();
+    // #1094: a velocity_band preview is labeled honestly — no P50/P95 percentile
+    // vocabulary, and a visible "not simulated" qualifier.
+    expect(screen.getByText(/Estimate — velocity-based, not simulated/i)).toBeInTheDocument();
+    expect(screen.queryByText('P50', { exact: false })).toBeNull();
+    // "Likely" labels both the on-bar marker and the footer tick.
+    expect(screen.getAllByText(/Likely/).length).toBeGreaterThan(0);
   });
 
   it('quick mode collapses to the compact (variant A) layout, hiding the preview', async () => {

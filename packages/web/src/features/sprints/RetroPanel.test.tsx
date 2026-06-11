@@ -65,6 +65,22 @@ vi.mock('@/hooks/useSprints', async () => {
   };
 });
 
+// The live board + pulse hooks are exercised in TeamHealthPulse.test.tsx /
+// RetroBoardSurface.test.tsx. Here we stub them so the single-author
+// notes/actions path (this file's focus, #858) renders without real fetches:
+// an empty board and a gated pulse keep the surface to its action-item section.
+const idleMutation = { mutate: vi.fn(), isPending: false, isError: false, isSuccess: false };
+vi.mock('@/hooks/useRetroBoard', () => ({
+  useRetroBoard: () => ({ data: undefined, isLoading: false }),
+  useCreateBoardItem: () => idleMutation,
+  useUpdateBoardItem: () => idleMutation,
+  useDeleteBoardItem: () => idleMutation,
+  useConvertStickyToAction: () => idleMutation,
+  usePulse: () => ({ data: null, isLoading: false }),
+  usePulseTrend: () => ({ data: { gated: true }, isLoading: false }),
+  useUpsertPulse: () => idleMutation,
+}));
+
 function fullRetro(overrides: Partial<SprintRetroPayload> = {}): SprintRetroPayload {
   return {
     kind: 'full',
@@ -228,7 +244,7 @@ describe('RetroPanel', () => {
     await userEvent.click(screen.getByRole('button', { name: /\+ Add item/i }));
     await userEvent.type(screen.getByLabelText(/Action item 1 text/i), '  Add deploy gate  ');
     await userEvent.type(screen.getByLabelText(/Action item 1 story points/i), '3');
-    await userEvent.click(screen.getByRole('button', { name: /Save retro/i }));
+    await userEvent.click(screen.getByRole('button', { name: /Save notes & actions/i }));
 
     expect(saveMutateMock).toHaveBeenCalledOnce();
     const payload = saveMutateMock.mock.calls[0][0];

@@ -24,7 +24,13 @@ const GOAL_LABEL: Record<string, string> = {
 export function SprintClosedOutcome({ outcome, canCurateDemo = false }: Props) {
   const c = outcome.commitment;
   const v = outcome.velocity;
-  const rolled = rolledOverPoints(c.committed_points, c.completed_points);
+  // #1097: "Rolled over" is the true carried-disposition point sum (the same source
+  // the "what didn't ship" list uses), never the committed−completed proxy that
+  // contradicted the list when scope was injected (drops are scope removal, not
+  // rollover). Null when velocity is suppressed (points gated) or when per-task
+  // disposition was never recorded (sprints closed before #982) — shown as "—"
+  // rather than a derived guess, honoring render-don't-derive.
+  const rolled = outcome.outcome_recorded ? outcome.didnt_ship_summary.carried_points : null;
 
   return (
     <div className="flex flex-col gap-4" data-testid="sprint-closed-outcome">
@@ -57,6 +63,7 @@ export function SprintClosedOutcome({ outcome, canCurateDemo = false }: Props) {
       </div>
 
       <SprintReviewSection outcome={outcome} canCurate={canCurateDemo} />
+      <MilestoneSlipLine outcome={outcome} />
 
       <DidntShipList outcome={outcome} />
     </div>
@@ -216,6 +223,70 @@ function ShippedRow({
   );
 }
 
+/**
+ * #1098 — the realized schedule consequence of this sprint, one read: pairs the
+ * carried-over points (when readable) with the bound milestone's days-of-slip vs
+ * baseline, so the PM never has to leave for the Schedule view to figure out the
+ * cascade. All values are server-owned (`outcome.milestone_slip`); the client only
+ * composes the sentence — and it does so because the velocity gate runs through the
+ * middle of it (points clause is gated, the schedule clause is not).
+ */
+function MilestoneSlipLine({ outcome }: { outcome: SprintOutcome }) {
+  const slip = outcome.milestone_slip;
+  if (slip == null) return null;
+
+  const { slip_days: days, milestone_name: name, basis } = slip;
+  // Carried points are velocity-gated (null when suppressed); the schedule slip is
+  // not, so the points clause degrades independently.
+  const carried = outcome.outcome_recorded ? outcome.didnt_ship_summary.carried_points : null;
+  const carriedClause = carried != null && carried > 0 ? `Rolled over ${carried} pts → ` : '';
+
+  const verb = basis === 'actual' ? 'finished' : 'now';
+  let slipClause: string;
+  if (days > 0) {
+    slipClause = basis === 'actual' ? `finished ${days}d late vs baseline` : `now +${days}d vs baseline`;
+  } else if (days < 0) {
+    slipClause = `${verb} ${Math.abs(days)}d ahead of baseline`;
+  } else {
+    slipClause = `${verb} on baseline`;
+  }
+
+  // Slip tone mirrors the AdvancingToMilestoneCard variance chip exactly: ahead =
+  // on-track, on baseline = neutral, amber to ~1 work week, red beyond. `band` is
+  // the same classification spelled out so the severity isn't conveyed by color
+  // alone (rule 120) — a screen reader hears "at risk" / "critical", not just a hue.
+  let tone: string;
+  let band: string;
+  if (days < 0) {
+    tone = 'border-semantic-on-track/40 text-semantic-on-track';
+    band = 'ahead of schedule';
+  } else if (days === 0) {
+    tone = 'border-neutral-border text-neutral-text-primary';
+    band = 'on baseline';
+  } else if (days <= 5) {
+    tone = 'border-semantic-at-risk/40 text-semantic-at-risk';
+    band = 'at risk';
+  } else {
+    tone = 'border-semantic-critical/40 text-semantic-critical';
+    band = 'critical slip';
+  }
+
+  return (
+    <p
+      role="status"
+      data-testid="milestone-slip-line"
+      className={`flex items-start gap-2 rounded-md border bg-neutral-surface px-3 py-2 text-sm text-neutral-text-primary ${tone}`}
+    >
+      <span aria-hidden="true">◆</span>
+      <span>
+        {carriedClause}
+        <span className="font-medium">{name}</span> {slipClause}.
+        <span className="sr-only"> ({band})</span>
+      </span>
+    </p>
+  );
+}
+
 function OutcomeCard({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="rounded-md border border-neutral-border bg-neutral-surface-raised p-3 flex flex-col gap-1">
@@ -349,10 +420,4 @@ function DispositionChip({ item }: { item: SprintOutcome['didnt_ship'][number] }
     return <span className="text-xs text-neutral-text-secondary shrink-0">dropped</span>;
   }
   return null;
-}
-
-/** committed − completed, floored at 0 (proxy for rolled-over per ADR-0111 §C). */
-function rolledOverPoints(committed: number | null, completed: number | null): number | null {
-  if (committed == null) return null;
-  return Math.max(0, committed - (completed ?? 0));
 }

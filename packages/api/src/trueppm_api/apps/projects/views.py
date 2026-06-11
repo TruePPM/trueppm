@@ -81,6 +81,7 @@ from trueppm_api.apps.projects.models import (
     Project,
     ProjectApiToken,
     ProjectCustomField,
+    RetroBoardItem,
     Risk,
     RiskComment,
     RiskStatus,
@@ -123,6 +124,8 @@ from trueppm_api.apps.projects.serializers import (
     ProjectForecastSerializer,
     ProjectSerializer,
     ReforecastPreviewSerializer,
+    RetroActionItemSerializer,
+    RetroBoardItemSerializer,
     RiskCommentSerializer,
     RiskSerializer,
     SignedDownloadUrlSerializer,
@@ -2982,6 +2985,89 @@ class SprintTaskOutcomeViewSet(IdempotencyMixin, viewsets.GenericViewSet[SprintT
         )
 
 
+class RetroBoardItemViewSet(IdempotencyMixin, viewsets.GenericViewSet[RetroBoardItem]):
+    """Detail ops for live retro-board stickies — edit / move / delete / convert (ADR-0117).
+
+    Flat route ``/api/v1/retro-items/<pk>/``. Creation is sprint-scoped
+    (``SprintViewSet.retro_board`` POST) so membership is checked against the sprint;
+    this viewset gates each detail op via object-level ``IsProjectMemberWrite``,
+    resolving the project through ``RetroBoardItem.project_id`` (retro→sprint). The
+    membership-filtered queryset 404s a non-member rather than leaking existence.
+    All writes broadcast (best-effort, on commit) inside the service layer.
+    """
+
+    serializer_class = RetroBoardItemSerializer
+    queryset = RetroBoardItem.objects.select_related("retro__sprint", "author").filter(
+        is_deleted=False
+    )
+
+    def get_permissions(self) -> list[BasePermission]:
+        return [IsAuthenticated(), IsProjectMemberWrite(), IsProjectNotArchived()]
+
+    def get_queryset(self) -> QuerySet[RetroBoardItem]:
+        return (
+            super()
+            .get_queryset()
+            .filter(
+                retro__sprint__project__memberships__user=self.request.user,  # type: ignore[misc]
+                retro__sprint__project__memberships__is_deleted=False,
+            )
+            .distinct()
+        )
+
+    def partial_update(self, request: Request, pk: str | None = None) -> Response:
+        """Edit text/color and/or move (column + fractional position); LWW (ADR-0117 §3)."""
+        from trueppm_api.apps.projects.retro_board_services import (
+            move_board_item,
+            update_board_item,
+        )
+
+        item = self.get_object()  # runs object-level IsProjectMemberWrite
+        data = request.data
+        if "column" in data or "position" in data:
+            try:
+                position = float(data.get("position", item.position))
+            except (TypeError, ValueError):
+                return Response(
+                    {"position": "Must be a number."}, status=status.HTTP_400_BAD_REQUEST
+                )
+            move_board_item(item, column=data.get("column", item.column), position=position)
+        if "text" in data or "color" in data:
+            update_board_item(item, text=data.get("text"), color=data.get("color"))
+        item.refresh_from_db()
+        return Response(RetroBoardItemSerializer(item).data, status=status.HTTP_200_OK)
+
+    def destroy(self, request: Request, pk: str | None = None) -> Response:
+        """Soft-delete a sticky (broadcasts ``retro_item_deleted``)."""
+        from trueppm_api.apps.projects.retro_board_services import delete_board_item
+
+        item = self.get_object()
+        delete_board_item(item)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        summary="Convert a discussion sticky into a retro action item (ADR-0117 §1)",
+        request=None,
+        responses={201: RetroActionItemSerializer, 200: RetroActionItemSerializer},
+    )
+    @action(detail=True, methods=["post"], url_path="convert-to-action")
+    def convert_to_action(self, request: Request, pk: str | None = None) -> Response:
+        """Distil a sticky into a RetroActionItem (idempotent; then uses #858 promote)."""
+        from django.contrib.auth.models import User
+
+        from trueppm_api.apps.projects.retro_board_services import (
+            convert_to_action as convert_svc,
+        )
+
+        item = self.get_object()
+        already = item.converted_action_item_id is not None
+        action_item = convert_svc(item, cast(User, request.user))
+        return Response(
+            RetroActionItemSerializer(action_item).data,
+            status=status.HTTP_200_OK if already else status.HTTP_201_CREATED,
+        )
+
+
 class BaselineViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Baseline]):
     """CRUD for schedule baselines within a project.
 
@@ -4566,7 +4652,10 @@ class ProjectOverviewView(APIView):
     )
     def get(self, request: Request, pk: str) -> Response:
         """Return KPI data for the project overview page."""
-        project = get_object_or_404(Project, pk=pk)
+        # is_deleted=False so a soft-deleted project 404s here as it does on
+        # every other detail endpoint — without it the deleted-project URL keeps
+        # resolving to an empty "zombie" overview shell (#1111).
+        project = get_object_or_404(Project, pk=pk, is_deleted=False)
         self.check_object_permissions(request, project)
 
         today = datetime.date.today()
@@ -4754,7 +4843,8 @@ class ProjectAttentionView(APIView):
     )
     def get(self, request: Request, pk: str) -> Response:
         """Return attention items for the project overview page."""
-        project = get_object_or_404(Project, pk=pk)
+        # is_deleted=False — same zombie-URL guard as the overview KPI endpoint (#1111).
+        project = get_object_or_404(Project, pk=pk, is_deleted=False)
         self.check_object_permissions(request, project)
 
         today = datetime.date.today()
@@ -5581,6 +5671,15 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         # Retro-related read-only actions (prior retro): Viewer+ on the project.
         if self.action == "retro_prior":
             return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
+        # Live retro board read + pulse reads (ADR-0117): membership to reach the
+        # endpoint. The pulse *trend* is further gated inside the service by
+        # ADR-0104's `pulse` signal (team + coach only; PM/PMO omitted entirely).
+        # retro_board/pulse also accept writes (POST/PUT) — those fall through to
+        # IsProjectMemberWrite below so a VIEWER cannot create a sticky / answer.
+        if self.action == "pulse_trend":
+            return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
+        if self.action in ("retro_board", "pulse") and self.request.method == "GET":
+            return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
         # Pulling a carryover item into the sprint requires SCHEDULER+ — the
         # sole path that can assign a retro action item to a sprint per ADR-0071.
         if self.action == "pull_action_item_to_sprint":
@@ -6287,7 +6386,9 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         from trueppm_api.apps.projects.services import sprint_outcome_payload
 
         sprint = get_object_or_404(
-            Sprint.objects.select_related("project", "created_by"),
+            # target_milestone is select_related so the #1098 realized-slip lookup
+            # doesn't add a query for the bound milestone.
+            Sprint.objects.select_related("project", "created_by", "target_milestone"),
             pk=pk,
             is_deleted=False,
         )
@@ -6529,6 +6630,141 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
 
         retro.refresh_from_db()
         return Response(_pick_serializer(retro)(retro).data, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        summary="Live retro board — stickies + columns (ADR-0117 §1)",
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "The board's column definitions and all live stickies for this "
+                    "sprint's retro. Presence ('who is in the retro') arrives over the "
+                    "project WebSocket, not this endpoint. POST creates a sticky."
+                ),
+            ),
+        },
+    )
+    @action(detail=True, methods=["get", "post"], url_path="retro-board")
+    def retro_board(self, request: Request, pk: str | None = None) -> Response:
+        """Live multi-writer retro board (ADR-0117 §1, §7).
+
+        ``GET`` returns ``{columns, items}`` — the fixed column template and every
+        live sticky for this sprint's retro (read = any project member). ``POST``
+        creates a sticky in a column (write = Member+); the resulting state is
+        broadcast over the project board channel as ``retro_item_created``.
+        """
+        from django.contrib.auth.models import User
+
+        from trueppm_api.apps.projects.models import RetroBoardItem, RetroColumn, SprintRetro
+        from trueppm_api.apps.projects.retro_board_services import create_board_item
+        from trueppm_api.apps.projects.serializers import RetroBoardItemSerializer
+
+        sprint = get_object_or_404(
+            Sprint.objects.select_related("project"), pk=pk, is_deleted=False
+        )
+        self.check_object_permissions(request, sprint)
+
+        columns = [{"key": value, "label": label} for value, label in RetroColumn.choices]
+
+        if request.method == "GET":
+            retro = SprintRetro.objects.filter(sprint=sprint, is_deleted=False).first()
+            items: list[RetroBoardItem] = []
+            if retro is not None:
+                items = list(
+                    RetroBoardItem.objects.filter(retro=retro, is_deleted=False)
+                    .select_related("author", "retro__sprint")
+                    .order_by("column", "position", "created_at")
+                )
+            return Response(
+                {"columns": columns, "items": RetroBoardItemSerializer(items, many=True).data},
+                status=status.HTTP_200_OK,
+            )
+
+        # POST — create a sticky. Write role already enforced via get_permissions
+        # (IsProjectMemberWrite fallthrough), re-checked on the sprint object above.
+        item = create_board_item(
+            sprint,
+            column=request.data.get("column", RetroColumn.WENT_WELL),
+            text=request.data.get("text", ""),
+            color=request.data.get("color", ""),
+            author=cast(User, request.user),
+        )
+        return Response(RetroBoardItemSerializer(item).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        summary="Team-health pulse — answer (one tap) or read your own (ADR-0117 §5)",
+        responses={
+            200: OpenApiResponse(response=OpenApiTypes.OBJECT),
+            204: OpenApiResponse(description="No response recorded yet (GET)."),
+        },
+    )
+    @action(detail=True, methods=["get", "put"], url_path="pulse")
+    def pulse(self, request: Request, pk: str | None = None) -> Response:
+        """The requester's own pulse response for this sprint (#923, ADR-0117 §5).
+
+        ``GET`` echoes the requester's own current mood/energy/confidence (or 204 if
+        unanswered) so they can change it. ``PUT`` upserts it (one per person per
+        sprint). Deliberately no broadcast — a pulse event would reach the PM band
+        as a read-receipt (Morgan 🔴). The aggregate trend is the gated
+        ``pulse-trend`` endpoint.
+        """
+        from django.contrib.auth.models import User
+
+        from trueppm_api.apps.projects.retro_board_services import (
+            my_pulse_response,
+            upsert_pulse_response,
+        )
+        from trueppm_api.apps.projects.serializers import PulseResponseSerializer
+
+        sprint = get_object_or_404(
+            Sprint.objects.select_related("project"), pk=pk, is_deleted=False
+        )
+        self.check_object_permissions(request, sprint)
+        user = cast(User, request.user)
+
+        if request.method == "GET":
+            mine = my_pulse_response(sprint, user)
+            if mine is None:
+                return Response(status=status.HTTP_204_NO_CONTENT)
+            return Response(PulseResponseSerializer(mine).data, status=status.HTTP_200_OK)
+
+        response = upsert_pulse_response(
+            sprint,
+            respondent=user,
+            mood=request.data.get("mood"),
+            energy=request.data.get("energy"),
+            confidence=request.data.get("confidence"),
+        )
+        return Response(PulseResponseSerializer(response).data, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        summary="Team-health pulse trend — team + coach only (ADR-0117 §5 / ADR-0104)",
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "Aggregate per-sprint mood/energy/confidence trend. Returns "
+                    "{gated: true} with NO data for any reader outside the team's "
+                    "`pulse` audience (PM/PMO by default; non-member always)."
+                ),
+            ),
+        },
+    )
+    @action(detail=True, methods=["get"], url_path="pulse-trend")
+    def pulse_trend(self, request: Request, pk: str | None = None) -> Response:
+        """Cross-sprint pulse trend, gated by ADR-0104's `pulse` signal (the 🔴).
+
+        The service applies ``can_read_signal(..., 'pulse')`` and returns
+        ``{gated: true}`` (no count, no points) for any reader above the signal's
+        audience — a redacted aggregate is no pulse.
+        """
+        from trueppm_api.apps.projects.retro_board_services import pulse_trend
+
+        sprint = get_object_or_404(
+            Sprint.objects.select_related("project"), pk=pk, is_deleted=False
+        )
+        self.check_object_permissions(request, sprint)
+        return Response(pulse_trend(request, sprint), status=status.HTTP_200_OK)
 
     @extend_schema(
         summary="Get the prior completed sprint's retrospective",

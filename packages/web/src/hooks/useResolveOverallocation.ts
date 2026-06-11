@@ -11,7 +11,7 @@
  */
 
 import { useState, useCallback } from 'react';
-import { capacityHours, loadPercent } from '@/features/resource/resourceUtils';
+import { capacityHours } from '@/features/resource/resourceUtils';
 import type { OverallocationTarget } from '@/features/resource/ResourceOverallocationDrawer';
 
 interface UseResolveOverallocationReturn {
@@ -29,7 +29,8 @@ export function useResolveOverallocation(): UseResolveOverallocationReturn {
 
   const openDrawer = useCallback((t: OverallocationTarget) => {
     const capacity = capacityHours(t.hoursPerDay, t.maxUnits);
-    const pct = Math.round(loadPercent(t.entry.hours, capacity));
+    // load% is server-owned (#989); capacity stays local only for the over-hours math.
+    const pct = Math.round(t.entry.load_pct);
     const overHours = Math.max(0, t.entry.hours - capacity).toFixed(1);
     setAriaMessage(
       `Overallocation: ${t.resourceName} is at ${pct}% on ${t.iso} — ${overHours}h over capacity. Drawer open.`,

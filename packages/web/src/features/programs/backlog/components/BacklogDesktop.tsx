@@ -15,8 +15,6 @@ import { BacklogToolbar } from './BacklogToolbar';
 import { DetailPane } from './DetailPane';
 import { EmptyBacklog } from './EmptyBacklog';
 
-const IMPORT_NOTICE = 'CSV import is coming soon (#746).';
-
 function isTypingInInput(): boolean {
   const el = document.activeElement;
   if (!el) return false;
@@ -66,15 +64,10 @@ export function BacklogDesktop({ controller }: BacklogDesktopProps) {
         program={controller.program}
         canEdit={canEdit}
         onCreate={url.openCreate}
-        onImport={() => controller.notify(IMPORT_NOTICE)}
       />
 
       {isEmpty ? (
-        <EmptyBacklog
-          canEdit={canEdit}
-          onCreate={url.openCreate}
-          onImport={() => controller.notify(IMPORT_NOTICE)}
-        />
+        <EmptyBacklog canEdit={canEdit} onCreate={url.openCreate} />
       ) : (
         <>
           <BacklogToolbar controller={controller} searchInputRef={searchInputRef} />

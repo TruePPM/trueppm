@@ -6,6 +6,10 @@ import { useUpdateWorkspaceSettings } from '../hooks/useUpdateWorkspaceSettings'
 import { useDirtyForm } from '../hooks/useDirtyForm';
 import { FiscalYearStartField } from '../components/FiscalYearStartField';
 import { EnterpriseBadge } from '../components/EnterpriseBadge';
+import { IterationLabelField } from '../project/IterationLabelField';
+
+/** Cascade policy for the workspace iteration label (ADR-0116, #1106). */
+type IterationLabelPolicy = 'inherit' | 'suggest' | 'enforce';
 
 const DAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'] as const;
 const DAY_NAMES = [
@@ -60,6 +64,8 @@ export function WorkspaceGeneralPage() {
   const [workWeek, setWorkWeek] = useState<boolean[]>([true, true, true, true, true, false, false]);
   const [allowGuests, setAllowGuests] = useState(false);
   const [publicSharing, setPublicSharing] = useState(false);
+  const [iterationLabel, setIterationLabel] = useState('Sprint');
+  const [iterationLabelPolicy, setIterationLabelPolicy] = useState<IterationLabelPolicy>('suggest');
 
   // Last-saved snapshot — bumped after a successful PATCH so useDirtyForm
   // can detect whether the current local state has diverged again.
@@ -72,6 +78,8 @@ export function WorkspaceGeneralPage() {
     workWeek: [true, true, true, true, true, false, false] as boolean[],
     allowGuests: false,
     publicSharing: false,
+    iterationLabel: 'Sprint',
+    iterationLabelPolicy: 'suggest' as IterationLabelPolicy,
   });
 
   // Seed local state once the query resolves (or re-resolves after invalidation).
@@ -86,6 +94,8 @@ export function WorkspaceGeneralPage() {
       workWeek: ws.workWeek,
       allowGuests: ws.allowGuests,
       publicSharing: ws.publicSharing,
+      iterationLabel: ws.iterationLabel,
+      iterationLabelPolicy: ws.iterationLabelOverridePolicy,
     };
     setName(snap.name);
     setTimezone(snap.timezone);
@@ -95,6 +105,8 @@ export function WorkspaceGeneralPage() {
     setWorkWeek(snap.workWeek);
     setAllowGuests(snap.allowGuests);
     setPublicSharing(snap.publicSharing);
+    setIterationLabel(snap.iterationLabel);
+    setIterationLabelPolicy(snap.iterationLabelPolicy);
     setInitial(snap);
   }, [ws]);
 
@@ -107,6 +119,8 @@ export function WorkspaceGeneralPage() {
     workWeek,
     allowGuests,
     publicSharing,
+    iterationLabel,
+    iterationLabelPolicy,
   };
 
   const onSave = useCallback(async () => {
@@ -119,6 +133,8 @@ export function WorkspaceGeneralPage() {
       workWeek,
       allowGuests,
       publicSharing,
+      iterationLabel,
+      iterationLabelOverridePolicy: iterationLabelPolicy,
     });
     // Bump the saved snapshot so dirty goes false immediately.
     setInitial({
@@ -130,6 +146,8 @@ export function WorkspaceGeneralPage() {
       workWeek,
       allowGuests,
       publicSharing,
+      iterationLabel,
+      iterationLabelPolicy,
     });
   }, [
     name,
@@ -140,6 +158,8 @@ export function WorkspaceGeneralPage() {
     workWeek,
     allowGuests,
     publicSharing,
+    iterationLabel,
+    iterationLabelPolicy,
     updateSettings,
   ]);
 
@@ -152,6 +172,8 @@ export function WorkspaceGeneralPage() {
     setWorkWeek(initial.workWeek);
     setAllowGuests(initial.allowGuests);
     setPublicSharing(initial.publicSharing);
+    setIterationLabel(initial.iterationLabel);
+    setIterationLabelPolicy(initial.iterationLabelPolicy);
   }, [initial]);
 
   useDirtyForm({ values, initialValues: initial, onSave, onReset, apiReady: true });
@@ -309,6 +331,47 @@ export function WorkspaceGeneralPage() {
               </option>
             ))}
           </select>
+        </FieldRow>
+
+        <FieldRow
+          label="Iteration terminology"
+          hint="The word every project uses for its time-boxed iteration container. Programs and projects inherit this unless they set their own."
+        >
+          <div className="flex flex-col gap-3">
+            <IterationLabelField value={iterationLabel} onChange={setIterationLabel} />
+            <fieldset className="flex flex-col gap-1.5 border-0 p-0 m-0">
+              <legend className="text-[12px] font-medium text-neutral-text-secondary mb-0.5">
+                Programs &amp; projects
+              </legend>
+              <label className="flex items-center gap-2 text-[13px] text-neutral-text-primary cursor-pointer">
+                <input
+                  type="radio"
+                  name="iteration-policy"
+                  checked={iterationLabelPolicy !== 'enforce'}
+                  onChange={() => setIterationLabelPolicy('suggest')}
+                  className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                />
+                May override this default
+              </label>
+              {/* ENFORCE locks the term so lower scopes cannot override it — an
+                  Enterprise capability (ADR-0116). Disabled on the OSS surface; the
+                  EnterpriseBadge (community-only) is the reachable upsell link. */}
+              <span className="inline-flex items-center gap-1.5">
+                <label className="flex items-center gap-2 text-[13px] text-neutral-text-disabled cursor-not-allowed">
+                  <input
+                    type="radio"
+                    name="iteration-policy"
+                    checked={iterationLabelPolicy === 'enforce'}
+                    disabled
+                    readOnly
+                    className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                  />
+                  Enforce workspace-wide
+                </label>
+                <EnterpriseBadge />
+              </span>
+            </fieldset>
+          </div>
         </FieldRow>
 
         <FieldRow label="Holiday calendar">

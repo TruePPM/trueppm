@@ -12,8 +12,10 @@ export interface VelocitySuggestion {
   task: string;
   sprint_id: string;
   sprint_name: string;
-  suggested_duration: number;
-  team_velocity_per_day: string;
+  // Both are nulled by the server's ADR-0104 velocity gate (#949/#1099) when the
+  // reader is below the velocity audience — e.g. a PM at the team-private default.
+  suggested_duration: number | null;
+  team_velocity_per_day: string | null;
   flag_for_review: boolean;
   is_pending: boolean;
   created_at: string;

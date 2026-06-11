@@ -1099,14 +1099,69 @@ def compute_sprint_burn_status(sprint: Any, snapshots: list[Any]) -> dict[str, A
     }
 
 
+def _milestone_slip_for_sprint(sprint: Any) -> dict[str, Any] | None:
+    """Realized schedule slip of the bound milestone vs its active baseline (#1098).
+
+    Pairs the sprint's points miss with its days-of-slip so the closed-sprint card
+    answers "what did this sprint do to my milestone date" in one read, instead of
+    leaving the PM to leave for the Schedule view and eyeball it.
+
+    This is the *realized* consequence, deliberately NOT the milestone rollup's
+    planned ``variance_days`` (which compares sprint plan dates to CPM): the
+    milestone's actual finish (once hit) or its current CPM forecast, measured
+    against the baseline finish committed at plan time. Positive ``slip_days`` = late.
+
+    Schedule facts are not velocity-private (mirrors the milestone-health carve-out),
+    so this is never ADR-0104-gated — only the points half of the rendered line is.
+    Returns None (the card hides the line) unless the sprint is bound to a live
+    milestone with a computable forecast finish AND an active baseline carries a
+    finish date for that milestone.
+    """
+    from trueppm_api.apps.projects.models import Baseline, BaselineTask
+
+    milestone = sprint.target_milestone
+    if milestone is None or milestone.is_deleted:
+        return None
+    # actual_finish once the milestone is hit, else the live CPM forecast spine
+    # (consistent with ForecastSnapshot.cpm_finish / reforecast-on-close, #860).
+    forecast_finish = milestone.actual_finish or milestone.early_finish
+    if forecast_finish is None:
+        return None
+
+    active_baseline = Baseline.objects.filter(
+        project_id=sprint.project_id, is_active=True, is_deleted=False
+    ).first()
+    if active_baseline is None:
+        return None
+    # .first() returns None both when there is no row and when the row's finish is
+    # null — either way the slip is uncomputable and the line is hidden.
+    baseline_finish = (
+        BaselineTask.objects.filter(baseline=active_baseline, task_id=milestone.pk)
+        .values_list("finish", flat=True)
+        .first()
+    )
+    if baseline_finish is None:
+        return None
+
+    return {
+        "milestone_id": str(milestone.pk),
+        "milestone_name": milestone.name,
+        "milestone_short_id": f"T-{milestone.short_id}" if milestone.short_id else "",
+        "slip_days": (forecast_finish - baseline_finish).days,
+        "baseline_finish": baseline_finish.isoformat(),
+        "forecast_finish": forecast_finish.isoformat(),
+        "basis": "actual" if milestone.actual_finish is not None else "forecast",
+    }
+
+
 def sprint_outcome_payload(sprint: Any, request: Any) -> dict[str, Any]:
     """Assemble the consolidated sprint-review read (#985, ADR-0111 §3).
 
     Composes the closing membership ("what didn't ship", #982), the goal verdict
     (#983), the velocity delta + burn status (#984), the commitment aggregates,
-    and a retro summary into one read so the #567 UI and the MCP adapter bind to
-    a single endpoint instead of stitching five calls or deriving review numbers
-    client-side (the API-first contract).
+    a retro summary, and the realized milestone slip (#1098) into one read so the
+    #567 UI and the MCP adapter bind to a single endpoint instead of stitching five
+    calls or deriving review numbers client-side (the API-first contract).
 
     Privacy (ADR-0104) is enforced here, once: when the requester's tier is below
     the velocity audience, the whole ``velocity`` block is omitted AND the
@@ -1277,6 +1332,9 @@ def sprint_outcome_payload(sprint: Any, request: Any) -> dict[str, Any]:
         "review": _sprint_review_block(
             sprint, is_closed=is_closed, velocity_readable=velocity_readable
         ),
+        # Realized milestone slip (#1098) — only on the CLOSED card; the
+        # "what did this sprint do to my date" question resolves at close.
+        "milestone_slip": _milestone_slip_for_sprint(sprint) if is_closed else None,
     }
 
 

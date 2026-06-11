@@ -11,6 +11,8 @@ from rest_framework.test import APIClient
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import (
     AcceptanceCriterion,
+    Baseline,
+    BaselineTask,
     Calendar,
     Project,
     ScopeChangeStatus,
@@ -1068,6 +1070,122 @@ def test_demo_toggle_non_member_denied(stranger_client: APIClient, project: Proj
         f"/api/v1/sprint-task-outcomes/{row.pk}/toggle-demo/", {"demo_ready": True}, format="json"
     )
     assert resp.status_code in (403, 404)
+
+
+# ---------------------------------------------------------------------------
+# milestone_slip — realized schedule slip vs baseline on the CLOSED card (#1098)
+# ---------------------------------------------------------------------------
+
+
+def _bind_milestone_with_baseline(
+    project: Project,
+    sprint: Sprint,
+    *,
+    early_finish: date,
+    baseline_finish: date | None,
+    actual_finish: date | None = None,
+    with_baseline: bool = True,
+) -> Task:
+    milestone = Task.objects.create(
+        project=project,
+        name="GA",
+        duration=0,
+        is_milestone=True,
+        early_finish=early_finish,
+        actual_finish=actual_finish,
+    )
+    sprint.target_milestone = milestone
+    sprint.save(update_fields=["target_milestone"])
+    if with_baseline:
+        baseline = Baseline.objects.create(project=project, name="B1", is_active=True)
+        BaselineTask.objects.bulk_create(
+            [
+                BaselineTask(
+                    baseline=baseline,
+                    task_id=milestone.pk,
+                    task_name="GA",
+                    duration=0,
+                    finish=baseline_finish,
+                )
+            ]
+        )
+    return milestone
+
+
+def test_outcome_milestone_slip_forecast_late(member_client: APIClient, project: Project) -> None:
+    """Bound milestone, forecast 12d past its baseline → realized slip on the card."""
+    s = _closed_with_outcomes(project)
+    _bind_milestone_with_baseline(
+        project, s, early_finish=date(2026, 5, 13), baseline_finish=date(2026, 5, 1)
+    )
+    body = member_client.get(f"/api/v1/sprints/{s.pk}/outcome/").json()
+    slip = body["milestone_slip"]
+    assert slip is not None
+    assert slip["slip_days"] == 12
+    assert slip["basis"] == "forecast"
+    assert slip["milestone_name"] == "GA"
+    assert slip["baseline_finish"] == "2026-05-01"
+    assert slip["forecast_finish"] == "2026-05-13"
+
+
+def test_outcome_milestone_slip_uses_actual_finish_once_hit(
+    member_client: APIClient, project: Project
+) -> None:
+    s = _closed_with_outcomes(project)
+    _bind_milestone_with_baseline(
+        project,
+        s,
+        early_finish=date(2026, 5, 20),  # ignored once actual is set
+        actual_finish=date(2026, 5, 4),
+        baseline_finish=date(2026, 5, 1),
+    )
+    slip = member_client.get(f"/api/v1/sprints/{s.pk}/outcome/").json()["milestone_slip"]
+    assert slip["basis"] == "actual"
+    assert slip["slip_days"] == 3
+    assert slip["forecast_finish"] == "2026-05-04"
+
+
+def test_outcome_milestone_slip_negative_when_ahead(
+    member_client: APIClient, project: Project
+) -> None:
+    s = _closed_with_outcomes(project)
+    _bind_milestone_with_baseline(
+        project, s, early_finish=date(2026, 4, 28), baseline_finish=date(2026, 5, 1)
+    )
+    slip = member_client.get(f"/api/v1/sprints/{s.pk}/outcome/").json()["milestone_slip"]
+    assert slip["slip_days"] == -3
+
+
+def test_outcome_milestone_slip_null_without_baseline(
+    member_client: APIClient, project: Project
+) -> None:
+    s = _closed_with_outcomes(project)
+    _bind_milestone_with_baseline(
+        project, s, early_finish=date(2026, 5, 13), baseline_finish=None, with_baseline=False
+    )
+    assert member_client.get(f"/api/v1/sprints/{s.pk}/outcome/").json()["milestone_slip"] is None
+
+
+def test_outcome_milestone_slip_null_when_unbound(
+    member_client: APIClient, project: Project
+) -> None:
+    s = _closed_with_outcomes(project)
+    assert member_client.get(f"/api/v1/sprints/{s.pk}/outcome/").json()["milestone_slip"] is None
+
+
+def test_outcome_milestone_slip_visible_to_management_band(
+    client: APIClient, project: Project
+) -> None:
+    """The slip is a SCHEDULE fact, not velocity-private: an OWNER (suppressed on
+    velocity by default) still reads it, even though the velocity block is None."""
+    s = _closed_with_outcomes(project)
+    _bind_milestone_with_baseline(
+        project, s, early_finish=date(2026, 5, 13), baseline_finish=date(2026, 5, 1)
+    )
+    body = client.get(f"/api/v1/sprints/{s.pk}/outcome/").json()
+    assert body["velocity"] is None  # velocity suppressed for the management band
+    assert body["milestone_slip"] is not None  # but the schedule slip is not gated
+    assert body["milestone_slip"]["slip_days"] == 12
 
 
 # ---------------------------------------------------------------------------

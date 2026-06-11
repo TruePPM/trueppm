@@ -59,6 +59,34 @@ describe('ViewTabs', () => {
     expect(screen.getByRole('link', { name: /Risks/i })).toBeInTheDocument();
   });
 
+  it('shows the methodology-gated Backlog tab on HYBRID, linking to /product-backlog (#1096)', () => {
+    mockUseProjectId.mockReturnValue('proj-1');
+    renderWithRouter(<ViewTabs />, { initialEntries: ['/projects/proj-1/board'] });
+    const backlogLink = screen.getByRole('link', { name: /Backlog/i });
+    expect(backlogLink).toBeInTheDocument();
+    expect(backlogLink).toHaveAttribute('href', '/projects/proj-1/product-backlog');
+  });
+
+  it('hides the Backlog tab when methodology is WATERFALL (#1096)', () => {
+    mockUseProjectId.mockReturnValue('proj-1');
+    mockUseProject.mockReturnValueOnce({
+      data: { id: 'proj-1', methodology: 'WATERFALL' },
+      isLoading: false,
+      error: null,
+    });
+    renderWithRouter(<ViewTabs />, { initialEntries: ['/projects/proj-1/board'] });
+    expect(screen.queryByRole('link', { name: /Backlog/i })).not.toBeInTheDocument();
+  });
+
+  it('marks the Backlog tab active on the /product-backlog route (#1096)', () => {
+    mockUseProjectId.mockReturnValue('proj-1');
+    renderWithRouter(<ViewTabs />, { initialEntries: ['/projects/proj-1/product-backlog'] });
+    expect(screen.getByRole('link', { name: /Backlog/i })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+  });
+
   // ADR-0041 — methodology preset filtering
   it('hides Sprints when methodology is WATERFALL', () => {
     mockUseProjectId.mockReturnValue('proj-1');

@@ -13911,6 +13911,150 @@
                 }
             }
         },
+        "/api/v1/retro-items/{id}/": {
+            "patch": {
+                "operationId": "v1_retro_items_partial_update",
+                "description": "Edit text/color and/or move (column + fractional position); LWW (ADR-0117 §3).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this retro board item.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedRetroBoardItemRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedRetroBoardItemRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedRetroBoardItemRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RetroBoardItem"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "v1_retro_items_destroy",
+                "description": "Soft-delete a sticky (broadcasts ``retro_item_deleted``).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this retro board item.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/retro-items/{id}/convert-to-action/": {
+            "post": {
+                "operationId": "v1_retro_items_convert_to_action_create",
+                "description": "Distil a sticky into a RetroActionItem (idempotent; then uses #858 promote).",
+                "summary": "Convert a discussion sticky into a retro action item (ADR-0117 §1)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this retro board item.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RetroActionItem"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RetroActionItem"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/scope-changes/{id}/accept/": {
             "post": {
                 "operationId": "v1_scope_changes_accept_create",
@@ -14991,6 +15135,159 @@
                 }
             }
         },
+        "/api/v1/sprints/{id}/pulse/": {
+            "get": {
+                "operationId": "v1_sprints_pulse_retrieve",
+                "description": "The requester's own pulse response for this sprint (#923, ADR-0117 §5).\n\n``GET`` echoes the requester's own current mood/energy/confidence (or 204 if\nunanswered) so they can change it. ``PUT`` upserts it (one per person per\nsprint). Deliberately no broadcast — a pulse event would reach the PM band\nas a read-receipt (Morgan 🔴). The aggregate trend is the gated\n``pulse-trend`` endpoint.",
+                "summary": "Team-health pulse — answer (one tap) or read your own (ADR-0117 §5)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "204": {
+                        "description": "No response recorded yet (GET)."
+                    }
+                }
+            },
+            "put": {
+                "operationId": "v1_sprints_pulse_update",
+                "description": "The requester's own pulse response for this sprint (#923, ADR-0117 §5).\n\n``GET`` echoes the requester's own current mood/energy/confidence (or 204 if\nunanswered) so they can change it. ``PUT`` upserts it (one per person per\nsprint). Deliberately no broadcast — a pulse event would reach the PM band\nas a read-receipt (Morgan 🔴). The aggregate trend is the gated\n``pulse-trend`` endpoint.",
+                "summary": "Team-health pulse — answer (one tap) or read your own (ADR-0117 §5)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "204": {
+                        "description": "No response recorded yet (GET)."
+                    }
+                }
+            }
+        },
+        "/api/v1/sprints/{id}/pulse-trend/": {
+            "get": {
+                "operationId": "v1_sprints_pulse_trend_retrieve",
+                "description": "Cross-sprint pulse trend, gated by ADR-0104's `pulse` signal (the 🔴).\n\nThe service applies ``can_read_signal(..., 'pulse')`` and returns\n``{gated: true}`` (no count, no points) for any reader above the signal's\naudience — a redacted aggregate is no pulse.",
+                "summary": "Team-health pulse trend — team + coach only (ADR-0117 §5 / ADR-0104)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Aggregate per-sprint mood/energy/confidence trend. Returns {gated: true} with NO data for any reader outside the team's `pulse` audience (PM/PMO by default; non-member always)."
+                    }
+                }
+            }
+        },
         "/api/v1/sprints/{id}/reforecast-preview/": {
             "get": {
                 "operationId": "v1_sprints_reforecast_preview_retrieve",
@@ -15219,6 +15516,110 @@
                     },
                     "404": {
                         "description": "No retro recorded for this sprint."
+                    }
+                }
+            }
+        },
+        "/api/v1/sprints/{id}/retro-board/": {
+            "get": {
+                "operationId": "v1_sprints_retro_board_retrieve",
+                "description": "Live multi-writer retro board (ADR-0117 §1, §7).\n\n``GET`` returns ``{columns, items}`` — the fixed column template and every\nlive sticky for this sprint's retro (read = any project member). ``POST``\ncreates a sticky in a column (write = Member+); the resulting state is\nbroadcast over the project board channel as ``retro_item_created``.",
+                "summary": "Live retro board — stickies + columns (ADR-0117 §1)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "The board's column definitions and all live stickies for this sprint's retro. Presence ('who is in the retro') arrives over the project WebSocket, not this endpoint. POST creates a sticky."
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_sprints_retro_board_create",
+                "description": "Live multi-writer retro board (ADR-0117 §1, §7).\n\n``GET`` returns ``{columns, items}`` — the fixed column template and every\nlive sticky for this sprint's retro (read = any project member). ``POST``\ncreates a sticky in a column (write = Member+); the resulting state is\nbroadcast over the project board channel as ``retro_item_created``.",
+                "summary": "Live retro board — stickies + columns (ADR-0117 §1)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "The board's column definitions and all live stickies for this sprint's retro. Presence ('who is in the retro') arrives over the project WebSocket, not this endpoint. POST creates a sticky."
                     }
                 }
             }
@@ -19530,6 +19931,15 @@
                     "name"
                 ]
             },
+            "ColumnEnum": {
+                "enum": [
+                    "went_well",
+                    "to_improve",
+                    "ideas"
+                ],
+                "type": "string",
+                "description": "* `went_well` - What went well\n* `to_improve` - What to improve\n* `ideas` - Ideas & discussion"
+            },
             "CommentReaction": {
                 "type": "object",
                 "description": "Single-emoji reaction. 0.2 allow-list is {'👍'} only.",
@@ -20551,6 +20961,53 @@
                     "name",
                     "wbs_path"
                 ]
+            },
+            "MilestoneSlip": {
+                "type": "object",
+                "description": "Realized schedule slip of the bound milestone vs its active baseline (#1098).\n\nA schedule fact (not velocity-private), so it is never ADR-0104-gated. Present\nonly on a CLOSED sprint bound to a milestone with a computable forecast and a\nbaselined finish; null otherwise. ``slip_days`` is positive when late. ``basis``\nis ``\"actual\"`` once the milestone has actually finished, else ``\"forecast\"``.",
+                "properties": {
+                    "milestone_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "milestone_name": {
+                        "type": "string"
+                    },
+                    "milestone_short_id": {
+                        "type": "string"
+                    },
+                    "slip_days": {
+                        "type": "integer"
+                    },
+                    "baseline_finish": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "forecast_finish": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "basis": {
+                        "$ref": "#/components/schemas/MilestoneSlipBasisEnum"
+                    }
+                },
+                "required": [
+                    "baseline_finish",
+                    "basis",
+                    "forecast_finish",
+                    "milestone_id",
+                    "milestone_name",
+                    "milestone_short_id",
+                    "slip_days"
+                ]
+            },
+            "MilestoneSlipBasisEnum": {
+                "enum": [
+                    "actual",
+                    "forecast"
+                ],
+                "type": "string",
+                "description": "* `actual` - actual\n* `forecast` - forecast"
             },
             "MinProficiencyEnum": {
                 "enum": [
@@ -22124,6 +22581,11 @@
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"
                     },
+                    "iteration_label": {
+                        "type": "string",
+                        "nullable": true,
+                        "maxLength": 32
+                    },
                     "health": {
                         "$ref": "#/components/schemas/HealthEnum"
                     },
@@ -22255,7 +22717,7 @@
                     },
                     "iteration_label": {
                         "type": "string",
-                        "minLength": 1,
+                        "nullable": true,
                         "maxLength": 32
                     },
                     "program": {
@@ -22357,6 +22819,27 @@
                     },
                     "schedule": {
                         "$ref": "#/components/schemas/RetentionScheduleRequest"
+                    }
+                }
+            },
+            "PatchedRetroBoardItemRequest": {
+                "type": "object",
+                "description": "A live retro-board sticky (ADR-0117 §1).\n\n``author`` is surfaced as ``author_username`` for the attribution chip; the\ncolumn/position/color round-trip the board layout. ``converted_action_item_id``\nlets the UI render a \"→ action\" affordance once a sticky has been distilled.\nWrites accept ``column``, ``text``, ``color``, ``position``; ``author`` is set\nserver-side from the request user, never trusted from the body.",
+                "properties": {
+                    "column": {
+                        "$ref": "#/components/schemas/ColumnEnum"
+                    },
+                    "text": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "position": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "color": {
+                        "type": "string",
+                        "maxLength": 16
                     }
                 }
             },
@@ -22977,6 +23460,14 @@
                     },
                     "public_sharing": {
                         "type": "boolean"
+                    },
+                    "iteration_label": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 32
+                    },
+                    "iteration_label_override_policy": {
+                        "$ref": "#/components/schemas/TermOverridePolicyEnum"
                     }
                 }
             },
@@ -23133,6 +23624,16 @@
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"
                     },
+                    "iteration_label": {
+                        "type": "string",
+                        "nullable": true,
+                        "maxLength": 32
+                    },
+                    "inherited_iteration_label": {
+                        "type": "string",
+                        "description": "Workspace default — what the program inherits when its override is NULL.",
+                        "readOnly": true
+                    },
                     "health": {
                         "$ref": "#/components/schemas/HealthEnum"
                     },
@@ -23218,6 +23719,7 @@
                     "created_at",
                     "created_by",
                     "id",
+                    "inherited_iteration_label",
                     "is_closed",
                     "is_sample",
                     "lead_detail",
@@ -23360,6 +23862,11 @@
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"
                     },
+                    "iteration_label": {
+                        "type": "string",
+                        "nullable": true,
+                        "maxLength": 32
+                    },
                     "health": {
                         "$ref": "#/components/schemas/HealthEnum"
                     },
@@ -23492,7 +23999,17 @@
                     },
                     "iteration_label": {
                         "type": "string",
+                        "nullable": true,
                         "maxLength": 32
+                    },
+                    "effective_iteration_label": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "inherited_iteration_label": {
+                        "type": "string",
+                        "description": "The label shown if this project's override were cleared (ADR-0116).\n\nProgram override ?? workspace default ?? \"Sprint\" — the project's own\noverride is intentionally skipped so the settings UI can show \"Inherit (X)\"\nregardless of the current override.",
+                        "readOnly": true
                     },
                     "program": {
                         "type": "string",
@@ -23531,7 +24048,9 @@
                 "required": [
                     "archived_at",
                     "archived_by",
+                    "effective_iteration_label",
                     "id",
+                    "inherited_iteration_label",
                     "is_archived",
                     "lead_detail",
                     "member_count",
@@ -23769,7 +24288,17 @@
                     },
                     "iteration_label": {
                         "type": "string",
+                        "nullable": true,
                         "maxLength": 32
+                    },
+                    "effective_iteration_label": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "inherited_iteration_label": {
+                        "type": "string",
+                        "description": "The label shown if this project's override were cleared (ADR-0116).\n\nProgram override ?? workspace default ?? \"Sprint\" — the project's own\noverride is intentionally skipped so the settings UI can show \"Inherit (X)\"\nregardless of the current override.",
+                        "readOnly": true
                     },
                     "program": {
                         "type": "string",
@@ -23830,16 +24359,27 @@
                         "nullable": true,
                         "description": "The project's program as ``{id, name}`` for the demo indicator link.\n\nDetail-only serializer (single object), so the ``obj.program`` access is\nnot the N+1 risk it would be on the list serializer.",
                         "readOnly": true
+                    },
+                    "my_facets": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "boolean"
+                        },
+                        "description": "The requesting user's own team facets on this project (#1095).\n\nReturns ``{\"is_scrum_master\": bool, \"is_product_owner\": bool}`` — the\ncaller's two-axis RBAC facets (ADR-0078) resolved against the project's\ndefault team. The web uses this to render-gate Product-Owner / Scrum-Master\ncontrols (e.g. the backlog auto-rank + reorder affordances) without a\nseparate round-trip. Both False for an anonymous caller or a non-member.\n\nDetail-only (never on the list serializer) to keep the project list cheap —\none membership lookup per project would be an N+1 on a list response.",
+                        "readOnly": true
                     }
                 },
                 "required": [
                     "archived_at",
                     "archived_by",
+                    "effective_iteration_label",
                     "id",
+                    "inherited_iteration_label",
                     "is_archived",
                     "is_sample",
                     "lead_detail",
                     "member_count",
+                    "my_facets",
                     "name",
                     "percent_complete",
                     "program_detail",
@@ -24106,7 +24646,7 @@
                     },
                     "iteration_label": {
                         "type": "string",
-                        "minLength": 1,
+                        "nullable": true,
                         "maxLength": 32
                     },
                     "program": {
@@ -24702,6 +25242,119 @@
                     "policies",
                     "runs",
                     "schedule"
+                ]
+            },
+            "RetroActionItem": {
+                "type": "object",
+                "description": "Read serializer for retro action items.\n\nIncludes ``promoted_task_id`` so the frontend can render a `T-XXX`\nlink back to the task created by promotion. The assignee FK is\nsurfaced as the username (``assignee_username``) for display; writes\nuse ``assignee_id``.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "text": {
+                        "type": "string"
+                    },
+                    "assignee": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "assignee_username": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "story_points": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "promoted_task_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "assignee_username",
+                    "created_at",
+                    "id",
+                    "promoted_task_id",
+                    "text"
+                ]
+            },
+            "RetroBoardItem": {
+                "type": "object",
+                "description": "A live retro-board sticky (ADR-0117 §1).\n\n``author`` is surfaced as ``author_username`` for the attribution chip; the\ncolumn/position/color round-trip the board layout. ``converted_action_item_id``\nlets the UI render a \"→ action\" affordance once a sticky has been distilled.\nWrites accept ``column``, ``text``, ``color``, ``position``; ``author`` is set\nserver-side from the request user, never trusted from the body.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "retro": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "column": {
+                        "$ref": "#/components/schemas/ColumnEnum"
+                    },
+                    "text": {
+                        "type": "string"
+                    },
+                    "author": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "author_username": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "position": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "color": {
+                        "type": "string",
+                        "maxLength": 16
+                    },
+                    "converted_action_item_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "author",
+                    "author_username",
+                    "converted_action_item_id",
+                    "created_at",
+                    "id",
+                    "retro",
+                    "text",
+                    "updated_at"
                 ]
             },
             "Risk": {
@@ -25550,6 +26203,14 @@
                     "review": {
                         "type": "object",
                         "additionalProperties": {}
+                    },
+                    "milestone_slip": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/MilestoneSlip"
+                            }
+                        ],
+                        "nullable": true
                     }
                 },
                 "required": [
@@ -25560,6 +26221,7 @@
                     "finish_date",
                     "goal",
                     "goal_outcome",
+                    "milestone_slip",
                     "name",
                     "outcome_recorded",
                     "provisional",
@@ -25907,6 +26569,17 @@
                         "description": "Threshold band for ``spi`` — on_track / at_risk / behind, or None.\n\nThresholds (≥0.95 on track, ≥0.85 at risk, else behind) match the\nproject-level SPI rollup (views.py project health) and the board-card chip\nso the verdict is identical wherever it renders. Returned as a plain string\n(not a Django enum) so drf-spectacular emits no shared enum component.",
                         "readOnly": true
                     },
+                    "dwell_days": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "Days the task has sat in its current status column (#992).\n\nThe raw 'dwell' fact behind the stalled verdict: full calendar days since\n``status_changed_at`` (when the task last entered its current status). None\nwhen the column was never stamped (legacy rows / never moved). Exposed\nalongside ``is_stalled`` so an MCP/headless client can re-threshold rather\nthan inherit the web's 3-day policy (ADR-0115).",
+                        "readOnly": true
+                    },
+                    "is_stalled": {
+                        "type": "boolean",
+                        "description": "Server-owned 'stalled' verdict the board card renders (#992).\n\nA task is stalled when it has sat in its current status for more than 3 days\n*and* is not yet complete (``percent_complete < 100``). A complete task is\nnever stalled regardless of dwell; a task whose column was never stamped\n(``status_changed_at`` is null) is treated as not stalled. Moving the policy\nserver-side stops the web re-deriving it from ``status_changed_at`` and keeps\nthe threshold consistent with ``dwell_days`` for headless clients.",
+                        "readOnly": true
+                    },
                     "is_summary": {
                         "type": "boolean",
                         "readOnly": true,
@@ -26130,12 +26803,14 @@
                     "criteria_met_count",
                     "criteria_total",
                     "dor_blockers",
+                    "dwell_days",
                     "early_finish",
                     "early_start",
                     "free_float",
                     "id",
                     "is_blocked",
                     "is_critical",
+                    "is_stalled",
                     "is_summary",
                     "late_finish",
                     "late_start",
@@ -27299,6 +27974,15 @@
                 "type": "string",
                 "description": "* `member` - Member\n* `admin` - Admin"
             },
+            "TermOverridePolicyEnum": {
+                "enum": [
+                    "inherit",
+                    "suggest",
+                    "enforce"
+                ],
+                "type": "string",
+                "description": "* `inherit` - Inherit\n* `suggest` - Suggest\n* `enforce` - Enforce"
+            },
             "TokenObtainPairRequest": {
                 "type": "object",
                 "properties": {
@@ -27389,7 +28073,9 @@
                     },
                     "suggested_duration": {
                         "type": "integer",
-                        "readOnly": true
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Velocity-calibrated duration in working days; null when the reader is below the velocity audience."
                     },
                     "team_velocity_per_day": {
                         "type": "string",
@@ -27992,6 +28678,13 @@
                     },
                     "public_sharing": {
                         "type": "boolean"
+                    },
+                    "iteration_label": {
+                        "type": "string",
+                        "maxLength": 32
+                    },
+                    "iteration_label_override_policy": {
+                        "$ref": "#/components/schemas/TermOverridePolicyEnum"
                     }
                 },
                 "required": [

@@ -24,6 +24,10 @@ const WORKSPACE = {
   default_project_view: 'Board',
   allow_guests: true,
   public_sharing: false,
+  // Iteration-label cascade (ADR-0116, #1106) — the real /workspace/ payload always
+  // carries these; without them IterationLabelField crashes on `value.trim()`.
+  iteration_label: 'Sprint',
+  iteration_label_override_policy: 'suggest',
 };
 
 const MEMBER = {

@@ -626,6 +626,18 @@ export interface SprintOutcome {
     shipped: ReviewShippedStory[];
     demo_list: string[];
   };
+  // Realized milestone slip vs baseline (#1098) — schedule fact, not velocity-gated.
+  // Present only on a CLOSED sprint bound to a milestone with a baselined finish.
+  // slip_days is positive when late; basis is "actual" once the milestone finished.
+  milestone_slip: {
+    milestone_id: string;
+    milestone_name: string;
+    milestone_short_id: string;
+    slip_days: number;
+    baseline_finish: string;
+    forecast_finish: string;
+    basis: 'actual' | 'forecast';
+  } | null;
 }
 
 /** GET /api/v1/sprints/{id}/outcome/ — the consolidated sprint-review read (#985). */
@@ -665,6 +677,48 @@ export function useToggleDemo(sprintId: string | null | undefined) {
   });
 }
 
+
+// ---------------------------------------------------------------------------
+// Sprint-health signals (issue #988, ADR-0101 §4)
+// ---------------------------------------------------------------------------
+
+/**
+ * One tripped Tier-3 sprint-health signal (ADR-0101 §4, #988). Server-owned:
+ * the count, the show/hide verdict, the tone, and the user-facing `detail`
+ * copy are all decided on the API so headless/MCP clients get identical
+ * guidance. The web renders `detail` verbatim (web-rule 141 — never re-invent
+ * WBS jargon in the browser).
+ */
+export interface SprintHealthSignal {
+  key: string;
+  count: number;
+  tone: 'info' | 'warn';
+  /** User-facing outcome copy, rendered verbatim — never re-synthesized. */
+  detail: string;
+}
+
+export interface SprintHealth {
+  /** Only *tripped* signals — a healthy project yields an empty list. */
+  signals: SprintHealthSignal[];
+}
+
+/**
+ * GET /api/v1/projects/{id}/sprint-health/ — read-only team+coach health
+ * signals for the Sprints view (#988). Returns only tripped signals; an empty
+ * list means the badge row fades away. Disabled when `projectId` is null.
+ */
+export function useSprintHealth(projectId: string | null | undefined) {
+  return useQuery({
+    queryKey: ['project', projectId, 'sprint-health'],
+    queryFn: async () => {
+      const res = await apiClient.get<SprintHealth>(
+        `/projects/${projectId}/sprint-health/`,
+      );
+      return res.data;
+    },
+    enabled: !!projectId,
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Sprint retrospective (issue #231)

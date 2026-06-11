@@ -40,6 +40,11 @@ export interface ApiTask {
   actual_start: string | null;
   actual_finish: string | null;
   schedule_variance_days: number | null;
+  // Server-owned per-task SPI + verdict (#990) and stalled verdict + dwell fact (#992).
+  spi?: number | null;
+  spi_band?: 'on_track' | 'at_risk' | 'behind' | null;
+  is_stalled?: boolean;
+  dwell_days?: number | null;
   baseline_start: string | null;
   baseline_finish: string | null;
   optimistic_duration: number | null;
@@ -121,6 +126,18 @@ export interface ApiTask {
   criteria_met_count?: number;
   criteria_total?: number;
   dor_blockers?: string[];
+  // Scoring-model raw inputs (ADR-0105 / #922) — snake_case on the wire. Editable
+  // via the grooming drawer (#1043); the server derives prioritization_score from them.
+  business_value?: number | null;
+  time_criticality?: number | null;
+  risk_reduction?: number | null;
+  job_size?: number | null;
+  reach?: number | null;
+  impact?: number | null;
+  confidence?: number | null;
+  effort?: number | null;
+  value?: number | null;
+  effort_estimate?: number | null;
 }
 
 interface ApiDependency {
@@ -219,6 +236,10 @@ export function mapTask(t: ApiTask): Task {
     actualStart: t.actual_start ?? undefined,
     actualFinish: t.actual_finish ?? undefined,
     scheduleVarianceDays: t.schedule_variance_days,
+    spi: t.spi ?? null,
+    spiBand: t.spi_band ?? null,
+    isStalled: t.is_stalled ?? false,
+    dwellDays: t.dwell_days ?? null,
     baselineStart: t.baseline_start ?? undefined,
     baselineFinish: t.baseline_finish ?? undefined,
     assignees: (t.assignments ?? []).map(
@@ -282,6 +303,16 @@ export function mapTask(t: ApiTask): Task {
     acMet: t.criteria_met_count ?? undefined,
     acTotal: t.criteria_total ?? undefined,
     dorBlockers: t.dor_blockers ?? undefined,
+    businessValue: t.business_value ?? null,
+    timeCriticality: t.time_criticality ?? null,
+    riskReduction: t.risk_reduction ?? null,
+    jobSize: t.job_size ?? null,
+    reach: t.reach ?? null,
+    impact: t.impact ?? null,
+    confidence: t.confidence ?? null,
+    effort: t.effort ?? null,
+    value: t.value ?? null,
+    effortEstimate: t.effort_estimate ?? null,
   };
 }
 

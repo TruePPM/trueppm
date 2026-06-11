@@ -172,6 +172,21 @@ describe('BoardCard', () => {
     expect(screen.getByText(/Entered at 60% · 1d ago/)).toBeInTheDocument();
   });
 
+  it('renders stalled from the server is_stalled verdict even when clock dwell is short (#992)', () => {
+    // Clock says 1 day in-column, but the server reports the task as stalled — the
+    // card renders the server verdict, not a re-derivation of the policy.
+    const enteredAt = new Date('2026-01-14T12:00:00Z').toISOString();
+    renderCard({ task: { ...baseTask, statusEnteredAt: enteredAt, isStalled: true, dwellDays: 1 } });
+    expect(screen.getByText(/— stalled/)).toBeInTheDocument();
+  });
+
+  it('uses the server dwell_days for the entry-stamp age label (#992)', () => {
+    // Clock delta is 1 day, but the server dwell fact is 9 days — the label reads 9d.
+    const enteredAt = new Date('2026-01-14T12:00:00Z').toISOString();
+    renderCard({ task: { ...baseTask, statusEnteredAt: enteredAt, isStalled: false, dwellDays: 9 } });
+    expect(screen.getByText(/· 9d ago/)).toBeInTheDocument();
+  });
+
   it('shows the "Move to Done?" nudge when progress is 100% and status is not COMPLETE', () => {
     renderCard({ task: { ...baseTask, progress: 100, status: 'IN_PROGRESS' } });
     expect(screen.getByText('Move to Done?')).toBeInTheDocument();
@@ -582,14 +597,15 @@ describe('BoardCard', () => {
   // ---------------------------------------------------------------------------
 
   describe('SPI chip (issue #185)', () => {
-    // Fake time: 2026-01-15T12:00:00Z. Baseline: Jan 01 – Jan 08 (7d).
-    // Elapsed > duration → plannedPct = 100%.
-    // progress=60 → SPI=0.60 (red, < 0.85).
+    // SPI + band are server-owned now (#990): the card renders task.spi/spiBand
+    // rather than deriving from baseline dates. progress=60 → server SPI 0.60 (behind).
     const taskWithBaseline: Task = {
       ...baseTask,
       progress: 60,
       baselineStart: '2026-01-01',
       baselineFinish: '2026-01-08',
+      spi: 0.6,
+      spiBand: 'behind',
     };
 
     it('shows SPI chip in comfortable density when showEvm=spi and baseline is set', () => {
@@ -603,8 +619,8 @@ describe('BoardCard', () => {
     });
 
     it('behind-schedule SPI chip has behind-schedule aria-label', () => {
-      // progress=10, plannedPct=100 → SPI=0.10 (red)
-      const behindTask = { ...taskWithBaseline, progress: 10 };
+      // Server reports SPI 0.10 / band 'behind'.
+      const behindTask = { ...taskWithBaseline, progress: 10, spi: 0.1, spiBand: 'behind' as const };
       renderCard({ task: behindTask, showEvm: 'spi', density: 'comfortable' });
       expect(screen.getByLabelText(/behind schedule/i)).toBeInTheDocument();
     });
@@ -630,14 +646,16 @@ describe('BoardCard', () => {
       expect(screen.queryByText(/SPI/)).not.toBeInTheDocument();
     });
 
-    it('shows SPI chip for a 1-day baseline (start === finish) (#400)', () => {
-      // When baselineStart === baselineFinish, duration was 0 and computeTaskSpi
-      // returned null, silently hiding the chip. It should now treat the task as 1 day.
+    it('shows SPI chip when the server provides a value for a 1-day baseline (#400)', () => {
+      // The server floors a same-day baseline at 1 day so SPI is defined (#990); the
+      // card just renders whatever spi/spiBand the server returns.
       const oneDay: Task = {
         ...baseTask,
         progress: 50,
         baselineStart: '2026-01-08',
         baselineFinish: '2026-01-08', // same day — 1-day baseline
+        spi: 0.5,
+        spiBand: 'behind',
       };
       renderCard({ task: oneDay, showEvm: 'spi', density: 'comfortable' });
       expect(screen.getByText(/^SPI 0\.\d\d$/)).toBeInTheDocument();

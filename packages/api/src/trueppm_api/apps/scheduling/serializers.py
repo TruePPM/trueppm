@@ -47,15 +47,28 @@ class VelocitySuggestionSerializer(serializers.ModelSerializer[VelocitySuggestio
     sprint_name = serializers.CharField(source="sprint.name", read_only=True)
     sprint_id = serializers.UUIDField(source="sprint.id", read_only=True)
     is_pending = serializers.BooleanField(read_only=True)
-    # Declared explicitly with allow_null because to_representation nulls it for
-    # readers below the velocity audience (ADR-0104 gate, #949) — the schema must
-    # advertise the suppressed shape for schema-driven clients (#997 contract class).
+    # Both team_velocity_per_day and suggested_duration are declared explicitly with
+    # allow_null because to_representation nulls them for readers below the velocity
+    # audience (ADR-0104 gate, #949/#1099) — the schema must advertise the suppressed
+    # shape for schema-driven clients (#997 contract class).
     team_velocity_per_day = serializers.DecimalField(
         max_digits=6,
         decimal_places=3,
         read_only=True,
         allow_null=True,
         help_text="Rolling 6-sprint average of completed_points / sprint_working_days.",
+    )
+    # suggested_duration is computed *from* team_velocity_per_day
+    # (round(story_points / velocity)); leaving it ungated lets a below-audience
+    # reader back into the team's pace via the calibration value, so it is gated by
+    # the same velocity check (#1099 — a new instance of the #949 leak class).
+    suggested_duration = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Velocity-calibrated duration in working days; null when the reader is "
+            "below the velocity audience."
+        ),
     )
 
     class Meta:
@@ -77,18 +90,24 @@ class VelocitySuggestionSerializer(serializers.ModelSerializer[VelocitySuggestio
         ]
         read_only_fields = fields
 
+    # Velocity-derived fields stripped for a reader below the velocity audience.
+    # team_velocity_per_day is the raw rate; suggested_duration is computed from it
+    # (#1099) — both must fall to the same gate or the rate leaks via the suggestion.
+    _VELOCITY_GATED_FIELDS = ("team_velocity_per_day", "suggested_duration")
+
     def to_representation(self, instance: VelocitySuggestion) -> dict[str, Any]:
         data = super().to_representation(instance)
-        # ADR-0104 velocity gate (#949): team_velocity_per_day is the same
-        # point-based velocity number that suppress_velocity_summary strips from
-        # /velocity/. A reader below the velocity audience is suppressed there, so
+        # ADR-0104 velocity gate (#949/#1099): these are the same point-based velocity
+        # number — and a value derived from it — that suppress_velocity_summary strips
+        # from /velocity/. A reader below the velocity audience is suppressed there, so
         # they must not recover it from this calibration-suggestion surface.
         request = self.context.get("request")
         # Fail closed: a render with no request context can't establish the
         # reader's tier, so suppress rather than leak (the only callers are HTTP
         # responses, which always carry a request).
         if request is None:
-            data["team_velocity_per_day"] = None
+            for field in self._VELOCITY_GATED_FIELDS:
+                data[field] = None
             return data
         # The verdict is per-project; cache it on the (reused) child serializer so
         # a list render is not N+1 on the gate query.
@@ -102,7 +121,8 @@ class VelocitySuggestionSerializer(serializers.ModelSerializer[VelocitySuggestio
 
             cache[project_id] = can_read_signal(request, project_id, "velocity")
         if not cache[project_id]:
-            data["team_velocity_per_day"] = None
+            for field in self._VELOCITY_GATED_FIELDS:
+                data[field] = None
         return data
 
 

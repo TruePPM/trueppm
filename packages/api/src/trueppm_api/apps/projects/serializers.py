@@ -7,13 +7,16 @@ import os
 import re
 import uuid
 from datetime import date
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import timezone
 from rest_framework import serializers
 from trueppm_scheduler import find_cycle
+
+if TYPE_CHECKING:
+    from trueppm_api.apps.workspace.models import Workspace
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import (
@@ -45,7 +48,9 @@ from trueppm_api.apps.projects.models import (
     Project,
     ProjectApiToken,
     ProjectCustomField,
+    PulseResponse,
     RetroActionItem,
+    RetroBoardItem,
     Risk,
     RiskComment,
     Sprint,
@@ -143,6 +148,14 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
     # ``lead`` is unset. The write side stays on the plain ``lead`` UUID field —
     # ``lead_detail`` is response-only. Mirrors ``ProgramSerializer`` (#966).
     lead_detail = _UserSummarySerializer(source="lead", read_only=True)
+    # Server-resolved iteration-container label (ADR-0116, #1106): project override
+    # ?? program override ?? workspace default ?? "Sprint". Clients read THIS, not the
+    # raw nullable ``iteration_label`` override — so web/mobile/MCP share one value.
+    effective_iteration_label = serializers.SerializerMethodField()
+    # The label this project would show if its own override were cleared (program
+    # override ?? workspace default ?? "Sprint"). Drives the settings "Inherit (X)"
+    # affordance — read-only (ADR-0116, #1106).
+    inherited_iteration_label = serializers.SerializerMethodField()
 
     class Meta:
         model = Project
@@ -166,9 +179,14 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             # Product-backlog prioritization model (ADR-0105 §3). Admin+-gated write,
             # enforced in ProjectViewSet alongside estimation_mode.
             "prioritization_model",
-            # Iteration-container display label (ADR-0111, #862). Admin+-gated write
-            # by the allowlist default (not in _SCHEDULER_WRITABLE_FIELDS). Display-only.
+            # Iteration-container display label OVERRIDE (ADR-0111/0116). Nullable:
+            # NULL = inherit program/workspace. Admin+-gated write by the allowlist
+            # default (not in _SCHEDULER_WRITABLE_FIELDS).
             "iteration_label",
+            # Read-only server-resolved effective label (ADR-0116) — what clients render.
+            "effective_iteration_label",
+            # Read-only label the project would inherit if its override were cleared.
+            "inherited_iteration_label",
             "program",
             "member_count",
             "percent_complete",
@@ -181,6 +199,8 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "id",
             "server_version",
             "lead_detail",
+            "effective_iteration_label",
+            "inherited_iteration_label",
             "is_archived",
             "archived_at",
             "archived_by",
@@ -321,20 +341,58 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
     # until deliberately added here (#769; ADR-0041 estimation governance).
     _SCHEDULER_WRITABLE_FIELDS = frozenset({"methodology", "estimation_mode"})
 
-    def validate_iteration_label(self, value: str) -> str:
-        """Strip and require a non-empty container label (ADR-0111, #862).
+    def validate_iteration_label(self, value: str | None) -> str | None:
+        """Strip the override, or clear it to inherit (ADR-0111/0116).
 
-        The DB default is "Sprint"; an empty/whitespace label would erase the
-        word entirely across every UI surface, so reject it rather than store it.
-        ``max_length=32`` is enforced by the model field — a longer noun breaks
-        tab/heading layouts.
+        ``None`` clears the override so the project inherits the program/workspace
+        label (ADR-0116) — the "use inherited" affordance PATCHes ``null``. A
+        non-null but *empty/whitespace* string is still rejected: it would erase the
+        word across every UI surface, and "inherit" already has an explicit
+        representation (null). ``max_length=32`` is enforced by the model field.
         """
+        if value is None:
+            return None
         stripped = value.strip()
         if not stripped:
             raise serializers.ValidationError(
-                "Enter a label for the iteration container (e.g. Sprint, Iteration, PI)."
+                "Enter a label for the iteration container (e.g. Sprint, Iteration, PI), "
+                "or clear it to inherit the program/workspace default."
             )
         return stripped
+
+    def get_effective_iteration_label(self, obj: Project) -> str:
+        from .iteration_label import resolve_effective_iteration_label
+
+        return resolve_effective_iteration_label(obj, workspace=self._iteration_workspace())
+
+    def get_inherited_iteration_label(self, obj: Project) -> str:
+        """The label shown if this project's override were cleared (ADR-0116).
+
+        Program override ?? workspace default ?? "Sprint" — the project's own
+        override is intentionally skipped so the settings UI can show "Inherit (X)"
+        regardless of the current override.
+        """
+        from .iteration_label import DEFAULT_ITERATION_LABEL
+
+        ws = self._iteration_workspace()
+        program = obj.program if obj.program_id else None
+        program_label = program.iteration_label if program else None
+        return program_label or ws.iteration_label or DEFAULT_ITERATION_LABEL
+
+    def _iteration_workspace(self) -> Workspace:
+        """Load the Workspace singleton once per serializer instance.
+
+        A list of N projects then resolves its effective labels with a single
+        Workspace query, not N (ADR-0116 perf note; ``program`` is select_related
+        in the viewset so the program tier adds no per-row query either).
+        """
+        ws = getattr(self, "_ws_cache", None)
+        if ws is None:
+            from trueppm_api.apps.workspace.models import Workspace
+
+            ws = Workspace.load()
+            self._ws_cache = ws
+        return ws
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         """Field-level governance for edits below Admin (#769).
@@ -397,6 +455,9 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
     # Null when ``lead`` is unset. The write side stays on the plain ``lead``
     # UUID field — ``lead_detail`` is response-only.
     lead_detail = _UserSummarySerializer(source="lead", read_only=True)
+    # Read-only label the program inherits when its own override is cleared — the
+    # workspace default (ADR-0116, #1106). Drives the settings "Inherit (X)" copy.
+    inherited_iteration_label = serializers.SerializerMethodField()
 
     class Meta:
         model = Program
@@ -407,6 +468,10 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             "description",
             "code",
             "methodology",
+            # Iteration-container label override for the program (ADR-0116, #1106).
+            # Nullable: NULL = inherit the workspace default.
+            "iteration_label",
+            "inherited_iteration_label",
             "health",
             "visibility",
             "color",
@@ -452,6 +517,34 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
         # Backed by the viewset's ``_is_sample`` annotation (Exists over
         # is_sample projects); defensive False when the annotation is absent.
         return bool(getattr(obj, "_is_sample", False))
+
+    def validate_iteration_label(self, value: str | None) -> str | None:
+        """Strip the program override, or clear it to inherit the workspace (ADR-0116).
+
+        ``None`` clears the override (inherit); a non-null empty/whitespace string is
+        rejected — "inherit" already has an explicit representation (null).
+        """
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped:
+            raise serializers.ValidationError(
+                "Enter a label for the iteration container, or clear it to inherit "
+                "the workspace default."
+            )
+        return stripped
+
+    def get_inherited_iteration_label(self, obj: Program) -> str:
+        """Workspace default — what the program inherits when its override is NULL."""
+        from trueppm_api.apps.workspace.models import Workspace
+
+        from .iteration_label import DEFAULT_ITERATION_LABEL
+
+        ws = getattr(self, "_ws_cache", None)
+        if ws is None:
+            ws = Workspace.load()
+            self._ws_cache = ws
+        return ws.iteration_label or DEFAULT_ITERATION_LABEL
 
     def validate_lead(self, value: Any) -> Any:
         """Lead must hold an active ProgramMembership on this program.
@@ -906,6 +999,15 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     spi = serializers.SerializerMethodField()
     spi_band = serializers.SerializerMethodField()
 
+    # Stalled verdict (#992 / API-first #986). ``dwell_days`` is the raw fact — how
+    # long the task has sat in its current status column — and ``is_stalled`` is the
+    # server-owned verdict the board card renders. Exposing both mirrors the
+    # ``spi`` (fact) / ``spi_band`` (verdict) precedent so an MCP/headless client can
+    # apply its own threshold instead of the web re-deriving the policy from
+    # ``status_changed_at`` (ADR-0115 § Implementation Notes).
+    dwell_days = serializers.SerializerMethodField()
+    is_stalled = serializers.SerializerMethodField()
+
     # TODO(#73): cpi, actual_cost, and budget_at_completion remain intentionally
     # absent until the cost model (#73, #74) ships — earned-value cost indices
     # are not computable without an actual-cost source, so #990 adds SPI only and
@@ -972,6 +1074,8 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "schedule_variance_days",
             "spi",
             "spi_band",
+            "dwell_days",
+            "is_stalled",
             "is_summary",
             "parent_id",
             "assignments",
@@ -1033,6 +1137,8 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "schedule_variance_days",
             "spi",
             "spi_band",
+            "dwell_days",
+            "is_stalled",
             "is_summary",
             "parent_id",
             "assignments",
@@ -1265,16 +1371,17 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
 
         Structural backlog fields (work-item type→EPIC, parent_epic links, and the
         per-model scoring inputs) are PO-owned per ADR-0105 §6 and gated to
-        ``can_manage_backlog`` (Admin+ today; the ADR-0078/#927 Product-Owner facet
-        slots into the same helper). Story-grooming fields the team shares (``dor``,
-        ``sprint_rank``, ``story_points``) and quick-add (``type`` among
-        story/task/bug/spike) stay at the normal task-write permission. Acceptance
-        criteria are written through the AcceptanceCriterion endpoints.
+        Admin+ OR the Product-Owner facet (ADR-0078/#927/#1095) via
+        ``can_manage_backlog`` + ``has_team_facet``. Story-grooming fields the team
+        shares (``dor``, ``sprint_rank``, ``story_points``) and quick-add (``type``
+        among story/task/bug/spike) stay at the normal task-write permission.
+        Acceptance criteria are written through the AcceptanceCriterion endpoints.
         """
         from rest_framework.exceptions import PermissionDenied
 
         from trueppm_api.apps.access.permissions import can_manage_backlog
         from trueppm_api.apps.projects.models import DorState, TaskType
+        from trueppm_api.apps.teams.services import has_team_facet
 
         # Structural-field gate (ADR-0105 §6). Only enforced when a structural field is
         # actually being written, so it never interferes with quick-add (type=STORY) or
@@ -1301,11 +1408,18 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         )
         if touches_structural:
             project = self.instance.project if self.instance is not None else attrs.get("project")
-            if project is not None and not can_manage_backlog(self._get_caller_role(project)):
-                raise PermissionDenied(
-                    "Managing the product backlog (work-item type, epic links, and "
-                    "prioritization scoring) requires Project Manager role or above."
+            if project is not None:
+                request = self.context.get("request")
+                caller = getattr(request, "user", None) if request else None
+                allowed = can_manage_backlog(self._get_caller_role(project)) or (
+                    caller is not None and has_team_facet(caller, project.pk, "is_product_owner")
                 )
+                if not allowed:
+                    raise PermissionDenied(
+                        "Managing the product backlog (work-item type, epic links, and "
+                        "prioritization scoring) requires Project Manager role, the "
+                        "Product Owner facet, or above."
+                    )
 
         # parent-epic membership
         parent_epic = attrs.get("parent_epic")
@@ -1513,6 +1627,35 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         if spi >= 0.85:
             return "at_risk"
         return "behind"
+
+    def get_dwell_days(self, obj: Task) -> int | None:
+        """Days the task has sat in its current status column (#992).
+
+        The raw 'dwell' fact behind the stalled verdict: full calendar days since
+        ``status_changed_at`` (when the task last entered its current status). None
+        when the column was never stamped (legacy rows / never moved). Exposed
+        alongside ``is_stalled`` so an MCP/headless client can re-threshold rather
+        than inherit the web's 3-day policy (ADR-0115).
+        """
+        changed = obj.status_changed_at
+        if changed is None:
+            return None
+        return (timezone.now() - changed).days
+
+    def get_is_stalled(self, obj: Task) -> bool:
+        """Server-owned 'stalled' verdict the board card renders (#992).
+
+        A task is stalled when it has sat in its current status for more than 3 days
+        *and* is not yet complete (``percent_complete < 100``). A complete task is
+        never stalled regardless of dwell; a task whose column was never stamped
+        (``status_changed_at`` is null) is treated as not stalled. Moving the policy
+        server-side stops the web re-deriving it from ``status_changed_at`` and keeps
+        the threshold consistent with ``dwell_days`` for headless clients.
+        """
+        if obj.percent_complete >= 100:
+            return False
+        dwell = self.get_dwell_days(obj)
+        return dwell is not None and dwell > 3
 
     def get_readiness(self, obj: Task) -> str:
         """Derive board-card readiness from available task fields.
@@ -2994,6 +3137,24 @@ class DidntShipItemSerializer(serializers.Serializer[dict[str, Any]]):
     was_pending = serializers.BooleanField()
 
 
+class MilestoneSlipSerializer(serializers.Serializer[dict[str, Any]]):
+    """Realized schedule slip of the bound milestone vs its active baseline (#1098).
+
+    A schedule fact (not velocity-private), so it is never ADR-0104-gated. Present
+    only on a CLOSED sprint bound to a milestone with a computable forecast and a
+    baselined finish; null otherwise. ``slip_days`` is positive when late. ``basis``
+    is ``"actual"`` once the milestone has actually finished, else ``"forecast"``.
+    """
+
+    milestone_id = serializers.UUIDField()
+    milestone_name = serializers.CharField()
+    milestone_short_id = serializers.CharField(allow_blank=True)
+    slip_days = serializers.IntegerField()
+    baseline_finish = serializers.DateField()
+    forecast_finish = serializers.DateField()
+    basis = serializers.ChoiceField(choices=["actual", "forecast"])
+
+
 class SprintOutcomeSerializer(serializers.Serializer[dict[str, Any]]):
     """Consolidated sprint-review read (#985, ADR-0111 §3) for
     ``GET /api/sprints/{id}/outcome/``.
@@ -3025,6 +3186,7 @@ class SprintOutcomeSerializer(serializers.Serializer[dict[str, Any]]):
     # gated), the shipped stories with acceptance + demo flag, and the team's demo
     # list. DictField (like commitment/velocity) — shape per ``_sprint_review_block``.
     review = serializers.DictField()
+    milestone_slip = MilestoneSlipSerializer(allow_null=True)
 
 
 class SprintCloseRequestSerializer(serializers.Serializer[dict[str, Any]]):
@@ -3250,6 +3412,61 @@ class RetroActionItemSerializer(serializers.ModelSerializer[RetroActionItem]):
             "created_at",
         ]
         read_only_fields = ["id", "promoted_task_id", "created_at", "assignee_username"]
+
+
+class RetroBoardItemSerializer(serializers.ModelSerializer[RetroBoardItem]):
+    """A live retro-board sticky (ADR-0117 §1).
+
+    ``author`` is surfaced as ``author_username`` for the attribution chip; the
+    column/position/color round-trip the board layout. ``converted_action_item_id``
+    lets the UI render a "→ action" affordance once a sticky has been distilled.
+    Writes accept ``column``, ``text``, ``color``, ``position``; ``author`` is set
+    server-side from the request user, never trusted from the body.
+    """
+
+    author_username = serializers.SerializerMethodField()
+
+    def get_author_username(self, obj: RetroBoardItem) -> str | None:
+        return getattr(obj.author, "username", None) if obj.author else None
+
+    class Meta:
+        model = RetroBoardItem
+        fields = [
+            "id",
+            "retro",
+            "column",
+            "text",
+            "author",
+            "author_username",
+            "position",
+            "color",
+            "converted_action_item_id",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "retro",
+            "author",
+            "author_username",
+            "converted_action_item_id",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class PulseResponseSerializer(serializers.ModelSerializer[PulseResponse]):
+    """A single team member's pulse answer — only ever the requester's own (#923).
+
+    Raw responses are never serialized for anyone but their own author: the team
+    sees the *aggregate* trend, never an individual's mood/energy (ADR-0117 §5).
+    This serializer backs the one-tap upsert and the requester's own echo only.
+    """
+
+    class Meta:
+        model = PulseResponse
+        fields = ["id", "retro", "mood", "energy", "confidence", "updated_at"]
+        read_only_fields = ["id", "retro", "updated_at"]
 
 
 class SprintRetroSerializer(serializers.ModelSerializer[SprintRetro]):
@@ -3522,6 +3739,7 @@ class ProjectDetailSerializer(ProjectSerializer):
     recalculated_at = serializers.DateTimeField(read_only=True)
     is_sample = serializers.BooleanField(read_only=True)
     program_detail = serializers.SerializerMethodField()
+    my_facets = serializers.SerializerMethodField()
 
     class Meta(ProjectSerializer.Meta):
         fields = [
@@ -3531,7 +3749,28 @@ class ProjectDetailSerializer(ProjectSerializer):
             "recalculated_at",
             "is_sample",
             "program_detail",
+            "my_facets",
         ]
+
+    def get_my_facets(self, obj: Project) -> dict[str, bool]:
+        """The requesting user's own team facets on this project (#1095).
+
+        Returns ``{"is_scrum_master": bool, "is_product_owner": bool}`` — the
+        caller's two-axis RBAC facets (ADR-0078) resolved against the project's
+        default team. The web uses this to render-gate Product-Owner / Scrum-Master
+        controls (e.g. the backlog auto-rank + reorder affordances) without a
+        separate round-trip. Both False for an anonymous caller or a non-member.
+
+        Detail-only (never on the list serializer) to keep the project list cheap —
+        one membership lookup per project would be an N+1 on a list response.
+        """
+        from trueppm_api.apps.teams.services import user_facets
+
+        request = self.context.get("request")
+        user = getattr(request, "user", None) if request else None
+        if user is None or not getattr(user, "is_authenticated", False):
+            return {"is_scrum_master": False, "is_product_owner": False}
+        return user_facets(user, obj.id)
 
     def get_program_detail(self, obj: Project) -> dict[str, str] | None:
         """The project's program as ``{id, name}`` for the demo indicator link.

@@ -19,6 +19,25 @@ Step 8 ([Close — retro, lessons learned, baseline variance](/the-story/#8-clos
 - **Prior retro** — a context section showing the most recent prior completed sprint's retro, so last sprint's lessons are in view while you write this one
 - **Visibility toggle** — the retro author or a Project Manager can switch `team_visibility` between team-only and project-wide
 
+## Live retro board
+
+The single-author notes-and-action-items panel above grows a **real-time, multi-writer board** where the whole team adds, edits, and drags sticky notes during the live ceremony — seeing each other's input as it happens rather than refreshing to catch up. This board surface (ADR-0117) ships in 0.3. It is merged but not yet in a tagged build — see the [roadmap](/overview/roadmap/).
+
+- **Three columns** — *What went well*, *What to improve*, *Ideas & discussion*.
+- **Concurrent editing** — every team member adds and edits stickies at once; updates fan out over the existing project WebSocket (`retro_item_created` / `_updated` / `_moved` / `_deleted`), and presence shows who is in the retro. Concurrency is last-write-wins per sticky; a superseded edit is offered back via an undo, never silently lost.
+- **Convert to action item** — one click turns a discussion sticky into a retro action item, which then uses the same explicit **Promote to backlog** flow below. Discussion → action → backlog is one continuous path.
+- **Editable window** — the board is live while the sprint is **Active** and stays editable after close (**Completed**); a **Canceled** sprint's board is read-only.
+
+The action items, notes, and visibility toggle described elsewhere on this page are sections within this board surface — the promote-to-backlog behavior is unchanged.
+
+## Team-health pulse
+
+A one-tap **mood / energy / (optional) confidence** pulse answered during the retro, with a trend across sprints (ADR-0117 / ADR-0104). The pulse ships in 0.3. It is merged but not yet in a tagged build — see the [roadmap](/overview/roadmap/).
+
+- **One tap per dimension** — a re-tap updates your answer; there is no submit button.
+- **Trend** — per-sprint averages with a response count, and an early-warning flag when team energy falls two sprints running.
+- **Team-private by default** — the pulse trend is governed by the same signal-privacy posture as team velocity (see [Velocity](/features/velocity/)): visible to the team and their coach only. The PM/PMO band sees **nothing** — not a redacted aggregate, not a response count — until the team explicitly shares it upward, and there is **no cross-team or PMO rollup**. Cross-team mood aggregation is an enterprise-edition concern, intentionally not built in the community edition.
+
 ## Visibility model
 
 Each retro has a `team_visibility` setting (ADR-0071):

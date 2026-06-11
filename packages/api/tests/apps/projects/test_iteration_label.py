@@ -36,9 +36,13 @@ def _client_for(project: Project, role: int, username: str) -> APIClient:
 
 
 @pytest.mark.django_db
-def test_default_label_is_sprint(project: Project) -> None:
-    """Existing/new projects default to "Sprint" — zero visible behavior change."""
-    assert project.iteration_label == "Sprint"
+def test_default_override_is_null_effective_is_sprint(project: Project) -> None:
+    """New projects default to NULL (inherit); the effective label resolves to
+    "Sprint" via the workspace default (#1106) — zero visible behavior change."""
+    from trueppm_api.apps.projects.iteration_label import resolve_effective_iteration_label
+
+    assert project.iteration_label is None
+    assert resolve_effective_iteration_label(project) == "Sprint"
 
 
 @pytest.mark.django_db
@@ -46,7 +50,8 @@ def test_label_is_serialized_on_payload(project: Project) -> None:
     client = _client_for(project, Role.MEMBER, "u_member")
     resp = client.get(f"/api/v1/projects/{project.pk}/")
     assert resp.status_code == 200
-    assert resp.data["iteration_label"] == "Sprint"
+    assert resp.data["iteration_label"] is None
+    assert resp.data["effective_iteration_label"] == "Sprint"
 
 
 @pytest.mark.django_db
@@ -78,7 +83,7 @@ def test_scheduler_cannot_set_label(project: Project) -> None:
     )
     assert resp.status_code == 400
     project.refresh_from_db()
-    assert project.iteration_label == "Sprint"
+    assert project.iteration_label is None
 
 
 @pytest.mark.django_db
@@ -97,7 +102,7 @@ def test_scheduler_mixed_patch_rejected_atomically(project: Project) -> None:
     )
     assert resp.status_code == 400
     project.refresh_from_db()
-    assert project.iteration_label == "Sprint"
+    assert project.iteration_label is None
     # The allowed field must NOT have been partially applied either.
     assert project.methodology != "WATERFALL"
 
@@ -114,7 +119,7 @@ def test_below_scheduler_blocked_at_gate(project: Project, role: int) -> None:
     )
     assert resp.status_code == 403
     project.refresh_from_db()
-    assert project.iteration_label == "Sprint"
+    assert project.iteration_label is None
 
 
 @pytest.mark.django_db
@@ -130,7 +135,7 @@ def test_blank_label_rejected(project: Project, blank: str) -> None:
     assert resp.status_code == 400
     assert "iteration_label" in resp.data
     project.refresh_from_db()
-    assert project.iteration_label == "Sprint"
+    assert project.iteration_label is None
 
 
 @pytest.mark.django_db
@@ -157,4 +162,4 @@ def test_label_too_long_rejected(project: Project) -> None:
     )
     assert resp.status_code == 400
     project.refresh_from_db()
-    assert project.iteration_label == "Sprint"
+    assert project.iteration_label is None

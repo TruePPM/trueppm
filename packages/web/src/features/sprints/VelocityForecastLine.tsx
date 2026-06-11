@@ -61,6 +61,7 @@ export function VelocityForecastLine({ projectId, targetMilestoneId, enabled }: 
           name={milestone.milestone_name}
           p50={milestone.p50}
           p80={milestone.p80}
+          basis={milestone.basis}
         />
       ) : (
         <BacklogForecast forecast={forecast} projectId={projectId} />
@@ -73,21 +74,45 @@ function MilestoneForecast({
   name,
   p50,
   p80,
+  basis,
 }: {
   name: string | null;
   p50: string | null;
   p80: string | null;
+  basis: string;
 }) {
+  // #1094: the bridge reforecast is a deterministic velocity-band heuristic, not a
+  // Monte Carlo simulation. Reserve P50/P80 percentile vocabulary for when real
+  // agile-aware MC backs it (#953); until then render an honest velocity-estimate
+  // range with a "not simulated" qualifier so a presented "P80" isn't false precision.
+  const simulated = basis === 'monte_carlo';
+  if (simulated) {
+    return (
+      <span>
+        <span aria-hidden="true">◆ </span>
+        {name ?? 'Milestone'}: P50 <span className="tppm-mono">{fmt(p50)}</span>
+        {p80 && (
+          <>
+            {' · 80% '}
+            <span className="tppm-mono">{fmt(p80)}</span>
+          </>
+        )}
+      </span>
+    );
+  }
   return (
     <span>
       <span aria-hidden="true">◆ </span>
-      {name ?? 'Milestone'}: P50 <span className="tppm-mono">{fmt(p50)}</span>
+      {name ?? 'Milestone'}: est. <span className="tppm-mono">{fmt(p50)}</span>
       {p80 && (
         <>
-          {' · 80% '}
+          {'–'}
           <span className="tppm-mono">{fmt(p80)}</span>
         </>
-      )}
+      )}{' '}
+      {/* Visible text, not a title tooltip — title is not exposed to keyboard/SR
+          (web-rules 22a/121), so the honesty qualifier must be on-screen. */}
+      <span className="italic text-neutral-text-disabled">(velocity estimate)</span>
     </span>
   );
 }
