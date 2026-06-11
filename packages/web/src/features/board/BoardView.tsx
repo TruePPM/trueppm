@@ -195,6 +195,22 @@ function avgProgress(tasks: Task[]): number {
   return Math.round(committed.reduce((s, t) => s + t.progress, 0) / committed.length);
 }
 
+/**
+ * Per-phase progress for the lane header (#991, ADR-0115). A board "phase" is a WBS
+ * L1 summary task, and that summary task already carries the server-owned,
+ * delivery-mode-weighted percent_complete rollup (ADR-0108) — the same number the
+ * Gantt shows for it. We render that rather than re-deriving a divergent client mean,
+ * closing the #986 API-first gap.
+ *
+ * The synthetic 'root' lane ("Project Tasks") has no backing summary task — it groups
+ * parentless tasks, which is a UI construct, not a domain entity. There is no server
+ * fact to strand for it, so it keeps the committed-leaf mean as a local fallback.
+ */
+function phaseProgress(phase: Phase): number {
+  if (phase.summaryTask) return Math.round(phase.summaryTask.progress);
+  return avgProgress(phase.tasks);
+}
+
 // ---------------------------------------------------------------------------
 // WIP badge
 // ---------------------------------------------------------------------------
@@ -531,7 +547,7 @@ function PhaseLane({
   onPhaseRename,
   dragHandleListeners,
 }: PhaseLaneProps) {
-  const avg = avgProgress(phase.tasks);
+  const avg = phaseProgress(phase);
   const committedTaskCount = phase.tasks.filter(isTaskScheduled).length;
   const color = phaseColor(phase.id);
   const colCount = columns.length;

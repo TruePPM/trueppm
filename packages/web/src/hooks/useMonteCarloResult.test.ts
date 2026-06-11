@@ -46,6 +46,12 @@ describe('useMonteCarloResult', () => {
           { date: '2026-11-03', count: 88 },
         ],
         last_run_at: '2026-05-05T10:30:00Z',
+        cpm_finish: '2026-10-01',
+        delta_vs_cpm: { p50: 4, p80: 33, p95: 60 },
+        confidence_curve: [
+          { date: '2026-10-05', pct: 62.7 },
+          { date: '2026-11-03', pct: 100 },
+        ],
       },
     });
 
@@ -67,8 +73,92 @@ describe('useMonteCarloResult', () => {
         { weekStart: '2026-11-03', count: 88 },
       ],
       lastRunAt: '2026-05-05T10:30:00Z',
+      cpmFinish: '2026-10-01',
+      deltaVsCpm: { p50: 4, p80: 33, p95: 60 },
+      confidenceCurve: [
+        { date: '2026-10-05', pct: 62.7 },
+        { date: '2026-11-03', pct: 100 },
+      ],
     });
     expect(result.current.error).toBeNull();
+  });
+
+  it('maps cpm_finish, delta_vs_cpm, and confidence_curve to camelCase server fields', async () => {
+    getMock.mockResolvedValueOnce({
+      data: {
+        project_id: 'proj-srv',
+        runs: 500,
+        p50: '2026-10-05',
+        p80: '2026-11-03',
+        p95: '2026-11-30',
+        histogram_buckets: [{ date: '2026-10-05', count: 250 }],
+        cpm_finish: '2026-09-28',
+        delta_vs_cpm: { p50: 7, p80: 36, p95: 63 },
+        confidence_curve: [{ date: '2026-10-05', pct: 50 }],
+      },
+    });
+
+    const { result } = renderHook(() => useMonteCarloResult('proj-srv'), {
+      wrapper: makeWrapper(qc),
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(result.current.data?.cpmFinish).toBe('2026-09-28');
+    expect(result.current.data?.deltaVsCpm).toEqual({ p50: 7, p80: 36, p95: 63 });
+    expect(result.current.data?.confidenceCurve).toEqual([{ date: '2026-10-05', pct: 50 }]);
+  });
+
+  it('maps the from-history payload (TTL expired): delta + cpm_finish survive, confidence_curve is empty', async () => {
+    // Past the 24h cache TTL the /latest/ endpoint serves from persisted history:
+    // percentiles, cpm_finish, and delta_vs_cpm survive, but the raw distribution
+    // does not — confidence_curve and histogram_buckets come back empty. The hook
+    // must map these without re-deriving the curve.
+    getMock.mockResolvedValueOnce({
+      data: {
+        project_id: 'proj-hist',
+        runs: 1000,
+        p50: '2026-10-05',
+        p80: '2026-11-03',
+        p95: '2026-11-30',
+        histogram_buckets: [],
+        cpm_finish: '2026-09-28',
+        delta_vs_cpm: { p50: 7, p80: 36, p95: 63 },
+        confidence_curve: [],
+        from_history: true,
+      },
+    });
+
+    const { result } = renderHook(() => useMonteCarloResult('proj-hist'), {
+      wrapper: makeWrapper(qc),
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(result.current.data?.cpmFinish).toBe('2026-09-28');
+    expect(result.current.data?.deltaVsCpm).toEqual({ p50: 7, p80: 36, p95: 63 });
+    expect(result.current.data?.buckets).toEqual([]);
+    expect(result.current.data?.confidenceCurve).toEqual([]);
+  });
+
+  it('defaults the server fields when a legacy payload omits them (cpmFinish null, deltas null, curve [])', async () => {
+    getMock.mockResolvedValueOnce({
+      data: {
+        project_id: 'proj-legacy2',
+        runs: 100,
+        p50: '2026-10-05',
+        p80: '2026-11-03',
+        p95: '2026-11-30',
+        histogram_buckets: [{ date: '2026-10-05', count: 100 }],
+      },
+    });
+
+    const { result } = renderHook(() => useMonteCarloResult('proj-legacy2'), {
+      wrapper: makeWrapper(qc),
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(result.current.data?.cpmFinish).toBeNull();
+    expect(result.current.data?.deltaVsCpm).toEqual({ p50: null, p80: null, p95: null });
+    expect(result.current.data?.confidenceCurve).toEqual([]);
   });
 
   it('dedupes and sorts histogram buckets by date', async () => {
@@ -228,6 +318,9 @@ describe('useMonteCarloResult', () => {
       p80: '2026-10-05',
       p95: '2026-10-05',
       buckets: [],
+      cpmFinish: null,
+      deltaVsCpm: { p50: null, p80: null, p95: null },
+      confidenceCurve: [],
     });
     expect(result.current.error).toBeNull();
   });

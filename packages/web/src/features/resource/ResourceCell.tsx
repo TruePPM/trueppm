@@ -7,7 +7,7 @@
  * keyboard (Enter/Space).
  */
 import { useState } from 'react';
-import { loadPercent, loadColor, LOAD_BAR_CLASS, capacityHours, isWeekend } from './resourceUtils';
+import { LOAD_BAR_CLASS, isWeekend } from './resourceUtils';
 import { LoadTooltip } from './LoadTooltip';
 import type { UtilizationDayEntry } from './resourceUtils';
 import type { OverallocationTarget } from './ResourceOverallocationDrawer';
@@ -36,12 +36,13 @@ export function ResourceCell({
   const [showTooltip, setShowTooltip] = useState(false);
   const weekend = isWeekend(iso);
   const hours = entry?.hours ?? 0;
-  const capacity = capacityHours(hoursPerDay, maxUnits);
-  const pct = loadPercent(hours, capacity);
-  const color = loadColor(pct);
+  // load%, band, and the overallocated verdict are server-owned (#989) — the grid
+  // renders them rather than re-deriving from raw hours + capacity.
+  const pct = entry?.load_pct ?? 0;
+  const color = entry?.load_band ?? 'on-track';
   const barHeight = Math.min(pct, 120); // cap visual bar at 120% to stay in bounds
 
-  const isOverallocated = pct > 100 && !!onOpenDrawer && !!entry;
+  const isOverallocated = (entry?.overallocated ?? false) && !!onOpenDrawer && !!entry;
 
   const barContent = (
     <>
@@ -60,6 +61,8 @@ export function ResourceCell({
           taskIds={entry.tasks}
           hoursPerDay={hoursPerDay}
           maxUnits={maxUnits}
+          loadPct={entry.load_pct}
+          loadBand={entry.load_band}
           onClose={() => setShowTooltip(false)}
         />
       )}

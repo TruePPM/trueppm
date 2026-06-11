@@ -13,7 +13,8 @@ const makeTarget = (overrides: Partial<OverallocationTarget> = {}): Overallocati
   resourceId: 'res-1',
   resourceName: 'Alice',
   iso: '2026-04-14',
-  entry: { hours: 10, tasks: ['task-a', 'task-b'] },
+  // load_pct/band/overallocated are server-owned (#989); the hook reads load_pct.
+  entry: { hours: 10, tasks: ['task-a', 'task-b'], load_pct: 125, load_band: 'critical', overallocated: true },
   hoursPerDay: 8,
   maxUnits: 1.0,
   ...overrides,
@@ -47,8 +48,10 @@ describe('useResolveOverallocation', () => {
 
   it('openDrawer builds a human-readable ariaMessage with pct and overHours', () => {
     const { result } = renderHook(() => useResolveOverallocation());
-    // 10h scheduled / 8h capacity = 125%, 2h over
-    const target = makeTarget({ entry: { hours: 10, tasks: [] } });
+    // 10h scheduled / 8h capacity = 125% (server load_pct), 2h over
+    const target = makeTarget({
+      entry: { hours: 10, tasks: [], load_pct: 125, load_band: 'critical', overallocated: true },
+    });
 
     act(() => { result.current.openDrawer(target); });
 
@@ -85,8 +88,11 @@ describe('useResolveOverallocation', () => {
 
   it('openDrawer on a part-time resource computes correct pct', () => {
     const { result } = renderHook(() => useResolveOverallocation());
-    // 6h/day capacity (part-time), 9h scheduled → 150%
-    const target = makeTarget({ hoursPerDay: 6, entry: { hours: 9, tasks: [] } });
+    // 6h/day capacity (part-time), 9h scheduled → 150% (server load_pct), 3h over
+    const target = makeTarget({
+      hoursPerDay: 6,
+      entry: { hours: 9, tasks: [], load_pct: 150, load_band: 'critical', overallocated: true },
+    });
 
     act(() => { result.current.openDrawer(target); });
 
@@ -97,7 +103,9 @@ describe('useResolveOverallocation', () => {
   it('overHours is 0 when not overallocated (clamp at 0)', () => {
     const { result } = renderHook(() => useResolveOverallocation());
     // 6h / 8h = 75% — not overallocated; overHours should be "0.0h"
-    const target = makeTarget({ entry: { hours: 6, tasks: [] } });
+    const target = makeTarget({
+      entry: { hours: 6, tasks: [], load_pct: 75, load_band: 'on-track', overallocated: false },
+    });
 
     act(() => { result.current.openDrawer(target); });
 

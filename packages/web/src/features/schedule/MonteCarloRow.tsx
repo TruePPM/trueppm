@@ -30,12 +30,6 @@ interface Props {
   tasks?: Task[];
 }
 
-function daysBetween(a: string, b: string): number {
-  const msA = new Date(a + 'T00:00:00Z').getTime();
-  const msB = new Date(b + 'T00:00:00Z').getTime();
-  return Math.round((msB - msA) / 86_400_000);
-}
-
 const BTN_CLS =
   'inline-flex items-center h-7 px-3 rounded border border-neutral-border bg-neutral-surface ' +
   'text-xs font-medium text-neutral-text-primary ' +
@@ -85,8 +79,10 @@ export function MonteCarloRow({
 
   const isRecomputing = runMc.isPending || isStale;
 
-  const p80DeltaDays =
-    cpmFinish && result ? daysBetween(cpmFinish, result.p80) : null;
+  // Server-computed P80 risk premium vs the CPM finish (#987). Gated on a known
+  // CPM finish so the chip's "(+Nd)" suffix only appears when the deterministic
+  // spine exists; the value itself is read from the server, not recomputed.
+  const p80DeltaDays = cpmFinish && result ? result.deltaVsCpm.p80 : null;
 
   if (!result) {
     if (!projectId) return null;

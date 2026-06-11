@@ -48,6 +48,15 @@ export interface AllocationResponse {
 export interface UtilizationDayEntry {
   hours: number;
   tasks: string[]; // task UUIDs
+  /**
+   * Server-owned load verdict (#989 / API-first #986): the API now computes the
+   * per-day load% (hours / capacity × 100), the on-track/at-risk/critical band, and
+   * the overallocated flag (load_pct > 100). The grid renders these instead of
+   * re-deriving them from raw hours, so a headless/MCP client reads the same verdict.
+   */
+  load_pct: number;
+  load_band: LoadColor;
+  overallocated: boolean;
 }
 
 export interface UtilizationResource {
@@ -59,6 +68,8 @@ export interface UtilizationResource {
   hours_per_day: number;
   calendar_id: string | null;
   calendar_differs_from_project: boolean;
+  /** Server-owned: true when any day in the window exceeds 100% load (#989). */
+  overallocated: boolean;
   /** Sparse map: only days with load > 0 are present. Key = "YYYY-MM-DD" */
   days: Record<string, UtilizationDayEntry>;
 }

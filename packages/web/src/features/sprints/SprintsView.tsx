@@ -395,11 +395,12 @@ export function SprintsView() {
         />
       )}
 
-      {/* Tier-3 health badges (ADR-0101 §4) — read-only signals computed
-          client-side from `projectTasks`; renders nothing when all counts
-          are zero so the surface fades away on healthy projects. */}
+      {/* Tier-3 health badges (ADR-0101 §4, #988) — read-only signals owned by
+          the server (count, verdict, tone, and copy); renders nothing when the
+          endpoint returns no signals so the surface fades away on healthy
+          projects. */}
       <div className="mx-6 mt-2 flex items-center justify-between gap-2 flex-wrap">
-        <GuardrailHealthBadges tasks={projectTasks ?? []} activeSprint={activeSprint} />
+        <GuardrailHealthBadges projectId={projectId} />
         {/* Alt entry to the scope-injection review (ADR-0102 §5) — mirrors the
             board banner's Review button. Render-gated by canManageScope; the
             server is the real gate. */}

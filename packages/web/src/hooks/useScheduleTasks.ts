@@ -40,6 +40,11 @@ export interface ApiTask {
   actual_start: string | null;
   actual_finish: string | null;
   schedule_variance_days: number | null;
+  // Server-owned per-task SPI + verdict (#990) and stalled verdict + dwell fact (#992).
+  spi?: number | null;
+  spi_band?: 'on_track' | 'at_risk' | 'behind' | null;
+  is_stalled?: boolean;
+  dwell_days?: number | null;
   baseline_start: string | null;
   baseline_finish: string | null;
   optimistic_duration: number | null;
@@ -218,6 +223,10 @@ export function mapTask(t: ApiTask): Task {
     actualStart: t.actual_start ?? undefined,
     actualFinish: t.actual_finish ?? undefined,
     scheduleVarianceDays: t.schedule_variance_days,
+    spi: t.spi ?? null,
+    spiBand: t.spi_band ?? null,
+    isStalled: t.is_stalled ?? false,
+    dwellDays: t.dwell_days ?? null,
     baselineStart: t.baseline_start ?? undefined,
     baselineFinish: t.baseline_finish ?? undefined,
     assignees: (t.assignments ?? []).map(

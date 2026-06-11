@@ -54,6 +54,21 @@ const FIXTURE_MC_RESULT = {
     { date: '2026-12-14', count: 7 },
   ],
   last_run_at: '2026-05-09T10:00:00Z',
+  // Server-computed risk fields (#987). cpm_finish = '2026-11-30' → P80
+  // (2026-12-10) is +10d. confidence_curve is the cumulative share of the
+  // buckets above (500 runs), which the panel renders directly.
+  cpm_finish: '2026-11-30',
+  delta_vs_cpm: { p50: -15, p80: 10, p95: 28 },
+  confidence_curve: [
+    { date: '2026-10-26', pct: 10 },
+    { date: '2026-11-02', pct: 28 },
+    { date: '2026-11-09', pct: 52 },
+    { date: '2026-11-16', pct: 72 },
+    { date: '2026-11-23', pct: 86 },
+    { date: '2026-11-30', pct: 95 },
+    { date: '2026-12-07', pct: 98.6 },
+    { date: '2026-12-14', pct: 100 },
+  ],
 };
 
 /** Forecast run history (ADR-0109, #961): newest-first with per-run deltas. */

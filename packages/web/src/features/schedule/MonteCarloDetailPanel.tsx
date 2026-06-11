@@ -12,12 +12,6 @@ interface Props {
   onClose: () => void;
 }
 
-function daysBetween(a: string, b: string): number {
-  const msA = new Date(a + 'T00:00:00Z').getTime();
-  const msB = new Date(b + 'T00:00:00Z').getTime();
-  return Math.round((msB - msA) / 86_400_000);
-}
-
 function fmtLong(iso: string): string {
   return new Intl.DateTimeFormat('en-US', {
     month: 'long',
@@ -106,9 +100,12 @@ export function MonteCarloDetailPanel({ result, cpmFinish, tasks, isOpen, onClos
     return () => document.removeEventListener('keydown', trapFocus);
   }, [isOpen]);
 
-  const p50Delta = cpmFinish ? daysBetween(cpmFinish, result.p50) : null;
-  const p80Delta = cpmFinish ? daysBetween(cpmFinish, result.p80) : null;
-  const p95Delta = cpmFinish ? daysBetween(cpmFinish, result.p95) : null;
+  // Server-computed risk premium vs the deterministic CPM finish (#987). The
+  // section is gated on cpmFinish so it only shows when the deterministic spine
+  // exists; the per-percentile values themselves come straight from the server.
+  const p50Delta = cpmFinish ? result.deltaVsCpm.p50 : null;
+  const p80Delta = cpmFinish ? result.deltaVsCpm.p80 : null;
+  const p95Delta = cpmFinish ? result.deltaVsCpm.p95 : null;
 
   // Top duration drivers: leaf tasks with PERT estimates, sorted by spread descending.
   // Summary tasks are excluded — their durations roll up from children; setting
@@ -122,23 +119,18 @@ export function MonteCarloDetailPanel({ result, cpmFinish, tasks, isOpen, onClos
     .sort((a, b) => b.spread - a.spread)
     .slice(0, 5);
 
-  // Confidence-by-date: sort + dedupe buckets, accumulate over all of them,
-  // then sample every other row for display. Wire payload occasionally repeats
-  // weekStart and is not guaranteed sorted, which would otherwise show
-  // out-of-order or duplicated dates with identical percentages.
-  const mergedByDate = new Map<string, number>();
-  for (const b of result.buckets) {
-    mergedByDate.set(b.weekStart, (mergedByDate.get(b.weekStart) ?? 0) + b.count);
-  }
-  const sortedBuckets = Array.from(mergedByDate.entries())
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-  const total = sortedBuckets.reduce((s, [, count]) => s + count, 0);
-  let cumulative = 0;
-  const allRows = sortedBuckets.map(([date, count]) => {
-    cumulative += count;
-    const pct = total > 0 ? Math.round((cumulative / total) * 100) : 0;
-    return { date, pct, isP80: date === result.p80 };
-  });
+  // Confidence-by-date: render the server-computed cumulative S-curve directly
+  // (#987) — the cumulative fold lives on the backend now (single source of
+  // truth, MCP-reachable). We only handle display sampling here: round the
+  // server pct, sample every other point plus the last, and drop the extremes
+  // that crowd the chart. When the curve is empty — the from-history path past
+  // the cache TTL persists only percentiles, not the raw distribution — this
+  // section renders nothing rather than re-deriving the curve from buckets.
+  const allRows = result.confidenceCurve.map((p) => ({
+    date: p.date,
+    pct: Math.round(p.pct),
+    isP80: p.date === result.p80,
+  }));
   const confidenceRows = allRows
     .filter((_, i) => i % 2 === 0 || i === allRows.length - 1)
     .filter((r) => r.pct > 5 && r.pct < 100);
