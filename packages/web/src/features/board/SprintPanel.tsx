@@ -10,6 +10,7 @@ import {
 import { VelocitySparkline } from '@/features/sprints/VelocitySparkline';
 import { VelocityForecastLine } from '@/features/sprints/VelocityForecastLine';
 import { PromoteMilestoneDialog } from '@/features/sprints/PromoteMilestoneDialog';
+import { SprintScopeBadge } from '@/features/sprints/SprintScopeBadge';
 import { wipState } from '@/features/board/wip';
 import { useActiveSprint, useProjectVelocity, useSprintMutations } from '@/hooks/useSprints';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
@@ -219,6 +220,9 @@ function Header({
             <span aria-hidden="true">○</span> {forecastScopeCaption(sprint.pending_count ?? 0)}
           </p>
         )}
+        {/* #543: visible audit badge when tasks were injected after activation —
+            opens the team-readable scope-change drawer (who/when/what/points). */}
+        <SprintScopeBadge sprintId={sprint.id} />
       </div>
       {canLinkMilestone && (
         <button

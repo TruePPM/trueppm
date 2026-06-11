@@ -6,6 +6,7 @@ import type { DrawerSectionProps } from '@/lib/widget-registry';
 import type { TaskStatus } from '@/types';
 import { ResourceAssignmentSection } from '../ResourceAssignmentSection';
 import { BacklogDemoteConfirmDialog } from '../BacklogDemoteConfirmDialog';
+import { ScopeChangedChip } from '@/features/sprints/ScopeChangedChip';
 
 const STATUS_OPTIONS: Array<{ value: TaskStatus; label: string }> = [
   { value: 'BACKLOG', label: 'Backlog' },
@@ -229,15 +230,12 @@ function MilestoneRollupReadOnly({
       <p className="text-xs text-neutral-text-secondary">
         by {basis}
         {rollup.sprint_count > 1 ? ` across ${rollup.sprint_count} ${itl.lowerPlural}` : ''}
-        {rollup.sprint_scope_changed && (
-          <>
-            {' · '}
-            <span title={`${itl.singular} scope changed since activation — committed baseline preserved.`}>
-              scope changed
-            </span>
-          </>
-        )}
       </p>
+      {rollup.sprint_scope_changed && rollup.scope_change_sprint_id && (
+        <span className="mt-1 self-start">
+          <ScopeChangedChip sprintId={rollup.scope_change_sprint_id} />
+        </span>
+      )}
       <p className="text-xs text-neutral-text-secondary flex items-start gap-1.5 mt-1">
         <span aria-hidden="true">🔒</span>
         <span>Progress rolls up from {itl.lower}(s) — close or unlink to edit.</span>

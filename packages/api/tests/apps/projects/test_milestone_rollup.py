@@ -429,6 +429,7 @@ def test_recompute_emits_broadcast_with_aggregated_payload_only(project: Project
         "rollup_basis",
         "variance_days",
         "sprint_scope_changed",
+        "scope_change_sprint_id",
         "binding_drifted",
         "sprint_count",
     }

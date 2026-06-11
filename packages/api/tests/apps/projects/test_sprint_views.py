@@ -12,9 +12,11 @@ from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import (
     Calendar,
     Project,
+    ScopeChangeStatus,
     Sprint,
     SprintCloseRequest,
     SprintCloseRequestStatus,
+    SprintScopeChange,
     SprintState,
     SprintTaskOutcome,
     Task,
@@ -1080,4 +1082,79 @@ def test_incoming_carryover_requires_membership(
 ) -> None:
     planned = _make_sprint(project, state=SprintState.PLANNED)
     resp = stranger_client.get(f"/api/v1/sprints/{planned.pk}/incoming_carryover/")
+    assert resp.status_code in (403, 404)
+
+
+# ---------------------------------------------------------------------------
+# GET /sprints/{id}/scope-changes/ — mid-sprint scope audit + delta (#543/#550)
+# ---------------------------------------------------------------------------
+
+
+def _scope_change(
+    sprint: Sprint, project: Project, user: object, *, points: int, status: str, name: str
+) -> SprintScopeChange:
+    task = Task.objects.create(
+        project=project, name=name, duration=1, sprint=sprint, story_points=points
+    )
+    return SprintScopeChange.objects.create(
+        sprint=sprint, task=task, subtask_name=name, added_by=user, status=status
+    )
+
+
+def test_scope_changes_returns_audit_and_delta(
+    member_client: APIClient, project: Project, user: object, member_membership: object
+) -> None:
+    s = _make_sprint(project, state=SprintState.ACTIVE)
+    _scope_change(
+        s, project, user, points=5, status=ScopeChangeStatus.ACCEPTED, name="Accepted add"
+    )
+    _scope_change(s, project, user, points=3, status=ScopeChangeStatus.PENDING, name="Pending add")
+    _scope_change(
+        s, project, user, points=8, status=ScopeChangeStatus.REJECTED, name="Rejected out"
+    )
+
+    resp = member_client.get(f"/api/v1/sprints/{s.pk}/scope-changes/")
+    assert resp.status_code == 200, resp.content
+    body = resp.json()
+    # Added = pending + accepted (5 + 3); removed = rejected (8); 2 still in.
+    assert body["summary"] == {
+        "points_added": 8,
+        "points_removed": 8,
+        "added_mid_sprint_count": 2,
+        "total": 3,
+    }
+    assert len(body["events"]) == 3
+    ev = body["events"][0]
+    assert {
+        "id",
+        "item_name",
+        "story_points",
+        "added_by_name",
+        "added_at",
+        "goal_impact",
+        "status",
+    } <= set(ev)
+    statuses = {e["item_name"]: e["status"] for e in body["events"]}
+    assert statuses["Rejected out"] == ScopeChangeStatus.REJECTED
+
+
+def test_scope_changes_empty_when_none(member_client: APIClient, project: Project) -> None:
+    s = _make_sprint(project, state=SprintState.ACTIVE)
+    resp = member_client.get(f"/api/v1/sprints/{s.pk}/scope-changes/")
+    assert resp.status_code == 200, resp.content
+    body = resp.json()
+    assert body["events"] == []
+    assert body["summary"]["total"] == 0
+    assert body["summary"]["added_mid_sprint_count"] == 0
+
+
+def test_scope_changes_viewer_can_read(viewer_client: APIClient, project: Project) -> None:
+    s = _make_sprint(project, state=SprintState.ACTIVE)
+    resp = viewer_client.get(f"/api/v1/sprints/{s.pk}/scope-changes/")
+    assert resp.status_code == 200  # team-readable first (Viewer+)
+
+
+def test_scope_changes_requires_membership(stranger_client: APIClient, project: Project) -> None:
+    s = _make_sprint(project, state=SprintState.ACTIVE)
+    resp = stranger_client.get(f"/api/v1/sprints/{s.pk}/scope-changes/")
     assert resp.status_code in (403, 404)

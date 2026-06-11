@@ -15360,6 +15360,49 @@
                 }
             }
         },
+        "/api/v1/sprints/{id}/scope-changes/": {
+            "get": {
+                "operationId": "v1_sprints_scope_changes_retrieve",
+                "description": "Read the sprint's mid-sprint scope-change audit + delta (#543/#550).\n\nRead-only; any project member (Viewer+) — the audit is team-readable first\n(sprint sovereignty). Surfaces the existing ``SprintScopeChange`` injection\nrows as actor/timestamp/item/points/status plus the aggregate the\npersistent scope-change chip and the SprintPanel badge render from. No\nmutation, no new table.",
+                "summary": "List a sprint's mid-sprint scope changes (audit + delta)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Body includes a summary (points_added/points_removed/added_mid_sprint_count/total) and the ordered scope-change events."
+                    }
+                }
+            }
+        },
         "/api/v1/sprints/{id}/scope-changes/accept/": {
             "post": {
                 "operationId": "v1_sprints_scope_changes_accept_create",
