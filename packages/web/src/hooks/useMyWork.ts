@@ -20,7 +20,7 @@ import type { TaskStatus } from '@/types';
 
 export type DueSource = 'actual' | 'planned' | 'estimated' | 'sprint' | null;
 
-/** Server-computed My Work section (#484, ADR-0118). */
+/** Server-computed My Work section (#484, ADR-0122). */
 export type MyWorkGroup = 'today' | 'this_sprint' | 'upcoming';
 
 export interface MyWorkTask {
@@ -38,7 +38,7 @@ export interface MyWorkTask {
   due_source: DueSource;
   is_critical: boolean;
   /**
-   * Server-computed bucket (#484, ADR-0118): the section this task renders under.
+   * Server-computed bucket (#484, ADR-0122): the section this task renders under.
    * Sorted contiguously in the response so the page groups by a simple boundary
    * walk, never re-deriving date math client-side.
    */

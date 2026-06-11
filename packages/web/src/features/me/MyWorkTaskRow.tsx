@@ -127,7 +127,7 @@ export function MyWorkTaskRow({ task }: Props) {
               className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 font-semibold
                 bg-semantic-critical-bg border border-semantic-critical/40"
             >
-              <span aria-hidden="true">●</span> Blocked
+              <span aria-hidden="true">●</span> <span>Blocked</span>
             </span>
             {task.blocked_reason && (
               <span className="min-w-0 text-neutral-text-secondary">{task.blocked_reason}</span>

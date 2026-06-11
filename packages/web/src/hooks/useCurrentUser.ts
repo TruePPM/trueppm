@@ -9,7 +9,7 @@ export interface CurrentUser {
   initials: string;
   email: string;
   /**
-   * Contributor-tier role signal (#855/#856, ADR-0118). Server-computed so the
+   * Contributor-tier role signal (#855/#856, ADR-0122). Server-computed so the
    * client gates admin chrome on one boolean instead of fanning out per-project
    * membership lookups.
    *   - max_project_role: highest project Role ordinal across memberships (null

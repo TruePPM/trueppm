@@ -1,4 +1,4 @@
-"""Tests for the My Work server-side grouping + blocker flag (#484/#476, ADR-0118).
+"""Tests for the My Work server-side grouping + blocker flag (#484/#476, ADR-0122).
 
 `GET /api/v1/me/work/` now annotates each task with a ``group`` bucket
 (today / this_sprint / upcoming) computed server-side, and exposes the explicit

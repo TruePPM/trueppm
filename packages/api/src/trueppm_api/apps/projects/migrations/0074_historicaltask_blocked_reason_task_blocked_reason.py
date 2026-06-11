@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("projects", "0072_pulseresponse_retroboarditem"),
+        ("projects", "0073_sprinttaskoutcome_demo_ready"),
     ]
 
     operations = [

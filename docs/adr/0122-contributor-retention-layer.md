@@ -1,4 +1,4 @@
-# ADR-0118: Contributor retention layer — blocker flag, My Work grouping, signal-only notifications, role-scoped settings
+# ADR-0122: Contributor retention layer — blocker flag, My Work grouping, signal-only notifications, role-scoped settings
 
 ## Status
 Accepted

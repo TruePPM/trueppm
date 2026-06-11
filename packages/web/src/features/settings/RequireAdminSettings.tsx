@@ -1,6 +1,6 @@
 /**
  * Route guard for the admin settings shell (Workspace / Project / Program
- * scopes) — #856, ADR-0118.
+ * scopes) — #856, ADR-0122.
  *
  * A contributor (no Admin+ role in any project and not a workspace admin) has no
  * business on the Methodology / Workflow / Roles / Groups pages; the server 403s

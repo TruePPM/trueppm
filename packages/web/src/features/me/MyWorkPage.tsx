@@ -1,6 +1,6 @@
 /**
  * My Work page — cross-project contributor surface (issue #499, ADR-0065 Gap 2;
- * grouping reworked in #484 / ADR-0118).
+ * grouping reworked in #484 / ADR-0122).
  *
  * Route: /me/work. Grouped into Today / This Sprint / Upcoming — the buckets a
  * contributor thinks in, computed server-side (`task.group`) and returned

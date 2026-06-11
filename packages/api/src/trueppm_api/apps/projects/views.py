@@ -7289,7 +7289,7 @@ class MeWorkView(generics.ListAPIView[Task]):
 
     Returns the requesting user's assigned, non-BACKLOG, non-soft-deleted tasks,
     each tagged with a server-computed ``group`` bucket (today / this_sprint /
-    upcoming, #484/ADR-0118) and pre-sorted so the buckets are contiguous.
+    upcoming, #484/ADR-0122) and pre-sorted so the buckets are contiguous.
     Deliberately flat — no CPM fields, no WBS hierarchy, no phase tree. The
     contributor (Priya persona) reads this as a personal to-do list; PM-level
     concepts (critical path, float, schedule variance) are intentionally absent.

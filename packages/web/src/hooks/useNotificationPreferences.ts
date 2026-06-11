@@ -94,7 +94,7 @@ export function useUpdateNotificationPreference() {
   });
 }
 
-/** Notification preset keys (#855, ADR-0118). */
+/** Notification preset keys (#855, ADR-0122). */
 export type NotificationPreset = 'signal_only' | 'everything';
 
 /**

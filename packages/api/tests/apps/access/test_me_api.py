@@ -129,7 +129,7 @@ def test_initials_only_last_name_set(db: object) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Role signal — can_access_admin_settings (#855/#856, ADR-0118)
+# Role signal — can_access_admin_settings (#855/#856, ADR-0122)
 # ---------------------------------------------------------------------------
 
 
