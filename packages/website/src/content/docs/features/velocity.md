@@ -3,7 +3,7 @@ title: Velocity panel
 description: Last-8 closed sprints with rolling avg ± stdev and a forecast range chip.
 ---
 
-A bar chart of the last 8 closed sprints, colour-coded by completion ratio, with rolling average ± standard deviation and a forecast range chip. The footer links to ADR-0036 — the velocity ↔ CPM feedback decision.
+A bar chart of the last 8 closed sprints, color-coded by completion ratio, with rolling average ± standard deviation and a forecast range chip. The footer links to ADR-0036 — the velocity ↔ CPM feedback decision.
 
 ## Where this lives in the story
 
@@ -13,13 +13,17 @@ Step 7 ([Forecast — Monte Carlo across both worlds](/the-story/#7-forecast--mo
 
 - **Primary stat:** `{avg} ± {stdev} pts (last N)` using `.tppm-mono`
 - **Forecast chip:** `Forecast {low}–{high} pts` right-aligned (range is `avg ± 1 stdev`, rounded to int)
-- **Bar chart:** 8 bars (or as many closed sprints as exist), coloured by completion ratio:
+- **Bar chart:** 8 bars (or as many closed sprints as exist), colored by completion ratio:
   - ≥ 0.85 → `semantic-on-track`
   - 0.6–0.85 → `semantic-at-risk`
   - < 0.6 → `semantic-critical`
 - **Footer:** `Velocity feeds CPM duration estimates · ADR-0036` link
 
 ## On the Board sprint panel
+
+:::note[Ships in 0.3]
+The Board sprint panel's velocity card — the range band, the milestone reforecast P50/P80 delivery forecast line (ADR-0106), and the team-private gating — ships in 0.3. It is merged but not yet in a tagged build — see the [roadmap](/overview/roadmap/).
+:::
 
 The active-sprint panel at the top of the **Board** carries a compact version of the same data:
 
@@ -45,6 +49,10 @@ The `team_velocity_per_day` field is the same rolling per-day average used by [v
 
 ## Setup work & Sprint 0
 
+:::note[Ships in 0.3]
+The **Exclude from velocity** flag (ADR-0113) described in this section ships in 0.3. It is merged but not yet in a tagged build — see the [roadmap](/overview/roadmap/).
+:::
+
 A **setup or ramp-up iteration** — what agile teams often call a "Sprint 0" — is the period before real delivery begins: standing up the environment, forming the team, building the initial backlog, spiking the architecture. Its throughput is low or zero, so if it is run as a sprint and closed, it drags the rolling average down and widens the forecast band until it ages out of the window — and that contamination flows into the milestone delivery forecast too.
 
 TruePPM is scheduling-first, so it has an opinion about where this work belongs:
@@ -54,7 +62,7 @@ TruePPM is scheduling-first, so it has an opinion about where this work belongs:
 
 ### How an excluded sprint reads
 
-- In the velocity chart the bar is **muted and hatched** (and hollow in the Board sparkline), labelled `excl`, so it is marked rather than silently dropped — you can always see what was excluded and why.
+- In the velocity chart the bar is **muted and hatched** (and hollow in the Board sparkline), labeled `excl`, so it is marked rather than silently dropped — you can always see what was excluded and why.
 - The panel shows an **`⌀ N excluded`** chip and the rolling-average label counts only the sprints that still feed velocity.
 - The flag is **team-owned**: it is set by the team's Scheduler-and-above, with no PMO override, and every change is recorded in the sprint's history audit trail. It can be set **after a sprint closes** — teams usually realize a sprint skewed their numbers only in hindsight.
 
@@ -73,6 +81,6 @@ The terminology is **forecast range**, not "velocity confidence band" — confid
 
 ## If you are…
 
-- **Carlos** — read the forecast range chip. The footer ADR link explains why this is defensible.
+- **Carlos** — when the team's signal audience includes your tier, read the forecast range chip; otherwise velocity stays team-private (ADR-0104) and you work from the aggregate milestone-health signals. The footer ADR link explains why the range is defensible.
 - **Raj** — the rolling avg drives the work package re-forecast on the Schedule view at Step 6.
-- **Maya** — own the trajectory. If the bar colour is shifting amber over multiple sprints, the team is signalling something.
+- **Maya** — own the trajectory. If the bar color is shifting amber over multiple sprints, the team is signaling something.

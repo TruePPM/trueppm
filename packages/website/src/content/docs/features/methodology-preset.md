@@ -7,7 +7,7 @@ A project-level preset that tells TruePPM which planning model the team uses, an
 
 ## Where this lives in the story
 
-The system-level encoding of the [hybrid PM flow](/the-story/)'s central thesis: *one model, multiple persona views*. Without methodology, every persona sees nine tabs and the workspace overwhelms.
+The system-level encoding of the [hybrid PM flow](/the-story/)'s central thesis: *one model, multiple persona views*. Without methodology, every persona sees ten tabs and the workspace overwhelms.
 
 ## The matrix
 
@@ -17,13 +17,16 @@ The system-level encoding of the [hybrid PM flow](/the-story/)'s central thesis:
 | Board | ✅ | ✅ | ✅ |
 | Sprints | ❌ | ✅ | ✅ |
 | Schedule | ✅ | ❌ | ✅ |
-| WBS | ✅ | ❌ | ✅ |
-| Table | ✅ | ✅ | ✅ |
+| Grid | ✅ | ✅ | ✅ |
 | Calendar | ✅ | ❌ | ✅ |
 | Team | ✅ | ✅ | ✅ |
 | Risks | ✅ | ✅ | ✅ |
+| Reports | ✅ | ✅ | ✅ |
+| Settings | ✅ | ✅ | ✅ |
 
-The default for new projects is **Hybrid** — every tab visible. Existing projects (created before ADR-0041 landed) all default to Hybrid; no behaviour change.
+Waterfall hides only the Sprints tab; Agile hides only Schedule and Calendar; Hybrid hides nothing. The **Grid** tab replaced the earlier separate WBS and Table tabs (ADR-0053) and is visible in all three methodologies — its Outline mode covers the WBS use case for Waterfall and Hybrid, while Flat mode is the Agile default. Independently of methodology, the **Team** tab is additionally role-gated: it only shows for users with the Resource Manager role or above.
+
+The default for new projects is **Hybrid** — every tab visible. Existing projects (created before ADR-0041 landed) all default to Hybrid; no behavior change.
 
 ## Why hide tabs but not gate routes
 
@@ -61,6 +64,6 @@ system *does*: scheduling, permissions, and the API are untouched. Existing proj
 
 ## If you are…
 
-- **Sarah (construction PM)** — set Waterfall. Sprint chrome disappears; Schedule and WBS dominate.
-- **Maya (Scrum Master)** — set Agile. Schedule, WBS, and Calendar disappear; Sprints and Board dominate.
+- **Sarah (construction PM)** — set Waterfall. Sprint chrome disappears; Schedule and Grid (outline mode) dominate.
+- **Maya (Scrum Master)** — set Agile. Schedule and Calendar disappear and Grid defaults to flat mode; Sprints and Board dominate.
 - **Diana (PMO Director)** — leave Hybrid as the default for projects that span teams. Override per project where the team's method is clear.

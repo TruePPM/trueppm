@@ -78,6 +78,8 @@ A few endpoints are intentionally exempt:
   already deduplicated server-side.
 - **Inbound task sync** (`POST /api/v1/projects/{id}/task-sync/`) — already idempotent by
   `(project, source, external_id)` upsert (see the inbound task-sync protocol).
+- **Offline sync push** (`POST /api/v1/projects/{id}/sync/`) — already idempotent by
+  `client_batch_id` replay.
 
 ## Retention
 

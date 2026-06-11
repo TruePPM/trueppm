@@ -25,7 +25,11 @@ planning editor so a Scrum Master or PM does not have to switch routes to
   - **Burndown** — reuses [`<BurnChart sprintId={…}>`](/features/sprint-burndown/) in
     sprint-scoped mode.
   - **Velocity sparkline** — 64×24px SVG, up to 8 closed sprints, most recent
-    bar emphasized; caption shows the rolling average ± stdev.
+    bar emphasized; caption shows the rolling average ± stdev. Starting in 0.3,
+    sprints flagged *exclude from velocity* (e.g. a "Sprint 0" setup sprint)
+    stay visible but marked, and are omitted from the rolling average; the
+    velocity API reports how many were excluded via `excluded_count`
+    (ADR-0113).
   - **Capacity card** — planning target (`capacity_points`) vs committed
     points snapshot, with an on-plan / at-risk / over-capacity status.
 

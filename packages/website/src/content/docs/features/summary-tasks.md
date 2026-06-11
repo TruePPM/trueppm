@@ -55,18 +55,18 @@ Dropping onto the empty area below a summary's children inserts at the end of th
 ## API
 
 ```http
-GET /api/v1/projects/{id}/tasks/?include_summary=true
+GET /api/v1/tasks/?project={id}
 ```
 
-Returns the full hierarchy with each task's `wbs_path` (ltree) and `parent_id`. Summary rows include a computed `child_count` field so clients can render the chevron without a second query.
+Returns the full hierarchy with each task's `wbs_path` (ltree) and `parent_id`. Summary rows carry a read-only `is_summary` annotation so clients can render the chevron without a second query.
 
-See the [API reference](/api/tasks) for the complete schema.
+See the [API reference](/api/reference/) for the complete schema.
 
 ## Source
 
 | Path | Purpose |
 |------|---------|
-| `src/features/wbs/WbsView.tsx` | WBS table with keyboard + DnD handlers |
+| `src/features/grid/OutlineMode.tsx` | Outline table with keyboard + DnD handlers |
 | `src/features/schedule/engine/GanttRenderer.ts` | `drawSummaryBar` — 8px bar with diamond end-caps |
 | `src/features/schedule/wbsAnnouncement.ts` | Expand / collapse aria-live formatter |
 | `src/hooks/useTaskMutations.ts` | `useIndentTask`, `useOutdentTask`, `useReorderTasks` |

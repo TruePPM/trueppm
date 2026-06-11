@@ -42,7 +42,7 @@ All endpoints are project-scoped and authenticated with a bearer token (`$JWT`);
 
 ```bash
 # 1. Capture a baseline (name optional — auto-named "Baseline N" if omitted).
-#    Requires project Admin. Snapshots every task atomically.
+#    Requires the Project Manager role. Snapshots every task atomically.
 curl -X POST -H "Authorization: Bearer $JWT" -H "Content-Type: application/json" \
   -d '{"name": "Phase 1 commit"}' \
   https://trueppm.example.com/api/v1/projects/$PROJECT_ID/baselines/
@@ -51,11 +51,11 @@ curl -X POST -H "Authorization: Bearer $JWT" -H "Content-Type: application/json"
 curl -H "Authorization: Bearer $JWT" \
   https://trueppm.example.com/api/v1/projects/$PROJECT_ID/baselines/
 
-# 3. Activate a baseline (deactivates any other). Requires project Admin.
+# 3. Activate a baseline (deactivates any other). Requires the Project Manager role.
 curl -X POST -H "Authorization: Bearer $JWT" \
   https://trueppm.example.com/api/v1/projects/$PROJECT_ID/baselines/$BASELINE_ID/activate/
 
-# 4. Delete a baseline. Requires project Owner.
+# 4. Delete a baseline. Requires the Project Admin (owner) role.
 curl -X DELETE -H "Authorization: Bearer $JWT" \
   https://trueppm.example.com/api/v1/projects/$PROJECT_ID/baselines/$BASELINE_ID/
 ```
@@ -63,10 +63,10 @@ curl -X DELETE -H "Authorization: Bearer $JWT" \
 | Method & path | Purpose | Permission |
 |---|---|---|
 | `GET /api/v1/projects/{id}/baselines/` | List baselines | Project member |
-| `POST /api/v1/projects/{id}/baselines/` | Capture a baseline (auto-named if blank) | Admin |
+| `POST /api/v1/projects/{id}/baselines/` | Capture a baseline (auto-named if blank) | Project Manager (`ADMIN`) |
 | `GET /api/v1/projects/{id}/baselines/{baselineId}/` | Retrieve (with task count) | Project member |
-| `POST /api/v1/projects/{id}/baselines/{baselineId}/activate/` | Make active, deactivate others | Admin |
-| `DELETE /api/v1/projects/{id}/baselines/{baselineId}/` | Delete a baseline | Owner |
+| `POST /api/v1/projects/{id}/baselines/{baselineId}/activate/` | Make active, deactivate others | Project Manager (`ADMIN`) |
+| `DELETE /api/v1/projects/{id}/baselines/{baselineId}/` | Delete a baseline | Project Admin (`OWNER`) |
 
 ## Comparing against the plan
 

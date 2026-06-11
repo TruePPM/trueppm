@@ -66,17 +66,17 @@ This is where TruePPM is different from every other scheduling tool.
 
 When your team creates sprint stories, those stories are child tasks under your WBS work packages. They're not in a separate tool. They're not imported via a connector. They're in the same task hierarchy, sharing the same row in the database, visible from both the Gantt and the board.
 
-A work package with a 10-day CPM duration might decompose into 8 stories worth 34 story points. When the sprint closes and the team delivered 28 of those points, TruePPM adjusts the work package's remaining duration based on the actual velocity. **You didn't do anything.** The schedule re-forecast itself.
+A work package with a 10-day CPM duration might decompose into 8 stories worth 34 story points. When the sprint closes and the team delivered 28 of those points, TruePPM computes the team's velocity and offers a revised duration suggestion in the task drawer — accept it and the schedule re-forecasts. Durations are never silently rewritten; you stay in control of the plan.
 
-### What you see on your Gantt
+### What velocity gives you today
 
-When your team is in an active sprint, the work packages they're working on show:
+When your team closes a sprint:
 
-- The CPM-derived early start/finish (your baseline commitment)
-- A forecast finish derived from current sprint velocity and remaining story points
-- A schedule variance indicator (amber/red) if the velocity-based forecast drifts materially from the baseline
+- The CPM-derived early start/finish remains your baseline commitment
+- Velocity-calibration suggestions appear for the work packages whose stories under-delivered — each one a proposed duration revision you explicitly accept or dismiss
+- Closing a sprint bound to a milestone records a fresh P50/P80 delivery forecast against that milestone (ships in 0.3)
 
-If the team is tracking ahead, you see it. If they're falling behind, you see it the day it starts happening — not on Friday's status call.
+Live per-bar Gantt forecasts and amber/red schedule-variance indicators driven by mid-sprint velocity are part of the deep CPM-aware bridge planned for 0.5 — they do not exist yet.
 
 ### What you don't have to do
 
@@ -125,9 +125,9 @@ When a scheduler or admin changes the plan, all connected browsers update immedi
 | Schedule build mode (keyboard-first) | Shipped |
 | Summary tasks + WBS rollup | Shipped |
 | Hybrid velocity → CPM forecast | Shipped |
-| MS Project import/export | Shipped — API only, no UI yet |
+| MS Project import/export | Shipped (UI + API, 0.2) |
 | Gantt drag-to-reschedule (WASM CPM) | Shipped |
-| Multi-baseline support | Roadmap (0.5) |
+| Baseline UI + structured rebaseline reasons | Roadmap (0.5) |
 | Time tracking | Roadmap (0.5) |
 | EVM (CPI / SPI / BCWP) | Roadmap (post-1.0) |
 

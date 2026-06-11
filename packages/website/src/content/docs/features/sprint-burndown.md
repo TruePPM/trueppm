@@ -13,14 +13,14 @@ Step 6 ([Execute](/the-story/#6-execute--daily-cadence-two-worlds-in-sync)) of t
 
 - **Y-axis:** remaining story points
 - **X-axis:** working days of the sprint (Day 1 → Day N)
-- **Today marker:** vertical dashed `semantic-critical` line labelled `TODAY`
-- **Trending callout:** `Trending {N} pts ahead/behind of ideal · scope-add {date} (+{N} pts)` — colour reflects on-track / at-risk
+- **Today marker:** vertical dashed `semantic-critical` line labeled `TODAY`
+- **Trending callout:** `Trending {N} pts ahead/behind of ideal · scope-add {date} (+{N} pts)` — color reflects on-track / at-risk
 - **Forecast close:** linear extrapolation from current pace to zero remaining
 
 ## Where to find it in the app
 
 - Route: `/projects/:projectId/sprints` (left ~60% of the metrics row)
-- Renders only when an `ACTIVE` sprint exists.
+- Renders for the active sprint; selecting a closed sprint shows its frozen historical burndown in the read-only review.
 
 ## API endpoints
 
@@ -44,4 +44,4 @@ The ideal line is computed client-side from `committed_points`; the API does not
 ## If you are…
 
 - **Maya** — your at-a-glance sprint health. The trending callout tells you whether to escalate at standup.
-- **Carlos** — you don't open this directly; you read its derived signal in [the velocity forecast](/features/velocity/).
+- **Carlos** — you don't open this directly. You read the aggregate milestone-health and schedule-confidence signals; the [velocity forecast](/features/velocity/) it feeds is team-private by default (ADR-0104) and visible to you only when the team's signal audience includes your tier.

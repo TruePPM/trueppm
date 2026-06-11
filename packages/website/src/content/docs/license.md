@@ -11,7 +11,7 @@ This page exists so you can adopt TruePPM Community Edition with confidence. It 
 TruePPM's open-source Community Edition is licensed under the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) — an OSI-approved permissive license. You may use it commercially, modify it, redistribute it, and run it privately. Apache 2.0 also includes an **explicit patent grant** from contributors, so adopting TruePPM does not expose you to a contributor's patent claims over the code they contributed.
 :::
 
-The authoritative text is the [`LICENSE`](https://gitlab.com/trueppm/trueppm/-/blob/main/LICENSE) file at the repository root, accompanied by the [`NOTICE`](https://gitlab.com/trueppm/trueppm/-/blob/main/NOTICE) file. If anything on this page ever disagrees with those files, the files win.
+The authoritative text is the [`LICENSE`](https://gitlab.com/trueppm/trueppm/-/blob/main/LICENSE) file at the repository root. If anything on this page ever disagrees with that file, the file wins.
 
 ## What "Community Edition" includes
 
@@ -21,14 +21,14 @@ Everything a project manager and their team need to run a program is in the Apac
 
 TruePPM is open-core. Governance and portfolio features (SSO/SAML/OIDC, LDAP sync, portfolio dashboards, cross-program resource leveling, approval workflows, the org-wide integration hub) are **proprietary** and live in a **separate repository** (`trueppm-enterprise`).
 
-The dependency is strictly one-way — enterprise code depends on the core, never the reverse. **The Community Edition never imports, links, or ships any proprietary code.** Cloning and running the open-source repository pulls in zero enterprise code. This separation is an architectural rule, not a packaging convenience: it is enforced in the codebase and documented in [ADR-0013](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0013-board-kanban-view.md).
+The dependency is strictly one-way — enterprise code depends on the core, never the reverse. **The Community Edition never imports, links, or ships any proprietary code.** Cloning and running the open-source repository pulls in zero enterprise code. This separation is an architectural rule, not a packaging convenience: it is enforced in the codebase and documented in the [contributing guide](/contributing/guide/).
 
 ## Dependency licenses are enforced in CI, not just promised
 
 You do not have to take our word that the dependency tree is clean. Every merge request and every push to `main` runs automated license audits. A dependency carrying an incompatible license **fails the pipeline** and cannot merge.
 
-- **Python dependencies** (`license:check:py`, via `pip-licenses`) — the GPL family (GPLv2, GPLv3) is **blocked**; introducing a GPL-licensed package fails the build. **LGPL is permitted** under its library-linking (dynamic-linking) exemption: LGPL code is linked at runtime, not statically incorporated into TruePPM's own source, so it does not affect the Apache 2.0 license of TruePPM's code.
-- **JavaScript / npm dependencies** (`web:security`, via `license-checker --production --onlyAllow`) — a strict allowlist. Only these licenses are permitted; anything else fails the build:
+- **Python dependencies** (`license:check:py`, via `pip-licenses`) — the GPL family (GPLv2, GPLv3, AGPLv3) is **blocked**; introducing a GPL-licensed package fails the build. **LGPL is permitted** under its library-linking (dynamic-linking) exemption: LGPL code is linked at runtime, not statically incorporated into TruePPM's own source, so it does not affect the Apache 2.0 license of TruePPM's code.
+- **JavaScript / npm dependencies** (`license:check:web`, via `license-checker --production --onlyAllow`) — a strict allowlist. Only these licenses are permitted; anything else fails the build:
 
   ```
   MIT  Apache-2.0  BSD-2-Clause  BSD-3-Clause  ISC  0BSD

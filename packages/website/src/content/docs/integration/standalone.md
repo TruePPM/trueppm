@@ -46,7 +46,7 @@ print(f"Critical path: {' → '.join(result.critical_path)}")
 
 ## JSON input / output
 
-Projects serialise to and from JSON for file-based workflows:
+Projects serialize to and from JSON for file-based workflows:
 
 ```python
 import json
@@ -98,7 +98,7 @@ print(f"P95: {mc.p95}  ← contractual deadline buffer")
 ```
 
 See [02-monte-carlo.ipynb](https://gitlab.com/trueppm/trueppm/-/blob/main/packages/scheduler/notebooks/02-monte-carlo.ipynb)
-for a full walkthrough with matplotlib visualisation.
+for a full walkthrough with matplotlib visualization.
 
 ## Error handling
 
