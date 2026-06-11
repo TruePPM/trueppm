@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { describe, it, expect, vi } from 'vitest';
@@ -19,6 +19,8 @@ const WS: WorkspaceSettings = {
   defaultProjectView: 'Overview',
   allowGuests: false,
   publicSharing: false,
+  iterationLabel: 'Sprint',
+  iterationLabelOverridePolicy: 'suggest',
 };
 
 vi.mock('../hooks/useWorkspaceSettings', () => ({
@@ -47,8 +49,13 @@ function renderPage() {
 describe('WorkspaceGeneralPage — unwired buttons (#969, #641, Enterprise)', () => {
   it('treats "View change history" as an Enterprise affordance (disabled + EE badge)', () => {
     renderPage();
-    expect(screen.getByRole('button', { name: 'View change history' })).toBeDisabled();
-    const ee = screen.getByRole('link', { name: /Available in TruePPM Enterprise/i });
+    const historyBtn = screen.getByRole('button', { name: 'View change history' });
+    expect(historyBtn).toBeDisabled();
+    // Scope to the badge alongside this button — there is now a second EE badge on
+    // the iteration-terminology "Enforce" policy (#1106).
+    const ee = within(historyBtn.parentElement as HTMLElement).getByRole('link', {
+      name: /Available in TruePPM Enterprise/i,
+    });
     expect(ee).toHaveAttribute('href', 'https://trueppm.com/enterprise');
   });
 

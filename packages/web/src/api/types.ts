@@ -265,6 +265,12 @@ export interface WorkspaceSettings {
   defaultProjectView: string;
   allowGuests: boolean;
   publicSharing: boolean;
+  /** Workspace-wide default iteration-container label (ADR-0116, #1106) — the
+   *  root of the Workspace → Program → Project inheritance chain. */
+  iterationLabel: string;
+  /** Cascade policy. `inherit`/`suggest` (OSS) let lower scopes override;
+   *  `enforce` locks the term and is an Enterprise capability (no-op in OSS). */
+  iterationLabelOverridePolicy: 'inherit' | 'suggest' | 'enforce';
 }
 
 /**

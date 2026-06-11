@@ -29,6 +29,8 @@ const RAW_SETTINGS = {
   default_project_view: 'Board',
   allow_guests: true,
   public_sharing: false,
+  iteration_label: 'Sprint',
+  iteration_label_override_policy: 'suggest',
 };
 
 const EXPECTED: WorkspaceSettings = {
@@ -42,6 +44,8 @@ const EXPECTED: WorkspaceSettings = {
   defaultProjectView: 'Board',
   allowGuests: true,
   publicSharing: false,
+  iterationLabel: 'Sprint',
+  iterationLabelOverridePolicy: 'suggest',
 };
 
 function makeWrapper() {
