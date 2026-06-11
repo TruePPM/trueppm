@@ -61,19 +61,23 @@ def test_task_gets_short_id_on_create(project: Project) -> None:
 
 @pytest.mark.django_db
 def test_risk_gets_short_id_on_create(project: Project, user: object) -> None:
+    # Risks moved off the shared hex object_sequence onto a dedicated decimal
+    # risk_sequence in #929, so the raw short_id is a contiguous decimal string.
     r = Risk.objects.create(project=project, title="R1", probability=3, impact=4, created_by=user)
-    assert r.short_id == "00000001"
+    assert r.short_id == "1"
 
 
 @pytest.mark.django_db
-def test_short_ids_are_sequential_across_types(project: Project, user: object) -> None:
-    """Tasks and risks share the same counter per project."""
+def test_short_ids_use_separate_counters_by_type(project: Project, user: object) -> None:
+    """Tasks/Sprints share the hex object_sequence; risks have their own decimal counter (#929)."""
     t1 = Task.objects.create(project=project, name="T1", duration=1)
     r1 = Risk.objects.create(project=project, title="R1", probability=1, impact=1, created_by=user)
     t2 = Task.objects.create(project=project, name="T2", duration=1)
+    # The risk does not consume a slot in the shared task/sprint counter.
     assert t1.short_id == "00000001"
-    assert r1.short_id == "00000002"
-    assert t2.short_id == "00000003"
+    assert t2.short_id == "00000002"
+    # Risks number independently in decimal from their dedicated risk_sequence.
+    assert r1.short_id == "1"
 
 
 @pytest.mark.django_db
@@ -190,7 +194,7 @@ def test_risk_list_includes_short_id(
     assert r.status_code == 200
     results = r.data.get("results", r.data)
     first = next(item for item in results if item["id"] == str(risk.pk))
-    assert first["short_id"] == "00000001"
+    assert first["short_id"] == "1"
 
 
 @pytest.mark.django_db
@@ -208,7 +212,7 @@ def test_risk_short_id_is_read_only(
         )
     assert r.status_code == 200
     risk.refresh_from_db()
-    assert risk.short_id == "00000001"
+    assert risk.short_id == "1"
 
 
 # ---------------------------------------------------------------------------
@@ -231,4 +235,4 @@ def test_sync_risk_serializer_includes_short_id(project: Project, user: object) 
 
     r = Risk.objects.create(project=project, title="R1", probability=2, impact=3, created_by=user)
     data = SyncRiskSerializer(r).data
-    assert data["short_id"] == "00000001"
+    assert data["short_id"] == "1"

@@ -75,7 +75,7 @@ def reverse_backfill(apps: Any, schema_editor: Any) -> None:
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("projects", "0072_pulseresponse_retroboarditem"),
+        ("projects", "0074_historicaltask_blocked_reason_task_blocked_reason"),
     ]
 
     operations = [

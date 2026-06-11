@@ -917,7 +917,7 @@ class TestRiskShortId:
         versions_before = {r.pk: r.server_version for r in Risk.objects.filter(project=project)}
 
         migration = importlib.import_module(
-            "trueppm_api.apps.projects.migrations.0073_risk_decimal_short_id"
+            "trueppm_api.apps.projects.migrations.0075_risk_decimal_short_id"
         )
         migration.backfill_risk_short_ids(django_apps, None)
 
