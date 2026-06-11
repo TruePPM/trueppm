@@ -133,7 +133,7 @@ export function SprintTimelineStrip({
           ) : null}
           {milestoneName ? <> toward <strong className="font-medium text-neutral-text-primary">{milestoneName}</strong></> : null}
         </span>
-        <span className="text-neutral-text-disabled italic">
+        <span className="text-neutral-text-secondary italic">
           one active {itl.lower} per project
         </span>
       </p>
@@ -185,7 +185,6 @@ function SprintCard({
 
   const committed = sprint.committed_points ?? 0;
   const completed = sprint.completed_points ?? 0;
-  const ratio = committed > 0 ? Math.min(completed / committed, 1) : 0;
 
   return (
     <article
@@ -206,41 +205,40 @@ function SprintCard({
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         />
       )}
-      <div className="flex items-center justify-between gap-2">
-        <span className="tppm-mono text-xs font-medium">{sprint.short_id_display}</span>
-        <span className="text-xs uppercase tracking-wide text-neutral-text-disabled">
+      {/* Name leads (the sprint's identity); the zero-padded short_id_display is
+          demoted off the card face — it stays in the article aria-label so screen
+          readers and the selector keep it (#1107 ux-review: a DB key shouldn't
+          out-weigh the name). */}
+      <div className="flex items-baseline justify-between gap-2">
+        <p className="text-sm font-medium text-neutral-text-primary truncate" title={sprint.name}>
+          {sprint.name}
+        </p>
+        <span className="shrink-0 text-xs uppercase tracking-wide text-neutral-text-secondary">
           {variant}
         </span>
       </div>
-
-      <p className="text-sm font-medium text-neutral-text-primary truncate" title={sprint.name}>
-        {sprint.name}
-      </p>
 
       <p className="tppm-mono text-xs text-neutral-text-secondary">
         {formatDateRange(sprint.start_date, sprint.finish_date)}
       </p>
 
       {variant !== 'planned' && committed > 0 && (
-        <div
-          className="h-1.5 w-full rounded-full bg-neutral-surface-sunken overflow-hidden"
-          role="progressbar"
-          aria-valuemin={0}
-          aria-valuemax={committed}
-          aria-valuenow={completed}
-          aria-label={`${completed} of ${committed} points complete`}
-        >
-          <div
-            className="h-full bg-semantic-on-track"
-            style={{ width: `${ratio * 100}%` }}
-          />
-        </div>
-      )}
-
-      {variant !== 'planned' && committed > 0 && (
-        <p className="tppm-mono text-xs text-neutral-text-secondary">
-          {completed}/{committed} pts
-        </p>
+        <>
+          <CommitmentBar committed={committed} completed={completed} />
+          <p className="tppm-mono text-xs text-neutral-text-secondary flex items-center gap-1.5">
+            <span>
+              {completed}/{committed} pts
+            </span>
+            {completed > committed && (
+              // Over-commitment cue is never colour-alone (WCAG 1.4.1 / rules 145, 159):
+              // the ⚠ glyph + "+N over" text carry the signal; text uses the AA-dark
+              // at-risk token, the brand amber stays a fill (the bar overflow segment).
+              <span className="font-medium text-semantic-at-risk inline-flex items-center gap-0.5">
+                <span aria-hidden="true">⚠</span>+{completed - committed} over
+              </span>
+            )}
+          </p>
+        </>
       )}
 
       {variant === 'planned' && (
@@ -256,6 +254,65 @@ function SprintCard({
         </div>
       )}
     </article>
+  );
+}
+
+/**
+ * Commitment progress bar that makes over-commitment visible (#1107).
+ *
+ * The bar's full width represents `max(committed, completed)`, so when a sprint
+ * completes MORE than it committed the extra is shown as a distinct **amber
+ * overflow segment past a navy capacity tick** — never a clamped full green bar
+ * that reads as "done" (the VoC blocker from Jordan + Alex). Under/at commitment
+ * there is no overflow and no tick (the bar end IS the capacity line).
+ *
+ * Colour is never the sole signal: the capacity tick is a structural cue and the
+ * card's `+N over` label (rule 145/159) carries the text equivalent. ARIA keeps
+ * `valuenow ≤ valuemax` by scaling `valuemax` to the bar denominator and putting
+ * the commitment + overage into `aria-valuetext`.
+ */
+function CommitmentBar({ committed, completed }: { committed: number; completed: number }) {
+  const denom = Math.max(committed, completed, 1);
+  const inCommit = Math.min(completed, committed);
+  const over = Math.max(0, completed - committed);
+  const greenPct = (inCommit / denom) * 100;
+  const overPct = (over / denom) * 100;
+  const capPct = (committed / denom) * 100;
+  const isOver = over > 0;
+
+  return (
+    <div
+      className="relative h-1.5 w-full rounded-full bg-neutral-surface-sunken overflow-hidden"
+      role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={denom}
+      aria-valuenow={completed}
+      aria-label={
+        isOver
+          ? `${completed} of ${committed} points committed, ${over} over commitment`
+          : `${completed} of ${committed} points complete`
+      }
+    >
+      <div
+        className="absolute inset-y-0 left-0 bg-semantic-on-track"
+        style={{ width: `${greenPct}%` }}
+      />
+      {isOver && (
+        <div
+          className="absolute inset-y-0 bg-semantic-at-risk"
+          style={{ left: `${capPct}%`, width: `${overPct}%` }}
+        />
+      )}
+      {isOver && (
+        // Navy capacity tick at the commitment line — the non-colour structural
+        // cue that the team crossed its committed scope (rules 146/147, 1.4.1).
+        <div
+          aria-hidden="true"
+          className="absolute inset-y-0 w-0.5 bg-neutral-text-primary"
+          style={{ left: `${capPct}%` }}
+        />
+      )}
+    </div>
   );
 }
 
