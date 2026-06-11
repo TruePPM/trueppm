@@ -2938,7 +2938,7 @@ class AcceptanceCriterionViewSet(IdempotencyMixin, viewsets.ModelViewSet[Accepta
         transaction.on_commit(lambda: broadcast_board_event(pid, "task_updated", {"id": tid}))
 
 
-class RetroBoardItemViewSet(viewsets.GenericViewSet[RetroBoardItem]):
+class RetroBoardItemViewSet(IdempotencyMixin, viewsets.GenericViewSet[RetroBoardItem]):
     """Detail ops for live retro-board stickies — edit / move / delete / convert (ADR-0117).
 
     Flat route ``/api/v1/retro-items/<pk>/``. Creation is sprint-scoped
