@@ -55,6 +55,15 @@ export interface ApiProjectDetail {
   is_sample: boolean;
   /** The project's program as {id, name} — drives the per-project demo indicator's "part of …" link. Null for unassigned projects. */
   program_detail: { id: string; name: string } | null;
+  /**
+   * The caller's own Scrum-Master / Product-Owner team facets on this project
+   * (ADR-0078 / #1095). Drives the render-gates for the sprint-goal edit (SM)
+   * and the backlog manage controls (PO) — see `useMyFacets` / `useCanManageBacklog`.
+   * Detail responses only; both false for non-facet members and anonymous reads.
+   * Optional in the type so pre-#1095 fixtures need not set it; `useMyFacets`
+   * defaults both facets to false when absent.
+   */
+  my_facets?: { is_scrum_master: boolean; is_product_owner: boolean };
 }
 
 /**

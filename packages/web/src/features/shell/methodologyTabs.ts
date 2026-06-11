@@ -4,17 +4,18 @@ import type { Methodology } from '@/types';
  * Tab visibility matrix per methodology preset (ADR-0041, amended by ADR-0053).
  *
  * Matrix:
- * | Tab       | WATERFALL | AGILE | HYBRID |
- * |-----------|-----------|-------|--------|
- * | overview  | ✅        | ✅    | ✅     |
- * | board     | ✅        | ✅    | ✅     |
- * | sprints   | ❌        | ✅    | ✅     |
- * | schedule  | ✅        | ❌    | ✅     |
- * | grid      | ✅        | ✅    | ✅     |
- * | calendar  | ✅        | ❌    | ✅     |
- * | resources | ✅        | ✅    | ✅     |
- * | risk      | ✅        | ✅    | ✅     |
- * | reports   | ✅        | ✅    | ✅     |
+ * | Tab             | WATERFALL | AGILE | HYBRID |
+ * |-----------------|-----------|-------|--------|
+ * | overview        | ✅        | ✅    | ✅     |
+ * | board           | ✅        | ✅    | ✅     |
+ * | product-backlog | ❌        | ✅    | ✅     |
+ * | sprints         | ❌        | ✅    | ✅     |
+ * | schedule        | ✅        | ❌    | ✅     |
+ * | grid            | ✅        | ✅    | ✅     |
+ * | calendar        | ✅        | ❌    | ✅     |
+ * | resources       | ✅        | ✅    | ✅     |
+ * | risk            | ✅        | ✅    | ✅     |
+ * | reports         | ✅        | ✅    | ✅     |
  *
  * `grid` replaces the legacy `wbs` + `list` entries (issue #334). Outline mode
  * inside Grid covers the WBS use case for WATERFALL and HYBRID; Flat mode is
@@ -24,7 +25,7 @@ import type { Methodology } from '@/types';
  * communicates "this is not how we work here", not "this is not allowed".
  */
 const HIDDEN_FOR_METHODOLOGY: Record<Methodology, ReadonlySet<string>> = {
-  WATERFALL: new Set(['sprints']),
+  WATERFALL: new Set(['sprints', 'product-backlog']),
   AGILE: new Set(['schedule', 'calendar']),
   HYBRID: new Set(),
 };

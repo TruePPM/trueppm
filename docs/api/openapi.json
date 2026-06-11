@@ -23765,6 +23765,14 @@
                         "nullable": true,
                         "description": "The project's program as ``{id, name}`` for the demo indicator link.\n\nDetail-only serializer (single object), so the ``obj.program`` access is\nnot the N+1 risk it would be on the list serializer.",
                         "readOnly": true
+                    },
+                    "my_facets": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "boolean"
+                        },
+                        "description": "The requesting user's own team facets on this project (#1095).\n\nReturns ``{\"is_scrum_master\": bool, \"is_product_owner\": bool}`` — the\ncaller's two-axis RBAC facets (ADR-0078) resolved against the project's\ndefault team. The web uses this to render-gate Product-Owner / Scrum-Master\ncontrols (e.g. the backlog auto-rank + reorder affordances) without a\nseparate round-trip. Both False for an anonymous caller or a non-member.\n\nDetail-only (never on the list serializer) to keep the project list cheap —\none membership lookup per project would be an N+1 on a list response.",
+                        "readOnly": true
                     }
                 },
                 "required": [
@@ -23775,6 +23783,7 @@
                     "is_sample",
                     "lead_detail",
                     "member_count",
+                    "my_facets",
                     "name",
                     "percent_complete",
                     "program_detail",

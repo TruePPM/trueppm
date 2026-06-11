@@ -1,20 +1,20 @@
 /**
  * Full-page empty state when the program has no backlog items at all (distinct
  * from <NoResults>, which is the filtered-to-zero case). Replaces the toolbar,
- * list, and right pane entirely. Both CTAs are offered — "Import CSV" matters
- * here because people often arrive with an existing list.
+ * list, and right pane entirely. (The "Import CSV" CTA is hidden until CSV import
+ * ships — #1045/#746; a visible "coming soon" dead-end damages first-impression
+ * trust on a new surface.)
  */
 
 import { ListIcon } from '@/components/Icons';
-import { BTN_PRIMARY, BTN_SECONDARY } from './styles';
+import { BTN_PRIMARY } from './styles';
 
 interface EmptyBacklogProps {
   canEdit: boolean;
   onCreate: () => void;
-  onImport: () => void;
 }
 
-export function EmptyBacklog({ canEdit, onCreate, onImport }: EmptyBacklogProps) {
+export function EmptyBacklog({ canEdit, onCreate }: EmptyBacklogProps) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center px-6 py-16 text-center">
       <div className="flex h-[72px] w-[72px] items-center justify-center rounded-full border border-neutral-border bg-neutral-surface-raised text-neutral-text-secondary">
@@ -31,9 +31,6 @@ export function EmptyBacklog({ canEdit, onCreate, onImport }: EmptyBacklogProps)
         <div className="mt-5 flex items-center gap-2">
           <button type="button" className={BTN_PRIMARY} onClick={onCreate}>
             + Create your first item
-          </button>
-          <button type="button" className={BTN_SECONDARY} onClick={onImport}>
-            Import CSV
           </button>
         </div>
       )}

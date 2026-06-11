@@ -42,9 +42,12 @@ import { isAxiosError } from 'axios';
 import { Button } from '@/components/Button';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
+import { useCanManageBacklog } from '@/hooks/useMyFacets';
 import type { Task } from '@/types';
 import type { ReorderEntry } from './api';
 import { AcMeter, DorChip } from './components/atoms';
+import { StoryDetailDrawer } from './components/StoryDetailDrawer';
+import { TypeBadge } from './components/TypeBadge';
 import {
   useAutoRank,
   useProductBacklog,
@@ -126,11 +129,15 @@ function HealthStrip({ health, iterationLower }: { health: GroomingHealth; itera
 function StoryRow({
   story,
   hasScore,
+  selected,
   onToggleDor,
+  onOpen,
 }: {
   story: Task;
   hasScore: boolean;
+  selected: boolean;
   onToggleDor: (story: Task) => void;
+  onOpen: (story: Task) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: story.id,
@@ -141,14 +148,31 @@ function StoryRow({
     <div
       ref={setNodeRef}
       style={style}
-      className={`${gridCols(hasScore)} border-b border-neutral-border bg-neutral-surface px-2 py-2.5 text-[13px] ${
-        isDragging ? 'rounded-md opacity-60 ring-2 ring-brand-primary' : ''
+      role="button"
+      tabIndex={0}
+      aria-label={`Open ${story.taskType ?? 'story'} ${story.name}`}
+      onClick={() => {
+        if (!isDragging) onOpen(story);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onOpen(story);
+        }
+      }}
+      className={`${gridCols(hasScore)} cursor-pointer border-b border-neutral-border bg-neutral-surface px-2 py-2.5 text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset ${
+        isDragging
+          ? 'rounded-md opacity-60 ring-2 ring-brand-primary'
+          : selected
+            ? 'ring-2 ring-inset ring-navy-700 dark:ring-reversed'
+            : ''
       }`}
     >
       <button
         type="button"
         aria-label={`Reorder ${story.name}`}
         className="flex min-h-[44px] min-w-[44px] cursor-grab touch-none items-center justify-center rounded text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary active:cursor-grabbing"
+        onClick={(e) => e.stopPropagation()}
         {...attributes}
         {...listeners}
       >
@@ -156,12 +180,16 @@ function StoryRow({
       </button>
       <span className="font-mono text-[11px] text-neutral-text-secondary">{story.shortId}</span>
       <span className="flex min-w-0 items-center gap-2">
+        <TypeBadge type={story.taskType} />
         <span className="truncate font-medium text-neutral-text-primary">{story.name}</span>
       </span>
       <AcMeter met={story.acMet ?? 0} total={story.acTotal ?? 0} />
       <button
         type="button"
-        onClick={() => onToggleDor(story)}
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggleDor(story);
+        }}
         className="justify-self-start rounded focus:outline-none focus:ring-2 focus:ring-brand-primary"
         title="Toggle Definition of Ready (ready / refine)"
       >
@@ -264,8 +292,10 @@ export function ProductBacklogPage() {
   const setDor = useSetDor(projectId);
   const reorder = useReorderBacklog(projectId);
   const quickAdd = useQuickAddStory(projectId);
+  const canManageBacklog = useCanManageBacklog(projectId);
   const [conflict, setConflict] = useState(false);
   const [draft, setDraft] = useState('');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   // Flatten stories in render order to locate the next-sprint ready line — the row after
   // which cumulative ready points first reach the active sprint's capacity.
@@ -296,6 +326,12 @@ export function ProductBacklogPage() {
   const { health, scoring } = backlog;
   const hasScore = scoring.model !== 'none';
   const allEmpty = backlog.epics.length === 0 && backlog.ungrouped.length === 0;
+  const selectedStory =
+    selectedId == null
+      ? null
+      : ([...backlog.epics.flatMap((g) => g.stories), ...backlog.ungrouped].find(
+          (s) => s.id === selectedId,
+        ) ?? null);
 
   function commitReorder(optimistic: ProductBacklog) {
     setConflict(false);
@@ -352,14 +388,21 @@ export function ProductBacklogPage() {
   function rowsWithReadyLine(stories: Task[]): ReactNode {
     return stories.map((s) => (
       <div key={s.id}>
-        <StoryRow story={s} hasScore={hasScore} onToggleDor={toggleDor} />
+        <StoryRow
+          story={s}
+          hasScore={hasScore}
+          selected={s.id === selectedId}
+          onToggleDor={toggleDor}
+          onOpen={(st) => setSelectedId(st.id)}
+        />
         {s.id === readyLineAfterId && <ReadyLine />}
       </div>
     ));
   }
 
   return (
-    <div className="flex h-full flex-col overflow-auto bg-neutral-surface">
+    <div className="relative flex h-full flex-col bg-neutral-surface">
+      <div className="flex min-h-0 flex-1 flex-col overflow-auto">
       <header className="flex items-center gap-3 border-b border-neutral-border px-6 py-4">
         <div className="flex flex-col">
           <h1 className="text-xl font-semibold text-neutral-text-primary">Product backlog</h1>
@@ -474,6 +517,18 @@ export function ProductBacklogPage() {
         </div>
       </div>
       </div>
+      </div>
+
+      {selectedStory && (
+        <StoryDetailDrawer
+          key={selectedStory.id}
+          projectId={projectId as string}
+          story={selectedStory}
+          backlog={backlog}
+          canManageBacklog={canManageBacklog}
+          onClose={() => setSelectedId(null)}
+        />
+      )}
     </div>
   );
 }

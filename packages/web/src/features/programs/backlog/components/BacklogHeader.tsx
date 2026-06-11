@@ -1,14 +1,16 @@
 /**
- * Program-backlog page header — eyebrow (program name), title, and the two
- * primary actions. Create / Import require edit rights; for viewers the
- * buttons render disabled with an explanatory tooltip rather than disappearing
- * (01-page-layout RBAC: "don't hide").
+ * Program-backlog page header — eyebrow (program name), title, and the primary
+ * Create action. Create requires edit rights; for viewers the button renders
+ * disabled with an explanatory tooltip rather than disappearing (01-page-layout
+ * RBAC: "don't hide"). The "Import CSV" action is hidden until CSV import ships
+ * (#1045/#746) — a visible "coming soon" dead-end on a primary action signals
+ * incompleteness on a new surface.
  */
 
 import type { Program } from '@/api/types';
 import { PlusIcon } from '@/components/Icons';
 import { ProgramIdentitySquare } from '@/features/programs/ProgramIdentitySquare';
-import { BTN_PRIMARY, BTN_SECONDARY } from './styles';
+import { BTN_PRIMARY } from './styles';
 
 interface BacklogHeaderProps {
   programName: string | undefined;
@@ -16,18 +18,11 @@ interface BacklogHeaderProps {
   program: Pick<Program, 'color' | 'code' | 'name'> | undefined;
   canEdit: boolean;
   onCreate: () => void;
-  onImport: () => void;
 }
 
 const NO_EDIT_TOOLTIP = 'Editing the backlog requires Admin role';
 
-export function BacklogHeader({
-  programName,
-  program,
-  canEdit,
-  onCreate,
-  onImport,
-}: BacklogHeaderProps) {
+export function BacklogHeader({ programName, program, canEdit, onCreate }: BacklogHeaderProps) {
   return (
     <header className="flex flex-wrap items-start justify-between gap-3 border-b border-neutral-border bg-neutral-surface-raised px-6 py-4">
       <div className="flex min-w-0 items-center gap-3">
@@ -44,15 +39,6 @@ export function BacklogHeader({
         </div>
       </div>
       <div className="flex items-center gap-2">
-        <button
-          type="button"
-          className={BTN_SECONDARY}
-          onClick={onImport}
-          disabled={!canEdit}
-          title={canEdit ? undefined : NO_EDIT_TOOLTIP}
-        >
-          Import CSV
-        </button>
         <button
           type="button"
           className={BTN_PRIMARY}

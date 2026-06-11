@@ -22,6 +22,7 @@ import {
   postSplitStory,
   type ReorderEntry,
 } from '../api';
+import type { DorState } from '@/types';
 import type { ProductBacklog } from '../types';
 
 export const productBacklogKeys = {
@@ -56,8 +57,7 @@ export function useAutoRank(projectId: string | undefined) {
 export function useSetDor(projectId: string | undefined) {
   const invalidate = useInvalidate(projectId);
   return useMutation({
-    mutationFn: ({ taskId, dor }: { taskId: string; dor: 'ready' | 'refine' }) =>
-      patchTaskDor(taskId, dor),
+    mutationFn: ({ taskId, dor }: { taskId: string; dor: DorState }) => patchTaskDor(taskId, dor),
     onSuccess: invalidate,
   });
 }
