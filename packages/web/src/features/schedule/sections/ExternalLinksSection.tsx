@@ -14,6 +14,7 @@
 
 import { useState } from 'react';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
+import { canEditTask } from '@/lib/roles';
 import { detectProvider } from '@/lib/detectProvider';
 import { safeExternalHref } from '@/lib/safeExternalHref';
 import { formatRelative } from '@/lib/formatRelative';
@@ -531,12 +532,14 @@ function AddLinkInput({ projectId, taskId }: AddLinkInputProps) {
 
 /**
  * Drawer section body. `canEdit` follows task-edit permission — Viewers can see
- * and refresh links but not add or delete them. The drawer doesn't pass a role,
- * so we surface add/delete always and let the server 403 a Viewer's write; for
- * a cleaner UX a future pass can thread the role through DrawerSectionProps.
+ * and refresh links but not add or delete them (#1046). The role is threaded
+ * through `DrawerSectionProps.userRole`; `canEditTask` returns false while it
+ * loads, so the add/delete affordances never flash before the role resolves.
+ * The server still 403s a Viewer's write — this is the trust-preserving UX gate.
  */
-export function ExternalLinksSection({ taskId, projectId }: DrawerSectionProps) {
+export function ExternalLinksSection({ taskId, projectId, userRole }: DrawerSectionProps) {
   const { links, isLoading, error } = useTaskLinks(projectId, taskId);
+  const canEdit = canEditTask(userRole);
 
   return (
     <div className="flex flex-col gap-2">
@@ -579,13 +582,15 @@ export function ExternalLinksSection({ taskId, projectId }: DrawerSectionProps) 
               link={link}
               projectId={projectId}
               taskId={taskId}
-              canEdit
+              canEdit={canEdit}
             />
           ))}
         </ul>
       )}
 
-      {!isLoading && !error && <AddLinkInput projectId={projectId} taskId={taskId} />}
+      {!isLoading && !error && canEdit && (
+        <AddLinkInput projectId={projectId} taskId={taskId} />
+      )}
     </div>
   );
 }

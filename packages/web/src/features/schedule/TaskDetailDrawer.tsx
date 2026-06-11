@@ -16,6 +16,8 @@ import {
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useUpdateTask } from '@/hooks/useTaskMutations';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
+import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
+import { canEditTask } from '@/lib/roles';
 import { ReadinessChip } from '../board/ReadinessChip';
 import { CollapsibleSection } from './sections/CollapsibleSection';
 import { SectionErrorBoundary } from './sections/SectionErrorBoundary';
@@ -80,6 +82,10 @@ export function TaskDetailDrawer({
 
   const { tasks: allTasks } = useScheduleTasks();
   const { mutate: updateTask, isPending: isSaving } = useUpdateTask();
+  // #1046: thread the viewer's project role into the sections so write controls
+  // (add link, add attachment, edit description) are hidden from Viewers instead
+  // of surfacing affordances that 403 on submit. `role` is null while it loads.
+  const { role: userRole } = useCurrentUserRole(projectId);
 
   // Deferred-edit form (Description + name). State lives here, not in the inner
   // content, so Esc / close / tab-switch can flush before tearing down — and so
@@ -243,6 +249,7 @@ export function TaskDetailDrawer({
     <DrawerContent
       task={task}
       projectId={projectId}
+      userRole={userRole}
       drawerTitle={drawerTitle}
       closeButtonRef={closeButtonRef}
       onClose={handleClose}
@@ -320,6 +327,7 @@ export function TaskDetailDrawer({
 interface DrawerContentProps {
   task: Task;
   projectId: string;
+  userRole?: number | null;
   drawerTitle: string;
   closeButtonRef: RefObject<HTMLButtonElement | null>;
   onClose: () => void;
@@ -347,6 +355,7 @@ interface DrawerContentProps {
 function DrawerContent({
   task,
   projectId,
+  userRole,
   drawerTitle,
   closeButtonRef,
   onClose,
@@ -499,7 +508,7 @@ function DrawerContent({
                   <TaskScheduleStrip task={task} />
                   {OverviewComp && (
                     <SectionErrorBoundary sectionTitle="Overview">
-                      <OverviewComp taskId={task.id} projectId={projectId} />
+                      <OverviewComp taskId={task.id} projectId={projectId} userRole={userRole} />
                     </SectionErrorBoundary>
                   )}
                   <DescriptionField
@@ -507,12 +516,14 @@ function DrawerContent({
                     onChange={onNotesChange}
                     onBlur={onFlush}
                     changedElsewhere={notesChangedElsewhere}
+                    readOnly={canEditTask(userRole) === false}
                   />
                 </div>
                 <SectionList
                   sections={rest}
                   taskId={task.id}
                   projectId={projectId}
+                  userRole={userRole}
                   firstOpen={false}
                 />
               </div>
@@ -520,7 +531,12 @@ function DrawerContent({
           })()}
 
         {activeTab !== 'details' && (
-          <SectionList sections={sectionsByTab[activeTab]} taskId={task.id} projectId={projectId} />
+          <SectionList
+            sections={sectionsByTab[activeTab]}
+            taskId={task.id}
+            projectId={projectId}
+            userRole={userRole}
+          />
         )}
       </div>
 
@@ -578,11 +594,15 @@ function DescriptionField({
   onChange,
   onBlur,
   changedElsewhere,
+  readOnly = false,
 }: {
   value: string;
   onChange: (value: string) => void;
   onBlur: () => void;
   changedElsewhere: boolean;
+  /** #1046: Viewers see the description read-only rather than an editable field
+   *  whose PATCH 403s on blur. */
+  readOnly?: boolean;
 }) {
   return (
     <div>
@@ -595,12 +615,16 @@ function DescriptionField({
         onChange={(e) => onChange(e.target.value)}
         onBlur={onBlur}
         rows={3}
-        placeholder="Add a description…"
-        className="w-full rounded-lg border border-neutral-border bg-neutral-surface px-3 py-2.5
-          text-sm leading-relaxed text-neutral-text-primary placeholder:text-neutral-text-disabled
-          resize-y focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+        readOnly={readOnly}
+        placeholder={readOnly ? 'No description' : 'Add a description…'}
+        className={[
+          'w-full rounded-lg border border-neutral-border px-3 py-2.5',
+          'text-sm leading-relaxed text-neutral-text-primary placeholder:text-neutral-text-disabled',
+          'resize-y focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+          readOnly ? 'bg-neutral-surface-sunken cursor-default' : 'bg-neutral-surface',
+        ].join(' ')}
       />
-      {changedElsewhere && (
+      {!readOnly && changedElsewhere && (
         <p role="status" className="mt-1.5 text-xs text-semantic-at-risk">
           Updated by someone else since you started editing — saving will overwrite their change.
         </p>
@@ -620,11 +644,13 @@ function SectionList({
   sections,
   taskId,
   projectId,
+  userRole,
   firstOpen = true,
 }: {
   sections: DrawerSectionRegistration[];
   taskId: string;
   projectId: string;
+  userRole?: number | null;
   firstOpen?: boolean;
 }) {
   // The 'sprint' section is registered with a static title in the module-level
@@ -648,7 +674,9 @@ function SectionList({
               title={sectionTitle}
               defaultOpen={firstOpen && idx === 0}
             >
-              {() => <SectionComponent taskId={taskId} projectId={projectId} />}
+              {() => (
+                <SectionComponent taskId={taskId} projectId={projectId} userRole={userRole} />
+              )}
             </CollapsibleSection>
           </SectionErrorBoundary>
         );

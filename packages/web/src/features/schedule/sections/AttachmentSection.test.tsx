@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import type { TaskAttachment } from '@/types';
 import { AttachmentSection } from './AttachmentSection';
+import { ROLE_MEMBER, ROLE_VIEWER } from '@/lib/roles';
 
 const useListMock = vi.hoisted(() => vi.fn());
 const useCreateMock = vi.hoisted(() => vi.fn());
@@ -56,7 +57,7 @@ afterEach(() => {
 describe('AttachmentSection — list states', () => {
   it('renders the loading skeleton', () => {
     useListMock.mockReturnValue({ attachments: [], isLoading: true, error: null });
-    render(<AttachmentSection taskId="t1" projectId="p1" />);
+    render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
     expect(screen.getByLabelText('Loading attachments')).toBeTruthy();
   });
 
@@ -66,7 +67,7 @@ describe('AttachmentSection — list states', () => {
       isLoading: false,
       error: new Error('boom'),
     });
-    render(<AttachmentSection taskId="t1" projectId="p1" />);
+    render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
     expect(screen.getByRole('alert').textContent).toContain("Couldn't load");
   });
 
@@ -79,7 +80,7 @@ describe('AttachmentSection — list states', () => {
       isLoading: false,
       error: null,
     });
-    render(<AttachmentSection taskId="t1" projectId="p1" />);
+    render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
     const list = screen.getByLabelText(/Attachments — 2 total/);
     const items = list.querySelectorAll('li');
     expect(items[0].textContent).toContain('pinned.pdf');
@@ -88,7 +89,7 @@ describe('AttachmentSection — list states', () => {
 
   it('renders the empty-state drop zone (always visible) when list is empty', () => {
     useListMock.mockReturnValue({ attachments: [], isLoading: false, error: null });
-    render(<AttachmentSection taskId="t1" projectId="p1" />);
+    render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
     expect(screen.queryByLabelText(/Attachments —/)).toBeNull();
     expect(screen.getByText(/Drop file here/)).toBeTruthy();
   });
@@ -99,7 +100,7 @@ describe('AttachmentSection — upload + delete actions', () => {
     const mutate = vi.fn();
     useCreateMock.mockReturnValue({ mutate, isPending: false, isError: false });
     useListMock.mockReturnValue({ attachments: [], isLoading: false, error: null });
-    const { container } = render(<AttachmentSection taskId="t1" projectId="p1" />);
+    const { container } = render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
     const fileInput = container.querySelector<HTMLInputElement>('input[type="file"]')!;
     const file = new File(['x'], 'doc.pdf', { type: 'application/pdf' });
     fireEvent.change(fileInput, { target: { files: [file] } });
@@ -113,7 +114,7 @@ describe('AttachmentSection — upload + delete actions', () => {
     const mutate = vi.fn();
     useCreateMock.mockReturnValue({ mutate, isPending: false, isError: false });
     useListMock.mockReturnValue({ attachments: [], isLoading: false, error: null });
-    const { container } = render(<AttachmentSection taskId="t1" projectId="p1" />);
+    const { container } = render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
     const fileInput = container.querySelector<HTMLInputElement>('input[type="file"]')!;
     const bad = new File(['x'], 'clip.mp4', { type: 'video/mp4' });
     fireEvent.change(fileInput, { target: { files: [bad] } });
@@ -128,7 +129,7 @@ describe('AttachmentSection — upload + delete actions', () => {
     const mutate = vi.fn();
     useCreateMock.mockReturnValue({ mutate, isPending: false, isError: false });
     useListMock.mockReturnValue({ attachments: [], isLoading: false, error: null });
-    const { container } = render(<AttachmentSection taskId="t1" projectId="p1" />);
+    const { container } = render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
 
     const attachBtn = screen.getByText('+ Attach file');
     const pinBtn = screen.getByText('+ Pin link');
@@ -147,7 +148,7 @@ describe('AttachmentSection — upload + delete actions', () => {
     const mutate = vi.fn();
     useCreateMock.mockReturnValue({ mutate, isPending: false, isError: false });
     useListMock.mockReturnValue({ attachments: [], isLoading: false, error: null });
-    const { container } = render(<AttachmentSection taskId="t1" projectId="p1" />);
+    const { container } = render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
     fireEvent.click(screen.getByText('+ Pin link'));
     const urlInput = container.querySelector<HTMLInputElement>('input[type="url"]')!;
     fireEvent.change(urlInput, { target: { value: 'https://figma.com/x' } });
@@ -170,7 +171,7 @@ describe('AttachmentSection — upload + delete actions', () => {
       isLoading: false,
       error: null,
     });
-    render(<AttachmentSection taskId="t1" projectId="p1" />);
+    render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
     fireEvent.click(screen.getByLabelText('Delete doomed.pdf'));
     fireEvent.click(screen.getByLabelText('Confirm delete doomed.pdf'));
     expect(mutate).toHaveBeenCalledWith(
@@ -191,7 +192,7 @@ describe('AttachmentSection — upload + delete actions', () => {
       error: null,
     });
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
-    render(<AttachmentSection taskId="t1" projectId="p1" />);
+    render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
     fireEvent.click(screen.getByLabelText('Download doc.pdf'));
     expect(openSpy).toHaveBeenCalledWith('https://signed/x', '_blank', 'noopener,noreferrer');
     openSpy.mockRestore();
@@ -211,7 +212,7 @@ describe('AttachmentSection — upload + delete actions', () => {
       isLoading: false,
       error: null,
     });
-    render(<AttachmentSection taskId="t1" projectId="p1" />);
+    render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
     fireEvent.click(screen.getByLabelText('Open Evil link'));
     expect(openSpy).not.toHaveBeenCalled();
     openSpy.mockRestore();
@@ -231,7 +232,7 @@ describe('AttachmentSection — upload + delete actions', () => {
       error: null,
     });
     // Would throw at `new URL(...).host` before the fix, crashing the render.
-    render(<AttachmentSection taskId="t1" projectId="p1" />);
+    render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
     expect(screen.getByText('Bad host')).toBeInTheDocument();
     expect(screen.getByText(/external link/)).toBeInTheDocument();
   });
@@ -252,7 +253,7 @@ describe('AttachmentSection — upload + delete actions', () => {
       error: null,
     });
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
-    render(<AttachmentSection taskId="t1" projectId="p1" />);
+    render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
     fireEvent.click(screen.getByLabelText('Open Design doc'));
     expect(mintMutate).not.toHaveBeenCalled();
     expect(openSpy).toHaveBeenCalledWith(
@@ -268,7 +269,7 @@ describe('AttachmentSection — offline guard', () => {
   it('disables upload controls and shows the offline banner when offline', () => {
     vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
     useListMock.mockReturnValue({ attachments: [], isLoading: false, error: null });
-    render(<AttachmentSection taskId="t1" projectId="p1" />);
+    render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
     expect(screen.getByText('+ Attach file')).toBeDisabled();
     expect(screen.getByRole('status').textContent).toMatch(/offline/i);
   });
@@ -276,7 +277,7 @@ describe('AttachmentSection — offline guard', () => {
   it('updates the offline state on window online/offline events', () => {
     const onLineSpy = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);
     useListMock.mockReturnValue({ attachments: [], isLoading: false, error: null });
-    render(<AttachmentSection taskId="t1" projectId="p1" />);
+    render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
     expect(screen.getByText('+ Attach file')).not.toBeDisabled();
     act(() => {
       onLineSpy.mockReturnValue(false);
@@ -288,5 +289,37 @@ describe('AttachmentSection — offline guard', () => {
       window.dispatchEvent(new Event('online'));
     });
     expect(screen.getByText('+ Attach file')).not.toBeDisabled();
+  });
+});
+
+describe('AttachmentSection — role-gated write controls (#1046)', () => {
+  beforeEach(() => {
+    useListMock.mockReturnValue({
+      attachments: [attachment({ id: 'a1', file_name: 'design.pdf' })],
+      isLoading: false,
+      error: null,
+    });
+  });
+
+  it('hides upload, pin, and delete controls from a Viewer', () => {
+    render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_VIEWER} />);
+    // The attachment still lists (read/download access) …
+    expect(screen.getByText('design.pdf')).toBeInTheDocument();
+    // … but no write affordances.
+    expect(screen.queryByText('+ Attach file')).toBeNull();
+    expect(screen.queryByText('+ Pin link')).toBeNull();
+    expect(screen.queryByRole('button', { name: /Delete design.pdf/ })).toBeNull();
+  });
+
+  it('hides write controls while the role is still loading (undefined)', () => {
+    render(<AttachmentSection taskId="t1" projectId="p1" />);
+    expect(screen.queryByText('+ Attach file')).toBeNull();
+    expect(screen.queryByRole('button', { name: /Delete design.pdf/ })).toBeNull();
+  });
+
+  it('shows upload + delete controls to a Member', () => {
+    render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    expect(screen.getByText('+ Attach file')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Delete design.pdf/ })).toBeInTheDocument();
   });
 });

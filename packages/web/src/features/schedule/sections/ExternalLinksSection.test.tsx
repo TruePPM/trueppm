@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { ExternalLinksSection, StatusBadge } from './ExternalLinksSection';
 import type { ExternalLinkStatus, TaskExternalLink } from '@/hooks/useTaskLinks';
+import { ROLE_MEMBER, ROLE_VIEWER } from '@/lib/roles';
 
 const useLinksMock = vi.hoisted(() => vi.fn());
 const useCreateMock = vi.hoisted(() => vi.fn());
@@ -79,7 +80,7 @@ describe('ExternalLinksSection — unsafe URL rendering (#898)', () => {
       isLoading: false,
       error: null,
     });
-    render(<ExternalLinksSection taskId="t1" projectId="p1" />);
+    render(<ExternalLinksSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
     const anchor = screen.getByRole('link', { name: /MR 5/ });
     expect(anchor).toHaveAttribute('href', 'https://gitlab.com/acme/api/-/merge_requests/5');
   });
@@ -90,7 +91,7 @@ describe('ExternalLinksSection — unsafe URL rendering (#898)', () => {
       isLoading: false,
       error: null,
     });
-    render(<ExternalLinksSection taskId="t1" projectId="p1" />);
+    render(<ExternalLinksSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
     // No anchor is rendered for the malicious link…
     expect(screen.queryByRole('link', { name: /Click me/ })).toBeNull();
     // …the title is still shown as inert text so the row isn't blank.
@@ -103,7 +104,7 @@ describe('ExternalLinksSection — unsafe URL rendering (#898)', () => {
       isLoading: false,
       error: null,
     });
-    render(<ExternalLinksSection taskId="t1" projectId="p1" />);
+    render(<ExternalLinksSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
     expect(screen.queryByRole('link', { name: /Broken/ })).toBeNull();
     expect(screen.getByText('Broken')).toBeInTheDocument();
   });
@@ -124,7 +125,7 @@ describe('ExternalLinksSection — custom title & labels (#970)', () => {
       isLoading: false,
       error: null,
     });
-    render(<ExternalLinksSection taskId="t1" projectId="p1" />);
+    render(<ExternalLinksSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
     expect(screen.getByRole('link', { name: /Design spec/ })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /^MR 5/ })).toBeNull();
   });
@@ -135,7 +136,7 @@ describe('ExternalLinksSection — custom title & labels (#970)', () => {
       isLoading: false,
       error: null,
     });
-    render(<ExternalLinksSection taskId="t1" projectId="p1" />);
+    render(<ExternalLinksSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
     const labelList = screen.getByRole('list', { name: 'Labels' });
     expect(within(labelList).getByText('spec')).toBeInTheDocument();
     expect(within(labelList).getByText('design')).toBeInTheDocument();
@@ -143,7 +144,7 @@ describe('ExternalLinksSection — custom title & labels (#970)', () => {
 
   it('reveals title + label inputs once a (bare) URL is entered', () => {
     useLinksMock.mockReturnValue({ links: [], isLoading: false, error: null });
-    render(<ExternalLinksSection taskId="t1" projectId="p1" />);
+    render(<ExternalLinksSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
     expect(screen.queryByLabelText('Link title')).toBeNull();
     // A scheme-less URL still enables the affordance (#970).
     fireEvent.change(screen.getByLabelText('Add a link URL'), {
@@ -161,7 +162,7 @@ describe('ExternalLinksSection — custom title & labels (#970)', () => {
       isLoading: false,
       error: null,
     });
-    render(<ExternalLinksSection taskId="t1" projectId="p1" />);
+    render(<ExternalLinksSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
     fireEvent.click(screen.getByRole('button', { name: /Edit Old/ }));
     const titleInput = screen.getByLabelText<HTMLInputElement>('Link title');
     expect(titleInput.value).toBe('Old');
@@ -177,5 +178,41 @@ describe('ExternalLinksSection — custom title & labels (#970)', () => {
       }),
       expect.anything(),
     );
+  });
+});
+
+describe('ExternalLinksSection — role-gated write controls (#1046)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useCreateMock.mockReturnValue({ mutate: vi.fn(), isPending: false });
+    useDeleteMock.mockReturnValue({ mutate: vi.fn(), isPending: false, isError: false });
+    useRefreshMock.mockReturnValue({ mutate: vi.fn(), isPending: false });
+    useUpdateMock.mockReturnValue({ mutate: vi.fn(), isPending: false, isError: false });
+    useLinksMock.mockReturnValue({
+      links: [link({ id: 'l1', title: 'Spec', custom_title: '', url: 'https://x.test/1' })],
+      isLoading: false,
+      error: null,
+    });
+  });
+
+  it('hides add / edit / delete controls from a Viewer', () => {
+    render(<ExternalLinksSection taskId="t1" projectId="p1" userRole={ROLE_VIEWER} />);
+    // The link itself still renders (read access) …
+    expect(screen.getByRole('link', { name: /Spec/ })).toBeInTheDocument();
+    // … but no write affordances.
+    expect(screen.queryByPlaceholderText(/Paste a .*URL/i)).toBeNull();
+    expect(screen.queryByRole('button', { name: /Edit Spec/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Delete/ })).toBeNull();
+  });
+
+  it('hides write controls while the role is still loading (undefined)', () => {
+    render(<ExternalLinksSection taskId="t1" projectId="p1" />);
+    expect(screen.queryByPlaceholderText(/Paste a .*URL/i)).toBeNull();
+    expect(screen.queryByRole('button', { name: /Edit Spec/ })).toBeNull();
+  });
+
+  it('shows the add control to a Member', () => {
+    render(<ExternalLinksSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    expect(screen.getByRole('button', { name: /Edit Spec/ })).toBeInTheDocument();
   });
 });

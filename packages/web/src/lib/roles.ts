@@ -31,3 +31,15 @@ export const ROLE_ADMIN = 300;
 
 /** Project Admin — delete project, manage membership. Singular ceiling tier. */
 export const ROLE_OWNER = 400;
+
+/**
+ * True iff a viewer with this project role may edit task content — add/remove
+ * links and attachments, edit the description (#1046). Member+ qualifies;
+ * Viewers do not. `null`/`undefined` (role still loading or not threaded)
+ * returns `false` so a write control never flashes before the role resolves —
+ * a false affordance that 403s on submit is worse than a brief absence. The
+ * server still enforces; this is the UX gate.
+ */
+export function canEditTask(role: number | null | undefined): boolean {
+  return role != null && role >= ROLE_MEMBER;
+}
