@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
+import { canEditTask } from '@/lib/roles';
 import {
   useCreateAttachment,
   useDeleteAttachment,
@@ -89,9 +90,10 @@ interface AttachmentRowProps {
   attachment: TaskAttachment;
   projectId: string;
   taskId: string;
+  canEdit: boolean;
 }
 
-function AttachmentRow({ attachment, projectId, taskId }: AttachmentRowProps) {
+function AttachmentRow({ attachment, projectId, taskId, canEdit }: AttachmentRowProps) {
   const signedUrl = useSignedDownloadUrl();
   const deleteAttachment = useDeleteAttachment();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -175,7 +177,8 @@ function AttachmentRow({ attachment, projectId, taskId }: AttachmentRowProps) {
         >
           {isExternal ? '↗ Open' : '⬇ Download'}
         </button>
-        {!confirmingDelete ? (
+        {canEdit &&
+          (!confirmingDelete ? (
           <button
             type="button"
             onClick={() => setConfirmingDelete(true)}
@@ -212,8 +215,8 @@ function AttachmentRow({ attachment, projectId, taskId }: AttachmentRowProps) {
               Cancel
             </button>
           </>
-        )}
-        {deleteAttachment.isError && (
+          ))}
+        {canEdit && deleteAttachment.isError && (
           <span className="text-xs text-semantic-critical ml-1" role="alert">
             Delete failed
           </span>
@@ -223,8 +226,11 @@ function AttachmentRow({ attachment, projectId, taskId }: AttachmentRowProps) {
   );
 }
 
-export function AttachmentSection({ taskId, projectId }: DrawerSectionProps) {
+export function AttachmentSection({ taskId, projectId, userRole }: DrawerSectionProps) {
   const { attachments, isLoading, error } = useTaskAttachments(projectId, taskId);
+  // #1046: Viewers can list/download but not upload, pin, or delete. canEditTask
+  // returns false while the role loads so the controls never flash.
+  const canEdit = canEditTask(userRole);
   const createAttachment = useCreateAttachment();
   const [linkModalOpen, setLinkModalOpen] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -296,7 +302,7 @@ export function AttachmentSection({ taskId, projectId }: DrawerSectionProps) {
     );
   }
 
-  const showAddControls = !isLoading && !error;
+  const showAddControls = !isLoading && !error && canEdit;
 
   return (
     <div className="flex flex-col gap-2">
@@ -334,7 +340,13 @@ export function AttachmentSection({ taskId, projectId }: DrawerSectionProps) {
           className="grid grid-cols-1 md:grid-cols-2 gap-2 list-none"
         >
           {sorted.map((a) => (
-            <AttachmentRow key={a.id} attachment={a} projectId={projectId} taskId={taskId} />
+            <AttachmentRow
+              key={a.id}
+              attachment={a}
+              projectId={projectId}
+              taskId={taskId}
+              canEdit={canEdit}
+            />
           ))}
         </ul>
       )}

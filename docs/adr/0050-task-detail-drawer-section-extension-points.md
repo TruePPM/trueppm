@@ -2,6 +2,21 @@
 
 ## Status: Accepted
 
+## Amendment (2026-06-11, #1046) — `userRole` in `DrawerSectionProps`
+
+`DrawerSectionProps` gains an **optional** `userRole?: number | null` field (the
+viewer's project role ordinal from `@/lib/roles`, `null` while it resolves). The
+drawer computes it once via `useCurrentUserRole(projectId)` and threads it to every
+registered section. Sections that render write controls (OSS `ExternalLinksSection`,
+`AttachmentSection`, and the inline Description field) hide those controls from
+Viewers via the shared `canEditTask(role)` helper instead of surfacing affordances
+that 403 on submit.
+
+This is **backward-compatible** with the extension-point contract: the field is
+optional, so every existing OSS and Enterprise section registration that does not
+read it is unaffected. The server still enforces permission on write — this is the
+UX gate only. No change to the slot priority ladder or registration shape.
+
 ## Context
 
 The redesigned `TaskDetailDrawer` (issue [#306](https://gitlab.com/trueppm/trueppm/-/work_items/306), per the May 2026 design handoff) hosts seven OSS sections — Overview, Dependencies, Activity, Subtasks, Attachments, Comments, Recurring tasks — plus the existing Estimates / History / Baseline tabs that survive the redesign, plus at least one Enterprise section (Custom Fields, [`trueppm/trueppm-enterprise#59`](https://gitlab.com/trueppm/trueppm-enterprise/-/work_items/59)).

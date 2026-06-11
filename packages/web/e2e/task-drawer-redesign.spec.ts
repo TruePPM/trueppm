@@ -117,6 +117,16 @@ async function gotoSchedule(page: Page) {
   await page.route('**/api/v1/projects/*/presence/', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
   );
+  // #1046: the drawer threads the caller's project role (GET members/?self=true)
+  // to gate write controls. Without this mock the role never resolves, the
+  // Description editor stays read-only, and editing specs time out on fill().
+  await page.route('**/api/v1/projects/*/members/**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([{ id: 'mem-admin', role: 300 }]),
+    }),
+  );
   await page.route('**/api/v1/projects/*/status-summary/', (route) =>
     route.fulfill({
       status: 200,

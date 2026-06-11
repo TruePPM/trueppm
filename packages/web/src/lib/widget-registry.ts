@@ -108,6 +108,16 @@ export const registry = new WidgetRegistry();
 export interface DrawerSectionProps {
   taskId: string;
   projectId: string;
+  /**
+   * The viewer's project role ordinal (ROLE_VIEWER..ROLE_OWNER from
+   * `@/lib/roles`), or `null` while it resolves (#1046). OPTIONAL and
+   * backward-compatible: existing OSS and Enterprise section registrations that
+   * don't read it are unaffected. Sections that render write controls use it to
+   * hide those controls from Viewers instead of surfacing a button that 403s on
+   * submit — a false affordance erodes trust ("a button that silently fails is
+   * worse than no button"). The server still enforces; this is the UX half.
+   */
+  userRole?: number | null;
 }
 
 /**
