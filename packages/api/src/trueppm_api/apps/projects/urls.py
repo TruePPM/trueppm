@@ -47,6 +47,7 @@ from trueppm_api.apps.projects.views import (
     ProjectSprintHealthView,
     ProjectVelocityView,
     ProjectViewSet,
+    RetroBoardItemViewSet,
     RiskCommentViewSet,
     RiskViewSet,
     SprintScopeChangeViewSet,
@@ -356,6 +357,32 @@ urlpatterns = [
         "sprints/<pk>/retro/",
         SprintViewSet.as_view({"get": "retro", "post": "retro", "patch": "retro"}),
         name="sprints-retro",
+    ),
+    # Live multi-writer retro board + team-health pulse (ADR-0117, #851 / #923)
+    path(
+        "sprints/<pk>/retro-board/",
+        SprintViewSet.as_view({"get": "retro_board", "post": "retro_board"}),
+        name="sprints-retro-board",
+    ),
+    path(
+        "sprints/<pk>/pulse/",
+        SprintViewSet.as_view({"get": "pulse", "put": "pulse"}),
+        name="sprints-pulse",
+    ),
+    path(
+        "sprints/<pk>/pulse-trend/",
+        SprintViewSet.as_view({"get": "pulse_trend"}),
+        name="sprints-pulse-trend",
+    ),
+    path(
+        "retro-items/<pk>/",
+        RetroBoardItemViewSet.as_view({"patch": "partial_update", "delete": "destroy"}),
+        name="retro-item-detail",
+    ),
+    path(
+        "retro-items/<pk>/convert-to-action/",
+        RetroBoardItemViewSet.as_view({"post": "convert_to_action"}),
+        name="retro-item-convert-to-action",
     ),
     # Retrospective sub-resource endpoints (ADR-0071)
     path(

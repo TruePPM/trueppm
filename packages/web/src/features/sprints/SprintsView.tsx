@@ -642,6 +642,7 @@ export function SprintsView() {
             <RetroPanel
               sprintId={selectedSprint.id}
               isClosed={selectedSprint.state === 'COMPLETED'}
+              sprintState={selectedSprint.state}
             />
           )}
       </main>
