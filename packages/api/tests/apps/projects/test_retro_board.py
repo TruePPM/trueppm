@@ -227,6 +227,16 @@ def test_empty_sticky_rejected(project: Project, member: Any) -> None:
     assert r.status_code == 400
 
 
+def test_oversized_sticky_rejected(project: Project, member: Any) -> None:
+    s = _sprint(project)
+    r = _client(member).post(
+        f"/api/v1/sprints/{s.pk}/retro-board/",
+        {"column": "ideas", "text": "x" * 2001},
+        format="json",
+    )
+    assert r.status_code == 400
+
+
 # --------------------------------------------------------------------------- #
 # Convert sticky -> action item (ADR-0117 §1) + the #858 promote loop
 # --------------------------------------------------------------------------- #

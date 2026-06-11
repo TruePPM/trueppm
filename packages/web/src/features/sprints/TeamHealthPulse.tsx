@@ -1,4 +1,4 @@
-import { useEffect, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import {
   usePulse,
   usePulseTrend,
@@ -135,35 +135,57 @@ function PulsePoll({ sprintId, canRespond }: { sprintId: string; canRespond: boo
     submit(next);
   }
 
+  const moodOptions: PulseOption[] = MOOD_EMOJI.map((emoji, i) => ({
+    value: i + 1,
+    content: (
+      <span aria-hidden="true" className="text-xl leading-none">
+        {emoji}
+      </span>
+    ),
+  }));
+  const scaleOptions: PulseOption[] = [1, 2, 3, 4, 5].map((v) => ({
+    value: v,
+    content: (
+      <span aria-hidden="true" className="text-sm font-semibold tppm-mono leading-none">
+        {v}
+      </span>
+    ),
+  }));
+
   return (
     <div className="flex flex-col gap-3">
-      <EmojiRadioGroup
+      <PulseRadioGroup
         legend="Mood"
         value={mood}
         disabled={!canRespond}
         onPick={(v) => pick('mood', v)}
+        options={moodOptions}
       />
-      <SegmentRadioGroup
+      <PulseRadioGroup
         legend="Energy"
         value={energy}
         disabled={!canRespond}
         onPick={(v) => pick('energy', v)}
+        options={scaleOptions}
       />
-      <SegmentRadioGroup
+      <PulseRadioGroup
         legend="Confidence"
         optional
         value={confidence}
         disabled={!canRespond}
         onPick={(v) => pick('confidence', v)}
+        options={scaleOptions}
       />
-      <div className="h-4">
+      <div className="h-4" aria-live="polite">
         {upsert.isError ? (
           <p role="alert" className="text-xs text-semantic-critical">
             Couldn&apos;t record your pulse. Tap again to retry.
           </p>
         ) : savedAt !== null ? (
-          <p role="status" className="text-xs text-semantic-on-track">
-            ✓ saved
+          <p className="text-xs text-semantic-on-track">✓ saved</p>
+        ) : canRespond && (mood === null || energy === null) ? (
+          <p className="text-xs italic text-neutral-text-disabled">
+            Pick mood and energy to record your pulse.
           </p>
         ) : null}
       </div>
@@ -171,115 +193,60 @@ function PulsePoll({ sprintId, canRespond }: { sprintId: string; canRespond: boo
   );
 }
 
-/** 5-emoji accessible radiogroup for mood. */
-function EmojiRadioGroup({
-  legend,
-  value,
-  disabled,
-  onPick,
-}: {
-  legend: string;
-  value: number | null;
-  disabled: boolean;
-  onPick: (value: number) => void;
-}) {
-  return (
-    <RadioGroupShell legend={legend} value={value} disabled={disabled} onPick={onPick}>
-      {MOOD_EMOJI.map((emoji, i) => {
-        const v = i + 1;
-        const selected = value === v;
-        return (
-          <RadioOption
-            key={v}
-            value={v}
-            label={`${legend} ${v} of 5`}
-            selected={selected}
-            disabled={disabled}
-            anySelected={value !== null}
-            onPick={onPick}
-          >
-            <span aria-hidden="true" className="text-xl leading-none">
-              {emoji}
-            </span>
-          </RadioOption>
-        );
-      })}
-    </RadioGroupShell>
-  );
-}
-
-/** 5-segment 1–5 accessible radiogroup for energy / confidence. */
-function SegmentRadioGroup({
-  legend,
-  optional,
-  value,
-  disabled,
-  onPick,
-}: {
-  legend: string;
-  optional?: boolean;
-  value: number | null;
-  disabled: boolean;
-  onPick: (value: number) => void;
-}) {
-  return (
-    <RadioGroupShell legend={legend} optional={optional} value={value} disabled={disabled} onPick={onPick}>
-      {[1, 2, 3, 4, 5].map((v) => {
-        const selected = value === v;
-        return (
-          <RadioOption
-            key={v}
-            value={v}
-            label={`${legend} ${v} of 5`}
-            selected={selected}
-            disabled={disabled}
-            anySelected={value !== null}
-            onPick={onPick}
-          >
-            <span aria-hidden="true" className="text-sm font-semibold tppm-mono leading-none">
-              {v}
-            </span>
-          </RadioOption>
-        );
-      })}
-    </RadioGroupShell>
-  );
+interface PulseOption {
+  value: number;
+  content: ReactNode;
 }
 
 /**
- * Shared radiogroup container — owns the legend, the row, and arrow-key
- * roving-focus navigation across the five options (WCAG 2.1.1 keyboard).
+ * One pulse dimension as an accessible radiogroup (WCAG 2.1.1 / 4.1.2).
+ *
+ * Roving tabindex with real focus movement: arrow keys move DOM focus across
+ * the options (and only the focused option is tabbable) WITHOUT committing —
+ * a keyboard user can scan 1→5 without recording four throwaway answers into
+ * the team aggregate. Commit happens only on activation (click, or Enter/Space
+ * on the focused option, via the native button), matching the mouse "one tap".
  */
-function RadioGroupShell({
+function PulseRadioGroup({
   legend,
   optional,
   value,
   disabled,
   onPick,
-  children,
+  options,
 }: {
   legend: string;
   optional?: boolean;
   value: number | null;
   disabled: boolean;
   onPick: (value: number) => void;
-  children: ReactNode;
+  options: PulseOption[];
 }) {
-  // Arrow-key navigation lives on the focused radio option (roving tabindex),
-  // not the container — keydown bubbles from the focused child to this div, but
-  // the focus target is always a radio, so the radiogroup itself need not be
-  // tabbable (WCAG 4.1.2 radiogroup pattern; jsx-a11y interactive-supports-focus).
+  const btnRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const selectedIdx = options.findIndex((o) => o.value === value);
+  // The roving focus index. Tracks the selection when one exists; otherwise the
+  // first option is the entry point so the group is reachable by Tab.
+  const [focusIdx, setFocusIdx] = useState(selectedIdx >= 0 ? selectedIdx : 0);
+  useEffect(() => {
+    if (selectedIdx >= 0) setFocusIdx(selectedIdx);
+  }, [selectedIdx]);
+
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     if (disabled) return;
-    const current = value ?? 0;
+    let next = focusIdx;
     if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
-      e.preventDefault();
-      onPick(Math.min(5, current + 1) || 1);
+      next = Math.min(options.length - 1, focusIdx + 1);
     } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
-      e.preventDefault();
-      onPick(Math.max(1, current - 1) || 1);
+      next = Math.max(0, focusIdx - 1);
+    } else {
+      return;
     }
+    e.preventDefault();
+    setFocusIdx(next);
+    btnRefs.current[next]?.focus(); // move focus — do NOT commit (see docstring)
   }
+
+  const anySelected = value !== null;
 
   return (
     <div
@@ -295,53 +262,40 @@ function RadioGroupShell({
           <span className="ml-1 text-neutral-text-disabled font-normal">(optional)</span>
         )}
       </span>
-      <div className="flex items-center gap-1.5">{children}</div>
+      <div className="flex items-center gap-1.5">
+        {options.map((o, i) => {
+          const selected = value === o.value;
+          return (
+            <button
+              key={o.value}
+              ref={(el) => {
+                btnRefs.current[i] = el;
+              }}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              aria-label={`${legend} ${o.value} of ${options.length}`}
+              disabled={disabled}
+              // Roving tabindex: only the focused option is in the tab order.
+              tabIndex={i === focusIdx ? 0 : -1}
+              onClick={() => onPick(o.value)}
+              className={[
+                'inline-flex h-12 w-12 items-center justify-center rounded-full border',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+                'disabled:opacity-50 disabled:cursor-not-allowed',
+                selected
+                  ? 'border-brand-primary bg-brand-primary/10 ring-2 ring-brand-primary'
+                  : anySelected
+                    ? 'border-neutral-border opacity-50 hover:opacity-100'
+                    : 'border-neutral-border hover:border-brand-primary',
+              ].join(' ')}
+            >
+              {o.content}
+            </button>
+          );
+        })}
+      </div>
     </div>
-  );
-}
-
-/** A single radio option — emoji or number, ≥48px tap target, halo when selected. */
-function RadioOption({
-  value,
-  label,
-  selected,
-  disabled,
-  anySelected,
-  onPick,
-  children,
-}: {
-  value: number;
-  label: string;
-  selected: boolean;
-  disabled: boolean;
-  anySelected: boolean;
-  onPick: (value: number) => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={selected}
-      aria-label={label}
-      disabled={disabled}
-      // Roving tabindex: the selected option is in the tab order; if none is
-      // selected the first option is reachable so the group can be entered.
-      tabIndex={selected || (!anySelected && value === 1) ? 0 : -1}
-      onClick={() => onPick(value)}
-      className={[
-        'inline-flex h-12 w-12 items-center justify-center rounded-full border',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-        'disabled:opacity-50 disabled:cursor-not-allowed',
-        selected
-          ? 'border-brand-primary bg-brand-primary/10 ring-2 ring-brand-primary'
-          : anySelected
-            ? 'border-neutral-border opacity-50 hover:opacity-100'
-            : 'border-neutral-border hover:border-brand-primary',
-      ].join(' ')}
-    >
-      {children}
-    </button>
   );
 }
 
@@ -448,25 +402,19 @@ function Sparkline({
         role="img"
         aria-label={`${label} trend — ${descr}`}
         viewBox={`0 0 ${W} ${H}`}
-        className="h-6 w-32"
+        className="h-6 w-32 text-brand-primary"
         tabIndex={0}
       >
         <path
           d={path}
           fill="none"
-          stroke="rgb(var(--brand-primary))"
+          stroke="currentColor"
           strokeWidth={1.5}
           strokeLinecap="round"
           strokeLinejoin="round"
         />
         {segments.map((s) => (
-          <circle
-            key={s.i}
-            cx={x(s.i)}
-            cy={y(s.v)}
-            r={1.8}
-            fill="rgb(var(--brand-primary))"
-          >
+          <circle key={s.i} cx={x(s.i)} cy={y(s.v)} r={1.8} fill="currentColor">
             <title>
               {points[s.i].sprint_name}: {s.v.toFixed(1)} ({points[s.i].response_count} responses)
             </title>

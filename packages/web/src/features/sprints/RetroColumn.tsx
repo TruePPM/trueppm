@@ -111,7 +111,9 @@ export function RetroColumn({
         </span>
       </h3>
 
-      <ul ref={listRef} aria-live="polite" className="flex flex-col gap-2 min-h-0">
+      {/* No aria-live here: the curated status <span> below is the single
+          announcer for remote adds, so the list mutation isn't double-read. */}
+      <ul ref={listRef} className="flex flex-col gap-2 min-h-0">
         {empty && (
           <li className="text-xs italic text-neutral-text-disabled px-1 py-2">
             Be the first to add a card.

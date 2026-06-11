@@ -22,6 +22,10 @@ from typing import TYPE_CHECKING, Any
 from django.db import transaction
 from rest_framework.exceptions import ValidationError
 
+# Server-side cap on a sticky body (ADR-0117 §1). Bounds storage and the broadcast
+# fan-out — a sticky is a short note, not a document.
+MAX_STICKY_LEN = 2000
+
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
     from rest_framework.request import Request
@@ -100,6 +104,8 @@ def create_board_item(
     body = (text or "").strip()
     if not body:
         raise ValidationError({"text": "A sticky cannot be empty."})
+    if len(body) > MAX_STICKY_LEN:
+        raise ValidationError({"text": f"A sticky cannot exceed {MAX_STICKY_LEN} characters."})
     if column not in RetroColumn.values:
         raise ValidationError({"column": f"Unknown column '{column}'."})
 
@@ -148,6 +154,8 @@ def update_board_item(
         body = text.strip()
         if not body:
             raise ValidationError({"text": "A sticky cannot be empty."})
+        if len(body) > MAX_STICKY_LEN:
+            raise ValidationError({"text": f"A sticky cannot exceed {MAX_STICKY_LEN} characters."})
         item.text = body
         fields.append("text")
     if color is not None:
@@ -247,9 +255,13 @@ def upsert_pulse_response(
     from trueppm_api.apps.projects.models import PulseResponse
 
     _assert_board_writable(sprint)
-    for name, value in (("mood", mood), ("energy", energy)):
-        if value is None or not (1 <= value <= 5):
-            raise ValidationError({name: "Must be an integer 1-5."})
+    # Explicit per-field guards (not a loop) so the type narrows to ``int`` for the
+    # update_or_create below — mypy --strict + django-stubs reject ``int | None`` on
+    # the non-null model fields.
+    if mood is None or not (1 <= mood <= 5):
+        raise ValidationError({"mood": "Must be an integer 1-5."})
+    if energy is None or not (1 <= energy <= 5):
+        raise ValidationError({"energy": "Must be an integer 1-5."})
     if confidence is not None and not (1 <= confidence <= 5):
         raise ValidationError({"confidence": "Must be an integer 1-5 or omitted."})
 

@@ -87,6 +87,24 @@ describe('TeamHealthPulse — one-tap poll (#923)', () => {
     expect(screen.queryByRole('button', { name: /save|submit/i })).not.toBeInTheDocument();
   });
 
+  it('arrow keys move focus across options WITHOUT submitting (no aggregate pollution)', async () => {
+    renderWithProviders(<TeamHealthPulse sprintId="sp-1" canRespond />);
+    const mood = screen.getByRole('radiogroup', { name: /^Mood$/i });
+    const options = within(mood).getAllByRole('radio');
+
+    options[0].focus();
+    await userEvent.keyboard('{ArrowRight}{ArrowRight}{ArrowRight}'); // scan toward 4
+    // Scanning must NOT record throwaway answers into the team pulse aggregate.
+    expect(upsertMutateMock).not.toHaveBeenCalled();
+    // Focus moved (roving tabindex): the third option is now the tabbable one.
+    expect(options[3]).toHaveFocus();
+
+    // Activation (Enter on the focused option) is what commits.
+    await userEvent.keyboard('{Enter}');
+    expect(upsertMutateMock).not.toHaveBeenCalled(); // mood alone — energy still missing
+    expect(options[3]).toHaveAttribute('aria-checked', 'true');
+  });
+
   it('disables the poll when the sprint cannot be responded to (CANCELLED)', () => {
     renderWithProviders(<TeamHealthPulse sprintId="sp-1" canRespond={false} />);
     const radios = screen.getAllByRole('radio');
