@@ -48,6 +48,12 @@ export interface ApiProjectDetail {
    * clients render — the inheritance precedence lives on the server, not here.
    */
   effective_iteration_label: string;
+  /**
+   * Read-only label this project would show if its own override were cleared
+   * (program ?? workspace default ?? "Sprint"). Drives the settings "Inherit (X)"
+   * affordance (ADR-0116, #1106).
+   */
+  inherited_iteration_label: string;
   /** Lifecycle (#530) — archived projects are hard read-only across all writes. */
   is_archived: boolean;
   archived_at: string | null;

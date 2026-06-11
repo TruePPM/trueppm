@@ -109,6 +109,11 @@ export interface Program {
   /** Optional short code; empty string when unset. */
   code: string;
   methodology: ProgramMethodology;
+  /** Iteration-container label override (ADR-0116, #1106). null = inherit the
+   *  workspace default. */
+  iteration_label: string | null;
+  /** Read-only label inherited when the override is null — the workspace default. */
+  inherited_iteration_label: string;
   /** PM health override; AUTO defers to the rollup. */
   health: ProgramHealth;
   /** Workspace or private listing scope. */

@@ -31,6 +31,7 @@ function agileProjectClient(): QueryClient {
     lead_detail: null,
     iteration_label: null,
     effective_iteration_label: 'Sprint',
+    inherited_iteration_label: 'Sprint',
     is_archived: false,
     archived_at: null,
     archived_by: null,

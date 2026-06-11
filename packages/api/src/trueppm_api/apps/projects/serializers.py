@@ -150,6 +150,10 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
     # ?? program override ?? workspace default ?? "Sprint". Clients read THIS, not the
     # raw nullable ``iteration_label`` override — so web/mobile/MCP share one value.
     effective_iteration_label = serializers.SerializerMethodField()
+    # The label this project would show if its own override were cleared (program
+    # override ?? workspace default ?? "Sprint"). Drives the settings "Inherit (X)"
+    # affordance — read-only (ADR-0116, #1106).
+    inherited_iteration_label = serializers.SerializerMethodField()
 
     class Meta:
         model = Project
@@ -179,6 +183,8 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "iteration_label",
             # Read-only server-resolved effective label (ADR-0116) — what clients render.
             "effective_iteration_label",
+            # Read-only label the project would inherit if its override were cleared.
+            "inherited_iteration_label",
             "program",
             "member_count",
             "percent_complete",
@@ -192,6 +198,7 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "server_version",
             "lead_detail",
             "effective_iteration_label",
+            "inherited_iteration_label",
             "is_archived",
             "archived_at",
             "archived_by",
@@ -356,6 +363,20 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
 
         return resolve_effective_iteration_label(obj, workspace=self._iteration_workspace())
 
+    def get_inherited_iteration_label(self, obj: Project) -> str:
+        """The label shown if this project's override were cleared (ADR-0116).
+
+        Program override ?? workspace default ?? "Sprint" — the project's own
+        override is intentionally skipped so the settings UI can show "Inherit (X)"
+        regardless of the current override.
+        """
+        from .iteration_label import DEFAULT_ITERATION_LABEL
+
+        ws = self._iteration_workspace()
+        program = obj.program if obj.program_id else None
+        program_label = program.iteration_label if program else None
+        return program_label or ws.iteration_label or DEFAULT_ITERATION_LABEL
+
     def _iteration_workspace(self) -> Workspace:
         """Load the Workspace singleton once per serializer instance.
 
@@ -432,6 +453,9 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
     # Null when ``lead`` is unset. The write side stays on the plain ``lead``
     # UUID field — ``lead_detail`` is response-only.
     lead_detail = _UserSummarySerializer(source="lead", read_only=True)
+    # Read-only label the program inherits when its own override is cleared — the
+    # workspace default (ADR-0116, #1106). Drives the settings "Inherit (X)" copy.
+    inherited_iteration_label = serializers.SerializerMethodField()
 
     class Meta:
         model = Program
@@ -445,6 +469,7 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             # Iteration-container label override for the program (ADR-0116, #1106).
             # Nullable: NULL = inherit the workspace default.
             "iteration_label",
+            "inherited_iteration_label",
             "health",
             "visibility",
             "color",
@@ -506,6 +531,18 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
                 "the workspace default."
             )
         return stripped
+
+    def get_inherited_iteration_label(self, obj: Program) -> str:
+        """Workspace default — what the program inherits when its override is NULL."""
+        from trueppm_api.apps.workspace.models import Workspace
+
+        from .iteration_label import DEFAULT_ITERATION_LABEL
+
+        ws = getattr(self, "_ws_cache", None)
+        if ws is None:
+            ws = Workspace.load()
+            self._ws_cache = ws
+        return ws.iteration_label or DEFAULT_ITERATION_LABEL
 
     def validate_lead(self, value: Any) -> Any:
         """Lead must hold an active ProgramMembership on this program.

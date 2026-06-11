@@ -7,7 +7,7 @@ import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
 import { useUpdateProject } from '@/hooks/useProjectMutations';
 import type { ProjectDefaultView, ProjectHealth, ProjectVisibility } from '@/api/types';
-import { IterationLabelField } from './IterationLabelField';
+import { InheritableIterationLabelField } from '../components/InheritableIterationLabelField';
 import { DEFAULT_ITERATION_LABEL } from '@/lib/iterationLabel';
 
 const TIMEZONES = [
@@ -81,7 +81,8 @@ export function ProjectGeneralPage() {
   const [calendarId, setCalendarId] = useState<string | null>(null);
   // null = Unassigned. User id of the project lead (#966).
   const [lead, setLead] = useState<string | null>(null);
-  const [iterationLabel, setIterationLabel] = useState(DEFAULT_ITERATION_LABEL);
+  // null = inherit the program/workspace default (ADR-0116, #1106).
+  const [iterationLabel, setIterationLabel] = useState<string | null>(null);
 
   // Re-seed whenever the loaded project's identity changes. React Router reuses
   // this component across `:projectId` changes (no `key` → no remount), so a
@@ -101,7 +102,7 @@ export function ProjectGeneralPage() {
   const [initialDefaultView, setInitialDefaultView] = useState<ProjectDefaultView>('SCHEDULE');
   const [initialCalendarId, setInitialCalendarId] = useState<string | null>(null);
   const [initialLead, setInitialLead] = useState<string | null>(null);
-  const [initialIterationLabel, setInitialIterationLabel] = useState(DEFAULT_ITERATION_LABEL);
+  const [initialIterationLabel, setInitialIterationLabel] = useState<string | null>(null);
 
   useEffect(() => {
     if (!project || seededProjectIdRef.current === project.id) return;
@@ -115,7 +116,7 @@ export function ProjectGeneralPage() {
     setDefaultView(project.default_view);
     setCalendarId(project.calendar);
     setLead(project.lead ?? null);
-    setIterationLabel(project.iteration_label || DEFAULT_ITERATION_LABEL);
+    setIterationLabel(project.iteration_label ?? null);
     setInitialName(project.name);
     setInitialDescription(project.description ?? '');
     setInitialCode(project.code);
@@ -125,7 +126,7 @@ export function ProjectGeneralPage() {
     setInitialDefaultView(project.default_view);
     setInitialCalendarId(project.calendar);
     setInitialLead(project.lead ?? null);
-    setInitialIterationLabel(project.iteration_label || DEFAULT_ITERATION_LABEL);
+    setInitialIterationLabel(project.iteration_label ?? null);
   }, [project]);
 
   const values = useMemo(
@@ -192,12 +193,12 @@ export function ProjectGeneralPage() {
       default_view: defaultView,
       calendar: calendarId,
       lead,
-      // Coerce a blank custom label back to the last-saved value rather than PATCH an
-      // empty string (the serializer would 400). The inline error already guides the
-      // user; this is the silent safety net (ADR-0111).
-      iteration_label: iterationLabel.trim() || initialIterationLabel,
+      // null clears the override (inherit); a blank custom string normalizes to null
+      // too — "inherit" is the explicit null and the serializer rejects empty strings
+      // (ADR-0116).
+      iteration_label: iterationLabel === null ? null : iterationLabel.trim() || null,
     });
-    const savedIterationLabel = iterationLabel.trim() || initialIterationLabel;
+    const savedIterationLabel = iterationLabel === null ? null : iterationLabel.trim() || null;
     setIterationLabel(savedIterationLabel);
     setInitialName(name);
     setInitialDescription(description);
@@ -221,7 +222,6 @@ export function ProjectGeneralPage() {
     calendarId,
     lead,
     iterationLabel,
-    initialIterationLabel,
   ]);
 
   const handleReset = useCallback(() => {
@@ -487,7 +487,12 @@ export function ProjectGeneralPage() {
             label="Iteration terminology"
             hint="What this team calls a time-boxed iteration. Display only — it never changes how anything works."
           >
-            <IterationLabelField value={iterationLabel} onChange={setIterationLabel} />
+            <InheritableIterationLabelField
+              value={iterationLabel}
+              onChange={setIterationLabel}
+              inheritedLabel={project?.inherited_iteration_label ?? DEFAULT_ITERATION_LABEL}
+              inheritFromLabel="the program or workspace default"
+            />
           </FieldRow>
         )}
       </div>
