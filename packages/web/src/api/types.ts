@@ -159,8 +159,16 @@ export interface ProgramMembership {
 // Risk Register types (issues #52, #221). Hand-authored until openapi-typescript regeneration.
 export interface Risk {
   id: string;
-  /** Short per-project hex ID shared with the Task counter (e.g. "a3f1"). */
+  /** Raw per-project decimal risk sequence as a string (e.g. "7"); #929 moved
+   *  risks off the shared hex counter. Render `short_id_display`/`qualified_id`
+   *  rather than formatting this directly. */
   short_id: string;
+  /** Server-formatted compact identifier, e.g. "R-007" (#929). */
+  short_id_display: string;
+  /** Server-formatted fully-qualified identifier for exports / cross-project
+   *  surfaces, e.g. "PLAT-R-007", or the compact form when the project has no
+   *  code (#929). */
+  qualified_id: string;
   server_version: number;
   project: string;
   title: string;

@@ -5,7 +5,9 @@ import type { Risk } from '@/api/types';
 
 const FIXTURE_RISK: Risk = {
   id: 'risk-001',
-  short_id: '00000001',
+  short_id: '1',
+  short_id_display: 'R-001',
+  qualified_id: 'PLAT-R-001',
   server_version: 1,
   project: 'p1',
   title: 'Critical infrastructure failure',
@@ -32,7 +34,9 @@ const FIXTURE_RISK: Risk = {
 const HIGH_RISK: Risk = {
   ...FIXTURE_RISK,
   id: 'risk-002',
-  short_id: '00000002',
+  short_id: '2',
+  short_id_display: 'R-002',
+  qualified_id: 'PLAT-R-002',
   title: 'Vendor delay',
   probability: 4,
   impact: 4,
@@ -127,6 +131,13 @@ describe('RiskRegisterView', () => {
     // And that shared parent must be the two-column flex row container
     expect(tableColumn!.parentElement?.className).toMatch(/\bflex\b/);
     expect(tableColumn!.parentElement?.className).toMatch(/gap-4/);
+  });
+
+  it('renders the server-formatted risk id verbatim (#929 — no client-side hex parsing)', () => {
+    // Regression guard for the R-0000 collapse: the register must render the
+    // server's short_id_display, not re-derive an id from the raw short_id.
+    renderWithProviders(<RiskRegisterView />);
+    expect(screen.getByText('R-001')).toBeInTheDocument();
   });
 
   it('shows the project-picker placeholder when no project is selected', () => {

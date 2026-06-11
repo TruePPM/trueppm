@@ -16,15 +16,6 @@ const STATUS_LABELS: Record<Risk['status'], string> = {
   CLOSED: 'Closed',
 };
 
-/** Format a Risk's short_id for display: "00000007" → "R-007", "a3f1" → "R-A3F1". */
-function formatRiskId(shortId: string): string {
-  if (!shortId) return 'R-???';
-  if (/^\d+$/.test(shortId)) {
-    return `R-${String(parseInt(shortId, 10)).padStart(3, '0')}`;
-  }
-  return `R-${shortId.slice(0, 4).toUpperCase()}`;
-}
-
 export function RiskRegisterView() {
   const projectId = useProjectId() ?? '';
   const { risks, isLoading, error } = useRisks(projectId || null);
@@ -449,9 +440,10 @@ export function RiskRegisterView() {
                             }
                           }}
                         >
-                          {/* ID */}
+                          {/* ID — server-formatted (#929); the client no longer
+                              derives it from the raw short_id. */}
                           <td className="px-4 text-xs text-neutral-text-secondary tppm-mono">
-                            {formatRiskId(risk.short_id)}
+                            {risk.short_id_display}
                           </td>
 
                           {/* Risk — title + status sub-label + overdue badge */}
