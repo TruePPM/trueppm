@@ -94,7 +94,8 @@ function SprintReviewSection({
             <span className="text-neutral-text-secondary font-normal"> ({r.accepted_points} pts)</span>
           )}
         </span>
-        <span className="text-semantic-at-risk font-medium">
+        <span className="text-semantic-at-risk font-medium" data-testid="not-accepted-count">
+          <span aria-hidden="true">✗ </span>
           {r.not_accepted_count} not accepted
           {r.not_accepted_points != null && (
             <span className="text-neutral-text-secondary font-normal">
@@ -173,7 +174,7 @@ function ShippedRow({
       {a.total > 0 ? (
         <span
           className={`text-xs shrink-0 ${fullyAccepted ? 'text-semantic-on-track' : 'text-semantic-at-risk'}`}
-          aria-label={`${a.met} of ${a.total} acceptance criteria met`}
+          aria-label={`${a.met} of ${a.total} acceptance criteria met${fullyAccepted ? ' — accepted' : ''}`}
         >
           <span aria-hidden="true">{fullyAccepted ? '✓ ' : ''}</span>
           {a.met}/{a.total} criteria
