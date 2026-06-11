@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("projects", "0062_project_is_sample"),
+        ("projects", "0068_project_recalculated_at"),
     ]
 
     operations = [
