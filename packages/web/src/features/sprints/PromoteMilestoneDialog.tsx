@@ -773,6 +773,14 @@ function PercentileBar({ preview }: { preview: ReforecastPreview }) {
   const p95 = pct(preview.p95);
   const committed = pct(preview.cpmFinish);
   const hit = preview.p80 <= preview.cpmFinish;
+  // #1094: P50/P80/P95 percentile vocabulary implies a Monte Carlo distribution, but
+  // the bridge reforecast is a deterministic velocity-band heuristic. Reserve the
+  // percentile labels for real simulation (#953); otherwise label the band honestly
+  // (Early/Likely/Late) and caption it as an estimate, not a simulation.
+  const simulated = preview.basis === 'monte_carlo';
+  const earlyLabel = simulated ? 'P50' : 'Early';
+  const likelyLabel = simulated ? 'P80' : 'Likely';
+  const lateLabel = simulated ? 'P95' : 'Late';
   // Literal class strings — Tailwind's JIT cannot see interpolated names.
   const bandClass = hit
     ? 'bg-semantic-on-track-bg border-semantic-on-track'
@@ -799,7 +807,7 @@ function PercentileBar({ preview }: { preview: ReforecastPreview }) {
           className={`absolute -top-0.5 tppm-mono text-xs font-bold ${labelClass} -translate-x-1/2`}
           style={{ left: `${p80}%` }}
         >
-          P80
+          {likelyLabel}
         </span>
         {/* committed-date tick */}
         <div
@@ -808,10 +816,17 @@ function PercentileBar({ preview }: { preview: ReforecastPreview }) {
         />
       </div>
       <div className="flex justify-between tppm-mono text-xs text-neutral-text-disabled">
-        <span>P50 {formatShortDate(preview.p50)}</span>
-        <span>P80 {formatShortDate(preview.p80)}</span>
-        <span>P95 {formatShortDate(preview.p95)}</span>
+        <span>{earlyLabel} {formatShortDate(preview.p50)}</span>
+        <span>{likelyLabel} {formatShortDate(preview.p80)}</span>
+        <span>{lateLabel} {formatShortDate(preview.p95)}</span>
       </div>
+      {!simulated && (
+        // Visible caption (not a title tooltip — rules 22a/121); text-xs is the
+        // 12px floor (rule 50, text-[11px] is StatusBar-only).
+        <p className="mt-1.5 text-xs italic leading-snug text-neutral-text-disabled">
+          Estimate — velocity-based, not simulated.
+        </p>
+      )}
     </div>
   );
 }

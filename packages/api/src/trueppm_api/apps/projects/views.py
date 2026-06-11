@@ -6244,7 +6244,9 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         from trueppm_api.apps.projects.services import sprint_outcome_payload
 
         sprint = get_object_or_404(
-            Sprint.objects.select_related("project", "created_by"),
+            # target_milestone is select_related so the #1098 realized-slip lookup
+            # doesn't add a query for the bound milestone.
+            Sprint.objects.select_related("project", "created_by", "target_milestone"),
             pk=pk,
             is_deleted=False,
         )

@@ -594,6 +594,18 @@ export interface SprintOutcome {
     action_item_count: number;
     has_notes: boolean;
   } | null;
+  // Realized milestone slip vs baseline (#1098) — schedule fact, not velocity-gated.
+  // Present only on a CLOSED sprint bound to a milestone with a baselined finish.
+  // slip_days is positive when late; basis is "actual" once the milestone finished.
+  milestone_slip: {
+    milestone_id: string;
+    milestone_name: string;
+    milestone_short_id: string;
+    slip_days: number;
+    baseline_finish: string;
+    forecast_finish: string;
+    basis: 'actual' | 'forecast';
+  } | null;
 }
 
 /** GET /api/v1/sprints/{id}/outcome/ — the consolidated sprint-review read (#985). */

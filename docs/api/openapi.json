@@ -20487,6 +20487,53 @@
                     "wbs_path"
                 ]
             },
+            "MilestoneSlip": {
+                "type": "object",
+                "description": "Realized schedule slip of the bound milestone vs its active baseline (#1098).\n\nA schedule fact (not velocity-private), so it is never ADR-0104-gated. Present\nonly on a CLOSED sprint bound to a milestone with a computable forecast and a\nbaselined finish; null otherwise. ``slip_days`` is positive when late. ``basis``\nis ``\"actual\"`` once the milestone has actually finished, else ``\"forecast\"``.",
+                "properties": {
+                    "milestone_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "milestone_name": {
+                        "type": "string"
+                    },
+                    "milestone_short_id": {
+                        "type": "string"
+                    },
+                    "slip_days": {
+                        "type": "integer"
+                    },
+                    "baseline_finish": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "forecast_finish": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "basis": {
+                        "$ref": "#/components/schemas/MilestoneSlipBasisEnum"
+                    }
+                },
+                "required": [
+                    "baseline_finish",
+                    "basis",
+                    "forecast_finish",
+                    "milestone_id",
+                    "milestone_name",
+                    "milestone_short_id",
+                    "slip_days"
+                ]
+            },
+            "MilestoneSlipBasisEnum": {
+                "enum": [
+                    "actual",
+                    "forecast"
+                ],
+                "type": "string",
+                "description": "* `actual` - actual\n* `forecast` - forecast"
+            },
             "MinProficiencyEnum": {
                 "enum": [
                     1,
@@ -25543,6 +25590,14 @@
                         "type": "object",
                         "additionalProperties": {},
                         "nullable": true
+                    },
+                    "milestone_slip": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/MilestoneSlip"
+                            }
+                        ],
+                        "nullable": true
                     }
                 },
                 "required": [
@@ -25553,6 +25608,7 @@
                     "finish_date",
                     "goal",
                     "goal_outcome",
+                    "milestone_slip",
                     "name",
                     "outcome_recorded",
                     "provisional",

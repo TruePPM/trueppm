@@ -3135,6 +3135,24 @@ class DidntShipItemSerializer(serializers.Serializer[dict[str, Any]]):
     was_pending = serializers.BooleanField()
 
 
+class MilestoneSlipSerializer(serializers.Serializer[dict[str, Any]]):
+    """Realized schedule slip of the bound milestone vs its active baseline (#1098).
+
+    A schedule fact (not velocity-private), so it is never ADR-0104-gated. Present
+    only on a CLOSED sprint bound to a milestone with a computable forecast and a
+    baselined finish; null otherwise. ``slip_days`` is positive when late. ``basis``
+    is ``"actual"`` once the milestone has actually finished, else ``"forecast"``.
+    """
+
+    milestone_id = serializers.UUIDField()
+    milestone_name = serializers.CharField()
+    milestone_short_id = serializers.CharField(allow_blank=True)
+    slip_days = serializers.IntegerField()
+    baseline_finish = serializers.DateField()
+    forecast_finish = serializers.DateField()
+    basis = serializers.ChoiceField(choices=["actual", "forecast"])
+
+
 class SprintOutcomeSerializer(serializers.Serializer[dict[str, Any]]):
     """Consolidated sprint-review read (#985, ADR-0111 §3) for
     ``GET /api/sprints/{id}/outcome/``.
@@ -3162,6 +3180,7 @@ class SprintOutcomeSerializer(serializers.Serializer[dict[str, Any]]):
     didnt_ship = DidntShipItemSerializer(many=True)
     didnt_ship_summary = serializers.DictField()
     retro_summary = serializers.DictField(allow_null=True)
+    milestone_slip = MilestoneSlipSerializer(allow_null=True)
 
 
 class SprintCloseRequestSerializer(serializers.Serializer[dict[str, Any]]):

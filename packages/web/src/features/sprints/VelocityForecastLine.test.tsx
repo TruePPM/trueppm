@@ -106,6 +106,37 @@ describe('VelocityForecastLine (#607)', () => {
     expect(line).toHaveTextContent(/80%/);
   });
 
+  it('#1094: a velocity_band milestone reads as an estimate, not P50/P80', () => {
+    mockForecast(
+      forecast({
+        milestones: [
+          {
+            id: 'fs1',
+            milestone_id: 'm-1',
+            milestone_name: 'Login redesign',
+            basis: 'velocity_band',
+            cpm_finish: '2026-09-01',
+            p50: '2026-09-10',
+            p80: '2026-09-24',
+            velocity_low: 24,
+            velocity_high: 32,
+            confidence: 'medium',
+            unmodeled_dependency: false,
+            taken_at: '2026-06-01T00:00:00Z',
+          },
+        ],
+      }),
+    );
+    renderLine({ targetMilestoneId: 'm-1' });
+    const line = screen.getByTestId('velocity-forecast-line');
+    expect(line).toHaveTextContent(/Login redesign/);
+    // No Monte-Carlo percentile vocabulary on a deterministic velocity-band estimate.
+    expect(line).not.toHaveTextContent(/P50/);
+    expect(line).not.toHaveTextContent(/80%/);
+    expect(line).toHaveTextContent(/est\./);
+    expect(line).toHaveTextContent(/velocity estimate/i);
+  });
+
   it('falls back to the backlog forecast when the bound milestone has no snapshot', () => {
     mockForecast(forecast({ milestones: [] }));
     renderLine({ targetMilestoneId: 'm-1' });
