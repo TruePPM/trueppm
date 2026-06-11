@@ -287,9 +287,12 @@ export async function setupApiMocks(page: Page, opts: ApiMockOptions = {}): Prom
   await page.route(`**/api/v1/projects/${projectId}/members/**`, (route) => {
     if (route.request().method() === 'GET') {
       const url = new URL(route.request().url());
-      // ?self=true returns just the caller's membership row.
+      // ?self=true returns just the caller's membership row — still a list (the
+      // backend filters the queryset but serializes many=True). useCurrentUserRole()
+      // reads res.data[0]; a bare object left role null and hid every role-gated
+      // write control (#1046).
       if (url.searchParams.get('self') === 'true') {
-        return route.fulfill(jsonResponse({ id: 'mem-admin', role: 300, user_id: user.id }));
+        return route.fulfill(jsonResponse([{ id: 'mem-admin', role: 300, user_id: user.id }]));
       }
       return route.fulfill(jsonResponse(opts.members ?? [{ id: 'mem-admin', role: 300 }]));
     }
