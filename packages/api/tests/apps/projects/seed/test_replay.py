@@ -16,11 +16,16 @@ import pytest
 from django.contrib.auth import get_user_model
 
 from trueppm_api.apps.projects.models import (
+    Baseline,
+    BaselineTask,
+    EstimateStatus,
     Project,
     Risk,
+    ScopeChangeStatus,
     Sprint,
     SprintBurnSnapshot,
     SprintScopeChange,
+    SprintState,
     Task,
     TaskComment,
     TaskStatus,
@@ -101,6 +106,17 @@ def _v2_seed() -> dict[str, Any]:
                         "sprint": "s1",
                         "delivery_mode": "scrum",
                     },
+                    {
+                        # Injected mid-sprint then rejected — exercises the
+                        # scope_resolve REJECTED path (task drops out of the sprint).
+                        "wbs_path": "4",
+                        "name": "Telemetry",
+                        "type": "story",
+                        "status": "NOT_STARTED",
+                        "story_points": 2,
+                        "sprint": "s1",
+                        "delivery_mode": "scrum",
+                    },
                 ],
                 "risks": [
                     {
@@ -114,12 +130,60 @@ def _v2_seed() -> dict[str, Any]:
             }
         ],
         "events": [
+            # Authored sprint lifecycle — drives the activate/close handlers
+            # (the synthesizer is suppressed for sprints the timeline touches).
+            {
+                "at": "A-20T09:00",
+                "actor": "alex",
+                "action": "sprint.activate",
+                "target": "sprint:core:s1",
+            },
+            {
+                "at": "A-18T12:00",
+                "actor": "alex",
+                "action": "baseline.capture",
+                "target": "project:core",
+                "body": "Sprint 1 commitment baseline",
+            },
             {
                 "at": "A-15T10:00",
                 "actor": "alex",
                 "action": "task.comment",
                 "target": "task:core:1",
                 "body": "Auth flow reviewed — looks good.",
+            },
+            {
+                "at": "A-14T09:00",
+                "actor": "priya",
+                "action": "task.assign",
+                "target": "task:core:2",
+                "assignee": "alex",
+            },
+            {
+                "at": "A-14T10:00",
+                "actor": "priya",
+                "action": "task.estimate",
+                "target": "task:core:2",
+                "estimate": {"optimistic": 2, "most_likely": 3, "pessimistic": 5},
+            },
+            {
+                "at": "A-13T10:00",
+                "actor": "priya",
+                "action": "task.ac_met",
+                "target": "task:core:2",
+            },
+            {
+                "at": "A-12T11:00",
+                "actor": "priya",
+                "action": "sprint.scope_inject",
+                "target": "task:core:3",
+                "goal_impact": True,
+            },
+            {
+                "at": "A-11T11:00",
+                "actor": "priya",
+                "action": "sprint.scope_inject",
+                "target": "task:core:4",
             },
             {
                 "at": "A-10T09:00",
@@ -130,11 +194,25 @@ def _v2_seed() -> dict[str, Any]:
                 "to": "MITIGATING",
             },
             {
-                "at": "A-12T11:00",
+                "at": "A-9T10:00",
                 "actor": "priya",
-                "action": "sprint.scope_inject",
-                "target": "task:core:3",
-                "goal_impact": True,
+                "action": "task.points",
+                "target": "task:core:2",
+                "remaining_points": 2,
+            },
+            {
+                "at": "A-8T11:00",
+                "actor": "alex",
+                "action": "sprint.scope_resolve",
+                "target": "task:core:4",
+                "to": "REJECTED",
+            },
+            {
+                "at": "A-6T17:00",
+                "actor": "alex",
+                "action": "sprint.close",
+                "target": "sprint:core:s1",
+                "goal_outcome": "PARTIAL",
             },
         ],
     }
@@ -219,6 +297,60 @@ def test_comment_is_backdated(program: Any) -> None:
     task = _task(program, "1")
     comment = TaskComment.objects.get(task=task)
     assert comment.created_at.date() <= date.fromisoformat(ANCHOR)
+
+
+def test_task_assign_event_replayed(program: Any) -> None:
+    task = _task(program, "2")
+    # The authored reassign moves the task from priya to alex.
+    assert task.assignee is not None
+    assert task.assignee.username == "demo-alex"
+
+
+def test_task_estimate_event_replayed(program: Any) -> None:
+    task = _task(program, "2")
+    assert task.optimistic_duration == 2
+    assert task.most_likely_duration == 3
+    assert task.pessimistic_duration == 5
+    # The estimate event marks the three-point estimate accepted.
+    assert str(task.estimate_status) == str(EstimateStatus.ACCEPTED)
+
+
+def test_task_points_event_replayed(program: Any) -> None:
+    task = _task(program, "2")
+    # task:core:2 stays IN_PROGRESS (never COMPLETE, which would zero this),
+    # so the authored remaining_points survives to the end state.
+    assert task.remaining_points == 2
+
+
+def test_task_ac_met_sets_dor(program: Any) -> None:
+    task = _task(program, "2")
+    assert task.dor == "ready"
+
+
+def test_authored_sprint_close_records_goal_outcome(program: Any) -> None:
+    sprint = Sprint.objects.get(project__program=program, name="Sprint 1")
+    assert str(sprint.state) == str(SprintState.COMPLETED)
+    assert sprint.goal_outcome == "PARTIAL"
+    assert sprint.activated_at is not None
+    assert sprint.closed_at is not None
+
+
+def test_baseline_capture_creates_baseline_with_tasks(program: Any) -> None:
+    project = Project.objects.get(program=program, name="Core")
+    baseline = Baseline.objects.get(project=project, name="Sprint 1 commitment baseline")
+    # The baseline snapshots the project's tasks at the beat time...
+    assert BaselineTask.objects.filter(baseline=baseline).exists()
+    # ...and its created_at is backdated, not stamped at import time.
+    assert baseline.created_at.date() <= date.fromisoformat(ANCHOR)
+
+
+def test_scope_resolve_reject_drops_task_from_sprint(program: Any) -> None:
+    task = _task(program, "4")
+    # A rejected injection removes the task from the sprint and clears pending.
+    assert task.sprint is None
+    assert task.sprint_pending is False
+    change = SprintScopeChange.objects.get(task=task)
+    assert str(change.status) == str(ScopeChangeStatus.REJECTED)
 
 
 def test_replay_is_deterministic(owner: Any) -> None:
