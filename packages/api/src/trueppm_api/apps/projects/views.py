@@ -6423,7 +6423,13 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         self.check_object_permissions(request, sprint)
 
         raw = request.query_params.get("since")
-        since = parse_datetime(raw) if raw else None
+        try:
+            # parse_datetime returns None on a malformed string, but RAISES
+            # ValueError on a well-formed-but-out-of-range one (e.g. month 13) —
+            # both fall back to the default window, never a 500.
+            since = parse_datetime(raw) if raw else None
+        except ValueError:
+            since = None
         if since is None:
             since = timezone.now() - timedelta(hours=24)
         elif timezone.is_naive(since):

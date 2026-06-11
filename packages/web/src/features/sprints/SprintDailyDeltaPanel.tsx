@@ -56,7 +56,7 @@ export function SprintDailyDeltaPanel({ sprintId }: Props) {
         >
           Since yesterday
         </h3>
-        <span className="text-[10px] tppm-mono text-neutral-text-disabled">
+        <span className="text-[10px] tppm-mono text-neutral-text-secondary">
           {relativeSince(d.since)}
         </span>
       </header>
@@ -86,15 +86,20 @@ function BurndownRow({ delta }: { delta: NonNullable<SprintDailyDelta['burndown_
       ? 'text-semantic-at-risk'
       : 'text-neutral-text-secondary';
   const arrow = down ? '▼' : delta.remaining_delta > 0 ? '▲' : '·';
+  const ariaLabel = down
+    ? `Remaining work down ${Math.abs(delta.remaining_delta)} points — on track`
+    : delta.remaining_delta > 0
+      ? `Remaining work up ${delta.remaining_delta} points — at risk`
+      : 'Remaining work unchanged';
   return (
     <div className="px-3 py-2 text-sm flex items-center gap-2">
       <span className="text-xs text-neutral-text-secondary w-24 shrink-0">Burndown</span>
-      <span className={`tppm-mono ${tone}`} aria-label={`Remaining work changed by ${delta.remaining_delta} points`}>
+      <span className={`tppm-mono ${tone}`} aria-label={ariaLabel}>
         <span aria-hidden="true">{arrow} </span>
         {delta.remaining_delta > 0 ? '+' : ''}
         {delta.remaining_delta} pts remaining
       </span>
-      <span className="text-xs text-neutral-text-disabled">
+      <span className="text-xs text-neutral-text-secondary">
         ({delta.prior_remaining} → {delta.current_remaining}
         {delta.completed_delta > 0 && <>, +{delta.completed_delta} done</>})
       </span>
@@ -105,8 +110,10 @@ function BurndownRow({ delta }: { delta: NonNullable<SprintDailyDelta['burndown_
 function PerActorRow({ actors }: { actors: SprintDailyDelta['per_actor'] }) {
   return (
     <div className="px-3 py-2 flex flex-col gap-1">
-      <span className="text-xs text-neutral-text-secondary">Who touched what</span>
-      <ul className="flex flex-wrap gap-x-3 gap-y-1">
+      <h4 id="dd-actors" className="text-xs text-neutral-text-secondary font-normal">
+        Who touched what
+      </h4>
+      <ul aria-labelledby="dd-actors" className="flex flex-wrap gap-x-3 gap-y-1">
         {actors.map((a) => {
           const parts = [
             a.moved ? `${a.moved} moved` : null,
@@ -129,10 +136,10 @@ function PerActorRow({ actors }: { actors: SprintDailyDelta['per_actor'] }) {
 function BlockersRow({ blockers }: { blockers: SprintDailyDelta['new_blockers'] }) {
   return (
     <div className="px-3 py-2 flex flex-col gap-1">
-      <span className="text-xs font-medium text-semantic-at-risk">
+      <h4 id="dd-blockers" className="text-xs font-medium text-semantic-at-risk">
         <span aria-hidden="true">⚠ </span>New blockers ({blockers.length})
-      </span>
-      <ul className="flex flex-col gap-0.5">
+      </h4>
+      <ul aria-labelledby="dd-blockers" className="flex flex-col gap-0.5">
         {blockers.map((b) => (
           <li key={b.task_id} className="text-sm flex items-center gap-2">
             <span className="tppm-mono text-xs text-neutral-text-secondary w-16 shrink-0">
@@ -140,7 +147,7 @@ function BlockersRow({ blockers }: { blockers: SprintDailyDelta['new_blockers'] 
             </span>
             <span className="flex-1 min-w-0 truncate text-neutral-text-primary">{b.task_title}</span>
             {b.actor_username && (
-              <span className="text-xs text-neutral-text-disabled shrink-0">by {b.actor_username}</span>
+              <span className="text-xs text-neutral-text-secondary shrink-0">by {b.actor_username}</span>
             )}
           </li>
         ))}
@@ -152,8 +159,10 @@ function BlockersRow({ blockers }: { blockers: SprintDailyDelta['new_blockers'] 
 function MovedRow({ changes }: { changes: SprintDailyDelta['task_changes'] }) {
   return (
     <div className="px-3 py-2 flex flex-col gap-1">
-      <span className="text-xs text-neutral-text-secondary">Moved cards ({changes.length})</span>
-      <ul className="flex flex-col gap-0.5">
+      <h4 id="dd-moved" className="text-xs text-neutral-text-secondary font-normal">
+        Moved cards ({changes.length})
+      </h4>
+      <ul aria-labelledby="dd-moved" className="flex flex-col gap-0.5">
         {changes.map((c, i) => (
           <li key={`${c.task_id}-${i}`} className="text-sm flex items-center gap-2">
             <span className="tppm-mono text-xs text-neutral-text-secondary w-16 shrink-0">
@@ -173,8 +182,10 @@ function MovedRow({ changes }: { changes: SprintDailyDelta['task_changes'] }) {
 function ScopeRow({ items }: { items: SprintDailyDelta['scope_added'] }) {
   return (
     <div className="px-3 py-2 flex flex-col gap-1">
-      <span className="text-xs text-neutral-text-secondary">Scope added ({items.length})</span>
-      <ul className="flex flex-col gap-0.5">
+      <h4 id="dd-scope" className="text-xs text-neutral-text-secondary font-normal">
+        Scope added ({items.length})
+      </h4>
+      <ul aria-labelledby="dd-scope" className="flex flex-col gap-0.5">
         {items.map((s, i) => (
           <li key={`${s.task_id ?? s.task_short_id}-${i}`} className="text-sm flex items-center gap-2">
             <span className="tppm-mono text-xs text-neutral-text-secondary w-16 shrink-0">
@@ -182,7 +193,7 @@ function ScopeRow({ items }: { items: SprintDailyDelta['scope_added'] }) {
             </span>
             <span className="flex-1 min-w-0 truncate text-neutral-text-primary">{s.task_title}</span>
             {s.added_by_username && (
-              <span className="text-xs text-neutral-text-disabled shrink-0">by {s.added_by_username}</span>
+              <span className="text-xs text-neutral-text-secondary shrink-0">by {s.added_by_username}</span>
             )}
           </li>
         ))}

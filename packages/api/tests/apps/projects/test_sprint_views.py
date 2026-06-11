@@ -1514,3 +1514,13 @@ def test_daily_delta_non_member_denied(stranger_client: APIClient, project: Proj
     s = _make_sprint(project, state=SprintState.ACTIVE)
     resp = stranger_client.get(f"/api/v1/sprints/{s.pk}/daily-delta/")
     assert resp.status_code in (403, 404)
+
+
+def test_daily_delta_malformed_since_falls_back(member_client: APIClient, project: Project) -> None:
+    """A well-formed-but-out-of-range `since` (month 13) must 200 on the default
+    window, never 500 (parse_datetime raises ValueError on it)."""
+    s = _make_sprint(project, state=SprintState.ACTIVE)
+    resp = member_client.get(
+        f"/api/v1/sprints/{s.pk}/daily-delta/", {"since": "2026-13-45T00:00:00"}
+    )
+    assert resp.status_code == 200
