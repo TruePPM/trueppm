@@ -1,0 +1,1 @@
+Sprint velocity and delivery-forecast views now update live for every collaborator when a sprint is excluded from velocity — previously only the user who made the change saw the recompute until a manual refresh.

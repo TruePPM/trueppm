@@ -107,6 +107,15 @@ This check is not a greppable pattern. It requires reading the relevant ADR for 
 - Are secondary details accessible via drill-down, not cluttering the primary view?
 - Do dashboards prioritize action items over informational metrics?
 
+### 8. Reachability & Live-Wiring
+
+A surface can pass every dimension above and still ship effectively unbuilt: unreachable from the UI, or advertising controls that aren't connected to anything. Both read as "approved" in a component-level review and only surface when a real user (or a persona audit) tries to *use* the surface for a task. Check both:
+
+- **Reachability** — does the surface have a real entry point a user can *click to*, or is it route-only (reachable solely by typing a URL)? A route registered in the router with no `NavLink`/tab/menu/deep-link pointing at it is functionally unshipped. Grep for the route path across the nav surfaces: `grep -rn "<route-path-stem>" packages/web/src/` and confirm at least one match is a navigation affordance, not just the `router.tsx` registration and the API client. If the surface is methodology- or edition-scoped, the entry point must be gated to match (e.g. an Agile-only surface appears as a tab only on Agile/Hybrid projects) — but it must still *exist* for the audience it's for.
+- **Live-wiring** — is every *advertised* control actually connected to a working backend, or does it render an inert placeholder? Flag any visible control that (a) shows a permanently empty value because the field/model it reads is never populated by any UI (e.g. a score column that stays "—" because nothing lets the user set the inputs or the governing mode), (b) is a button wired to a no-op or a hook that hits no live endpoint, or (c) advertises a capability the backend supports but no frontend path exercises. The correct shipped state for a not-yet-wired control is to **hide it** (or disable it with a `title` explaining why and a tracking issue, per `packages/web/CLAUDE.md` stub-discipline) — never to present a dead control as if it works.
+
+Severity: a primary daily surface that is route-only, or a headline advertised capability that is inert, is **HIGH** (it makes the feature appear shipped when it is not). A secondary affordance missing one entry point is MEDIUM. This check requires reading the router and the component's data hooks, not just the rendered markup — a screenshot looks complete in both failure modes.
+
 ## Output Format
 
 Rate each dimension: ✓ Pass / ⚠ Needs Improvement / ✗ Fail

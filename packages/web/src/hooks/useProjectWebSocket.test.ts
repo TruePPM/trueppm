@@ -187,6 +187,24 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
   });
 
+  // ADR-0113 — a sprint's velocity contribution changes on sprint state events
+  // (close adds a data point, exclude_from_velocity drops one). A peer with the
+  // velocity band or delivery forecast open must refetch, matching the local
+  // mutation in useSprints — otherwise they hold a stale band until refresh.
+  it('invalidates velocity and forecast on sprint_updated (exclude_from_velocity peer refresh)', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatchEvent('sprint_updated');
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['sprints', 'proj-1'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ['project', 'proj-1', 'velocity'],
+    });
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ['project', 'proj-1', 'forecast'],
+    });
+  });
+
   it('invalidates tasks and sprints on milestone_rollup_updated', () => {
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
     renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });

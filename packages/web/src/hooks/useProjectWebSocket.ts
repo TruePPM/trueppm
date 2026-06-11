@@ -384,6 +384,18 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         // refresh task data so the Gantt milestone reflects the new value
         // even if the milestone_rollup_updated event lands first.
         scheduleInvalidate('tasks');
+        // A sprint's velocity contribution changes on these events — close adds
+        // a data point, exclude_from_velocity (ADR-0113) drops one, activate /
+        // cancel move committed scope — so a peer's velocity band and delivery
+        // forecast must refetch live, matching the local mutation in useSprints.
+        // Without this, collaborators see stale velocity/forecast until a manual
+        // refetch.
+        void queryClient.invalidateQueries({
+          queryKey: ['project', projectIdRef.current, 'velocity'],
+        });
+        void queryClient.invalidateQueries({
+          queryKey: ['project', projectIdRef.current, 'forecast'],
+        });
       }
 
       // --- Scope-injection accept/reject events (ADR-0102) ---
