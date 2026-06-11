@@ -214,22 +214,28 @@ class MeSerializer(serializers.Serializer[Any]):
     can_access_admin_settings = serializers.SerializerMethodField()
 
     def get_max_project_role(self, obj: Any) -> int | None:
-        from django.db.models import Max
+        # Memoized: get_can_access_admin_settings also needs this, so without the
+        # cache /auth/me would run the same aggregate twice per response.
+        if not hasattr(self, "_max_project_role"):
+            from django.db.models import Max
 
-        value = ProjectMembership.objects.filter(user=obj, is_deleted=False).aggregate(
-            _max=Max("role")
-        )["_max"]
-        return int(value) if value is not None else None
+            value = ProjectMembership.objects.filter(user=obj, is_deleted=False).aggregate(
+                _max=Max("role")
+            )["_max"]
+            self._max_project_role: int | None = int(value) if value is not None else None
+        return self._max_project_role
 
     def get_workspace_role(self, obj: Any) -> int | None:
-        from django.db.models import Max
+        if not hasattr(self, "_workspace_role"):
+            from django.db.models import Max
 
-        from trueppm_api.apps.workspace.models import WorkspaceMembership
+            from trueppm_api.apps.workspace.models import WorkspaceMembership
 
-        value = WorkspaceMembership.objects.filter(user=obj, is_deleted=False).aggregate(
-            _max=Max("role")
-        )["_max"]
-        return int(value) if value is not None else None
+            value = WorkspaceMembership.objects.filter(user=obj, is_deleted=False).aggregate(
+                _max=Max("role")
+            )["_max"]
+            self._workspace_role: int | None = int(value) if value is not None else None
+        return self._workspace_role
 
     def get_can_access_admin_settings(self, obj: Any) -> bool:
         from trueppm_api.apps.workspace.models import WorkspaceRole

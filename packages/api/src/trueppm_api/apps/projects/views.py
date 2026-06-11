@@ -7287,11 +7287,12 @@ class MeWorkPagination(pagination.LimitOffsetPagination):
 class MeWorkView(generics.ListAPIView[Task]):
     """``GET /api/v1/me/work/`` — contributor's flat task list across all projects.
 
-    Returns the requesting user's assigned, non-BACKLOG, non-soft-deleted tasks
-    grouped (client-side) by active sprint. Deliberately flat — no CPM fields,
-    no WBS hierarchy, no phase tree. The contributor (Priya persona) reads this
-    as a personal to-do list; PM-level concepts (critical path, float, schedule
-    variance) are intentionally absent.
+    Returns the requesting user's assigned, non-BACKLOG, non-soft-deleted tasks,
+    each tagged with a server-computed ``group`` bucket (today / this_sprint /
+    upcoming, #484/ADR-0118) and pre-sorted so the buckets are contiguous.
+    Deliberately flat — no CPM fields, no WBS hierarchy, no phase tree. The
+    contributor (Priya persona) reads this as a personal to-do list; PM-level
+    concepts (critical path, float, schedule variance) are intentionally absent.
 
     **RBAC contract (Morgan's sprint-sovereignty requirement)**: the queryset is
     hard-scoped to ``assignee=request.user`` *and* re-checks project membership

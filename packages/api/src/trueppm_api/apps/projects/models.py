@@ -1046,7 +1046,7 @@ class Task(VersionedModel):
     blocked_reason = models.TextField(
         blank=True,
         default="",
-        help_text="Why the task is blocked; empty means not blocked (drives the My Work badge).",
+        help_text="Why the task is blocked; empty means not blocked.",
     )
 
     # SNET constraint — set by the PM (e.g. via Gantt drag-to-reschedule).

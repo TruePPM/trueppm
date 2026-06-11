@@ -12,10 +12,11 @@
  * spinner so an admin never sees a flash-redirect; the gate only fires once
  * ``can_access_admin_settings`` resolves to ``false``.
  */
+import type { ReactNode } from 'react';
 import { Navigate } from 'react-router';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 
-export function RequireAdminSettings({ children }: { children: React.ReactNode }) {
+export function RequireAdminSettings({ children }: { children: ReactNode }) {
   const { user, isLoading } = useCurrentUser();
   // Strict `=== false`: only redirect once the server has positively said this
   // user is not an admin anywhere. An absent/loading signal falls through to the
