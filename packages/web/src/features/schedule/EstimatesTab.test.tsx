@@ -533,6 +533,31 @@ describe('EstimatesTab — velocity suggestion banner', () => {
     expect(screen.getByRole('button', { name: /Dismiss/i })).toBeInTheDocument();
   });
 
+  it('hides the banner when suggested_duration is suppressed by the velocity gate (#1099)', async () => {
+    // A PM at the team-private default is below the velocity audience, so the
+    // server nulls suggested_duration. With no value to revise to, the prompt
+    // must hide rather than render an empty "suggests d".
+    routeGet([{ ...suggestionFixture, suggested_duration: null, team_velocity_per_day: null }]);
+    renderWithProviders(
+      <EstimatesTab
+        task={baseTask}
+        projectId="p1"
+        estimationMode="open"
+        userIsScheduler={true}
+        userIsAdmin={true}
+      />,
+    );
+    // The suggestions query fires (admin), but the banner stays absent.
+    await waitFor(() =>
+      expect(getMock).toHaveBeenCalledWith(
+        expect.stringContaining('/velocity-suggestions/'),
+      ),
+    );
+    expect(
+      screen.queryByLabelText(/Velocity calibration suggestion/i),
+    ).not.toBeInTheDocument();
+  });
+
   it('shows current vs suggested duration when most_likely_duration is set', async () => {
     routeGet([suggestionFixture]);
     renderWithProviders(

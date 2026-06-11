@@ -27332,7 +27332,9 @@
                     },
                     "suggested_duration": {
                         "type": "integer",
-                        "readOnly": true
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Velocity-calibrated duration in working days; null when the reader is below the velocity audience."
                     },
                     "team_velocity_per_day": {
                         "type": "string",

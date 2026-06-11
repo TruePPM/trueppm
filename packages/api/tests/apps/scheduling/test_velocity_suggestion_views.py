@@ -274,35 +274,79 @@ def test_dismiss_after_accept_is_409(project: Project, suggestion: VelocitySugge
 def test_team_velocity_per_day_suppressed_for_below_audience_reader(
     project: Project, task: Task, suggestion: VelocitySuggestion
 ) -> None:
-    """#949: ``team_velocity_per_day`` is the same point-based velocity number the
-    ADR-0104 gate strips from /velocity/. A reader below the velocity audience
-    (here a PM at the default team-private posture, who is suppressed on
-    /velocity/) must not recover it from the calibration-suggestion surface, while
-    an in-audience MEMBER still reads it."""
+    """#949/#1099: ``team_velocity_per_day`` is the same point-based velocity number
+    the ADR-0104 gate strips from /velocity/, and ``suggested_duration`` is computed
+    *from* it. A reader below the velocity audience (here a PM at the default
+    team-private posture, who is suppressed on /velocity/) must not recover either
+    from the calibration-suggestion surface, while an in-audience MEMBER reads both."""
     pm = User.objects.create_user(username="pm", password="pw")
     ProjectMembership.objects.create(project=project, user=pm, role=Role.ADMIN)
     member = User.objects.create_user(username="dev", password="pw")
     ProjectMembership.objects.create(project=project, user=member, role=Role.MEMBER)
 
-    pm_resp = _client_for(pm).get(f"/api/v1/velocity-suggestions/?task={task.id}")
-    assert pm_resp.status_code == 200
-    assert pm_resp.json()["results"][0]["team_velocity_per_day"] is None
+    pm_row = (
+        _client_for(pm).get(f"/api/v1/velocity-suggestions/?task={task.id}").json()["results"][0]
+    )
+    # Both the raw rate and the value derived from it are stripped (#1099).
+    assert pm_row["team_velocity_per_day"] is None
+    assert pm_row["suggested_duration"] is None
 
-    member_resp = _client_for(member).get(f"/api/v1/velocity-suggestions/?task={task.id}")
-    assert member_resp.status_code == 200
-    assert member_resp.json()["results"][0]["team_velocity_per_day"] is not None
+    member_row = (
+        _client_for(member)
+        .get(f"/api/v1/velocity-suggestions/?task={task.id}")
+        .json()["results"][0]
+    )
+    assert member_row["team_velocity_per_day"] is not None
+    assert member_row["suggested_duration"] is not None
 
 
 @pytest.mark.django_db
 def test_dismiss_response_suppresses_team_velocity_for_below_audience(
     project: Project, suggestion: VelocitySuggestion
 ) -> None:
-    """#949: the accept/dismiss action responses build the serializer too — they
+    """#949/#1099: the accept/dismiss action responses build the serializer too — they
     must carry request context so the velocity gate fires there as well. A PM
-    (suppressed by default) must not recover team_velocity_per_day from a dismiss."""
+    (suppressed by default) must not recover team_velocity_per_day or the
+    velocity-derived suggested_duration from a dismiss."""
     pm = User.objects.create_user(username="pm", password="pw")
     ProjectMembership.objects.create(project=project, user=pm, role=Role.ADMIN)
 
     resp = _client_for(pm).post(f"/api/v1/velocity-suggestions/{suggestion.id}/dismiss/")
     assert resp.status_code == 200
     assert resp.json()["team_velocity_per_day"] is None
+    assert resp.json()["suggested_duration"] is None
+
+
+@pytest.mark.django_db
+def test_accept_still_applies_suggested_duration_when_suppressed_for_pm(
+    project: Project, task: Task, suggestion: VelocitySuggestion
+) -> None:
+    """#1099 must not break the write path: accept reads suggested_duration from the
+    *model*, not the serialized (suppressed) value, so a PM whose read is gated still
+    applies the calibration. Only the visible number is hidden, not the action."""
+    pm = User.objects.create_user(username="pm", password="pw")
+    ProjectMembership.objects.create(project=project, user=pm, role=Role.ADMIN)
+
+    resp = _client_for(pm).post(f"/api/v1/velocity-suggestions/{suggestion.id}/accept/")
+    assert resp.status_code == 200
+    # Response is gated...
+    assert resp.json()["suggested_duration"] is None
+    # ...but the task duration was set from the model's real value.
+    task.refresh_from_db()
+    assert task.most_likely_duration == suggestion.suggested_duration
+
+
+@pytest.mark.django_db
+def test_serializer_fails_closed_without_request_context(
+    suggestion: VelocitySuggestion,
+) -> None:
+    """#1099: the velocity gate cannot establish a reader's tier without request
+    context, so a render with no request in context must suppress both the raw
+    rate and the velocity-derived suggestion rather than leak them. Exercises the
+    fail-closed branch the HTTP views never hit (they always carry a request)."""
+    from trueppm_api.apps.scheduling.serializers import VelocitySuggestionSerializer
+
+    data = VelocitySuggestionSerializer(suggestion, context={}).data
+
+    assert data["team_velocity_per_day"] is None
+    assert data["suggested_duration"] is None
