@@ -6,6 +6,8 @@ import { DangerZoneLink } from '../components/DangerZoneLink';
 import { useDirtyForm } from '../hooks/useDirtyForm';
 import { useProgram } from '@/hooks/useProgram';
 import { useUpdateProgram } from '@/hooks/useProgramMutations';
+import { InheritableIterationLabelField } from '../components/InheritableIterationLabelField';
+import { DEFAULT_ITERATION_LABEL } from '@/lib/iterationLabel';
 import { useExportProgramSeed } from '@/hooks/useProgramSeedIo';
 import type { ProgramHealth, ProgramMethodology, ProgramVisibility } from '@/api/types';
 import { PROGRAM_ACCENT_SWATCHES, contrastText } from '@/features/programs/programColor';
@@ -59,6 +61,8 @@ export function ProgramGeneralPage() {
   const [code, setCode] = useState('');
   const [health, setHealth] = useState<ProgramHealth>('AUTO');
   const [methodology, setMethodology] = useState<ProgramMethodology>('HYBRID');
+  // null = inherit the workspace default (ADR-0116, #1106).
+  const [iterationLabel, setIterationLabel] = useState<string | null>(null);
   const [visibility, setVisibility] = useState<ProgramVisibility>('WORKSPACE');
   // null = no accent chosen (renders as a health-tinted neutral on the card).
   const [color, setColor] = useState<string | null>(null);
@@ -79,6 +83,7 @@ export function ProgramGeneralPage() {
   const [initialCode, setInitialCode] = useState('');
   const [initialHealth, setInitialHealth] = useState<ProgramHealth>('AUTO');
   const [initialMethodology, setInitialMethodology] = useState<ProgramMethodology>('HYBRID');
+  const [initialIterationLabel, setInitialIterationLabel] = useState<string | null>(null);
   const [initialVisibility, setInitialVisibility] = useState<ProgramVisibility>('WORKSPACE');
   const [initialColor, setInitialColor] = useState<string | null>(null);
   const [initialLead, setInitialLead] = useState<string | null>(null);
@@ -91,6 +96,7 @@ export function ProgramGeneralPage() {
     setCode(program.code ?? '');
     setHealth(program.health);
     setMethodology(program.methodology);
+    setIterationLabel(program.iteration_label ?? null);
     setVisibility(program.visibility);
     setColor(program.color ?? null);
     setLead(program.lead ?? null);
@@ -99,14 +105,15 @@ export function ProgramGeneralPage() {
     setInitialCode(program.code ?? '');
     setInitialHealth(program.health);
     setInitialMethodology(program.methodology);
+    setInitialIterationLabel(program.iteration_label ?? null);
     setInitialVisibility(program.visibility);
     setInitialColor(program.color ?? null);
     setInitialLead(program.lead ?? null);
   }, [program]);
 
   const values = useMemo(
-    () => ({ name, description, code, health, methodology, visibility, color, lead }),
-    [name, description, code, health, methodology, visibility, color, lead],
+    () => ({ name, description, code, health, methodology, iterationLabel, visibility, color, lead }),
+    [name, description, code, health, methodology, iterationLabel, visibility, color, lead],
   );
   const initialValues = useMemo(
     () => ({
@@ -115,6 +122,7 @@ export function ProgramGeneralPage() {
       code: initialCode,
       health: initialHealth,
       methodology: initialMethodology,
+      iterationLabel: initialIterationLabel,
       visibility: initialVisibility,
       color: initialColor,
       lead: initialLead,
@@ -125,6 +133,7 @@ export function ProgramGeneralPage() {
       initialCode,
       initialHealth,
       initialMethodology,
+      initialIterationLabel,
       initialVisibility,
       initialColor,
       initialLead,
@@ -135,7 +144,18 @@ export function ProgramGeneralPage() {
     if (!programId) return;
     await updateProgram.mutateAsync({
       programId,
-      patch: { name, description, code, health, methodology, visibility, color, lead },
+      patch: {
+        name,
+        description,
+        code,
+        health,
+        methodology,
+        // null clears the override (inherit); blank custom normalizes to null (ADR-0116).
+        iteration_label: iterationLabel === null ? null : iterationLabel.trim() || null,
+        visibility,
+        color,
+        lead,
+      },
     });
     // Bump the snapshot — dirty flips back to false and the save bar collapses.
     setInitialName(name);
@@ -143,6 +163,7 @@ export function ProgramGeneralPage() {
     setInitialCode(code);
     setInitialHealth(health);
     setInitialMethodology(methodology);
+    setInitialIterationLabel(iterationLabel);
     setInitialVisibility(visibility);
     setInitialColor(color);
     setInitialLead(lead);
@@ -154,6 +175,7 @@ export function ProgramGeneralPage() {
     code,
     health,
     methodology,
+    iterationLabel,
     visibility,
     color,
     lead,
@@ -165,6 +187,7 @@ export function ProgramGeneralPage() {
     setCode(initialCode);
     setHealth(initialHealth);
     setMethodology(initialMethodology);
+    setIterationLabel(initialIterationLabel);
     setVisibility(initialVisibility);
     setColor(initialColor);
     setLead(initialLead);
@@ -174,6 +197,7 @@ export function ProgramGeneralPage() {
     initialCode,
     initialHealth,
     initialMethodology,
+    initialIterationLabel,
     initialVisibility,
     initialColor,
     initialLead,
@@ -340,6 +364,18 @@ export function ProgramGeneralPage() {
               </button>
             ))}
           </div>
+        </FieldRow>
+
+        <FieldRow
+          label="Iteration terminology"
+          hint="The word projects in this program use for their iteration container — unless a project sets its own."
+        >
+          <InheritableIterationLabelField
+            value={iterationLabel}
+            onChange={setIterationLabel}
+            inheritedLabel={program?.inherited_iteration_label ?? DEFAULT_ITERATION_LABEL}
+            inheritFromLabel="the workspace default"
+          />
         </FieldRow>
 
         <FieldRow label="Visibility" hint="Who can see this program and its rollup KPIs.">

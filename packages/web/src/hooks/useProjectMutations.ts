@@ -71,10 +71,11 @@ export interface UpdateProjectPayload {
   /** Default landing view (SCHEDULE | BOARD | TABLE | OVERVIEW). */
   default_view?: ProjectDefaultView;
   /**
-   * Iteration-container display label (ADR-0111, #862). Singular noun, ≤32 chars,
-   * non-empty after trim. Admin+-only server-side (allowlist default in the serializer).
+   * Iteration-container label override (ADR-0111/0116). Singular noun, ≤32 chars;
+   * `null` clears the override so the project inherits the program/workspace default.
+   * Admin+-only server-side (allowlist default in the serializer).
    */
-  iteration_label?: string;
+  iteration_label?: string | null;
   /** Calendar UUID or null to inherit from the workspace. */
   calendar?: string | null;
   /** Project lead — user id, or null to unassign. Admin+-only and must already

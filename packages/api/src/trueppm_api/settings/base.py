@@ -693,6 +693,11 @@ SPECTACULAR_SETTINGS = {
         # components (a schema-drift regression — project memory
         # project_drf_enum_name_collision). Pin ours to a stable name.
         "ScopeChangeStatusEnum": "trueppm_api.apps.projects.models.ScopeChangeStatus",
+        # ADR-0116: Workspace.iteration_label_override_policy adds an
+        # INHERIT/SUGGEST/ENFORCE choice set. Pin it so drf-spectacular does not
+        # rename existing stable enums (the same schema-drift regression class as
+        # ScopeChangeStatus above — project_drf_enum_name_collision).
+        "TermOverridePolicyEnum": "trueppm_api.apps.workspace.models.TermOverridePolicy",
         # ADR-0105: Task gains task_type / readiness and Project gains
         # backlog_scoring_model. Each is a new choice set on a *_type / status-adjacent
         # field; pin to model-prefixed names so drf-spectacular does not rename the

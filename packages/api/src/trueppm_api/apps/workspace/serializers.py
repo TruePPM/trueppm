@@ -104,8 +104,25 @@ class WorkspaceSettingsSerializer(serializers.ModelSerializer[Workspace]):
             "default_project_view",
             "allow_guests",
             "public_sharing",
+            # Workspace-wide iteration-container label default + cascade policy
+            # (ADR-0116, #1106). The non-null root of the inheritance chain.
+            "iteration_label",
+            "iteration_label_override_policy",
         ]
         read_only_fields = ["subdomain", "fiscal_year_start_display"]
+
+    def validate_iteration_label(self, value: str) -> str:
+        """The workspace label is the non-null root — reject empty (ADR-0116).
+
+        Unlike the program/project overrides there is no "inherit" above the
+        workspace, so a blank value cannot be normalized to NULL.
+        """
+        stripped = (value or "").strip()
+        if not stripped:
+            raise serializers.ValidationError(
+                "Enter a default label for the iteration container (e.g. Sprint, Iteration, PI)."
+            )
+        return stripped
 
     def validate_work_week(self, value: list[bool]) -> list[bool]:
         if len(value) != 7:

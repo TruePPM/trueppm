@@ -22,6 +22,8 @@ function makeProgram(overrides: Partial<Program> = {}): Program {
     description: '',
     code: '',
     methodology: 'HYBRID',
+    iteration_label: null,
+    inherited_iteration_label: 'Sprint',
     health: 'AUTO',
     visibility: 'WORKSPACE',
     color: null,

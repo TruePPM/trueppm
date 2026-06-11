@@ -41,21 +41,30 @@ The preset communicates *"this is not how we work here"*, not *"this is not allo
 
 Not every team that runs timeboxes calls them "Sprints." Scrumban and SAFe-adjacent teams
 use "Iteration" or "PI", and forcing strict Scrum-Guide vocabulary reads as a mandate.
-Coming in **0.3**, an Agile or Hybrid project will be able to label its iteration container —
-**Sprint** (the default), **Iteration**, **PI**, or a custom word — under **Project → Settings → General**.
+Coming in **0.3**, you will be able to label the iteration container —
+**Sprint** (the default), **Iteration**, **PI**, or a custom word — at three scopes that
+**inherit** from one another: set it once for the whole workspace under
+**Settings → Workspace → General**, override it for a **Program**, and override it again on
+an individual **Project**. Each scope can also choose to **inherit** its parent's term, so a
+relabel in one place flows down to everything below it. The most specific override wins
+(project, then program, then the workspace default), and the **effective** label is resolved
+on the server so the web app, the mobile app, and the API all show the same word.
 
 The chosen label will flow through every iteration surface: the tab, the sprint workspace,
 the board, planning, guardrails, the burndown, and the milestone-bridge dialog. It is
 **display-only** — like the methodology preset, it changes what you *see*, never what the
 system *does*: scheduling, permissions, and the API are untouched. Existing projects keep
-"Sprint", so nothing changes unless a team opts in.
+"Sprint", so nothing changes unless a team opts in. Locking a term workspace-wide so lower
+scopes cannot override it (**Enforce**) will be a TruePPM Enterprise capability.
 
 ## API endpoints
 
 | Method | Endpoint | Purpose |
 |---|---|---|
-| `GET`  | `/api/v1/projects/{id}/` | Includes `methodology` and `iteration_label` fields |
-| `PATCH` | `/api/v1/projects/{id}/` | Accepts `methodology` (`WATERFALL` \| `AGILE` \| `HYBRID`) and `iteration_label` (free text, ≤32 chars; Admin+ only) |
+| `GET`  | `/api/v1/projects/{id}/` | Includes `methodology`, the raw `iteration_label` override (nullable; `null` = inherit), the resolved `effective_iteration_label`, and `inherited_iteration_label` |
+| `PATCH` | `/api/v1/projects/{id}/` | Accepts `methodology` (`WATERFALL` \| `AGILE` \| `HYBRID`) and `iteration_label` (free text, ≤32 chars, or `null` to inherit; Admin+ only) |
+| `PATCH` | `/api/v1/programs/{id}/` | Accepts `iteration_label` (override or `null` to inherit the workspace default; Admin+ only) |
+| `PATCH` | `/api/v1/workspace/` | Accepts `iteration_label` (the workspace default) and `iteration_label_override_policy` (`inherit` \| `suggest` \| `enforce`; `enforce` is Enterprise) |
 
 ## Related ADRs
 

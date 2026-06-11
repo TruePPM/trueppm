@@ -339,6 +339,12 @@ class Program(VersionedModel):
         choices=Methodology.choices,
         default=Methodology.HYBRID,
     )
+    # Optional program-level override of the iteration-container label (ADR-0116,
+    # #1106). NULL = inherit the workspace default; a value overrides it for every
+    # project in this program whose own override is NULL. Display-only (ADR-0038/0111).
+    iteration_label = models.CharField(  # noqa: DJ001 — null distinguishes "inherit" from ""
+        max_length=32, null=True, blank=True
+    )
     # PM override for the program health chip. Defaults to AUTO so existing rows
     # render via the (future) rollup rather than implying a manual judgment.
     health = models.CharField(
@@ -704,12 +710,15 @@ class Project(VersionedModel):
     # Free text (Sprint / Iteration / PI / custom) so Scrumban/SAFe-adjacent teams
     # are not forced into Scrum-Guide vocabulary. Display-ONLY: it never gates tabs,
     # routes, API semantics, or CPM — the code symbol stays ``Sprint`` (ADR-0038).
-    # Stored singular; the web derives plural/possessive forms. Default "Sprint"
-    # backfills existing rows for zero visible behavior change. No ``choices=`` (and
-    # thus no drf-spectacular enum pin) — the presets are a UI affordance, not a DB set.
-    iteration_label = models.CharField(
+    # Stored singular; the web derives plural/possessive forms. NULL = inherit the
+    # program/workspace default (ADR-0116, #1106) — the effective label is resolved
+    # server-side; clients read ``effective_iteration_label``, never this raw column.
+    # No ``choices=`` (and thus no drf-spectacular enum pin) — the presets are a UI
+    # affordance, not a DB set.
+    iteration_label = models.CharField(  # noqa: DJ001 — null distinguishes "inherit" from ""
         max_length=32,
-        default="Sprint",
+        null=True,
+        blank=True,
     )
     # Optional grouping into a Program (ADR-0070). NULL = standalone project.
     # SET_NULL on program delete so projects survive the cascade as standalone.
