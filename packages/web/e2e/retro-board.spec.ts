@@ -97,9 +97,12 @@ test.describe('Live retro board (#851)', () => {
 
     const panel = page.getByRole('region', { name: /Retrospective/i });
     await expect(panel).toBeVisible();
-    await expect(panel.getByText('What went well')).toBeVisible();
-    await expect(panel.getByText('What to improve')).toBeVisible();
-    await expect(panel.getByText('Ideas & discussion')).toBeVisible();
+    // Each column label renders in both the mobile segmented control and the desktop
+    // column header (and "What went well" a third time, as the default-active mobile
+    // column), so assert on the first match rather than tripping strict mode.
+    await expect(panel.getByText('What went well').first()).toBeVisible();
+    await expect(panel.getByText('What to improve').first()).toBeVisible();
+    await expect(panel.getByText('Ideas & discussion').first()).toBeVisible();
 
     // Add a sticky to the first column (desktop column is the first match).
     await panel.getByRole('button', { name: /\+ Add a card/i }).first().click();
