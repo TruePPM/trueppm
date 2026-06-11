@@ -19,6 +19,7 @@
  *   task_comment_created / task_comment_updated / task_comment_deleted / task_comment_reaction_added / task_comment_reaction_removed / task_comment_ack_changed → invalidate task-comments[taskId]
  *   task_attachment_created / task_attachment_deleted → invalidate task-attachments[taskId]
  *   sprint_created / sprint_updated / sprint_deleted / sprint_activated / sprint_cancelled / sprint_closed → invalidate sprints
+ *   retro_item_created / retro_item_updated / retro_item_deleted / retro_item_moved → invalidate retro-board (ADR-0117)
  *   assignment_created / assignment_updated / assignment_deleted / roster_changed → invalidate tasks
  *   member_added / member_role_changed / member_removed → invalidate members
  *   team_member_changed → invalidate team-members[teamId] (facet/role reassign, ADR-0078)
@@ -395,6 +396,25 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         });
         void queryClient.invalidateQueries({
           queryKey: ['project', projectIdRef.current, 'forecast'],
+        });
+      }
+
+      // --- Live retro board events (ADR-0117 §4) ---
+      // A peer created/edited/moved/deleted a sticky on the multi-writer retro
+      // board. The board cache is keyed by sprint id, but the broadcast carries
+      // the retro_id (the board is project-scoped, sprint-derived), so we
+      // invalidate every open retro-board query rather than one key. Stale data
+      // is the only failure mode of the best-effort channel; a blanket refetch
+      // of the (at most one or two) open retro boards is cheap and reconciles
+      // LWW collisions deterministically.
+      else if (
+        event_type === 'retro_item_created' ||
+        event_type === 'retro_item_updated' ||
+        event_type === 'retro_item_deleted' ||
+        event_type === 'retro_item_moved'
+      ) {
+        void queryClient.invalidateQueries({
+          predicate: (q) => q.queryKey[0] === 'sprint' && q.queryKey[2] === 'retro-board',
         });
       }
 

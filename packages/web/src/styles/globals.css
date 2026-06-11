@@ -198,6 +198,18 @@
     animation: milestone-pulse 1.5s ease-out forwards;
   }
 
+  /* Retro sticky enter animation (#851) — a card added remotely by a peer
+     fades + slides in so live multi-writer additions are noticeable without
+     being jarring. Gated to motion-safe at the React layer (the class is only
+     applied under motion-safe:), so no @media guard is needed here. */
+  @keyframes retro-card-in {
+    0%   { opacity: 0; transform: translateY(-4px); }
+    100% { opacity: 1; transform: translateY(0);    }
+  }
+  .animate-retro-card-in {
+    animation: retro-card-in 0.25s ease-out;
+  }
+
   /* Disabled-form-control styling for settings pages whose API hasn't shipped
      yet (`apiReady=false`). Wrap the page body in `<StubFieldset>` and every
      descendant input / select / textarea / button is forced into the same

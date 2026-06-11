@@ -13911,6 +13911,150 @@
                 }
             }
         },
+        "/api/v1/retro-items/{id}/": {
+            "patch": {
+                "operationId": "v1_retro_items_partial_update",
+                "description": "Edit text/color and/or move (column + fractional position); LWW (ADR-0117 §3).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this retro board item.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedRetroBoardItemRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedRetroBoardItemRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedRetroBoardItemRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RetroBoardItem"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "v1_retro_items_destroy",
+                "description": "Soft-delete a sticky (broadcasts ``retro_item_deleted``).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this retro board item.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/retro-items/{id}/convert-to-action/": {
+            "post": {
+                "operationId": "v1_retro_items_convert_to_action_create",
+                "description": "Distil a sticky into a RetroActionItem (idempotent; then uses #858 promote).",
+                "summary": "Convert a discussion sticky into a retro action item (ADR-0117 §1)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this retro board item.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RetroActionItem"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RetroActionItem"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/scope-changes/{id}/accept/": {
             "post": {
                 "operationId": "v1_scope_changes_accept_create",
@@ -14926,6 +15070,159 @@
                 }
             }
         },
+        "/api/v1/sprints/{id}/pulse/": {
+            "get": {
+                "operationId": "v1_sprints_pulse_retrieve",
+                "description": "The requester's own pulse response for this sprint (#923, ADR-0117 §5).\n\n``GET`` echoes the requester's own current mood/energy/confidence (or 204 if\nunanswered) so they can change it. ``PUT`` upserts it (one per person per\nsprint). Deliberately no broadcast — a pulse event would reach the PM band\nas a read-receipt (Morgan 🔴). The aggregate trend is the gated\n``pulse-trend`` endpoint.",
+                "summary": "Team-health pulse — answer (one tap) or read your own (ADR-0117 §5)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "204": {
+                        "description": "No response recorded yet (GET)."
+                    }
+                }
+            },
+            "put": {
+                "operationId": "v1_sprints_pulse_update",
+                "description": "The requester's own pulse response for this sprint (#923, ADR-0117 §5).\n\n``GET`` echoes the requester's own current mood/energy/confidence (or 204 if\nunanswered) so they can change it. ``PUT`` upserts it (one per person per\nsprint). Deliberately no broadcast — a pulse event would reach the PM band\nas a read-receipt (Morgan 🔴). The aggregate trend is the gated\n``pulse-trend`` endpoint.",
+                "summary": "Team-health pulse — answer (one tap) or read your own (ADR-0117 §5)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "204": {
+                        "description": "No response recorded yet (GET)."
+                    }
+                }
+            }
+        },
+        "/api/v1/sprints/{id}/pulse-trend/": {
+            "get": {
+                "operationId": "v1_sprints_pulse_trend_retrieve",
+                "description": "Cross-sprint pulse trend, gated by ADR-0104's `pulse` signal (the 🔴).\n\nThe service applies ``can_read_signal(..., 'pulse')`` and returns\n``{gated: true}`` (no count, no points) for any reader above the signal's\naudience — a redacted aggregate is no pulse.",
+                "summary": "Team-health pulse trend — team + coach only (ADR-0117 §5 / ADR-0104)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Aggregate per-sprint mood/energy/confidence trend. Returns {gated: true} with NO data for any reader outside the team's `pulse` audience (PM/PMO by default; non-member always)."
+                    }
+                }
+            }
+        },
         "/api/v1/sprints/{id}/reforecast-preview/": {
             "get": {
                 "operationId": "v1_sprints_reforecast_preview_retrieve",
@@ -15154,6 +15451,110 @@
                     },
                     "404": {
                         "description": "No retro recorded for this sprint."
+                    }
+                }
+            }
+        },
+        "/api/v1/sprints/{id}/retro-board/": {
+            "get": {
+                "operationId": "v1_sprints_retro_board_retrieve",
+                "description": "Live multi-writer retro board (ADR-0117 §1, §7).\n\n``GET`` returns ``{columns, items}`` — the fixed column template and every\nlive sticky for this sprint's retro (read = any project member). ``POST``\ncreates a sticky in a column (write = Member+); the resulting state is\nbroadcast over the project board channel as ``retro_item_created``.",
+                "summary": "Live retro board — stickies + columns (ADR-0117 §1)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "The board's column definitions and all live stickies for this sprint's retro. Presence ('who is in the retro') arrives over the project WebSocket, not this endpoint. POST creates a sticky."
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_sprints_retro_board_create",
+                "description": "Live multi-writer retro board (ADR-0117 §1, §7).\n\n``GET`` returns ``{columns, items}`` — the fixed column template and every\nlive sticky for this sprint's retro (read = any project member). ``POST``\ncreates a sticky in a column (write = Member+); the resulting state is\nbroadcast over the project board channel as ``retro_item_created``.",
+                "summary": "Live retro board — stickies + columns (ADR-0117 §1)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "The board's column definitions and all live stickies for this sprint's retro. Presence ('who is in the retro') arrives over the project WebSocket, not this endpoint. POST creates a sticky."
                     }
                 }
             }
@@ -19465,6 +19866,15 @@
                     "name"
                 ]
             },
+            "ColumnEnum": {
+                "enum": [
+                    "went_well",
+                    "to_improve",
+                    "ideas"
+                ],
+                "type": "string",
+                "description": "* `went_well` - What went well\n* `to_improve` - What to improve\n* `ideas` - Ideas & discussion"
+            },
             "CommentReaction": {
                 "type": "object",
                 "description": "Single-emoji reaction. 0.2 allow-list is {'👍'} only.",
@@ -22347,6 +22757,27 @@
                     }
                 }
             },
+            "PatchedRetroBoardItemRequest": {
+                "type": "object",
+                "description": "A live retro-board sticky (ADR-0117 §1).\n\n``author`` is surfaced as ``author_username`` for the attribution chip; the\ncolumn/position/color round-trip the board layout. ``converted_action_item_id``\nlets the UI render a \"→ action\" affordance once a sticky has been distilled.\nWrites accept ``column``, ``text``, ``color``, ``position``; ``author`` is set\nserver-side from the request user, never trusted from the body.",
+                "properties": {
+                    "column": {
+                        "$ref": "#/components/schemas/ColumnEnum"
+                    },
+                    "text": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "position": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "color": {
+                        "type": "string",
+                        "maxLength": 16
+                    }
+                }
+            },
             "PatchedRiskRequest": {
                 "type": "object",
                 "description": "Read/write serializer for project risks.\n\nseverity is a computed read-only field (probability × impact); it is not\nstored in the database to avoid write-consistency hazards.\n\ntasks is a writable PrimaryKeyRelatedField that accepts task UUIDs on\ncreate and update.  The viewset annotates a severity DB expression on the\nqueryset so OrderingFilter can sort without round-tripping to Python.",
@@ -24746,6 +25177,119 @@
                     "policies",
                     "runs",
                     "schedule"
+                ]
+            },
+            "RetroActionItem": {
+                "type": "object",
+                "description": "Read serializer for retro action items.\n\nIncludes ``promoted_task_id`` so the frontend can render a `T-XXX`\nlink back to the task created by promotion. The assignee FK is\nsurfaced as the username (``assignee_username``) for display; writes\nuse ``assignee_id``.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "text": {
+                        "type": "string"
+                    },
+                    "assignee": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "assignee_username": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "story_points": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "promoted_task_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "assignee_username",
+                    "created_at",
+                    "id",
+                    "promoted_task_id",
+                    "text"
+                ]
+            },
+            "RetroBoardItem": {
+                "type": "object",
+                "description": "A live retro-board sticky (ADR-0117 §1).\n\n``author`` is surfaced as ``author_username`` for the attribution chip; the\ncolumn/position/color round-trip the board layout. ``converted_action_item_id``\nlets the UI render a \"→ action\" affordance once a sticky has been distilled.\nWrites accept ``column``, ``text``, ``color``, ``position``; ``author`` is set\nserver-side from the request user, never trusted from the body.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "retro": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "column": {
+                        "$ref": "#/components/schemas/ColumnEnum"
+                    },
+                    "text": {
+                        "type": "string"
+                    },
+                    "author": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "author_username": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "position": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "color": {
+                        "type": "string",
+                        "maxLength": 16
+                    },
+                    "converted_action_item_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "author",
+                    "author_username",
+                    "converted_action_item_id",
+                    "created_at",
+                    "id",
+                    "retro",
+                    "text",
+                    "updated_at"
                 ]
             },
             "Risk": {

@@ -48,7 +48,9 @@ from trueppm_api.apps.projects.models import (
     Project,
     ProjectApiToken,
     ProjectCustomField,
+    PulseResponse,
     RetroActionItem,
+    RetroBoardItem,
     Risk,
     RiskComment,
     Sprint,
@@ -3406,6 +3408,61 @@ class RetroActionItemSerializer(serializers.ModelSerializer[RetroActionItem]):
             "created_at",
         ]
         read_only_fields = ["id", "promoted_task_id", "created_at", "assignee_username"]
+
+
+class RetroBoardItemSerializer(serializers.ModelSerializer[RetroBoardItem]):
+    """A live retro-board sticky (ADR-0117 §1).
+
+    ``author`` is surfaced as ``author_username`` for the attribution chip; the
+    column/position/color round-trip the board layout. ``converted_action_item_id``
+    lets the UI render a "→ action" affordance once a sticky has been distilled.
+    Writes accept ``column``, ``text``, ``color``, ``position``; ``author`` is set
+    server-side from the request user, never trusted from the body.
+    """
+
+    author_username = serializers.SerializerMethodField()
+
+    def get_author_username(self, obj: RetroBoardItem) -> str | None:
+        return getattr(obj.author, "username", None) if obj.author else None
+
+    class Meta:
+        model = RetroBoardItem
+        fields = [
+            "id",
+            "retro",
+            "column",
+            "text",
+            "author",
+            "author_username",
+            "position",
+            "color",
+            "converted_action_item_id",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "retro",
+            "author",
+            "author_username",
+            "converted_action_item_id",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class PulseResponseSerializer(serializers.ModelSerializer[PulseResponse]):
+    """A single team member's pulse answer — only ever the requester's own (#923).
+
+    Raw responses are never serialized for anyone but their own author: the team
+    sees the *aggregate* trend, never an individual's mood/energy (ADR-0117 §5).
+    This serializer backs the one-tap upsert and the requester's own echo only.
+    """
+
+    class Meta:
+        model = PulseResponse
+        fields = ["id", "retro", "mood", "energy", "confidence", "updated_at"]
+        read_only_fields = ["id", "retro", "updated_at"]
 
 
 class SprintRetroSerializer(serializers.ModelSerializer[SprintRetro]):

@@ -2505,6 +2505,150 @@ class RetroActionItem(VersionedModel):
         return f"RetroActionItem({self.id}, retro={self.retro_id})"
 
 
+# ---------------------------------------------------------------------------
+# Live multi-writer retro board + team-health pulse (ADR-0117, #851 / #923)
+# ---------------------------------------------------------------------------
+
+
+class RetroColumn(models.TextChoices):
+    """The three fixed columns of the live retro board (ADR-0117 §2).
+
+    Stored as a string key (not an FK) so a future per-team configurable
+    column template (ADR-0107) is additive with no data migration of existing
+    stickies. The three columns cover the dominant retro formats — Glad/Sad/Mad
+    and Start/Stop/Continue both map onto went-well / to-improve / ideas.
+    """
+
+    WENT_WELL = "went_well", "What went well"
+    TO_IMPROVE = "to_improve", "What to improve"
+    IDEAS = "ideas", "Ideas & discussion"
+
+
+class RetroBoardItem(VersionedModel):
+    """A single live sticky-note on the multi-writer retro board (ADR-0117 §1).
+
+    Distinct from ``RetroActionItem``: a board item is *discussion* content the
+    whole team brainstorms concurrently during the live ceremony, whereas an
+    action item is a *distilled outcome* that carries an assignee + story points
+    and promotes to the backlog (#858). Conflating them was rejected (ADR-0117
+    Alternative B) — the outcome fields would pollute a brainstorm sticky and the
+    single-author upsert endpoint is the wrong write path for concurrent editing.
+
+    Concurrency is per-item last-write-wins on ``server_version`` (ADR-0117 §3):
+    each sticky is an independent row, the common case is different people editing
+    different stickies, and the rare same-sticky collision resolves by
+    last-save-wins with the loser reconciling on the next sync delta — the same
+    contract the board-event channel already runs on. ``VersionedModel`` makes the
+    board ride the existing WatermelonDB delta protocol offline for free.
+    """
+
+    retro = models.ForeignKey(
+        SprintRetro,
+        on_delete=models.CASCADE,
+        related_name="board_items",
+    )
+    column = models.CharField(
+        max_length=12,
+        choices=RetroColumn.choices,
+        default=RetroColumn.WENT_WELL,
+    )
+    text = models.TextField()
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="retro_board_items",
+    )
+    # Fractional index for ordering within a column: inserting between two
+    # neighbours uses the midpoint of their positions, so a drag-reorder rewrites
+    # one row, not the whole column (ADR-0110 reorder idiom). Float is sufficient
+    # at retro scale (a few dozen short stickies, rare reorders).
+    position = models.FloatField(default=0.0)
+    # Optional Design-System swatch key (presentation only, e.g. "sage"); never
+    # carries meaning — color is decorative on a sticky (ADR-0117 §8 a11y).
+    color = models.CharField(max_length=16, blank=True, default="")
+    # Set to the RetroActionItem.id once this sticky has been converted to an
+    # action item (ADR-0117 §1). Makes convert-to-action idempotent: a second
+    # convert is a no-op returning the existing action item (ADR-0117 §DE.7).
+    converted_action_item_id = models.UUIDField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "projects_retroboarditem"
+        ordering = ["column", "position", "created_at"]
+        indexes = [
+            # Board read groups by column then position; sync delta filters on
+            # server_version after joining via retro (#810 pattern).
+            models.Index(fields=["retro", "column", "position"], name="rbi_retro_col_pos_idx"),
+            models.Index(fields=["retro", "server_version"], name="rbi_retro_serverver_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"RetroBoardItem({self.id}, retro={self.retro_id}, col={self.column})"
+
+    @property
+    def project_id(self) -> Any:
+        """Project PK via retro→sprint, so RBAC's ``_get_project_id_from_obj`` resolves.
+
+        Object-level permission checks read ``obj.project_id``; the board item reaches
+        the project through ``retro.sprint``. Viewsets ``select_related('retro__sprint')``
+        so this property never N+1s on a list.
+        """
+        return self.retro.sprint.project_id
+
+
+class PulseResponse(VersionedModel):
+    """One team member's mood/energy/confidence answer for a sprint's retro (#923).
+
+    The team-health pulse (ADR-0117 §5) consumes ADR-0104's already-built ``pulse``
+    signal gate verbatim: the per-sprint trend is read **only** by the team + Scrum
+    Master/coach band, omitted *entirely* (no redacted aggregate) for the PM/PMO
+    band, and denied to non-members — Morgan's hard 🔴. This model stores only the
+    raw responses; the trend is computed as an aggregate (never an individual's raw
+    answer is exposed, except the requester's own echoed back so they can change it).
+
+    ``unique(retro, respondent)`` makes the answer a one-tap upsert: re-tapping
+    updates rather than duplicating, satisfying "one tap" without locking the
+    answer. ``confidence`` is the optional third dimension.
+    """
+
+    retro = models.ForeignKey(
+        SprintRetro,
+        on_delete=models.CASCADE,
+        related_name="pulse_responses",
+    )
+    respondent = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="retro_pulse_responses",
+    )
+    mood = models.PositiveSmallIntegerField()  # 1..5
+    energy = models.PositiveSmallIntegerField()  # 1..5
+    confidence = models.PositiveSmallIntegerField(null=True, blank=True)  # 1..5, optional
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "projects_pulseresponse"
+        constraints = [
+            # One response per person per sprint retro — the upsert key. Scoped to
+            # live rows so a soft-deleted prior response never blocks a re-answer.
+            models.UniqueConstraint(
+                fields=["retro", "respondent"],
+                condition=models.Q(is_deleted=False),
+                name="uniq_pulse_retro_respondent_live",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["retro", "server_version"], name="pulse_retro_serverver_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"PulseResponse({self.id}, retro={self.retro_id}, by={self.respondent_id})"
+
+
 class SuggestionSource(models.TextChoices):
     """Why a TaskSuggestedAssignee was created (ADR-0071 §5)."""
 
