@@ -860,6 +860,114 @@
           "tasks": [
             "2.3"
           ]
+        },
+        {
+          "slug": "permit-delay",
+          "title": "Building permit approval slips",
+          "description": "The municipal permit office is running 3 weeks behind; gates site prep sign-off.",
+          "status": "MITIGATING",
+          "probability": 3,
+          "impact": 5,
+          "category": "EXTERNAL",
+          "response": "MITIGATE",
+          "owner": "sam",
+          "tasks": [
+            "1.4"
+          ]
+        },
+        {
+          "slug": "design-change",
+          "title": "Owner-requested design change order",
+          "status": "OPEN",
+          "probability": 3,
+          "impact": 4,
+          "category": "PROJECT_MANAGEMENT",
+          "response": "MITIGATE",
+          "owner": "diego",
+          "tasks": [
+            "3.1"
+          ]
+        },
+        {
+          "slug": "soil-conditions",
+          "title": "Unexpected soil conditions at excavation",
+          "status": "CLOSED",
+          "probability": 2,
+          "impact": 4,
+          "category": "TECHNICAL",
+          "response": "ACCEPT",
+          "owner": "tom",
+          "notes": "Geotech survey confirmed bearing capacity; no remediation needed.",
+          "tasks": [
+            "2.1"
+          ]
+        },
+        {
+          "slug": "subcontractor-default",
+          "title": "MEP subcontractor financial risk",
+          "description": "Primary MEP sub is over-extended; default would strand the rough-in.",
+          "status": "OPEN",
+          "probability": 2,
+          "impact": 5,
+          "category": "EXTERNAL",
+          "response": "TRANSFER",
+          "owner": "sam",
+          "tasks": [
+            "4.4"
+          ]
+        },
+        {
+          "slug": "electrical-inspection",
+          "title": "Electrical rough-in inspection rework",
+          "status": "MITIGATING",
+          "probability": 3,
+          "impact": 3,
+          "category": "TECHNICAL",
+          "response": "MITIGATE",
+          "owner": "nadia",
+          "tasks": [
+            "4.2"
+          ]
+        },
+        {
+          "slug": "material-escalation",
+          "title": "Steel & concrete price escalation",
+          "status": "ACCEPTED",
+          "probability": 4,
+          "impact": 3,
+          "category": "EXTERNAL",
+          "response": "ACCEPT",
+          "owner": "omar",
+          "tasks": [
+            "3.2"
+          ]
+        },
+        {
+          "slug": "crane-availability",
+          "title": "Tower crane scheduling conflict",
+          "status": "RESOLVED",
+          "probability": 2,
+          "impact": 3,
+          "category": "ORGANIZATIONAL",
+          "response": "MITIGATE",
+          "owner": "tom",
+          "notes": "Crane window booked and confirmed for the structural phase.",
+          "tasks": [
+            "3.3"
+          ]
+        },
+        {
+          "slug": "commissioning-delay",
+          "title": "Building-systems commissioning slips occupancy",
+          "status": "OPEN",
+          "probability": 3,
+          "impact": 4,
+          "category": "TECHNICAL",
+          "response": "MITIGATE",
+          "owner": "diego",
+          "tasks": [
+            "5.2"
+          ]
         }
       ]
     }

@@ -552,6 +552,65 @@
           "finish_date": "A-35",
           "capacity_points": 28
         }
+      ],
+      "risks": [
+        {
+          "slug": "scope-creep",
+          "title": "Stakeholder scope creep on the launch increment",
+          "description": "New 'must-have' stories keep arriving mid-sprint, threatening the goal.",
+          "status": "OPEN",
+          "probability": 4,
+          "impact": 3,
+          "category": "ORGANIZATIONAL",
+          "response": "MITIGATE",
+          "owner": "priya",
+          "tasks": [
+            "8",
+            "19"
+          ]
+        },
+        {
+          "slug": "external-api",
+          "title": "Push/notifications vendor API instability",
+          "description": "The third-party messaging API has had two outages this quarter.",
+          "status": "MITIGATING",
+          "probability": 3,
+          "impact": 4,
+          "category": "EXTERNAL",
+          "response": "MITIGATE",
+          "owner": "sam",
+          "tasks": [
+            "2",
+            "12"
+          ]
+        },
+        {
+          "slug": "key-person",
+          "title": "Biometric-auth expertise concentrated in one engineer",
+          "status": "OPEN",
+          "probability": 2,
+          "impact": 4,
+          "category": "ORGANIZATIONAL",
+          "response": "ACCEPT",
+          "owner": "priya",
+          "tasks": [
+            "5"
+          ]
+        },
+        {
+          "slug": "store-review",
+          "title": "App-store review rejection delays release",
+          "status": "RESOLVED",
+          "probability": 2,
+          "impact": 3,
+          "category": "EXTERNAL",
+          "response": "MITIGATE",
+          "owner": "sam",
+          "notes": "Pre-review checklist added; first submission approved on time.",
+          "tasks": [
+            "20"
+          ]
+        }
       ]
     }
   ]

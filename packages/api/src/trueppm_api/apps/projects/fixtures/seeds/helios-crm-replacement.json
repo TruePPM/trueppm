@@ -489,6 +489,47 @@
           "tasks": [
             "2.17"
           ]
+        },
+        {
+          "slug": "integration-defects",
+          "title": "CRM integration mapping defects (realized)",
+          "description": "Realized in the build phase: the integration suite found mapping defects.",
+          "status": "RESOLVED",
+          "probability": 4,
+          "impact": 4,
+          "category": "TECHNICAL",
+          "response": "MITIGATE",
+          "owner": "mei",
+          "notes": "Realized: 3 field-mapping defects found in sprint 2; fixed, cost ~4 days of rework.",
+          "tasks": [
+            "2.8"
+          ]
+        },
+        {
+          "slug": "scope-injection",
+          "title": "Late requirements injected into the build sprints",
+          "status": "OPEN",
+          "probability": 3,
+          "impact": 3,
+          "category": "PROJECT_MANAGEMENT",
+          "response": "MITIGATE",
+          "owner": "jordan",
+          "tasks": [
+            "2.12"
+          ]
+        },
+        {
+          "slug": "team-ramp",
+          "title": "Build-team ramp-up on the new stack",
+          "status": "ACCEPTED",
+          "probability": 2,
+          "impact": 3,
+          "category": "ORGANIZATIONAL",
+          "response": "ACCEPT",
+          "owner": "ivan",
+          "tasks": [
+            "2.1"
+          ]
         }
       ]
     }
