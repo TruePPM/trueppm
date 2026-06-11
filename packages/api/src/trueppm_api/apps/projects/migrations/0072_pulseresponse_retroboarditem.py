@@ -9,7 +9,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("projects", "0069_iteration_label"),
+        ("projects", "0071_backfill_iteration_label_inherit"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
