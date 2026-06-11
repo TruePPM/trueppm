@@ -64,11 +64,10 @@ helm upgrade trueppm oci://ghcr.io/trueppm/charts/trueppm \
   -f my-values.yaml
 ```
 
-Migrations run in a Kubernetes Job before the new Deployment rolls out. Check status:
+Migrations run in a `migrate` init container of the api Deployment before the new pods start serving. Check its logs:
 
 ```bash
-kubectl get jobs -n trueppm
-kubectl logs -n trueppm job/trueppm-migrate
+kubectl logs -n trueppm deployment/trueppm-api -c migrate
 ```
 
 ---
@@ -160,9 +159,12 @@ kubectl get pods -n trueppm
 
 # Hit the health endpoint
 curl https://trueppm.example.com/api/v1/health/
+# → {"status": "ok"}
 
-# Confirm the expected version is running
-curl https://trueppm.example.com/api/v1/health/ | python3 -m json.tool
+# Confirm the expected version is running — check the deployed image tag
+kubectl get deployment -n trueppm trueppm-api \
+  -o jsonpath='{.spec.template.spec.containers[0].image}'
+# or: helm list -n trueppm
 ```
 
 ---

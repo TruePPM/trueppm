@@ -1,9 +1,9 @@
 ---
 title: Retrospective panel
-description: Notes + action items with one-click promotion into the next sprint backlog.
+description: Notes + action items with explicit per-item promotion into the project backlog, a team-visibility gate, and prior-retro context.
 ---
 
-The retrospective surface that closes the sprint loop. Notes textarea + per-item promote checkbox + story points. Items checked "Add to next sprint" become real tasks in the next planned sprint at save time, and the resulting task UUID surfaces back as a `T-XXX` chip on the action item.
+The retrospective surface that closes the sprint loop. Notes textarea + action items with optional story points. Each saved action item carries an explicit **Promote to backlog** button — promoting creates a real task in the project backlog, and the resulting task surfaces back as a `T-XXX` chip on the action item.
 
 ## Where this lives in the story
 
@@ -12,9 +12,21 @@ Step 8 ([Close — retro, lessons learned, baseline variance](/the-story/#8-clos
 ## What you see
 
 - **Notes** — free-text capture of the meeting summary
-- **Action items list** — text + assignee + optional story points + promote checkbox (default **on**)
-- **Save retro** — POSTs notes + items; promoted items become tasks in the target sprint
-- **`→ T-XXXXXX` chip** — appears next to action items whose `promoted_task_id` was set on save
+- **Action items list** — text + optional story points
+- **Save retro** — upserts notes and replaces the action-item set; saving never promotes anything
+- **Promote to backlog** — an explicit per-item action; the created task lands in the project backlog (`BACKLOG`, no sprint)
+- **`→ T-XXXXXX` chip** — appears next to action items whose `promoted_task_id` is set
+- **Prior retro** — a context section showing the most recent prior completed sprint's retro, so last sprint's lessons are in view while you write this one
+- **Visibility toggle** — the retro author or a Project Manager can switch `team_visibility` between team-only and project-wide
+
+## Visibility model
+
+Each retro has a `team_visibility` setting (ADR-0071):
+
+- **Team only** (default) — members with at least the Team Member role see the full retro. Viewers receive a **counts-only summary** (number of action items, number promoted) — never the raw notes or item text.
+- **Project** — every project member, including Viewers, sees the full retro.
+
+Changing visibility is gated to the retro's creator or a Project Manager and above; lower roles get 403.
 
 ## Where to find it in the app
 
@@ -25,28 +37,27 @@ Step 8 ([Close — retro, lessons learned, baseline variance](/the-story/#8-clos
 
 | Method | Endpoint | Purpose |
 |---|---|---|
-| `GET`  | `/api/v1/sprints/{id}/retro/` | Current retro (404 if none) |
-| `POST` | `/api/v1/sprints/{id}/retro/` | Upsert notes + replace action item set |
+| `GET`  | `/api/v1/sprints/{id}/retro/` | Current retro, visibility-aware (404 if none; counts-only summary below the visibility threshold) |
+| `POST` | `/api/v1/sprints/{id}/retro/` | Upsert notes + replace action item set (never promotes) |
+| `PATCH` | `/api/v1/sprints/{id}/retro/` | Update `team_visibility` (creator or Project Manager+) |
+| `GET`  | `/api/v1/sprints/{id}/retrospective/prior/` | Most recent prior completed sprint's retro (404 if none) |
+| `POST` | `/api/v1/sprints/{id}/retrospective/action-items/{itemId}/promote/` | Promote one action item into the project backlog |
+| `POST` | `/api/v1/sprints/{id}/retrospective/action-items/{itemId}/pull-to-sprint/` | Atomically promote + assign an item to a planned sprint (Resource Manager+) |
 
-`POST` payload may include a `promote_to_sprint_id` to override the default (next planned sprint). Promotion is single-project — the target must be a sprint in the same project. `IsProjectMember` for read; `IsProjectMemberWrite` for write.
+`IsProjectMember` for read; `IsProjectMemberWrite` for write. `promoted_task_id` is read-only — only the promote endpoints set it.
 
 ## Promotion semantics
 
-Items with `promote: true` are created as tasks in the target sprint with:
+Promotion is **explicit, per item** — saving the retro never creates tasks (sprint sovereignty per ADR-0071; the pre-0.3 auto-promote-at-save behavior was removed).
 
-- name = action item text (truncated to 255 chars)
-- sprint = target (default: next planned sprint by `start_date`)
-- assignee = action item's assignee (optional)
-- story_points = action item's points (optional)
-- status = `BACKLOG`
-
-The created task's UUID is recorded on the action item's `promoted_task_id` field, so subsequent reads render the link chip back to the source.
+- **Promote** creates a task with name = the action item text, the item's story points, and unconditionally `status = BACKLOG` with **no sprint** — the request body cannot smuggle a `sprint_id`. The created task's UUID is recorded on the item's `promoted_task_id`, so subsequent reads render the link chip. Promoting an already-promoted item returns 409 with the existing `task_id` (safe to retry).
+- **Pull to sprint** is the only path that puts a retro action item directly into a sprint: it atomically promotes the item and assigns the task to a target sprint in the same project. The target must be in the **Planned** state, and the caller needs the Resource Manager role or above.
 
 ## Related ADRs
 
-- Implementation tracked in issue #231
+- ADR-0071 — Retro visibility, explicit promotion, and carryover (supersedes the original auto-promote design from issue #231)
 
 ## If you are…
 
-- **Maya** — own this. Action items that get promoted become real tasks; action items that don't will be forgotten by Friday.
-- **Tom (engineer)** — the promoted action items show up in the next sprint's backlog assigned to whoever owns them.
+- **Maya** — own this. Action items you promote become real backlog tasks; items you don't will be forgotten by Friday. The prior-retro section keeps last sprint's lessons in view.
+- **Tom (engineer)** — promoted action items show up in the project backlog; your Scrum Master or PM pulls them into a planned sprint when the team commits to them.

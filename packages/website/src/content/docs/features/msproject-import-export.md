@@ -7,10 +7,10 @@ description: Create a project from a Microsoft Project file, import tasks into a
 The import/export REST endpoints shipped in 0.1. The in-app create-from-import
 flow (with the format picker), the import-into-existing dialog,
 three-point / PERT round-trip, and the project import-history surface were all
-**added in 0.2**, available since the `0.2.0-alpha.1` pre-release; the stable
-0.2.0 release targets Jun 8, 2026. Additional importers — Primavera P6,
+**added in 0.2**, available since the `0.2.0-alpha.1` pre-release. 0.2 is an
+alpha release; the first beta is planned for 0.4. Additional importers — Primavera P6,
 GanttProject, OmniPlan, ProjectLibre, and the top-10 PM tools (Jira, Asana,
-Trello, Notion, Linear, and more) — are planned for 0.5.
+Trello, Notion, Linear, and more) — are planned for 0.6.
 :::
 
 TruePPM treats Microsoft Project as a peer interchange format. You can:
@@ -23,7 +23,7 @@ TruePPM treats Microsoft Project as a peer interchange format. You can:
 
 Two file formats are supported on import: human-readable **`.xml`** (MSPDI; always supported), and binary **`.mpp`** when the server has the optional MPXJ / Java toolchain installed. Export is always `.xml`.
 
-This page is organised by what you want to do. Start with the in-app flow, drop down to the REST API when you need automation, then consult the field-coverage tables for round-trip semantics.
+This page is organized by what you want to do. Start with the in-app flow, drop down to the REST API when you need automation, then consult the field-coverage tables for round-trip semantics.
 
 ## Create a project from a file
 
@@ -183,7 +183,7 @@ curl -H "Authorization: Bearer $JWT" \
 | `<MinutesPerWeek>` | — | ⬜ Ignored |
 | `<DaysPerMonth>` | — | ⬜ Ignored |
 | `<Calendars>` | — | ⬜ Ignored |
-| `<ExtendedAttributes>` (PERT only) | three-point estimate mapping | ✅ Partial | Recognises the four PERT `Duration1`–`Duration4` definitions; other custom-field families are ignored. See [Three-point / PERT estimates](#three-point--pert-estimates). |
+| `<ExtendedAttributes>` (PERT only) | three-point estimate mapping | ✅ Partial | Recognizes the four PERT `Duration1`–`Duration4` definitions; other custom-field families are ignored. See [Three-point / PERT estimates](#three-point--pert-estimates). |
 | `<OutlineCodes>` | — | ⬜ Ignored |
 
 ### Task-level fields

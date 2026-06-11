@@ -10,7 +10,7 @@ TruePPM ships a `create_admin` Django management command that bootstraps a super
 The api container runs `create_admin` automatically on startup (both in `docker compose` and in the Helm chart). On first run it:
 
 1. Checks whether any superuser already exists. If yes, it exits silently — re-deploys never overwrite a production password.
-2. Generates a 16-character URL-safe random password (or honours `DJANGO_SUPERUSER_PASSWORD` if set).
+2. Generates a URL-safe random password (16 bytes of entropy, about 22 characters), or honors `DJANGO_SUPERUSER_PASSWORD` if set.
 3. Creates the superuser with email `admin@trueppm.dev` (or `DJANGO_SUPERUSER_EMAIL` if set), username `admin` (or the local part of the email).
 4. Writes the password to `/tmp/trueppm_admin_password` with mode `0o600`.
 
@@ -30,18 +30,17 @@ docker compose exec api rm /tmp/trueppm_admin_password
 
 ### Kubernetes / Helm
 
-The default values write to `/tmp/trueppm_admin_password` inside the pod. Override via the env var:
+The chart writes the one-time password to `/run/trueppm/admin_password`, an `emptyDir` mount the chart provides (lost when the pod restarts — fine for first-run-only retrieval). The path is controlled by the `admin.passwordFile` value, which the chart renders into the `TRUEPPM_ADMIN_PASSWORD_FILE` env var:
 
 ```yaml
-api:
-  env:
-    TRUEPPM_ADMIN_PASSWORD_FILE: /var/run/secrets/trueppm/admin_password
+admin:
+  passwordFile: /run/trueppm/admin_password   # chart default
 ```
 
-Mount that path as an `emptyDir` (lost when the pod restarts — fine for first-run-only retrieval) or use a `Secret` volume. Then:
+Retrieve it with:
 
 ```bash
-kubectl exec -it <api-pod> -- cat /var/run/secrets/trueppm/admin_password
+kubectl exec deployment/<release>-api -- cat /run/trueppm/admin_password
 ```
 
 ## Set a known password at startup

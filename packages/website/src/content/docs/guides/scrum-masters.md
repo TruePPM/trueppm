@@ -9,13 +9,13 @@ This is your guide. The PM's Gantt exists. You don't have to open it.
 
 ## Sprint lifecycle
 
-TruePPM sprints have three states: **Planned → Active → Closed**. Only one sprint per project can be active at a time.
+TruePPM sprints have three states: **Planned → Active → Closed** (plus **Cancelled** for a planned sprint that never starts). Only one sprint per project can be active at a time.
 
 ### Planning a sprint
 
 Open the Sprints workspace and use the **Plan next** button to create the next iteration. Set the name, start date, finish date, and an optional sprint goal. The default cadence is two weeks — adjust to match your team's rhythm.
 
-Stories in the backlog carry over automatically unless the previous PM baselined them out of scope. Sprint planning happens on the board: drag stories from the backlog column into the sprint, discuss, split, estimate.
+When you close a sprint you choose whether unfinished stories carry to the next sprint or return to the backlog. Sprint planning happens on the board: drag stories from the backlog into the sprint, discuss, split, estimate.
 
 → See [Plan Sprint dialog](/features/plan-sprint/) for field details.
 
@@ -37,7 +37,7 @@ The retrospective panel is attached to the sprint. Action items you mark with "p
 
 ## The board
 
-The board is your daily view. Five columns: **Backlog → Not Started → In Progress → Review → Done**. Each column has a WIP limit — when a column exceeds its limit, it turns amber (warning) or red (over limit). The default limits are IN_PROGRESS: 5, REVIEW: 3.
+The board is your daily view. Five columns: **Backlog → To Do → In Progress → Review → Done**. Each column has a WIP limit — when a column exceeds its limit, it turns amber (warning) or red (over limit). The default limits are IN_PROGRESS: 5, REVIEW: 3.
 
 ### What you see on each card
 
@@ -51,7 +51,7 @@ The board is your daily view. Five columns: **Backlog → Not Started → In Pro
 ### Daily standup flow
 
 1. Filter to the active sprint using the sprint filter in the toolbar
-2. Walk the board right-to-left: Review → In Progress → Not Started
+2. Walk the board right-to-left: Review → In Progress → To Do
 3. Flag any blocked cards (red border = unresolved dependency or impediment)
 4. Check the WIP overload panel if any column is red — this is the conversation starter
 
@@ -63,7 +63,7 @@ TruePPM tracks velocity across all closed sprints. The velocity panel shows a ba
 
 ### What velocity drives
 
-Your team's velocity automatically updates the CPM duration estimate for the work packages your stories roll up into. When sprint 4 closes and you delivered 34 points instead of the 40 the schedule assumed, the PM's Gantt re-forecasts the work package's finish date automatically. **You didn't do anything. The math updated itself.**
+Your team's velocity feeds duration suggestions for the work packages your stories roll up into. When sprint 4 closes and you delivered 34 points instead of the 40 the schedule assumed, the PM receives a revised duration suggestion in the task drawer — when they accept it, the schedule re-forecasts. **You didn't do anything** — and the PM's plan was never silently rewritten.
 
 This is the core hybrid benefit: your team's actual delivery rate becomes the PM's schedule input without any intermediate sync.
 
@@ -108,7 +108,7 @@ When the PM builds the schedule, they create work packages with CPM dependencies
 
 This means:
 - You never have to update a "status report" for the PM. Your burndown is their forecast input.
-- The PM never has to interrupt your sprint to ask "how confident are you?" — they can see your velocity trend.
+- The PM never has to interrupt your sprint to ask "how confident are you?" — the aggregate milestone-health signals are always visible, and they can see your velocity trend when your team's signal audience includes the PM tier (velocity is team-private by default).
 - When scope changes happen inside the sprint, the PM sees them as variance on their Gantt immediately.
 
 Your job is still just: run good sprints, protect the team, facilitate retrospectives, track velocity. The hybrid side takes care of itself.
@@ -118,6 +118,6 @@ Your job is still just: run good sprints, protect the team, facilitate retrospec
 ## Getting started
 
 1. Ask your admin to [set up a TruePPM instance](/getting-started/installation/)
-2. Walk through the [Quickstart](/getting-started/quickstart/) — seed the demo project and log in as `alex` (Scrum Master persona)
+2. Walk through the [Quickstart](/getting-started/quickstart/) — seed the demo project and log in as `maya` (Scrum Master persona)
 3. Explore the [Sprints workspace](/features/sprints/) — the full feature reference
 4. Review the [Board](/features/board/) for WIP configuration details

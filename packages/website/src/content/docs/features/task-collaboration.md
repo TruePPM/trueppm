@@ -5,7 +5,7 @@ description: Per-task attachments, threaded comments, @mention notifications, an
 
 
 :::note[Added in 0.2 (alpha)]
-This page documents functionality added in **TruePPM 0.2**, available since the `0.2.0-alpha.1` pre-release (May 31, 2026). 0.2 is in alpha; the stable 0.2.0 release targets Jun 8, 2026.
+This page documents functionality added in **TruePPM 0.2**, available since the `0.2.0-alpha.1` pre-release (May 31, 2026). 0.2 is an alpha release; the first beta is planned for 0.4.
 :::
 
 Every task has its own attachment grid and comment thread inside the detail
@@ -38,11 +38,11 @@ External-URL attachments require `http(s)` schemes only. Pinning a Figma,
 Confluence, or Notion link is a one-shot — title is optional and defaults
 to the URL host.
 
-Pinned URLs render with a per-host icon when the host is recognised:
+Pinned URLs render with a per-host icon when the host is recognized:
 Google Docs / Drive, SharePoint / OneDrive / Office, Confluence,
 Notion, Figma, Jira, GitHub, GitLab, Miro, Dropbox, and Slack. Anything
 else falls back to the generic link glyph. The full host is also shown in
-the meta line below the title so the icon is decorative — colour and glyph
+the meta line below the title so the icon is decorative — color and glyph
 are never the only signal.
 
 ### Downloads
@@ -127,7 +127,7 @@ emoji picker will land in 0.3.
 ### The bell
 
 The TopBar bell tracks your unread mention count. A filled bell with a
-brand-coloured count badge means you have unread mentions; a quiet outline
+brand-colored count badge means you have unread mentions; a quiet outline
 bell means you're caught up. The count caps at "99+" in the badge but the
 underlying value is exact.
 

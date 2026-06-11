@@ -11,7 +11,7 @@ Before cutting any release:
 
 1. **All MRs for the milestone are merged.** Check with `glab issue list --milestone <version>`.
 2. **`main` pipeline is green.** Releases are cut from a clean, passing `main`.
-3. **Changelog fragments are present.** Every user-visible change should have a fragment in `changelog.d/`. Run `bash scripts/assemble-changelog.sh --dry-run` to preview the assembled changelog.
+3. **Changelog fragments are present.** Every user-visible change should have a fragment in `changelog.d/`. Run `cat changelog.d/*.md` to preview the pending entries. (Do not run `scripts/assemble-changelog.sh` to preview — it assembles for real, consuming the fragments and rewriting `CHANGELOG.md`; the release script invokes it at the right moment.)
 4. **Smoke test passes.**
    ```bash
    make release-smoke
@@ -34,7 +34,7 @@ TruePPM follows [semantic versioning](https://semver.org/). The script manages b
 | `./scripts/release.sh release` | `0.2.0-rc.1 → 0.2.0` | Finalize pre-release |
 | `./scripts/release.sh 1.2.3` | explicit | Pin to specific version |
 
-**Pre-release CHANGELOG behaviour:** Alpha/beta/RC bumps do NOT rotate the `[Unreleased]` section — notes accumulate until the final stable release.
+**Pre-release CHANGELOG behavior:** Alpha/beta/RC bumps do NOT rotate the `[Unreleased]` section — notes accumulate until the final stable release.
 
 ### Confirmation gate
 
@@ -83,21 +83,26 @@ git show v0.2.0 --stat
 git push origin main v0.2.0
 ```
 
-The `git push origin main v0.2.0` command triggers three CI publish jobs:
-- `api:publish` — pushes `ghcr.io/trueppm/api:0.2.0`, `0.2`, and `latest`
-- `web:publish` — pushes `ghcr.io/trueppm/web:0.2.0`, `0.2`, and `latest`
-- `helm:publish` — packages and pushes the Helm chart to `oci://ghcr.io/trueppm/charts`
+The `git push origin main v0.2.0` command triggers the CI **publish stage**:
+- `api:publish` — builds the API Docker image and pushes `$CI_REGISTRY_IMAGE/api:v0.2.0` and `latest` to the GitLab container registry; if `GHCR_USER`/`GHCR_TOKEN` are set it also pushes `ghcr.io/<user>/api:0.2.0` and `latest`
+- `web:publish` — same as above for the web image (`$CI_REGISTRY_IMAGE/web`, optional GHCR mirror)
+- `helm:publish` — packages and pushes the Helm chart to `oci://ghcr.io/<user>/charts` (skipped without GHCR credentials)
+- `api:publish:pypi` — publishes `trueppm-api` to PyPI (skipped without `PYPI_TOKEN`)
+- `web:publish:npm` — publishes `@trueppm/web` to npm (skipped without `NPM_TOKEN`)
+- `release:create` — creates the GitLab release entry
 
-Additionally, if you push a `scheduler-v*` tag, `scheduler:publish` publishes `trueppm-scheduler` to PyPI. Scheduler releases are versioned independently (see below).
+The GitLab container registry is the primary target (runner credentials are injected automatically); GHCR is an optional mirror — when `GHCR_USER`/`GHCR_TOKEN` are not set, the GHCR push is silently skipped, not failed.
+
+Additionally, pushing the `scheduler-v*` tag triggers `scheduler:publish`, which publishes `trueppm-scheduler` to PyPI.
 
 ## Scheduler releases
 
-The scheduler package (`packages/scheduler`) is versioned independently from the rest of the platform. Its tag format is `scheduler-v*` (e.g. `scheduler-v0.2.0`), not `v*`.
+The scheduler package (`packages/scheduler`) is released **in lockstep** with the rest of the platform: `scripts/release.sh` bumps all manifests to the same version and creates both tags in one run. The same version is translated to PEP 440 for the scheduler's `scheduler-v*` tag (e.g. `0.2.0-alpha.1` → `scheduler-v0.2.0a1`).
 
 ```bash
-# Bump the scheduler version and push its tag
+# One release run produces both tags
 ./scripts/release.sh minor          # bumps all manifests including scheduler
-git push origin main scheduler-v0.2.0
+git push origin main v0.2.0 scheduler-v0.2.0
 ```
 
 The `scheduler:publish` CI job fires on `scheduler-v*` tags and publishes to PyPI.
@@ -135,6 +140,8 @@ git push origin main v0.1.1
 | `packages/scheduler/pyproject.toml` | `version = "x.y.z"` |
 | `packages/api/pyproject.toml` | `version = "x.y.z"` |
 | `packages/web/package.json` | `"version": "x.y.z"` |
+| `packages/api/src/trueppm_api/settings/base.py` | `SPECTACULAR_SETTINGS["VERSION"]` set to the base semver (pre-release suffix stripped) |
+| `docs/api/openapi.json` | Regenerated via `scripts/export-openapi.sh` so the committed schema matches the tag |
 | `CHANGELOG.md` | `[Unreleased]` → `[x.y.z] - YYYY-MM-DD` (stable only) |
 
 The Helm chart version in `packages/helm/Chart.yaml` is kept in sync manually — bump `version` and `appVersion` to match before running `release.sh`.
@@ -147,4 +154,4 @@ The Helm chart version in `packages/helm/Chart.yaml` is kept in sync manually �
 
 **"[Unreleased] section is empty"** — add changelog fragments to `changelog.d/` and run `bash scripts/assemble-changelog.sh` to populate `[Unreleased]` before releasing.
 
-**CI publish job fails** — verify `GHCR_TOKEN` and `GHCR_USER` are set in GitLab CI/CD variables (Settings → CI/CD → Variables) and that the PAT has `write:packages` scope.
+**CI publish job fails** — the failure is in the build or push itself (Docker build error, registry outage, expired credentials), so read the job log. Note that *missing* `GHCR_TOKEN`/`GHCR_USER` (or `PYPI_TOKEN`/`NPM_TOKEN`) does **not** fail the job — those publishes are silently skipped with an `INFO` log line and the job exits 0. If a GHCR image you expected never appeared, check that both variables are set in GitLab CI/CD variables (Settings → CI/CD → Variables) and that the PAT has `write:packages` scope.

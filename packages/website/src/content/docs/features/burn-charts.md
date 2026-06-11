@@ -3,7 +3,7 @@ title: Burn charts
 description: Project-level burn down, burn up, and combined progress charts in the Reports tab.
 ---
 
-Three standard agile/iterative progress charts scoped to a single project: burn down (remaining work over time), burn up (completed work against a scope line), and a combined overlay of both. All three share a Y-axis unit selector — story points, task count, or hours — so you can read them in the unit that matches your planning cadence.
+Three standard agile/iterative progress charts scoped to a single project: burn down (remaining work over time), burn up (completed work against a scope line), and a combined overlay of both. All three share a Y-axis unit selector — story points or task count — so you can read them in the unit that matches your planning cadence.
 
 Portfolio-level burn charts (aggregated across projects) are an Enterprise feature.
 
@@ -17,7 +17,7 @@ Step 7 ([Reporting and confidence](/the-story/#7-report--executive-confidence)) 
 
 Plots remaining work from the project start date to today. The ideal burn line runs from total scope at start to zero at the planned finish date.
 
-- **Y-axis:** remaining story points / task count / hours (user-selectable)
+- **Y-axis:** remaining story points / task count (user-selectable)
 - **X-axis:** calendar dates from project start to planned finish
 - **Ideal line (dashed):** straight diagonal from total scope to zero
 - **Actual line (solid):** cumulative remaining work per day
@@ -40,22 +40,24 @@ Overlays burn down and burn up on the same axes. The area between the two lines 
 - Route: `/projects/:projectId/reports`
 - Tab: **Reports** — visible for HYBRID, AGILE, and WATERFALL projects
 - Mode selector in the chart toolbar: **Burn Down · Burn Up · Combined**
-- Unit selector: **Points · Tasks · Hours**
+- Unit selector: **Points · Tasks**
 
 ## API endpoints
 
 | Method | Endpoint | Purpose |
 |---|---|---|
-| `GET` | `/api/v1/projects/{id}/burn-charts/` | Burn chart data series for the project |
+| `GET` | `/api/v1/projects/{id}/burn/` | Burn chart data series for the project |
 
 Query parameters:
 
 | Parameter | Values | Default |
 |---|---|---|
-| `mode` | `down`, `up`, `combined` | `down` |
-| `unit` | `points`, `tasks`, `hours` | `points` |
+| `chart_type` | `burndown`, `burnup`, `combined` | `burndown` |
+| `metric` | `tasks`, `points` | `tasks` |
+| `since` | ISO date (window start) | project start date |
+| `until` | ISO date (window end) | today |
 
-The response includes a `series` array with one entry per calendar day and a `meta` object containing `planned_finish`, `total_scope`, and `scope_changes` (date + delta pairs for scope-change markers).
+The response echoes `chart_type`, `metric`, `since`, and `until`, plus a `series` array with one entry per calendar day. For `burndown`/`burnup`, each row is `{date, actual, ideal, scope}`; for `combined`, rows are `{date, remaining, completed, total, ideal}`. When the project has an active baseline the response also includes a `baseline_series` planned-remaining overlay (`{date, planned}` rows).
 
 `IsAuthenticated` + project read permission required. Project must be a member of the requesting user's accessible projects.
 

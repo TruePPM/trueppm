@@ -19,8 +19,9 @@ There are two endpoints, both scoped to a single project by its UUID.
 
 > **Program-scoped channels are planned.** A `ws/v1/programs/{program_id}/`
 > endpoint will land in a future release (#836) to push program-scoped events in
-> real time. It is **not** available in 0.3 — program-scoped events are not yet
-> delivered over WebSocket. Subscribe to the per-project channels in the meantime.
+> real time. It will **not** ship in 0.3 — program-scoped events will be
+> delivered over WebSocket in a later release. Subscribe to the per-project
+> channels in the meantime.
 
 ## Authentication
 
@@ -165,8 +166,7 @@ the board channel and have no webhook counterpart:
 |-----------------|-------------------|
 | `presence_join` | Presence (a user connected) — **WS-only** |
 | `presence_leave` | Presence (a user disconnected) — **WS-only** |
-| `cpm_complete` | Scheduling progress (CPM pass finished) — **WS-only**¹ |
-| `cpm_finish` | Scheduling progress (CPM run finished) — **WS-only**¹ |
+| `cpm_complete` | Scheduling progress (CPM run finished) — **WS-only**¹ |
 | `cpm_error` | Scheduling progress (CPM run failed) — **WS-only**¹ |
 
 ¹ The `cpm_*` scheduling-progress events relate **approximately** to the webhook

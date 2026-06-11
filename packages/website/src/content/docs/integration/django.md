@@ -20,7 +20,6 @@ The scheduler never touches the ORM. Write a translation function in your
 
 ```python
 # scheduling/services.py
-from datetime import date
 from trueppm_scheduler import (
     Calendar, DateRange, Dependency, DependencyType,
     Project as SchedulerProject, Task as SchedulerTask,
@@ -30,7 +29,7 @@ from .models import Project, Task  # your Django models
 
 
 def build_scheduler_project(django_project: Project) -> SchedulerProject:
-    """Serialise a Django Project to the pure-Python scheduler representation."""
+    """Serialize a Django Project to the pure-Python scheduler representation."""
     cal = django_project.calendar
 
     scheduler_cal = Calendar(
@@ -152,7 +151,7 @@ Wire `enqueue_recalculate` to your task update view:
 ```python
 # tasks/views.py
 from rest_framework.viewsets import ModelViewSet
-from scheduling.services import enqueue_recalculate
+from scheduling.tasks import enqueue_recalculate
 
 
 class TaskViewSet(ModelViewSet):

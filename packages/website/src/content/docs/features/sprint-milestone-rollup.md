@@ -134,7 +134,7 @@ stay on the sprint side and remain bounded by the sprint board's permissions.
   write; the next state change reconciles).
 
 The authoritative recompute always runs inside the
-[`SprintCloseRequest` outbox drain](/architecture/durable-execution/) on
+[`SprintCloseRequest` outbox drain](/administration/durability/) on
 close, after the immutable `completed_*` snapshot lands, so the final value
 is correct even if a live recompute was missed during an outage.
 
@@ -161,6 +161,6 @@ is gone.
 ## See also
 
 - [ADR-0074](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0074-sprint-to-milestone-rollup.md) — design rationale and broadcast payload contract
-- [ADR-0036 — Hybrid PM philosophy](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0036-hybrid-pm-philosophy-and-sprint-model.md) — the auto-advance promise this feature realises
+- [ADR-0036 — Hybrid PM philosophy](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0036-hybrid-pm-philosophy-and-sprint-model.md) — the auto-advance promise this feature realizes
 - [Sprint planning capacity (ADR-0073)](/features/board-sprint-panel/) — the planning surface that feeds `committed_points`
 - [Sprint burndown](/features/sprint-burndown/) — sprint-side view of the same numbers

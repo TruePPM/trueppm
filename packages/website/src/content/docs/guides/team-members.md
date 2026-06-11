@@ -7,7 +7,7 @@ You want to know what you're working on, move things forward, and stay in sync w
 
 ## Where to start: the board
 
-The board is your primary view. Five columns: **Backlog → Not Started → In Progress → Review → Done**. Your sprint's stories are here. Move a card to the right when its status changes.
+The board is your primary view. Five columns: **Backlog → To Do → In Progress → Review → Done**. Your sprint's stories are here. Move a card to the right when its status changes.
 
 When you move a card, that update propagates everywhere automatically — the PM's Gantt re-forecasts, the Scrum Master's burndown updates, and any connected clients see the change in real time. You did one thing. Everything else updated.
 
@@ -27,7 +27,7 @@ Your sprint is the two-week (or whatever length your team uses) window of commit
 
 ### Sprint backlog
 
-The sprint backlog table shows all tasks in the active sprint, grouped by board column (Done / In Review / In Progress / Not Started / Backlog). You can update status, log hours, and see the critical path indicator for each task from here.
+The sprint backlog table shows all tasks in the active sprint, grouped by board column (Done / In Review / In Progress / Not Started / Backlog). You can update status and see the critical path indicator for each task from here.
 
 ### Subtasks
 
@@ -56,7 +56,7 @@ To see everything assigned to you across all your projects and sprints, use the 
 
 Changes you make appear instantly for everyone on the project. Changes others make appear instantly for you. No manual refresh.
 
-If you lose connectivity, TruePPM queues your updates locally and replays them when your connection returns. The sync protocol is designed for mobile and unreliable networks — you won't lose work.
+The sync protocol supports offline clients — it is built for the 0.4 mobile app, which will queue updates locally and replay them when the connection returns. The web app today requires a connection for writes.
 
 → See [Real-time collaboration](/features/real-time/), [Offline sync](/features/offline-sync/)
 
@@ -89,4 +89,4 @@ curl -s "http://localhost:8000/api/v1/tasks/?project=$PROJECT_ID&sprint=$SPRINT_
 1. Get your credentials from your project admin
 2. Log in to the web UI at the URL your admin provides
 3. Find the active sprint on the board or in the Sprints workspace
-4. Seed the demo: `seed_demo_project --with-personas` — log in as `tom` or `priya` to see the team member view
+4. Seed the demo: `seed_demo_project --with-personas` — log in as `tom` to see the team member view

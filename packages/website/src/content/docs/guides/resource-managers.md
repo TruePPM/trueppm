@@ -29,19 +29,20 @@ When a scheduler changes the plan — re-sequences tasks or adjusts durations �
 
 ## Current limitations
 
-TruePPM's resource management is intentionally basic in 0.1:
+TruePPM's resource management is single-project in scope today:
 
-- **No partial allocation percentages yet** — assignment is binary (assigned or not)
-- **No cross-project view** — resource assignments are per-project; no single dashboard showing a person's load across all projects
-- **No conflict detection** — if someone is assigned to overlapping tasks across projects, there's no automatic warning
+- **Fractional allocation shipped in 0.2** — assignments carry fractional units and work hours, so a person can be partially allocated to a task
+- **Overallocation warnings shipped in 0.2** — when someone's daily load within a project exceeds 100%, TruePPM flags the overallocation automatically
+- **No cross-project view yet** — resource assignments are per-project; no single dashboard showing a person's load across all projects
+- **No cross-project conflict detection yet** — overlapping assignments across projects aren't flagged (planned for 0.5)
 
-These are important for resource managers and are prioritized on the roadmap.
+The cross-project pieces are important for resource managers and are prioritized on the roadmap.
 
 ## What's coming
 
 | Feature | Status | Edition |
 |---------|--------|---------|
-| Resource allocation percentages | Planned | Community |
+| Resource allocation percentages | Shipped (0.2) | Community |
 | Resource view (per-project) | Planned | Community |
 | Cross-project resource view (within a program) | Planned | Community |
 | Cross-program resource leveling | Planned | Enterprise |

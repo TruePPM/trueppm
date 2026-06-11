@@ -8,7 +8,7 @@ TruePPM is an open-core Project, Program, and Portfolio Management (P3M) platfor
 Most P3M tools force a choice: Jira speaks Agile and translates poorly to a schedule; MS Project speaks Waterfall and ignores the team's actual cadence. TruePPM is built so a Scrum Master and a Project Manager look at the same underlying data, and each sees the view they need. The translation happens inside the tool, not in a spreadsheet.
 
 :::caution[0.2 shipped (alpha) · pre-GA]
-TruePPM 0.2 shipped in May 2026 (as the `0.2.0-alpha.1` pre-release) — the engine, API, real-time layer, web UI (Schedule, Board, Sprints, Risk, My Work, Programs), settings/administration platform, program foundations, and board/schedule depth are all functional. The stable 0.2.0 release targets Jun 8, 2026. The product is pre-GA: expect API contract changes across 0.x point releases and a stable contract from 1.0 onward. Suitable for evaluation and early-adopter deployments.
+TruePPM 0.2 shipped in May 2026 (as the `0.2.0-alpha.1` pre-release) — the engine, API, real-time layer, web UI (Schedule, Board, Sprints, Risk, My Work, Programs), settings/administration platform, program foundations, and board/schedule depth are all functional. 0.2 is an alpha release; the first beta is planned for 0.4. The product is pre-GA: expect API contract changes across 0.x point releases and a stable contract from 1.0 onward. Suitable for evaluation and early-adopter deployments.
 :::
 
 ## Core capabilities
@@ -19,7 +19,7 @@ TruePPM 0.2 shipped in May 2026 (as the `0.2.0-alpha.1` pre-release) — the eng
 
 **Agile sprint workflows.** Full sprint lifecycle: plan → activate → close. Board view with WIP limits, velocity tracking, burndown charts, capacity preflight, and retrospective-to-backlog automation. The Scrum Master gets a native agile surface and never needs to open a Gantt.
 
-**Hybrid bridge.** The same task is both a WBS node and a sprint story. Sprint velocity automatically feeds the CPM forecast. When a team member marks a story done, the PM's Gantt re-forecasts in real time. No status meetings, no reconciliation spreadsheets.
+**Hybrid bridge.** The same task is both a WBS node and a sprint story. Sprint velocity feeds the CPM forecast through non-destructive duration suggestions the PM reviews and applies — and from 0.3, closing a sprint will reforecast the master schedule automatically. No status meetings, no reconciliation spreadsheets.
 
 **Real-time collaboration.** Every mutation is broadcast to connected clients over WebSocket, deferred to transaction commit so you never see phantom events from rolled-back writes.
 
@@ -58,7 +58,7 @@ The **community edition** (Apache 2.0, this repository) includes everything an i
 - 5-role RBAC per project
 - Real-time WebSocket collaboration
 - Offline-first sync protocol (WatermelonDB-compatible)
-- REST + WebSocket API (OpenAPI 3.1 schema)
+- REST + WebSocket API (OpenAPI 3.0.3 schema)
 - Helm 3 chart for Kubernetes deployment
 
 The **enterprise edition** (separate repository, proprietary) adds features for organizations governing a portfolio across multiple programs:

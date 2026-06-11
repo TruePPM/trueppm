@@ -26,10 +26,12 @@ TruePPM uses a 5-role per-project permission model stored in `ProjectMembership`
 | Create/edit any task | ✓ | ✓ | — | — | — |
 | Create/edit dependencies | ✓ | ✓ | ✓ | — | — |
 | Assign resources | ✓ | ✓ | ✓ | — | — |
-| Edit project settings | ✓ | ✓ | — | — | — |
+| Edit project settings | ✓ | ✓ | —¹ | — | — |
 | Manage members | ✓ | — | — | — | — |
 | Delete project | ✓ | — | — | — | — |
 | Self-remove | ✓ | ✓ | ✓ | ✓ | ✓ |
+
+¹ Scheduler may edit the **methodology** and **estimation-mode** settings only; all other project settings require Admin (field-level gate, ADR-0041).
 
 ## Recommended role by persona
 

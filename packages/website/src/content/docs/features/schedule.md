@@ -20,7 +20,7 @@ Step 2 ([Schedule the skeleton — CPM, milestones, baseline](/the-story/#2-sche
 
 ## Layout
 
-Split-pane: a virtualised task list on the left (seven columns — WBS, Task, Dur, Start, Finish, %, Owner — all but Task hideable and resizable, persisted via `localStorage`), and the canvas timeline on the right. Scroll is synchronised in both directions.
+Split-pane: a virtualized task list on the left (seven columns — WBS, Task, Dur, Start, Finish, %, Owner — all but Task hideable and resizable, persisted via `localStorage`), and the canvas timeline on the right. Scroll is synchronized in both directions.
 
 ## Task detail drawer
 
@@ -51,7 +51,7 @@ add its own sections without the community edition knowing about them.
 
 ## Canvas renderer
 
-TruePPM ships its own canvas Schedule renderer in `packages/web/src/features/schedule/engine/`. It replaced an earlier SVAR React Gantt integration to remove third-party constraints on drag UX, accessibility (ARIA grid overlay), and dark-mode rendering. Three layered canvases (background, bars, interaction) are dirty-rect repainted; row virtualisation is mandatory from the first commit. See [ADR-0040](/architecture/decisions/) for the full rationale.
+TruePPM ships its own canvas Schedule renderer in `packages/web/src/features/schedule/engine/`. It replaced an earlier SVAR React Gantt integration to remove third-party constraints on drag UX, accessibility (ARIA grid overlay), and dark-mode rendering. Three layered canvases (background, bars, interaction) are dirty-rect repainted; row virtualization is mandatory from the first commit. See [ADR-0040](/architecture/decisions/) for the full rationale.
 
 ## Bar types
 
@@ -121,7 +121,7 @@ When a teammate edits a dependency or reschedules a task, the recalculation prop
 
 ## Accessibility
 
-The canvas is `aria-hidden="true"`; a transparent DOM overlay (`GanttAriaOverlay`) provides the WCAG 2.1 grid structure (`role="grid"` → `role="row"` → `role="gridcell"`). Roving tabindex; `engine.scrollToDate()` is called before `.focus()` so virtualised rows scroll into view before keyboard focus lands.
+The canvas is `aria-hidden="true"`; a transparent DOM overlay (`ScheduleAriaOverlay`) provides the WCAG 2.1 grid structure (`role="grid"` → `role="row"` → `role="gridcell"`). Roving tabindex; `engine.scrollToDate()` is called before `.focus()` so virtualized rows scroll into view before keyboard focus lands.
 
 ## Schedule deep-link
 

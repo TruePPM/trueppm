@@ -9,20 +9,20 @@ TruePPM keeps Architecture Decision Records (ADRs) at the source-of-record locat
 
 📖 **[`docs/adr/` on GitLab](https://gitlab.com/trueppm/trueppm/-/tree/main/docs/adr)**
 
-Each ADR is a markdown file using the [Michael Nygard format](https://github.com/joelparkerhenderson/architecture-decision-record/blob/main/locales/en/templates/decision-record-template-by-michael-nygard/index.md). The numbering is monotonic; status (`Proposed`, `Accepted`, `Deprecated`, `Superseded`) is in the front matter.
+Each ADR is a markdown file using the [Michael Nygard format](https://github.com/joelparkerhenderson/architecture-decision-record/blob/main/locales/en/templates/decision-record-template-by-michael-nygard/index.md). The numbering is monotonic; status (`Proposed`, `Accepted`, `Deprecated`, `Superseded`) is in each ADR's "## Status" section.
 
 ## Headline decisions
 
 The ADRs most worth reading first if you are evaluating TruePPM:
 
-- **ADR-0011** — HistoricalRecords retention (90-day window for audit trail)
-- **ADR-0013** — REST endpoint design and the API-first principle
+- **ADR-0011** — Object change history (django-simple-history, configurable retention — default 90 days)
+- **ADR-0013** — Board / Kanban view: data model, API, and integration design
 - **ADR-0027** — Incremental CPM recompute (subgraph delta strategy)
 - **ADR-0030** — Project navigation shell (tab order, landing surface)
 - **ADR-0035** — Board PPM signals (CP, blocked, risk, EVM annotations)
 - **ADR-0036** — Hybrid PM philosophy and the sprint model — *the wedge document; pairs with [The Story](/the-story/)*
 - **ADR-0037** — Sprint model: data, API, board integration
-- **ADR-0040** — Schedule view: bar/drawer/gutter and the canvas renderer rationale
+- **ADR-0040** — Schedule view: bar/drawer/gutter
 - **ADR-0041** — Project [methodology preset](/features/methodology-preset/) (tab visibility per planning model)
 
 ## Why ADRs?

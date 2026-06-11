@@ -1,13 +1,14 @@
 ---
 title: CI base images
-description: The baked ci-api and ci-scheduler images used by CI, and the container-registry cleanup policy that keeps the registry from growing without bound.
+description: The baked ci-api, ci-scheduler, and ci-integration images used by CI, and the container-registry cleanup policy that keeps the registry from growing without bound.
 ---
 
-TruePPM's CI runs its Python jobs against two **baked base images** rather than
-installing system packages and dependency wheels on every pipeline. The images
+TruePPM's CI runs its Python-dependent jobs against three **baked base images** rather
+than installing system packages and dependency wheels on every pipeline. The images
 pre-bake `libpq-dev`, `gcc`, and all dev-dependency wheels, so the per-job
 `pip install -e` is a fast editable re-link with no apt-get and no wheel downloads —
-this shaves roughly three minutes off each of the API jobs.
+this shaves roughly three minutes off each of the API jobs (and the same cold-install
+cost off `web:integration`).
 
 This page is for **maintainers of the TruePPM GitLab project** — it concerns the
 project's own container registry, not a self-hosted TruePPM deployment.
@@ -18,10 +19,13 @@ project's own container registry, not a self-hosted TruePPM deployment.
 |---|---|---|
 | `registry.gitlab.com/trueppm/trueppm/ci-api:py3.11` | `ci:build-api-image` | `.gitlab/ci-images/api.Dockerfile` |
 | `registry.gitlab.com/trueppm/trueppm/ci-scheduler:py3.11` | `ci:build-scheduler-image` | `.gitlab/ci-images/scheduler.Dockerfile` |
+| `registry.gitlab.com/trueppm/trueppm/ci-integration:noble` | `ci:build-integration-image` | `.gitlab/ci-images/integration.Dockerfile` |
 
-Both are rebuilt when their `Dockerfile` or the relevant `pyproject.toml` changes,
+All three are rebuilt when their `Dockerfile` or the relevant `pyproject.toml` changes,
 plus on the weekly scheduled pipeline so the baked wheels stay current with security
-updates.
+updates. The `ci-integration:noble` image layers Python, `libpq-dev`, `gcc`, and the
+scheduler/API dev dependencies on top of the Playwright base image; it is used by the
+`web:integration` job.
 
 ## Why retention matters
 
@@ -48,7 +52,7 @@ policy is currently **disabled** on the project; enable it with these settings:
 | `keep_n` | `10` | Keep the 10 most recent matching images per repository |
 | `older_than` | `7d` | Only remove images older than 7 days |
 | `name_regex_delete` | `.*` | Consider every tag for deletion… |
-| `name_regex_keep` | `py3\.11` | …but never delete the live `py3.11` tag |
+| `name_regex_keep` | `(py3\.11|noble)` | …but never delete the live `py3.11` or `noble` tags |
 
 `older_than: 7d` is deliberately generous so an in-flight MR pipeline that pinned a
 now-untagged SHA has a week to finish before that layer is reaped.
@@ -70,7 +74,7 @@ glab api --method PUT projects/trueppm%2Ftrueppm \
   -f 'container_expiration_policy_attributes[keep_n]=10' \
   -f 'container_expiration_policy_attributes[older_than]=7d' \
   -f 'container_expiration_policy_attributes[name_regex_delete]=.*' \
-  -f 'container_expiration_policy_attributes[name_regex_keep]=py3\.11'
+  -f 'container_expiration_policy_attributes[name_regex_keep]=(py3\.11|noble)'
 ```
 
 The same settings are available in the GitLab UI under
@@ -96,4 +100,5 @@ layers older than the `older_than` window should be gone.
 - [Contributing guide](/contributing/guide/) — branching, commits, testing.
 - [Release process](/contributing/release/) — version bump, changelog, tag, publish.
 - The image build jobs live in `.gitlab-ci.yml` (`ci:build-api-image`,
-  `ci:build-scheduler-image`) with their Dockerfiles under `.gitlab/ci-images/`.
+  `ci:build-scheduler-image`, `ci:build-integration-image`) with their Dockerfiles
+  under `.gitlab/ci-images/`.

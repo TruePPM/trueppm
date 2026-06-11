@@ -17,7 +17,7 @@ hero:
 import { Card, CardGrid, Badge } from "@astrojs/starlight/components";
 
 :::caution[0.2 shipped (alpha) · pre-GA]
-TruePPM 0.2 shipped May 2026 (as the `0.2.0-alpha.1` pre-release) — the scheduling engine, REST API, real-time backend, the full web UI (Schedule, Board, Sprints, Risk, My Work, Programs), the settings/administration platform, program foundations, board and schedule depth, and the first import/export migration path are all functional. The stable 0.2.0 release targets Jun 8, 2026. The product is pre-GA: API contracts may evolve across 0.x point releases. Suitable for evaluation and early-adopter deployments; expect breaking changes before 1.0.
+TruePPM 0.2 shipped May 2026 (as the `0.2.0-alpha.1` pre-release) — the scheduling engine, REST API, real-time backend, the full web UI (Schedule, Board, Sprints, Risk, My Work, Programs), the settings/administration platform, program foundations, board and schedule depth, and the first import/export migration path are all functional. 0.2 is an alpha release; the first beta is planned for 0.4. The product is pre-GA: API contracts may evolve across 0.x point releases. Suitable for evaluation and early-adopter deployments; expect breaking changes before 1.0.
 :::
 
 ## One platform, every methodology
@@ -32,7 +32,7 @@ Most P3M tools force a choice. TruePPM is designed from the ground up so teams c
     Sprint boards, WIP limits, velocity tracking, burndown charts, retrospectives. The Scrum Master lives in the board view and never has to open a Gantt. [Scrum Master guide →](/guides/scrum-masters/)
   </Card>
   <Card title="Hybrid" icon="random">
-    The same task is both a WBS node and a sprint story. Sprint velocity auto-feeds the CPM forecast. Zero reconciliation meetings. [Read the full story →](/the-story/)
+    The same task is both a WBS node and a sprint story. Sprint velocity feeds the CPM forecast — non-destructive suggestions today, auto-reforecast on sprint close in 0.3. Zero reconciliation meetings. [Read the full story →](/the-story/)
   </Card>
 </CardGrid>
 
@@ -69,7 +69,7 @@ project = Project(
     calendar=calendar,
 )
 result = schedule(project)
-print(result.tasks[1].early_finish)   # 2026-01-21
+print(result.tasks[1].early_finish)   # 2026-01-23
 print(result.critical_path)           # ['t-1', 't-2']
 ```
 
@@ -96,7 +96,7 @@ print(result.critical_path)           # ['t-1', 't-2']
 
 | Persona | Methodology | TruePPM gives them... | Guide |
 |---------|-------------|----------------------|-------|
-| **Project Managers** | Waterfall / Hybrid | CPM schedules, Monte Carlo confidence intervals, critical path, Gantt that re-forecasts from sprint velocity | [Guide →](/guides/project-managers/) |
+| **Project Managers** | Waterfall / Hybrid | CPM schedules, Monte Carlo confidence intervals, critical path, velocity-suggested Gantt durations (auto-reforecast in 0.3) | [Guide →](/guides/project-managers/) |
 | **Scrum Masters** | Agile / Hybrid | Sprint board, WIP limits, velocity tracking, burndown, retrospective-to-backlog automation | [Guide →](/guides/scrum-masters/) |
 | **Product Owners** | Agile / Hybrid | Backlog management, velocity-based release forecasting, sprint scope protection | [Guide →](/guides/product-owners/) |
 | **Team Members** | Any | Board-first task view, My Work cross-project surface, real-time updates, offline sync | [Guide →](/guides/team-members/) |
@@ -109,19 +109,19 @@ print(result.critical_path)           # ['t-1', 't-2']
 | Component | Status | Description |
 |-----------|--------|-------------|
 | Scheduling engine | **0.1** | CPM + Monte Carlo. Ships standalone as [`trueppm-scheduler`](https://pypi.org/project/trueppm-scheduler/) on PyPI. |
-| REST API | **0.1** | Full CRUD for projects, tasks, dependencies, resources, calendars, members, sprints. OpenAPI 3.1 schema. |
+| REST API | **0.1** | Full CRUD for projects, tasks, dependencies, resources, calendars, members, sprints. OpenAPI 3.0.3 schema. |
 | RBAC | **0.1** | 5-role per-project permissions (Owner / Admin / Scheduler / Member / Viewer) on every endpoint. |
 | Real-time | **0.1** | WebSocket broadcasts for all mutations, deferred to transaction commit. |
 | Offline sync | **0.1** | WatermelonDB-compatible delta protocol with soft-delete tombstones. |
 | Schedule (Gantt) | **0.1** | Custom canvas renderer — critical path, baselines, milestones, build mode. |
 | Board / Kanban | **0.1** | 5-column board with WIP limit overload detection and drag-to-status. |
 | Sprints | **0.1** | Full plan → activate → close lifecycle, burndown, velocity, capacity preflight, retrospective. |
-| Risk Register | **0.1** | Probability × impact scoring, lifecycle states, task links, CSV import. |
+| Risk Register | **0.1** | Probability × impact scoring, lifecycle states, task links, CSV export. |
 | My Work | **0.1** | Contributor surface — flat task list across projects, planned vs. estimated dates. |
 | Velocity feedback loop | **0.1** | Sprint velocity suggests revised CPM durations non-destructively (ADR-0065). |
-| MS Project import / export | **0.1** | `.xml` and `.mpp` import; `.xml` export. |
+| MS Project import / export | **0.1** | `.xml` import/export; `.mpp` accepted when the optional MPXJ dependency is installed (full `.mpp` support lands in 0.6). |
 | Inbound task sync | **0.1** | Webhook ingest endpoint for upstream task systems. |
-| Helm chart | **0.1** | Kubernetes deployment with Bitnami sub-charts for PostgreSQL and Valkey. |
+| Helm chart | **0.1** | Kubernetes deployment with vendored sub-charts for PostgreSQL and Valkey. |
 
 ## Next steps
 

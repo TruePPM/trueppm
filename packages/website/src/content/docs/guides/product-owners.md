@@ -41,7 +41,7 @@ The burn-up chart shows total scope vs. completed work over time. Unlike a burnd
 
 ### Monte Carlo for release dates
 
-For committed release dates, run Monte Carlo on the program schedule. This gives you P50/P80/P95 completion dates based on the team's actual historical velocity and PERT estimates on deterministic tasks. The answer to stakeholders becomes: "P80 is October 22nd. We're 80% confident. If you need October 15th, here's what has to go right."
+For committed release dates, run Monte Carlo on the program schedule. This gives you P50/P80/P95 completion dates based on PERT estimates on deterministic tasks. The answer to stakeholders becomes: "P80 is October 22nd. We're 80% confident. If you need October 15th, here's what has to go right."
 
 → See [Scheduler engine — Monte Carlo](/features/scheduler/)
 
@@ -68,11 +68,11 @@ The team pulls from the top. The order is your statement of what matters most.
 
 The most important interface between the PO and the PM:
 
-**Scope changes flow upward automatically.** When you add stories mid-sprint (scope creep), the work package's remaining points increase, and the PM sees a schedule variance indicator on their Gantt. No status call needed — they see it when it happens.
+**Scope changes flow upward automatically.** When you add stories mid-sprint (scope creep), the sprint records a scope-change event and the milestone rollup surfaces a scope-change indicator. No status call needed — they see it when it happens.
 
-**Velocity trend is visible to both of you.** If velocity has been declining for three sprints, the PM's CPM forecast adjusts automatically. You both see the same risk signal.
+**Velocity trend is visible to both of you — when the team shares velocity to the PM tier.** If velocity has been declining for three sprints, the PM receives velocity-calibration suggestions to revise estimates — applied only when accepted. You both see the same risk signal.
 
-**Sprint closures update the forecast.** When you close a sprint, the PM's milestone dates re-forecast based on actual delivered velocity. The gap between P80 and the committed milestone date is visible to both of you — the conversation about whether to slip the date or cut scope happens with actual numbers.
+**Sprint closures update the forecast.** When you close a sprint, TruePPM records a fresh P50/P80 delivery forecast against the bound milestone (ships in 0.3); the committed date is never auto-moved. The gap between the forecast and the committed milestone date is visible to both of you — the conversation about whether to slip the date or cut scope happens with actual numbers.
 
 → Read the full hybrid walkthrough in [The Story](/the-story/)
 

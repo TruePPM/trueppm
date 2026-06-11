@@ -5,7 +5,7 @@ description: How TruePPM bounds its transactional outbox and audit tables with p
 
 
 :::note[Added in 0.2 (alpha)]
-This page documents functionality added in **TruePPM 0.2**, available since the `0.2.0-alpha.1` pre-release (May 31, 2026). 0.2 is in alpha; the stable 0.2.0 release targets Jun 8, 2026.
+This page documents functionality added in **TruePPM 0.2**, available since the `0.2.0-alpha.1` pre-release (May 31, 2026). 0.2 is an alpha release; the first beta is planned for 0.4.
 :::
 
 TruePPM runs several **transactional outbox** tables (schedule requests, MS Project
@@ -45,7 +45,7 @@ the window — the next scheduled or manual run enforces it.
 | Setting | Default | Unit | What it bounds |
 |---|---|---|---|
 | `HISTORY_RETENTION_DAYS` | `90` | days | django-simple-history object-change records |
-| `TASK_RUN_RETENTION_DAYS` | `30` | days | Completed/failed/cancelled `TaskRun` records |
+| `TASK_RUN_RETENTION_DAYS` | `30` | days | Completed/failed/canceled `TaskRun` records |
 | `TRUEPPM_IMPORT_RETENTION_DAYS` | `7` | days | Terminal (`DONE`/`DEAD`) `ImportRequest` rows, including their multi-MB `file_content_b64` blobs |
 | `TRUEPPM_WEBHOOK_RETENTION_DAYS` | `7` | days | Terminal (`SUCCESS`/`FAILED`) `WebhookDelivery` rows |
 | `TRUEPPM_SYNC_BATCH_RETENTION_HOURS` | `24` | hours | `SyncBatch` mobile-upload idempotency rows past the dedup window (ADR-0082) |

@@ -42,7 +42,7 @@ The parent task's % complete is the weighted average of its subtasks' progress. 
 
 ### Independent assignment
 
-Each subtask has its own assignee. Subtasks assigned to you appear in **My Tasks** with a label showing the parent task name so you always have context.
+Each subtask has its own assignee. Subtasks assigned to you appear in **My Tasks**.
 
 ### Sprint scope tracking
 
@@ -50,11 +50,11 @@ If a subtask is added to a task that belongs to an active sprint, TruePPM record
 
 ### Board visibility
 
-Subtasks appear in board columns by default (they have status and assignee). Use the **Hide subtasks** toggle in the board filter bar to declutter the board view if your team prefers to work at the task level only.
+Subtasks appear in board columns by default (they have status and assignee).
 
 ### Schedule-view visibility
 
-Subtasks are hidden from the Schedule view by default. The parent task renders as a summary bar with a subtask count badge. Expanding the parent inlines the subtask bars as indented leaf rows beneath it.
+Subtasks render as indented child rows under the parent, which becomes a summary task; collapse the parent's chevron to hide them.
 
 ## When to use which
 

@@ -5,7 +5,7 @@ description: Lightweight OSS coordination unit for one PM managing several relat
 
 
 :::note[Added in 0.2 (alpha)]
-This page documents functionality added in **TruePPM 0.2**, available since the `0.2.0-alpha.1` pre-release (May 31, 2026). 0.2 is in alpha; the stable 0.2.0 release targets Jun 8, 2026.
+This page documents functionality added in **TruePPM 0.2**, available since the `0.2.0-alpha.1` pre-release (May 31, 2026). 0.2 is an alpha release; the first beta is planned for 0.4.
 :::
 
 A **program** is a named grouping of related projects owned by one PM or program
@@ -65,15 +65,17 @@ From a program's **Projects** tab, select **+ Add project**. The picker lists:
 You need at least **Project Manager** role on both the project and the program
 you are adding it to. If you are moving a project from one program to another,
 you also need Project Manager role on the source program. This three-way gate
-prevents one side unilaterally reorganising the other side's container.
+prevents one side unilaterally reorganizing the other side's container.
 
 A project can belong to at most one program. The same project cannot be in
 multiple programs at once.
 
 ## The program shell
 
-`/programs/:id` is a three-tab shell:
+`/programs/:id` is a five-tab shell — **Overview**, **Backlog**, **Projects**, **Members**, and **Settings**:
 
+- **Overview** — rollup KPIs and program health at a glance across the
+  program's projects.
 - **Backlog** — a shared pool of cross-project **program backlog items** that
   any project in the program can pull from. Each backlog item carries a type tag
   that bridges PM and product-owner framings — `task`, `story`, `feature`, or
@@ -89,9 +91,12 @@ multiple programs at once.
 - **Members** — manage program-level membership. Roles use the same 5-role
   model as projects: Viewer, Team Member, Resource Manager, Project Manager,
   Project Admin (Owner).
+- **Settings** — deeper program configuration (see below).
 
-The sidebar shows a `Program · {name}` line under each project that belongs to
-a program.
+In the sidebar, a searchable **program picker** scopes the project list to one
+program (or "All programs"). In the all-programs scope, projects are grouped
+under collapsible program headers, with a "No program" group for standalone
+projects.
 
 ## Program settings
 

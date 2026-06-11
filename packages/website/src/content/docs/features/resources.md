@@ -70,6 +70,7 @@ units, the assignment comes back with an **overallocation** warning. Both checks
 The catalog and assignment surfaces are exposed under
 `/api/v1/resources/`, `/api/v1/skills/`, `/api/v1/resource-skills/`,
 `/api/v1/project-resources/`, `/api/v1/task-resources/`, and
-`/api/v1/task-skill-requirements/`. Reading resources requires any authenticated user;
-editing the Workspace catalog requires a Workspace admin, while roster and task-assignment
-writes require the **Scheduler** role or above.
+`/api/v1/task-skill-requirements/`. Reading resources requires any authenticated user.
+Editing the resource catalog requires the **Project Manager** or **Project Admin** role on
+at least one project; editing the skill catalog, rosters, and task assignments requires
+the **Resource Manager** role or above on at least one project.

@@ -4,10 +4,10 @@ description: Four ways to run TruePPM — Docker Compose, Helm/Kubernetes, singl
 ---
 
 :::caution[0.2 shipped (alpha) · pre-GA]
-TruePPM 0.2 has shipped — the engine, API, real-time backend, web UI, and the 0.2 settings/administration platform are functional. It ships as the `0.2.0-alpha.1` pre-release; the stable 0.2.0 release targets Jun 8, 2026. The product is pre-GA: expect API contract changes across 0.x point releases; a stable contract arrives at 1.0. Install for evaluation and early-adopter deployments.
+TruePPM 0.2 has shipped — the engine, API, real-time backend, web UI, and the 0.2 settings/administration platform are functional. It ships as the `0.2.0-alpha.1` pre-release; the release line stays alpha through 0.3, and 0.4 is planned as the first beta. The product is pre-GA: expect API contract changes across 0.x point releases; a stable contract arrives at 1.0. Install for evaluation and early-adopter deployments.
 :::
 
-TruePPM ships as pre-built Docker images on GHCR and a Python package on PyPI. Pick the path that fits your environment:
+TruePPM ships as pre-built Docker images on the GitLab Container Registry (`registry.gitlab.com/trueppm/trueppm/{api,web}`) and a Python package on PyPI. GHCR mirrors are planned as part of the 0.4 supply-chain work. Pick the path that fits your environment:
 
 | Path | Best for |
 |------|----------|
@@ -20,7 +20,7 @@ TruePPM ships as pre-built Docker images on GHCR and a Python package on PyPI. P
 
 ## Docker Compose
 
-The fastest way to run TruePPM locally. All five services start from a single command.
+The fastest way to run TruePPM locally. All six services start from a single command.
 
 ### Prerequisites
 
@@ -68,8 +68,8 @@ Creates a "Platform Migration" project with eight closed sprints, an active spri
 ### Verify
 
 ```bash
-curl http://localhost:8000/api/v1/projects/
-# → {"count":0,"results":[]}
+curl http://localhost:8000/api/v1/health/
+# → {"status": "ok"}
 ```
 
 The OpenAPI schema is at `http://localhost:8000/api/schema/swagger-ui/`.
@@ -78,7 +78,7 @@ The OpenAPI schema is at `http://localhost:8000/api/schema/swagger-ui/`.
 
 ## Helm / Kubernetes
 
-Use the published Helm chart to deploy TruePPM on any Kubernetes cluster (kind, k3s, EKS, GKE, AKS, or bare-metal).
+Use the Helm chart to deploy TruePPM on any Kubernetes cluster (kind, k3s, EKS, GKE, AKS, or bare-metal).
 
 ### Prerequisites
 
@@ -88,12 +88,14 @@ Use the published Helm chart to deploy TruePPM on any Kubernetes cluster (kind, 
 | kubectl | any compatible with your cluster |
 | A running Kubernetes cluster | 1.27+ |
 
-### Add the chart repository
+### Get the chart
 
-The chart is published to the GHCR OCI registry:
+Public OCI publication of the chart (GHCR) is planned; today the release pipeline pushes to GHCR only when optional GHCR credentials are configured. Until the public registry is live, install from the chart source in the repository:
 
 ```bash
-helm registry login ghcr.io --username <github-username> --password <PAT-with-read:packages>
+git clone https://gitlab.com/trueppm/trueppm.git
+cd trueppm
+helm dependency update packages/helm
 ```
 
 ### Prepare your values file
@@ -109,13 +111,6 @@ At minimum, set:
 
 ```yaml
 # my-values.yaml
-ingress:
-  enabled: true
-  host: trueppm.example.com
-  tls:
-    enabled: true
-    secretName: trueppm-tls
-
 env:
   SECRET_KEY: "<50+ character random string>"
   ALLOWED_HOSTS: "trueppm.example.com"
@@ -144,16 +139,24 @@ connection Secret. You never set a database password by hand, and `DATABASE_URL`
 ### Install
 
 ```bash
-helm install trueppm oci://ghcr.io/trueppm/charts/trueppm \
-  --version 0.2.0 \
+helm install trueppm packages/helm \
   --namespace trueppm \
   --create-namespace \
   -f my-values.yaml
 ```
 
+Once the chart is published to a public OCI registry, the same install will work
+with `helm install trueppm oci://ghcr.io/trueppm/charts/trueppm --version <version>`.
+
 For real secrets, prefer injecting `SECRET_KEY` / `DATABASE_URL` / `REDIS_URL`
 via an external Kubernetes Secret over putting them in `my-values.yaml` or
 `--set`.
+
+:::note[Bring your own Ingress]
+The chart does not ship an Ingress template — it exposes the API as a ClusterIP
+Service. Put your own Ingress controller or LoadBalancer in front of the
+`<release>-api` Service to terminate TLS and route external traffic.
+:::
 
 ### Post-install
 
@@ -183,7 +186,7 @@ kubectl get pods -n trueppm
 
 ## Single-server with Docker Compose
 
-For production on a single Linux server without Kubernetes. Uses the published GHCR images, managed by systemd.
+For production on a single Linux server without Kubernetes. Uses the pre-built release images, managed by systemd.
 
 ### Prerequisites
 
@@ -223,7 +226,7 @@ chmod +x init-prod.sh
 Retrieve the admin password:
 
 ```bash
-docker compose -f docker-compose.prod.yml exec api-init \
+docker compose -f docker-compose.prod.yml exec api \
   cat /run/trueppm/admin_password
 ```
 
@@ -282,7 +285,7 @@ project = Project(
     calendar=calendar,
 )
 result = schedule(project)
-print(result.tasks[1].early_finish)   # 2026-01-21
+print(result.tasks[1].early_finish)   # 2026-01-23
 ```
 
 See the [Scheduler integration guide](/integration/standalone/) for full API reference.

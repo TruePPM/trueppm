@@ -80,7 +80,7 @@ The reverse holds when you outdent: if a summary task loses all its children, it
 ## What's not in v1
 
 - **No mobile signal.** Build mode is desktop-only. On mobile, use the Add Task button as before.
-- **Insert below** in the right-click menu is disabled — the underlying API does not yet support positioned insertion. Use Tab to indent the next-created row instead, or open the Add Task modal.
+- There is no **Insert below** item in the right-click menu — the underlying API does not yet support positioned insertion. Use Tab to indent the next-created row instead, or open the Add Task modal.
 - **No optimistic indent.** Indent / outdent waits ~50ms for the server to confirm before the row position updates.
 - **No multi-row select / fill-down / paste-from-Excel.** Single-row keyboard editing only.
 - **No Sprint backlog parity yet.** The same inline-edit / Tab pattern will extend to the Sprint backlog table in a future release.

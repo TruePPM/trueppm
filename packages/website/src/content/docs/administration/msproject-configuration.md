@@ -17,7 +17,8 @@ The cap is **deliberately lower** than the 100 MB attachment ceiling. An import 
 
 :::caution[Do not raise above the global hard caps]
 `DATA_UPLOAD_MAX_MEMORY_SIZE` (Django; default 100 MB) and `client_max_body_size`
-(nginx; default 100 MB in our reference Helm chart) are the absolute edge caps.
+(nginx; the reference single-server templates ship `20M` — raise it to at least
+your `MSPROJECT_MAX_UPLOAD_MB`) are the absolute edge caps.
 Setting `MSPROJECT_MAX_UPLOAD_MB` above either has no effect — the upload is
 rejected at the upstream layer first. If you genuinely need bigger files, raise
 all three together and budget for the memory cost per concurrent import.
@@ -31,7 +32,7 @@ The `.xml` (MSPDI) format is parsed by TruePPM directly and **always works** —
 
 | Setting | Default | Notes |
 |---|---|---|
-| `MPXJ_JAR_PATH` | `/opt/mpxj/mpxj-cli.jar` | Path to the MPXJ CLI JAR inside the API container. Set via Django settings override or the `MPXJ_JAR_PATH` environment variable. |
+| `MPXJ_JAR_PATH` | `/opt/mpxj/mpxj-cli.jar` | Path to the MPXJ CLI JAR inside the API container. Set via a Django settings override only — an environment-variable binding is not yet wired. |
 
 If a user uploads a `.mpp` and the JAR isn't at the configured path, the import fails with `"MPXJ JAR not found … Expected at: {jar_path}. Set MPXJ_JAR_PATH in settings to override."` The user-facing import dialog and the format picker both recommend "**File → Save As → XML Format**" in MS Project as the workaround — `.xml` round-trips with everything `.mpp` round-trips, with the exception of MS Project's binary-only formatting / view state (which TruePPM never reads anyway).
 
@@ -40,14 +41,7 @@ The reference TruePPM Docker image **does not bundle** the MPXJ JAR or a JRE. To
 1. **Build a custom API image** that installs OpenJDK 11+ and downloads the MPXJ CLI JAR into `/opt/mpxj/`. This is the cleanest path for production.
 2. **Mount the JAR via a Helm value-supplied volume** and add a Java sidecar or init-installer. Heavier setup; usually only worth it if you cannot rebuild images.
 
-Helm values are not currently pre-wired for either — pass `MPXJ_JAR_PATH` as a raw env entry under `api.env:` in your `values.yaml`:
-
-```yaml
-api:
-  env:
-    - name: MPXJ_JAR_PATH
-      value: /opt/mpxj/mpxj-cli.jar
-```
+Helm values are not currently pre-wired for either. Because `MPXJ_JAR_PATH` is read from Django settings (not the environment), override it in a settings module baked into your custom image — for example a `trueppm_api.settings.custom` module that imports the prod settings and sets `MPXJ_JAR_PATH = "/opt/mpxj/mpxj-cli.jar"`, selected via `DJANGO_SETTINGS_MODULE`. The default path already matches option 1 above, so a custom image that installs the JAR at `/opt/mpxj/mpxj-cli.jar` needs no override at all.
 
 The subprocess timeout for MPXJ conversion is fixed at 120 seconds. A timed-out conversion marks the `ImportRequest` row DEAD and reports a clear error in the import summary.
 
@@ -57,7 +51,7 @@ After every import attempt — successful or failed — TruePPM persists an `Imp
 
 | Setting | Default | Unit | What it bounds |
 |---|---|---|---|
-| `TRUEPPM_IMPORT_RETENTION_DAYS` | `7` | days | How long an `ImportRequest` row (and its uploaded file content) is kept after the import reaches a terminal state. Older rows are removed by the nightly `purge_old_import_requests` Celery beat task. |
+| `TRUEPPM_IMPORT_RETENTION_DAYS` | `7` | days | How long an `ImportRequest` row (and its uploaded file content) is kept after the import reaches a terminal state. Older rows are removed by the retention purge coordinator (default daily at 02:00 UTC — see [Retention](/administration/retention/)). |
 
 Two reasons to consider tuning this:
 
@@ -81,7 +75,8 @@ Both protections are unit-tested and are not opt-out. They exist because the imp
 # Common production values; all four below have safe defaults
 MSPROJECT_MAX_UPLOAD_MB=50                  # default
 TRUEPPM_IMPORT_RETENTION_DAYS=7             # default
-MPXJ_JAR_PATH=/opt/mpxj/mpxj-cli.jar        # only matters if you support .mpp
+# MPXJ_JAR_PATH defaults to /opt/mpxj/mpxj-cli.jar — Django settings override
+# only (no env-var binding); only matters if you support .mpp
 # (no env var) defusedxml + duration clamp are unconditional
 ```
 

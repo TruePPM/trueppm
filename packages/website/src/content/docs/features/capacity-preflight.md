@@ -3,7 +3,7 @@ title: Capacity preflight
 description: Per-person committed/available hours with on-track / at-risk / over-capacity bands.
 ---
 
-The Resource Manager's view of an active sprint, at-a-glance. A donut chart shows aggregate committed/capacity ratio; a scrollable list shows per-person commitments with avatar initials. Three colour bands signal severity: under, at, or over capacity.
+The Resource Manager's view of an active sprint, at-a-glance. A donut chart shows aggregate committed/capacity ratio; a scrollable list shows per-person commitments with avatar initials. Three color bands signal severity: under, at, or over capacity.
 
 ## Where this lives in the story
 
@@ -54,7 +54,7 @@ committed_hours = sum(units × working_days × hours_per_day)
 available_hours = max_units × working_days × hours_per_day
 ```
 
-Working days span the sprint window honouring the project calendar's `working_days` bitmask. Hours-per-day is read from the calendar (8.0 default).
+Working days span the sprint window honoring the project calendar's `working_days` bitmask. Hours-per-day is read from the calendar (8.0 default).
 
 PTO is a placeholder zero until a dedicated time-off model lands.
 

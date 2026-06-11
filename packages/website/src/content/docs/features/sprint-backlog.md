@@ -36,7 +36,7 @@ Reads right-to-left through the board flow — the team's most recent wins are t
 ## Related ADRs
 
 - [ADR-0037](/architecture/decisions/) — Sprint task FK + story_points + filtering
-- [ADR-0039](/architecture/decisions/) — Board column config (used for status chip colours)
+- [ADR-0039](/architecture/decisions/) — Board column config (used for status chip colors)
 
 ## If you are…
 

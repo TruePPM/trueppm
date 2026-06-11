@@ -3,13 +3,14 @@ title: Change History
 description: Every change to a task, project, or dependency is recorded with a field-level diff, so you can see what changed, when, and (as an admin) who changed it.
 ---
 
-TruePPM records a **change history** for tasks, projects, and dependencies. Each edit
+TruePPM records a **change history** for tasks, projects, dependencies, sprints, and more. Each edit
 captures a field-level diff — the old value, the new value, and when it happened — so you
 can answer "when did this task's finish date slip, and why?" without a spreadsheet.
 
 :::note[Edition]
 Change history is part of the **Community (OSS)** edition. It is built on
-django-simple-history and records changes for `Task`, `Project`, and `Dependency`.
+django-simple-history and records changes for tasks, projects, dependencies, sprints,
+risks, programs, and more.
 :::
 
 ## Viewing a task's history

@@ -5,7 +5,7 @@ description: How TruePPM surfaces permanently-failed background tasks via a stru
 
 
 :::note[Added in 0.2 (alpha)]
-This page documents functionality added in **TruePPM 0.2**, available since the `0.2.0-alpha.1` pre-release (May 31, 2026). 0.2 is in alpha; the stable 0.2.0 release targets Jun 8, 2026.
+This page documents functionality added in **TruePPM 0.2**, available since the `0.2.0-alpha.1` pre-release (May 31, 2026). 0.2 is an alpha release; the first beta is planned for 0.4.
 :::
 
 When a background Celery task in TruePPM exhausts its retries, the work is
@@ -36,14 +36,14 @@ run again. At that point, three things happen exactly once per failed task:
    `trueppm_api.apps.scheduling.receivers` logger:
 
    ```
-   WARNING dead-letter alert: task scheduling.recalculate_schedule (a1b2c3d4-…) permanently failed: connection timed out
+   WARNING dead-letter alert: task scheduling.recalculate (a1b2c3d4-…) permanently failed: connection timed out
    ```
 
    The line carries machine-readable `extra` fields for log-based alerting:
 
    | Field | Meaning |
    |---|---|
-   | `task_name` | The registered Celery task name (e.g. `scheduling.recalculate_schedule`) |
+   | `task_name` | The registered Celery task name (e.g. `scheduling.recalculate`) |
    | `task_id` | The Celery task id of the failed run |
    | `exception_type` | The exception class name that caused the final failure |
    | `project_id` | The owning project id, or `null` when the task is not project-scoped |
@@ -80,12 +80,12 @@ For metrics-based alerting, scrape the Prometheus-text endpoint. It requires a
 `IsAdminUser` and is bearer-scrapeable, mirroring `/api/v1/health/beat/` (see
 [Beat Liveness & Durability](/administration/durability/)).
 
-It emits a single gauge, `trueppm_task_dead_letter_parked`, labelled by task name:
+It emits a single gauge, `trueppm_task_dead_letter_parked`, labeled by task name:
 
 ```
 # HELP trueppm_task_dead_letter_parked Permanently dead-lettered Celery tasks currently awaiting operator action, by task name.
 # TYPE trueppm_task_dead_letter_parked gauge
-trueppm_task_dead_letter_parked{task_name="scheduling.recalculate_schedule"} 3
+trueppm_task_dead_letter_parked{task_name="scheduling.recalculate"} 3
 ```
 
 ```bash

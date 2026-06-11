@@ -79,11 +79,11 @@ The **same tree** is the source for every view:
 |------|------------------------|----------------|
 | **WBS / Table** | Full tree, indented | `wbs_path`, `name`, `status`, `duration` |
 | **Gantt / Schedule** | Committed tasks (non-BACKLOG) | `early_start`, `early_finish`, `total_float`, `is_critical`, dependency edges |
-| **Board** | Non-BACKLOG tasks, grouped by WBS phase | `status`, `assignee`, `sprint`, `story_points` |
+| **Board** | Working columns by status (To Do → In Progress → Review → Done) with Backlog in a side rail; optional phase swimlanes | `status`, `assignee`, `sprint`, `story_points` |
 | **Sprints** | Tasks where `sprint_id = current_sprint` | `story_points`, `remaining_points`, `status` |
 | **Overview** | Aggregate rollups | burndown, velocity, CPM forecast, Monte Carlo P80 |
 
-No data is copied between views. The Board's phase lanes are WBS phases. The Schedule view's bars are the same rows the Board's cards render. The sprint burndown reads `remaining_points` from the same rows the Schedule view uses for float.
+No data is copied between views. When the Board is grouped into phase swimlanes (an optional grouping), those lanes are WBS phases. The Schedule view's bars are the same rows the Board's cards render. The sprint burndown reads `remaining_points` from the same rows the Schedule view uses for float.
 
 ## How each methodology uses the model
 
@@ -144,7 +144,7 @@ Typical hybrid task:
   status:            IN_PROGRESS
 ```
 
-Raj sees a Schedule-view bar with float and critical-path colouring. Maya sees a sprint card with story points and remaining effort. They're looking at the same database row. When Maya moves the card to COMPLETE, `actual_finish` is set, CPM re-runs, and Raj's Schedule view updates in real time via WebSocket — without either of them touching a sync button.
+Raj sees a Schedule-view bar with float and critical-path coloring. Maya sees a sprint card with story points and remaining effort. They're looking at the same database row. When Maya moves the card to COMPLETE, `actual_finish` is set, CPM re-runs, and Raj's Schedule view updates in real time via WebSocket — without either of them touching a sync button.
 
 ## Why no translation layer
 
