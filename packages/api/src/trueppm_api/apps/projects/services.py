@@ -1274,7 +1274,141 @@ def sprint_outcome_payload(sprint: Any, request: Any) -> dict[str, Any]:
         "didnt_ship": didnt_ship,
         "didnt_ship_summary": summary,
         "retro_summary": retro_summary,
+        "review": _sprint_review_block(
+            sprint, is_closed=is_closed, velocity_readable=velocity_readable
+        ),
     }
+
+
+def _sprint_review_block(
+    sprint: Any, *, is_closed: bool, velocity_readable: bool
+) -> dict[str, Any]:
+    """Accepted-vs-not breakdown + demo-ready list for the Sprint Review (ADR-0118, #924).
+
+    Composes onto the consolidated outcome read. Acceptance is derived **live** from
+    ``AcceptanceCriterion.met`` (the review *is* when the PO ticks acceptance), over
+    the committed / at-close membership: ``SprintTaskOutcome`` rows for a closed
+    sprint, the live committed task set for a provisional one. Three buckets —
+    accepted (≥1 criterion, all met), not_accepted (≥1 criterion, not all met),
+    no_criteria (zero criteria, a coverage-gap signal, never silently "accepted").
+    Counts always render; ``*_points`` ride the same ADR-0104 velocity gate as the
+    rest of the read. ``shipped`` is the completed subset (the demo/acceptance
+    candidates) and ``demo_list`` the team-curated walkthrough (closed only — a
+    provisional sprint has no outcome rows to flag yet).
+    """
+    from trueppm_api.apps.projects.models import (
+        AcceptanceCriterion,
+        SprintTaskDisposition,
+        SprintTaskOutcome,
+        Task,
+        TaskStatus,
+    )
+
+    entries: list[dict[str, Any]] = []
+    if is_closed:
+        for r in SprintTaskOutcome.objects.filter(sprint=sprint):
+            entries.append(
+                {
+                    # The SprintTaskOutcome row PK — the toggle-demo endpoint key.
+                    # None for provisional (no row yet → demo curation is closed-only).
+                    "outcome_id": str(r.id),
+                    "task_id": r.task_id,
+                    "short_id": r.task_short_id,
+                    "title": r.task_title,
+                    "points": r.story_points,
+                    "demo_ready": r.demo_ready,
+                    "shipped": r.disposition == SprintTaskDisposition.COMPLETED,
+                }
+            )
+    else:
+        for t in Task.objects.filter(sprint_id=sprint.pk, is_deleted=False):
+            entries.append(
+                {
+                    "outcome_id": None,
+                    "task_id": t.pk,
+                    "short_id": f"T-{t.short_id}" if t.short_id else "",
+                    "title": t.name,
+                    "points": t.story_points,
+                    "demo_ready": False,  # no outcome row pre-close; curate at review
+                    "shipped": t.status == TaskStatus.COMPLETE,
+                }
+            )
+
+    # Per-task acceptance (current met/total) in one query — no N+1 over the set.
+    task_ids = [e["task_id"] for e in entries if e["task_id"]]
+    accept: dict[Any, dict[str, int]] = {}
+    if task_ids:
+        for ac in AcceptanceCriterion.objects.filter(task_id__in=task_ids, is_deleted=False):
+            d = accept.setdefault(ac.task_id, {"met": 0, "total": 0})
+            d["total"] += 1
+            if ac.met:
+                d["met"] += 1
+
+    accepted_count = not_accepted_count = no_criteria_count = 0
+    accepted_points = not_accepted_points = 0
+    shipped: list[dict[str, Any]] = []
+    demo_list: list[str] = []
+    for e in entries:
+        a = accept.get(e["task_id"]) if e["task_id"] else None
+        met, total = (a["met"], a["total"]) if a else (0, 0)
+        pts = e["points"] or 0
+        if total == 0:
+            no_criteria_count += 1
+        elif met == total:
+            accepted_count += 1
+            accepted_points += pts
+        else:
+            not_accepted_count += 1
+            not_accepted_points += pts
+        if e["shipped"]:
+            shipped.append(
+                {
+                    "outcome_id": e["outcome_id"],  # toggle-demo key (null if provisional)
+                    "task_id": str(e["task_id"]) if e["task_id"] else None,
+                    "task_short_id": e["short_id"],
+                    "task_title": e["title"],
+                    "story_points": e["points"] if velocity_readable else None,
+                    "acceptance": {"met": met, "total": total},
+                    "demo_ready": e["demo_ready"],
+                }
+            )
+        if e["demo_ready"]:
+            demo_list.append(e["short_id"])
+
+    return {
+        "accepted_count": accepted_count,
+        "not_accepted_count": not_accepted_count,
+        "no_criteria_count": no_criteria_count,
+        "accepted_points": accepted_points if velocity_readable else None,
+        "not_accepted_points": not_accepted_points if velocity_readable else None,
+        "shipped": shipped,
+        "demo_list": demo_list,
+    }
+
+
+def toggle_demo_ready(outcome: Any, *, demo_ready: bool) -> Any:
+    """Set a SprintTaskOutcome's review demo flag and broadcast (ADR-0118 §2).
+
+    Idempotent: sets the boolean to the requested value (PUT-like). Best-effort
+    board broadcast deferred to commit so co-viewers' review refetches; the model
+    is unsynced, so the online refetch is the sole propagation.
+    """
+    from django.db import transaction
+
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+    if outcome.demo_ready != demo_ready:
+        outcome.demo_ready = demo_ready
+        outcome.save(update_fields=["demo_ready"])
+        pid = str(outcome.sprint.project_id)
+        sid = str(outcome.sprint_id)
+        oid = str(outcome.id)
+        transaction.on_commit(
+            lambda: broadcast_board_event(
+                pid, "demo_toggled", {"id": oid, "sprint_id": sid, "demo_ready": demo_ready}
+            )
+        )
+    return outcome
 
 
 def snapshot_completed_metrics(sprint: Any) -> None:

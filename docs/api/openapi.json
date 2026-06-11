@@ -14294,6 +14294,71 @@
                 }
             }
         },
+        "/api/v1/sprint-task-outcomes/{id}/toggle-demo/": {
+            "post": {
+                "operationId": "v1_sprint_task_outcomes_toggle_demo_create",
+                "description": "Set ``demo_ready`` to the request body's boolean (Member+; idempotent).",
+                "summary": "Toggle whether a shipped story is in the Sprint Review demo list (ADR-0118)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint task outcome.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": {}
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": {}
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": {}
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/sprints/{id}/": {
             "get": {
                 "operationId": "v1_sprints_retrieve",
@@ -25481,6 +25546,10 @@
                         "type": "object",
                         "additionalProperties": {},
                         "nullable": true
+                    },
+                    "review": {
+                        "type": "object",
+                        "additionalProperties": {}
                     }
                 },
                 "required": [
@@ -25495,6 +25564,7 @@
                     "outcome_recorded",
                     "provisional",
                     "retro_summary",
+                    "review",
                     "sprint_id",
                     "start_date",
                     "state",

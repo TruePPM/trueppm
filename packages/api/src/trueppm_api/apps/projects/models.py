@@ -2244,6 +2244,13 @@ class SprintTaskOutcome(models.Model):
     # True when written by the optional backfill command (best-effort from
     # HistoricalTask), False for rows captured live at close (ADR-0111 §4).
     backfilled = models.BooleanField(default=False)
+    # Review-time curation (ADR-0118, #924): whether the team will walk
+    # stakeholders through this story in the Sprint Review demo. The close-snapshot
+    # fields above are immutable; this one flag is deliberately mutable post-close
+    # (curation happens *at* the review). Toggled team-owned (Member+) via the
+    # toggle-demo endpoint; not synced (this model has no server_version — the
+    # review is an online read, propagated by the board broadcast + refetch).
+    demo_ready = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -2261,6 +2268,12 @@ class SprintTaskOutcome(models.Model):
 
     def __str__(self) -> str:
         return f"SprintTaskOutcome({self.sprint_id} {self.task_short_id} {self.disposition})"
+
+    @property
+    def project_id(self) -> Any:
+        """Project PK via sprint, so RBAC's ``_get_project_id_from_obj`` resolves
+        object-level permission on the flat /sprint-task-outcomes/ route (ADR-0118)."""
+        return self.sprint.project_id
 
 
 class SprintCloseRequestStatus(models.TextChoices):

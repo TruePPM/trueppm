@@ -548,6 +548,23 @@ export interface DidntShipItem {
 }
 
 /**
+ * A shipped (completed) story in the Sprint Review (#924, ADR-0118). Carries its
+ * acceptance state (met/total criteria) and whether the team flagged it for the
+ * stakeholder demo. `story_points` is null below the velocity audience (ADR-0104).
+ * `outcome_id` is the SprintTaskOutcome row PK (the demo-toggle key); null for a
+ * provisional sprint, where no snapshot row exists and demo curation is unavailable.
+ */
+export interface ReviewShippedStory {
+  outcome_id: string | null;
+  task_id: string | null;
+  task_short_id: string;
+  task_title: string;
+  story_points: number | null;
+  acceptance: { met: number; total: number };
+  demo_ready: boolean;
+}
+
+/**
  * Consolidated sprint-review read (#985, ADR-0111 §3). The single server-owned
  * surface for review: commitment, goal verdict (#983), velocity Δ + burn status
  * (#984), the "didn't ship" list (#982), and a retro summary — nothing derived
@@ -594,6 +611,21 @@ export interface SprintOutcome {
     action_item_count: number;
     has_notes: boolean;
   } | null;
+  /**
+   * Sprint Review breakdown (#924, ADR-0118). Counts always present; `*_points`
+   * are null below the velocity audience (ADR-0104). `shipped` are the completed
+   * stories (acceptance + demo candidates); `demo_list` is the team's curated
+   * walkthrough (short ids; empty on a provisional sprint).
+   */
+  review: {
+    accepted_count: number;
+    not_accepted_count: number;
+    no_criteria_count: number;
+    accepted_points: number | null;
+    not_accepted_points: number | null;
+    shipped: ReviewShippedStory[];
+    demo_list: string[];
+  };
 }
 
 /** GET /api/v1/sprints/{id}/outcome/ — the consolidated sprint-review read (#985). */
@@ -609,6 +641,27 @@ export function useSprintOutcome(
       return res.data;
     },
     enabled: !!sprintId && enabled,
+  });
+}
+
+/**
+ * POST /api/v1/sprint-task-outcomes/{id}/toggle-demo/ — flag/unflag a shipped story
+ * for the Sprint Review demo list (#924, ADR-0118). Member+, team-owned. Invalidates
+ * the outcome read so the demo grouping refreshes.
+ */
+export function useToggleDemo(sprintId: string | null | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ outcomeId, demoReady }: { outcomeId: string; demoReady: boolean }) => {
+      const res = await apiClient.post<{ id: string; demo_ready: boolean }>(
+        `/sprint-task-outcomes/${outcomeId}/toggle-demo/`,
+        { demo_ready: demoReady },
+      );
+      return res.data;
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['sprint', sprintId, 'outcome'] });
+    },
   });
 }
 

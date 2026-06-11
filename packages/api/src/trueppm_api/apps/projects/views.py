@@ -86,6 +86,7 @@ from trueppm_api.apps.projects.models import (
     RiskStatus,
     Sprint,
     SprintState,
+    SprintTaskOutcome,
     Task,
     TaskAttachment,
     TaskComment,
@@ -2933,6 +2934,52 @@ class AcceptanceCriterionViewSet(IdempotencyMixin, viewsets.ModelViewSet[Accepta
 
         pid, tid = str(criterion.task.project_id), str(criterion.task_id)
         transaction.on_commit(lambda: broadcast_board_event(pid, "task_updated", {"id": tid}))
+
+
+class SprintTaskOutcomeViewSet(viewsets.GenericViewSet[SprintTaskOutcome]):
+    """Review-time curation of the demo-ready flag on a closing-membership row (ADR-0118).
+
+    Flat route ``/api/v1/sprint-task-outcomes/<pk>/toggle-demo/``. The team curates
+    which shipped stories to walk stakeholders through; gated team-owned (Member+)
+    via object-level ``IsProjectMemberWrite``, resolving the project through
+    ``SprintTaskOutcome.project_id`` (→ sprint). The membership-filtered queryset
+    404s a non-member rather than leaking existence. The flag write + best-effort
+    broadcast live in the ``toggle_demo_ready`` service.
+    """
+
+    queryset = SprintTaskOutcome.objects.select_related("sprint")
+
+    def get_permissions(self) -> list[BasePermission]:
+        return [IsAuthenticated(), IsProjectMemberWrite(), IsProjectNotArchived()]
+
+    def get_queryset(self) -> QuerySet[SprintTaskOutcome]:
+        return (
+            super()
+            .get_queryset()
+            .filter(
+                sprint__project__memberships__user=self.request.user,  # type: ignore[misc]
+                sprint__project__memberships__is_deleted=False,
+            )
+            .distinct()
+        )
+
+    @extend_schema(
+        summary="Toggle whether a shipped story is in the Sprint Review demo list (ADR-0118)",
+        request=OpenApiTypes.OBJECT,
+        responses={200: OpenApiResponse(response=OpenApiTypes.OBJECT)},
+    )
+    @action(detail=True, methods=["post"], url_path="toggle-demo")
+    def toggle_demo(self, request: Request, pk: str | None = None) -> Response:
+        """Set ``demo_ready`` to the request body's boolean (Member+; idempotent)."""
+        from trueppm_api.apps.projects.services import toggle_demo_ready
+
+        outcome = self.get_object()  # runs object-level IsProjectMemberWrite
+        demo_ready = bool(request.data.get("demo_ready", True))
+        toggle_demo_ready(outcome, demo_ready=demo_ready)
+        return Response(
+            {"id": str(outcome.id), "demo_ready": outcome.demo_ready},
+            status=status.HTTP_200_OK,
+        )
 
 
 class BaselineViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Baseline]):

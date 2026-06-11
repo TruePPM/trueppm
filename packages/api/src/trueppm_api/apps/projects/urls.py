@@ -50,6 +50,7 @@ from trueppm_api.apps.projects.views import (
     RiskCommentViewSet,
     RiskViewSet,
     SprintScopeChangeViewSet,
+    SprintTaskOutcomeViewSet,
     SprintViewSet,
     TaskAttachmentViewSet,
     TaskBaselineDetailView,
@@ -296,6 +297,12 @@ urlpatterns = [
         "sprints/<pk>/outcome/",
         SprintViewSet.as_view({"get": "outcome"}),
         name="sprints-outcome",
+    ),
+    # Sprint Review demo-list curation (ADR-0118, #924)
+    path(
+        "sprint-task-outcomes/<pk>/toggle-demo/",
+        SprintTaskOutcomeViewSet.as_view({"post": "toggle_demo"}),
+        name="sprint-task-outcome-toggle-demo",
     ),
     # Sprint↔milestone binding — the agile/waterfall bridge (ADR-0106 §2)
     path(
