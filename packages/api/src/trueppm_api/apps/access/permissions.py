@@ -196,6 +196,24 @@ class IsProjectMemberWriteOrOwn(BasePermission):
         if role >= Role.ADMIN:
             return True
 
+        # Product Owner facet (ADR-0078 / #1095): the PO owns the backlog and may
+        # EDIT its EPIC/STORY work items below Admin and regardless of task
+        # assignment — otherwise the PM outranks them on their own backlog. Scoped
+        # tightly: (1) only EPIC/STORY work items, so the facet never widens write
+        # access to schedule tasks/milestones; (2) edits only, never DELETE — removing
+        # another member's story stays an Admin/assignee act (this wave needs grooming,
+        # not deletion). The TaskSerializer's structural gate further confines the
+        # PO-only fields (type, epic links, scoring inputs) to PO/Admin within those.
+        from trueppm_api.apps.projects.models import TaskType
+        from trueppm_api.apps.teams.services import has_team_facet
+
+        if (
+            request.method != "DELETE"
+            and getattr(obj, "type", None) in (TaskType.EPIC, TaskType.STORY)
+            and has_team_facet(request.user, project_id, "is_product_owner")
+        ):
+            return True
+
         # Resource Manager (2): cannot edit task content (only resource assignment)
         if role == Role.SCHEDULER:
             return False
@@ -260,34 +278,60 @@ def can_manage_backlog(role: int | None) -> bool:
     """Whether ``role`` may perform structural product-backlog actions (ADR-0105).
 
     Structural = auto-rank, scoring-model / auto-rank toggle, epic create/delete,
-    priority reorder. Maps to ADMIN+ today. This is the single seam ADR-0088's
-    Product Owner role drops into: when the PO role lands, widen this predicate
-    (e.g. ``role >= Role.ADMIN or has_capability(role, "backlog:manage")``) instead
-    of editing every call site. Story-field grooming (AC, dor, points, scoring
-    inputs on a story) is NOT gated here — that rides the normal Member+ task-write
-    permission so contributors can refine their own stories.
+    priority reorder. Maps to Admin+ today. This is the role half of the gate;
+    the facet half lives in :func:`can_manage_backlog_with_facet`. Story-field
+    grooming (AC, dor, points, scoring inputs on a story) is NOT gated here — that
+    rides the normal Member+ task-write permission so contributors can refine their
+    own stories.
     """
     return role is not None and role >= Role.ADMIN
 
 
-class IsProjectBacklogManager(BasePermission):
-    """Gate structural product-backlog actions on ``can_manage_backlog`` (ADR-0105)."""
+def can_manage_backlog_with_facet(user: Any, project_id: Any, role: int | None) -> bool:
+    """Whether ``user`` may perform structural product-backlog actions (ADR-0078/#1095).
 
-    message = "You need at least Project Manager role to manage the product backlog."
+    Admin+ OR the Product Owner facet. The PO facet (ADR-0078 two-axis RBAC, #927)
+    grants backlog management without requiring an Admin role bump, so a Product
+    Owner who is a project Member can still reorder + auto-rank the backlog. The
+    facet lookup is imported lazily to avoid an access ↔ teams import cycle
+    (teams.permissions already imports from access.permissions).
+    """
+    if can_manage_backlog(role):
+        return True
+    from trueppm_api.apps.teams.services import has_team_facet
+
+    return has_team_facet(user, project_id, "is_product_owner")
+
+
+class IsProjectBacklogManager(BasePermission):
+    """Gate structural product-backlog actions (ADR-0105).
+
+    Admin+ OR Product Owner facet (ADR-0078/#1095) — see
+    :func:`can_manage_backlog_with_facet`.
+    """
+
+    message = (
+        "You need at least Project Manager role or the Product Owner facet "
+        "to manage the product backlog."
+    )
 
     def has_permission(self, request: Request, view: APIView) -> bool:
         if not (request.user and request.user.is_authenticated):
             return False
         project_pk = _project_pk_from_view(view)
         if project_pk is not None:
-            return can_manage_backlog(_membership_role(request, project_pk))
+            return can_manage_backlog_with_facet(
+                request.user, project_pk, _membership_role(request, project_pk)
+            )
         return True
 
     def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
         project_id = _get_project_id_from_obj(obj)
         if project_id is None:
             return False
-        return can_manage_backlog(_membership_role(request, project_id))
+        return can_manage_backlog_with_facet(
+            request.user, project_id, _membership_role(request, project_id)
+        )
 
 
 class IsProjectOwner(BasePermission):

@@ -1,5 +1,5 @@
 import { NavLink, useLocation } from 'react-router';
-import { GanttIcon, BoardIcon, ListIcon, CalendarIcon, ResourcesIcon, RiskIcon, SprintIcon, SettingsIcon, BarChartIcon } from '@/components/Icons';
+import { GanttIcon, BoardIcon, ListIcon, CalendarIcon, ResourcesIcon, RiskIcon, SprintIcon, SettingsIcon, BarChartIcon, WbsIcon } from '@/components/Icons';
 import { OverviewIcon } from '@/components/Icons';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
@@ -17,13 +17,16 @@ interface Tab {
 
 // Overview is first — it is the project landing/orientation surface (ADR-0030).
 // Board is second — the execution surface for task planning and status.
-// Sprints is third — between Board and Schedule, paired with execution surfaces (ADR-0041).
+// Backlog is third — the PO grooming surface that feeds Sprints (#1096); it routes
+// to the existing /product-backlog page and is methodology-gated to Agile/Hybrid.
+// Sprints is fourth — between Backlog and Schedule, paired with execution surfaces (ADR-0041).
 // Grid replaces the previous WBS + Table entries (issue #334, ADR-0053). Hierarchy
 // is now a display mode inside Grid, not a separate top-level view.
 const TABS: Tab[] = [
-  { view: 'overview',   label: 'Overview',   Icon: OverviewIcon },
-  { view: 'board',      label: 'Board',      Icon: BoardIcon },
-  { view: 'sprints',    label: 'Sprints',    Icon: SprintIcon },
+  { view: 'overview',        label: 'Overview',   Icon: OverviewIcon },
+  { view: 'board',           label: 'Board',      Icon: BoardIcon },
+  { view: 'product-backlog', label: 'Backlog',    Icon: WbsIcon },
+  { view: 'sprints',         label: 'Sprints',    Icon: SprintIcon },
   { view: 'schedule',   label: 'Schedule',   Icon: GanttIcon },
   { view: 'grid',       label: 'Grid',       Icon: ListIcon },
   { view: 'calendar',   label: 'Calendar',   Icon: CalendarIcon },

@@ -126,6 +126,18 @@ export interface ApiTask {
   criteria_met_count?: number;
   criteria_total?: number;
   dor_blockers?: string[];
+  // Scoring-model raw inputs (ADR-0105 / #922) — snake_case on the wire. Editable
+  // via the grooming drawer (#1043); the server derives prioritization_score from them.
+  business_value?: number | null;
+  time_criticality?: number | null;
+  risk_reduction?: number | null;
+  job_size?: number | null;
+  reach?: number | null;
+  impact?: number | null;
+  confidence?: number | null;
+  effort?: number | null;
+  value?: number | null;
+  effort_estimate?: number | null;
 }
 
 interface ApiDependency {
@@ -291,6 +303,16 @@ export function mapTask(t: ApiTask): Task {
     acMet: t.criteria_met_count ?? undefined,
     acTotal: t.criteria_total ?? undefined,
     dorBlockers: t.dor_blockers ?? undefined,
+    businessValue: t.business_value ?? null,
+    timeCriticality: t.time_criticality ?? null,
+    riskReduction: t.risk_reduction ?? null,
+    jobSize: t.job_size ?? null,
+    reach: t.reach ?? null,
+    impact: t.impact ?? null,
+    confidence: t.confidence ?? null,
+    effort: t.effort ?? null,
+    value: t.value ?? null,
+    effortEstimate: t.effort_estimate ?? null,
   };
 }
 

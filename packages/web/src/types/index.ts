@@ -223,6 +223,23 @@ export interface Task {
   acTotal?: number;
   /** Definition-of-Ready blocker codes; empty ⇒ the story may be marked ready. */
   dorBlockers?: string[];
+  // ── Scoring-model inputs (ADR-0105 / #922; surfaced by the grooming drawer #1043) ──
+  // Per-model raw inputs the PO edits; the computed `score` above is derived from
+  // these server-side. Each set is independent so switching the project model is
+  // non-destructive. Null/undefined until the PO sets a value.
+  /** WSJF: cost-of-delay numerator components + job-size denominator. */
+  businessValue?: number | null;
+  timeCriticality?: number | null;
+  riskReduction?: number | null;
+  jobSize?: number | null;
+  /** RICE: reach × impact × confidence ÷ effort. */
+  reach?: number | null;
+  impact?: number | null;
+  confidence?: number | null;
+  effort?: number | null;
+  /** Value/Effort: value ÷ effort_estimate. */
+  value?: number | null;
+  effortEstimate?: number | null;
 }
 
 /** Estimation governance mode on Project (issue #141 / ADR-0032). */

@@ -1278,16 +1278,17 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
 
         Structural backlog fields (work-item type→EPIC, parent_epic links, and the
         per-model scoring inputs) are PO-owned per ADR-0105 §6 and gated to
-        ``can_manage_backlog`` (Admin+ today; the ADR-0078/#927 Product-Owner facet
-        slots into the same helper). Story-grooming fields the team shares (``dor``,
-        ``sprint_rank``, ``story_points``) and quick-add (``type`` among
-        story/task/bug/spike) stay at the normal task-write permission. Acceptance
-        criteria are written through the AcceptanceCriterion endpoints.
+        Admin+ OR the Product-Owner facet (ADR-0078/#927/#1095) via
+        ``can_manage_backlog`` + ``has_team_facet``. Story-grooming fields the team
+        shares (``dor``, ``sprint_rank``, ``story_points``) and quick-add (``type``
+        among story/task/bug/spike) stay at the normal task-write permission.
+        Acceptance criteria are written through the AcceptanceCriterion endpoints.
         """
         from rest_framework.exceptions import PermissionDenied
 
         from trueppm_api.apps.access.permissions import can_manage_backlog
         from trueppm_api.apps.projects.models import DorState, TaskType
+        from trueppm_api.apps.teams.services import has_team_facet
 
         # Structural-field gate (ADR-0105 §6). Only enforced when a structural field is
         # actually being written, so it never interferes with quick-add (type=STORY) or
@@ -1314,11 +1315,18 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         )
         if touches_structural:
             project = self.instance.project if self.instance is not None else attrs.get("project")
-            if project is not None and not can_manage_backlog(self._get_caller_role(project)):
-                raise PermissionDenied(
-                    "Managing the product backlog (work-item type, epic links, and "
-                    "prioritization scoring) requires Project Manager role or above."
+            if project is not None:
+                request = self.context.get("request")
+                caller = getattr(request, "user", None) if request else None
+                allowed = can_manage_backlog(self._get_caller_role(project)) or (
+                    caller is not None and has_team_facet(caller, project.pk, "is_product_owner")
                 )
+                if not allowed:
+                    raise PermissionDenied(
+                        "Managing the product backlog (work-item type, epic links, and "
+                        "prioritization scoring) requires Project Manager role, the "
+                        "Product Owner facet, or above."
+                    )
 
         # parent-epic membership
         parent_epic = attrs.get("parent_epic")
@@ -3560,6 +3568,7 @@ class ProjectDetailSerializer(ProjectSerializer):
     recalculated_at = serializers.DateTimeField(read_only=True)
     is_sample = serializers.BooleanField(read_only=True)
     program_detail = serializers.SerializerMethodField()
+    my_facets = serializers.SerializerMethodField()
 
     class Meta(ProjectSerializer.Meta):
         fields = [
@@ -3569,7 +3578,28 @@ class ProjectDetailSerializer(ProjectSerializer):
             "recalculated_at",
             "is_sample",
             "program_detail",
+            "my_facets",
         ]
+
+    def get_my_facets(self, obj: Project) -> dict[str, bool]:
+        """The requesting user's own team facets on this project (#1095).
+
+        Returns ``{"is_scrum_master": bool, "is_product_owner": bool}`` — the
+        caller's two-axis RBAC facets (ADR-0078) resolved against the project's
+        default team. The web uses this to render-gate Product-Owner / Scrum-Master
+        controls (e.g. the backlog auto-rank + reorder affordances) without a
+        separate round-trip. Both False for an anonymous caller or a non-member.
+
+        Detail-only (never on the list serializer) to keep the project list cheap —
+        one membership lookup per project would be an N+1 on a list response.
+        """
+        from trueppm_api.apps.teams.services import user_facets
+
+        request = self.context.get("request")
+        user = getattr(request, "user", None) if request else None
+        if user is None or not getattr(user, "is_authenticated", False):
+            return {"is_scrum_master": False, "is_product_owner": False}
+        return user_facets(user, obj.id)
 
     def get_program_detail(self, obj: Project) -> dict[str, str] | None:
         """The project's program as ``{id, name}`` for the demo indicator link.

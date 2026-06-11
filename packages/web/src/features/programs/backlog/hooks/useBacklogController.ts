@@ -86,7 +86,7 @@ export interface BacklogController {
   pullItem: (item: BacklogItem, project: MemberProject) => void;
   retryPull: () => void;
   dismissToast: () => void;
-  /** Transient status toast for not-yet-wired affordances (e.g. Import CSV). */
+  /** Transient status toast for not-yet-wired affordances (general-purpose). */
   notify: (message: string) => void;
 
   createItem: (input: CreateBacklogItemInput) => Promise<BacklogItem>;

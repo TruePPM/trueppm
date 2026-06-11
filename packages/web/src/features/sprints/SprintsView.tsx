@@ -39,6 +39,7 @@ import {
 import { CloseSprintDialog } from './CloseSprintDialog';
 import { ScopePendingReviewPanel } from './ScopePendingReviewPanel';
 import { useCanManageScope } from '@/hooks/useCanManageScope';
+import { useCanEditSprintGoal } from '@/hooks/useCanEditSprintGoal';
 import { RetroPanel } from './RetroPanel';
 import { useSprintBacklog } from '@/hooks/useSprintBacklog';
 import { useMyActiveSprints } from '@/hooks/useMyActiveSprints';
@@ -183,6 +184,9 @@ export function SprintsView() {
   // banner's Review button. Gated by useCanManageScope (render-gate only).
   const [scopeReviewOpen, setScopeReviewOpen] = useState(false);
   const canManageScope = useCanManageScope(projectId ?? undefined);
+  // Goal-edit follows the Scrum-Master facet (or Admin+), distinct from the
+  // scope-accept gate above (#1095 / ADR-0078).
+  const canEditGoal = useCanEditSprintGoal(projectId ?? undefined);
   // Task create modal — opens with the target sprint pre-populated.
   // null = modal closed; a sprint id string = modal open targeting that sprint.
   const [addTaskForSprintId, setAddTaskForSprintId] = useState<string | null>(null);
@@ -487,7 +491,7 @@ export function SprintsView() {
               <SprintPlanningBridge
                 sprint={selectedSprint}
                 projectId={projectId ?? ''}
-                canEdit={canManageScope}
+                canEdit={canEditGoal}
                 sprintTaskIds={
                   selectedSprint.id === plannedSprint?.id ? plannedTaskIds : []
                 }
@@ -498,7 +502,7 @@ export function SprintsView() {
                   <SprintGoalCard
                     sprint={selectedSprint}
                     projectId={projectId ?? ''}
-                    canEdit={canManageScope && selectedSprint.state !== 'COMPLETED'}
+                    canEdit={canEditGoal && selectedSprint.state !== 'COMPLETED'}
                   />
                 </div>
                 <div className="md:col-span-2">
