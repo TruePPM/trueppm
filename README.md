@@ -63,6 +63,7 @@ TruePPM is an open-core Project, Program, and Portfolio Management (P3M) platfor
 Full documentation at **[docs.trueppm.com](https://docs.trueppm.com)** (published via GitLab Pages on every release tag).
 
 - **[Installation](https://docs.trueppm.com/getting-started/installation/)** — Docker Compose, Helm/Kubernetes, single-server, or scheduler library
+- **[Sample projects](https://docs.trueppm.com/getting-started/sample-projects/)** — load a populated demo program in one click, or import/export any program as JSON
 - **[Upgrading](https://docs.trueppm.com/getting-started/upgrade/)** — rolling upgrades and rollback for each deployment path
 - **[Guides](https://docs.trueppm.com/guides/project-managers/)** — role-specific guides for project managers, team members, resource managers, and executives
 - **[Administration](https://docs.trueppm.com/administration/deployment/)** — deployment, configuration, RBAC, security

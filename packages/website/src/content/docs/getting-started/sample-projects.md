@@ -6,9 +6,25 @@ description: Load a whole program from a JSON seed file, and export any program 
 TruePPM uses one canonical JSON format to seed sample projects and to move whole
 programs in and out of an instance. A single seed document describes a program
 and all of its projects — tasks (with WBS paths and three-point estimates),
-dependencies, sprints, baselines, risks, resources, and memberships. The format
-is specified in [ADR-0109](https://gitlab.com/trueppm/trueppm-suite/-/blob/main/docs/adr/0109-canonical-json-seed-import-export-schema.md);
-the JSON Schema lives at `packages/api/src/trueppm_api/apps/projects/schemas/seed_v1.json`.
+dependencies, sprints, baselines, risks, resources, and memberships.
+
+The format is **v2** (the JSON Schema lives at
+`packages/api/src/trueppm_api/apps/projects/schemas/seed_v2.json`, with the
+design rationale in [ADR-0114](https://gitlab.com/trueppm/trueppm-suite/-/blob/main/docs/adr/0114-seed-schema-v2-relative-dates-event-replay.md)).
+v2 is an additive superset of v1 ([ADR-0109](https://gitlab.com/trueppm/trueppm-suite/-/blob/main/docs/adr/0109-canonical-json-seed-import-export-schema.md));
+v1 files still load. The developer-facing
+[seed data schema reference](/architecture/seed-data-schema/) explains the
+format if you want to author your own sample.
+
+The headline of v2 is that **a sample imports as a program already in flight,
+not a snapshot.** Dates are anchor-relative, so a freshly loaded demo always
+reads as current rather than aging into a fixed-date museum piece. And an event
+timeline is replayed with backdated history, so:
+
+- tasks show **dated status transitions by named people** in their History tab,
+- closed sprints show **real burndown curves** and a **velocity trend with a
+  spread**, and
+- completed work carries actuals you can compare against the **baseline**.
 
 ## Load the demo data
 
@@ -16,33 +32,65 @@ The fastest way to see TruePPM with real data is a bundled demo. On a fresh
 install the **Programs** page shows a **Load demo data** button — it offers a
 short menu of samples; pick one and you land on a fully populated program.
 
-Four samples ship:
+While the first schedule pass runs after a load, the Schedule view shows a
+non-blocking *Recalculating…* badge, so dashed dates read as "processing", not
+"broken." A *this is sample data* banner sits on the program, and a compact
+*Demo project — part of …* indicator appears on each project view so you always
+know you are in demo data. **Remove sample data** (program owner only) tears the
+whole demo down when you are ready to start your own work — it also removes any
+changes you made to the demo, but never touches your own projects.
 
-- **Atlas Platform Launch** — hybrid-large, the launch demo (described below).
-- **Aurora Mobile App** — agile-only: the sprint lifecycle, velocity, and a
-  Kanban board, with no CPM or estimates (the pure-scrum tour).
-- **Bayside Civic Center** — waterfall-only construction: CPM with all four
-  dependency types, three-point estimates, a baseline, and a risk register.
-- **Helios CRM Replacement** — hybrid-small: a completed waterfall planning
-  phase feeding an agile build phase, with a cross-phase dependency.
+### What each sample demonstrates
 
-Atlas is the launch demo: one program, three projects that span the methodology
-mix, so you can feel the agile/waterfall bridge end to end:
+Four samples ship. Every one exercises the five-role RBAC model
+(Owner / Admin / Scheduler / Member / Viewer), realistic **capacity profiles**
+(full-time, part-time, and 10% advisors — not everyone is at 100%), and a
+**non-default working calendar** attached to at least one resource so
+calendar-aware capacity is visible.
 
-- **Platform Core** (agile) — eight sprints with velocity history feeding a
-  release forecast.
+#### Atlas Platform Launch — hybrid-large (the flagship)
+
+A fictional B2B SaaS launch: one program, three projects that span the
+methodology mix, 68 tasks, a 15-plus person resource roster across calendars,
+and a **20-risk register**.
+
+- **Platform Core** (agile) — sprints with a velocity history feeding a release
+  forecast.
 - **Migration Tooling** (waterfall) — a CPM-scheduled plan with three-point
   estimates and a captured baseline.
 - **GTM Readiness** (hybrid) — gated launch planning with agile enablement work.
 
-Cross-project dependencies link the three (Platform Core gates Migration, which
-gates the public-launch milestone), and a populated risk register plus a
-fifteen-person resource roster round out the picture.
+**Look at first:** the cross-project critical path — Platform Core gates
+Migration, which gates the public-launch milestone — and the **Monte Carlo**
+modal: several risks are schedule-driving, so toggling a high
+probability × impact risk visibly shifts the P80.
 
-Sample data is clearly marked: a banner on the program offers a one-click
-**Remove sample data** teardown whenever you're ready to start your own work.
+#### Aurora Mobile App — agile-only
 
-From the command line:
+A mobile product team running the sprint lifecycle: a board, a multi-sprint
+**velocity trend** with a spread, and a lightweight 4-risk register.
+
+**Look at first:** the burndown of the closed sprints and the velocity chart —
+this is the pure-scrum tour, with no CPM or estimates to distract.
+
+#### Bayside Civic Center — waterfall-only
+
+A construction program: CPM with **all four dependency types** (FS / SS / FF /
+SF), three-point estimates, a baseline, a 4-day concrete-crew calendar, and a
+**12-risk register** spanning the full status lifecycle (permits, supply chain,
+weather, inspections).
+
+**Look at first:** the critical path and the baseline-vs-actual slip.
+
+#### Helios CRM Replacement — hybrid-small
+
+A completed waterfall planning phase feeding an agile build phase, joined by a
+cross-phase dependency, with a **5-risk register** that includes one realized
+risk with a captured impact.
+
+**Look at first:** how the finished plan hands off to the live build sprints.
+
+### Loading from the command line
 
 ```bash
 python manage.py load_sample_project                          # Atlas (default)
@@ -90,25 +138,13 @@ failure returns `400` with `{"errors": [ ... ]}`.
 
 ## Export a program
 
-### From the web app
+See [Data export](/administration/data-export/) for the full operator
+reference. In short:
 
-Open **Program → Settings → General** and choose **Export to JSON**. The program
-downloads as a canonical seed file.
-
-### From the command line
-
-```bash
-python manage.py export_program <program-slug> --out program.json
-```
-
-### Over the API
-
-```
-GET /api/v1/programs/{id}/export/
-```
-
-Available to any program member (Viewer and above). The response is a JSON
-attachment.
+- **Web:** open **Program → Settings → General** and choose **Export to JSON**.
+- **CLI:** `python manage.py export_program <program-slug> --out program.json`
+- **API:** `GET /api/v1/programs/{id}/export/` (any program member, Viewer and
+  above).
 
 :::caution
 An exported seed file includes the email addresses of the program's members and
@@ -119,7 +155,15 @@ tokens, or internal IDs are ever exported.
 
 ## Round-trip guarantee
 
-Export is the exact inverse of import: exporting a program, re-importing the
+Export emits a **final-state** seed: exporting a program, re-importing the
 result into a clean database, and exporting again produces a byte-identical
 file. Derived data — internal IDs, schedule (CPM) results, sync versions — is
 never written into a seed file; it is recomputed on import.
+
+:::note
+Export currently writes the program's **final state**, not its replayed event
+history. A v2 sample therefore exports as a final-state document, and
+re-importing it materializes that final state without re-running the backdated
+timeline. Exporting the full event timeline is tracked as a follow-up
+([#1109](https://gitlab.com/trueppm/trueppm-suite/-/issues/1109)).
+:::
