@@ -18,6 +18,21 @@ Step 3 ([Capacity preflight](/the-story/#3-capacity-preflight--the-resource-mana
 - **Aggregate label** — `{committed} / {capacity} hours committed · On track · {buffer} hours of buffer` (or `overrun` when negative)
 - **Per-person rows** — initials avatar + name + `{committed}/{capacity}` text; over-allocated members get a red avatar tint
 
+## Points ceiling (ships in 0.3)
+
+:::note[Ships in 0.3]
+The points chip and capacity footer below ship in 0.3 (the agile team release). They are not yet in a tagged build — see the [roadmap](/overview/roadmap/).
+:::
+
+The per-person hours view answers "who is overcommitted?". A team that plans in story points also needs "are we over the sprint's points ceiling?". When the sprint carries a `capacity_points` value, the panel adds a points-based read alongside the hours view:
+
+- **Points chip** — `{committed}/{capacity} pts · {pct}%`, summing the story points of every task committed to the sprint. The chip turns red once `committed_points` exceeds the sprint's `capacity_points` ceiling.
+- **Plain-English footer** — a one-line summary the whole team can read without parsing the donut: *"Team is at 75% of capacity. 6 pts free."* (or *"Team is 4 pts over capacity."* when over the ceiling).
+
+Both are **omitted entirely when no points ceiling is set** — a sprint that plans in hours only never sees an empty or zero-valued points chip. The `capacity_points` ceiling is set on the [Plan Sprint dialog](/features/plan-sprint/) and editable while the sprint is planned.
+
+> _Screenshot of the points chip and capacity footer to be added once 0.3 ships._
+
 ## Where to find it in the app
 
 - Route: `/projects/:projectId/sprints` (right column of the metrics row, top half)
@@ -50,5 +65,5 @@ PTO is a placeholder zero until a dedicated time-off model lands.
 ## If you are…
 
 - **Sarah (Resource Manager)** — this is your veto surface. If the aggregate is over 100% before activate, escalate before the sprint starts.
-- **Maya (Scrum Master)** — the per-person list answers "who's overcommitted?" without a separate spreadsheet.
+- **Maya (Scrum Master)** — the per-person list answers "who's overcommitted?" without a separate spreadsheet. The points footer (0.3) gives you the one-line "are we over the ceiling?" answer to read out at planning.
 - **Raj (PM)** — capacity warnings on activate inform whether to pull scope before the sprint window opens.

@@ -960,3 +960,124 @@ def test_outcome_non_member_denied(stranger_client: APIClient, project: Project)
     s = _make_sprint(project, state=SprintState.COMPLETED)
     resp = stranger_client.get(f"/api/v1/sprints/{s.pk}/outcome/")
     assert resp.status_code in (403, 404)
+
+
+# ---------------------------------------------------------------------------
+# GET /sprints/{id}/incoming_carryover/ — Planning-side carryover preview (#865)
+# ---------------------------------------------------------------------------
+
+
+def _prior_and_planned(project: Project) -> tuple[Sprint, Sprint]:
+    """A prior COMPLETED sprint (with task outcomes) + a following PLANNED sprint."""
+    prior = _make_sprint(
+        project,
+        name="S-prev",
+        state=SprintState.COMPLETED,
+        start_date=date(2026, 4, 1),
+        finish_date=date(2026, 4, 14),
+    )
+    planned = _make_sprint(
+        project,
+        name="S-next",
+        state=SprintState.PLANNED,
+        start_date=date(2026, 4, 15),
+        finish_date=date(2026, 4, 28),
+    )
+    return prior, planned
+
+
+def test_incoming_carryover_lists_prior_unfinished_with_pulled_flag(
+    member_client: APIClient, project: Project
+) -> None:
+    prior, planned = _prior_and_planned(project)
+    # A carried task that the team actually pulled into the planned sprint.
+    pulled = Task.objects.create(
+        project=project, name="Carried", duration=1, sprint=planned, story_points=3
+    )
+    # A carried task that was NOT pulled in (left in the backlog).
+    Task.objects.create(project=project, name="Left behind", duration=1, story_points=5)
+    # Outcomes snapshotted at the prior sprint's close.
+    SprintTaskOutcome.objects.create(
+        sprint=prior,
+        task=pulled,
+        task_short_id="T-1",
+        task_title="Carried",
+        story_points=3,
+        final_status="IN_PROGRESS",
+        disposition="carried",
+    )
+    SprintTaskOutcome.objects.create(
+        sprint=prior,
+        task=None,
+        task_short_id="T-2",
+        task_title="Left behind",
+        story_points=5,
+        final_status="NOT_STARTED",
+        disposition="dropped",
+    )
+    # A COMPLETED row must be excluded — it did not "carry over".
+    SprintTaskOutcome.objects.create(
+        sprint=prior,
+        task=None,
+        task_short_id="T-3",
+        task_title="Shipped",
+        story_points=2,
+        final_status="COMPLETE",
+        disposition="completed",
+    )
+
+    resp = member_client.get(f"/api/v1/sprints/{planned.pk}/incoming_carryover/")
+    assert resp.status_code == 200, resp.content
+    body = resp.json()
+    assert body["prior_sprint"]["id"] == str(prior.pk)
+    assert body["prior_sprint"]["short_id_display"].startswith("SP-")
+    # Two unfinished rows (the COMPLETE one is excluded); ordered by short id.
+    assert [t["short_id"] for t in body["tasks"]] == ["T-1", "T-2"]
+    by_id = {t["short_id"]: t for t in body["tasks"]}
+    assert by_id["T-1"]["pulled_in_to_current"] is True
+    assert by_id["T-2"]["pulled_in_to_current"] is False
+    assert by_id["T-2"]["id"] is None  # hard-deleted task → denormalized row survives
+
+
+def test_incoming_carryover_empty_when_no_prior_sprint(
+    member_client: APIClient, project: Project
+) -> None:
+    planned = _make_sprint(project, state=SprintState.PLANNED, start_date=date(2026, 4, 1))
+    resp = member_client.get(f"/api/v1/sprints/{planned.pk}/incoming_carryover/")
+    assert resp.status_code == 200, resp.content
+    body = resp.json()
+    assert body["prior_sprint"] is None
+    assert body["tasks"] == []
+
+
+def test_incoming_carryover_ignores_prior_in_other_project(
+    member_client: APIClient, project: Project, calendar: Calendar
+) -> None:
+    other = Project.objects.create(name="Other", start_date=date(2026, 4, 1), calendar=calendar)
+    other_prior = _make_sprint(other, state=SprintState.COMPLETED, finish_date=date(2026, 4, 14))
+    SprintTaskOutcome.objects.create(
+        sprint=other_prior,
+        task=None,
+        task_short_id="X-1",
+        task_title="Other proj",
+        story_points=1,
+        final_status="IN_PROGRESS",
+        disposition="carried",
+    )
+    planned = _make_sprint(
+        project,
+        state=SprintState.PLANNED,
+        start_date=date(2026, 4, 15),
+        finish_date=date(2026, 4, 28),
+    )
+    resp = member_client.get(f"/api/v1/sprints/{planned.pk}/incoming_carryover/")
+    assert resp.status_code == 200, resp.content
+    assert resp.json()["prior_sprint"] is None
+
+
+def test_incoming_carryover_requires_membership(
+    stranger_client: APIClient, project: Project
+) -> None:
+    planned = _make_sprint(project, state=SprintState.PLANNED)
+    resp = stranger_client.get(f"/api/v1/sprints/{planned.pk}/incoming_carryover/")
+    assert resp.status_code in (403, 404)

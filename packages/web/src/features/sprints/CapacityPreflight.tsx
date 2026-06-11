@@ -1,7 +1,17 @@
 import type { SprintCapacity } from '@/hooks/useSprints';
+import { capacityPointsChip } from './sprintMath';
 
 interface Props {
   capacity: SprintCapacity;
+  /**
+   * Team-aggregate points load (#864, ADR-0094 §3). `committed` is the draft
+   * load (sum of story points over assigned tasks); `capacity` is
+   * `Sprint.capacity_points`. Optional — when omitted, or when no points ceiling
+   * is set, the points chip + footer band are not rendered (the donut shows the
+   * hours view only). Surfaced on the Planning surface where the team sizes the
+   * sprint against its points ceiling.
+   */
+  points?: { committed: number; capacity: number | null };
 }
 
 const DONUT_RADIUS = 32;
@@ -25,8 +35,9 @@ const LABEL_COLOR: Record<SprintCapacity['totals']['label'], string> = {
  * scrollable list of per-person commitments. Aggregate label colour responds
  * to the API's threshold bands (on_track < 90% < at_risk ≤ 100% < over_capacity).
  */
-export function CapacityPreflight({ capacity }: Props) {
+export function CapacityPreflight({ capacity, points }: Props) {
   const { totals, members } = capacity;
+  const pointsChip = points ? capacityPointsChip(points.committed, points.capacity) : null;
   const ratioCapped = Math.min(totals.ratio, 1.5);
   const filled = CIRCUMFERENCE * Math.min(ratioCapped, 1);
   const ringStroke =
@@ -41,12 +52,26 @@ export function CapacityPreflight({ capacity }: Props) {
       aria-labelledby="capacity-preflight-heading"
       className="rounded-md border border-neutral-border bg-neutral-surface p-4 flex flex-col gap-3"
     >
-      <h2
-        id="capacity-preflight-heading"
-        className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary"
-      >
-        Capacity Preflight
-      </h2>
+      <div className="flex items-center justify-between gap-2">
+        <h2
+          id="capacity-preflight-heading"
+          className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary"
+        >
+          Capacity Preflight
+        </h2>
+        {pointsChip && (
+          <span
+            className={`tppm-mono text-xs px-2 py-0.5 rounded-full border ${
+              pointsChip.variant === 'critical'
+                ? 'bg-semantic-critical-bg border-semantic-critical/40 text-semantic-critical'
+                : 'bg-brand-primary-light border-brand-primary/30 text-brand-primary-dark'
+            }`}
+            aria-label={`${pointsChip.total} of ${pointsChip.capacity} points planned, ${pointsChip.pct} percent of capacity`}
+          >
+            {pointsChip.total}/{pointsChip.capacity} pts · {pointsChip.pct}%
+          </span>
+        )}
+      </div>
 
       <div className="flex items-start gap-4">
         <svg
@@ -148,6 +173,20 @@ export function CapacityPreflight({ capacity }: Props) {
           ))
         )}
       </ul>
+
+      {pointsChip && (
+        <p
+          className={`text-xs rounded px-2.5 py-1.5 ${
+            pointsChip.over > 0
+              ? 'bg-semantic-at-risk-bg text-semantic-at-risk'
+              : 'bg-semantic-on-track-bg text-semantic-on-track'
+          }`}
+        >
+          {pointsChip.over > 0
+            ? `Team is at ${pointsChip.pct}% of capacity (${pointsChip.over} pts over).`
+            : `Team is at ${pointsChip.pct}% of capacity. ${pointsChip.free} pts free.`}
+        </p>
+      )}
     </section>
   );
 }

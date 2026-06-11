@@ -337,6 +337,47 @@ export function useSprintCapacity(sprintId: string | null | undefined) {
   });
 }
 
+/** A prior-sprint unfinished task surfaced in the Planning carryover preview (#865). */
+export interface IncomingCarryoverTask {
+  /** Live task id, or null when the task was hard-deleted after close. */
+  id: string | null;
+  short_id: string;
+  name: string;
+  story_points: number | null;
+  /** True when this task is now committed to the current PLANNED sprint. */
+  pulled_in_to_current: boolean;
+}
+
+export interface IncomingCarryover {
+  prior_sprint: {
+    id: string;
+    short_id_display: string;
+    name: string;
+    start_date: string;
+    finish_date: string;
+  } | null;
+  tasks: IncomingCarryoverTask[];
+}
+
+/**
+ * GET /api/v1/sprints/{id}/incoming_carryover/ — read-only "what rolled forward
+ * from the prior sprint" preview for the Planning surface (#865, ADR-0094 §3).
+ * Re-derives the prior closed sprint's unfinished tasks server-side; the sidebar
+ * suppresses itself when `tasks` is empty.
+ */
+export function useIncomingCarryover(sprintId: string | null | undefined) {
+  return useQuery({
+    queryKey: ['sprint', sprintId, 'incoming-carryover'],
+    queryFn: async () => {
+      const res = await apiClient.get<IncomingCarryover>(
+        `/sprints/${sprintId}/incoming_carryover/`,
+      );
+      return res.data;
+    },
+    enabled: !!sprintId,
+  });
+}
+
 export interface VelocitySprintEntry {
   id: string;
   name: string;

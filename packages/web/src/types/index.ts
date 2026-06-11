@@ -304,6 +304,10 @@ export interface SprintTargetMilestone {
   wbs_path?: string | null;
   /** ISO date string for the milestone's planned finish. */
   finish?: string | null;
+  /** Task ids of the milestone's direct predecessors (#866, ADR-0094 §3). The
+   *  planning bridge banner intersects these with the sprint's tasks to show
+   *  "N of M predecessor tasks land in this sprint". */
+  predecessor_ids?: string[];
   /** Rolled-up progress + variance (ADR-0074). Null when no live targeting
    *  sprints OR when this serializer was called from a legacy path that
    *  predates the rollup. */

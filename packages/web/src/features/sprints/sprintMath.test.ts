@@ -1,5 +1,13 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { daysBetween, sprintDayOf, daysUntil, formatShortDate, formatDateRange } from './sprintMath';
+import {
+  daysBetween,
+  sprintDayOf,
+  daysUntil,
+  formatShortDate,
+  formatDateRange,
+  capacityPointsChip,
+  predecessorsInSprint,
+} from './sprintMath';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -77,5 +85,56 @@ describe('formatShortDate / formatDateRange', () => {
 
   it('formats a range with em-dashes', () => {
     expect(formatDateRange('2026-04-07', '2026-04-21')).toBe('Apr 7 – Apr 21');
+  });
+});
+
+describe('capacityPointsChip', () => {
+  it('returns null when no points ceiling is set (omit chip + footer)', () => {
+    expect(capacityPointsChip(12, null)).toBeNull();
+    expect(capacityPointsChip(12, undefined)).toBeNull();
+    expect(capacityPointsChip(12, 0)).toBeNull();
+  });
+
+  it('rounds the percent and reports free points under capacity', () => {
+    const chip = capacityPointsChip(10, 30);
+    expect(chip).not.toBeNull();
+    expect(chip!.pct).toBe(33); // 10/30 = 33.33 → 33
+    expect(chip!.free).toBe(20);
+    expect(chip!.over).toBe(0);
+    expect(chip!.variant).toBe('primary');
+  });
+
+  it('is primary and 0 free exactly at capacity (boundary)', () => {
+    const chip = capacityPointsChip(20, 20)!;
+    expect(chip.pct).toBe(100);
+    expect(chip.free).toBe(0);
+    expect(chip.over).toBe(0);
+    expect(chip.variant).toBe('primary'); // critical only when total > cap
+  });
+
+  it('is critical and reports overage one point past capacity (boundary)', () => {
+    const chip = capacityPointsChip(21, 20)!;
+    expect(chip.pct).toBe(105);
+    expect(chip.over).toBe(1);
+    expect(chip.free).toBe(0);
+    expect(chip.variant).toBe('critical');
+  });
+});
+
+describe('predecessorsInSprint', () => {
+  it('counts the intersection of predecessor ids with sprint task ids', () => {
+    expect(predecessorsInSprint(['a', 'b', 'c'], ['b', 'c', 'z'])).toEqual({
+      inSprint: 2,
+      total: 3,
+    });
+  });
+
+  it('returns inSprint 0 when none of the predecessors are committed', () => {
+    expect(predecessorsInSprint(['a', 'b'], ['x', 'y'])).toEqual({ inSprint: 0, total: 2 });
+  });
+
+  it('treats null/undefined inputs as empty', () => {
+    expect(predecessorsInSprint(undefined, ['a'])).toEqual({ inSprint: 0, total: 0 });
+    expect(predecessorsInSprint(['a'], null)).toEqual({ inSprint: 0, total: 1 });
   });
 });

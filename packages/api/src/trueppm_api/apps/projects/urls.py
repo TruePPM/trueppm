@@ -341,6 +341,11 @@ urlpatterns = [
         name="sprints-capacity",
     ),
     path(
+        "sprints/<pk>/incoming_carryover/",
+        SprintViewSet.as_view({"get": "incoming_carryover"}),
+        name="sprints-incoming-carryover",
+    ),
+    path(
         "sprints/<pk>/retro/",
         SprintViewSet.as_view({"get": "retro", "post": "retro", "patch": "retro"}),
         name="sprints-retro",

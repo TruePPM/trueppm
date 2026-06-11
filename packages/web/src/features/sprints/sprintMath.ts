@@ -76,3 +76,61 @@ export function forecastScopeCaption(pendingCount: number): string | null {
   if (pendingCount <= 0) return null;
   return `Forecast reflects accepted scope only — ${pendingCount} pending acceptance`;
 }
+
+export interface CapacityPointsChip {
+  /** Draft load — sum of story points over assigned tasks. */
+  total: number;
+  /** The team's planning ceiling (`Sprint.capacity_points`). */
+  capacity: number;
+  /** total ÷ capacity, rounded to a whole percent. */
+  pct: number;
+  /** Points still available under the ceiling (0 when at/over). */
+  free: number;
+  /** Points over the ceiling (0 when at/under). */
+  over: number;
+  /** `critical` once the draft load exceeds the ceiling, else `primary`. */
+  variant: 'primary' | 'critical';
+}
+
+/**
+ * Team-aggregate points load for the Capacity Preflight chip + footer band
+ * (#864, ADR-0094 §3). `total` is the draft load (assigned story points) and
+ * `capacity` is `Sprint.capacity_points`.
+ *
+ * Returns `null` when no points ceiling is set (`capacity` null / ≤ 0) — the
+ * chip and footer are then omitted entirely, since a team that doesn't size in
+ * points has no ceiling to compare against (the correct sentinel per ADR-0073).
+ */
+export function capacityPointsChip(
+  total: number,
+  capacity: number | null | undefined,
+): CapacityPointsChip | null {
+  if (capacity == null || capacity <= 0) return null;
+  return {
+    total,
+    capacity,
+    pct: Math.round((total / capacity) * 100),
+    free: Math.max(0, capacity - total),
+    over: Math.max(0, total - capacity),
+    variant: total > capacity ? 'critical' : 'primary',
+  };
+}
+
+/**
+ * Predecessor-intersection count for the planning bridge banner (#866,
+ * ADR-0094 §3): how many of the target milestone's predecessor tasks are
+ * committed to this sprint. The raw predecessor ids come from the server
+ * (`target_milestone_detail.predecessor_ids`); the intersection is computed
+ * here so it stays a cheap, unit-testable derivation.
+ *
+ * `inSprint` ≤ `total`; `total` is the milestone's predecessor count.
+ */
+export function predecessorsInSprint(
+  predecessorIds: readonly string[] | null | undefined,
+  sprintTaskIds: readonly string[] | null | undefined,
+): { inSprint: number; total: number } {
+  const preds = predecessorIds ?? [];
+  const inSprintSet = new Set(sprintTaskIds ?? []);
+  const inSprint = preds.reduce((n, id) => (inSprintSet.has(id) ? n + 1 : n), 0);
+  return { inSprint, total: preds.length };
+}

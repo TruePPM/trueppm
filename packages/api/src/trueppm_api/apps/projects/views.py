@@ -5510,7 +5510,14 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
     ordering_fields = ["start_date", "finish_date", "name", "state"]
 
     def get_permissions(self) -> list[BasePermission]:
-        if self.action in ("list", "retrieve", "burndown", "capacity", "outcome"):
+        if self.action in (
+            "list",
+            "retrieve",
+            "burndown",
+            "capacity",
+            "incoming_carryover",
+            "outcome",
+        ):
             return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
         # ADR-0106 §E1.1/§E1.4 (#928): the reforecast preview is a read-only dry
         # run (computes dates + the team-pace band, persists nothing, writes no
@@ -6233,6 +6240,40 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         )
         self.check_object_permissions(request, sprint)
         return Response(capacity_summary(sprint), status=status.HTTP_200_OK)
+
+    @extend_schema(
+        summary="Incoming carryover preview for a PLANNED sprint",
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "The prior closed sprint summary plus its unfinished tasks, each "
+                    "flagged pulled_in_to_current. Empty tasks when no prior sprint."
+                ),
+            )
+        },
+    )
+    @action(detail=True, methods=["get"], url_path="incoming_carryover")
+    def incoming_carryover(self, request: Request, pk: str | None = None) -> Response:
+        """Read-only "what rolled forward from the prior sprint" preview (#865, ADR-0094 §3).
+
+        Re-derives the prior closed sprint's unfinished tasks and whether each was
+        pulled into this PLANNED sprint, from the immutable ``SprintTaskOutcome``
+        snapshot — no mutation, no schema change. RBAC mirrors ``retrieve`` (any
+        project member): the payload exposes only denormalized task identity and a
+        derived boolean, never the close-time decision write.
+        """
+        from trueppm_api.apps.projects.services import (
+            incoming_carryover as compute_incoming_carryover,
+        )
+
+        sprint = get_object_or_404(
+            Sprint.objects.select_related("project"),
+            pk=pk,
+            is_deleted=False,
+        )
+        self.check_object_permissions(request, sprint)
+        return Response(compute_incoming_carryover(sprint), status=status.HTTP_200_OK)
 
     @extend_schema(
         summary="Get or upsert a sprint retrospective",
