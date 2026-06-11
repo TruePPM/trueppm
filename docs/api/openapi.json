@@ -22059,6 +22059,11 @@
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"
                     },
+                    "iteration_label": {
+                        "type": "string",
+                        "nullable": true,
+                        "maxLength": 32
+                    },
                     "health": {
                         "$ref": "#/components/schemas/HealthEnum"
                     },
@@ -22190,7 +22195,7 @@
                     },
                     "iteration_label": {
                         "type": "string",
-                        "minLength": 1,
+                        "nullable": true,
                         "maxLength": 32
                     },
                     "program": {
@@ -22912,6 +22917,14 @@
                     },
                     "public_sharing": {
                         "type": "boolean"
+                    },
+                    "iteration_label": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 32
+                    },
+                    "iteration_label_override_policy": {
+                        "$ref": "#/components/schemas/TermOverridePolicyEnum"
                     }
                 }
             },
@@ -23068,6 +23081,16 @@
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"
                     },
+                    "iteration_label": {
+                        "type": "string",
+                        "nullable": true,
+                        "maxLength": 32
+                    },
+                    "inherited_iteration_label": {
+                        "type": "string",
+                        "description": "Workspace default — what the program inherits when its override is NULL.",
+                        "readOnly": true
+                    },
                     "health": {
                         "$ref": "#/components/schemas/HealthEnum"
                     },
@@ -23153,6 +23176,7 @@
                     "created_at",
                     "created_by",
                     "id",
+                    "inherited_iteration_label",
                     "is_closed",
                     "is_sample",
                     "lead_detail",
@@ -23295,6 +23319,11 @@
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"
                     },
+                    "iteration_label": {
+                        "type": "string",
+                        "nullable": true,
+                        "maxLength": 32
+                    },
                     "health": {
                         "$ref": "#/components/schemas/HealthEnum"
                     },
@@ -23427,7 +23456,17 @@
                     },
                     "iteration_label": {
                         "type": "string",
+                        "nullable": true,
                         "maxLength": 32
+                    },
+                    "effective_iteration_label": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "inherited_iteration_label": {
+                        "type": "string",
+                        "description": "The label shown if this project's override were cleared (ADR-0116).\n\nProgram override ?? workspace default ?? \"Sprint\" — the project's own\noverride is intentionally skipped so the settings UI can show \"Inherit (X)\"\nregardless of the current override.",
+                        "readOnly": true
                     },
                     "program": {
                         "type": "string",
@@ -23466,7 +23505,9 @@
                 "required": [
                     "archived_at",
                     "archived_by",
+                    "effective_iteration_label",
                     "id",
+                    "inherited_iteration_label",
                     "is_archived",
                     "lead_detail",
                     "member_count",
@@ -23704,7 +23745,17 @@
                     },
                     "iteration_label": {
                         "type": "string",
+                        "nullable": true,
                         "maxLength": 32
+                    },
+                    "effective_iteration_label": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "inherited_iteration_label": {
+                        "type": "string",
+                        "description": "The label shown if this project's override were cleared (ADR-0116).\n\nProgram override ?? workspace default ?? \"Sprint\" — the project's own\noverride is intentionally skipped so the settings UI can show \"Inherit (X)\"\nregardless of the current override.",
+                        "readOnly": true
                     },
                     "program": {
                         "type": "string",
@@ -23770,7 +23821,9 @@
                 "required": [
                     "archived_at",
                     "archived_by",
+                    "effective_iteration_label",
                     "id",
+                    "inherited_iteration_label",
                     "is_archived",
                     "is_sample",
                     "lead_detail",
@@ -24041,7 +24094,7 @@
                     },
                     "iteration_label": {
                         "type": "string",
-                        "minLength": 1,
+                        "nullable": true,
                         "maxLength": 32
                     },
                     "program": {
@@ -27229,6 +27282,15 @@
                 "type": "string",
                 "description": "* `member` - Member\n* `admin` - Admin"
             },
+            "TermOverridePolicyEnum": {
+                "enum": [
+                    "inherit",
+                    "suggest",
+                    "enforce"
+                ],
+                "type": "string",
+                "description": "* `inherit` - Inherit\n* `suggest` - Suggest\n* `enforce` - Enforce"
+            },
             "TokenObtainPairRequest": {
                 "type": "object",
                 "properties": {
@@ -27922,6 +27984,13 @@
                     },
                     "public_sharing": {
                         "type": "boolean"
+                    },
+                    "iteration_label": {
+                        "type": "string",
+                        "maxLength": 32
+                    },
+                    "iteration_label_override_policy": {
+                        "$ref": "#/components/schemas/TermOverridePolicyEnum"
                     }
                 },
                 "required": [
