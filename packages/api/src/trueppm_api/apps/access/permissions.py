@@ -334,6 +334,62 @@ class IsProjectBacklogManager(BasePermission):
         )
 
 
+def can_manage_scope_with_facet(user: Any, project_id: Any, role: int | None) -> bool:
+    """Whether ``user`` may accept/reject sprint scope injections (ADR-0102 §3, ADR-0123 §3).
+
+    Admin+ OR the Scrum Master / Product Owner facet (ADR-0078, #1140). The PO owns
+    sprint scope and the SM facilitates the ceremony, so each facet grants the
+    accept/reject gate without an Admin role bump — mirroring how the Product Owner
+    facet widens the backlog gate (:func:`can_manage_backlog_with_facet`), but
+    honoring **both** facets here because both run the sprint ceremony.
+
+    The facet lookup resolves to a real, non-soft-deleted default-team
+    ``TeamMembership`` row — preserving the ADR-0102 §3 back-door close: an
+    org/PMO principal has neither an Admin ``ProjectMembership`` nor a team facet
+    and is denied regardless of any role ordinal. Imported lazily to avoid the
+    access ↔ teams import cycle.
+    """
+    if role is not None and role >= Role.ADMIN:
+        return True
+    from trueppm_api.apps.teams.services import user_facets
+
+    facets = user_facets(user, project_id)
+    return facets["is_scrum_master"] or facets["is_product_owner"]
+
+
+class IsProjectScopeManager(BasePermission):
+    """Gate sprint scope-injection accept/reject (ADR-0102 §3, widened by ADR-0123 §3).
+
+    Admin+ OR the Scrum Master / Product Owner facet (ADR-0078, #1140) — see
+    :func:`can_manage_scope_with_facet`. The matching service-layer gate
+    (``assert_scope_gate_for_project``) re-enforces the same rule so the boundary
+    holds even if a view forgets this class.
+    """
+
+    message = (
+        "You need at least Project Manager role or the Scrum Master / "
+        "Product Owner facet to accept or reject sprint scope changes."
+    )
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        if not (request.user and request.user.is_authenticated):
+            return False
+        project_pk = _project_pk_from_view(view)
+        if project_pk is not None:
+            return can_manage_scope_with_facet(
+                request.user, project_pk, _membership_role(request, project_pk)
+            )
+        return True
+
+    def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
+        project_id = _get_project_id_from_obj(obj)
+        if project_id is None:
+            return False
+        return can_manage_scope_with_facet(
+            request.user, project_id, _membership_role(request, project_id)
+        )
+
+
 class IsProjectOwner(BasePermission):
     """Allow only Project Admin (Owner, 4).
 

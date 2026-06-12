@@ -60,6 +60,7 @@ from trueppm_api.apps.access.permissions import (
     IsProjectNotArchived,
     IsProjectOwner,
     IsProjectScheduler,
+    IsProjectScopeManager,
     IsTokenForProject,
     ProjectScopedViewSet,
 )
@@ -5850,12 +5851,14 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
             return [IsAuthenticated(), IsProjectScheduler(), IsProjectNotArchived()]
         if self.action == "destroy":
             return [IsAuthenticated(), IsProjectAdmin(), IsProjectNotArchived()]
-        # ADR-0102 §3: the scope-injection accept-gate is team-owned (role>=ADMIN,
-        # the PM/Scrum-Master/PO hat — the same gate as activate/close). The
-        # service layer re-checks project membership at role>=ADMIN regardless of
-        # role ordinal so a non-member high-ordinal Enterprise role is still 403.
+        # ADR-0102 §3 (widened ADR-0123 §3 / #1140): the scope-injection accept-gate
+        # is team-owned — role>=ADMIN OR the Scrum Master / Product Owner facet (the
+        # PO owns sprint scope, the SM facilitates). The service layer
+        # (assert_scope_gate_for_project) re-checks the same role-or-facet rule
+        # against a real membership/facet row regardless of role ordinal, so a
+        # non-member high-ordinal Enterprise role is still 403 (the back-door close).
         if self.action in ("scope_changes_accept", "scope_changes_reject"):
-            return [IsAuthenticated(), IsProjectAdmin(), IsProjectNotArchived()]
+            return [IsAuthenticated(), IsProjectScopeManager(), IsProjectNotArchived()]
         # ADR-0106 §2: promote/unbind write a *schedule* object (the milestone
         # binding) onto the CPM line — a schedule-authoring action gated at
         # SCHEDULER+ (Resource Manager and up, which includes the PM/ADMIN).
@@ -6084,7 +6087,7 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
                 description="Sprint is not ACTIVE or carry_over_to target is invalid."
             ),
             403: OpenApiResponse(
-                description="Rejecting pending scope changes is team-owned (Project Manager+)."
+                description="Rejecting pending scope changes is team-owned (Admin or SM/PO facet)."
             ),
         },
     )
@@ -6150,7 +6153,7 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
                     {
                         "code": "scope_accept_forbidden",
                         "detail": (
-                            "Rejecting pending scope changes is team-owned (Project Manager+)."
+                            "Rejecting pending scope changes is team-owned (Admin or SM/PO facet)."
                         ),
                     },
                     status=status.HTTP_403_FORBIDDEN,
@@ -6440,7 +6443,9 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
                 response=OpenApiTypes.OBJECT,
                 description="Body includes the accepted scope-change rows and the pending_count.",
             ),
-            403: OpenApiResponse(description="Accepting scope changes is team-owned (Admin+)."),
+            403: OpenApiResponse(
+                description="Accepting scope changes is team-owned (Admin or SM/PO facet)."
+            ),
         },
     )
     @action(detail=True, methods=["post"], url_path="scope-changes/accept")
@@ -6459,7 +6464,9 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
                 response=OpenApiTypes.OBJECT,
                 description="Body includes the rejected scope-change rows and the pending_count.",
             ),
-            403: OpenApiResponse(description="Rejecting scope changes is team-owned (Admin+)."),
+            403: OpenApiResponse(
+                description="Rejecting scope changes is team-owned (Admin or SM/PO facet)."
+            ),
         },
     )
     @action(detail=True, methods=["post"], url_path="scope-changes/reject")
@@ -7368,7 +7375,9 @@ class SprintScopeChangeViewSet(IdempotencyMixin, viewsets.GenericViewSet[Any]):
                 response=OpenApiTypes.OBJECT,
                 description="The accepted scope-change row plus the sprint's pending_count.",
             ),
-            403: OpenApiResponse(description="Accepting scope changes is team-owned (Admin+)."),
+            403: OpenApiResponse(
+                description="Accepting scope changes is team-owned (Admin or SM/PO facet)."
+            ),
         },
     )
     @action(detail=True, methods=["post"])
@@ -7383,7 +7392,9 @@ class SprintScopeChangeViewSet(IdempotencyMixin, viewsets.GenericViewSet[Any]):
                 response=OpenApiTypes.OBJECT,
                 description="The rejected scope-change row plus the sprint's pending_count.",
             ),
-            403: OpenApiResponse(description="Rejecting scope changes is team-owned (Admin+)."),
+            403: OpenApiResponse(
+                description="Rejecting scope changes is team-owned (Admin or SM/PO facet)."
+            ),
         },
     )
     @action(detail=True, methods=["post"])

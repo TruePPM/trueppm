@@ -1998,15 +1998,25 @@ class ScopeAcceptForbidden(Exception):
 
 
 def assert_scope_gate_for_project(project_id: Any, by: Any) -> None:
-    """Enforce the team-owned scope accept/reject gate (ADR-0102 §3) for a project.
+    """Enforce the team-owned scope accept/reject gate (ADR-0102 §3, ADR-0123 §3) for a project.
 
-    The actor must be an authenticated user holding a real, non-soft-deleted
-    ``ProjectMembership`` at role>=ADMIN on the project. This is the structural
-    close of the management/PMO back-door: an org-level principal arrives with no
-    project ``ProjectMembership`` row and is rejected here independent of any role
-    ordinal they may hold elsewhere.
+    The actor passes if they are an authenticated user who **either** holds a real,
+    non-soft-deleted ``ProjectMembership`` at role>=ADMIN on the project, **or**
+    holds the Scrum Master or Product Owner facet on the project's default team
+    (ADR-0078). #1140 widened the gate off ADMIN-only so the Product Owner — the
+    person who actually owns sprint scope — can accept injections from the board
+    without being a project Admin; the Scrum Master, who facilitates the ceremony,
+    likewise qualifies.
+
+    Both axes resolve to a **real, explicitly-assigned membership row** (a
+    ``ProjectMembership`` for the role ordinal, a default-team ``TeamMembership``
+    with the facet flag for the facet). This preserves the ADR-0102 §3 back-door
+    close: an org-level/PMO principal arrives with neither a project membership nor
+    a team facet and is rejected here regardless of any role ordinal they hold
+    elsewhere — no Enterprise policy resolver can synthesize either row.
     """
     from trueppm_api.apps.access.models import ProjectMembership, Role
+    from trueppm_api.apps.teams.services import user_facets
 
     if by is None or not getattr(by, "is_authenticated", False):
         raise ScopeAcceptForbidden
@@ -2015,8 +2025,12 @@ def assert_scope_gate_for_project(project_id: Any, by: Any) -> None:
         .values_list("role", flat=True)
         .first()
     )
-    if role is None or role < Role.ADMIN:
-        raise ScopeAcceptForbidden
+    if role is not None and role >= Role.ADMIN:
+        return
+    facets = user_facets(by, project_id)
+    if facets["is_scrum_master"] or facets["is_product_owner"]:
+        return
+    raise ScopeAcceptForbidden
 
 
 def _assert_scope_gate(scope_change: Any, by: Any) -> None:
