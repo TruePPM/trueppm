@@ -5,13 +5,41 @@ import userEvent from '@testing-library/user-event';
 import { SprintClosedOutcome } from './SprintClosedOutcome';
 import type { SprintOutcome } from '@/hooks/useSprints';
 
-// Mock only the demo-toggle mutation so the component renders without a
-// QueryClientProvider and we can assert the toggle call (#924).
+// Mock the review mutations so the component renders without a
+// QueryClientProvider and we can assert the calls (#924, Wave D #1130-#1132).
 const toggleMutate = vi.fn();
+const reorderMutate = vi.fn();
+const presenterMutate = vi.fn();
+const noteMutate = vi.fn();
+const flagMutate = vi.fn();
 vi.mock('@/hooks/useSprints', async (orig) => ({
   ...(await orig<typeof import('@/hooks/useSprints')>()),
   useToggleDemo: () => ({ mutate: toggleMutate, isPending: false, isError: false }),
+  useReorderDemoList: () => ({ mutate: reorderMutate, isPending: false, isError: false }),
+  useSetPresenter: () => ({ mutate: presenterMutate, isPending: false, isError: false }),
+  useSetReviewNote: () => ({ mutate: noteMutate, isPending: false, isError: false }),
+  useFlagForBacklog: () => ({ mutate: flagMutate, isPending: false, isError: false }),
 }));
+
+function shippedStory(
+  over: Partial<SprintOutcome['review']['shipped'][number]> = {},
+): SprintOutcome['review']['shipped'][number] {
+  return {
+    outcome_id: 'o1',
+    task_id: 't9',
+    task_short_id: 'T-200',
+    task_title: 'Checkout flow',
+    story_points: 8,
+    acceptance: { met: 3, total: 3 },
+    unmet_criteria: [],
+    review_note: '',
+    flagged_to_backlog: false,
+    demo_ready: false,
+    demo_order: 0,
+    presenter: '',
+    ...over,
+  };
+}
 
 function review(overrides: Partial<SprintOutcome['review']> = {}): SprintOutcome['review'] {
   return {
@@ -20,18 +48,9 @@ function review(overrides: Partial<SprintOutcome['review']> = {}): SprintOutcome
     no_criteria_count: 0,
     accepted_points: 8,
     not_accepted_points: 0,
-    shipped: [
-      {
-        outcome_id: 'o1',
-        task_id: 't9',
-        task_short_id: 'T-200',
-        task_title: 'Checkout flow',
-        story_points: 8,
-        acceptance: { met: 3, total: 3 },
-        demo_ready: false,
-      },
-    ],
+    shipped: [shippedStory()],
     demo_list: [],
+    commitment: { committed_count: 12, shipped_count: 1, carried_count: 1 },
     ...overrides,
   };
 }
@@ -170,8 +189,11 @@ describe('SprintClosedOutcome — Sprint Review breakdown (#924)', () => {
     );
     const sec = screen.getByTestId('sprint-review');
     expect(sec).toHaveTextContent('4 accepted');
-    expect(sec).toHaveTextContent('2 not accepted');
-    expect(sec).toHaveTextContent('1 no criteria');
+    // #1133: renamed coverage-hygiene labels (a state, not a grade).
+    expect(sec).toHaveTextContent('2 criteria incomplete');
+    expect(sec).toHaveTextContent('1 criteria not set');
+    expect(sec).not.toHaveTextContent('not accepted');
+    expect(sec).not.toHaveTextContent('no criteria');
   });
 
   it('shows a shipped story with its acceptance badge', () => {
@@ -196,7 +218,7 @@ describe('SprintClosedOutcome — Sprint Review breakdown (#924)', () => {
         outcome={outcome({
           review: review({
             demo_list: ['T-200'],
-            shipped: [{ ...review().shipped[0], demo_ready: true }],
+            shipped: [shippedStory({ demo_ready: true, presenter: '' })],
           }),
         })}
         canCurateDemo={false}
@@ -215,6 +237,198 @@ describe('SprintClosedOutcome — Sprint Review breakdown (#924)', () => {
     const sec = screen.getByTestId('sprint-review');
     expect(sec).toHaveTextContent('3 accepted');
     expect(screen.getByTestId('accepted-count')).not.toHaveTextContent('pts');
+  });
+});
+
+describe('SprintClosedOutcome — Sprint Review polish (Wave D #1129–#1133)', () => {
+  it('#1129: renders the committed → shipped → carried count line (always visible)', () => {
+    render(
+      <SprintClosedOutcome
+        outcome={outcome({
+          review: review({
+            commitment: { committed_count: 6, shipped_count: 4, carried_count: 2 },
+          }),
+        })}
+      />,
+    );
+    const line = screen.getByTestId('review-commitment-line');
+    expect(line).toHaveTextContent('6');
+    expect(line).toHaveTextContent('committed');
+    expect(line).toHaveTextContent('shipped');
+    expect(line).toHaveTextContent('carried over');
+  });
+
+  it('#1129: omits the carried clause on a provisional sprint (null carried)', () => {
+    render(
+      <SprintClosedOutcome
+        outcome={outcome({
+          review: review({
+            commitment: { committed_count: 6, shipped_count: 2, carried_count: null },
+          }),
+        })}
+      />,
+    );
+    expect(screen.getByTestId('review-commitment-line')).not.toHaveTextContent('carried over');
+  });
+
+  it('#1133: renders renamed labels for criteria-incomplete and criteria-not-set rows', () => {
+    render(
+      <SprintClosedOutcome
+        outcome={outcome({
+          review: review({
+            shipped: [
+              shippedStory({
+                outcome_id: 'o-inc',
+                task_short_id: 'T-301',
+                task_title: 'Payment retries',
+                acceptance: { met: 1, total: 2 },
+                unmet_criteria: [{ id: 'ac1', text: 'Declined card handled' }],
+              }),
+              shippedStory({
+                outcome_id: 'o-not',
+                task_short_id: 'T-302',
+                task_title: 'Receipt email',
+                acceptance: { met: 0, total: 0 },
+              }),
+            ],
+          }),
+        })}
+      />,
+    );
+    expect(screen.getByTestId('criteria-not-set')).toBeInTheDocument();
+    // The "1/2 criteria" badge for the incomplete row is a disclosure toggle.
+    expect(
+      screen.getByRole('button', { name: /show incomplete criteria/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('#1131: discloses the specific unmet criteria when the badge is clicked', async () => {
+    render(
+      <SprintClosedOutcome
+        outcome={outcome({
+          review: review({
+            shipped: [
+              shippedStory({
+                outcome_id: 'o-inc',
+                task_short_id: 'T-301',
+                task_title: 'Payment retries',
+                acceptance: { met: 1, total: 2 },
+                unmet_criteria: [{ id: 'ac1', text: 'Declined card handled' }],
+              }),
+            ],
+          }),
+        })}
+        canCurateDemo
+      />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: /show incomplete criteria/i }));
+    expect(screen.getByTestId('unmet-criteria')).toHaveTextContent('Declined card handled');
+  });
+
+  it('#1131: a curator can leave an optional contributor note (fires set-note)', async () => {
+    render(
+      <SprintClosedOutcome
+        outcome={outcome({
+          review: review({
+            shipped: [
+              shippedStory({
+                outcome_id: 'o-not',
+                task_id: 't-not',
+                task_short_id: 'T-302',
+                task_title: 'Receipt email',
+                acceptance: { met: 0, total: 0 },
+              }),
+            ],
+          }),
+        })}
+        canCurateDemo
+      />,
+    );
+    const note = screen.getByPlaceholderText(/Optional note for reviewers/i);
+    await userEvent.type(note, 'Refined next sprint');
+    note.blur();
+    expect(noteMutate).toHaveBeenCalledWith({ outcomeId: 'o-not', note: 'Refined next sprint' });
+  });
+
+  it('#1130: a curator sees a presenter input on a demo-flagged story (fires set-presenter)', async () => {
+    render(
+      <SprintClosedOutcome
+        outcome={outcome({
+          review: review({
+            demo_list: ['T-200'],
+            shipped: [shippedStory({ demo_ready: true })],
+          }),
+        })}
+        canCurateDemo
+      />,
+    );
+    const input = screen.getByLabelText('Presenter');
+    await userEvent.type(input, 'Alex');
+    input.blur();
+    expect(presenterMutate).toHaveBeenCalledWith({ outcomeId: 'o1', presenter: 'Alex' });
+  });
+
+  it('#1132: a flag-for-backlog button fires the mutation; flagged state shows after', () => {
+    const { rerender } = render(
+      <SprintClosedOutcome
+        outcome={outcome({
+          review: review({
+            shipped: [
+              shippedStory({
+                outcome_id: 'o-not',
+                task_id: 't-not',
+                task_short_id: 'T-302',
+                task_title: 'Receipt email',
+                acceptance: { met: 0, total: 0 },
+              }),
+            ],
+          }),
+        })}
+        canCurateDemo
+      />,
+    );
+    screen.getByRole('button', { name: /Flag for backlog/i }).click();
+    expect(flagMutate).toHaveBeenCalledWith({ outcomeId: 'o-not' });
+
+    // After the server confirms, the row shows the flagged state instead of the button.
+    rerender(
+      <SprintClosedOutcome
+        outcome={outcome({
+          review: review({
+            shipped: [
+              shippedStory({
+                outcome_id: 'o-not',
+                task_id: 't-not',
+                task_short_id: 'T-302',
+                task_title: 'Receipt email',
+                acceptance: { met: 0, total: 0 },
+                flagged_to_backlog: true,
+              }),
+            ],
+          }),
+        })}
+        canCurateDemo
+      />,
+    );
+    expect(screen.getByTestId('flagged-state')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Flag for backlog/i })).toBeNull();
+  });
+
+  it('#1130: a read-only viewer sees the presenter but no curation controls', () => {
+    render(
+      <SprintClosedOutcome
+        outcome={outcome({
+          review: review({
+            demo_list: ['T-200'],
+            shipped: [shippedStory({ demo_ready: true, presenter: 'Jordan' })],
+          }),
+        })}
+        canCurateDemo={false}
+      />,
+    );
+    expect(screen.getByText(/Presenter:/i)).toHaveTextContent('Jordan');
+    expect(screen.queryByLabelText('Presenter')).toBeNull();
+    expect(screen.queryByRole('switch')).toBeNull();
   });
 });
 
