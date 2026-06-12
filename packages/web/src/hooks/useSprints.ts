@@ -743,6 +743,31 @@ export interface DailyDeltaScopeItem {
   added_by_username: string | null;
   at: string;
   status: string;
+  /** Point cost of the injected task. Null when unknown OR velocity-gated (#1127). */
+  story_points: number | null;
+  /** The task's epic grouping, or null when ungrouped (#1127). */
+  epic: { id: string; name: string } | null;
+}
+
+/** Team-total counts — the anti-scoreboard aggregate (#1126). Viewers get only this. */
+export interface DailyDeltaActorAggregate {
+  moved: number;
+  completed: number;
+  added: number;
+  blocked: number;
+}
+
+/**
+ * Committed-vs-current point load for the sprint (#1127). Point figures are null
+ * for a reader who cannot read the velocity signal (ADR-0104); the keys stay
+ * present so the client can render the gated empty-state.
+ */
+export interface DailyDeltaSprintLoad {
+  committed_points: number | null;
+  current_points: number | null;
+  delta_points: number | null;
+  /** current / capacity (or commitment) as a 0–1 ratio; null when no basis. */
+  pct_loaded: number | null;
 }
 
 export interface DailyDeltaBlocker {
@@ -781,7 +806,10 @@ export interface SprintDailyDelta {
     remaining_delta: number;
     completed_delta: number;
   } | null;
+  /** Empty for a Viewer-role reader (#1126); they get actor_aggregate only. */
   per_actor: DailyDeltaActor[];
+  actor_aggregate: DailyDeltaActorAggregate;
+  sprint_load: DailyDeltaSprintLoad;
 }
 
 /** GET /api/v1/sprints/{id}/daily-delta/?since= — the team "what changed since yesterday" read. */

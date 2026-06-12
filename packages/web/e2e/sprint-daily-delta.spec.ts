@@ -30,7 +30,11 @@ const DELTA = {
     },
   ],
   scope_added: [
-    { task_id: 't3', task_short_id: 'T-3', task_title: 'Hotfix', added_by_username: 'jordan', at: '2026-04-10T07:00:00Z', status: 'PENDING' },
+    {
+      task_id: 't3', task_short_id: 'T-3', task_title: 'Hotfix', added_by_username: 'jordan',
+      at: '2026-04-10T07:00:00Z', status: 'PENDING', story_points: 3,
+      epic: { id: 'e1', name: 'Checkout' },
+    },
   ],
   new_blockers: [
     { task_id: 't2', task_short_id: 'T-2', task_title: 'Payments', actor_username: 'alex', at: '2026-04-10T08:30:00Z' },
@@ -40,6 +44,8 @@ const DELTA = {
     current_remaining: 12, remaining_delta: -8, completed_delta: 8,
   },
   per_actor: [{ actor_id: 4, actor_username: 'alex', moved: 1, completed: 0, added: 0, blocked: 1 }],
+  actor_aggregate: { moved: 1, completed: 0, added: 1, blocked: 1 },
+  sprint_load: { committed_points: 20, current_points: 23, delta_points: 3, pct_loaded: 1.15 },
 };
 
 async function setup(page: Page) {
@@ -96,8 +102,49 @@ test.describe('Daily standup delta (#925)', () => {
     await expect(panel.getByText(/New blockers/i)).toBeVisible();
     await expect(panel.getByText('Payments')).toBeVisible();
     await expect(panel.getByText(/-8 pts remaining/i)).toBeVisible();
-    // Per-actor at-a-glance — counts only, never hours.
-    await expect(panel.getByText(/1 moved · 1 blocked/i)).toBeVisible();
+    // Anti-scoreboard per-actor (#1126) — counts only, never hours.
+    await expect(panel.getByText(/not to compare contributors/i)).toBeVisible();
+    await expect(panel.getByText('Team')).toBeVisible();
     await expect(panel).not.toContainText(/hours|hrs/i);
+  });
+
+  test('the window control is visible and switchable (#1123)', async ({ page }) => {
+    await setup(page);
+    await page.goto(BASE_URL);
+
+    const panel = page.getByTestId('sprint-daily-delta');
+    await expect(panel.getByRole('button', { name: '24h' })).toBeVisible();
+    await expect(panel.getByRole('button', { name: '48h' })).toBeVisible();
+    const lastLooked = panel.getByRole('button', { name: /Since I last looked/i });
+    await expect(lastLooked).toBeVisible();
+    // Default 24h is pressed; switching toggles aria-pressed.
+    await expect(panel.getByRole('button', { name: '24h' })).toHaveAttribute('aria-pressed', 'true');
+    await panel.getByRole('button', { name: '48h' }).click();
+    await expect(panel.getByRole('button', { name: '48h' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  test('a scope item shows its point cost and epic tag (#1127)', async ({ page }) => {
+    await setup(page);
+    await page.goto(BASE_URL);
+
+    const panel = page.getByTestId('sprint-daily-delta');
+    await expect(panel.getByText(/Scope added/i)).toBeVisible();
+    await expect(panel.getByText('+3 pts')).toBeVisible();
+    await expect(panel.getByText('Checkout')).toBeVisible();
+    // Sprint-load indicator from the same response (#1127).
+    await expect(panel.getByText(/now 115% loaded/i)).toBeVisible();
+  });
+
+  test('a failed delta shows an error state with Retry (#1128)', async ({ page }) => {
+    await setup(page);
+    // Override the daily-delta mock to fail. Registered AFTER setup so it wins.
+    await page.route(/\/api\/v1\/sprints\/.*\/daily-delta\//, (r) =>
+      r.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ detail: 'boom' }) }),
+    );
+    await page.goto(BASE_URL);
+
+    const panel = page.getByTestId('sprint-daily-delta');
+    await expect(panel.getByText(/Couldn't load the delta/i)).toBeVisible();
+    await expect(panel.getByRole('button', { name: /Retry/i })).toBeVisible();
   });
 });
