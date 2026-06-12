@@ -1994,9 +1994,14 @@ class BoardColumnConfig(models.Model):
     no config row exists, so the model is created lazily.
 
     columns JSON schema (list of objects):
-        status:  TaskStatus canonical value (see _CANONICAL_STATUSES in serializers.py)
-        label:   display label (max 32 chars)
-        visible: boolean — hidden columns still hold tasks but don't appear on the board
+        status:    TaskStatus canonical value (see _CANONICAL_STATUSES in serializers.py)
+        label:     display label (max 32 chars)
+        visible:   boolean — hidden columns still hold tasks but don't appear on the board
+        color:     accent hue as a ``#RRGGBB`` hex string, or null for no tint (#698).
+                   Normalized by ``BoardColumnConfigSerializer.validate_color``.
+        wip_limit: per-column work-in-progress ceiling as a positive int, or null
+                   for no limit (#232). Drives the column-header WIP badge's
+                   under/at/over three-band state on the board.
     """
 
     project = models.OneToOneField(
