@@ -113,6 +113,7 @@ export default defineConfig({
               collapsed: false,
               items: [
                 { slug: "features/unified-data-model" },
+                { slug: "features/task-classification" },
                 { slug: "features/methodology-preset" },
                 { slug: "features/programs" },
                 { slug: "features/calendars" },
