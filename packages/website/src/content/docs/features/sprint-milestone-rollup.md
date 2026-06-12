@@ -138,6 +138,21 @@ The authoritative recompute always runs inside the
 close, after the immutable `completed_*` snapshot lands, so the final value
 is correct even if a live recompute was missed during an outage.
 
+## Forecast-shift notification on close
+
+Sprints are usually closed by the team, often outside the project manager's
+working session. So when closing a sprint reforecasts a bound milestone and that
+reforecast **materially** moves its likely finish or confidence, TruePPM notifies
+the project's manager cohort (Project Manager and Project Admin roles) with a
+short schedule-language summary — for example, *"Sprint 4 closed — GA Launch
+likely finish Jul 20 → Aug 1 (est. by Aug 15, medium confidence)."* It arrives
+in-app and by email, and clicking it opens the milestone in the Schedule.
+
+The summary carries **dates and a confidence label only — never velocity points**,
+matching the [signal-privacy model](/features/settings/signal-privacy/). A recompute
+that changes nothing produces no notification, so a no-op close is never noise.
+Any recipient can mute either channel from **Settings → Notifications**.
+
 ## Read-only override
 
 There is no override flag in v1. To edit a milestone's percent manually:

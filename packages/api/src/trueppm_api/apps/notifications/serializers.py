@@ -86,6 +86,11 @@ class NotificationSerializer(serializers.ModelSerializer[Notification]):
         return body[:200]
 
     def get_task_id(self, obj: Notification) -> str | None:
+        # Event-sourced rows (#497/#861) carry a direct deep-link FK; mention
+        # rows resolve their task through the source comment. Prefer the explicit
+        # FK so the inbox row links to the affected task/milestone either way.
+        if obj.task_id is not None:
+            return str(obj.task_id)
         mention = obj.mention
         if mention is None or mention.task_comment is None:
             return None
@@ -93,10 +98,18 @@ class NotificationSerializer(serializers.ModelSerializer[Notification]):
 
     class Meta:
         model = Notification
+        # event_type/subject/body are the event-sourced inbox payload (#639,
+        # #497, #861). They were inbox-invisible before — a mention row leaves
+        # them blank and renders from `snippet`; an event row has no mention, so
+        # without these fields the client could not show its title/preview and
+        # fell back to "mentioned you / comment unavailable".
         fields = [
             "id",
             "recipient",
             "mention",
+            "event_type",
+            "subject",
+            "body",
             "project",
             "is_read",
             "is_archived",
@@ -109,6 +122,9 @@ class NotificationSerializer(serializers.ModelSerializer[Notification]):
             "id",
             "recipient",
             "mention",
+            "event_type",
+            "subject",
+            "body",
             "project",
             "created_at",
             "read_at",

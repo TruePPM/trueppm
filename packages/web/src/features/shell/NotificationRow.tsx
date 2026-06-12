@@ -23,12 +23,22 @@ export function NotificationRow({ notification, onNavigate }: Props) {
   const navigate = useNavigate();
   const update = useUpdateNotification();
 
+  // An event-sourced row (#639/#497/#861) carries its own title/preview and has
+  // no mention; a mention row renders from the mentioner + comment snippet.
+  const isEvent = !!notification.event_type;
   const mentioner = notification.mention?.mentioner?.display_name ?? 'Someone';
   const isGroup = !!notification.mention?.mentioned_group_key;
   const groupKey = notification.mention?.mentioned_group_key;
-  const subject = isGroup ? `mentioned @${groupKey}` : 'mentioned you';
+  const title = isEvent
+    ? notification.subject
+    : `${mentioner} ${isGroup ? `mentioned @${groupKey}` : 'mentioned you'}`;
   const ts = formatRelative(new Date(notification.created_at));
-  const snippet = notification.snippet || '(comment unavailable)';
+  const preview = isEvent
+    ? notification.body
+    : notification.snippet || '(comment unavailable)';
+  const ariaLabel = isEvent
+    ? `${notification.subject}, ${ts}${notification.is_read ? '' : ', unread'}`
+    : `Mention by ${mentioner}, ${ts}${notification.is_read ? '' : ', unread'}`;
 
   function handleNavigate() {
     if (!notification.is_read) {
@@ -52,7 +62,7 @@ export function NotificationRow({ notification, onNavigate }: Props) {
 
   return (
     <article
-      aria-label={`Mention by ${mentioner}, ${ts}${notification.is_read ? '' : ', unread'}`}
+      aria-label={ariaLabel}
       className="flex flex-col gap-1 p-3 rounded border border-neutral-border bg-neutral-surface-raised"
     >
       <button
@@ -68,12 +78,10 @@ export function NotificationRow({ notification, onNavigate }: Props) {
               className="inline-block w-2 h-2 rounded-full bg-brand-primary flex-shrink-0"
             />
           )}
-          <span className="text-sm font-medium text-neutral-text-primary">
-            {mentioner} {subject}
-          </span>
+          <span className="text-sm font-medium text-neutral-text-primary">{title}</span>
           <span className="text-xs text-neutral-text-secondary tppm-mono ml-auto">{ts}</span>
         </div>
-        <p className="text-xs text-neutral-text-secondary truncate">{snippet}</p>
+        <p className="text-xs text-neutral-text-secondary truncate">{preview}</p>
       </button>
       <div className="flex items-center gap-1 mt-1">
         <button

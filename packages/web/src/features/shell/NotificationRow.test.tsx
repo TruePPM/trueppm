@@ -28,6 +28,9 @@ function row(overrides = {}) {
       task_comment: 'c1',
       created_at: '2026-05-19T00:00:00Z',
     },
+    event_type: '',
+    subject: '',
+    body: '',
     project: 'p1',
     is_read: false,
     is_archived: false,
@@ -48,6 +51,28 @@ describe('NotificationRow', () => {
     renderWithRouter(<NotificationRow notification={row()} />);
     expect(screen.getByText('Bob mentioned you')).toBeTruthy();
     expect(screen.getByText('Take a look')).toBeTruthy();
+  });
+
+  it('renders an event-sourced row from subject/body and deep-links to its task (#497/#861)', () => {
+    const onNavigate = vi.fn();
+    renderWithRouter(
+      <NotificationRow
+        notification={row({
+          mention: null,
+          event_type: 'sprint.task_rescheduled',
+          subject: 'Login API rescheduled in Sprint 4',
+          body: '"Login API" in sprint Sprint 4 moved from 2026-06-10 to 2026-06-17.',
+          task_id: 't9',
+        })}
+        onNavigate={onNavigate}
+      />,
+    );
+    // Title is the event subject, not a mention string; preview is the body.
+    expect(screen.getByText('Login API rescheduled in Sprint 4')).toBeTruthy();
+    expect(screen.getByText(/moved from 2026-06-10 to 2026-06-17/)).toBeTruthy();
+    expect(screen.queryByText(/mentioned/)).toBeNull();
+    fireEvent.click(screen.getByText('Login API rescheduled in Sprint 4'));
+    expect(navigateMock).toHaveBeenCalledWith('/projects/p1/schedule?task=t9');
   });
 
   it('renders the group-mention variant when mentioned_group_key is set', () => {

@@ -67,6 +67,14 @@ class NotificationEventType(models.TextChoices):
     # Contributor signal (#855, #476) — fires when a task I own is flagged blocked
     # by someone else. One of the two events in the SIGNAL_ONLY_EVENTS preset.
     TASK_BLOCKED = "task.blocked", "A task I own is blocked"
+    # Sprint-close bridge digest (#861) — the PM cohort is told when a closed
+    # sprint's reforecast materially shifts a bound milestone's finish. Email
+    # defaults ON for this one event (see DEFAULT_PREFERENCES): the issue's whole
+    # point is reaching the PM *outside* her session, which in-app alone can't do.
+    MILESTONE_FORECAST_SHIFTED = "milestone.forecast_shifted", "Milestone forecast shifted"
+    # Schedule-canvas reschedule of a sprint-mate's task (#497) — the rest of the
+    # ACTIVE sprint team learns a committed date moved. In-app only for v1.
+    SPRINT_TASK_RESCHEDULED = "sprint.task_rescheduled", "Task in my sprint rescheduled"
 
 
 class NotificationChannel(models.TextChoices):
@@ -257,6 +265,19 @@ class Notification(models.Model):
     subject = models.CharField(max_length=255, blank=True, default="")
     body = models.TextField(blank=True, default="")
 
+    # Optional deep-link target (#497/#861). Mention rows resolve their task via
+    # the comment; event rows have no such path, so this FK lets the inbox row
+    # link straight to the affected task/milestone in the schedule. SET_NULL +
+    # related_name="+" — a deleted task should never cascade-delete the historical
+    # notification, and no reverse accessor on Task is needed.
+    task = models.ForeignKey(
+        "projects.Task",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+
     project = models.ForeignKey(
         "projects.Project",
         on_delete=models.CASCADE,
@@ -349,6 +370,16 @@ DEFAULT_PREFERENCES: list[tuple[str, str, bool]] = [
     # event is one of the two kept ON by the Signal-only preset below.
     (NotificationEventType.TASK_BLOCKED, NotificationChannel.IN_APP, True),
     (NotificationEventType.TASK_BLOCKED, NotificationChannel.EMAIL, False),
+    # #861 — the bridge digest is the deliberate exception to the email-OFF
+    # default: a PM who is not logged in when the team closes a sprint at 7pm
+    # must still be pushed the milestone-confidence shift, or "automatic" still
+    # demands she remember to log in (the issue's core blocker). Still fully
+    # matrix-overridable — a PM can mute either channel.
+    (NotificationEventType.MILESTONE_FORECAST_SHIFTED, NotificationChannel.IN_APP, True),
+    (NotificationEventType.MILESTONE_FORECAST_SHIFTED, NotificationChannel.EMAIL, True),
+    # #497 — in-app only for v1 (email digest/push explicitly out of scope).
+    (NotificationEventType.SPRINT_TASK_RESCHEDULED, NotificationChannel.IN_APP, True),
+    (NotificationEventType.SPRINT_TASK_RESCHEDULED, NotificationChannel.EMAIL, False),
 ]
 
 

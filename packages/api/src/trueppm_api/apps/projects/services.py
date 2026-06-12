@@ -3085,6 +3085,101 @@ def reforecast_bound_milestone(
     return snapshot
 
 
+def notify_milestone_forecast_shift(
+    snapshot: Any,
+    sprint: Any,
+    *,
+    actor_id: Any = None,
+) -> None:
+    """Notify the project's PM cohort when a sprint-close reforecast materially
+    shifts a bound milestone's finish (#861).
+
+    The bridge reforecast (``reforecast_bound_milestone``) usually fires when the
+    team closes a sprint *outside* the PM's active session, so without a push the
+    "automatic" reforecast still depends on the PM remembering to log in and
+    check — the exact distrust the issue is closing. This helper turns the just-
+    written ``ForecastSnapshot`` into a targeted digest.
+
+    Material change = the new snapshot differs from the immediately-prior one for
+    this milestone in ``p50`` / ``p80`` / ``cpm_finish`` / ``confidence`` (or there
+    is no prior — the first forecast is itself new information). A no-op recompute
+    that changes none of those produces no notification (the anti-spam guard the
+    issue requires).
+
+    Privacy (ADR-0104, web-rule 166): the digest carries schedule **dates** and a
+    confidence **label** only — never per-sprint velocity points — and uses
+    velocity-band language ("likely finish", "est. by"), not P50/P80 percentile
+    vocabulary, because the milestone reforecast basis is ``velocity_band`` (a
+    deterministic band heuristic), not a Monte Carlo distribution. Recipients are
+    the project's PM cohort (role >= ADMIN), minus whoever requested the close
+    (they already know). Deferred to ``on_commit`` so the rows land only once the
+    close transaction is durable.
+    """
+    from trueppm_api.apps.access.models import ProjectMembership, Role
+    from trueppm_api.apps.notifications.models import NotificationEventType
+    from trueppm_api.apps.notifications.services import create_event_notifications
+    from trueppm_api.apps.projects.models import ForecastSnapshot
+
+    prior = (
+        ForecastSnapshot.objects.filter(milestone_id=snapshot.milestone_id)
+        .exclude(pk=snapshot.pk)
+        .order_by("-taken_at")
+        .first()
+    )
+    if prior is not None and (
+        prior.p50 == snapshot.p50
+        and prior.p80 == snapshot.p80
+        and prior.cpm_finish == snapshot.cpm_finish
+        and prior.confidence == snapshot.confidence
+    ):
+        return  # no-op recompute — nothing material changed, so no digest
+
+    # is_deleted=False is load-bearing for privacy: member removal is a soft
+    # delete that leaves the row (with its role) intact, so without this filter a
+    # revoked PM would keep receiving milestone-forecast digests for a project
+    # they no longer belong to (rbac-check 🔴).
+    recipient_ids = list(
+        ProjectMembership.objects.filter(
+            project_id=snapshot.project_id, role__gte=Role.ADMIN, is_deleted=False
+        )
+        .exclude(user_id=actor_id)
+        .values_list("user_id", flat=True)
+    )
+    if not recipient_ids:
+        return
+
+    milestone = snapshot.milestone
+    milestone_name = milestone.name if milestone is not None else "the bound milestone"
+
+    def _date(value: Any) -> str:
+        return value.isoformat() if value else "TBD"
+
+    if prior is None or prior.p50 == snapshot.p50:
+        finish_clause = f"likely finish {_date(snapshot.p50)}"
+    else:
+        finish_clause = f"likely finish {_date(prior.p50)} → {_date(snapshot.p50)}"
+
+    subject = f"Forecast shifted for {milestone_name}"
+    body = (
+        f"{sprint.name} closed — {milestone_name} {finish_clause} "
+        f"(est. by {_date(snapshot.p80)}, {snapshot.confidence} confidence). "
+        f"Velocity-based estimate."
+    )
+
+    project_id = str(snapshot.project_id)
+    milestone_id = str(snapshot.milestone_id) if snapshot.milestone_id else None
+    transaction.on_commit(
+        lambda: create_event_notifications(
+            event_type=NotificationEventType.MILESTONE_FORECAST_SHIFTED,
+            recipient_ids=recipient_ids,
+            subject=subject,
+            body=body,
+            project_id=project_id,
+            task_id=milestone_id,
+        )
+    )
+
+
 def project_forecast(project_id: str | uuid.UUID) -> dict[str, Any]:
     """Aggregate the project forecast read (ADR-0106 §5, #487/#860).
 
