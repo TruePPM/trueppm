@@ -1,0 +1,42 @@
+# OSV-Scanner config — scoped to the docs site (packages/website).
+#
+# Every advisory below lives in the Astro/Starlight dependency tree and is
+# resolved by the astro 5 -> 6 (@astrojs/starlight) bump tracked in #1152. The
+# docs site is a static-site generator: these are build/SSG-time dependencies,
+# and the published output is static HTML/CSS/JS — none of this ships to a
+# running server.
+#
+# The ignores are SCOPED to packages/website (a config file adjacent to this
+# lockfile applies only to this lockfile). That is deliberate: the same esbuild
+# advisory (GHSA-gv7w-rqvm-qjhr) was just fixed in packages/web via the Vite 8
+# upgrade, and a regression there must still fail the gate — a global ignore
+# would mask it.
+#
+# Each entry carries an `ignoreUntil` expiry so the suppression cannot rot: once
+# the date passes, OSV-Scanner surfaces the advisory again. Remove these once
+# #1152 lands the astro bump.
+
+[[IgnoredVulns]]
+id = "GHSA-j687-52p2-xcff"           # astro: XSS in define:vars
+ignoreUntil = 2026-09-12T00:00:00Z
+reason = "Resolved by astro 6 bump (#1152); docs-site SSG-time, static output."
+
+[[IgnoredVulns]]
+id = "GHSA-xr5h-phrj-8vxv"           # astro: server-island encrypted-param replay
+ignoreUntil = 2026-09-12T00:00:00Z
+reason = "Resolved by astro 6 bump (#1152); docs-site SSG-time, static output."
+
+[[IgnoredVulns]]
+id = "GHSA-gv7w-rqvm-qjhr"           # esbuild: RCE via NPM_CONFIG_REGISTRY (transitive via astro)
+ignoreUntil = 2026-09-12T00:00:00Z
+reason = "Resolved by astro 6 bump (#1152); build-time only, not shipped. Scoped to website — web is already patched (Vite 8)."
+
+[[IgnoredVulns]]
+id = "GHSA-g7r4-m6w7-qqqr"           # esbuild: dev-server arbitrary file read (Windows)
+ignoreUntil = 2026-09-12T00:00:00Z
+reason = "Resolved by astro 6 bump (#1152); dev-server only, not used in CI/build."
+
+[[IgnoredVulns]]
+id = "GHSA-48c2-rrv3-qjmp"           # yaml: ReDoS via deeply nested collections (dev)
+ignoreUntil = 2026-09-12T00:00:00Z
+reason = "Resolved by astro 6 bump (#1152); dev dependency of the astro language server."
