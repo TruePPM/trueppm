@@ -57,6 +57,15 @@ The board is your daily view. Five columns: **Backlog → To Do → In Progress 
 
 → See [WIP overload detection](/features/wip-overload/)
 
+### The daily delta panel
+
+The active sprint will carry a **Daily delta** panel — a server-computed "what changed since yesterday" read for the standup: status moves, new blockers, scope injected mid-sprint, the burndown swing, and per-person activity counts. It is pull-only and status-level: it will never show hours, durations, or edit counts.
+
+- A **window control** will let you choose the look-back: **24h**, **48h**, or **Since I last looked** — the last option replays everything since you last opened the panel for this sprint (so a Friday-to-Monday gap shows the whole weekend). The choice is remembered locally per sprint, on your device only.
+- Each moved card, blocker, and injected story will open the task in a side drawer in place — no navigation away from the standup.
+- Injected scope will show its **point cost** and **epic tag**, plus a one-line sprint-load read (`committed → current`, and "now X% loaded") so a silent mid-sprint slip is visible.
+- The per-person counts are framed as a focus aid, not a scoreboard, and are deliberately not a ranked table. A **Viewer**-role team member will see only the team totals, never a per-person breakdown.
+
 ## Velocity
 
 TruePPM tracks velocity across all closed sprints. The velocity panel shows a bar chart of the last 8 sprints with a rolling average and standard deviation. This is the number that feeds the PM's forecast — no manual export, no spreadsheet.
