@@ -187,6 +187,36 @@ def test_planned_sprint_does_not_fan_out_to_team(
 
 
 @pytest.mark.django_db
+def test_soft_removed_member_excluded_from_sprint_fanout(
+    client: APIClient,
+    project: Project,
+    bob: Any,
+    carol: Any,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    sprint = Sprint.objects.create(
+        project=project,
+        name="Sprint 6",
+        start_date=date(2026, 8, 1),
+        finish_date=date(2026, 8, 14),
+        state=SprintState.ACTIVE,
+    )
+    moved = Task.objects.create(
+        project=project, name="Login API", duration=1, assignee=bob, sprint=sprint
+    )
+    Task.objects.create(
+        project=project, name="Carol task", duration=1, assignee=carol, sprint=sprint
+    )
+    # carol was removed from the project; a soft delete leaves her task assignment,
+    # so the fan-out must intersect against live membership to exclude her.
+    ProjectMembership.objects.filter(project=project, user=carol).update(is_deleted=True)
+    with django_capture_on_commit_callbacks(execute=True):
+        resp = client.patch(_task_url(moved), {"planned_start": "2026-08-08"}, format="json")
+    assert resp.status_code == 200, resp.data
+    assert _notes(carol, "sprint.task_rescheduled") == []
+
+
+@pytest.mark.django_db
 def test_non_date_change_fires_no_reschedule_notification(
     client: APIClient,
     project: Project,

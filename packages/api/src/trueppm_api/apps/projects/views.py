@@ -2459,12 +2459,25 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
             sprint = instance.sprint
             if sprint is not None and sprint.state == SprintState.ACTIVE:
                 already_notified = {x for x in (new_assignee_id, actor_id) if x}
+                # Scope the fan-out to *current* project members and *live* tasks:
+                # member removal is a soft delete that leaves task assignments
+                # intact, so a revoked member could otherwise be notified about a
+                # project they've left (rbac/security 🟡).
+                member_ids = {
+                    str(uid)
+                    for uid in ProjectMembership.objects.filter(
+                        project_id=instance.project_id, is_deleted=False
+                    ).values_list("user_id", flat=True)
+                }
                 team_ids: list[str | None] = [
-                    str(aid)
-                    for aid in Task.objects.filter(sprint_id=sprint.pk, assignee__isnull=False)
-                    .values_list("assignee_id", flat=True)
-                    .distinct()
-                    if str(aid) not in already_notified
+                    aid
+                    for aid in {
+                        str(x)
+                        for x in Task.objects.filter(
+                            sprint_id=sprint.pk, assignee__isnull=False, is_deleted=False
+                        ).values_list("assignee_id", flat=True)
+                    }
+                    if aid not in already_notified and aid in member_ids
                 ]
                 if team_ids:
                     s_name = sprint.name

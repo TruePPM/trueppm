@@ -3134,8 +3134,14 @@ def notify_milestone_forecast_shift(
     ):
         return  # no-op recompute — nothing material changed, so no digest
 
+    # is_deleted=False is load-bearing for privacy: member removal is a soft
+    # delete that leaves the row (with its role) intact, so without this filter a
+    # revoked PM would keep receiving milestone-forecast digests for a project
+    # they no longer belong to (rbac-check 🔴).
     recipient_ids = list(
-        ProjectMembership.objects.filter(project_id=snapshot.project_id, role__gte=Role.ADMIN)
+        ProjectMembership.objects.filter(
+            project_id=snapshot.project_id, role__gte=Role.ADMIN, is_deleted=False
+        )
         .exclude(user_id=actor_id)
         .values_list("user_id", flat=True)
     )

@@ -180,3 +180,22 @@ def test_actor_excluded_from_digest(
 
     assert not Notification.objects.filter(recipient=people["owner"]).exists()
     assert Notification.objects.filter(recipient=people["admin"]).count() == 1
+
+
+@pytest.mark.django_db
+def test_soft_removed_pm_not_notified(
+    project: Project,
+    people: dict[str, Any],
+    milestone: Task,
+    sprint: Sprint,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    new = _snap(project, milestone)
+    # The admin was removed from the project. Removal is a soft delete that leaves
+    # the membership row (with its role) intact, so the digest must not reach them.
+    ProjectMembership.objects.filter(project=project, user=people["admin"]).update(is_deleted=True)
+    with django_capture_on_commit_callbacks(execute=True):
+        notify_milestone_forecast_shift(new, sprint, actor_id=None)
+
+    assert not Notification.objects.filter(recipient=people["admin"]).exists()
+    assert Notification.objects.filter(recipient=people["owner"]).count() == 1
