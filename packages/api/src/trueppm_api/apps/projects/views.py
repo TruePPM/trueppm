@@ -2421,15 +2421,58 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
                 lambda: _dispatch_webhooks(project_id, "task.due_date_changed", date_payload)
             )
             # Notify the task's current assignee (the owner of the work), if any.
+            # #497: carry both old and new dates and deep-link to the task — a
+            # Confirmed schedule-canvas reschedule (ADR-0067) lands a deliberate
+            # date change on someone else's committed work, and they must learn of
+            # it as a targeted signal, not a generic feed entry.
+            old_label = old_planned_start or "unscheduled"
             if new_assignee_id is not None and new_assignee_id != actor_id:
-                d_subj = f"Planned date changed on {task_name}"
-                d_body = f'The planned start of "{task_name}" changed to {new_planned_start}.'
+                d_subj = f"Planned start changed on {task_name}"
+                d_body = f'"{task_name}" moved from {old_label} to {new_planned_start}.'
                 d_rcpt = new_assignee_id
                 transaction.on_commit(
                     lambda: _notify_event(
-                        "task.due_date_changed", [d_rcpt], d_subj, d_body, project_id
+                        "task.due_date_changed",
+                        [d_rcpt],
+                        d_subj,
+                        d_body,
+                        project_id,
+                        task_id=task_id,
                     )
                 )
+            # #497: when the rescheduled task is in an ACTIVE sprint, the rest of
+            # the sprint team also needs the signal — a moved commitment ripples
+            # across the iteration. Recipients are the *other* sprint assignees
+            # (the targeted assignee already got the dedicated notice above, and
+            # the actor is never notified of their own edit), so nobody is
+            # double-notified. PLANNED/COMPLETED/CANCELLED sprints don't fan out.
+            sprint = instance.sprint
+            if sprint is not None and sprint.state == SprintState.ACTIVE:
+                already_notified = {x for x in (new_assignee_id, actor_id) if x}
+                team_ids = [
+                    str(aid)
+                    for aid in Task.objects.filter(sprint_id=sprint.pk, assignee__isnull=False)
+                    .values_list("assignee_id", flat=True)
+                    .distinct()
+                    if str(aid) not in already_notified
+                ]
+                if team_ids:
+                    s_name = sprint.name
+                    s_subj = f"{task_name} rescheduled in {s_name}"
+                    s_body = (
+                        f'"{task_name}" in sprint {s_name} moved from '
+                        f"{old_label} to {new_planned_start}."
+                    )
+                    transaction.on_commit(
+                        lambda: _notify_event(
+                            "sprint.task_rescheduled",
+                            team_ids,
+                            s_subj,
+                            s_body,
+                            project_id,
+                            task_id=task_id,
+                        )
+                    )
 
     def _handle_task_write(
         self, super_method: Any, request: Request, *args: Any, **kwargs: Any
@@ -4398,11 +4441,13 @@ def _notify_event(
     subject: str,
     body: str,
     project_id: str,
+    task_id: str | None = None,
 ) -> None:
     """Create per-user email/in-app notifications for an own-task event (#639).
 
     Thin trampoline so call sites can defer via ``transaction.on_commit`` without
     importing the notifications service at module load (avoids an import cycle).
+    ``task_id`` deep-links the inbox row to the affected task (#497).
     """
     from trueppm_api.apps.notifications.services import create_event_notifications
 
@@ -4412,6 +4457,7 @@ def _notify_event(
         subject=subject,
         body=body,
         project_id=project_id,
+        task_id=task_id,
     )
 
 

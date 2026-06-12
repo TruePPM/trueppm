@@ -86,6 +86,11 @@ class NotificationSerializer(serializers.ModelSerializer[Notification]):
         return body[:200]
 
     def get_task_id(self, obj: Notification) -> str | None:
+        # Event-sourced rows (#497/#861) carry a direct deep-link FK; mention
+        # rows resolve their task through the source comment. Prefer the explicit
+        # FK so the inbox row links to the affected task/milestone either way.
+        if obj.task_id is not None:
+            return str(obj.task_id)
         mention = obj.mention
         if mention is None or mention.task_comment is None:
             return None

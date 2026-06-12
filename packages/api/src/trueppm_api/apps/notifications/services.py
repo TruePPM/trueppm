@@ -520,6 +520,7 @@ def create_event_notifications(
     subject: str,
     body: str,
     project_id: uuid.UUID | str,
+    task_id: uuid.UUID | str | None = None,
 ) -> int:
     """Create event-sourced Notification rows for an own-task event (#639).
 
@@ -543,6 +544,8 @@ def create_event_notifications(
         subject: Pre-rendered email subject line.
         body: Pre-rendered plain-text email body.
         project_id: The project the event occurred on (scopes the inbox row).
+        task_id: Optional deep-link target — the task/milestone the inbox row
+            should link to (#497/#861). ``None`` for events with no task anchor.
 
     Returns:
         The number of Notification rows created.
@@ -575,6 +578,7 @@ def create_event_notifications(
                 subject=subject,
                 body=body,
                 project_id=project_id,
+                task_id=task_id,
                 email_pending=_allows(user_id, NotificationChannel.EMAIL.value),
             )
         )

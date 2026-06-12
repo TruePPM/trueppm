@@ -174,10 +174,19 @@ def close_sprint(self: object, request_id: str) -> None:
                 # strand or revert a sprint close (ADR-0106 §Durable 8).
                 try:
                     from trueppm_api.apps.projects.services import (
+                        notify_milestone_forecast_shift,
                         reforecast_bound_milestone,
                     )
 
-                    reforecast_bound_milestone(sprint.target_milestone_id)
+                    forecast = reforecast_bound_milestone(sprint.target_milestone_id)
+                    # #861 — push the PM cohort the milestone-confidence shift so
+                    # the bridge reforecast isn't silent when the team closes the
+                    # sprint outside the PM's session. Non-blocking with the
+                    # reforecast itself: a digest failure must never strand close.
+                    if forecast is not None:
+                        notify_milestone_forecast_shift(
+                            forecast, sprint, actor_id=req.requested_by_id
+                        )
                 except Exception:
                     logger.exception(
                         "close_sprint: reforecast failed for milestone %s — continuing close",
