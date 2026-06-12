@@ -287,6 +287,11 @@ export interface SprintBurnSnapshot {
 export interface SprintBurndown {
   sprint: ApiSprint;
   snapshots: SprintBurnSnapshot[];
+  /** Current-sprint burn pace vs the ideal line (#984). */
+  burn_status?: 'ahead' | 'behind' | 'on_track' | 'no_data';
+  /** Signed: positive = ahead of ideal, negative = behind. Null with no data. */
+  trend_points?: number | null;
+  projected_finish_date?: string | null;
 }
 
 /** GET /api/v1/sprints/{id}/burndown/ — sprint metadata + actual burn series. */
@@ -525,6 +530,44 @@ export function useProjectForecast(
     queryKey: ['project', projectId, 'forecast'],
     queryFn: async () => {
       const res = await apiClient.get<ProjectForecast>(`/projects/${projectId}/forecast/`);
+      return res.data;
+    },
+    enabled: !!projectId && enabled,
+  });
+}
+
+
+/**
+ * GET /api/v1/projects/{id}/sprint-forecast/ — backlog delivery forecast (#487).
+ *
+ * Velocity Monte Carlo: P50/P80 sprint counts + calendar dates to clear the
+ * remaining committed backlog. `status` is `"warming_up"` (forecast fields null)
+ * until there are >=2 closed sprints and a backlog. `basis` is always
+ * `"monte_carlo"`, so percentile vocabulary is honest here (web-rule 166).
+ */
+export interface SprintForecast {
+  status: 'ready' | 'warming_up';
+  remaining_points: number | null;
+  sample_count: number;
+  p50_sprints: number | null;
+  p80_sprints: number | null;
+  p50_date: string | null;
+  p80_date: string | null;
+  basis: 'monte_carlo';
+  velocity_suppressed: boolean;
+}
+
+export function useSprintForecast(
+  projectId: string | null | undefined,
+  options: { enabled?: boolean } = {},
+) {
+  const { enabled = true } = options;
+  return useQuery({
+    queryKey: ['project', projectId, 'sprint-forecast'],
+    queryFn: async () => {
+      const res = await apiClient.get<SprintForecast>(
+        `/projects/${projectId}/sprint-forecast/`,
+      );
       return res.data;
     },
     enabled: !!projectId && enabled,

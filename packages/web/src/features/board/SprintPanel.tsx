@@ -9,6 +9,7 @@ import {
 } from '@/features/sprints/sprintMath';
 import { VelocitySparkline } from '@/features/sprints/VelocitySparkline';
 import { VelocityForecastLine } from '@/features/sprints/VelocityForecastLine';
+import { SprintForecastChips } from '@/features/sprints/SprintForecastChips';
 import { PromoteMilestoneDialog } from '@/features/sprints/PromoteMilestoneDialog';
 import { SprintScopeBadge } from '@/features/sprints/SprintScopeBadge';
 import { wipState } from '@/features/board/wip';
@@ -107,6 +108,9 @@ export function SprintPanel({ projectId, methodology }: Props) {
       >
         <div className="flex-1 min-w-0">
           <BurnChart sprintId={sprint.id} defaultVariant="burndown" />
+          {/* Sprint-finish + release-horizon projections (#487) — beneath the
+              chart, both linking to the full backlog forecast on the overview. */}
+          <SprintForecastChips projectId={projectId} sprintId={sprint.id} />
         </div>
         <div className="flex flex-col gap-3 lg:w-60 flex-shrink-0">
           <VelocityCard

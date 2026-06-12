@@ -109,6 +109,25 @@ async function setupRoutes(page: import('@playwright/test').Page) {
     }),
   );
 
+  // Backlog delivery forecast (#487) — a ready velocity Monte Carlo result.
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/sprint-forecast/`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ready',
+        remaining_points: 60,
+        sample_count: 3,
+        p50_sprints: 3,
+        p80_sprints: 4,
+        p50_date: '2026-08-01',
+        p80_date: '2026-08-15',
+        basis: 'monte_carlo',
+        velocity_suppressed: false,
+      }),
+    }),
+  );
+
   await page.route('**/api/v1/projects/*/presence/', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
   );
@@ -158,6 +177,15 @@ test.describe('Project overview page', () => {
     await page.goto(`/projects/${PROJECT_ID}/overview`);
     // Wait for the KPI section to appear
     await expect(page.getByRole('region', { name: /project kpis/i })).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('renders the backlog delivery forecast (#487)', async ({ page }) => {
+    const region = page.getByRole('region', { name: /backlog forecast/i });
+    await expect(region).toBeVisible();
+    // Monte Carlo basis → P50/P80 percentile vocabulary is shown (web-rule 166).
+    await expect(region.getByText(/forecast to clear by/i)).toBeVisible();
+    await expect(region.getByText(/P50/)).toBeVisible();
+    await expect(region.getByText(/P80/)).toBeVisible();
   });
 
   test('golden path — KPI cards, attention panel, and my-tasks all render', async ({ page }) => {

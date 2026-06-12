@@ -9,6 +9,7 @@ import { useRunMonteCarlo } from '@/hooks/useRunMonteCarlo';
 import { formatRelative } from '@/lib/formatRelative';
 import { BurnChart } from '@/features/reports/BurnChart';
 import { ImportProvenanceSection } from '@/features/project/ImportProvenanceSection';
+import { SprintForecastWidget } from '@/features/project/SprintForecastWidget';
 
 // ---------------------------------------------------------------------------
 // API response types
@@ -792,6 +793,9 @@ export function ProjectOverviewPage() {
           <BurnChart projectId={projectId} defaultVariant="burnup" />
         </section>
       )}
+
+      {/* Backlog delivery forecast — velocity Monte Carlo (#487) */}
+      {projectId && <SprintForecastWidget projectId={projectId} />}
 
       {/* Two-column lower section */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

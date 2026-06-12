@@ -3260,6 +3260,154 @@ def project_forecast(project_id: str | uuid.UUID) -> dict[str, Any]:
     }
 
 
+def _typical_sprint_length_days(project_id: str | uuid.UUID, default: int = 14) -> int:
+    """The team's typical sprint length in calendar days, for pacing forecasts.
+
+    Derived from the most recent dated sprint's span; falls back to a fortnight
+    when the project has no usable sprint dates yet.
+    """
+    from trueppm_api.apps.projects.models import Sprint
+
+    sprint = (
+        Sprint.objects.filter(project_id=project_id, is_deleted=False)
+        .exclude(start_date__isnull=True)
+        .exclude(finish_date__isnull=True)
+        .order_by("-start_date")
+        .first()
+    )
+    if sprint is None:
+        return default
+    span = (sprint.finish_date - sprint.start_date).days
+    return span if span and span > 0 else default
+
+
+def _sample_backlog_sprint_counts(
+    remaining_points: float,
+    velocity_samples: list[float],
+    runs: int,
+    seed: int,
+) -> Any:
+    """Bootstrap sprint-count-to-completion from team velocity (#487).
+
+    Throughput Monte Carlo: for each run, bootstrap-sample completed-points-per-
+    sprint observations with replacement, accumulate, and count the sprints needed
+    to reach ``remaining_points``. Mirrors the scheduler's
+    ``_sample_velocity_durations`` (its canonical implementation) but stays
+    API-local and calendar-free — sprint_forecast is a Django-layer read, so a
+    cross-package dependency on a private scheduler primitive isn't worth it.
+
+    Returns ``None`` (no usable signal) when there are no positive velocity samples
+    or ``remaining_points`` is non-positive; a single positive sample yields a
+    constant (degenerate) distribution, which is honest — one observation cannot
+    express variance.
+    """
+    import numpy as np
+
+    positive = np.asarray([s for s in velocity_samples if s and s > 0], dtype=float)
+    if remaining_points <= 0 or positive.size == 0:
+        return None
+    rng = np.random.default_rng(seed)
+    mean = float(positive.mean())
+    # Bound the per-run horizon so a pathologically slow bootstrap path can't spin
+    # — and hard-cap it so a bad-data backlog (e.g. a 100k-point import against a
+    # slow mean) can't drive an unbounded runs×max_sprints allocation. 2000 sprints
+    # is ~77 years at a fortnightly cadence; beyond that the answer is "never", and
+    # runs saturate to the cap (already handled as the not-reached branch below).
+    max_sprints = min(int(np.ceil(remaining_points / mean)) * 4 + 10, 2000)
+    draws = rng.choice(positive, size=(runs, max_sprints), replace=True)
+    cumulative = np.cumsum(draws, axis=1)
+    reached = cumulative >= remaining_points
+    counts = np.where(reached.any(axis=1), reached.argmax(axis=1) + 1, max_sprints)
+    return counts.astype(np.float64)
+
+
+def sprint_forecast(
+    project_id: str | uuid.UUID,
+    *,
+    runs: int = 1000,
+    seed: int = 0xC0FFEE,
+) -> dict[str, Any]:
+    """Computed-on-read backlog delivery forecast from velocity Monte Carlo (#487).
+
+    Answers "when is the backlog done?" without a spreadsheet: it reuses
+    :func:`project_forecast`'s velocity series and remaining committed backlog,
+    runs ``runs`` velocity-bootstrap simulations
+    (:func:`_sample_backlog_sprint_counts`), and returns P50/P80 sprint counts
+    paced onto the calendar at the team's typical sprint length.
+
+    Unlike the milestone reforecast (a deterministic velocity *band*), this is a
+    real Monte Carlo distribution, so P50/P80 percentile vocabulary is honest here
+    (web-rule 166). There is **no persisted model** — the result is cached for an
+    hour keyed on the inputs, so a sprint close (which changes the velocity series
+    and remaining backlog) busts the cache naturally. A fixed seed makes the same
+    inputs reproducible, which both the cache and the tests rely on.
+
+    The velocity-privacy gate (ADR-0104) is applied by the *view*, mirroring
+    ``/forecast/`` — every field here derives from the team-private velocity
+    series, so a below-tier reader is suppressed at the sink.
+    """
+    from datetime import timedelta
+
+    from django.core.cache import cache
+    from django.utils import timezone
+
+    data = project_forecast(project_id)
+    vel = data["velocity"]
+    remaining = data["remaining_committed_points"] or 0
+    samples = [
+        float(s["completed_points"])
+        for s in vel["sprints"]
+        if not s.get("exclude_from_velocity") and s.get("completed_points")
+    ]
+    sprint_length = _typical_sprint_length_days(project_id)
+
+    base: dict[str, Any] = {
+        "remaining_points": remaining,
+        "sample_count": len(samples),
+        "p50_sprints": None,
+        "p80_sprints": None,
+        "p50_date": None,
+        "p80_date": None,
+        "basis": "monte_carlo",
+        "velocity_suppressed": False,
+    }
+    # Warm-up: need a real backlog and at least two closed sprints — a single
+    # observation cannot express the velocity variance this forecast is built on.
+    if remaining <= 0 or len(samples) < 2 or sprint_length <= 0:
+        base["status"] = "warming_up"
+        return base
+
+    key = f"sprint_forecast:v1:{project_id}:{remaining}:{sprint_length}:{hash(tuple(samples))}"
+    cached: dict[str, Any] | None = cache.get(key)
+    if cached is not None:
+        return cached
+
+    counts = _sample_backlog_sprint_counts(float(remaining), samples, runs=runs, seed=seed)
+    if counts is None:
+        base["status"] = "warming_up"
+        return base
+
+    import numpy as np
+
+    today = timezone.localdate()
+    p50_sprints = int(np.ceil(float(np.percentile(counts, 50))))
+    p80_sprints = int(np.ceil(float(np.percentile(counts, 80))))
+    # Pace the continuous percentile (not the rounded sprint count) onto the
+    # calendar so the P80 date lands strictly after P50.
+    p50_days = round(float(np.percentile(counts, 50)) * sprint_length)
+    p80_days = round(float(np.percentile(counts, 80)) * sprint_length)
+    result = {
+        **base,
+        "status": "ready",
+        "p50_sprints": p50_sprints,
+        "p80_sprints": p80_sprints,
+        "p50_date": (today + timedelta(days=p50_days)).isoformat(),
+        "p80_date": (today + timedelta(days=p80_days)).isoformat(),
+    }
+    cache.set(key, result, 3600)
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Recurring-task occurrence generation (ADR-0090, #736)
 # ---------------------------------------------------------------------------

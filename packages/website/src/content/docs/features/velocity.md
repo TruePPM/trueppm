@@ -39,11 +39,23 @@ The active-sprint panel at the top of the **Board** carries a compact version of
 - Route: `/projects/:projectId/sprints` (right column of the metrics row, bottom half)
 - Board: top sprint panel → **Velocity** card (history band + forecast line)
 
+## Backlog delivery forecast
+
+A **backlog delivery forecast** ships in 0.3 (merged, not yet in a tagged build — see the [roadmap](/overview/roadmap/)). It answers "when is the whole backlog done?" without spreadsheet math, from a **velocity Monte Carlo**: it bootstrap-samples the team's historical per-sprint throughput a thousand times to clear the remaining committed backlog, and reports **P50 / P80** sprint counts and calendar dates.
+
+Because this is a real simulation — not the deterministic velocity *band* the milestone reforecast uses — the **P50/P80 percentile vocabulary is honest here** and is shown as such. It surfaces in two places, both reading the same `/sprint-forecast/` endpoint (no duplicate computation):
+
+- **Project overview** — a *Backlog forecast* card: "At current velocity, the remaining backlog is forecast to clear by *[P50 date]*", with the P80 date and sprint counts below.
+- **Board sprint panel** — two compact projection chips beneath the burndown: a **sprint-finish** chip ("on track to finish ahead" / "*N* pts behind at this pace", from the current sprint's burn pace) and a **release-horizon** chip ("at this pace, the backlog clears in ~*N* sprints"). Both link to the overview forecast.
+
+Like every velocity surface it is **team-private by default** (ADR-0104): a reader below the velocity audience sees a "team-private" state, never the horizon, since the backlog horizon is reversible into the team's throughput. A forecast appears only once **two sprints have closed** — one observation cannot express the velocity variance the forecast is built on.
+
 ## API endpoints
 
 | Method | Endpoint | Purpose |
 |---|---|---|
 | `GET` | `/api/v1/projects/{id}/velocity/` | Last-8 closed sprint points/tasks (each with `exclude_from_velocity`) + rolling stats + forecast range + `team_velocity_per_day` + `excluded_count` |
+| `GET` | `/api/v1/projects/{id}/sprint-forecast/` | Backlog delivery forecast — P50/P80 sprint counts + calendar dates from a velocity Monte Carlo (computed on read, cached; `velocity_suppressed` for below-audience readers) |
 
 The `team_velocity_per_day` field is the same rolling per-day average used by [velocity calibration](/features/velocity-calibration/) suggestions on sprint close. The response also carries an `excluded_count` and a per-sprint `exclude_from_velocity` flag (see [Setup work & Sprint 0](#setup-work--sprint-0)).
 

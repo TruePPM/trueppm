@@ -132,6 +132,7 @@ from trueppm_api.apps.projects.serializers import (
     SprintBurnSnapshotSerializer,
     SprintCloseRequestSerializer,
     SprintDailyDeltaSerializer,
+    SprintForecastSerializer,
     SprintOutcomeSerializer,
     SprintSerializer,
     TaskAttachmentSerializer,
@@ -7858,6 +7859,52 @@ class ProjectForecastView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class ProjectSprintForecastView(APIView):
+    """``GET /api/v1/projects/<pk>/sprint-forecast/`` — backlog delivery forecast (#487).
+
+    P50/P80 sprint counts + calendar dates for clearing the remaining committed
+    backlog, from a velocity Monte Carlo. Any project member, same audience as
+    ``/velocity/`` and ``/forecast/`` — and gated the same way: every field derives
+    from the team-private velocity series, so a reader below the velocity audience
+    (ADR-0104) is suppressed here too, or this endpoint is a side-channel back to
+    the band (#981). The forecast itself is computed-on-read and cached for an hour
+    inside the service; the view only owns the privacy gate.
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
+
+    @extend_schema(responses=SprintForecastSerializer)
+    def get(self, request: Request, pk: str) -> Response:
+        from trueppm_api.apps.projects.services import sprint_forecast
+        from trueppm_api.apps.projects.signal_privacy_services import can_read_signal
+
+        project = get_object_or_404(Project, pk=pk, is_deleted=False)
+        self.check_object_permissions(request, project)
+        data = sprint_forecast(project.pk)
+        if not can_read_signal(request, project.pk, "velocity"):
+            # The entire payload is velocity-derived, so a below-audience reader
+            # gets the suppressed shape rather than a backlog horizon they could
+            # reverse into the team's throughput.
+            # Null EVERY velocity-derived signal. sample_count (the team's
+            # closed-sprint count) and a "ready" status are themselves
+            # organisational facts the ADR-0104 boundary excludes from a
+            # below-audience reader — the same class as the zeroed excluded_count
+            # in suppress_velocity_summary — so they are withheld too, and status
+            # collapses to the only non-revealing constant.
+            data = {
+                "status": "warming_up",
+                "remaining_points": None,
+                "sample_count": None,
+                "p50_sprints": None,
+                "p80_sprints": None,
+                "p50_date": None,
+                "p80_date": None,
+                "basis": data["basis"],
+                "velocity_suppressed": True,
+            }
+        return Response(SprintForecastSerializer(data).data, status=status.HTTP_200_OK)
 
 
 class ProjectMilestonesView(APIView):
