@@ -87,6 +87,7 @@ export default defineConfig({
           label: "Administration",
           items: [
             { slug: "administration/deployment" },
+            { slug: "administration/sizing" },
             { slug: "administration/configuration" },
             { slug: "administration/admin-password" },
             { slug: "administration/rbac" },
