@@ -14182,7 +14182,7 @@
                         "description": "The accepted scope-change row plus the sprint's pending_count."
                     },
                     "403": {
-                        "description": "Accepting scope changes is team-owned (Admin+)."
+                        "description": "Accepting scope changes is team-owned (Admin or SM/PO facet)."
                     }
                 }
             }
@@ -14226,7 +14226,7 @@
                         "description": "The rejected scope-change row plus the sprint's pending_count."
                     },
                     "403": {
-                        "description": "Rejecting scope changes is team-owned (Admin+)."
+                        "description": "Rejecting scope changes is team-owned (Admin or SM/PO facet)."
                     }
                 }
             }
@@ -15056,7 +15056,7 @@
                         "description": "Sprint is not ACTIVE or carry_over_to target is invalid."
                     },
                     "403": {
-                        "description": "Rejecting pending scope changes is team-owned (Project Manager+)."
+                        "description": "Rejecting pending scope changes is team-owned (Admin or SM/PO facet)."
                     }
                 }
             }
@@ -16059,7 +16059,7 @@
                         "description": "Body includes the accepted scope-change rows and the pending_count."
                     },
                     "403": {
-                        "description": "Accepting scope changes is team-owned (Admin+)."
+                        "description": "Accepting scope changes is team-owned (Admin or SM/PO facet)."
                     }
                 }
             }
@@ -16125,7 +16125,7 @@
                         "description": "Body includes the rejected scope-change rows and the pending_count."
                     },
                     "403": {
-                        "description": "Rejecting scope changes is team-owned (Admin+)."
+                        "description": "Rejecting scope changes is team-owned (Admin or SM/PO facet)."
                     }
                 }
             }

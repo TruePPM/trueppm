@@ -42,8 +42,40 @@ from trueppm_api.apps.projects.services import (
     snapshot_committed_metrics,
     upsert_burndown_for_sprint,
 )
+from trueppm_api.apps.teams.models import Team, TeamMembership, TeamRole
 
 User = get_user_model()
+
+
+def _grant_facet(
+    project: Project,
+    user: object,
+    *,
+    is_product_owner: bool = False,
+    is_scrum_master: bool = False,
+) -> None:
+    """Create the project's default team and a facet-bearing membership for ``user``.
+
+    Mirrors the production invariant (one default team per project; facets live on
+    the TeamMembership row) without relying on the on_commit mirror signal, which
+    does not run under the test transaction.
+    """
+    team, _ = Team.objects.get_or_create(
+        project=project,
+        is_default=True,
+        is_deleted=False,
+        defaults={"name": "Default Team", "short_id": "T01", "server_version": 1},
+    )
+    TeamMembership.objects.update_or_create(
+        team=team,
+        user=user,
+        is_deleted=False,
+        defaults={
+            "role": TeamRole.MEMBER,
+            "is_product_owner": is_product_owner,
+            "is_scrum_master": is_scrum_master,
+        },
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -266,6 +298,75 @@ def test_member_high_role_not_admin_band_forbidden(
 
 
 # --------------------------------------------------------------------------- #
+# Facet-widened gate (#1140 / ADR-0123 §3): the PO owns sprint scope and the SM
+# facilitates, so each facet accepts/rejects even below the Admin role band —
+# while the back-door close still holds (facet is a real team-owned assignment).
+# --------------------------------------------------------------------------- #
+
+
+def test_product_owner_facet_member_can_accept(
+    project: Project, sprint: Sprint, owner: object, member: object
+) -> None:
+    """A Member holding the Product-Owner facet may accept — the PO owns scope."""
+    _grant_facet(project, member, is_product_owner=True)
+    pending = _task(project, "Pending", sprint=sprint, story_points=3)
+    sc = _inject(pending, sprint, owner)
+    result = accept_scope_change(sc, member)
+    result.refresh_from_db()
+    assert result.status == ScopeChangeStatus.ACCEPTED
+
+
+def test_scrum_master_facet_member_can_accept(
+    project: Project, sprint: Sprint, owner: object, member: object
+) -> None:
+    """A Member holding the Scrum-Master facet may accept — the SM facilitates."""
+    _grant_facet(project, member, is_scrum_master=True)
+    pending = _task(project, "Pending", sprint=sprint, story_points=3)
+    sc = _inject(pending, sprint, owner)
+    result = accept_scope_change(sc, member)
+    result.refresh_from_db()
+    assert result.status == ScopeChangeStatus.ACCEPTED
+
+
+def test_product_owner_facet_member_can_reject(
+    project: Project, sprint: Sprint, owner: object, member: object
+) -> None:
+    """The facet widens reject as well as accept (one gate guards both)."""
+    _grant_facet(project, member, is_product_owner=True)
+    pending = _task(project, "Pending", sprint=sprint, story_points=3)
+    sc = _inject(pending, sprint, owner)
+    result = reject_scope_change(sc, member)
+    result.refresh_from_db()
+    assert result.status == ScopeChangeStatus.REJECTED
+
+
+def test_member_without_facet_still_forbidden(
+    project: Project, sprint: Sprint, owner: object, member: object
+) -> None:
+    """A plain Member with NO facet is still 403 — the widening is facet-scoped,
+    not a blanket Member grant (regression guard for the existing gate)."""
+    _grant_facet(project, member, is_product_owner=False, is_scrum_master=False)
+    pending = _task(project, "Pending", sprint=sprint, story_points=3)
+    sc = _inject(pending, sprint, owner)
+    with pytest.raises(ScopeAcceptForbidden):
+        accept_scope_change(sc, member)
+
+
+def test_non_member_with_no_facet_still_back_door_closed(
+    project: Project, sprint: Sprint, owner: object, outsider: object
+) -> None:
+    """The back-door close survives the widening: an org/PMO principal with neither
+    a ProjectMembership nor a team facet is still 403 even as a superuser. The
+    facet path can only pass for a real, explicitly-assigned TeamMembership row."""
+    outsider.is_superuser = True
+    outsider.save(update_fields=["is_superuser"])
+    pending = _task(project, "Pending", sprint=sprint, story_points=3)
+    sc = _inject(pending, sprint, owner)
+    with pytest.raises(ScopeAcceptForbidden):
+        accept_scope_change(sc, outsider)
+
+
+# --------------------------------------------------------------------------- #
 # No auto-accept: the notify signal has zero input to status (ADR-0102 §3).
 # --------------------------------------------------------------------------- #
 
@@ -366,6 +467,80 @@ def test_single_accept_endpoint(
     assert resp.status_code == 200
     assert resp.data["status"] == ScopeChangeStatus.ACCEPTED
     assert resp.data["pending_count"] == 0
+
+
+@patch("trueppm_api.apps.sync.broadcast.broadcast_board_event")
+def test_bulk_accept_endpoint_product_owner_facet_member(
+    _broadcast: object,
+    project: Project,
+    sprint: Sprint,
+    owner: object,
+    member: object,
+) -> None:
+    """#1140: a Member holding the PO facet may bulk-accept via the endpoint.
+
+    This exercises BOTH gates end-to-end: the view-layer permission
+    (IsProjectScopeManager) AND the service-layer gate must honor the facet — a
+    role-only view permission would 403 the PO at the permission layer before the
+    service gate ran.
+    """
+    _grant_facet(project, member, is_product_owner=True)
+    a = _task(project, "A", sprint=sprint, story_points=1)
+    _inject(a, sprint, owner)
+    client = APIClient()
+    client.force_authenticate(user=member)
+    resp = client.post(f"/api/v1/sprints/{sprint.pk}/scope-changes/accept/", {}, format="json")
+    assert resp.status_code == 200
+    assert len(resp.data["accepted"]) == 1
+
+
+@patch("trueppm_api.apps.sync.broadcast.broadcast_board_event")
+def test_single_reject_endpoint_scrum_master_facet_member(
+    _broadcast: object,
+    project: Project,
+    sprint: Sprint,
+    owner: object,
+    member: object,
+) -> None:
+    """#1140: a Member holding the SM facet may reject a single injection via the
+    endpoint (queryset member-scope + service gate both pass on the facet)."""
+    _grant_facet(project, member, is_scrum_master=True)
+    a = _task(project, "A", sprint=sprint, story_points=1)
+    sc = _inject(a, sprint, owner)
+    client = APIClient()
+    client.force_authenticate(user=member)
+    resp = client.post(f"/api/v1/scope-changes/{sc.pk}/reject/", {}, format="json")
+    assert resp.status_code == 200
+    assert resp.data["status"] == ScopeChangeStatus.REJECTED
+
+
+def test_bulk_accept_endpoint_plain_member_403(
+    project: Project, sprint: Sprint, owner: object, member: object
+) -> None:
+    """Regression guard: a Member with NO facet is still 403 at the view layer —
+    the widening is facet-scoped, not a blanket Member grant."""
+    a = _task(project, "A", sprint=sprint, story_points=1)
+    _inject(a, sprint, owner)
+    client = APIClient()
+    client.force_authenticate(user=member)
+    resp = client.post(f"/api/v1/sprints/{sprint.pk}/scope-changes/accept/", {}, format="json")
+    assert resp.status_code == 403
+
+
+def test_bulk_accept_endpoint_non_member_403(
+    project: Project, sprint: Sprint, owner: object, outsider: object
+) -> None:
+    """The view-layer back-door close: an org/PMO principal with no ProjectMembership
+    and no facet is denied by IsProjectScopeManager at the HTTP layer, even as a
+    superuser — the facet path cannot be synthesized."""
+    a = _task(project, "A", sprint=sprint, story_points=1)
+    _inject(a, sprint, owner)
+    outsider.is_superuser = True
+    outsider.save(update_fields=["is_superuser"])
+    client = APIClient()
+    client.force_authenticate(user=outsider)
+    resp = client.post(f"/api/v1/sprints/{sprint.pk}/scope-changes/accept/", {}, format="json")
+    assert resp.status_code == 403
 
 
 def test_single_accept_endpoint_member_403(
