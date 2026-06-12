@@ -2339,6 +2339,15 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
             if serializer.instance and serializer.instance.sprint_id
             else None
         )
+        # #855: capture prior blocked state so the task.blocked notification fires
+        # only on the unblocked→blocked transition (re-saving an already-blocked
+        # task, or editing its reason, must not re-notify — the before/after
+        # snapshot is the idempotency guard). "Blocked" = non-empty blocked_reason.
+        old_is_blocked = bool(
+            (getattr(serializer.instance, "blocked_reason", "") or "").strip()
+            if serializer.instance
+            else False
+        )
 
         instance = serializer.save()
         project_id = str(instance.project_id)
@@ -2431,6 +2440,25 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
                         "task.due_date_changed", [d_rcpt], d_subj, d_body, project_id
                     )
                 )
+
+        # task.blocked (#855, #476) — fires on the unblocked→blocked transition
+        # only, to the assignee (the owner of the blocked work), never the actor
+        # who raised the flag. The board broadcast above already carries the visual
+        # update; this is the personal in-app/email signal.
+        new_is_blocked = bool((instance.blocked_reason or "").strip())
+        became_blocked = not old_is_blocked and new_is_blocked
+        if became_blocked and new_assignee_id is not None and new_assignee_id != actor_id:
+            reason = (instance.blocked_reason or "").strip()
+            b_subj = f"{task_name} is blocked"
+            b_body = (
+                f'"{task_name}" was marked blocked: {reason}'
+                if reason
+                else f'"{task_name}" was marked blocked.'
+            )
+            b_rcpt = new_assignee_id
+            transaction.on_commit(
+                lambda: _notify_event("task.blocked", [b_rcpt], b_subj, b_body, project_id)
+            )
 
     def _handle_task_write(
         self, super_method: Any, request: Request, *args: Any, **kwargs: Any
@@ -7301,11 +7329,12 @@ class MeWorkPagination(pagination.LimitOffsetPagination):
 class MeWorkView(generics.ListAPIView[Task]):
     """``GET /api/v1/me/work/`` — contributor's flat task list across all projects.
 
-    Returns the requesting user's assigned, non-BACKLOG, non-soft-deleted tasks
-    grouped (client-side) by active sprint. Deliberately flat — no CPM fields,
-    no WBS hierarchy, no phase tree. The contributor (Priya persona) reads this
-    as a personal to-do list; PM-level concepts (critical path, float, schedule
-    variance) are intentionally absent.
+    Returns the requesting user's assigned, non-BACKLOG, non-soft-deleted tasks,
+    each tagged with a server-computed ``group`` bucket (today / this_sprint /
+    upcoming, #484/ADR-0122) and pre-sorted so the buckets are contiguous.
+    Deliberately flat — no CPM fields, no WBS hierarchy, no phase tree. The
+    contributor (Priya persona) reads this as a personal to-do list; PM-level
+    concepts (critical path, float, schedule variance) are intentionally absent.
 
     **RBAC contract (Morgan's sprint-sovereignty requirement)**: the queryset is
     hard-scoped to ``assignee=request.user`` *and* re-checks project membership
@@ -7334,7 +7363,7 @@ class MeWorkView(generics.ListAPIView[Task]):
     pagination_class = MeWorkPagination
 
     def get_queryset(self) -> QuerySet[Task]:
-        from django.db.models import Case, IntegerField, Value, When
+        from django.db.models import Case, DateField, IntegerField, Value, When
         from django.db.models.functions import Coalesce
 
         # IsAuthenticated guarantees request.user is a real User (not Anonymous)
@@ -7345,6 +7374,7 @@ class MeWorkView(generics.ListAPIView[Task]):
         # value can't be None at runtime because IsAuthenticated rejected
         # anonymous callers earlier in the request lifecycle.
         user_pk = self.request.user.pk or -1
+        today = timezone.localdate()
         return (
             Task.objects.filter(
                 assignee_id=user_pk,
@@ -7356,14 +7386,41 @@ class MeWorkView(generics.ListAPIView[Task]):
             .exclude(status=TaskStatus.BACKLOG)
             .select_related("project", "sprint")
             .annotate(
-                _in_active_sprint=Case(
-                    When(sprint__state=SprintState.ACTIVE, then=Value(0)),
+                _sort_date=Coalesce("planned_start", "early_start"),
+                # Same due cascade the serializer's ``due`` field uses (ADR-0065),
+                # so the bucket boundary matches the date the UI shows.
+                _due=Coalesce(
+                    "actual_finish",
+                    "planned_start",
+                    "early_finish",
+                    "sprint__finish_date",
+                    output_field=DateField(),
+                ),
+                # Blocked-first ordering within a group (#484): the human blocker
+                # flag is the most urgent thing a contributor needs to see.
+                _blocked=Case(
+                    When(~Q(blocked_reason=""), then=Value(0)),
                     default=Value(1),
                     output_field=IntegerField(),
                 ),
-                _sort_date=Coalesce("planned_start", "early_start"),
             )
-            .order_by("_in_active_sprint", "_sort_date", "priority_rank", "id")
+            # ``_group_rank`` references the ``_due`` alias, so it must be a second
+            # annotate() pass — Django cannot reference an alias defined in the same
+            # call. 0=Today (due today or overdue and not done), 1=This Sprint (in
+            # the active sprint), 2=Upcoming (everything else). Serializer maps the
+            # rank → the contributor-facing bucket name.
+            .annotate(
+                _group_rank=Case(
+                    When(
+                        Q(_due__lte=today) & ~Q(status=TaskStatus.COMPLETE),
+                        then=Value(0),
+                    ),
+                    When(sprint__state=SprintState.ACTIVE, then=Value(1)),
+                    default=Value(2),
+                    output_field=IntegerField(),
+                ),
+            )
+            .order_by("_group_rank", "_blocked", "_sort_date", "priority_rank", "id")
         )
 
     @extend_schema(

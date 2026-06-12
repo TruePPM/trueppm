@@ -199,6 +199,52 @@ class MeSerializer(serializers.Serializer[Any]):
     display_name = serializers.SerializerMethodField()
     initials = serializers.SerializerMethodField()
     email = serializers.EmailField()
+    # Contributor-tier role signal (#855/#856). The web client gates the admin
+    # settings nav and the "Signal-only" notification default on this, instead of
+    # re-deriving "am I an admin anywhere" by fanning out per-project membership
+    # calls. API-first: the tier verdict is a server fact, MCP-reachable.
+    #   - max_project_role: highest project Role ordinal across the user's
+    #     memberships (null if they belong to no projects).
+    #   - workspace_role: the user's WorkspaceRole ordinal (null if no workspace
+    #     membership).
+    #   - can_access_admin_settings: true iff Admin+ in any project OR Admin+ at
+    #     the workspace — the single boolean the settings shell gates on.
+    max_project_role = serializers.SerializerMethodField()
+    workspace_role = serializers.SerializerMethodField()
+    can_access_admin_settings = serializers.SerializerMethodField()
+
+    def get_max_project_role(self, obj: Any) -> int | None:
+        # Memoized: get_can_access_admin_settings also needs this, so without the
+        # cache /auth/me would run the same aggregate twice per response.
+        if not hasattr(self, "_max_project_role"):
+            from django.db.models import Max
+
+            value = ProjectMembership.objects.filter(user=obj, is_deleted=False).aggregate(
+                _max=Max("role")
+            )["_max"]
+            self._max_project_role: int | None = int(value) if value is not None else None
+        return self._max_project_role
+
+    def get_workspace_role(self, obj: Any) -> int | None:
+        if not hasattr(self, "_workspace_role"):
+            from django.db.models import Max
+
+            from trueppm_api.apps.workspace.models import WorkspaceMembership
+
+            value = WorkspaceMembership.objects.filter(user=obj, is_deleted=False).aggregate(
+                _max=Max("role")
+            )["_max"]
+            self._workspace_role: int | None = int(value) if value is not None else None
+        return self._workspace_role
+
+    def get_can_access_admin_settings(self, obj: Any) -> bool:
+        from trueppm_api.apps.workspace.models import WorkspaceRole
+
+        proj = self.get_max_project_role(obj)
+        ws = self.get_workspace_role(obj)
+        return (proj is not None and proj >= Role.ADMIN) or (
+            ws is not None and ws >= WorkspaceRole.ADMIN
+        )
 
     def get_display_name(self, obj: Any) -> str:
         name = f"{obj.first_name} {obj.last_name}".strip()

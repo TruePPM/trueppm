@@ -5,6 +5,7 @@ import { AppShell } from '@/features/shell/AppShell';
 import { ProjectShell } from '@/features/project/ProjectShell';
 import { LoginPage } from '@/features/auth/LoginPage';
 import { RequireAuth } from '@/features/auth/RequireAuth';
+import { RequireAdminSettings } from '@/features/settings/RequireAdminSettings';
 
 // Route-level code splitting — each chunk is loaded only when the route is
 // first visited, keeping the initial bundle (login + shell) minimal.
@@ -441,9 +442,11 @@ export const router = createBrowserRouter([
               {
                 path: 'settings',
                 element: (
-                  <Suspense fallback={<RouteLoadingFallback />}>
-                    <ProjectSettingsPage />
-                  </Suspense>
+                  <RequireAdminSettings>
+                    <Suspense fallback={<RouteLoadingFallback />}>
+                      <ProjectSettingsPage />
+                    </Suspense>
+                  </RequireAdminSettings>
                 ),
                 children: [
                   {
@@ -640,9 +643,11 @@ export const router = createBrowserRouter([
               {
                 path: 'settings',
                 element: (
-                  <Suspense fallback={<RouteLoadingFallback />}>
-                    <ProgramSettingsPage />
-                  </Suspense>
+                  <RequireAdminSettings>
+                    <Suspense fallback={<RouteLoadingFallback />}>
+                      <ProgramSettingsPage />
+                    </Suspense>
+                  </RequireAdminSettings>
                 ),
                 children: [
                   {
@@ -725,9 +730,11 @@ export const router = createBrowserRouter([
           {
             path: 'settings',
             element: (
-              <Suspense fallback={<RouteLoadingFallback />}>
-                <WorkspaceSettingsPage />
-              </Suspense>
+              <RequireAdminSettings>
+                <Suspense fallback={<RouteLoadingFallback />}>
+                  <WorkspaceSettingsPage />
+                </Suspense>
+              </RequireAdminSettings>
             ),
             children: [
               {

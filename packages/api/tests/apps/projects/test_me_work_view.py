@@ -232,12 +232,15 @@ def test_soft_deleted_project_excluded(calendar: Calendar, alice: object) -> Non
 
 
 @pytest.mark.django_db
-def test_active_sprint_tasks_come_first(calendar: Calendar, alice: object) -> None:
+def test_today_bucket_sorts_by_due_date(calendar: Calendar, alice: object) -> None:
+    """ADR-0122 supersedes the old 'active-sprint-first' ordering with date
+    bucketing: both these tasks have a past planned_start, so both land in the
+    'today' bucket and sort by due date — the earlier-due one first, regardless
+    of sprint membership. (The sprint-vs-no-sprint distinction now only matters
+    for future-dated tasks: this_sprint vs upcoming — see test_me_work_grouping.)"""
     proj = _project(calendar, "P1")
     _member(proj, alice)
     sprint = _active_sprint(proj)
-    # No-sprint task should sort AFTER the in-sprint task even though it has
-    # an earlier planned_start.
     Task.objects.create(
         project=proj,
         name="No sprint, early",
@@ -256,7 +259,9 @@ def test_active_sprint_tasks_come_first(calendar: Calendar, alice: object) -> No
 
     resp = _client(alice).get("/api/v1/me/work/")
     names = [t["name"] for t in resp.data["results"]]
-    assert names == ["In sprint", "No sprint, early"]
+    assert names == ["No sprint, early", "In sprint"]
+    # Both are overdue → both in the 'today' bucket.
+    assert {t["group"] for t in resp.data["results"]} == {"today"}
 
 
 @pytest.mark.django_db

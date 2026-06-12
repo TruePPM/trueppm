@@ -263,3 +263,72 @@ def test_comment_notifies_task_assignee(
     assert resp.status_code == 201, resp.data
     # Assignee bob (not the commenter admin) gets a comment_on_my_task notification.
     assert Notification.objects.filter(recipient=bob, event_type="comment_on_my_task").count() == 1
+
+
+# ---------------------------------------------------------------------------
+# task.blocked transition (#855 / #476)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_blocking_task_notifies_assignee_not_actor(
+    client: APIClient,
+    project: Project,
+    admin: Any,
+    bob: Any,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """Setting blocked_reason on bob's task notifies bob, not the actor (admin)."""
+    task = Task.objects.create(project=project, name="Foundation pour", duration=1, assignee=bob)
+    with django_capture_on_commit_callbacks(execute=True):
+        resp = client.patch(
+            f"/api/v1/tasks/{task.pk}/",
+            {"blocked_reason": "Waiting on the permit"},
+            format="json",
+        )
+    assert resp.status_code == 200, resp.data
+    assert Notification.objects.filter(recipient=bob, event_type="task.blocked").count() == 1
+    assert not Notification.objects.filter(recipient=admin, event_type="task.blocked").exists()
+
+
+@pytest.mark.django_db
+def test_blocked_notification_fires_once_not_on_reason_edit(
+    client: APIClient,
+    project: Project,
+    bob: Any,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """Editing an already-blocked task's reason must not re-notify (transition guard)."""
+    task = Task.objects.create(
+        project=project,
+        name="Foundation pour",
+        duration=1,
+        assignee=bob,
+        blocked_reason="Waiting on the permit",
+    )
+    with django_capture_on_commit_callbacks(execute=True):
+        resp = client.patch(
+            f"/api/v1/tasks/{task.pk}/",
+            {"blocked_reason": "Still waiting on the permit"},
+            format="json",
+        )
+    assert resp.status_code == 200, resp.data
+    # No new task.blocked notification — the task was already blocked.
+    assert not Notification.objects.filter(recipient=bob, event_type="task.blocked").exists()
+
+
+@pytest.mark.django_db
+def test_blocked_default_seed_in_app_on_email_off(bob: Any) -> None:
+    get_or_create_default_preferences(bob)
+    in_app = NotificationPreference.objects.get(
+        user=bob,
+        event_type=NotificationEventType.TASK_BLOCKED,
+        channel=NotificationChannel.IN_APP,
+    )
+    email = NotificationPreference.objects.get(
+        user=bob,
+        event_type=NotificationEventType.TASK_BLOCKED,
+        channel=NotificationChannel.EMAIL,
+    )
+    assert in_app.enabled is True
+    assert email.enabled is False

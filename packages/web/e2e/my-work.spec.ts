@@ -42,6 +42,10 @@ const TASK = {
   due: '2026-05-30',
   due_source: 'planned',
   is_critical: true,
+  // #484/#855: server-computed bucket + explicit human blocker flag.
+  group: 'this_sprint',
+  is_blocked: false,
+  blocked_reason: '',
   server_version: 100,
   url: `/projects/${PROJECT_ID}/schedule?task=${TASK_ID}`,
 };
@@ -78,6 +82,9 @@ async function setupAuthenticatedPage(page: Page): Promise<void> {
         display_name: 'Priya',
         initials: 'P',
         email: 'priya@example.com',
+        max_project_role: 100,
+        workspace_role: null,
+        can_access_admin_settings: false,
       }),
     }),
   );
@@ -132,9 +139,10 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
     // Page title.
     await expect(page.getByRole('heading', { name: 'My Work' })).toBeVisible();
 
-    // Section header for the active sprint.
+    // Section header for the server-computed bucket (#484): the task is in the
+    // active sprint, so it renders under "This Sprint".
     const groupHeader = page.getByRole('heading', {
-      name: /Sprint 12.*Design App.*4.*days remaining.*1 tasks?/i,
+      name: /This Sprint, 1 task/i,
     });
     await expect(groupHeader).toBeVisible();
 
@@ -273,5 +281,42 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
     ).toBeVisible();
     // No demo CTA in flavor B.
     await expect(page.getByRole('button', { name: /Load demo data/i })).toHaveCount(0);
+  });
+
+  test('a blocked task shows the Blocked badge with its reason (#476/#855)', async ({ page }) => {
+    await setupAuthenticatedPage(page);
+    await page.route('**/api/v1/projects/', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ count: 1, next: null, previous: null, results: [PROJECT_DETAIL] }),
+      }),
+    );
+    await page.route('**/api/v1/me/active-sprints/', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+    );
+    await page.route('**/api/v1/me/work/**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          results: [
+            { ...TASK, group: 'today', is_blocked: true, blocked_reason: 'Waiting on the API key' },
+          ],
+          next: null,
+          previous: null,
+          active_sprints: [ACTIVE_SPRINT],
+          due_today_count: 1,
+          server_version_high_water: 100,
+        }),
+      }),
+    );
+
+    await page.goto('/me/work');
+
+    // Blocked badge + the reason render in the row; the task sits under "Today".
+    await expect(page.getByRole('heading', { name: /Today, 1 task/i })).toBeVisible();
+    await expect(page.getByText('Blocked', { exact: true })).toBeVisible();
+    await expect(page.getByText('Waiting on the API key')).toBeVisible();
   });
 });

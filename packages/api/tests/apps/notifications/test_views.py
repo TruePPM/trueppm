@@ -267,3 +267,56 @@ class TestNotificationPreferences:
     def test_unauthenticated_blocked(self) -> None:
         r = APIClient().get("/api/v1/me/notification-preferences/")
         assert r.status_code in (401, 403)
+
+    # -- apply-preset (#855) --------------------------------------------------
+
+    def test_apply_signal_only_preset(self, alice_client: APIClient, alice: object) -> None:
+        """signal_only keeps in-app ON for blocked + deadline-changed, all else OFF."""
+        from trueppm_api.apps.notifications.models import SIGNAL_ONLY_EVENTS
+
+        r = alice_client.post(
+            "/api/v1/me/notification-preferences/apply-preset/",
+            {"preset": "signal_only"},
+            format="json",
+        )
+        assert r.status_code == 200, r.data
+        for pref in NotificationPreference.objects.filter(user=alice):
+            expected = (
+                pref.channel == NotificationChannel.IN_APP and pref.event_type in SIGNAL_ONLY_EVENTS
+            )
+            assert pref.enabled is expected, (pref.event_type, pref.channel)
+
+    def test_apply_everything_preset_restores_defaults(
+        self, alice_client: APIClient, alice: object
+    ) -> None:
+        # First go signal-only, then restore everything.
+        alice_client.post(
+            "/api/v1/me/notification-preferences/apply-preset/",
+            {"preset": "signal_only"},
+            format="json",
+        )
+        r = alice_client.post(
+            "/api/v1/me/notification-preferences/apply-preset/",
+            {"preset": "everything"},
+            format="json",
+        )
+        assert r.status_code == 200
+        default_map = {(e, c): enabled for (e, c, enabled) in DEFAULT_PREFERENCES}
+        for pref in NotificationPreference.objects.filter(user=alice):
+            assert pref.enabled is default_map[(pref.event_type, pref.channel)]
+
+    def test_apply_preset_rejects_unknown(self, alice_client: APIClient) -> None:
+        r = alice_client.post(
+            "/api/v1/me/notification-preferences/apply-preset/",
+            {"preset": "nope"},
+            format="json",
+        )
+        assert r.status_code == 400
+
+    def test_apply_preset_unauthenticated_blocked(self) -> None:
+        r = APIClient().post(
+            "/api/v1/me/notification-preferences/apply-preset/",
+            {"preset": "signal_only"},
+            format="json",
+        )
+        assert r.status_code in (401, 403)

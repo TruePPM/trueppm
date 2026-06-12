@@ -12,9 +12,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   type NotificationPreferenceRow,
+  useApplyNotificationPreset,
   useNotificationPreferences,
   useUpdateNotificationPreference,
 } from '@/hooks/useNotificationPreferences';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
 
 const EVENT_LABELS: Record<string, { title: string; example: string }> = {
   mention_individual: {
@@ -33,6 +35,11 @@ const EVENT_LABELS: Record<string, { title: string; example: string }> = {
   'task.due_date_changed': {
     title: 'When the planned date of your task changes',
     example: '“Foundation pour” moves to Aug 14',
+  },
+  // Blocked signal (#855) — one of the two events the Signal-only preset keeps on.
+  'task.blocked': {
+    title: 'When a task you own is blocked',
+    example: 'A teammate flags “Foundation pour” as blocked',
   },
   comment_on_my_task: {
     title: 'When someone comments on your task',
@@ -84,8 +91,19 @@ function PreferenceToggle({ pref, onChange }: ToggleProps) {
 export function NotificationPreferencesPage() {
   const { preferences, isLoading, error } = useNotificationPreferences();
   const updatePreference = useUpdateNotificationPreference();
+  const applyPreset = useApplyNotificationPreset();
+  const { user } = useCurrentUser();
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const debounceTimers = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+  // #855: a contributor (no admin access anywhere) gets the simplified
+  // "Signal-only" card with the full matrix collapsed behind a one-tap escape;
+  // admins skip the card and see the matrix directly. `showFullMatrix` is the
+  // escape latch — once a contributor opens the grid it stays open for the visit.
+  // Strict `=== false`: an absent/loading signal must NOT hide the matrix (an
+  // admin whose /auth/me hasn't resolved should still see the full grid).
+  const isContributor = user?.can_access_admin_settings === false;
+  const [showFullMatrix, setShowFullMatrix] = useState(false);
+  const matrixVisible = !isContributor || showFullMatrix;
 
   // Distinct event_type + channel sets, derived from the preferences list
   // so Enterprise additions (slack_dm, teams_dm, sms) appear automatically.
@@ -111,6 +129,7 @@ export function NotificationPreferencesPage() {
         'mention_group',
         'task.assigned',
         'task.due_date_changed',
+        'task.blocked',
         'comment_on_my_task',
       ]),
       channels: ordered(channelSet, ['in_app', 'email']),
@@ -185,11 +204,55 @@ export function NotificationPreferencesPage() {
           Notification preferences
         </h1>
         <p className="text-sm text-neutral-text-secondary">
-          Choose how you&apos;re notified when someone @-mentions you.
+          Choose how you&apos;re notified about your work.
         </p>
       </header>
 
+      {/* Signal-only card (#855) — contributors only. The full matrix stays
+          collapsed behind the escape until they ask for it. */}
+      {isContributor && (
+        <section
+          aria-label="Signal-only notifications"
+          className="rounded border border-brand-primary/40 bg-brand-primary/5 p-4 flex flex-col gap-3"
+        >
+          <div>
+            <h2 className="text-sm font-semibold text-neutral-text-primary">Signal-only</h2>
+            <p className="text-sm text-neutral-text-secondary mt-0.5">
+              You&apos;ll only hear about blocked work and deadline changes. Everything else
+              stays quiet.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() =>
+                applyPreset.mutate('signal_only', { onSuccess: () => setSavedAt(Date.now()) })
+              }
+              disabled={applyPreset.isPending}
+              className="h-9 px-3 rounded text-sm font-medium bg-brand-primary text-white
+                hover:bg-brand-primary-dark disabled:opacity-60 disabled:cursor-progress
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
+                focus-visible:ring-offset-1"
+            >
+              {applyPreset.isPending ? 'Applying…' : 'Use signal-only'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowFullMatrix((v) => !v)}
+              aria-expanded={showFullMatrix}
+              className="h-9 px-2 rounded text-sm font-medium text-brand-primary
+                hover:underline focus-visible:outline-none focus-visible:ring-2
+                focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            >
+              {showFullMatrix ? 'Hide notification types' : 'Show all notification types'}
+            </button>
+          </div>
+        </section>
+      )}
+
       {/* Desktop matrix (≥ md): one row per event_type, one column per channel. */}
+      {matrixVisible && (
+      <>
       <div className="hidden md:block border border-neutral-border rounded">
         <table className="w-full text-sm">
           <thead>
@@ -288,13 +351,17 @@ export function NotificationPreferencesPage() {
           );
         })}
       </div>
+      </>
+      )}
 
       <p aria-live="polite" className="text-xs text-neutral-text-secondary">
-        {savedAt != null
-          ? 'Saved.'
-          : updatePreference.isError
-            ? 'Couldn’t save preference. Try again.'
-            : 'Changes save automatically.'}
+        {applyPreset.isError
+          ? 'Couldn’t apply the preset. Try again.'
+          : savedAt != null
+            ? 'Saved.'
+            : updatePreference.isError
+              ? 'Couldn’t save preference. Try again.'
+              : 'Changes save automatically.'}
       </p>
     </main>
   );

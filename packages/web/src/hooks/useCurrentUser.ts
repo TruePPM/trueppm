@@ -8,6 +8,20 @@ export interface CurrentUser {
   display_name: string;
   initials: string;
   email: string;
+  /**
+   * Contributor-tier role signal (#855/#856, ADR-0122). Server-computed so the
+   * client gates admin chrome on one boolean instead of fanning out per-project
+   * membership lookups.
+   *   - max_project_role: highest project Role ordinal across memberships (null
+   *     if the user belongs to no projects).
+   *   - workspace_role: WorkspaceRole ordinal (null if no workspace membership).
+   *   - can_access_admin_settings: Admin+ in any project OR Admin+ at the
+   *     workspace — gates the settings shell admin scopes and the Signal-only
+   *     notification default.
+   */
+  max_project_role: number | null;
+  workspace_role: number | null;
+  can_access_admin_settings: boolean;
 }
 
 /**

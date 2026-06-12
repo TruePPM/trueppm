@@ -30,6 +30,9 @@ describe('useMyTasksFilter', () => {
         display_name: 'A',
         initials: 'A',
         email: 'a@x',
+        max_project_role: 100,
+        workspace_role: null,
+        can_access_admin_settings: false,
       },
       isLoading: false,
     });
@@ -47,6 +50,9 @@ describe('useMyTasksFilter', () => {
         display_name: 'PM',
         initials: 'P',
         email: 'pm@x',
+        max_project_role: 300,
+        workspace_role: null,
+        can_access_admin_settings: true,
       },
       isLoading: false,
     });
@@ -65,6 +71,9 @@ describe('useMyTasksFilter', () => {
         display_name: 'M',
         initials: 'M',
         email: 'm@x',
+        max_project_role: 100,
+        workspace_role: null,
+        can_access_admin_settings: false,
       },
       isLoading: false,
     });
@@ -83,6 +92,9 @@ describe('useMyTasksFilter', () => {
         display_name: 'M',
         initials: 'M',
         email: 'm@x',
+        max_project_role: 200,
+        workspace_role: null,
+        can_access_admin_settings: false,
       },
       isLoading: false,
     });
