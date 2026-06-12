@@ -13,6 +13,7 @@
  * string, so counts can be wrapped. Colour is never the sole signal (rule 107):
  * the text carries the meaning, the icon is aria-hidden.
  */
+import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 
 import { useSprintBurndown, useSprintForecast } from '@/hooks/useSprints';
@@ -62,7 +63,7 @@ function Chip({
   to: string;
   tone: Tone;
   label: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   const toneClass =
     tone === 'at-risk'
@@ -86,7 +87,7 @@ function Chip({
 }
 
 interface FinishChip {
-  node: React.ReactNode;
+  node: ReactNode;
   tone: Tone;
   icon: string;
 }
