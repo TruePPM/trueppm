@@ -306,6 +306,27 @@ urlpatterns = [
         SprintTaskOutcomeViewSet.as_view({"post": "toggle_demo"}),
         name="sprint-task-outcome-toggle-demo",
     ),
+    # Sprint Review polish (Wave D, #1130/#1131/#1132)
+    path(
+        "sprints/<pk>/demo-list/reorder/",
+        SprintViewSet.as_view({"post": "demo_list_reorder"}),
+        name="sprints-demo-list-reorder",
+    ),
+    path(
+        "sprint-task-outcomes/<pk>/set-presenter/",
+        SprintTaskOutcomeViewSet.as_view({"post": "set_presenter"}),
+        name="sprint-task-outcome-set-presenter",
+    ),
+    path(
+        "sprint-task-outcomes/<pk>/set-note/",
+        SprintTaskOutcomeViewSet.as_view({"post": "set_note"}),
+        name="sprint-task-outcome-set-note",
+    ),
+    path(
+        "sprint-task-outcomes/<pk>/flag-for-backlog/",
+        SprintTaskOutcomeViewSet.as_view({"post": "flag_for_backlog"}),
+        name="sprint-task-outcome-flag-for-backlog",
+    ),
     # Team daily-standup "what changed since yesterday" delta (ADR-0121, #925)
     path(
         "sprints/<pk>/daily-delta/",
