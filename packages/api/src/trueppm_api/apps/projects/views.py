@@ -2459,7 +2459,7 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
             sprint = instance.sprint
             if sprint is not None and sprint.state == SprintState.ACTIVE:
                 already_notified = {x for x in (new_assignee_id, actor_id) if x}
-                team_ids = [
+                team_ids: list[str | None] = [
                     str(aid)
                     for aid in Task.objects.filter(sprint_id=sprint.pk, assignee__isnull=False)
                     .values_list("assignee_id", flat=True)
