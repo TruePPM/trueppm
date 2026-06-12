@@ -19,14 +19,12 @@ function badgeBgClass(severity: number): string {
   return 'bg-neutral-border text-neutral-text-secondary';
 }
 
-// Abbreviate short_id to 3 display chars for the matrix badge.
-function badgeLabel(shortId: string): string {
-  if (!shortId) return '?';
-  if (/^\d+$/.test(shortId)) {
-    const n = parseInt(shortId, 10);
-    return String(n).padStart(3, '0').slice(-3);
-  }
-  return shortId.slice(0, 3).toUpperCase();
+// Compact badge label for a matrix cell: the server's display id without the
+// "R-" prefix ("R-007" → "007"). Pure presentation — the identifier itself is
+// server-owned (#929), so the badge no longer re-parses the raw short_id.
+function badgeLabel(displayId: string): string {
+  if (!displayId) return '?';
+  return displayId.replace(/^R-/, '');
 }
 
 export interface SelectedCell {
@@ -143,7 +141,7 @@ export function RiskMatrix({ risks, selectedCell, onCellSelect }: RiskMatrixProp
                           title={r.title}
                           aria-hidden="true"
                         >
-                          {badgeLabel(r.short_id)}
+                          {badgeLabel(r.short_id_display)}
                         </span>
                       ))}
                     </button>

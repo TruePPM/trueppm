@@ -800,3 +800,136 @@ class TestRiskComments:
         # cannot be probed by enumeration. Empty 200 was the prior IDOR-prone
         # behavior; membership is now enforced at has_permission.
         assert r.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# #929 — dedicated decimal risk short_id (counter, display, qualified, backfill)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestRiskShortId:
+    """Risks use a dedicated decimal counter and server-owned display ids (#929).
+
+    The 0.2 regression was three web formatters independently mis-parsing the
+    shared 8-char hex ``short_id`` and collapsing every risk to ``R-0000``. The
+    fix moves risks onto ``Project.risk_sequence`` (decimal) and serves the
+    ``R-007`` / ``<CODE>-R-007`` forms from the API.
+    """
+
+    def test_new_risks_get_contiguous_decimal_short_ids(self, project: Project) -> None:
+        r1 = Risk.objects.create(project=project, title="A", probability=1, impact=1)
+        r2 = Risk.objects.create(project=project, title="B", probability=1, impact=1)
+        r3 = Risk.objects.create(project=project, title="C", probability=1, impact=1)
+        assert [r1.short_id, r2.short_id, r3.short_id] == ["1", "2", "3"]
+        project.refresh_from_db()
+        assert project.risk_sequence == 3
+
+    def test_risk_counter_is_independent_of_task_and_sprint(self, project: Project) -> None:
+        # Tasks/Sprints stay on the shared hex object_sequence; creating them must
+        # not consume risk numbers (the whole point of the dedicated counter).
+        from datetime import date
+
+        Task.objects.create(
+            project=project,
+            name="T",
+            duration=1,
+            early_start=date(2026, 4, 1),
+            early_finish=date(2026, 4, 2),
+        )
+        r1 = Risk.objects.create(project=project, title="A", probability=1, impact=1)
+        assert r1.short_id == "1"  # not "2" — the task didn't bump the risk counter
+
+    def test_short_id_display_is_zero_padded_to_three(
+        self, client: APIClient, project: Project, owner_membership: ProjectMembership
+    ) -> None:
+        risk = Risk.objects.create(project=project, title="A", probability=1, impact=1)
+        r = client.get(f"/api/v1/projects/{project.pk}/risks/{risk.pk}/")
+        assert r.status_code == 200
+        assert r.data["short_id"] == "1"
+        assert r.data["short_id_display"] == "R-001"
+
+    def test_short_id_display_overflows_naturally_past_999(self, project: Project) -> None:
+        from trueppm_api.apps.projects.serializers import RiskSerializer
+
+        project.risk_sequence = 999
+        project.save(update_fields=["risk_sequence"])
+        risk = Risk.objects.create(project=project, title="A", probability=1, impact=1)
+        assert risk.short_id == "1000"
+        assert RiskSerializer(risk).data["short_id_display"] == "R-1000"
+
+    def test_qualified_id_uses_project_code_when_present(
+        self, client: APIClient, project: Project, owner_membership: ProjectMembership
+    ) -> None:
+        project.code = "PLAT"
+        project.save(update_fields=["code"])
+        risk = Risk.objects.create(project=project, title="A", probability=1, impact=1)
+        r = client.get(f"/api/v1/projects/{project.pk}/risks/{risk.pk}/")
+        assert r.data["qualified_id"] == "PLAT-R-001"
+
+    def test_qualified_id_falls_back_to_compact_without_code(
+        self, client: APIClient, project: Project, owner_membership: ProjectMembership
+    ) -> None:
+        assert project.code == ""  # default
+        risk = Risk.objects.create(project=project, title="A", probability=1, impact=1)
+        r = client.get(f"/api/v1/projects/{project.pk}/risks/{risk.pk}/")
+        assert r.data["qualified_id"] == "R-001"
+
+    def test_short_id_is_immutable_across_updates(self, project: Project) -> None:
+        risk = Risk.objects.create(project=project, title="A", probability=1, impact=1)
+        original = risk.short_id
+        risk.title = "A renamed"
+        risk.impact = 5
+        risk.save()
+        risk.refresh_from_db()
+        assert risk.short_id == original == "1"
+
+    def test_numbers_are_not_reused_after_deletion(self, project: Project) -> None:
+        r1 = Risk.objects.create(project=project, title="A", probability=1, impact=1)
+        r2 = Risk.objects.create(project=project, title="B", probability=1, impact=1)
+        Risk.objects.create(project=project, title="C", probability=1, impact=1)
+        r2.soft_delete()  # leaves a gap at R-002
+        r4 = Risk.objects.create(project=project, title="D", probability=1, impact=1)
+        assert r4.short_id == "4"  # not "2" — deleted numbers are tombstoned
+        assert r1.short_id == "1"
+
+    def test_backfill_renumbers_existing_hex_short_ids(self, project: Project) -> None:
+        """The 0073 data migration converts hex short_ids to contiguous decimals."""
+        import importlib
+        from datetime import UTC, datetime
+
+        from django.apps import apps as django_apps
+
+        # Simulate the pre-migration state: risks carrying hex short_ids from the
+        # shared counter, with risk_sequence still 0. Pin distinct created_at so
+        # the backfill ordering is deterministic. Include a soft-deleted risk in
+        # the middle — it must consume a number so live risks keep their gap.
+        r_a = Risk.objects.create(project=project, title="A", probability=1, impact=1)
+        r_b = Risk.objects.create(project=project, title="B", probability=1, impact=1)
+        r_c = Risk.objects.create(project=project, title="C", probability=1, impact=1)
+        for i, r in enumerate([r_a, r_b, r_c]):
+            Risk.objects.filter(pk=r.pk).update(
+                short_id=f"{(i + 10):08X}",  # hex with letters → old R-0000 bug
+                created_at=datetime(2026, 1, 1 + i, tzinfo=UTC),
+            )
+        Risk.objects.filter(pk=r_b.pk).update(is_deleted=True)
+        Project.objects.filter(pk=project.pk).update(risk_sequence=0)
+        versions_before = {r.pk: r.server_version for r in Risk.objects.filter(project=project)}
+
+        migration = importlib.import_module(
+            "trueppm_api.apps.projects.migrations.0075_risk_decimal_short_id"
+        )
+        migration.backfill_risk_short_ids(django_apps, None)
+
+        r_a.refresh_from_db()
+        r_b.refresh_from_db()
+        r_c.refresh_from_db()
+        # Ordered by created_at; the soft-deleted r_b keeps its slot (gap for live).
+        assert r_a.short_id == "1"
+        assert r_b.short_id == "2"  # soft-deleted but still numbered
+        assert r_c.short_id == "3"
+        project.refresh_from_db()
+        assert project.risk_sequence == 3
+        # server_version bumped so sync clients re-pull the corrected ids.
+        for r in Risk.objects.filter(project=project):
+            assert r.server_version == versions_before[r.pk] + 1

@@ -25512,6 +25512,16 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "short_id_display": {
+                        "type": "string",
+                        "description": "Compact, in-project risk identifier — ``R-007`` (#929).\n\nServer-owned so every client (web, mobile, MCP) renders the same string\ninstead of re-deriving it; three web formatters independently mis-parsed\nthe old hex ``short_id`` and collapsed every risk to ``R-0000``. The raw\n``short_id`` is now a decimal sequence; pad to 3 digits, overflowing\nnaturally past 999 (``R-1000``). Defensive fallbacks cover the empty and\n(post-migration impossible) non-numeric cases.",
+                        "readOnly": true
+                    },
+                    "qualified_id": {
+                        "type": "string",
+                        "description": "Fully-qualified risk identifier for exports / cross-project surfaces.\n\n``<PROJECT CODE>-R-007`` when the project has a ``code`` (#520), else the\ncompact form. The qualified form disambiguates ``R-7`` across projects in\na portfolio PDF or CSV (Marcus's 🔴 on #929). ``project`` is already\n``select_related`` on the RiskViewSet queryset, so this is not an N+1.",
+                        "readOnly": true
+                    },
                     "project": {
                         "type": "string",
                         "format": "uuid",
@@ -25630,9 +25640,11 @@
                     "owner_name",
                     "probability",
                     "project",
+                    "qualified_id",
                     "server_version",
                     "severity",
                     "short_id",
+                    "short_id_display",
                     "title",
                     "updated_at"
                 ]

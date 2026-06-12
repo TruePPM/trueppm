@@ -2656,6 +2656,8 @@ class RiskSerializer(serializers.ModelSerializer[Risk]):
     severity = serializers.SerializerMethodField()
     owner_name = serializers.SerializerMethodField()
     owner_initials = serializers.SerializerMethodField()
+    short_id_display = serializers.SerializerMethodField()
+    qualified_id = serializers.SerializerMethodField()
     tasks = serializers.PrimaryKeyRelatedField(
         many=True,
         queryset=Task.objects.filter(is_deleted=False),
@@ -2664,6 +2666,35 @@ class RiskSerializer(serializers.ModelSerializer[Risk]):
 
     def get_severity(self, obj: Risk) -> int:
         return obj.probability * obj.impact
+
+    def get_short_id_display(self, obj: Risk) -> str:
+        """Compact, in-project risk identifier — ``R-007`` (#929).
+
+        Server-owned so every client (web, mobile, MCP) renders the same string
+        instead of re-deriving it; three web formatters independently mis-parsed
+        the old hex ``short_id`` and collapsed every risk to ``R-0000``. The raw
+        ``short_id`` is now a decimal sequence; pad to 3 digits, overflowing
+        naturally past 999 (``R-1000``). Defensive fallbacks cover the empty and
+        (post-migration impossible) non-numeric cases.
+        """
+        raw = obj.short_id
+        if not raw:
+            return ""
+        if raw.isdigit():
+            return f"R-{int(raw):03d}"
+        return f"R-{raw}"
+
+    def get_qualified_id(self, obj: Risk) -> str:
+        """Fully-qualified risk identifier for exports / cross-project surfaces.
+
+        ``<PROJECT CODE>-R-007`` when the project has a ``code`` (#520), else the
+        compact form. The qualified form disambiguates ``R-7`` across projects in
+        a portfolio PDF or CSV (Marcus's 🔴 on #929). ``project`` is already
+        ``select_related`` on the RiskViewSet queryset, so this is not an N+1.
+        """
+        display = self.get_short_id_display(obj)
+        code = obj.project.code if obj.project_id else ""
+        return f"{code}-{display}" if code and display else display
 
     def get_owner_name(self, obj: Risk) -> str | None:
         """Display name for the owner — first+last, falling back to username.
@@ -2738,6 +2769,8 @@ class RiskSerializer(serializers.ModelSerializer[Risk]):
             "id",
             "server_version",
             "short_id",
+            "short_id_display",
+            "qualified_id",
             "project",
             "title",
             "description",
@@ -2763,6 +2796,8 @@ class RiskSerializer(serializers.ModelSerializer[Risk]):
             "id",
             "server_version",
             "short_id",
+            "short_id_display",
+            "qualified_id",
             "project",
             "severity",
             "owner_name",

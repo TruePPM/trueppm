@@ -17,12 +17,6 @@ function formatDate(iso: string | null | undefined): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 }
 
-function formatShortId(shortId: string): string {
-  if (!shortId) return '';
-  if (/^\d+$/.test(shortId)) return `R-${String(parseInt(shortId, 10)).padStart(3, '0')}`;
-  return `R-${shortId.slice(0, 4).toUpperCase()}`;
-}
-
 const CATEGORY_LABELS: Record<string, string> = {
   TECHNICAL:          'Technical',
   EXTERNAL:           'External',
@@ -55,7 +49,9 @@ const HEADERS = [
 
 function riskToRow(risk: Risk): string[] {
   return [
-    formatShortId(risk.short_id),
+    // Fully-qualified ID (#929) — a CSV is a cross-project surface, so prefer the
+    // <PROJECT>-R-NNN form the server provides over the compact in-project one.
+    risk.qualified_id,
     risk.title,
     STATUS_LABELS[risk.status] ?? risk.status,
     risk.category ? (CATEGORY_LABELS[risk.category] ?? risk.category) : '',

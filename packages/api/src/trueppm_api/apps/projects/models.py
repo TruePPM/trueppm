@@ -148,6 +148,23 @@ def _next_short_id(project_id: uuid.UUID | str) -> str:
     return f"{seq:08X}"
 
 
+def _next_risk_short_id(project_id: uuid.UUID | str) -> str:
+    """Atomically allocate the next risk short_id for a project (#929).
+
+    Risks use a *dedicated* decimal counter (``Project.risk_sequence``), separate
+    from the shared hex ``object_sequence`` used by Tasks and Sprints. The VoC
+    panel on #929 settled the format: decimal, contiguous (gaps only from
+    deletion), immutable for the life of the risk. We therefore store the raw
+    sequence integer as a string (e.g. ``"7"``); the ``R-007`` / ``<CODE>-R-007``
+    display forms are server-owned serializer fields so a headless/MCP client
+    reads the identifier rather than re-deriving it (the bug this fixes was three
+    web formatters independently mis-parsing the hex scheme as decimal).
+    """
+    Project.objects.filter(pk=project_id).update(risk_sequence=F("risk_sequence") + 1)
+    seq: int = Project.objects.values_list("risk_sequence", flat=True).get(pk=project_id)
+    return str(seq)
+
+
 # ---------------------------------------------------------------------------
 # Calendar
 # ---------------------------------------------------------------------------
@@ -673,9 +690,17 @@ class Project(VersionedModel):
     )
     # Per-project sequential counter for generating short_id values on Tasks
     # and Risks.  Incremented atomically via F() on every INSERT to either model.
-    # Tasks and Risks share the same counter so that short_id is unique across
-    # entity types within a project (no "task #3 vs risk #3" ambiguity).
+    # Tasks and Sprints share this counter so that short_id is unique across
+    # those entity types within a project (no "task #3 vs sprint #3" ambiguity).
+    # Risks moved off this shared hex counter to their own decimal sequence
+    # (``risk_sequence``) in #929 — see ``_next_risk_short_id``.
     object_sequence = models.BigIntegerField(default=0, editable=False)
+    # Dedicated per-project decimal counter for Risk short_ids (#929). Separate
+    # from ``object_sequence`` so risk IDs are contiguous (R-001, R-002, …) and
+    # legible in status reports/exports rather than colliding hex values.
+    # Monotonic: incremented on every risk INSERT, never reused after deletion
+    # (deletion leaves a gap — the VoC's audit-trail requirement).
+    risk_sequence = models.BigIntegerField(default=0, editable=False)
     # Governance mode for three-point estimates — see EstimationMode docstring.
     estimation_mode = models.CharField(
         max_length=16,
@@ -1883,7 +1908,7 @@ class Risk(VersionedModel):
         # Assign short_id on INSERT (first save).
         is_new = not type(self).objects.filter(pk=self.pk).exists() if self.pk else True
         if is_new and not self.short_id:
-            self.short_id = _next_short_id(self.project_id)
+            self.short_id = _next_risk_short_id(self.project_id)
         # Capture update_fields before super() expands it so we can tell
         # which fields the caller intended to change.
         _update_fields = kwargs.get("update_fields")

@@ -298,9 +298,17 @@ export async function setupApiMocks(page: Page, opts: ApiMockOptions = {}): Prom
     }
     return route.continue();
   });
-  await page.route(`**/api/v1/projects/${projectId}/risks/**`, (route) =>
-    route.fulfill(jsonResponse(paginated(opts.risks ?? []))),
-  );
+  await page.route(`**/api/v1/projects/${projectId}/risks/**`, (route) => {
+    // Inject the server-owned display ids (#929) so fixtures that predate them
+    // still render a valid R-NNN id / matrix badge instead of blank/"?".
+    // Explicit fixture values win; the index-based fallback mirrors the API's
+    // contiguous decimal sequence.
+    const risks = (opts.risks ?? []).map((r: Record<string, unknown>, i: number) => {
+      const display = `R-${String(i + 1).padStart(3, '0')}`;
+      return { short_id_display: display, qualified_id: display, ...r };
+    });
+    return route.fulfill(jsonResponse(paginated(risks)));
+  });
   await page.route(`**/api/v1/projects/${projectId}/board-config/`, (route) => {
     if (route.request().method() === 'PUT') {
       const body = route.request().postDataJSON() as { columns: unknown[] };

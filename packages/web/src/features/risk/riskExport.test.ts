@@ -9,7 +9,9 @@ import type { Risk } from '@/api/types';
 function makeRisk(overrides: Partial<Risk> = {}): Risk {
   return {
     id: 'abc-123',
-    short_id: '00000001',
+    short_id: '1',
+    short_id_display: 'R-001',
+    qualified_id: 'PLAT-R-001',
     server_version: 1,
     project: 'proj-1',
     title: 'Database outage risk',
@@ -112,16 +114,13 @@ describe('generateRisksCSV — row content', () => {
     return parseCsv(csv)[1];
   }
 
-  it('formats short_id as R-001 style', () => {
-    expect(row({ short_id: '00000001' })[0]).toBe('R-001');
+  it('uses the server qualified_id verbatim for the ID column (#929)', () => {
+    // The CSV is a cross-project surface, so it exports the fully-qualified id.
+    expect(row({ qualified_id: 'PLAT-R-007' })[0]).toBe('PLAT-R-007');
   });
 
-  it('formats a non-numeric short_id by upper-casing the first 4 chars', () => {
-    expect(row({ short_id: 'ab12cd34' })[0]).toBe('R-AB12');
-  });
-
-  it('returns an empty string when short_id is missing', () => {
-    expect(row({ short_id: '' })[0]).toBe('');
+  it('falls back to the compact id when the project has no code (#929)', () => {
+    expect(row({ qualified_id: 'R-007' })[0]).toBe('R-007');
   });
 
   it('translates status to human label', () => {
