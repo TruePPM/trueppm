@@ -44,6 +44,7 @@ from trueppm_api.apps.projects.views import (
     ProjectMyTasksView,
     ProjectOverviewView,
     ProjectPresenceView,
+    ProjectSprintForecastView,
     ProjectSprintHealthView,
     ProjectVelocityView,
     ProjectViewSet,
@@ -450,6 +451,13 @@ urlpatterns = [
         "projects/<pk>/forecast/",
         ProjectForecastView.as_view(),
         name="project-forecast",
+    ),
+    # Backlog delivery forecast: velocity Monte Carlo → P50/P80 sprint counts +
+    # dates to clear the remaining committed backlog (#487).
+    path(
+        "projects/<pk>/sprint-forecast/",
+        ProjectSprintForecastView.as_view(),
+        name="project-sprint-forecast",
     ),
     # Slim milestone list for the bind-existing picker (ADR-0106 §E1.3, #928)
     path(

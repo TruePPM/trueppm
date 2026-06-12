@@ -7301,6 +7301,45 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/sprint-forecast/": {
+            "get": {
+                "operationId": "v1_projects_sprint_forecast_retrieve",
+                "description": "``GET /api/v1/projects/<pk>/sprint-forecast/`` — backlog delivery forecast (#487).\n\nP50/P80 sprint counts + calendar dates for clearing the remaining committed\nbacklog, from a velocity Monte Carlo. Any project member, same audience as\n``/velocity/`` and ``/forecast/`` — and gated the same way: every field derives\nfrom the team-private velocity series, so a reader below the velocity audience\n(ADR-0104) is suppressed here too, or this endpoint is a side-channel back to\nthe band (#981). The forecast itself is computed-on-read and cached for an hour\ninside the service; the view only owns the privacy gate.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SprintForecast"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/sprint-health/": {
             "get": {
                 "operationId": "v1_projects_sprint_health_retrieve",
@@ -26352,6 +26391,65 @@
                     "task_changes",
                     "until"
                 ]
+            },
+            "SprintForecast": {
+                "type": "object",
+                "description": "Backlog delivery forecast response (#487) — velocity Monte Carlo.\n\nP50/P80 sprint counts + calendar dates for clearing the remaining committed\nbacklog at the team's historical throughput. ``status`` is ``\"ready\"`` once\nthere are ≥2 closed sprints and a backlog, else ``\"warming_up\"`` (the forecast\nfields are null). ``basis`` is always ``\"monte_carlo\"`` — unlike the milestone\nband, this is a real simulation, so percentile vocabulary is honest\n(web-rule 166). All forecast fields are nulled for readers below the velocity\naudience (ADR-0104), in which case ``velocity_suppressed`` is true.",
+                "properties": {
+                    "status": {
+                        "$ref": "#/components/schemas/SprintForecastStatusEnum"
+                    },
+                    "remaining_points": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "sample_count": {
+                        "type": "integer"
+                    },
+                    "p50_sprints": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "p80_sprints": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "p50_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "p80_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "basis": {
+                        "type": "string"
+                    },
+                    "velocity_suppressed": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "basis",
+                    "p50_date",
+                    "p50_sprints",
+                    "p80_date",
+                    "p80_sprints",
+                    "remaining_points",
+                    "sample_count",
+                    "status",
+                    "velocity_suppressed"
+                ]
+            },
+            "SprintForecastStatusEnum": {
+                "enum": [
+                    "ready",
+                    "warming_up"
+                ],
+                "type": "string",
+                "description": "* `ready` - ready\n* `warming_up` - warming_up"
             },
             "SprintGoalOutcomeEnum": {
                 "enum": [

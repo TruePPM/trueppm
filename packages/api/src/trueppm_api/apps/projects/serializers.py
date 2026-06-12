@@ -3439,6 +3439,29 @@ class ProjectForecastSerializer(serializers.Serializer[dict[str, Any]]):
     milestones = ForecastSnapshotSerializer(many=True, read_only=True)
 
 
+class SprintForecastSerializer(serializers.Serializer[dict[str, Any]]):
+    """Backlog delivery forecast response (#487) — velocity Monte Carlo.
+
+    P50/P80 sprint counts + calendar dates for clearing the remaining committed
+    backlog at the team's historical throughput. ``status`` is ``"ready"`` once
+    there are ≥2 closed sprints and a backlog, else ``"warming_up"`` (the forecast
+    fields are null). ``basis`` is always ``"monte_carlo"`` — unlike the milestone
+    band, this is a real simulation, so percentile vocabulary is honest
+    (web-rule 166). All forecast fields are nulled for readers below the velocity
+    audience (ADR-0104), in which case ``velocity_suppressed`` is true.
+    """
+
+    status = serializers.ChoiceField(choices=["ready", "warming_up"])
+    remaining_points = serializers.IntegerField(allow_null=True)
+    sample_count = serializers.IntegerField()
+    p50_sprints = serializers.IntegerField(allow_null=True)
+    p80_sprints = serializers.IntegerField(allow_null=True)
+    p50_date = serializers.DateField(allow_null=True)
+    p80_date = serializers.DateField(allow_null=True)
+    basis = serializers.CharField()
+    velocity_suppressed = serializers.BooleanField()
+
+
 # ---------------------------------------------------------------------------
 # Sprint retrospective (issue #231)
 # ---------------------------------------------------------------------------
