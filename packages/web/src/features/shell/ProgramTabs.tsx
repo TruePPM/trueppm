@@ -1,5 +1,12 @@
 import { NavLink, useLocation } from 'react-router';
-import { OverviewIcon, ListIcon, WbsIcon, ResourcesIcon, SettingsIcon } from '@/components/Icons';
+import {
+  OverviewIcon,
+  ListIcon,
+  WbsIcon,
+  ResourcesIcon,
+  BarChartIcon,
+  SettingsIcon,
+} from '@/components/Icons';
 import { useProgramId } from '@/hooks/useProgramId';
 import type { ComponentType } from 'react';
 
@@ -16,6 +23,7 @@ const TABS: Tab[] = [
   { view: 'overview', label: 'Overview', Icon: OverviewIcon },
   { view: 'backlog', label: 'Backlog', Icon: ListIcon },
   { view: 'projects', label: 'Projects', Icon: WbsIcon },
+  { view: 'resources', label: 'Resources', Icon: BarChartIcon },
   { view: 'members', label: 'Members', Icon: ResourcesIcon },
   { view: 'settings', label: 'Settings', Icon: SettingsIcon },
 ];

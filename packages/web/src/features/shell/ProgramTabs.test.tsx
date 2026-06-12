@@ -18,11 +18,11 @@ describe('ProgramTabs', () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it('renders the program nav with all five tabs (incl. Settings)', () => {
+  it('renders the program nav with all six tabs (incl. Resources + Settings)', () => {
     mockUseProgramId.mockReturnValue('prog-1');
     renderWithRouter(<ProgramTabs />, { initialEntries: ['/programs/prog-1/overview'] });
     expect(screen.getByRole('navigation', { name: 'Program' })).toBeInTheDocument();
-    for (const label of ['Overview', 'Backlog', 'Projects', 'Members', 'Settings']) {
+    for (const label of ['Overview', 'Backlog', 'Projects', 'Resources', 'Members', 'Settings']) {
       expect(screen.getByRole('link', { name: new RegExp(label, 'i') })).toBeInTheDocument();
     }
   });
