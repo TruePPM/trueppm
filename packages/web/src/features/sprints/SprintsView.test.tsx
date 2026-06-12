@@ -36,6 +36,7 @@ vi.mock('@/hooks/useSprints', () => ({
   // #988: GuardrailHealthBadges renders server-owned signals; default to empty.
   useSprintHealth: () => ({ data: { signals: [] }, isLoading: false, error: null }),
   useSprintOutcome: () => ({ data: undefined, isLoading: false, error: null }),
+  useSprintDailyDelta: () => ({ data: undefined, isLoading: false, error: null }),
   useSprintRetro: () => ({ data: null, isLoading: false, error: null }),
   useSprintRetroPrior: () => ({ data: null, isLoading: false, error: null }),
   useSaveSprintRetro: () => ({

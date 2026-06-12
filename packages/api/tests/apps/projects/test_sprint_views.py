@@ -1382,3 +1382,145 @@ def test_scope_changes_requires_membership(stranger_client: APIClient, project: 
     s = _make_sprint(project, state=SprintState.ACTIVE)
     resp = stranger_client.get(f"/api/v1/sprints/{s.pk}/scope-changes/")
     assert resp.status_code in (403, 404)
+
+
+# ---------------------------------------------------------------------------
+# GET /sprints/{id}/daily-delta/ — team standup "what changed since yesterday" (#925)
+# ---------------------------------------------------------------------------
+
+
+def _active_with_history(project: Project, actor: object) -> tuple[Sprint, Task]:
+    """An ACTIVE sprint (activated 2 days ago) with a task moved NOT_STARTED →
+    IN_PROGRESS → ON_HOLD by ``actor``, so the window has two status moves and one
+    new blocker."""
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    s = _make_sprint(
+        project, state=SprintState.ACTIVE, activated_at=timezone.now() - timedelta(days=2)
+    )
+    t = Task.objects.create(
+        project=project, name="Login flow", duration=1, sprint=s, status=TaskStatus.NOT_STARTED
+    )
+    t._history_user = actor  # type: ignore[attr-defined]
+    t.status = TaskStatus.IN_PROGRESS
+    t.save()
+    t._history_user = actor  # type: ignore[attr-defined]
+    t.status = TaskStatus.ON_HOLD
+    t.save()
+    return s, t
+
+
+def test_daily_delta_status_moves_and_blockers(
+    member_client: APIClient, project: Project, member_user: object
+) -> None:
+    s, _ = _active_with_history(project, member_user)
+    body = member_client.get(f"/api/v1/sprints/{s.pk}/daily-delta/").json()
+    tos = {c["to"] for c in body["task_changes"]}
+    assert "IN_PROGRESS" in tos
+    assert "ON_HOLD" in tos
+    assert len(body["new_blockers"]) == 1
+    assert body["new_blockers"][0]["task_title"] == "Login flow"
+    actor = next(a for a in body["per_actor"] if a["actor_username"] == "member")
+    assert actor["moved"] >= 2
+    assert actor["blocked"] == 1
+    assert actor["completed"] == 0
+
+
+def test_daily_delta_includes_scope_added(
+    member_client: APIClient, project: Project, member_user: object
+) -> None:
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    s = _make_sprint(
+        project, state=SprintState.ACTIVE, activated_at=timezone.now() - timedelta(days=2)
+    )
+    task = Task.objects.create(project=project, name="Injected", duration=1, sprint=s)
+    SprintScopeChange.objects.create(
+        sprint=s,
+        task=task,
+        subtask_name="Injected",
+        added_by=member_user,
+        status=ScopeChangeStatus.PENDING,
+    )
+    body = member_client.get(f"/api/v1/sprints/{s.pk}/daily-delta/").json()
+    assert len(body["scope_added"]) == 1
+    assert body["scope_added"][0]["task_title"] == "Injected"
+    actor = next(a for a in body["per_actor"] if a["actor_username"] == "member")
+    assert actor["added"] == 1
+
+
+def test_daily_delta_burndown_swing(member_client: APIClient, project: Project) -> None:
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from trueppm_api.apps.projects.models import SprintBurnSnapshot
+
+    s = _make_sprint(
+        project, state=SprintState.ACTIVE, activated_at=timezone.now() - timedelta(days=3)
+    )
+    today = timezone.now().date()
+    SprintBurnSnapshot.objects.create(
+        sprint=s,
+        snapshot_date=today - timedelta(days=1),
+        remaining_points=20,
+        remaining_task_count=8,
+        completed_points=5,
+        completed_task_count=2,
+    )
+    SprintBurnSnapshot.objects.create(
+        sprint=s,
+        snapshot_date=today,
+        remaining_points=12,
+        remaining_task_count=5,
+        completed_points=13,
+        completed_task_count=5,
+    )
+    body = member_client.get(f"/api/v1/sprints/{s.pk}/daily-delta/").json()
+    assert body["burndown_delta"]["remaining_delta"] == -8
+    assert body["burndown_delta"]["completed_delta"] == 8
+
+
+def test_daily_delta_explicit_future_since_excludes_changes(
+    member_client: APIClient, project: Project, member_user: object
+) -> None:
+    """An explicit `since` after the changes yields an empty window (the param works)."""
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    s, _ = _active_with_history(project, member_user)
+    future = (timezone.now() + timedelta(hours=1)).isoformat()
+    # Pass via the params dict so the +00:00 offset is URL-encoded (a raw `+` in the
+    # query string decodes to a space; the real axios client encodes it correctly).
+    body = member_client.get(f"/api/v1/sprints/{s.pk}/daily-delta/", {"since": future}).json()
+    assert body["task_changes"] == []
+    assert body["new_blockers"] == []
+
+
+def test_daily_delta_member_can_read_empty(member_client: APIClient, project: Project) -> None:
+    s = _make_sprint(project, state=SprintState.ACTIVE)
+    resp = member_client.get(f"/api/v1/sprints/{s.pk}/daily-delta/")
+    assert resp.status_code == 200
+    assert resp.json()["task_changes"] == []
+
+
+def test_daily_delta_non_member_denied(stranger_client: APIClient, project: Project) -> None:
+    """PMO/org principals are non-members → denied (Morgan: no PMO sprint-internals view)."""
+    s = _make_sprint(project, state=SprintState.ACTIVE)
+    resp = stranger_client.get(f"/api/v1/sprints/{s.pk}/daily-delta/")
+    assert resp.status_code in (403, 404)
+
+
+def test_daily_delta_malformed_since_falls_back(member_client: APIClient, project: Project) -> None:
+    """A well-formed-but-out-of-range `since` (month 13) must 200 on the default
+    window, never 500 (parse_datetime raises ValueError on it)."""
+    s = _make_sprint(project, state=SprintState.ACTIVE)
+    resp = member_client.get(
+        f"/api/v1/sprints/{s.pk}/daily-delta/", {"since": "2026-13-45T00:00:00"}
+    )
+    assert resp.status_code == 200

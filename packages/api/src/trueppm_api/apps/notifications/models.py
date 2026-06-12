@@ -64,6 +64,9 @@ class NotificationEventType(models.TextChoices):
     TASK_ASSIGNED = "task.assigned", "Assigned to me"
     TASK_DUE_DATE_CHANGED = "task.due_date_changed", "Due date changed on my task"
     COMMENT_ON_MY_TASK = "comment_on_my_task", "Comment on my task"
+    # Contributor signal (#855, #476) — fires when a task I own is flagged blocked
+    # by someone else. One of the two events in the SIGNAL_ONLY_EVENTS preset.
+    TASK_BLOCKED = "task.blocked", "A task I own is blocked"
     # Sprint-close bridge digest (#861) — the PM cohort is told when a closed
     # sprint's reforecast materially shifts a bound milestone's finish. Email
     # defaults ON for this one event (see DEFAULT_PREFERENCES): the issue's whole
@@ -363,6 +366,10 @@ DEFAULT_PREFERENCES: list[tuple[str, str, bool]] = [
     (NotificationEventType.TASK_DUE_DATE_CHANGED, NotificationChannel.EMAIL, False),
     (NotificationEventType.COMMENT_ON_MY_TASK, NotificationChannel.IN_APP, True),
     (NotificationEventType.COMMENT_ON_MY_TASK, NotificationChannel.EMAIL, False),
+    # Blocked signal (#855): in-app ON, email OFF — same opt-in-email rule. This
+    # event is one of the two kept ON by the Signal-only preset below.
+    (NotificationEventType.TASK_BLOCKED, NotificationChannel.IN_APP, True),
+    (NotificationEventType.TASK_BLOCKED, NotificationChannel.EMAIL, False),
     # #861 — the bridge digest is the deliberate exception to the email-OFF
     # default: a PM who is not logged in when the team closes a sprint at 7pm
     # must still be pushed the milestone-confidence shift, or "automatic" still
@@ -374,6 +381,25 @@ DEFAULT_PREFERENCES: list[tuple[str, str, bool]] = [
     (NotificationEventType.SPRINT_TASK_RESCHEDULED, NotificationChannel.IN_APP, True),
     (NotificationEventType.SPRINT_TASK_RESCHEDULED, NotificationChannel.EMAIL, False),
 ]
+
+
+# ---------------------------------------------------------------------------
+# Signal-only preset (#855) — the contributor-friendly minimal profile
+# ---------------------------------------------------------------------------
+# Priya (Team Member) gave a hard-NO on noisy notifications. "Signal-only" is the
+# one-click profile that keeps ON only the two events that mean "something needs
+# my attention" — a task of mine got blocked, or a deadline moved — and turns
+# everything else OFF. It is applied by POST /me/notification-preferences/
+# apply-preset/ (a wholesale write of the per-(event,channel) rows), NOT a new
+# stored model: the matrix stays the single source of truth so the existing
+# data-driven settings page (ADR-0085) keeps rendering whatever rows the server
+# returns. The "everything" preset restores DEFAULT_PREFERENCES.
+SIGNAL_ONLY_EVENTS: frozenset[str] = frozenset(
+    {
+        NotificationEventType.TASK_BLOCKED,
+        NotificationEventType.TASK_DUE_DATE_CHANGED,
+    }
+)
 
 
 # ---------------------------------------------------------------------------

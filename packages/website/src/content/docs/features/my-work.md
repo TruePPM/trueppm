@@ -7,7 +7,11 @@ description: A contributor's personal task list across every project, with zero 
 My Work shipped in 0.1.
 :::
 
-**My Work** is the contributor's page. It lists every task assigned to you, across every project you're on, grouped by your active sprints. There's no Gantt chart, no work-breakdown tree, no critical-path math — just a flat list of what's yours, what's due, and what you can update with a tap.
+:::note[0.3]
+In 0.3 My Work will group your tasks into **Today / This Sprint / Upcoming** instead of by sprint, and will flag **blocked** work with a badge.
+:::
+
+**My Work** is the contributor's page. It lists every task assigned to you, across every project you're on, grouped into what needs your attention today, what's committed to this sprint, and what's coming up. There's no Gantt chart, no work-breakdown tree, no critical-path math — just a flat list of what's yours, what's due, what's blocked, and what you can update with a tap.
 
 Open it from **My Work**, pinned at the top of the sidebar (with a due-today count badge when there's something actionable), or from your avatar menu. The route is `/me/work`.
 
@@ -29,12 +33,17 @@ A `⚠` icon to the left of the row appears when the task is on the schedule's c
 
 ## Groupings
 
-Tasks are grouped from the top down:
+Tasks are grouped into three sections, computed on the server so every client groups them the same way:
 
-1. **Active sprints first.** Each active sprint where you have at least one task gets its own section with a header showing the sprint name, the project, days remaining, and how many of your tasks are in that sprint.
-2. **Not in a sprint** — a single group at the bottom for tasks that aren't currently in any sprint.
+1. **Today** — anything due today or overdue (and not yet done). What you should pick up first.
+2. **This Sprint** — your remaining work committed to the current active sprint.
+3. **Upcoming** — everything else assigned to you.
 
-Within each group, tasks are ordered by start date (planned or estimated) and then by priority.
+Within each section, **blocked** tasks sort first, then by due date and priority. A blocked task shows a red **Blocked** badge with the reason a teammate gave — so you can see what's stuck without opening it.
+
+:::note[0.3]
+The Today / This Sprint / Upcoming grouping and the blocked badge land in 0.3. Before 0.3, My Work groups by active sprint.
+:::
 
 ## Status updates
 
@@ -67,9 +76,16 @@ This page deliberately omits:
 
 The PM-facing "My Tasks" view inside each project is a different surface. It shows tasks due this calendar week and is part of the project overview; My Work is your cross-project list and includes everything assigned, not just the immediate week.
 
+## Notifications and settings
+
+Two changes will land in 0.3 to make the contributor experience quieter and less PM-heavy:
+
+- **Signal-only notifications.** Your notification preferences will offer a one-click **Signal-only** profile — you'll only hear about blocked work and deadline changes, with everything else turned off. A "Show all notification types" link expands the full matrix if you want finer control. Project managers keep the full matrix by default.
+- **A focused settings view.** If you don't administer any project or workspace, Settings will show just **Notifications** and **Profile** — the methodology, workflow, roles, and groups pages stay with the people who manage them.
+
 ## What's planned
 
-- A `Blocked` indicator when a predecessor task is incomplete (deferred to a later release to avoid an N+1 query on the cross-project endpoint).
+- A `Blocked` indicator derived automatically when a predecessor task is incomplete — distinct from the explicit, teammate-raised blocker badge that lands in 0.3 (that one is a human signal, not computed from dependencies).
 - Two-way status sync that pushes a status change back to the external tool the task came from. The OSS edition is import-only; the enterprise connector handles two-way sync.
 - A "Team work" view for scrum masters who need the same list for everyone on their team — open as a sibling endpoint when the work is prioritized.
 

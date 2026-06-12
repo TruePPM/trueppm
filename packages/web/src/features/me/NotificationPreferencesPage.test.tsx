@@ -5,10 +5,21 @@ import type { NotificationPreferenceRow } from '@/hooks/useNotificationPreferenc
 
 const useNotificationPreferences = vi.fn();
 const mutate = vi.fn();
+const applyPresetMutate = vi.fn();
+const useCurrentUser = vi.fn();
 
 vi.mock('@/hooks/useNotificationPreferences', () => ({
   useNotificationPreferences: () => useNotificationPreferences() as unknown,
   useUpdateNotificationPreference: () => ({ mutate, isPending: false }),
+  useApplyNotificationPreset: () => ({
+    mutate: applyPresetMutate,
+    isPending: false,
+    isError: false,
+  }),
+}));
+
+vi.mock('@/hooks/useCurrentUser', () => ({
+  useCurrentUser: () => useCurrentUser() as unknown,
 }));
 
 function pref(
@@ -32,9 +43,20 @@ const PREFERENCES: NotificationPreferenceRow[] = [
   pref(8, 'comment_on_my_task', 'email', false),
 ];
 
+function adminUser() {
+  return { user: { can_access_admin_settings: true }, isLoading: false };
+}
+function contributorUser() {
+  return { user: { can_access_admin_settings: false }, isLoading: false };
+}
+
 beforeEach(() => {
   useNotificationPreferences.mockReset();
   mutate.mockReset();
+  applyPresetMutate.mockReset();
+  useCurrentUser.mockReset();
+  // Default to admin so the existing matrix tests see the full grid.
+  useCurrentUser.mockReturnValue(adminUser());
 });
 
 describe('NotificationPreferencesPage', () => {
@@ -65,5 +87,35 @@ describe('NotificationPreferencesPage', () => {
     fireEvent.click(switches[0]);
     // The page debounces the save (~300ms) — wait for the deferred mutate.
     await waitFor(() => expect(mutate).toHaveBeenCalled());
+  });
+
+  it('shows the Signal-only card to contributors and applies the preset on click (#855)', () => {
+    useNotificationPreferences.mockReturnValue({
+      preferences: PREFERENCES,
+      isLoading: false,
+      error: null,
+    });
+    useCurrentUser.mockReturnValue(contributorUser());
+    render(<NotificationPreferencesPage />);
+    expect(screen.getByText('Signal-only')).toBeInTheDocument();
+    // Matrix is collapsed behind the escape until requested.
+    expect(screen.queryAllByRole('switch')).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: /Use signal-only/i }));
+    expect(applyPresetMutate).toHaveBeenCalledWith('signal_only', expect.anything());
+    // The escape reveals the full matrix.
+    fireEvent.click(screen.getByRole('button', { name: /Show all notification types/i }));
+    expect(screen.getAllByRole('switch').length).toBeGreaterThan(0);
+  });
+
+  it('does NOT show the Signal-only card to admins — matrix renders directly', () => {
+    useNotificationPreferences.mockReturnValue({
+      preferences: PREFERENCES,
+      isLoading: false,
+      error: null,
+    });
+    useCurrentUser.mockReturnValue(adminUser());
+    render(<NotificationPreferencesPage />);
+    expect(screen.queryByText('Signal-only')).not.toBeInTheDocument();
+    expect(screen.getAllByRole('switch').length).toBeGreaterThan(0);
   });
 });

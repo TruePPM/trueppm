@@ -20,6 +20,9 @@ import type { TaskStatus } from '@/types';
 
 export type DueSource = 'actual' | 'planned' | 'estimated' | 'sprint' | null;
 
+/** Server-computed My Work section (#484, ADR-0122). */
+export type MyWorkGroup = 'today' | 'this_sprint' | 'upcoming';
+
 export interface MyWorkTask {
   id: string;
   short_id: string;
@@ -34,6 +37,20 @@ export interface MyWorkTask {
   due: string | null;
   due_source: DueSource;
   is_critical: boolean;
+  /**
+   * Server-computed bucket (#484, ADR-0122): the section this task renders under.
+   * Sorted contiguously in the response so the page groups by a simple boundary
+   * walk, never re-deriving date math client-side.
+   */
+  group: MyWorkGroup;
+  /**
+   * Explicit human blocker (#476/#855). `true` ⇔ a teammate flagged this task as
+   * blocked; `blocked_reason` carries why. Distinct from the board card's
+   * dependency-readiness signal — on this contributor surface "blocked" means
+   * the human flag. Blocked tasks sort first within their group.
+   */
+  is_blocked: boolean;
+  blocked_reason: string;
   server_version: number;
   url: string;
   /**

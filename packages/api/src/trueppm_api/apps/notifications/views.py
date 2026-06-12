@@ -18,8 +18,11 @@ from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import Project
 
 from .models import (
+    DEFAULT_PREFERENCES,
     PROJECT_NOTIFICATION_DEFAULT_MATRIX,
+    SIGNAL_ONLY_EVENTS,
     Notification,
+    NotificationChannel,
     NotificationPreference,
     ProjectNotificationChannel,
     ProjectNotificationEventType,
@@ -140,6 +143,49 @@ class NotificationPreferenceViewSet(
             # DRF's PermissionDenied → 403; bare PermissionError raises 500.
             raise PermissionDenied("Cannot modify another user's preferences.")
         serializer.save()
+
+    @action(detail=False, methods=["post"], url_path="apply-preset")
+    def apply_preset(self, request: Request) -> Response:
+        """Apply a wholesale preference preset (#855) and return the new matrix.
+
+        Body: ``{"preset": "signal_only" | "everything"}``.
+
+        - ``signal_only`` — the contributor profile: in-app ON for the two
+          attention-worthy events (task.blocked, task.due_date_changed), every
+          other (event, channel) row OFF. This is Priya's escape from a noisy
+          default without auditing the full grid cell-by-cell.
+        - ``everything`` — restore the enabled state from DEFAULT_PREFERENCES.
+
+        Implemented as a bulk write over the existing per-(event, channel) rows
+        rather than a new "profile" model, so the matrix stays the single source
+        of truth and the data-driven settings page (ADR-0085) needs no special
+        casing. Scoped to ``request.user`` by construction.
+        """
+        user = request.user
+        if not user.is_authenticated:
+            raise PermissionDenied("Authentication required.")
+        preset = request.data.get("preset")
+        if preset not in ("signal_only", "everything"):
+            return Response(
+                {"detail": "preset must be 'signal_only' or 'everything'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # Ensure the full row set exists before we toggle (a brand-new user may
+        # have no rows yet — same lazy backfill the list view performs).
+        get_or_create_default_preferences(user)
+        prefs = list(NotificationPreference.objects.filter(user=user))
+        if preset == "signal_only":
+            for p in prefs:
+                p.enabled = (
+                    p.channel == NotificationChannel.IN_APP and p.event_type in SIGNAL_ONLY_EVENTS
+                )
+        else:  # everything
+            default_map = {(e, c): enabled for (e, c, enabled) in DEFAULT_PREFERENCES}
+            for p in prefs:
+                p.enabled = default_map.get((p.event_type, p.channel), p.enabled)
+        NotificationPreference.objects.bulk_update(prefs, ["enabled"])
+        serializer = self.get_serializer(self.get_queryset(), many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 # ---------------------------------------------------------------------------
