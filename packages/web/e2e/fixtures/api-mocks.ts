@@ -367,6 +367,17 @@ export async function setupApiMocks(page: Page, opts: ApiMockOptions = {}): Prom
   await page.route(/\/api\/v1\/sprints\/.*\/pulse\//, (route) =>
     route.fulfill({ status: 204, body: '' }),
   );
+  // Daily standup delta (ADR-0119) — the active-sprint view fires this on mount;
+  // default to an empty delta so every sprints-view spec gets a clean "nothing
+  // changed" panel rather than a 404-retry storm.
+  await page.route(/\/api\/v1\/sprints\/.*\/daily-delta\//, (route) =>
+    route.fulfill(
+      jsonResponse({
+        sprint_id: 'sp', since: '', until: '', task_changes: [], scope_added: [],
+        new_blockers: [], burndown_delta: null, per_actor: [],
+      }),
+    ),
+  );
   // Per-task history endpoint — paginated, opens via the modal "Last edited by" footer.
   await page.route(`**/api/v1/projects/${projectId}/tasks/*/history/**`, (route) =>
     route.fulfill(jsonResponse({ count: 0, next: null, previous: null, results: [] })),

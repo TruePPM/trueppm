@@ -1469,6 +1469,153 @@ def toggle_demo_ready(outcome: Any, *, demo_ready: bool) -> Any:
     return outcome
 
 
+def sprint_daily_delta(sprint: Any, since: Any, request: Any) -> dict[str, Any]:
+    """Team standup "what changed since yesterday" read for a sprint (ADR-0121, #925).
+
+    Computed entirely from existing data — NO model: status moves + new blockers
+    from ``HistoricalTask`` (status transitions in the window), scope injections
+    from ``SprintScopeChange``, the burndown swing from ``SprintBurnSnapshot``, and
+    a per-actor count rollup. Status-level only — never time entries, durations, or
+    edit counts (Morgan's surveillance hard-NO holds by construction). Pull-only;
+    no side effects.
+
+    ``since`` is floored at ``sprint.activated_at`` so the window never reaches
+    before the sprint started (and stays inside the 90-day history retention).
+    """
+    from django.utils import timezone
+
+    from trueppm_api.apps.projects.models import (
+        SprintBurnSnapshot,
+        SprintScopeChange,
+        Task,
+        TaskStatus,
+    )
+
+    until = timezone.now()
+    floor = sprint.activated_at
+    effective_since = max(since, floor) if floor is not None else since
+
+    task_qs = Task.objects.filter(sprint_id=sprint.pk, is_deleted=False)
+    task_ids = list(task_qs.values_list("pk", flat=True))
+
+    # Per-actor count rollup, keyed by actor id (None = system/unknown).
+    actors: dict[Any, dict[str, Any]] = {}
+
+    def _bump(user: Any, field: str) -> None:
+        key = user.pk if user is not None else None
+        row = actors.setdefault(
+            key,
+            {
+                "actor_id": key,
+                "actor_username": getattr(user, "username", None) if user else None,
+                "moved": 0,
+                "completed": 0,
+                "added": 0,
+                "blocked": 0,
+            },
+        )
+        row[field] += 1
+
+    task_changes: list[dict[str, Any]] = []
+    new_blockers: list[dict[str, Any]] = []
+
+    if task_ids:
+        # All history for the current sprint tasks, oldest-first per task, so each
+        # in-window row can be diffed against its true predecessor (which may pre-
+        # date the window). Bounded by sprint size; one query (ADR-0121 §1).
+        rows = list(
+            Task.history.filter(id__in=task_ids)
+            .select_related("history_user")
+            .order_by("id", "history_date")
+        )
+        prev_by_task: dict[Any, Any] = {}
+        for r in rows:
+            prev = prev_by_task.get(r.id)
+            prev_by_task[r.id] = r
+            if prev is None:
+                continue
+            # Only transitions that landed in the window, and only status moves
+            # ("moved cards" — the issue's core signal; assignee churn is noise).
+            if r.history_date < effective_since or r.status == prev.status:
+                continue
+            actor = r.history_user
+            entry = {
+                "task_id": str(r.id),
+                "task_short_id": f"T-{r.short_id}" if r.short_id else "",
+                "task_title": r.name,
+                "kind": "status",
+                "from": prev.status,
+                "to": r.status,
+                "actor_id": actor.pk if actor else None,
+                "actor_username": getattr(actor, "username", None) if actor else None,
+                "at": r.history_date.isoformat(),
+            }
+            task_changes.append(entry)
+            _bump(actor, "moved")
+            if r.status == TaskStatus.COMPLETE:
+                _bump(actor, "completed")
+            if r.status == TaskStatus.ON_HOLD:
+                new_blockers.append(
+                    {
+                        "task_id": str(r.id),
+                        "task_short_id": entry["task_short_id"],
+                        "task_title": r.name,
+                        "actor_username": entry["actor_username"],
+                        "at": entry["at"],
+                    }
+                )
+                _bump(actor, "blocked")
+
+    # Scope injected since the window opened (ADR-0102 SprintScopeChange).
+    scope_added: list[dict[str, Any]] = []
+    for sc in (
+        SprintScopeChange.objects.filter(sprint_id=sprint.pk, added_at__gte=effective_since)
+        .select_related("task", "added_by")
+        .order_by("added_at")
+    ):
+        task = sc.task
+        scope_added.append(
+            {
+                "task_id": str(sc.task_id) if sc.task_id else None,
+                "task_short_id": f"T-{task.short_id}" if task and task.short_id else "",
+                "task_title": task.name if task else "",
+                "added_by_username": getattr(sc.added_by, "username", None)
+                if sc.added_by
+                else None,
+                "at": sc.added_at.isoformat(),
+                "status": sc.status,
+            }
+        )
+        _bump(sc.added_by, "added")
+
+    # Burndown swing — the two most recent daily snapshots (ADR-0121 §1).
+    snaps = list(
+        SprintBurnSnapshot.objects.filter(sprint_id=sprint.pk).order_by("-snapshot_date")[:2]
+    )
+    burndown_delta: dict[str, Any] | None = None
+    if len(snaps) == 2:
+        current, prior = snaps[0], snaps[1]
+        burndown_delta = {
+            "prior_date": prior.snapshot_date.isoformat(),
+            "prior_remaining": prior.remaining_points,
+            "current_date": current.snapshot_date.isoformat(),
+            "current_remaining": current.remaining_points,
+            "remaining_delta": current.remaining_points - prior.remaining_points,
+            "completed_delta": current.completed_points - prior.completed_points,
+        }
+
+    return {
+        "sprint_id": str(sprint.pk),
+        "since": effective_since.isoformat(),
+        "until": until.isoformat(),
+        "task_changes": task_changes,
+        "scope_added": scope_added,
+        "new_blockers": new_blockers,
+        "burndown_delta": burndown_delta,
+        "per_actor": sorted(actors.values(), key=lambda a: (a["actor_username"] or "￿").lower()),
+    }
+
+
 def snapshot_completed_metrics(sprint: Any) -> None:
     """Compute and store completed_points / completed_task_count from current task state.
 

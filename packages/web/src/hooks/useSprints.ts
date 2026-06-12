@@ -677,6 +677,88 @@ export function useToggleDemo(sprintId: string | null | undefined) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Daily standup delta — "what changed since yesterday" (#925, ADR-0121)
+// ---------------------------------------------------------------------------
+
+export interface DailyDeltaStatusChange {
+  task_id: string;
+  task_short_id: string;
+  task_title: string;
+  kind: 'status';
+  from: string;
+  to: string;
+  actor_id: number | null;
+  actor_username: string | null;
+  at: string;
+}
+
+export interface DailyDeltaScopeItem {
+  task_id: string | null;
+  task_short_id: string;
+  task_title: string;
+  added_by_username: string | null;
+  at: string;
+  status: string;
+}
+
+export interface DailyDeltaBlocker {
+  task_id: string;
+  task_short_id: string;
+  task_title: string;
+  actor_username: string | null;
+  at: string;
+}
+
+export interface DailyDeltaActor {
+  actor_id: number | null;
+  actor_username: string | null;
+  moved: number;
+  completed: number;
+  added: number;
+  blocked: number;
+}
+
+/**
+ * Team standup delta (#925, ADR-0121). Server-computed from history/scope/burndown
+ * — status-level only, never hours/keystroke. Team-private by membership.
+ */
+export interface SprintDailyDelta {
+  sprint_id: string;
+  since: string;
+  until: string;
+  task_changes: DailyDeltaStatusChange[];
+  scope_added: DailyDeltaScopeItem[];
+  new_blockers: DailyDeltaBlocker[];
+  burndown_delta: {
+    prior_date: string;
+    prior_remaining: number;
+    current_date: string;
+    current_remaining: number;
+    remaining_delta: number;
+    completed_delta: number;
+  } | null;
+  per_actor: DailyDeltaActor[];
+}
+
+/** GET /api/v1/sprints/{id}/daily-delta/?since= — the team "what changed since yesterday" read. */
+export function useSprintDailyDelta(
+  sprintId: string | null | undefined,
+  options: { enabled?: boolean; since?: string } = {},
+) {
+  const { enabled = true, since } = options;
+  return useQuery({
+    queryKey: ['sprint', sprintId, 'daily-delta', since ?? '24h'],
+    queryFn: async () => {
+      const res = await apiClient.get<SprintDailyDelta>(`/sprints/${sprintId}/daily-delta/`, {
+        params: since ? { since } : undefined,
+      });
+      return res.data;
+    },
+    enabled: !!sprintId && enabled,
+  });
+}
+
 
 // ---------------------------------------------------------------------------
 // Sprint-health signals (issue #988, ADR-0101 §4)

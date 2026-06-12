@@ -3189,6 +3189,26 @@ class SprintOutcomeSerializer(serializers.Serializer[dict[str, Any]]):
     milestone_slip = MilestoneSlipSerializer(allow_null=True)
 
 
+class SprintDailyDeltaSerializer(serializers.Serializer[dict[str, Any]]):
+    """Team standup "what changed since yesterday" read (#925, ADR-0121).
+
+    Server-computed from existing data (HistoricalTask status moves, SprintScopeChange
+    injections, SprintBurnSnapshot swing) — no model. Status-level only; the per-actor
+    rollup is counts, never durations or edit-counts (Morgan's surveillance hard-NO).
+    Team-private by membership (PMO is a non-member → denied). Shape per
+    ``services.sprint_daily_delta``; DictField children keep it additive + MCP-flat.
+    """
+
+    sprint_id = serializers.UUIDField()
+    since = serializers.DateTimeField()
+    until = serializers.DateTimeField()
+    task_changes = serializers.ListField(child=serializers.DictField())
+    scope_added = serializers.ListField(child=serializers.DictField())
+    new_blockers = serializers.ListField(child=serializers.DictField())
+    burndown_delta = serializers.DictField(allow_null=True)
+    per_actor = serializers.ListField(child=serializers.DictField())
+
+
 class SprintCloseRequestSerializer(serializers.Serializer[dict[str, Any]]):
     """Validate the body for ``POST /api/sprints/{id}/close/``."""
 

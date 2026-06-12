@@ -16,6 +16,7 @@ import {
 } from '@/hooks/useSprints';
 import { ExcludeFromVelocityToggle } from './ExcludeFromVelocityToggle';
 import { SprintClosedOutcome } from './SprintClosedOutcome';
+import { SprintDailyDeltaPanel } from './SprintDailyDeltaPanel';
 import { SprintHeader } from './SprintHeader';
 import { SprintGoalCard } from './SprintGoalCard';
 import { AdvancingToMilestoneCard } from './AdvancingToMilestoneCard';
@@ -522,23 +523,27 @@ export function SprintsView() {
             {/* ACTIVE — burndown + capacity + velocity (unchanged this MR; the
                 ADR-0094 "launcher" dedup is a follow-up). */}
             {selectedSprint.state === 'ACTIVE' && (
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                <div className="md:col-span-3">
-                  <BurnChart sprintId={selectedSprint.id} defaultVariant="burndown" />
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                  <div className="md:col-span-3">
+                    <BurnChart sprintId={selectedSprint.id} defaultVariant="burndown" />
+                  </div>
+                  <div className="md:col-span-2 flex flex-col gap-4">
+                    {capacity.data ? (
+                      <CapacityPreflight capacity={capacity.data} />
+                    ) : (
+                      <ChartSkeleton label="Capacity Preflight" />
+                    )}
+                    {velocity.data ? (
+                      <VelocityPanel velocity={velocity.data} />
+                    ) : (
+                      <ChartSkeleton label="Velocity" />
+                    )}
+                  </div>
                 </div>
-                <div className="md:col-span-2 flex flex-col gap-4">
-                  {capacity.data ? (
-                    <CapacityPreflight capacity={capacity.data} />
-                  ) : (
-                    <ChartSkeleton label="Capacity Preflight" />
-                  )}
-                  {velocity.data ? (
-                    <VelocityPanel velocity={velocity.data} />
-                  ) : (
-                    <ChartSkeleton label="Velocity" />
-                  )}
-                </div>
-              </div>
+                {/* Team daily standup — "what changed since yesterday" (#925). */}
+                <SprintDailyDeltaPanel sprintId={selectedSprint.id} />
+              </>
             )}
 
             {/* CLOSED — read-only outcome (5-card row + "what didn't ship") bound

@@ -305,6 +305,12 @@ urlpatterns = [
         SprintTaskOutcomeViewSet.as_view({"post": "toggle_demo"}),
         name="sprint-task-outcome-toggle-demo",
     ),
+    # Team daily-standup "what changed since yesterday" delta (ADR-0121, #925)
+    path(
+        "sprints/<pk>/daily-delta/",
+        SprintViewSet.as_view({"get": "daily_delta"}),
+        name="sprints-daily-delta",
+    ),
     # Sprint↔milestone binding — the agile/waterfall bridge (ADR-0106 §2)
     path(
         "sprints/<pk>/promote-to-milestone/",
