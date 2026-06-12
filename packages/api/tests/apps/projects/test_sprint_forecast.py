@@ -37,16 +37,21 @@ def project(db: object) -> Project:
 
 
 @pytest.fixture
-def admin(project: Project) -> Any:
-    user = User.objects.create_user(username="sf_admin", password="pw")
-    ProjectMembership.objects.create(project=project, user=user, role=Role.ADMIN)
+def member(project: Project) -> Any:
+    # An ordinary team member reads as the TEAM band, so under ADR-0104 they read
+    # the team-private velocity series — and the velocity-derived forecast — by
+    # default. The PM/ADMIN band (TEAM_SM_PM) does NOT read velocity by default
+    # (Morgan's hard-NO; see test_endpoint_suppresses_pm_by_default), so the
+    # happy-path endpoint reader must be a TEAM-band member.
+    user = User.objects.create_user(username="sf_member", password="pw")
+    ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
     return user
 
 
 @pytest.fixture
-def client(admin: Any) -> APIClient:
+def client(member: Any) -> APIClient:
     c = APIClient()
-    c.force_authenticate(user=admin)
+    c.force_authenticate(user=member)
     return c
 
 
@@ -172,3 +177,27 @@ def test_endpoint_suppresses_for_below_velocity_audience(
     # organisational facts (ADR-0104) — withheld too.
     assert resp.data["sample_count"] is None
     assert resp.data["status"] == "warming_up"
+
+
+@pytest.mark.django_db
+def test_endpoint_suppresses_pm_by_default(project: Project) -> None:
+    # ADR-0104 default posture: velocity is team-private and the PM/management band
+    # (an ADMIN resolves to TEAM_SM_PM) does NOT read it automatically — the team
+    # must raise the audience first. The forecast is entirely velocity-derived, so a
+    # PM reading the endpoint before any sharing gets the suppressed shape, NOT a
+    # backlog horizon they could reverse into the team's throughput. No patch: this
+    # is the real default gate, the case test_endpoint_returns_ready_forecast must
+    # not mask by using a PM-band reader.
+    for name, pts in [("S1", 18), ("S2", 20), ("S3", 22)]:
+        _closed_sprint(project, name, pts)
+    _backlog(project, 60)
+    pm = User.objects.create_user(username="sf_pm", password="pw")
+    ProjectMembership.objects.create(project=project, user=pm, role=Role.ADMIN)
+    c = APIClient()
+    c.force_authenticate(user=pm)
+    resp = c.get(_url(project))
+    assert resp.status_code == 200, resp.data
+    assert resp.data["velocity_suppressed"] is True
+    assert resp.data["status"] == "warming_up"
+    assert resp.data["p50_sprints"] is None
+    assert resp.data["sample_count"] is None
