@@ -52,6 +52,8 @@ is the full value reference.
 
 **Good for:** production deployment, horizontal scaling, enterprise environments.
 
+For preliminary hardware sizing guidance at 50 / 100 / 200 users, see [Deployment Sizing](/administration/sizing/).
+
 ### Secure by default
 
 A default install needs no extra security flags. The chart:
