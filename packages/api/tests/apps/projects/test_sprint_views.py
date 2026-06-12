@@ -24,6 +24,7 @@ from trueppm_api.apps.projects.models import (
     SprintTaskOutcome,
     Task,
     TaskStatus,
+    TaskType,
 )
 
 User = get_user_model()
@@ -1524,3 +1525,126 @@ def test_daily_delta_malformed_since_falls_back(member_client: APIClient, projec
         f"/api/v1/sprints/{s.pk}/daily-delta/", {"since": "2026-13-45T00:00:00"}
     )
     assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Wave C polish — per-actor scoping, aggregate, scope cost, sprint load
+# (#1126 / #1127)
+# ---------------------------------------------------------------------------
+
+
+def test_daily_delta_aggregate_and_member_sees_per_actor(
+    member_client: APIClient, project: Project, member_user: object
+) -> None:
+    """Member+ get the per-actor breakdown AND the team aggregate (#1126)."""
+    s, _ = _active_with_history(project, member_user)
+    body = member_client.get(f"/api/v1/sprints/{s.pk}/daily-delta/").json()
+    assert body["per_actor"], "a Member must see the per-actor breakdown"
+    agg = body["actor_aggregate"]
+    # Aggregate equals the sum across the (suppressed-zero) per-actor rows.
+    assert agg["moved"] == sum(a["moved"] for a in body["per_actor"])
+    assert agg["blocked"] == sum(a["blocked"] for a in body["per_actor"])
+
+
+def test_daily_delta_viewer_gets_aggregate_only_no_per_actor(
+    viewer_client: APIClient, project: Project, member_user: object
+) -> None:
+    """A Viewer-role member sees the team aggregate but NO per-person breakdown
+    (#1126, ADR-0119) — the anti-leaderboard privacy boundary."""
+    s, _ = _active_with_history(project, member_user)
+    resp = viewer_client.get(f"/api/v1/sprints/{s.pk}/daily-delta/")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["per_actor"] == [], "a Viewer must NOT receive per-person rows"
+    # But the team total is still present and non-empty (there were two moves).
+    assert body["actor_aggregate"]["moved"] >= 2
+
+
+def test_daily_delta_suppresses_zero_activity_actors(
+    member_client: APIClient, project: Project, member_user: object, user: object
+) -> None:
+    """An actor with zero moves/dones/adds/blocks never appears (#1126)."""
+    s, _ = _active_with_history(project, member_user)
+    # `user` (owner) touched nothing in this sprint — must be absent from per_actor.
+    body = member_client.get(f"/api/v1/sprints/{s.pk}/daily-delta/").json()
+    usernames = {a["actor_username"] for a in body["per_actor"]}
+    assert "owner" not in usernames
+    for a in body["per_actor"]:
+        assert a["moved"] or a["completed"] or a["added"] or a["blocked"]
+
+
+def test_daily_delta_scope_carries_points_and_epic(
+    member_client: APIClient, project: Project, member_user: object
+) -> None:
+    """Each scope_added item carries story_points (velocity-readable for a member)
+    and its epic {id, name} grouping label (#1127)."""
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    s = _make_sprint(
+        project,
+        state=SprintState.ACTIVE,
+        activated_at=timezone.now() - timedelta(days=2),
+        committed_points=20,
+    )
+    epic = Task.objects.create(project=project, name="Checkout", duration=0, type=TaskType.EPIC)
+    task = Task.objects.create(
+        project=project, name="Injected", duration=1, sprint=s, story_points=3, parent_epic=epic
+    )
+    SprintScopeChange.objects.create(
+        sprint=s,
+        task=task,
+        subtask_name="Injected",
+        added_by=member_user,
+        status=ScopeChangeStatus.PENDING,
+    )
+    body = member_client.get(f"/api/v1/sprints/{s.pk}/daily-delta/").json()
+    item = body["scope_added"][0]
+    # A project member is TEAM-tier and reads the velocity signal → points visible.
+    assert item["story_points"] == 3
+    assert item["epic"] == {"id": str(epic.pk), "name": "Checkout"}
+
+
+def test_daily_delta_scope_epic_null_when_ungrouped(
+    member_client: APIClient, project: Project, member_user: object
+) -> None:
+    """A scope item with no parent epic reports epic: null, never a stub (#1127)."""
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    s = _make_sprint(
+        project, state=SprintState.ACTIVE, activated_at=timezone.now() - timedelta(days=2)
+    )
+    task = Task.objects.create(project=project, name="Ungrouped", duration=1, sprint=s)
+    SprintScopeChange.objects.create(
+        sprint=s, task=task, subtask_name="Ungrouped", added_by=member_user
+    )
+    body = member_client.get(f"/api/v1/sprints/{s.pk}/daily-delta/").json()
+    assert body["scope_added"][0]["epic"] is None
+
+
+def test_daily_delta_sprint_load_block(member_client: APIClient, project: Project) -> None:
+    """The sprint_load block reports committed vs current points and pct_loaded
+    against capacity when set (#1127)."""
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    s = _make_sprint(
+        project,
+        state=SprintState.ACTIVE,
+        activated_at=timezone.now() - timedelta(days=2),
+        committed_points=10,
+        capacity_points=20,
+    )
+    Task.objects.create(project=project, name="A", duration=1, sprint=s, story_points=8)
+    Task.objects.create(project=project, name="B", duration=1, sprint=s, story_points=4)
+    body = member_client.get(f"/api/v1/sprints/{s.pk}/daily-delta/").json()
+    load = body["sprint_load"]
+    assert load["committed_points"] == 10
+    assert load["current_points"] == 12  # 8 + 4 current committed load
+    assert load["delta_points"] == 2  # 12 current − 10 committed snapshot
+    # pct_loaded measured against capacity (20): 12 / 20 = 0.6.
+    assert load["pct_loaded"] == 0.6

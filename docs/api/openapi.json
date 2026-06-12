@@ -26379,15 +26379,25 @@
                             "type": "object",
                             "additionalProperties": {}
                         }
+                    },
+                    "actor_aggregate": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    },
+                    "sprint_load": {
+                        "type": "object",
+                        "additionalProperties": {}
                     }
                 },
                 "required": [
+                    "actor_aggregate",
                     "burndown_delta",
                     "new_blockers",
                     "per_actor",
                     "scope_added",
                     "since",
                     "sprint_id",
+                    "sprint_load",
                     "task_changes",
                     "until"
                 ]

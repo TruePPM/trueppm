@@ -1481,15 +1481,32 @@ def sprint_daily_delta(sprint: Any, since: Any, request: Any) -> dict[str, Any]:
 
     ``since`` is floored at ``sprint.activated_at`` so the window never reaches
     before the sprint started (and stays inside the 90-day history retention).
+
+    Privacy (#1126, ADR-0119): the per-actor breakdown is a team-internal read.
+    A **Viewer**-role member receives ``per_actor: []`` and only the
+    ``actor_aggregate`` team totals — never a per-person breakdown that could be
+    read as a leaderboard. Member-and-above get the full ``per_actor`` list AND the
+    aggregate. Zero-activity actors are suppressed server-side so they never leave
+    the server.
+
+    Points gate (#1127, ADR-0104): ``story_points`` on injected scope and the
+    ``sprint_load`` point figures are suppressed (null) for a requester who cannot
+    read the velocity signal — exactly as ``sprint_outcome_payload`` does. Epic
+    labels and all counts remain visible regardless of the velocity gate.
     """
     from django.utils import timezone
 
+    from trueppm_api.apps.access.models import Role
+    from trueppm_api.apps.access.permissions import _membership_role
     from trueppm_api.apps.projects.models import (
         SprintBurnSnapshot,
         SprintScopeChange,
         Task,
         TaskStatus,
     )
+    from trueppm_api.apps.projects.signal_privacy_services import can_read_signal
+
+    velocity_readable = can_read_signal(request, sprint.project_id, "velocity")
 
     until = timezone.now()
     floor = sprint.activated_at
@@ -1566,14 +1583,17 @@ def sprint_daily_delta(sprint: Any, since: Any, request: Any) -> dict[str, Any]:
                 )
                 _bump(actor, "blocked")
 
-    # Scope injected since the window opened (ADR-0102 SprintScopeChange).
+    # Scope injected since the window opened (ADR-0102 SprintScopeChange). Each item
+    # carries its point cost (velocity-gated) and epic grouping label (#1127) so the
+    # standup can read "what landed mid-sprint and what it costs us" at a glance.
     scope_added: list[dict[str, Any]] = []
     for sc in (
         SprintScopeChange.objects.filter(sprint_id=sprint.pk, added_at__gte=effective_since)
-        .select_related("task", "added_by")
+        .select_related("task", "added_by", "task__parent_epic")
         .order_by("added_at")
     ):
         task = sc.task
+        epic = task.parent_epic if task is not None else None
         scope_added.append(
             {
                 "task_id": str(sc.task_id) if sc.task_id else None,
@@ -1584,6 +1604,12 @@ def sprint_daily_delta(sprint: Any, since: Any, request: Any) -> dict[str, Any]:
                 else None,
                 "at": sc.added_at.isoformat(),
                 "status": sc.status,
+                # ADR-0104 points gate: a below-audience reader sees the row (and its
+                # epic), but never the point cost.
+                "story_points": (task.story_points if task is not None else None)
+                if velocity_readable
+                else None,
+                "epic": ({"id": str(epic.pk), "name": epic.name} if epic is not None else None),
             }
         )
         _bump(sc.added_by, "added")
@@ -1604,6 +1630,58 @@ def sprint_daily_delta(sprint: Any, since: Any, request: Any) -> dict[str, Any]:
             "completed_delta": current.completed_points - prior.completed_points,
         }
 
+    # Suppress zero-activity actors (#1126): a row with no moves/dones/adds/blocks is
+    # noise on the standup and never leaves the server.
+    active_actors = [
+        a for a in actors.values() if (a["moved"] or a["completed"] or a["added"] or a["blocked"])
+    ]
+
+    # Team aggregate — the anti-scoreboard fallback for Viewers and the headline
+    # total for Member+. Summed across the active actors (zero rows contribute zero).
+    actor_aggregate = {
+        "moved": sum(a["moved"] for a in active_actors),
+        "completed": sum(a["completed"] for a in active_actors),
+        "added": sum(a["added"] for a in active_actors),
+        "blocked": sum(a["blocked"] for a in active_actors),
+    }
+
+    # Per-actor scoping (#1126, ADR-0119): a Viewer-role member gets the aggregate
+    # only — no per-person breakdown that reads as a leaderboard. Member+ get both.
+    role = _membership_role(request, sprint.project_id)
+    viewer_only = role is not None and role < Role.MEMBER
+    per_actor = (
+        []
+        if viewer_only
+        else sorted(active_actors, key=lambda a: (a["actor_username"] or "￿").lower())
+    )
+
+    # Sprint load (#1127): committed snapshot vs current committed load. pct_loaded is
+    # measured against capacity when the team set one (the meaningful "how full are we"
+    # read), else against the activation commitment. Point figures are velocity-gated.
+    committed_points = sprint.committed_points
+    current_points = current_committed_points(sprint.pk)
+    capacity_points = sprint.capacity_points
+    load_basis = capacity_points if capacity_points else committed_points
+    pct_loaded: float | None = None
+    if load_basis:
+        pct_loaded = round(current_points / load_basis, 4)
+    delta_points = current_points - committed_points if committed_points is not None else None
+    sprint_load: dict[str, Any] = (
+        {
+            "committed_points": committed_points,
+            "current_points": current_points,
+            "delta_points": delta_points,
+            "pct_loaded": pct_loaded,
+        }
+        if velocity_readable
+        else {
+            "committed_points": None,
+            "current_points": None,
+            "delta_points": None,
+            "pct_loaded": None,
+        }
+    )
+
     return {
         "sprint_id": str(sprint.pk),
         "since": effective_since.isoformat(),
@@ -1612,7 +1690,9 @@ def sprint_daily_delta(sprint: Any, since: Any, request: Any) -> dict[str, Any]:
         "scope_added": scope_added,
         "new_blockers": new_blockers,
         "burndown_delta": burndown_delta,
-        "per_actor": sorted(actors.values(), key=lambda a: (a["actor_username"] or "￿").lower()),
+        "per_actor": per_actor,
+        "actor_aggregate": actor_aggregate,
+        "sprint_load": sprint_load,
     }
 
 
