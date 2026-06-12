@@ -77,6 +77,19 @@ describe('useScheduleTasks mapper', () => {
     expect(task.baselineStart).toBeUndefined();
   });
 
+  it('maps the classification taxonomy (type / governance_class / delivery_mode)', () => {
+    const task = mapTask({ ...base, type: 'spike', governance_class: 'gated', delivery_mode: 'kanban' });
+    expect(task.taskType).toBe('spike');
+    expect(task.governanceClass).toBe('gated');
+    expect(task.deliveryMode).toBe('kanban');
+  });
+
+  it('leaves taxonomy fields undefined on legacy payloads that omit them', () => {
+    const task = mapTask(base);
+    expect(task.governanceClass).toBeUndefined();
+    expect(task.deliveryMode).toBeUndefined();
+  });
+
   it('uses early_finish for leaf tasks once CPM has produced it', () => {
     const task = mapTask(base);
     expect(task.finish).toBe('2026-10-15');

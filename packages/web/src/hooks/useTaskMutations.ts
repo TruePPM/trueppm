@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
-import type { Task } from '@/types';
+import type { Task, TaskType, GovernanceClass, DeliveryMode } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Shared API shape — returned by POST /tasks/ and PATCH /tasks/{id}/
@@ -38,6 +38,12 @@ export interface CreateTaskPayload {
   is_milestone?: boolean;
   /** Mark the task as a subtask of `parent_id` (ADR-0060 #308). Depth is limited to 1. */
   is_subtask?: boolean;
+  /** Work-item type (ADR-0105). Defaults server-side to 'task' when omitted. */
+  type?: TaskType;
+  /** Governance overlay (ADR-0036/#407). Defaults server-side to 'flow'. */
+  governance_class?: GovernanceClass;
+  /** Execution / rollup mode (ADR-0036/#407). Defaults server-side to 'waterfall'. */
+  delivery_mode?: DeliveryMode;
 }
 
 /** POST /api/v1/tasks/ — create a new task in the given project. */
@@ -57,6 +63,9 @@ export function useCreateTask(projectId: string | null) {
         ...(payload.sprint !== undefined ? { sprint: payload.sprint } : {}),
         ...(payload.is_milestone ? { is_milestone: true } : {}),
         ...(payload.is_subtask ? { is_subtask: true } : {}),
+        ...(payload.type !== undefined ? { type: payload.type } : {}),
+        ...(payload.governance_class !== undefined ? { governance_class: payload.governance_class } : {}),
+        ...(payload.delivery_mode !== undefined ? { delivery_mode: payload.delivery_mode } : {}),
       });
       return res.data;
     },
@@ -88,6 +97,13 @@ export interface UpdateTaskPayload {
   story_points?: number | null;
   /** Live remaining-effort for burndown (issue #366). Auto-zeroed on COMPLETE by the API. */
   remaining_points?: number | null;
+  /** Work-item type (ADR-0105). Changing to/from 'epic' is structural — the
+   *  server gates it (PO/Admin) and 400s otherwise; surfaced as a submit error. */
+  type?: TaskType;
+  /** Governance overlay (ADR-0036/#407). */
+  governance_class?: GovernanceClass;
+  /** Execution / rollup mode (ADR-0036/#407). */
+  delivery_mode?: DeliveryMode;
 }
 
 /**
@@ -108,6 +124,9 @@ function optimisticTaskPatch(vars: UpdateTaskPayload): Partial<Task> {
   if (vars.story_points !== undefined) patch.storyPoints = vars.story_points;
   if (vars.remaining_points !== undefined) patch.remainingPoints = vars.remaining_points;
   if (vars.sprint !== undefined) patch.sprintId = vars.sprint;
+  if (vars.type !== undefined) patch.taskType = vars.type;
+  if (vars.governance_class !== undefined) patch.governanceClass = vars.governance_class;
+  if (vars.delivery_mode !== undefined) patch.deliveryMode = vars.delivery_mode;
   return patch;
 }
 
