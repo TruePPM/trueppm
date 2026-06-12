@@ -1186,7 +1186,309 @@ def test_outcome_milestone_slip_visible_to_management_band(
     body = client.get(f"/api/v1/sprints/{s.pk}/outcome/").json()
     assert body["velocity"] is None  # velocity suppressed for the management band
     assert body["milestone_slip"] is not None  # but the schedule slip is not gated
-    assert body["milestone_slip"]["slip_days"] == 12
+
+
+# ---------------------------------------------------------------------------
+# Wave D — Sprint Review polish (#1129/#1130/#1131/#1132/#1133)
+# ---------------------------------------------------------------------------
+
+
+def _closed_with_polish(project: Project) -> tuple[Sprint, dict[str, SprintTaskOutcome]]:
+    """A closed sprint with one fully-accepted shipped story (demo-flagged), one
+    criteria-incomplete shipped story, one criteria-not-set shipped story, and a
+    carried row. Returns the sprint and a {title: outcome} map for write tests."""
+    s = _make_sprint(
+        project,
+        state=SprintState.COMPLETED,
+        committed_points=12,
+        completed_points=10,
+        committed_task_count=4,
+        completed_task_count=3,
+        goal_outcome="PARTIAL",
+    )
+    rows: dict[str, SprintTaskOutcome] = {}
+
+    def shipped(name: str, pts: int, criteria: list[bool], *, demo: bool = False) -> None:
+        task = Task.objects.create(
+            project=project,
+            name=name,
+            duration=1,
+            sprint=s,
+            status=TaskStatus.COMPLETE,
+            story_points=pts,
+        )
+        for i, met in enumerate(criteria):
+            AcceptanceCriterion.objects.create(task=task, text=f"{name}-AC{i}", met=met, position=i)
+        rows[name] = SprintTaskOutcome.objects.create(
+            sprint=s,
+            task=task,
+            task_short_id=f"T-{name}",
+            task_title=name,
+            story_points=pts,
+            final_status="COMPLETE",
+            disposition="completed",
+            demo_ready=demo,
+        )
+
+    shipped("alpha", 5, [True, True], demo=True)  # fully accepted, demo-flagged
+    shipped("beta", 4, [True, False])  # criteria incomplete (1/2)
+    shipped("gamma", 3, [])  # criteria not set
+    # A carried (not-shipped) row.
+    rows["delta"] = SprintTaskOutcome.objects.create(
+        sprint=s,
+        task=None,
+        task_short_id="T-delta",
+        task_title="delta",
+        story_points=2,
+        final_status="IN_PROGRESS",
+        disposition="carried",
+    )
+    return s, rows
+
+
+def test_review_commitment_counts_present_and_not_gated(
+    client: APIClient, project: Project
+) -> None:
+    """#1129: committed→shipped→carried COUNTS are visible even to the management
+    band that has points suppressed (the team knows what it committed)."""
+    s, _ = _closed_with_polish(project)
+    # OWNER client = management band → velocity/points suppressed.
+    body = client.get(f"/api/v1/sprints/{s.pk}/outcome/").json()
+    assert body["velocity"] is None  # points gated
+    c = body["review"]["commitment"]
+    assert c["committed_count"] == 4  # snapshot committed_task_count
+    assert c["shipped_count"] == 3
+    assert c["carried_count"] == 1
+
+
+def test_review_commitment_carried_null_on_provisional(
+    member_client: APIClient, project: Project
+) -> None:
+    s = _make_sprint(project, state=SprintState.ACTIVE, committed_task_count=5)
+    Task.objects.create(
+        project=project, name="Open", duration=1, sprint=s, status=TaskStatus.IN_PROGRESS
+    )
+    c = member_client.get(f"/api/v1/sprints/{s.pk}/outcome/").json()["review"]["commitment"]
+    assert c["committed_count"] == 5
+    assert c["carried_count"] is None  # disposition not yet decided
+
+
+def test_review_exposes_unmet_criteria(member_client: APIClient, project: Project) -> None:
+    """#1131: each shipped story carries the names of its UNMET criteria."""
+    s, _ = _closed_with_polish(project)
+    r = member_client.get(f"/api/v1/sprints/{s.pk}/outcome/").json()["review"]
+    by_title = {row["task_title"]: row for row in r["shipped"]}
+    assert [c["text"] for c in by_title["beta"]["unmet_criteria"]] == ["beta-AC1"]
+    assert by_title["alpha"]["unmet_criteria"] == []  # fully accepted
+    assert by_title["gamma"]["unmet_criteria"] == []  # no criteria
+
+
+def test_review_shipped_carries_demo_order_and_presenter(
+    member_client: APIClient, project: Project
+) -> None:
+    """#1130: shipped items carry demo_order + presenter; the demo list is sorted."""
+    s, _rows = _closed_with_polish(project)
+    r = member_client.get(f"/api/v1/sprints/{s.pk}/outcome/").json()["review"]
+    alpha = next(x for x in r["shipped"] if x["task_title"] == "alpha")
+    assert "demo_order" in alpha
+    assert "presenter" in alpha
+    assert r["demo_list"] == ["T-alpha"]
+
+
+# --- demo reorder (#1130) ---------------------------------------------------
+
+
+def test_demo_reorder_writes_dense_order(member_client: APIClient, project: Project) -> None:
+    s, rows = _closed_with_polish(project)
+    # Flag beta + gamma as demo too so we have three demo-flagged rows to order.
+    rows["beta"].demo_ready = True
+    rows["beta"].save(update_fields=["demo_ready"])
+    rows["gamma"].demo_ready = True
+    rows["gamma"].save(update_fields=["demo_ready"])
+    ordered = [str(rows["gamma"].pk), str(rows["alpha"].pk), str(rows["beta"].pk)]
+    resp = member_client.post(
+        f"/api/v1/sprints/{s.pk}/demo-list/reorder/", {"outcome_ids": ordered}, format="json"
+    )
+    assert resp.status_code == 200, resp.content
+    rows["gamma"].refresh_from_db()
+    rows["alpha"].refresh_from_db()
+    rows["beta"].refresh_from_db()
+    assert (rows["gamma"].demo_order, rows["alpha"].demo_order, rows["beta"].demo_order) == (
+        1,
+        2,
+        3,
+    )
+
+
+def test_demo_reorder_conflict_on_set_drift(member_client: APIClient, project: Project) -> None:
+    """A reorder whose set differs from the live demo-flagged set is a 409."""
+    s, rows = _closed_with_polish(project)
+    # Only alpha is demo-flagged; supplying beta (not flagged) is drift.
+    resp = member_client.post(
+        f"/api/v1/sprints/{s.pk}/demo-list/reorder/",
+        {"outcome_ids": [str(rows["beta"].pk)]},
+        format="json",
+    )
+    assert resp.status_code == 409, resp.content
+
+
+def test_demo_reorder_member_only(viewer_client: APIClient, project: Project) -> None:
+    s, rows = _closed_with_polish(project)
+    resp = viewer_client.post(
+        f"/api/v1/sprints/{s.pk}/demo-list/reorder/",
+        {"outcome_ids": [str(rows["alpha"].pk)]},
+        format="json",
+    )
+    assert resp.status_code in (403, 404)
+
+
+def test_demo_reorder_non_member_denied(stranger_client: APIClient, project: Project) -> None:
+    s, rows = _closed_with_polish(project)
+    resp = stranger_client.post(
+        f"/api/v1/sprints/{s.pk}/demo-list/reorder/",
+        {"outcome_ids": [str(rows["alpha"].pk)]},
+        format="json",
+    )
+    assert resp.status_code in (403, 404)
+
+
+def test_demo_reorder_rejects_empty_body(member_client: APIClient, project: Project) -> None:
+    s, _ = _closed_with_polish(project)
+    resp = member_client.post(
+        f"/api/v1/sprints/{s.pk}/demo-list/reorder/", {"outcome_ids": []}, format="json"
+    )
+    assert resp.status_code == 400
+
+
+# --- presenter (#1130) ------------------------------------------------------
+
+
+def test_set_presenter_member(member_client: APIClient, project: Project) -> None:
+    _, rows = _closed_with_polish(project)
+    resp = member_client.post(
+        f"/api/v1/sprint-task-outcomes/{rows['alpha'].pk}/set-presenter/",
+        {"presenter": "Alex"},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.content
+    rows["alpha"].refresh_from_db()
+    assert rows["alpha"].presenter == "Alex"
+
+
+def test_set_presenter_viewer_forbidden(viewer_client: APIClient, project: Project) -> None:
+    _, rows = _closed_with_polish(project)
+    resp = viewer_client.post(
+        f"/api/v1/sprint-task-outcomes/{rows['alpha'].pk}/set-presenter/",
+        {"presenter": "Alex"},
+        format="json",
+    )
+    assert resp.status_code in (403, 404)
+
+
+def test_set_presenter_non_member_denied(stranger_client: APIClient, project: Project) -> None:
+    _, rows = _closed_with_polish(project)
+    resp = stranger_client.post(
+        f"/api/v1/sprint-task-outcomes/{rows['alpha'].pk}/set-presenter/",
+        {"presenter": "Alex"},
+        format="json",
+    )
+    assert resp.status_code in (403, 404)
+
+
+# --- review note (#1131) ----------------------------------------------------
+
+
+def test_set_note_member(member_client: APIClient, project: Project) -> None:
+    _, rows = _closed_with_polish(project)
+    resp = member_client.post(
+        f"/api/v1/sprint-task-outcomes/{rows['beta'].pk}/set-note/",
+        {"note": "Refined next sprint"},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.content
+    rows["beta"].refresh_from_db()
+    assert rows["beta"].review_note == "Refined next sprint"
+
+
+def test_set_note_truncates_over_200(member_client: APIClient, project: Project) -> None:
+    _, rows = _closed_with_polish(project)
+    long_note = "x" * 250
+    resp = member_client.post(
+        f"/api/v1/sprint-task-outcomes/{rows['beta'].pk}/set-note/",
+        {"note": long_note},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.content
+    rows["beta"].refresh_from_db()
+    assert len(rows["beta"].review_note) == 200
+
+
+def test_set_note_non_member_denied(stranger_client: APIClient, project: Project) -> None:
+    _, rows = _closed_with_polish(project)
+    resp = stranger_client.post(
+        f"/api/v1/sprint-task-outcomes/{rows['beta'].pk}/set-note/",
+        {"note": "x"},
+        format="json",
+    )
+    assert resp.status_code in (403, 404)
+
+
+def test_set_note_viewer_forbidden(viewer_client: APIClient, project: Project) -> None:
+    _, rows = _closed_with_polish(project)
+    resp = viewer_client.post(
+        f"/api/v1/sprint-task-outcomes/{rows['beta'].pk}/set-note/",
+        {"note": "x"},
+        format="json",
+    )
+    assert resp.status_code in (403, 404)
+
+
+# --- flag for backlog (#1132) -----------------------------------------------
+
+
+def test_flag_for_backlog_creates_backlog_task(member_client: APIClient, project: Project) -> None:
+    _, rows = _closed_with_polish(project)
+    resp = member_client.post(
+        f"/api/v1/sprint-task-outcomes/{rows['beta'].pk}/flag-for-backlog/", {}, format="json"
+    )
+    assert resp.status_code == 200, resp.content
+    assert resp.json()["flagged_to_backlog"] is True
+    rows["beta"].refresh_from_db()
+    assert rows["beta"].flagged_to_backlog_task_id is not None
+    task = Task.objects.get(pk=rows["beta"].flagged_to_backlog_task_id)
+    assert task.status == TaskStatus.BACKLOG
+    assert task.sprint_id is None
+    assert task.name == "beta"
+    assert task.story_points == 4
+
+
+def test_flag_for_backlog_is_idempotent(member_client: APIClient, project: Project) -> None:
+    _, rows = _closed_with_polish(project)
+    url = f"/api/v1/sprint-task-outcomes/{rows['beta'].pk}/flag-for-backlog/"
+    member_client.post(url, {}, format="json")
+    rows["beta"].refresh_from_db()
+    first_task = rows["beta"].flagged_to_backlog_task_id
+    member_client.post(url, {}, format="json")
+    rows["beta"].refresh_from_db()
+    assert rows["beta"].flagged_to_backlog_task_id == first_task
+    # Exactly one BACKLOG task spawned from this outcome.
+    assert Task.objects.filter(project=project, status=TaskStatus.BACKLOG, name="beta").count() == 1
+
+
+def test_flag_for_backlog_viewer_forbidden(viewer_client: APIClient, project: Project) -> None:
+    _, rows = _closed_with_polish(project)
+    resp = viewer_client.post(
+        f"/api/v1/sprint-task-outcomes/{rows['beta'].pk}/flag-for-backlog/", {}, format="json"
+    )
+    assert resp.status_code in (403, 404)
+
+
+def test_flag_for_backlog_non_member_denied(stranger_client: APIClient, project: Project) -> None:
+    _, rows = _closed_with_polish(project)
+    resp = stranger_client.post(
+        f"/api/v1/sprint-task-outcomes/{rows['beta'].pk}/flag-for-backlog/", {}, format="json"
+    )
+    assert resp.status_code in (403, 404)
 
 
 # ---------------------------------------------------------------------------

@@ -442,6 +442,34 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         }
       }
 
+      // --- Sprint Review curation events (ADR-0118 amend, #1130/#1131/#1132) ---
+      // A peer reordered the demo list, set a presenter or contributor note, or
+      // flagged a not-shipped story for the backlog. All four mutate the
+      // consolidated Sprint Review read (['sprint', id, 'outcome']). demo_toggled
+      // (#924) shares the same key and had no handler, so co-viewers' review
+      // surfaces drifted until a manual refetch — fold it in here. The broadcast
+      // carries sprint_id; fall back to every open outcome query when absent.
+      // (flag-for-backlog also emits task_created, handled above, which refreshes
+      // the task/backlog feed — so the new backlog item reaches peers too.)
+      else if (
+        event_type === 'demo_toggled' ||
+        event_type === 'demo_reordered' ||
+        event_type === 'demo_presenter_set' ||
+        event_type === 'review_note_set' ||
+        event_type === 'flagged_for_backlog'
+      ) {
+        const reviewSprintId = payload?.sprint_id;
+        if (typeof reviewSprintId === 'string') {
+          void queryClient.invalidateQueries({
+            queryKey: ['sprint', reviewSprintId, 'outcome'],
+          });
+        } else {
+          void queryClient.invalidateQueries({
+            predicate: (q) => q.queryKey[0] === 'sprint' && q.queryKey[2] === 'outcome',
+          });
+        }
+      }
+
       // --- Milestone rollup events (ADR-0074) ---
       else if (event_type === 'milestone_rollup_updated') {
         // Aggregated rollup payload arrives independent of the task feed.

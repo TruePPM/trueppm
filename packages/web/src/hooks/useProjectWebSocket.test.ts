@@ -279,6 +279,44 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
     expect(predicateCall).toBeDefined();
   });
 
+  // ADR-0118 amend (#1130/#1131/#1132) — a peer reordering the demo list, setting
+  // a presenter/note, or flagging a story for backlog must refetch the consolidated
+  // Sprint Review read so co-viewers don't drift until a manual refresh.
+  it.each([
+    'demo_toggled',
+    'demo_reordered',
+    'demo_presenter_set',
+    'review_note_set',
+    'flagged_for_backlog',
+  ])('invalidates the targeted outcome read on %s when the payload carries sprint_id', (evt) => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    act(() => {
+      MockWebSocket.instances[0].dispatch('message', {
+        data: JSON.stringify({ event_type: evt, payload: { sprint_id: 's1' } }),
+      });
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['sprint', 's1', 'outcome'] });
+  });
+
+  it('falls back to all outcome queries on a review-curation event with no sprint_id', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    act(() => {
+      MockWebSocket.instances[0].dispatch('message', {
+        data: JSON.stringify({ event_type: 'demo_reordered', payload: {} }),
+      });
+    });
+
+    const predicateCall = invalidateSpy.mock.calls.find(
+      ([arg]) => typeof (arg as { predicate?: unknown }).predicate === 'function',
+    );
+    expect(predicateCall).toBeDefined();
+  });
+
   // --- Trailing-debounce coalescing (#773) ------------------------------
 
   it('coalesces a burst of task events into a single tasks invalidation', () => {

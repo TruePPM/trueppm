@@ -604,7 +604,18 @@ export interface ReviewShippedStory {
   task_title: string;
   story_points: number | null;
   acceptance: { met: number; total: number };
+  /** The specific UNMET criteria (names only) for the #1131 click-through; empty
+   * when fully accepted or no criteria. */
+  unmet_criteria: { id: string; text: string }[];
+  /** Optional contributor note left at review (#1131); "" when unset. */
+  review_note: string;
+  /** True once the story has been carried forward to the backlog (#1132). */
+  flagged_to_backlog: boolean;
   demo_ready: boolean;
+  /** Dense demo walkthrough order (#1130); 0 when unset. */
+  demo_order: number;
+  /** Free-text presenter for the demo (#1130); "" when unset. */
+  presenter: string;
 }
 
 /**
@@ -668,6 +679,14 @@ export interface SprintOutcome {
     not_accepted_points: number | null;
     shipped: ReviewShippedStory[];
     demo_list: string[];
+    /** Committed-at-planning → shipped COUNT delta (#1129) — ALWAYS visible (never
+     * velocity-gated; only points are gated). `carried_count` is null on a
+     * provisional sprint (disposition not yet decided). */
+    commitment: {
+      committed_count: number | null;
+      shipped_count: number;
+      carried_count: number | null;
+    };
   };
   // Realized milestone slip vs baseline (#1098) — schedule fact, not velocity-gated.
   // Present only on a CLOSED sprint bound to a milestone with a baselined finish.
@@ -712,6 +731,89 @@ export function useToggleDemo(sprintId: string | null | undefined) {
         `/sprint-task-outcomes/${outcomeId}/toggle-demo/`,
         { demo_ready: demoReady },
       );
+      return res.data;
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['sprint', sprintId, 'outcome'] });
+    },
+  });
+}
+
+/**
+ * POST /api/v1/sprints/{id}/demo-list/reorder — drag reorder of the Sprint Review
+ * demo walkthrough (#1130, ADR-0118 amend). Member+, team-owned. Sends the complete
+ * ordered list of demo-flagged outcome ids; invalidates the outcome read so the
+ * demo grouping re-sorts.
+ */
+export function useReorderDemoList(sprintId: string | null | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ outcomeIds }: { outcomeIds: string[] }) => {
+      const res = await apiClient.post<{ updated: number }>(
+        `/sprints/${sprintId}/demo-list/reorder/`,
+        { outcome_ids: outcomeIds },
+      );
+      return res.data;
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['sprint', sprintId, 'outcome'] });
+    },
+  });
+}
+
+/**
+ * POST /api/v1/sprint-task-outcomes/{id}/set-presenter/ — set the per-story demo
+ * presenter (#1130). Member+, team-owned.
+ */
+export function useSetPresenter(sprintId: string | null | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ outcomeId, presenter }: { outcomeId: string; presenter: string }) => {
+      const res = await apiClient.post<{ id: string; presenter: string }>(
+        `/sprint-task-outcomes/${outcomeId}/set-presenter/`,
+        { presenter },
+      );
+      return res.data;
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['sprint', sprintId, 'outcome'] });
+    },
+  });
+}
+
+/**
+ * POST /api/v1/sprint-task-outcomes/{id}/set-note/ — set the optional contributor
+ * review note (#1131, ≤200 chars). Member+, team-owned.
+ */
+export function useSetReviewNote(sprintId: string | null | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ outcomeId, note }: { outcomeId: string; note: string }) => {
+      const res = await apiClient.post<{ id: string; review_note: string }>(
+        `/sprint-task-outcomes/${outcomeId}/set-note/`,
+        { note },
+      );
+      return res.data;
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['sprint', sprintId, 'outcome'] });
+    },
+  });
+}
+
+/**
+ * POST /api/v1/sprint-task-outcomes/{id}/flag-for-backlog/ — one-tap carry-forward
+ * of a not-shipped story to the backlog (#1132). Member+, team-owned, idempotent.
+ */
+export function useFlagForBacklog(sprintId: string | null | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ outcomeId }: { outcomeId: string }) => {
+      const res = await apiClient.post<{
+        id: string;
+        flagged_to_backlog: boolean;
+        task_id: string | null;
+      }>(`/sprint-task-outcomes/${outcomeId}/flag-for-backlog/`, {});
       return res.data;
     },
     onSuccess: () => {

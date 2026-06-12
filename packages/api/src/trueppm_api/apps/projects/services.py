@@ -1375,6 +1375,11 @@ def _sprint_review_block(
                     "title": r.task_title,
                     "points": r.story_points,
                     "demo_ready": r.demo_ready,
+                    "demo_order": r.demo_order,
+                    "presenter": r.presenter,
+                    "review_note": r.review_note,
+                    "flagged_to_backlog": r.flagged_to_backlog_task_id is not None,
+                    "disposition": r.disposition,
                     "shipped": r.disposition == SprintTaskDisposition.COMPLETED,
                 }
             )
@@ -1388,24 +1393,37 @@ def _sprint_review_block(
                     "title": t.name,
                     "points": t.story_points,
                     "demo_ready": False,  # no outcome row pre-close; curate at review
+                    "demo_order": 0,
+                    "presenter": "",
+                    "review_note": "",
+                    "flagged_to_backlog": False,
+                    "disposition": None,
                     "shipped": t.status == TaskStatus.COMPLETE,
                 }
             )
 
-    # Per-task acceptance (current met/total) in one query — no N+1 over the set.
+    # Per-task acceptance (current met/total) + the list of *unmet* criteria names
+    # in one query — no N+1 over the set. The unmet list powers the #1131
+    # click-through ("which criterion failed?") on a criteria-incomplete story;
+    # ordered by AcceptanceCriterion.position so the disclosure reads in author order.
     task_ids = [e["task_id"] for e in entries if e["task_id"]]
     accept: dict[Any, dict[str, int]] = {}
+    unmet: dict[Any, list[dict[str, Any]]] = {}
     if task_ids:
-        for ac in AcceptanceCriterion.objects.filter(task_id__in=task_ids, is_deleted=False):
+        for ac in AcceptanceCriterion.objects.filter(
+            task_id__in=task_ids, is_deleted=False
+        ).order_by("position"):
             d = accept.setdefault(ac.task_id, {"met": 0, "total": 0})
             d["total"] += 1
             if ac.met:
                 d["met"] += 1
+            else:
+                unmet.setdefault(ac.task_id, []).append({"id": str(ac.id), "text": ac.text})
 
     accepted_count = not_accepted_count = no_criteria_count = 0
     accepted_points = not_accepted_points = 0
     shipped: list[dict[str, Any]] = []
-    demo_list: list[str] = []
+    demo_entries: list[dict[str, Any]] = []
     for e in entries:
         a = accept.get(e["task_id"]) if e["task_id"] else None
         met, total = (a["met"], a["total"]) if a else (0, 0)
@@ -1427,11 +1445,47 @@ def _sprint_review_block(
                     "task_title": e["title"],
                     "story_points": e["points"] if velocity_readable else None,
                     "acceptance": {"met": met, "total": total},
+                    # #1131: the specific unmet criteria (names only) for the
+                    # disclosure; empty when fully accepted or no criteria.
+                    "unmet_criteria": unmet.get(e["task_id"], []) if e["task_id"] else [],
+                    # #1131 contributor note + #1132 carry-forward flag.
+                    "review_note": e["review_note"],
+                    "flagged_to_backlog": e["flagged_to_backlog"],
                     "demo_ready": e["demo_ready"],
+                    # #1130: per-story demo curation (order + presenter).
+                    "demo_order": e["demo_order"],
+                    "presenter": e["presenter"],
                 }
             )
         if e["demo_ready"]:
-            demo_list.append(e["short_id"])
+            demo_entries.append(e)
+
+    # #1130: order the demo walkthrough by demo_order (0 = unset sorts last but
+    # stable), then short_id for a deterministic tie-break.
+    demo_entries.sort(key=lambda e: (e["demo_order"] or 10**9, e["short_id"]))
+    demo_list = [e["short_id"] for e in demo_entries]
+
+    # #1129: committed-at-planning → shipped COUNT delta. Counts are ceremony-critical
+    # and ALWAYS visible — the team knows what it committed, so this line is NOT behind
+    # the ADR-0104 velocity/points gate (only points stay gated). For a CLOSED sprint
+    # committed = snapshotted committed_task_count (the at-activation commitment);
+    # shipped = completed outcome rows; carried = CARRIED-disposition outcome rows.
+    # For a provisional sprint derive sensible live counts from the current task set.
+    if is_closed:
+        committed_count = sprint.committed_task_count
+        shipped_count = sum(1 for e in entries if e["shipped"])
+        carried_count = sum(1 for e in entries if e["disposition"] == SprintTaskDisposition.CARRIED)
+    else:
+        committed_count = sprint.committed_task_count
+        shipped_count = sum(1 for e in entries if e["shipped"])
+        # Disposition isn't decided until close; the live incomplete set isn't yet
+        # "carried" vs "dropped", so omit carried gracefully (null) on a provisional.
+        carried_count = None
+    commitment_block = {
+        "committed_count": committed_count,
+        "shipped_count": shipped_count,
+        "carried_count": carried_count,
+    }
 
     return {
         "accepted_count": accepted_count,
@@ -1441,6 +1495,7 @@ def _sprint_review_block(
         "not_accepted_points": not_accepted_points if velocity_readable else None,
         "shipped": shipped,
         "demo_list": demo_list,
+        "commitment": commitment_block,
     }
 
 
@@ -1467,6 +1522,166 @@ def toggle_demo_ready(outcome: Any, *, demo_ready: bool) -> Any:
             )
         )
     return outcome
+
+
+def set_demo_presenter(outcome: Any, *, presenter: str) -> Any:
+    """Set the per-story demo presenter on a SprintTaskOutcome and broadcast (#1130).
+
+    Free-text, capped at the model max (120). Idempotent (PUT-like). Best-effort
+    board broadcast deferred to commit so co-viewers' review refetches; the model is
+    unsynced, so the online refetch is the sole propagation.
+    """
+    from django.db import transaction
+
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+    presenter = (presenter or "")[:120]
+    if outcome.presenter != presenter:
+        outcome.presenter = presenter
+        outcome.save(update_fields=["presenter"])
+        pid = str(outcome.sprint.project_id)
+        sid = str(outcome.sprint_id)
+        oid = str(outcome.id)
+        transaction.on_commit(
+            lambda: broadcast_board_event(
+                pid, "demo_presenter_set", {"id": oid, "sprint_id": sid, "presenter": presenter}
+            )
+        )
+    return outcome
+
+
+def set_review_note(outcome: Any, *, note: str) -> Any:
+    """Set the optional contributor review note on a SprintTaskOutcome (#1131).
+
+    The note is "visible to reviewers" context on a criteria-incomplete / criteria-
+    not-set story — always optional (Priya's no-required-data-entry constraint), so
+    an empty string clears it. Capped at the model max (200). Idempotent; best-effort
+    board broadcast on commit (unsynced model → online refetch propagates).
+    """
+    from django.db import transaction
+
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+    note = (note or "")[:200]
+    if outcome.review_note != note:
+        outcome.review_note = note
+        outcome.save(update_fields=["review_note"])
+        pid = str(outcome.sprint.project_id)
+        sid = str(outcome.sprint_id)
+        oid = str(outcome.id)
+        transaction.on_commit(
+            lambda: broadcast_board_event(
+                pid, "review_note_set", {"id": oid, "sprint_id": sid, "note": note}
+            )
+        )
+    return outcome
+
+
+class DemoReorderConflict(Exception):
+    """Raised when the supplied demo-order list doesn't match the sprint's live
+    demo-flagged set (a flag was toggled concurrently) — a 409, write nothing."""
+
+    def __init__(self, ids: list[str]) -> None:
+        super().__init__("Demo list changed — reload and retry.")
+        self.ids = ids
+
+
+def reorder_demo_list(sprint: Any, ordered_ids: list[str]) -> int:
+    """Apply a manual drag reorder of the Sprint Review demo list (#1130, ADR-0110 shape).
+
+    ``ordered_ids`` is the *complete* set of demo-flagged SprintTaskOutcome ids for this
+    sprint, in the new walkthrough order. Writes dense ``demo_order`` 1..N. The model is
+    NOT a VersionedModel (no ``server_version``), so optimistic locking is on
+    set-completeness only: rows are ``select_for_update``-locked to serialise concurrent
+    reorders, and if the supplied set differs from the live demo-flagged set (a flag was
+    toggled concurrently) it raises :class:`DemoReorderConflict` (409) and writes nothing.
+    Idempotent: re-applying the same order writes nothing. Returns the count of rows whose
+    order changed. Broadcasts ``demo_reordered`` on commit (unsynced → online refetch).
+    """
+    from django.db import transaction
+
+    from trueppm_api.apps.projects.models import SprintTaskOutcome
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+    changed = 0
+    with transaction.atomic():
+        live = SprintTaskOutcome.objects.select_for_update().filter(sprint=sprint, demo_ready=True)
+        by_id = {str(r.id): r for r in live}
+        supplied = list(ordered_ids)
+
+        # Completeness + membership: the client must hold exactly the current demo set.
+        drift = sorted((set(supplied) - by_id.keys()) | (by_id.keys() - set(supplied)))
+        if drift:
+            raise DemoReorderConflict(drift)
+
+        for new_order, oid in enumerate(supplied, start=1):
+            row = by_id[oid]
+            if row.demo_order != new_order:
+                row.demo_order = new_order
+                row.save(update_fields=["demo_order"])
+                changed += 1
+
+        if changed:
+            pid = str(sprint.project_id)
+            sid = str(sprint.pk)
+            transaction.on_commit(
+                lambda: broadcast_board_event(pid, "demo_reordered", {"sprint_id": sid})
+            )
+    return changed
+
+
+def flag_outcome_for_backlog(outcome: Any, *, actor: Any) -> Any:
+    """Carry a not-shipped review story forward to the backlog in one tap (#1132).
+
+    Creates a ``BACKLOG`` Task in the same project, carrying the story's title and
+    points from the immutable close-snapshot. Idempotent: a second tap is a no-op —
+    the created task is recorded on ``flagged_to_backlog_task`` and re-checked first,
+    so two clicks never create two backlog items. Broadcasts ``task_created`` (and
+    ``flagged_for_backlog`` so the review surface flips to a flagged state) on commit.
+    Keeps the review otherwise read-only/retrospective: this is the only write that
+    spawns new work, and it is a deliberate one-tap carry-forward signal.
+    """
+    from django.db import transaction
+
+    from trueppm_api.apps.projects.models import SprintTaskOutcome, Task, TaskStatus
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+    with transaction.atomic():
+        # Idempotency guard under a row lock — re-read the outcome FK inside the
+        # transaction so two concurrent taps cannot both pass the check and each
+        # create a backlog task (TOCTOU). Mirrors reorder_demo_list's locking.
+        locked = SprintTaskOutcome.objects.select_for_update().get(pk=outcome.pk)
+        if locked.flagged_to_backlog_task_id is not None:
+            existing = Task.objects.filter(
+                pk=locked.flagged_to_backlog_task_id, is_deleted=False
+            ).first()
+            if existing is not None:
+                return locked
+
+        task = Task.objects.create(
+            project_id=locked.sprint.project_id,
+            name=locked.task_title,
+            duration=1,
+            status=TaskStatus.BACKLOG,
+            sprint=None,
+            story_points=locked.story_points,
+        )
+        locked.flagged_to_backlog_task = task
+        locked.save(update_fields=["flagged_to_backlog_task"])
+
+        pid = str(locked.sprint.project_id)
+        sid = str(locked.sprint_id)
+        oid = str(locked.id)
+        cid = str(task.id)
+        transaction.on_commit(lambda: broadcast_board_event(pid, "task_created", {"id": cid}))
+        transaction.on_commit(
+            lambda: broadcast_board_event(
+                pid,
+                "flagged_for_backlog",
+                {"id": oid, "sprint_id": sid, "task_id": cid},
+            )
+        )
+    return locked
 
 
 def sprint_daily_delta(sprint: Any, since: Any, request: Any) -> dict[str, Any]:

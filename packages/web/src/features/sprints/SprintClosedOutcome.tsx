@@ -1,5 +1,30 @@
-import type { ReactNode } from 'react';
-import { useToggleDemo, type ReviewShippedStory, type SprintOutcome } from '@/hooks/useSprints';
+import { useState, type ReactNode } from 'react';
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import {
+  useFlagForBacklog,
+  useReorderDemoList,
+  useSetPresenter,
+  useSetReviewNote,
+  useToggleDemo,
+  type ReviewShippedStory,
+  type SprintOutcome,
+} from '@/hooks/useSprints';
 
 interface Props {
   outcome: SprintOutcome;
@@ -84,7 +109,21 @@ function SprintReviewSection({
   canCurate: boolean;
 }) {
   const r = outcome.review;
-  const toggle = useToggleDemo(outcome.sprint_id);
+  const sprintId = outcome.sprint_id;
+  const toggle = useToggleDemo(sprintId);
+  const reorder = useReorderDemoList(sprintId);
+  const setPresenter = useSetPresenter(sprintId);
+  const setNote = useSetReviewNote(sprintId);
+  const flag = useFlagForBacklog(sprintId);
+
+  // #1130: the demo walkthrough is the demo-flagged subset of shipped, already in
+  // demo_order from the server. Reorder writes the complete demo set's new order.
+  const demoStories = r.shipped.filter((s) => s.demo_ready && s.outcome_id);
+  const demoIds = demoStories.map((s) => s.outcome_id as string);
+
+  function handleDemoReorder(orderedIds: string[]) {
+    reorder.mutate({ outcomeIds: orderedIds });
+  }
 
   return (
     <div className="rounded-md border border-neutral-border bg-neutral-surface" data-testid="sprint-review">
@@ -92,7 +131,13 @@ function SprintReviewSection({
         Sprint review
       </h3>
 
-      {/* Acceptance breakdown — counts always; points only when readable (ADR-0104). */}
+      {/* #1129: committed-at-planning → shipped COUNT delta. Always visible — the
+          team knows what it committed, so this line is NOT velocity/points-gated. */}
+      <CommitmentLine commitment={r.commitment} />
+
+      {/* Acceptance breakdown — counts always; points only when readable (ADR-0104).
+          #1133: "not accepted" → "criteria incomplete", "no criteria" → "criteria
+          not set" — coverage-hygiene states, not grades. */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2 text-sm border-b border-neutral-border">
         <span className="text-semantic-on-track font-medium" data-testid="accepted-count">
           <span aria-hidden="true">✓ </span>
@@ -103,7 +148,7 @@ function SprintReviewSection({
         </span>
         <span className="text-semantic-at-risk font-medium" data-testid="not-accepted-count">
           <span aria-hidden="true">✗ </span>
-          {r.not_accepted_count} not accepted
+          {r.not_accepted_count} criteria incomplete
           {r.not_accepted_points != null && (
             <span className="text-neutral-text-secondary font-normal">
               {' '}
@@ -114,9 +159,10 @@ function SprintReviewSection({
         {r.no_criteria_count > 0 && (
           <span
             className="text-neutral-text-secondary"
+            data-testid="no-criteria-count"
             title="Committed stories with no acceptance criteria — a coverage gap to close in refinement."
           >
-            {r.no_criteria_count} no criteria
+            {r.no_criteria_count} criteria not set
           </span>
         )}
       </div>
@@ -130,26 +176,67 @@ function SprintReviewSection({
         <>
           <div className="px-3 pt-2 text-xs text-neutral-text-secondary">
             Shipped ({r.shipped.length})
-            {r.demo_list.length > 0 && (
-              <> · <span aria-hidden="true">★ </span>{r.demo_list.length} for demo</>
+            {demoStories.length > 0 && (
+              <> · <span aria-hidden="true">★ </span>{demoStories.length} for demo</>
+            )}
+            {canCurate && demoStories.length > 1 && (
+              <span className="ml-2 italic">Drag the ⠿ handle to set demo order.</span>
             )}
           </div>
-          <ul className="divide-y divide-neutral-border">
-            {r.shipped.map((s) => (
-              <ShippedRow
-                key={s.outcome_id ?? s.task_short_id}
-                story={s}
-                canCurate={canCurate}
-                pending={toggle.isPending}
-                onToggle={(demoReady) =>
-                  s.outcome_id && toggle.mutate({ outcomeId: s.outcome_id, demoReady })
-                }
-              />
-            ))}
-          </ul>
+          {canCurate && demoStories.length > 1 ? (
+            <DemoSortableList
+              ids={demoIds}
+              onReorder={handleDemoReorder}
+              stories={r.shipped}
+              renderStory={(s) => (
+                <ShippedRow
+                  story={s}
+                  canCurate={canCurate}
+                  pending={toggle.isPending}
+                  sortable={s.demo_ready && !!s.outcome_id}
+                  onToggle={(demoReady) =>
+                    s.outcome_id && toggle.mutate({ outcomeId: s.outcome_id, demoReady })
+                  }
+                  onPresenter={(presenter) =>
+                    s.outcome_id && setPresenter.mutate({ outcomeId: s.outcome_id, presenter })
+                  }
+                  onNote={(note) =>
+                    s.outcome_id && setNote.mutate({ outcomeId: s.outcome_id, note })
+                  }
+                  onFlagForBacklog={() =>
+                    s.outcome_id && flag.mutate({ outcomeId: s.outcome_id })
+                  }
+                />
+              )}
+            />
+          ) : (
+            <ul className="divide-y divide-neutral-border">
+              {r.shipped.map((s) => (
+                <ShippedRow
+                  key={s.outcome_id ?? s.task_short_id}
+                  story={s}
+                  canCurate={canCurate}
+                  pending={toggle.isPending}
+                  sortable={false}
+                  onToggle={(demoReady) =>
+                    s.outcome_id && toggle.mutate({ outcomeId: s.outcome_id, demoReady })
+                  }
+                  onPresenter={(presenter) =>
+                    s.outcome_id && setPresenter.mutate({ outcomeId: s.outcome_id, presenter })
+                  }
+                  onNote={(note) =>
+                    s.outcome_id && setNote.mutate({ outcomeId: s.outcome_id, note })
+                  }
+                  onFlagForBacklog={() =>
+                    s.outcome_id && flag.mutate({ outcomeId: s.outcome_id })
+                  }
+                />
+              ))}
+            </ul>
+          )}
         </>
       )}
-      {toggle.isError && (
+      {(toggle.isError || reorder.isError) && (
         <p role="alert" className="px-3 py-2 text-xs text-semantic-critical">
           Couldn&apos;t update the demo list. Please try again.
         </p>
@@ -158,67 +245,269 @@ function SprintReviewSection({
   );
 }
 
+/** #1129 — the committed-at-planning → shipped count line. Counts are always
+ * visible (never points-gated); carried is null on a provisional sprint. */
+function CommitmentLine({ commitment }: { commitment: SprintOutcome['review']['commitment'] }) {
+  const { committed_count, shipped_count, carried_count } = commitment;
+  if (committed_count == null) return null;
+  return (
+    <p
+      data-testid="review-commitment-line"
+      className="px-3 py-2 text-sm text-neutral-text-primary border-b border-neutral-border"
+    >
+      <span className="font-semibold tppm-mono">{committed_count}</span> committed →{' '}
+      <span className="font-semibold tppm-mono">{shipped_count}</span> shipped
+      {carried_count != null && (
+        <>
+          ,{' '}
+          <span className="font-semibold tppm-mono">{carried_count}</span> carried over
+        </>
+      )}
+    </p>
+  );
+}
+
+/** #1130 — dnd wrapper around the shipped list; only demo-flagged rows are sortable. */
+function DemoSortableList({
+  ids,
+  onReorder,
+  stories,
+  renderStory,
+}: {
+  ids: string[];
+  onReorder: (orderedIds: string[]) => void;
+  stories: ReviewShippedStory[];
+  renderStory: (s: ReviewShippedStory) => ReactNode;
+}) {
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = ids.indexOf(String(active.id));
+    const newIndex = ids.indexOf(String(over.id));
+    if (oldIndex < 0 || newIndex < 0) return;
+    onReorder(arrayMove(ids, oldIndex, newIndex));
+  }
+  return (
+    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+      <SortableContext items={ids} strategy={verticalListSortingStrategy}>
+        <ul className="divide-y divide-neutral-border">{stories.map((s) => renderStory(s))}</ul>
+      </SortableContext>
+    </DndContext>
+  );
+}
+
 function ShippedRow({
   story,
   canCurate,
   pending,
+  sortable,
   onToggle,
+  onPresenter,
+  onNote,
+  onFlagForBacklog,
 }: {
   story: ReviewShippedStory;
   canCurate: boolean;
   pending: boolean;
+  /** True when this row participates in the demo drag-reorder (demo-flagged + curator). */
+  sortable: boolean;
   onToggle: (demoReady: boolean) => void;
+  onPresenter: (presenter: string) => void;
+  onNote: (note: string) => void;
+  onFlagForBacklog: () => void;
 }) {
   const { acceptance: a } = story;
   const fullyAccepted = a.total > 0 && a.met === a.total;
+  // #1131: a criteria-incomplete (has criteria, not all met) or criteria-not-set
+  // (no criteria) story exposes the disclosure + optional note + add-criteria/flag.
+  const criteriaIncomplete = a.total > 0 && a.met < a.total;
+  const criteriaNotSet = a.total === 0;
+  const [open, setOpen] = useState(false);
+
+  // Sortable hooks are always called (rules of hooks); the handle is only wired
+  // when this row is draggable.
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: story.outcome_id ?? story.task_short_id,
+    disabled: !sortable,
+  });
+  const style = sortable
+    ? { transform: CSS.Transform.toString(transform), transition }
+    : undefined;
+
   return (
-    <li className="flex items-center gap-3 px-3 py-2 text-sm">
-      <span className="tppm-mono text-xs text-neutral-text-secondary w-16 shrink-0">
-        {story.task_short_id}
-      </span>
-      <span className="flex-1 min-w-0 truncate text-neutral-text-primary">{story.task_title}</span>
-      {/* Acceptance badge — text label, never color alone (WCAG 1.4.1). */}
-      {a.total > 0 ? (
-        <span
-          className={`text-xs shrink-0 ${fullyAccepted ? 'text-semantic-on-track' : 'text-semantic-at-risk'}`}
-          aria-label={`${a.met} of ${a.total} acceptance criteria met${fullyAccepted ? ' — accepted' : ''}`}
-        >
-          <span aria-hidden="true">{fullyAccepted ? '✓ ' : ''}</span>
-          {a.met}/{a.total} criteria
+    <li
+      ref={sortable ? setNodeRef : undefined}
+      style={style}
+      className={`px-3 py-2 text-sm ${isDragging ? 'bg-neutral-surface-raised opacity-70' : ''}`}
+    >
+      <div className="flex items-center gap-3">
+        {sortable && (
+          <button
+            type="button"
+            aria-label={`Reorder demo: ${story.task_title}`}
+            className="flex h-7 w-6 shrink-0 cursor-grab touch-none items-center justify-center rounded text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary active:cursor-grabbing"
+            {...attributes}
+            {...listeners}
+          >
+            ⠿
+          </button>
+        )}
+        <span className="tppm-mono text-xs text-neutral-text-secondary w-16 shrink-0">
+          {story.task_short_id}
         </span>
-      ) : (
-        <span className="text-xs text-neutral-text-disabled shrink-0">no criteria</span>
-      )}
-      {story.story_points != null && (
-        <span className="tppm-mono text-xs text-neutral-text-secondary shrink-0">
-          {story.story_points} pts
+        <span className="flex-1 min-w-0 truncate text-neutral-text-primary">
+          {story.task_title}
         </span>
-      )}
-      {/* Demo toggle (Member+) — or a static marker for read-only viewers. */}
-      {canCurate && story.outcome_id ? (
-        <button
-          type="button"
-          role="switch"
-          aria-checked={story.demo_ready}
-          aria-label={`${story.demo_ready ? 'Remove from' : 'Add to'} demo list: ${story.task_title}`}
-          disabled={pending}
-          onClick={() => onToggle(!story.demo_ready)}
-          className={`shrink-0 h-7 px-2 rounded text-xs font-medium border whitespace-nowrap
-            disabled:opacity-50 disabled:cursor-not-allowed
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
-            ${
-              story.demo_ready
-                ? 'border-brand-primary bg-brand-primary/10 text-brand-primary'
-                : 'border-neutral-border text-neutral-text-secondary hover:border-brand-primary hover:text-brand-primary'
+        {/* Acceptance badge — text label, never color alone (WCAG 1.4.1). */}
+        {a.total > 0 ? (
+          <button
+            type="button"
+            onClick={() => criteriaIncomplete && setOpen((o) => !o)}
+            aria-expanded={criteriaIncomplete ? open : undefined}
+            disabled={!criteriaIncomplete}
+            className={`text-xs shrink-0 ${fullyAccepted ? 'text-semantic-on-track' : 'text-semantic-at-risk'} ${
+              criteriaIncomplete
+                ? 'underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded'
+                : 'cursor-default'
             }`}
-        >
-          <span aria-hidden="true">{story.demo_ready ? '★' : '☆'} </span>Demo
-        </button>
-      ) : story.demo_ready ? (
-        <span className="shrink-0 text-xs text-brand-primary" aria-label="In the demo list">
-          <span aria-hidden="true">★ </span>Demo
-        </span>
-      ) : null}
+            aria-label={`${a.met} of ${a.total} acceptance criteria met${fullyAccepted ? ' — accepted' : ''}${criteriaIncomplete ? ' — show incomplete criteria' : ''}`}
+          >
+            <span aria-hidden="true">{fullyAccepted ? '✓ ' : ''}</span>
+            {a.met}/{a.total} criteria
+          </button>
+        ) : (
+          <span
+            className="text-xs text-neutral-text-disabled shrink-0"
+            data-testid="criteria-not-set"
+          >
+            criteria not set
+          </span>
+        )}
+        {story.story_points != null && (
+          <span className="tppm-mono text-xs text-neutral-text-secondary shrink-0">
+            {story.story_points} pts
+          </span>
+        )}
+        {/* Demo toggle (Member+) — or a static marker for read-only viewers. */}
+        {canCurate && story.outcome_id ? (
+          <button
+            type="button"
+            role="switch"
+            aria-checked={story.demo_ready}
+            aria-label={`${story.demo_ready ? 'Remove from' : 'Add to'} demo list: ${story.task_title}`}
+            disabled={pending}
+            onClick={() => onToggle(!story.demo_ready)}
+            className={`shrink-0 h-7 px-2 rounded text-xs font-medium border whitespace-nowrap
+              disabled:opacity-50 disabled:cursor-not-allowed
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+              ${
+                story.demo_ready
+                  ? 'border-brand-primary bg-brand-primary/10 text-brand-primary'
+                  : 'border-neutral-border text-neutral-text-secondary hover:border-brand-primary hover:text-brand-primary'
+              }`}
+          >
+            <span aria-hidden="true">{story.demo_ready ? '★' : '☆'} </span>Demo
+          </button>
+        ) : story.demo_ready ? (
+          <span className="shrink-0 text-xs text-brand-primary" aria-label="In the demo list">
+            <span aria-hidden="true">★ </span>Demo
+          </span>
+        ) : null}
+      </div>
+
+      {/* #1130: per-demo presenter input (curator only, demo-flagged). */}
+      {canCurate && story.demo_ready && story.outcome_id && (
+        <div className="mt-1 flex items-center gap-2 pl-16">
+          <label className="text-xs text-neutral-text-secondary" htmlFor={`presenter-${story.outcome_id}`}>
+            Presenter
+          </label>
+          <input
+            id={`presenter-${story.outcome_id}`}
+            type="text"
+            defaultValue={story.presenter}
+            maxLength={120}
+            placeholder="Who's demoing this?"
+            onBlur={(e) => {
+              const next = e.target.value.trim();
+              if (next !== story.presenter) onPresenter(next);
+            }}
+            className="flex-1 rounded border border-neutral-border bg-transparent px-2 py-1 text-xs text-neutral-text-primary placeholder:text-neutral-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+          />
+        </div>
+      )}
+      {/* Read-only presenter display for non-curators. */}
+      {!canCurate && story.demo_ready && story.presenter && (
+        <p className="mt-1 pl-16 text-xs text-neutral-text-secondary">
+          Presenter: <span className="text-neutral-text-primary">{story.presenter}</span>
+        </p>
+      )}
+
+      {/* #1131: disclosure of the specific unmet criteria. */}
+      {criteriaIncomplete && open && story.unmet_criteria.length > 0 && (
+        <ul className="mt-1 pl-16 text-xs text-neutral-text-secondary" data-testid="unmet-criteria">
+          {story.unmet_criteria.map((c) => (
+            <li key={c.id} className="flex items-start gap-1">
+              <span aria-hidden="true" className="text-semantic-at-risk">
+                ✗
+              </span>
+              <span>{c.text}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {/* #1131/#1132: contributor note + add-criteria + flag-for-backlog on a
+          criteria-incomplete / criteria-not-set story. All optional (Member+). */}
+      {(criteriaIncomplete || criteriaNotSet) && canCurate && story.outcome_id && (
+        <div className="mt-2 flex flex-col gap-2 pl-16">
+          <label className="sr-only" htmlFor={`note-${story.outcome_id}`}>
+            Note for reviewers
+          </label>
+          <textarea
+            id={`note-${story.outcome_id}`}
+            defaultValue={story.review_note}
+            maxLength={200}
+            rows={2}
+            placeholder="Optional note for reviewers…"
+            onBlur={(e) => {
+              const next = e.target.value.slice(0, 200);
+              if (next !== story.review_note) onNote(next);
+            }}
+            className="rounded border border-neutral-border bg-transparent px-2 py-1 text-xs text-neutral-text-primary placeholder:text-neutral-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            {criteriaNotSet && story.task_id && (
+              <a
+                href={`#/story/${story.task_id}/acceptance`}
+                className="text-xs text-brand-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded"
+              >
+                + Add criteria
+              </a>
+            )}
+            {story.flagged_to_backlog ? (
+              <span className="text-xs text-semantic-on-track" data-testid="flagged-state">
+                <span aria-hidden="true">✓ </span>Flagged for backlog
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => onFlagForBacklog()}
+                className="h-7 rounded border border-neutral-border px-2 text-xs font-medium text-neutral-text-secondary hover:border-brand-primary hover:text-brand-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+              >
+                Flag for backlog
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+      {/* Read-only note for non-curators. */}
+      {(criteriaIncomplete || criteriaNotSet) && !canCurate && story.review_note && (
+        <p className="mt-1 pl-16 text-xs text-neutral-text-secondary">{story.review_note}</p>
+      )}
     </li>
   );
 }

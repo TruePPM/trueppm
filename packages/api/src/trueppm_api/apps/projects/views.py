@@ -3070,6 +3070,80 @@ class SprintTaskOutcomeViewSet(IdempotencyMixin, viewsets.GenericViewSet[SprintT
             status=status.HTTP_200_OK,
         )
 
+    @extend_schema(
+        summary="Set the demo presenter for a shipped story (ADR-0118 amend, #1130)",
+        request=OpenApiTypes.OBJECT,
+        responses={200: OpenApiResponse(response=OpenApiTypes.OBJECT)},
+    )
+    @action(detail=True, methods=["post"], url_path="set-presenter")
+    def set_presenter(self, request: Request, pk: str | None = None) -> Response:
+        """Set the per-story demo presenter (Member+; ``{presenter: str}``, ≤120)."""
+        from trueppm_api.apps.projects.services import set_demo_presenter
+
+        outcome = self.get_object()  # runs object-level IsProjectMemberWrite
+        presenter = request.data.get("presenter", "")
+        if not isinstance(presenter, str):
+            return Response(
+                {"presenter": ["Must be a string."]}, status=status.HTTP_400_BAD_REQUEST
+            )
+        set_demo_presenter(outcome, presenter=presenter)
+        return Response(
+            {"id": str(outcome.id), "presenter": outcome.presenter},
+            status=status.HTTP_200_OK,
+        )
+
+    @extend_schema(
+        summary="Set the contributor review note on a story (#1131)",
+        request=OpenApiTypes.OBJECT,
+        responses={200: OpenApiResponse(response=OpenApiTypes.OBJECT)},
+    )
+    @action(detail=True, methods=["post"], url_path="set-note")
+    def set_note(self, request: Request, pk: str | None = None) -> Response:
+        """Set the optional contributor review note (Member+; ``{note: str}``, ≤200).
+
+        Always optional — an empty string clears it (Priya's no-required-data-entry
+        constraint). Over-length notes are truncated server-side in the service.
+        """
+        from trueppm_api.apps.projects.services import set_review_note
+
+        outcome = self.get_object()  # runs object-level IsProjectMemberWrite
+        note = request.data.get("note", "")
+        if not isinstance(note, str):
+            return Response({"note": ["Must be a string."]}, status=status.HTTP_400_BAD_REQUEST)
+        set_review_note(outcome, note=note)
+        return Response(
+            {"id": str(outcome.id), "review_note": outcome.review_note},
+            status=status.HTTP_200_OK,
+        )
+
+    @extend_schema(
+        summary="Carry a not-shipped story forward to the backlog in one tap (#1132)",
+        request=None,
+        responses={200: OpenApiResponse(response=OpenApiTypes.OBJECT)},
+    )
+    @action(detail=True, methods=["post"], url_path="flag-for-backlog")
+    def flag_for_backlog(self, request: Request, pk: str | None = None) -> Response:
+        """Create a BACKLOG task from this story in one tap (Member+; idempotent).
+
+        A second tap is a no-op — the created task is recorded on the outcome row,
+        so two clicks never spawn two backlog items. Returns the (possibly already
+        existing) backlog task id and the flagged state.
+        """
+        from trueppm_api.apps.projects.services import flag_outcome_for_backlog
+
+        outcome = self.get_object()  # runs object-level IsProjectMemberWrite
+        result = flag_outcome_for_backlog(outcome, actor=request.user)
+        return Response(
+            {
+                "id": str(result.id),
+                "flagged_to_backlog": result.flagged_to_backlog_task_id is not None,
+                "task_id": str(result.flagged_to_backlog_task_id)
+                if result.flagged_to_backlog_task_id
+                else None,
+            },
+            status=status.HTTP_200_OK,
+        )
+
 
 class RetroBoardItemViewSet(IdempotencyMixin, viewsets.GenericViewSet[RetroBoardItem]):
     """Detail ops for live retro-board stickies — edit / move / delete / convert (ADR-0117).
@@ -6525,6 +6599,78 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
 
         payload = sprint_daily_delta(sprint, since, request)
         return Response(payload, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        summary="Reorder the Sprint Review demo list (ADR-0118 amend, #1130)",
+        request=OpenApiTypes.OBJECT,
+        responses={200: OpenApiResponse(response=OpenApiTypes.OBJECT)},
+    )
+    @action(detail=True, methods=["post"], url_path="demo-list/reorder")
+    def demo_list_reorder(self, request: Request, pk: str | None = None) -> Response:
+        """Drag reorder of the demo walkthrough (Member+; ADR-0110 shape, #1130).
+
+        Body: ``{"outcome_ids": ["<uuid>", ...]}`` — the *complete* set of
+        demo-flagged ``SprintTaskOutcome`` ids in target walkthrough order. Writes
+        dense ``demo_order`` 1..N under a row lock. Returns ``200 {"updated": <n>}``;
+        ``409`` with the offending ids if the demo set changed under the client (a
+        flag was toggled concurrently) so the client refetches and replays; ``400``
+        on a malformed body. Gated team-owned (Member+) via the viewset's write
+        permission, which checks object-level project membership on the sprint.
+        """
+        from trueppm_api.apps.projects.services import (
+            DemoReorderConflict,
+            reorder_demo_list,
+        )
+
+        sprint = get_object_or_404(
+            Sprint.objects.select_related("project"), pk=pk, is_deleted=False
+        )
+        self.check_object_permissions(request, sprint)
+
+        ids = request.data.get("outcome_ids")
+        if not isinstance(ids, list) or not ids:
+            return Response(
+                {"outcome_ids": ["This field is required and must be a non-empty list."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # Bound the payload (DoS guard) — a demo list is realistically a handful of
+        # stories; 500 is generous headroom before the lock + parse loop.
+        if len(ids) > 500:
+            return Response(
+                {"outcome_ids": ["Too many entries to reorder in one request (max 500)."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        parsed: list[str] = []
+        invalid: list[str] = []
+        for entry in ids:
+            if not isinstance(entry, str):
+                invalid.append(repr(entry))
+                continue
+            try:
+                uuid.UUID(entry)
+            except ValueError:
+                invalid.append(entry)
+                continue
+            parsed.append(entry)
+        if invalid:
+            return Response(
+                {"outcome_ids": [f"Invalid entries (expected uuids): {', '.join(invalid)}"]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if len(set(parsed)) != len(parsed):
+            return Response(
+                {"outcome_ids": ["Duplicate outcome ids in the ordered list."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            changed = reorder_demo_list(sprint, parsed)
+        except DemoReorderConflict as exc:
+            return Response(
+                {"detail": "Demo list changed — reload and retry.", "conflicts": exc.ids},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response({"updated": changed}, status=status.HTTP_200_OK)
 
     @extend_schema(
         summary="Get a sprint's capacity summary",

@@ -2349,6 +2349,27 @@ class SprintTaskOutcome(models.Model):
     # toggle-demo endpoint; not synced (this model has no server_version — the
     # review is an online read, propagated by the board broadcast + refetch).
     demo_ready = models.BooleanField(default=False)
+    # Review-time curation (ADR-0118 amend, #1130): the order the team will walk
+    # stakeholders through the demo (dense 1..N within demo-flagged rows; 0 = unset)
+    # and a free-text presenter name per story. Mutable post-close like demo_ready —
+    # curation happens *at* the review; the close-snapshot fields above stay immutable.
+    demo_order = models.PositiveIntegerField(default=0)
+    presenter = models.CharField(max_length=120, blank=True, default="")
+    # Contributor note left at review on a criteria-incomplete / criteria-not-set
+    # story (#1131) — optional, "visible to reviewers", never required (Priya's
+    # no-required-data-entry constraint). Mutable post-close.
+    review_note = models.CharField(max_length=200, blank=True, default="")
+    # One-tap carry-forward (#1132): the backlog Task created from this not-shipped
+    # story, so the action is idempotent (a second tap is a no-op) and the UI can
+    # show a flagged state. SET_NULL so deleting the backlog item doesn't cascade
+    # away this audit row.
+    flagged_to_backlog_task = models.ForeignKey(
+        Task,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
