@@ -217,7 +217,10 @@ async function setup(page: import('@playwright/test').Page) {
       json({ id: 'e2e-user', username: 'e2e', display_name: 'E2E', initials: 'E', email: 'e2e@example.com' }),
     ),
   );
-  await page.route(`**/api/v1/projects/${PROJECT_ID}/members/`, (route) =>
+  // useCurrentUserRole hits /members/?self=true — use `members/**` so the glob
+  // matches the query string (a bare `members/` does not), otherwise the role
+  // fetch falls through and the curation controls stay hidden.
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/members/**`, (route) =>
     route.fulfill(json([{ id: 'mem-1', role: 300 }])),
   );
   // Curation writes — echo success.
