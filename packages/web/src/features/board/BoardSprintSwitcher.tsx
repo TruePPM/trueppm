@@ -35,13 +35,26 @@ function dateRange(s: ApiSprint): string {
   return `${fmt(s.start_date)} – ${fmt(s.finish_date)}`;
 }
 
+// How many sprints the "Recent" group shows before the rest collapse behind
+// the "Show all sprints" disclosure (#1141). The currently-selected sprint is
+// always pinned into Recent even when it falls outside this window.
+const RECENT_LIMIT = 3;
+
 export function BoardSprintSwitcher({
   sprints,
   selectedSprintId,
   onSelectSprint,
 }: BoardSprintSwitcherProps) {
   const [open, setOpen] = useState(false);
+  // Disclosure: when true the full sprint list is expanded inline (#1141).
+  const [showAll, setShowAll] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+
+  // Collapse the "show all" disclosure each time the menu closes so it reopens
+  // in the pruned state.
+  useEffect(() => {
+    if (!open) setShowAll(false);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -68,6 +81,16 @@ export function BoardSprintSwitcher({
     );
   const selected = selectedSprintId ? sprints.find((s) => s.id === selectedSprintId) : null;
   const buttonLabel = selected ? selected.name : 'Project';
+
+  // Pruning (#1141): "Recent" = the first RECENT_LIMIT of the existing sort,
+  // with the currently-selected sprint always pinned in even if it falls
+  // outside that window (so the active scope never hides behind the disclosure).
+  // The remainder collapses behind a "Show all sprints (N)" disclosure.
+  const recentBase = selectable.slice(0, RECENT_LIMIT);
+  const selectedInRecent = selected ? recentBase.some((s) => s.id === selected.id) : true;
+  const recent = selected && !selectedInRecent ? [...recentBase, selected] : recentBase;
+  const hidden = selectable.filter((s) => !recent.some((r) => r.id === s.id));
+  const visibleSprints = showAll ? [...recent, ...hidden] : recent;
 
   function choose(id: string | null) {
     onSelectSprint(id);
@@ -100,8 +123,8 @@ export function BoardSprintSwitcher({
         <div
           role="menu"
           aria-label="Board scope"
-          className="absolute left-0 top-full z-50 mt-1 w-64 rounded-md border border-neutral-border
-            bg-neutral-surface py-1 shadow-lg"
+          className="absolute left-0 top-full z-50 mt-1 max-h-80 w-64 overflow-y-auto rounded-md
+            border border-neutral-border bg-neutral-surface py-1 shadow-lg"
         >
           <button
             type="button"
@@ -109,15 +132,26 @@ export function BoardSprintSwitcher({
             aria-checked={!selectedSprintId}
             onClick={() => choose(null)}
             className="flex w-full items-center justify-between px-3 py-2 text-left text-sm
-              hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:bg-neutral-surface-raised"
+              hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:bg-neutral-surface-raised
+              focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary"
           >
             <span className="font-medium text-neutral-text-primary">All tasks (project)</span>
             {!selectedSprintId && <span aria-hidden="true">✓</span>}
           </button>
 
-          {selectable.length > 0 && <div className="my-1 border-t border-neutral-border" />}
+          {visibleSprints.length > 0 && <div className="my-1 border-t border-neutral-border" />}
 
-          {selectable.map((s) => {
+          {visibleSprints.length > 0 && (
+            <div
+              role="presentation"
+              className="px-3 pb-1 pt-1 text-xs font-semibold uppercase tracking-wide
+                text-neutral-text-secondary"
+            >
+              {showAll ? 'All sprints' : 'Recent'}
+            </div>
+          )}
+
+          {visibleSprints.map((s) => {
             const chip = STATE_CHIP[s.state];
             const isSel = s.id === selectedSprintId;
             return (
@@ -128,7 +162,8 @@ export function BoardSprintSwitcher({
                 aria-checked={isSel}
                 onClick={() => choose(s.id)}
                 className="flex w-full items-start justify-between gap-2 px-3 py-2 text-left text-sm
-                  hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:bg-neutral-surface-raised"
+                  hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:bg-neutral-surface-raised
+                  focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary"
               >
                 <span className="min-w-0">
                   <span className="flex items-center gap-1.5">
@@ -149,6 +184,23 @@ export function BoardSprintSwitcher({
               </button>
             );
           })}
+
+          {/* Disclosure (#1141): expand the remaining sprints inline, or
+              collapse back to Recent. Suppressed when nothing is hidden. */}
+          {hidden.length > 0 && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => setShowAll((v) => !v)}
+              aria-expanded={showAll}
+              className="flex w-full items-center px-3 py-2 text-left text-xs font-medium
+                text-brand-primary hover:bg-neutral-surface-raised
+                focus-visible:outline-none focus-visible:bg-neutral-surface-raised
+                focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary"
+            >
+              {showAll ? 'Show fewer' : `Show all sprints (${hidden.length})`}
+            </button>
+          )}
         </div>
       )}
     </div>

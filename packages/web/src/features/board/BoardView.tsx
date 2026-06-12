@@ -90,6 +90,11 @@ import { useActiveSprint, useSprints } from '@/hooks/useSprints';
 import { useCanManageScope } from '@/hooks/useCanManageScope';
 import { useScopeChangeActions } from '@/hooks/useScopeChangeActions';
 import { ScopePendingReviewPanel } from '@/features/sprints/ScopePendingReviewPanel';
+import { BoardSprintHeader } from './BoardSprintHeader';
+import { BoardDropNotice } from './BoardDropNotice';
+import { ClosedSprintBanner } from './ClosedSprintBanner';
+import { useDefaultBoardSprint } from '@/hooks/useDefaultBoardSprint';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 import type { BoardCardScopeActions } from './BoardCard';
 
 // ---------------------------------------------------------------------------
@@ -352,6 +357,8 @@ interface BoardCellProps {
   showCost: boolean;
   /** Sprint scope-injection accept/reject affordance (ADR-0102). */
   scopeActions: BoardCardScopeActions;
+  /** Closed-sprint read-only (#1141): disables drag on every card in the cell. */
+  readOnly?: boolean;
 }
 
 // Subtle status tints per column (issue #211).
@@ -404,6 +411,7 @@ function BoardCell({
   showEvm,
   showCost,
   scopeActions,
+  readOnly = false,
 }: BoardCellProps) {
   const droppableId = `${phaseId}:${status}`;
   const { setNodeRef } = useDroppable({ id: droppableId });
@@ -467,6 +475,7 @@ function BoardCell({
             showEvm={showEvm}
             showCost={showCost}
             scopeActions={scopeActions}
+            readOnly={readOnly}
           />
         </div>
       ))}
@@ -511,6 +520,8 @@ interface PhaseLaneProps {
   showCost: boolean;
   /** Sprint scope-injection accept/reject affordance (ADR-0102). */
   scopeActions: BoardCardScopeActions;
+  /** Closed-sprint read-only (#1141): disables drag-to-assign on every card. */
+  readOnly?: boolean;
   /** Workshop mode: editable names, drag handle, tinted bg. */
   workshop?: boolean;
   onPhaseRename?: (phaseId: string, newName: string) => void;
@@ -543,6 +554,7 @@ function PhaseLane({
   showEvm,
   showCost,
   scopeActions,
+  readOnly = false,
   workshop = false,
   onPhaseRename,
   dragHandleListeners,
@@ -684,6 +696,7 @@ function PhaseLane({
                 showEvm={showEvm}
                 showCost={showCost}
                 scopeActions={scopeActions}
+                readOnly={readOnly}
               />
             ))}
       </div>
@@ -863,8 +876,14 @@ export function BoardView() {
     () => sprints.find((s) => s.id === selectedSprintId) ?? null,
     [sprints, selectedSprintId],
   );
+  // Smart default board scope (#1141): the user's last explicit choice
+  // (per-user-per-project, localStorage) or the single ACTIVE sprint. The URL
+  // param always wins — `setSelectedSprintId` writes it and also persists the
+  // choice so the next visit (without a shared link) restores it.
+  const defaultSprint = useDefaultBoardSprint(projectId || undefined);
   const setSelectedSprintId = useCallback(
     (id: string | null) => {
+      if (projectId) defaultSprint.persist(projectId, id);
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
@@ -875,11 +894,46 @@ export function BoardView() {
         { replace: true },
       );
     },
-    [setSearchParams],
+    [setSearchParams, defaultSprint, projectId],
   );
+
+  // Seed the board scope once on first load when the URL carries no explicit
+  // `?sprint=` (a shared link is authoritative and skips this entirely). Runs
+  // after sprints + current user resolve; the ref guard keeps it one-shot so a
+  // user who deliberately switches back to Project view isn't re-defaulted.
+  const seededDefaultRef = useRef(false);
+  useEffect(() => {
+    if (seededDefaultRef.current) return;
+    if (!projectId || defaultSprint.isLoading) return;
+    if (searchParams.has('sprint')) {
+      seededDefaultRef.current = true;
+      return;
+    }
+    if (sprints.length === 0) return; // wait for sprints to load before deciding
+    seededDefaultRef.current = true;
+    const def = defaultSprint.resolveDefault(sprints);
+    if (def) {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set('sprint', def);
+          return next;
+        },
+        { replace: true },
+      );
+    }
+  }, [projectId, defaultSprint, sprints, searchParams, setSearchParams]);
+
+  // A COMPLETED sprint board is a retrospective read (#1141): drag-to-assign is
+  // disabled board-wide so a card move never back-dates scope into a closed
+  // sprint. Card-open and scroll stay enabled — read is the use case.
+  const readOnly = selectedSprint?.state === 'COMPLETED';
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [overCell, setOverCell] = useState<string | null>(null); // `${phaseId}:${status}`
+  // Scope-injection drop toast (#1140) — set when a drop into the ACTIVE sprint
+  // creates a pending scope-change; `BoardDropNotice` auto-dismisses it.
+  const [dropNotice, setDropNotice] = useState<{ key: number; text: string } | null>(null);
   const [workshopMode, setWorkshopMode] = useState(false);
   // Open the workshop WS channel while a session is active so participant
   // join/leave events update the banner in real time.
@@ -999,6 +1053,7 @@ export function BoardView() {
   const { density, setDensity, isMobile } = useBoardDensity();
   const toolbarPrefs = useBoardToolbarPrefs();
   const { data: projectDetail } = useProject(projectId || null);
+  const iterationLabel = useIterationLabel(projectId || undefined);
 
   // Sprint scope-injection approve-gate (ADR-0102). The active sprint carries
   // `pending_count`; a team-owned actor (role >= ADMIN) can open the review
@@ -1419,6 +1474,16 @@ export function BoardView() {
         const intoSprint = assignSprintId ? ` and added to ${selectedSprint?.name}` : '';
         ariaLiveRef.current.textContent = `${activeTask.name} moved to ${colLabel}${intoSprint}`;
       }
+      // Scope-injection drop toast (#1140): only an ACTIVE-sprint assignment
+      // creates a pending scope-change (ADR-0102 post-activation injection). A
+      // PLANNED-sprint link is part of the commitment baseline (no pending
+      // gate), and a plain status move assigns nothing — neither toasts.
+      if (assignSprintId && selectedSprint?.state === 'ACTIVE') {
+        setDropNotice({
+          key: Date.now(),
+          text: `Added to ${iterationLabel.singular} ${selectedSprint.name} as pending scope — awaiting acceptance.`,
+        });
+      }
     },
     [
       activeTask,
@@ -1431,6 +1496,7 @@ export function BoardView() {
       selectedSprint,
       showWip,
       totalByStatus,
+      iterationLabel,
     ],
   );
 
@@ -1632,7 +1698,7 @@ export function BoardView() {
         onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}
       >
-        <div className="flex flex-col h-full overflow-hidden">
+        <div className="relative flex flex-col h-full overflow-hidden">
           {/* Board toolbar — calm refactor (issue #382, epic #361 child B). */}
           <CalmToolbar
             projectId={projectId}
@@ -1723,6 +1789,15 @@ export function BoardView() {
               </button>
             </div>
           )}
+
+          {/* Sprint header bar (#1138) — name + date range + Day N of M timebox
+              + goal + compact burndown. Only when a sprint is selected. */}
+          {selectedSprint && projectId && (
+            <BoardSprintHeader sprint={selectedSprint} projectId={projectId} />
+          )}
+          {/* Closed-sprint read-only banner (#1141) — below the header, above the
+              grid; drag-to-assign is disabled board-wide (see `readOnly`). */}
+          {readOnly && projectId && <ClosedSprintBanner projectId={projectId} />}
 
           {/* Body — backlog surface (rail | drawer | queue) + scrolling phase
               grid. The rail sits left of the grid (flex-row); the drawer sits
@@ -1899,6 +1974,7 @@ export function BoardView() {
                     showEvm: evmMode,
                     showCost,
                     scopeActions,
+                    readOnly,
                     workshop: workshopMode,
                     onPhaseRename: workshopMode ? handlePhaseRename : undefined,
                   });
@@ -1991,6 +2067,10 @@ export function BoardView() {
               </div>
             </div>
           )}
+
+          {/* Scope-injection drop toast (#1140) — bottom-center, neutral, ephemeral.
+              Positioned absolute within this relative board container. */}
+          <BoardDropNotice notice={dropNotice} />
         </div>
 
         {/* Drag overlay — floating card follows the pointer */}

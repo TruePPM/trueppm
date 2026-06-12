@@ -75,6 +75,14 @@ interface BoardCardProps {
    *  muted with a single-tap ✓ accept (gated by `canManage`) and a reject in
    *  the overflow menu. */
   scopeActions?: BoardCardScopeActions;
+  /**
+   * Closed-sprint read-only (#1141). When true, drag-to-assign is disabled:
+   * `useDraggable` is disabled (no listeners) and the cursor is default — but
+   * click-to-open and scroll still work, because reading a closed sprint's board
+   * is the use case. The card is NOT marked `aria-disabled` (it stays a usable
+   * button for opening detail); the ClosedSprintBanner announces the read-only state.
+   */
+  readOnly?: boolean;
 }
 
 /**
@@ -183,9 +191,14 @@ export function BoardCard({
   showCost = false,
   onCardClick,
   scopeActions,
+  readOnly = false,
 }: BoardCardProps) {
+  // A closed-sprint board disables drag-to-assign (#1141): dnd-kit returns empty
+  // listeners/attributes when disabled, so the card keeps click-to-open + scroll
+  // but can never be dragged into the closed sprint's scope.
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: task.id,
+    disabled: readOnly,
   });
 
   const [menuOpen, setMenuOpen] = useState(false);
@@ -510,9 +523,11 @@ export function BoardCard({
       </button>
     ) : null;
 
-  // Shared card container class
+  // Shared card container class. A read-only (closed-sprint) card drops the
+  // grab cursor — it's still clickable to open detail, just not draggable (#1141).
   const containerClass = [
-    'bg-neutral-surface border rounded-md cursor-grab active:cursor-grabbing relative group',
+    'bg-neutral-surface border rounded-md relative group',
+    readOnly ? 'cursor-default' : 'cursor-grab active:cursor-grabbing',
     'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
     'transition-opacity duration-150',
     showCriticalState

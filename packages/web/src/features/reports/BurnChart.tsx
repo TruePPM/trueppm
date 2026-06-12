@@ -16,7 +16,13 @@ import { useSprintBurndown } from '@/hooks/useSprints';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import type { ApiSprint } from '@/types';
 import { daysBetween, forecastScopeCaption, sprintDayOf } from '@/features/sprints/sprintMath';
-import { useBurnChart, type BurnVariant, type BurnMetric, type BurnPoint, type CombinedPoint } from './hooks/useBurnChart';
+import {
+  useBurnChart,
+  type BurnVariant,
+  type BurnMetric,
+  type BurnPoint,
+  type CombinedPoint,
+} from './hooks/useBurnChart';
 
 // ---------------------------------------------------------------------------
 // Chart color tokens — resolved at render time from CSS custom properties so
@@ -24,15 +30,15 @@ import { useBurnChart, type BurnVariant, type BurnMetric, type BurnPoint, type C
 // Recharts SVG, so we use inline `style` props (rule 10).
 // ---------------------------------------------------------------------------
 const C = {
-  actual:    'var(--color-brand-primary)',
-  ideal:     'var(--color-neutral-text-disabled)',
-  scope:     'var(--color-teal-400, #1D9E75)',
+  actual: 'var(--color-brand-primary)',
+  ideal: 'var(--color-neutral-text-disabled)',
+  scope: 'var(--color-teal-400, #1D9E75)',
   completed: 'var(--color-semantic-on-track)',
-  scopeAdd:  'var(--color-semantic-at-risk)',
-  scopeRem:  'var(--color-semantic-critical)',
-  today:     'var(--color-semantic-critical)',
-  grid:      'rgba(0,0,0,0.06)',
-  axisTick:  'var(--color-neutral-text-secondary)',
+  scopeAdd: 'var(--color-semantic-at-risk)',
+  scopeRem: 'var(--color-semantic-critical)',
+  today: 'var(--color-semantic-critical)',
+  grid: 'rgba(0,0,0,0.06)',
+  axisTick: 'var(--color-neutral-text-secondary)',
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -94,11 +100,14 @@ function deriveSprintSeries(
   sprint: ApiSprint,
   snapshots: import('@/hooks/useSprints').SprintBurnSnapshot[],
   metric: BurnMetric,
-): { points: NormPoint[]; scopeChanges: ScopeChange[]; trendAhead: number | null; forecastDate: string | null } {
+): {
+  points: NormPoint[];
+  scopeChanges: ScopeChange[];
+  trendAhead: number | null;
+  forecastDate: string | null;
+} {
   const committedVal =
-    metric === 'points'
-      ? (sprint.committed_points ?? 0)
-      : (sprint.committed_task_count ?? 0);
+    metric === 'points' ? (sprint.committed_points ?? 0) : (sprint.committed_task_count ?? 0);
   const totalDays = daysBetween(sprint.start_date, sprint.finish_date) + 1;
   const byDate = new Map(snapshots.map((s) => [s.snapshot_date, s]));
 
@@ -116,13 +125,9 @@ function deriveSprintSeries(
         ? (snap?.remaining_points ?? committedVal)
         : (snap?.remaining_task_count ?? committedVal);
     const completed =
-      metric === 'points'
-        ? (snap?.completed_points ?? 0)
-        : (snap?.completed_task_count ?? 0);
+      metric === 'points' ? (snap?.completed_points ?? 0) : (snap?.completed_task_count ?? 0);
     const scopeDelta =
-      metric === 'points'
-        ? (snap?.scope_change_points ?? 0)
-        : (snap?.scope_change_task_count ?? 0);
+      metric === 'points' ? (snap?.scope_change_points ?? 0) : (snap?.scope_change_task_count ?? 0);
     const curScope = committedVal + (snap ? scopeDelta : 0);
     const ideal = committedVal * (1 - i / Math.max(totalDays - 1, 1));
 
@@ -170,7 +175,14 @@ interface TooltipPayload {
   label?: string;
 }
 
-function BurnTooltip({ active, payload, label, variant, metric, scopeChanges }: TooltipPayload & {
+function BurnTooltip({
+  active,
+  payload,
+  label,
+  variant,
+  metric,
+  scopeChanges,
+}: TooltipPayload & {
   variant: BurnVariant;
   metric: BurnMetric;
   scopeChanges: ScopeChange[];
@@ -181,7 +193,8 @@ function BurnTooltip({ active, payload, label, variant, metric, scopeChanges }: 
   const change = scopeChanges.find((c) => c.date === label);
   const idealVal = pt.ideal ?? 0;
   const delta = variant === 'burndown' ? idealVal - pt.remaining : 0;
-  const deltaLabel = delta >= 0 ? `${Math.round(delta)} ${unit} ahead` : `${Math.round(-delta)} ${unit} behind`;
+  const deltaLabel =
+    delta >= 0 ? `${Math.round(delta)} ${unit} ahead` : `${Math.round(-delta)} ${unit} behind`;
   const deltaColor = delta >= 0 ? 'text-semantic-on-track' : 'text-semantic-critical';
 
   return (
@@ -191,23 +204,35 @@ function BurnTooltip({ active, payload, label, variant, metric, scopeChanges }: 
       </p>
       {variant !== 'burnup' && (
         <p className="text-neutral-text-secondary">
-          Remaining <span className="tppm-mono text-neutral-text-primary ml-1">{Math.round(pt.remaining)} {unit}</span>
+          Remaining{' '}
+          <span className="tppm-mono text-neutral-text-primary ml-1">
+            {Math.round(pt.remaining)} {unit}
+          </span>
         </p>
       )}
       {variant !== 'burndown' && (
         <p className="text-neutral-text-secondary">
-          Completed <span className="tppm-mono text-neutral-text-primary ml-1">{Math.round(pt.completed)} {unit}</span>
+          Completed{' '}
+          <span className="tppm-mono text-neutral-text-primary ml-1">
+            {Math.round(pt.completed)} {unit}
+          </span>
         </p>
       )}
       {variant === 'burndown' && (
         <p className="text-neutral-text-secondary">
-          Ideal <span className="tppm-mono text-neutral-text-primary ml-1">{Math.round(idealVal)} {unit}</span>
+          Ideal{' '}
+          <span className="tppm-mono text-neutral-text-primary ml-1">
+            {Math.round(idealVal)} {unit}
+          </span>
         </p>
       )}
       {variant === 'burndown' && <p className={`mt-1 font-medium ${deltaColor}`}>{deltaLabel}</p>}
       {change && (
-        <p className={`mt-1 font-medium ${change.delta > 0 ? 'text-semantic-at-risk' : 'text-semantic-critical'}`}>
-          {change.delta > 0 ? '+' : ''}{change.delta} {unit} scope change
+        <p
+          className={`mt-1 font-medium ${change.delta > 0 ? 'text-semantic-at-risk' : 'text-semantic-critical'}`}
+        >
+          {change.delta > 0 ? '+' : ''}
+          {change.delta} {unit} scope change
         </p>
       )}
     </div>
@@ -243,9 +268,22 @@ export interface BurnChartProps {
   /** Sprint id — when set, switches to sprint-scoped burndown. */
   sprintId?: string;
   defaultVariant?: BurnVariant;
+  /**
+   * Compact mode (#1138) — renders ONLY a small single burndown line (no
+   * variant radio, metric selector, date pickers, export, or section chrome)
+   * at a fixed small size, plus a "N of M pts left" caption. Used in the board
+   * sprint header. Requires `sprintId` (sprint context); a no-op fallback
+   * renders nothing when no sprint data is available.
+   */
+  compact?: boolean;
 }
 
-export function BurnChart({ projectId, sprintId, defaultVariant = 'burndown' }: BurnChartProps) {
+export function BurnChart({
+  projectId,
+  sprintId,
+  defaultVariant = 'burndown',
+  compact = false,
+}: BurnChartProps) {
   const [variant, setVariant] = useState<BurnVariant>(defaultVariant);
   const [metric, setMetric] = useState<BurnMetric>('tasks');
   const [since, setSince] = useState<string | undefined>();
@@ -261,7 +299,9 @@ export function BurnChart({ projectId, sprintId, defaultVariant = 'burndown' }: 
   // unit even though the selector is hidden in sprint context.
   const sprintMetric: BurnMetric =
     isSprintCtx && sprintQuery.data
-      ? (sprintQuery.data.sprint.committed_points ?? 0) > 0 ? 'points' : 'tasks'
+      ? (sprintQuery.data.sprint.committed_points ?? 0) > 0
+        ? 'points'
+        : 'tasks'
       : metric;
   const sprintResult = useMemo(() => {
     if (!isSprintCtx || !sprintQuery.data) return null;
@@ -285,7 +325,9 @@ export function BurnChart({ projectId, sprintId, defaultVariant = 'burndown' }: 
   const isLoading = isSprintCtx ? sprintQuery.isLoading : burnQuery.isLoading;
   const isError = isSprintCtx ? sprintQuery.isError : burnQuery.isError;
   const points = isSprintCtx ? (sprintResult?.points ?? null) : (projectResult?.points ?? null);
-  const scopeChanges = isSprintCtx ? (sprintResult?.scopeChanges ?? []) : (projectResult?.scopeChanges ?? []);
+  const scopeChanges = isSprintCtx
+    ? (sprintResult?.scopeChanges ?? [])
+    : (projectResult?.scopeChanges ?? []);
   const isEmpty = !isLoading && !isError && (!points || points.length === 0);
 
   // Metric selector: in sprint context, auto-derive and hide; in project context, show
@@ -312,8 +354,7 @@ export function BurnChart({ projectId, sprintId, defaultVariant = 'burndown' }: 
   const sprintHasNoRealData =
     isSprintCtx &&
     !!sprintQuery.data &&
-    (sprintQuery.data.sprint.start_date > today ||
-      sprintQuery.data.snapshots.length === 0);
+    (sprintQuery.data.sprint.start_date > today || sprintQuery.data.snapshots.length === 0);
   const showEmpty = isEmpty || sprintHasNoRealData;
 
   // Export helpers
@@ -334,8 +375,14 @@ export function BurnChart({ projectId, sprintId, defaultVariant = 'burndown' }: 
     const dataUrl = await toPng(chartRef.current, { pixelRatio: 2 });
     const img = new Image();
     img.src = dataUrl;
-    await new Promise<void>((res) => { img.onload = () => res(); });
-    const pdf = new jsPDF({ orientation: 'landscape', unit: 'px', format: [img.width, img.height] });
+    await new Promise<void>((res) => {
+      img.onload = () => res();
+    });
+    const pdf = new jsPDF({
+      orientation: 'landscape',
+      unit: 'px',
+      format: [img.width, img.height],
+    });
     pdf.addImage(dataUrl, 'PNG', 0, 0, img.width, img.height);
     pdf.save(`burn-${variant}-${today}.pdf`);
   };
@@ -347,11 +394,7 @@ export function BurnChart({ projectId, sprintId, defaultVariant = 'burndown' }: 
   const sharedTooltip = (
     <Tooltip
       content={
-        <BurnTooltip
-          variant={variant}
-          metric={effectiveMetric}
-          scopeChanges={scopeChanges}
-        />
+        <BurnTooltip variant={variant} metric={effectiveMetric} scopeChanges={scopeChanges} />
       }
     />
   );
@@ -367,14 +410,7 @@ export function BurnChart({ projectId, sprintId, defaultVariant = 'burndown' }: 
       minTickGap={40}
     />
   );
-  const sharedYAxis = (
-    <YAxis
-      tick={axisStyle}
-      tickLine={false}
-      axisLine={false}
-      width={40}
-    />
-  );
+  const sharedYAxis = <YAxis tick={axisStyle} tickLine={false} axisLine={false} width={40} />;
 
   const todayLine = (
     <ReferenceLine
@@ -400,6 +436,97 @@ export function BurnChart({ projectId, sprintId, defaultVariant = 'burndown' }: 
   ));
 
   const heading = isSprintCtx ? `${itl.singular} Burndown` : 'Burn Chart';
+
+  // -------------------------------------------------------------------------
+  // Compact mode (#1138) — a stripped single-line burndown for the board
+  // sprint header. No controls, no export, no section chrome: just the line +
+  // a caption. Always sprint-scoped; renders a thin shell while loading.
+  // -------------------------------------------------------------------------
+  if (compact) {
+    const sprint = sprintQuery.data?.sprint;
+    const unit = effectiveMetric === 'points' ? 'pts' : 'tasks';
+    const committedVal =
+      effectiveMetric === 'points'
+        ? (sprint?.committed_points ?? 0)
+        : (sprint?.committed_task_count ?? 0);
+    // The latest non-empty snapshot drives "remaining"; with no snapshots the
+    // series is a flat baseline at the committed value (PLANNED / not started).
+    const lastRemaining =
+      points && points.length > 0 ? points[points.length - 1].remaining : committedVal;
+
+    // Caption is split into prose + a single contiguous numeric chunk so the
+    // `.tppm-mono` count never swaps font mid-token (rule 8c). The mono chunk
+    // is the count + unit together (mirroring the BurnTooltip pattern).
+    let captionLead: string | null;
+    let captionNum: string;
+    let captionTrail: string;
+    if (sprint?.state === 'COMPLETED') {
+      captionLead = null;
+      captionNum = '';
+      captionTrail = 'Closed';
+    } else if (sprintHasNoRealData) {
+      // PLANNED / future sprint with no snapshots yet — a flat baseline.
+      captionLead = 'Not started — ';
+      captionNum = `${committedVal} ${unit}`;
+      captionTrail = ' committed';
+    } else {
+      captionLead = '';
+      captionNum = `${Math.round(lastRemaining)} of ${committedVal} ${unit}`;
+      captionTrail = ' left';
+    }
+
+    return (
+      <div className="flex flex-col items-end gap-1" aria-label={`${itl.singular} burndown`}>
+        <div className="w-[220px] h-[64px]">
+          {isLoading ? (
+            <div
+              className="h-full w-full rounded bg-neutral-surface-sunken motion-safe:animate-pulse"
+              aria-hidden="true"
+            />
+          ) : isError ? (
+            <div className="flex h-full w-full items-center justify-center text-xs text-neutral-text-secondary">
+              Chart unavailable
+            </div>
+          ) : points && points.length > 0 ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={points} margin={{ top: 4, right: 4, left: 4, bottom: 0 }}>
+                <Area
+                  type="monotone"
+                  dataKey="remaining"
+                  stroke={C.actual}
+                  fill={C.actual}
+                  fillOpacity={0.1}
+                  strokeWidth={2}
+                  dot={false}
+                  isAnimationActive={false}
+                  name="Remaining"
+                />
+                <Line
+                  type="linear"
+                  dataKey="ideal"
+                  stroke={C.ideal}
+                  strokeDasharray="4 3"
+                  strokeWidth={1}
+                  dot={false}
+                  isAnimationActive={false}
+                  name="Ideal"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex h-full w-full items-center justify-center text-xs text-neutral-text-secondary">
+              No data yet
+            </div>
+          )}
+        </div>
+        <p className="text-xs text-neutral-text-secondary">
+          {captionLead}
+          {captionNum && <span className="tppm-mono text-neutral-text-primary">{captionNum}</span>}
+          {captionTrail}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <section
@@ -458,7 +585,11 @@ export function BurnChart({ projectId, sprintId, defaultVariant = 'burndown' }: 
 
       {/* Controls row */}
       <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 bg-neutral-surface-raised">
-        <div role="group" aria-label="Chart variant" className="flex rounded-full border border-neutral-border overflow-hidden">
+        <div
+          role="group"
+          aria-label="Chart variant"
+          className="flex rounded-full border border-neutral-border overflow-hidden"
+        >
           {(['burndown', 'burnup', 'combined'] as BurnVariant[]).map((v) => (
             <button
               key={v}
@@ -519,10 +650,13 @@ export function BurnChart({ projectId, sprintId, defaultVariant = 'burndown' }: 
       <div ref={chartRef} className="px-4 py-4">
         {isLoading && <ChartSkeleton />}
         {isError && (
-          <div className="flex items-center justify-center gap-3 h-48 text-xs text-semantic-at-risk" aria-live="polite">
+          <div
+            className="flex items-center justify-center gap-3 h-48 text-xs text-semantic-at-risk"
+            aria-live="polite"
+          >
             <span>⚠ Couldn&apos;t load chart data.</span>
             <button
-              onClick={() => isSprintCtx ? void sprintQuery.refetch() : void burnQuery.refetch()}
+              onClick={() => (isSprintCtx ? void sprintQuery.refetch() : void burnQuery.refetch())}
               className="underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
             >
               Retry
@@ -549,7 +683,7 @@ export function BurnChart({ projectId, sprintId, defaultVariant = 'burndown' }: 
                   dataKey="remaining"
                   stroke={C.actual}
                   fill={C.actual}
-                  fillOpacity={0.10}
+                  fillOpacity={0.1}
                   strokeWidth={2}
                   dot={false}
                   activeDot={{ r: 4 }}
@@ -578,7 +712,7 @@ export function BurnChart({ projectId, sprintId, defaultVariant = 'burndown' }: 
                   dataKey="completed"
                   stroke={C.completed}
                   fill={C.completed}
-                  fillOpacity={0.10}
+                  fillOpacity={0.1}
                   strokeWidth={2}
                   dot={false}
                   activeDot={{ r: 4 }}
@@ -649,11 +783,12 @@ export function BurnChart({ projectId, sprintId, defaultVariant = 'burndown' }: 
 
       {/* Sprint trending callout */}
       {isSprintCtx && trendAhead !== null && !isEmpty && !isLoading && (
-        <p className={`px-4 py-2 border-t border-neutral-border text-xs ${trendAhead >= 0 ? 'text-semantic-on-track' : 'text-semantic-at-risk'}`}>
-          Trending{' '}
-          <span className="tppm-mono">{Math.abs(Math.round(trendAhead))}</span>{' '}
-          {effectiveMetric === 'points' ? 'pts' : 'tasks'}{' '}
-          {trendAhead >= 0 ? 'ahead' : 'behind'} of ideal
+        <p
+          className={`px-4 py-2 border-t border-neutral-border text-xs ${trendAhead >= 0 ? 'text-semantic-on-track' : 'text-semantic-at-risk'}`}
+        >
+          Trending <span className="tppm-mono">{Math.abs(Math.round(trendAhead))}</span>{' '}
+          {effectiveMetric === 'points' ? 'pts' : 'tasks'} {trendAhead >= 0 ? 'ahead' : 'behind'} of
+          ideal
           {forecastDate && (
             <span className="float-right text-neutral-text-secondary">
               Forecast close: <span className="tppm-mono">{forecastDate}</span>
@@ -685,12 +820,18 @@ export function BurnChart({ projectId, sprintId, defaultVariant = 'burndown' }: 
           )}
           {scopeChanges.some((c) => c.delta > 0) && (
             <span className="flex items-center gap-1">
-              <span style={{ color: C.scopeAdd }} aria-hidden="true">◉</span> Scope added
+              <span style={{ color: C.scopeAdd }} aria-hidden="true">
+                ◉
+              </span>{' '}
+              Scope added
             </span>
           )}
           {scopeChanges.some((c) => c.delta < 0) && (
             <span className="flex items-center gap-1">
-              <span style={{ color: C.scopeRem }} aria-hidden="true">◎</span> Scope removed
+              <span style={{ color: C.scopeRem }} aria-hidden="true">
+                ◎
+              </span>{' '}
+              Scope removed
             </span>
           )}
         </div>
@@ -704,7 +845,10 @@ function LegendItem({ color, dashed, label }: { color: string; dashed: boolean; 
     <span className="flex items-center gap-1.5">
       <svg width="20" height="2" aria-hidden="true">
         <line
-          x1="0" y1="1" x2="20" y2="1"
+          x1="0"
+          y1="1"
+          x2="20"
+          y2="1"
           stroke={color}
           strokeWidth="2"
           strokeDasharray={dashed ? '4 3' : undefined}
@@ -740,26 +884,41 @@ function ChartEmpty({
     const now = new Date().toISOString().slice(0, 10);
     if (sprint.start_date > now) {
       return (
-        <div className="flex items-center justify-center h-48 text-xs text-neutral-text-secondary" role="status">
+        <div
+          className="flex items-center justify-center h-48 text-xs text-neutral-text-secondary"
+          role="status"
+        >
           {iterationLabel} starts {sprint.start_date} · Check back then to track burn.
         </div>
       );
     }
     return (
-      <div className="flex items-center justify-center h-48 text-xs text-neutral-text-secondary" role="status">
+      <div
+        className="flex items-center justify-center h-48 text-xs text-neutral-text-secondary"
+        role="status"
+      >
         No snapshots yet. Data is captured daily starting from activation.
       </div>
     );
   }
   return (
     <div className="flex flex-col items-center justify-center gap-2 h-48 text-center" role="status">
-      <svg width="40" height="40" viewBox="0 0 40 40" fill="none" aria-hidden="true" className="text-neutral-text-disabled">
+      <svg
+        width="40"
+        height="40"
+        viewBox="0 0 40 40"
+        fill="none"
+        aria-hidden="true"
+        className="text-neutral-text-disabled"
+      >
         <rect x="4" y="20" width="10" height="17" rx="2" fill="currentColor" opacity="0.4" />
         <rect x="15" y="10" width="10" height="27" rx="2" fill="currentColor" opacity="0.4" />
-        <rect x="26" y="3"  width="10" height="34" rx="2" fill="currentColor" opacity="0.4" />
+        <rect x="26" y="3" width="10" height="34" rx="2" fill="currentColor" opacity="0.4" />
       </svg>
       <p className="text-sm font-medium text-neutral-text-primary">No tasks to chart yet</p>
-      <p className="text-xs text-neutral-text-secondary">Add tasks to this project to start tracking progress.</p>
+      <p className="text-xs text-neutral-text-secondary">
+        Add tasks to this project to start tracking progress.
+      </p>
     </div>
   );
 }
