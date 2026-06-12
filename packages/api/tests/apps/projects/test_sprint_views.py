@@ -1384,6 +1384,16 @@ def test_set_presenter_viewer_forbidden(viewer_client: APIClient, project: Proje
     assert resp.status_code in (403, 404)
 
 
+def test_set_presenter_non_member_denied(stranger_client: APIClient, project: Project) -> None:
+    _, rows = _closed_with_polish(project)
+    resp = stranger_client.post(
+        f"/api/v1/sprint-task-outcomes/{rows['alpha'].pk}/set-presenter/",
+        {"presenter": "Alex"},
+        format="json",
+    )
+    assert resp.status_code in (403, 404)
+
+
 # --- review note (#1131) ----------------------------------------------------
 
 
@@ -1410,6 +1420,16 @@ def test_set_note_truncates_over_200(member_client: APIClient, project: Project)
     assert resp.status_code == 200, resp.content
     rows["beta"].refresh_from_db()
     assert len(rows["beta"].review_note) == 200
+
+
+def test_set_note_non_member_denied(stranger_client: APIClient, project: Project) -> None:
+    _, rows = _closed_with_polish(project)
+    resp = stranger_client.post(
+        f"/api/v1/sprint-task-outcomes/{rows['beta'].pk}/set-note/",
+        {"note": "x"},
+        format="json",
+    )
+    assert resp.status_code in (403, 404)
 
 
 def test_set_note_viewer_forbidden(viewer_client: APIClient, project: Project) -> None:

@@ -1643,32 +1643,35 @@ def flag_outcome_for_backlog(outcome: Any, *, actor: Any) -> Any:
     """
     from django.db import transaction
 
-    from trueppm_api.apps.projects.models import Task, TaskStatus
+    from trueppm_api.apps.projects.models import SprintTaskOutcome, Task, TaskStatus
     from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
-    # Idempotency guard — if this outcome already spawned a (live) backlog task, return it.
-    if outcome.flagged_to_backlog_task_id is not None:
-        existing = Task.objects.filter(
-            pk=outcome.flagged_to_backlog_task_id, is_deleted=False
-        ).first()
-        if existing is not None:
-            return outcome
-
     with transaction.atomic():
+        # Idempotency guard under a row lock — re-read the outcome FK inside the
+        # transaction so two concurrent taps cannot both pass the check and each
+        # create a backlog task (TOCTOU). Mirrors reorder_demo_list's locking.
+        locked = SprintTaskOutcome.objects.select_for_update().get(pk=outcome.pk)
+        if locked.flagged_to_backlog_task_id is not None:
+            existing = Task.objects.filter(
+                pk=locked.flagged_to_backlog_task_id, is_deleted=False
+            ).first()
+            if existing is not None:
+                return locked
+
         task = Task.objects.create(
-            project_id=outcome.sprint.project_id,
-            name=outcome.task_title,
+            project_id=locked.sprint.project_id,
+            name=locked.task_title,
             duration=1,
             status=TaskStatus.BACKLOG,
             sprint=None,
-            story_points=outcome.story_points,
+            story_points=locked.story_points,
         )
-        outcome.flagged_to_backlog_task = task
-        outcome.save(update_fields=["flagged_to_backlog_task"])
+        locked.flagged_to_backlog_task = task
+        locked.save(update_fields=["flagged_to_backlog_task"])
 
-        pid = str(outcome.sprint.project_id)
-        sid = str(outcome.sprint_id)
-        oid = str(outcome.id)
+        pid = str(locked.sprint.project_id)
+        sid = str(locked.sprint_id)
+        oid = str(locked.id)
         cid = str(task.id)
         transaction.on_commit(lambda: broadcast_board_event(pid, "task_created", {"id": cid}))
         transaction.on_commit(
@@ -1678,7 +1681,7 @@ def flag_outcome_for_backlog(outcome: Any, *, actor: Any) -> Any:
                 {"id": oid, "sprint_id": sid, "task_id": cid},
             )
         )
-    return outcome
+    return locked
 
 
 def sprint_daily_delta(sprint: Any, since: Any, request: Any) -> dict[str, Any]:

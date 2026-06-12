@@ -3132,13 +3132,13 @@ class SprintTaskOutcomeViewSet(IdempotencyMixin, viewsets.GenericViewSet[SprintT
         from trueppm_api.apps.projects.services import flag_outcome_for_backlog
 
         outcome = self.get_object()  # runs object-level IsProjectMemberWrite
-        flag_outcome_for_backlog(outcome, actor=request.user)
+        result = flag_outcome_for_backlog(outcome, actor=request.user)
         return Response(
             {
-                "id": str(outcome.id),
-                "flagged_to_backlog": outcome.flagged_to_backlog_task_id is not None,
-                "task_id": str(outcome.flagged_to_backlog_task_id)
-                if outcome.flagged_to_backlog_task_id
+                "id": str(result.id),
+                "flagged_to_backlog": result.flagged_to_backlog_task_id is not None,
+                "task_id": str(result.flagged_to_backlog_task_id)
+                if result.flagged_to_backlog_task_id
                 else None,
             },
             status=status.HTTP_200_OK,
