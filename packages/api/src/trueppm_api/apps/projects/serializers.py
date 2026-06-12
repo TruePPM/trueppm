@@ -3453,7 +3453,9 @@ class SprintForecastSerializer(serializers.Serializer[dict[str, Any]]):
 
     status = serializers.ChoiceField(choices=["ready", "warming_up"])
     remaining_points = serializers.IntegerField(allow_null=True)
-    sample_count = serializers.IntegerField()
+    # Nulled for below-velocity-audience readers (ADR-0104): the closed-sprint
+    # count is a team-private organisational fact, like excluded_count.
+    sample_count = serializers.IntegerField(allow_null=True)
     p50_sprints = serializers.IntegerField(allow_null=True)
     p80_sprints = serializers.IntegerField(allow_null=True)
     p50_date = serializers.DateField(allow_null=True)

@@ -26404,7 +26404,8 @@
                         "nullable": true
                     },
                     "sample_count": {
-                        "type": "integer"
+                        "type": "integer",
+                        "nullable": true
                     },
                     "p50_sprints": {
                         "type": "integer",

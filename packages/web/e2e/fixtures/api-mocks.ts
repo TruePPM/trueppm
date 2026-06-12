@@ -281,6 +281,24 @@ export async function setupApiMocks(page: Page, opts: ApiMockOptions = {}): Prom
   await page.route(`**/api/v1/projects/${projectId}/overview/`, (route) =>
     route.fulfill(jsonResponse(overview)),
   );
+  // Backlog forecast (#487) — default to warming-up so board/overview specs that
+  // don't set their own forecast don't fall through to a 404→retry. Per-spec
+  // page.route(...) overrides still win.
+  await page.route(`**/api/v1/projects/${projectId}/sprint-forecast/`, (route) =>
+    route.fulfill(
+      jsonResponse({
+        status: 'warming_up',
+        remaining_points: 0,
+        sample_count: 0,
+        p50_sprints: null,
+        p80_sprints: null,
+        p50_date: null,
+        p80_date: null,
+        basis: 'monte_carlo',
+        velocity_suppressed: false,
+      }),
+    ),
+  );
   await page.route(`**/api/v1/projects/${projectId}/status-summary/`, (route) =>
     route.fulfill(jsonResponse(statusSummary)),
   );

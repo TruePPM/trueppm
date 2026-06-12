@@ -30,10 +30,15 @@ beforeEach(() => {
 });
 
 describe('SprintForecastChips', () => {
+  // The chip content is JSX (numbers in .tppm-mono spans, rule 8c), so assert on
+  // the normalized textContent rather than a single text node.
+  const chipsText = () =>
+    screen.getByTestId('sprint-forecast-chips').textContent?.replace(/\s+/g, ' ') ?? '';
+
   it('renders the release-horizon chip from a ready forecast, linking to overview', () => {
     forecastMock.mockReturnValue({ data: READY_FORECAST });
     renderWithRouter(<SprintForecastChips projectId="p1" sprintId="s1" />);
-    expect(screen.getByText(/clears in ~3 sprints/)).toBeTruthy();
+    expect(chipsText()).toContain('clears in ~3 sprints (P80 4)');
     const link = screen.getByRole('link', { name: /Release horizon/ });
     expect(link.getAttribute('href')).toBe('/projects/p1/overview');
   });
@@ -41,13 +46,13 @@ describe('SprintForecastChips', () => {
   it('renders a "behind" sprint-finish chip from burn pace', () => {
     burndownMock.mockReturnValue({ data: { burn_status: 'behind', trend_points: -12 } });
     renderWithRouter(<SprintForecastChips projectId="p1" sprintId="s1" />);
-    expect(screen.getByText(/12 pts behind at this pace/)).toBeTruthy();
+    expect(chipsText()).toContain('12 pts behind at this pace');
   });
 
   it('renders an "ahead" sprint-finish chip', () => {
     burndownMock.mockReturnValue({ data: { burn_status: 'ahead', trend_points: 6 } });
     renderWithRouter(<SprintForecastChips projectId="p1" sprintId="s1" />);
-    expect(screen.getByText(/finish ahead/)).toBeTruthy();
+    expect(chipsText()).toContain('finish ahead (+6 pts)');
   });
 
   it('hides the release-horizon chip when velocity is suppressed', () => {

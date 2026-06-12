@@ -3308,8 +3308,12 @@ def _sample_backlog_sprint_counts(
         return None
     rng = np.random.default_rng(seed)
     mean = float(positive.mean())
-    # Bound the per-run horizon so a pathologically slow bootstrap path can't spin.
-    max_sprints = int(np.ceil(remaining_points / mean)) * 4 + 10
+    # Bound the per-run horizon so a pathologically slow bootstrap path can't spin
+    # — and hard-cap it so a bad-data backlog (e.g. a 100k-point import against a
+    # slow mean) can't drive an unbounded runs×max_sprints allocation. 2000 sprints
+    # is ~77 years at a fortnightly cadence; beyond that the answer is "never", and
+    # runs saturate to the cap (already handled as the not-reached branch below).
+    max_sprints = min(int(np.ceil(remaining_points / mean)) * 4 + 10, 2000)
     draws = rng.choice(positive, size=(runs, max_sprints), replace=True)
     cumulative = np.cumsum(draws, axis=1)
     reached = cumulative >= remaining_points

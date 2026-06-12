@@ -168,3 +168,7 @@ def test_endpoint_suppresses_for_below_velocity_audience(
     assert resp.data["p50_sprints"] is None
     assert resp.data["p50_date"] is None
     assert resp.data["remaining_points"] is None
+    # The closed-sprint count and a "ready" status are themselves team-private
+    # organisational facts (ADR-0104) — withheld too.
+    assert resp.data["sample_count"] is None
+    assert resp.data["status"] == "warming_up"

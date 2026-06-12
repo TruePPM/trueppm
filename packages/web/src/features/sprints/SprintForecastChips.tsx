@@ -8,9 +8,10 @@
  *    Derived from the velocity Monte Carlo (/sprint-forecast/). Hidden when the
  *    velocity signal is team-private (ADR-0104) or still warming up.
  *
- * Both chips link to the full backlog forecast on the project overview. Colour is
- * never the sole signal (rule 107): the text carries the meaning, the icon is
- * aria-hidden.
+ * Both chips link to the full backlog forecast on the project overview. Numeric
+ * values render in .tppm-mono (rule 8c) — the chip content is JSX, not a flat
+ * string, so counts can be wrapped. Colour is never the sole signal (rule 107):
+ * the text carries the meaning, the icon is aria-hidden.
  */
 import { Link } from 'react-router';
 
@@ -26,26 +27,24 @@ export function SprintForecastChips({ projectId, sprintId }: Props) {
   const { data: forecast } = useSprintForecast(projectId);
 
   const finish = sprintFinishChip(burndown);
-  const horizon =
-    forecast && !forecast.velocity_suppressed && forecast.status === 'ready'
-      ? `At this pace, the backlog clears in ~${forecast.p50_sprints} sprint${
-          forecast.p50_sprints === 1 ? '' : 's'
-        } (P80 ${forecast.p80_sprints})`
-      : null;
+  const showHorizon = !!forecast && !forecast.velocity_suppressed && forecast.status === 'ready';
 
-  if (!finish && !horizon) return null;
+  if (!finish && !showHorizon) return null;
 
   const to = `/projects/${projectId}/overview`;
   return (
     <div className="mt-2 flex flex-wrap gap-2" data-testid="sprint-forecast-chips">
       {finish && (
         <Chip to={to} tone={finish.tone} label="Sprint finish projection">
-          <span aria-hidden="true">{finish.icon}</span> {finish.text}
+          <span aria-hidden="true">{finish.icon}</span> {finish.node}
         </Chip>
       )}
-      {horizon && (
+      {showHorizon && forecast && (
         <Chip to={to} tone="neutral" label="Release horizon">
-          <span aria-hidden="true">→</span> {horizon}
+          <span aria-hidden="true">→</span> At this pace, the backlog clears in ~
+          <span className="tppm-mono">{forecast.p50_sprints}</span> sprint
+          {forecast.p50_sprints === 1 ? '' : 's'} (P80{' '}
+          <span className="tppm-mono">{forecast.p80_sprints}</span>)
         </Chip>
       )}
     </div>
@@ -87,24 +86,38 @@ function Chip({
 }
 
 interface FinishChip {
-  text: string;
+  node: React.ReactNode;
   tone: Tone;
   icon: string;
 }
 
-/** Map the #984 burn pace into Alex's standup phrasing. */
+/** Map the #984 burn pace into Alex's standup phrasing (numbers in .tppm-mono). */
 function sprintFinishChip(
-  burndown:
-    | { burn_status?: string; trend_points?: number | null }
-    | undefined,
+  burndown: { burn_status?: string; trend_points?: number | null } | undefined,
 ): FinishChip | null {
   if (!burndown || !burndown.burn_status || burndown.burn_status === 'no_data') return null;
   const trend = burndown.trend_points ?? 0;
   if (burndown.burn_status === 'ahead') {
-    return { text: `On track to finish ahead (+${trend} pts)`, tone: 'on-track', icon: '✓' };
+    return {
+      node: (
+        <>
+          On track to finish ahead (+<span className="tppm-mono">{trend}</span> pts)
+        </>
+      ),
+      tone: 'on-track',
+      icon: '✓',
+    };
   }
   if (burndown.burn_status === 'behind') {
-    return { text: `${Math.abs(trend)} pts behind at this pace`, tone: 'at-risk', icon: '⚠' };
+    return {
+      node: (
+        <>
+          <span className="tppm-mono">{Math.abs(trend)}</span> pts behind at this pace
+        </>
+      ),
+      tone: 'at-risk',
+      icon: '⚠',
+    };
   }
-  return { text: 'On plan to finish this sprint', tone: 'on-track', icon: '✓' };
+  return { node: <>On plan to finish this sprint</>, tone: 'on-track', icon: '✓' };
 }

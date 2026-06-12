@@ -7887,10 +7887,16 @@ class ProjectSprintForecastView(APIView):
             # The entire payload is velocity-derived, so a below-audience reader
             # gets the suppressed shape rather than a backlog horizon they could
             # reverse into the team's throughput.
+            # Null EVERY velocity-derived signal. sample_count (the team's
+            # closed-sprint count) and a "ready" status are themselves
+            # organisational facts the ADR-0104 boundary excludes from a
+            # below-audience reader — the same class as the zeroed excluded_count
+            # in suppress_velocity_summary — so they are withheld too, and status
+            # collapses to the only non-revealing constant.
             data = {
-                "status": data["status"],
+                "status": "warming_up",
                 "remaining_points": None,
-                "sample_count": data["sample_count"],
+                "sample_count": None,
                 "p50_sprints": None,
                 "p80_sprints": None,
                 "p50_date": None,
