@@ -98,10 +98,18 @@ class NotificationSerializer(serializers.ModelSerializer[Notification]):
 
     class Meta:
         model = Notification
+        # event_type/subject/body are the event-sourced inbox payload (#639,
+        # #497, #861). They were inbox-invisible before — a mention row leaves
+        # them blank and renders from `snippet`; an event row has no mention, so
+        # without these fields the client could not show its title/preview and
+        # fell back to "mentioned you / comment unavailable".
         fields = [
             "id",
             "recipient",
             "mention",
+            "event_type",
+            "subject",
+            "body",
             "project",
             "is_read",
             "is_archived",
@@ -114,6 +122,9 @@ class NotificationSerializer(serializers.ModelSerializer[Notification]):
             "id",
             "recipient",
             "mention",
+            "event_type",
+            "subject",
+            "body",
             "project",
             "created_at",
             "read_at",

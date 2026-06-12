@@ -791,6 +791,25 @@ const FIXTURE_NOTIFICATION = {
   task_id: TASK_ID,
 };
 
+// Event-sourced inbox row (#497): a Confirmed schedule-canvas reschedule of a
+// task this user is on. No mention; the row renders from subject/body and
+// deep-links via task_id.
+const FIXTURE_EVENT_NOTIFICATION = {
+  id: 'notif-evt-1',
+  recipient: FIXTURE_USER.id,
+  mention: null,
+  event_type: 'sprint.task_rescheduled',
+  subject: 'Wire HVAC controls rescheduled in Sprint 4',
+  body: '"Wire HVAC controls" in sprint Sprint 4 moved from 2026-10-05 to 2026-10-12.',
+  project: PROJECT_ID,
+  is_read: false,
+  is_archived: false,
+  created_at: '2026-05-19T12:00:00Z',
+  read_at: null,
+  snippet: '',
+  task_id: TASK_ID,
+};
+
 test.describe('Task collaboration — notification panel (#311)', () => {
   test('opens the slide-out and lists mentions', async ({ page }) => {
     await bootProjectPage(page, {
@@ -837,6 +856,32 @@ test.describe('Task collaboration — notification panel (#311)', () => {
     await expect(page.getByRole('button', { name: /^Notifications$/ })).toBeVisible({
       timeout: 10_000,
     });
+  });
+
+  test('lists an event-sourced reschedule notification and deep-links to the task (#497)', async ({
+    page,
+  }) => {
+    await bootProjectPage(page, {
+      notifications: [FIXTURE_EVENT_NOTIFICATION],
+      unreadCount: 1,
+    });
+    await page.goto(`/projects/${PROJECT_ID}/schedule`);
+    await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+
+    await page.getByRole('button', { name: /Notifications, 1 unread/ }).click();
+    const panel = page.getByRole('dialog', { name: 'My mentions' });
+    await expect(panel).toBeVisible();
+
+    // The event row renders its own subject + body, not a mention string.
+    await expect(panel.getByText('Wire HVAC controls rescheduled in Sprint 4')).toBeVisible();
+    await expect(panel.getByText(/moved from 2026-10-05 to 2026-10-12/)).toBeVisible();
+    await expect(panel.getByText(/mentioned/)).toHaveCount(0);
+
+    // Deep-links to the affected task in the schedule (#497 acceptance).
+    await panel
+      .getByRole('button', { name: /Wire HVAC controls rescheduled in Sprint 4/ })
+      .click();
+    await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_ID}/schedule\\?task=${TASK_ID}`));
   });
 
   test('empty state shows "Caught up!" when no unread mentions exist', async ({ page }) => {

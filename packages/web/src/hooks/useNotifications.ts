@@ -34,6 +34,15 @@ export interface NotificationRow {
   id: string;
   recipient: string;
   mention: NotificationMention | null;
+  /**
+   * Event-sourced payload (#639/#497/#861). Empty `event_type` means a
+   * mention-sourced row (render from `mention` + `snippet`); a non-empty
+   * `event_type` means an event row whose title is `subject` and preview is
+   * `body`.
+   */
+  event_type: string;
+  subject: string;
+  body: string;
   project: string;
   is_read: boolean;
   is_archived: boolean;

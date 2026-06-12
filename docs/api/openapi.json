@@ -21039,6 +21039,18 @@
                         ],
                         "readOnly": true
                     },
+                    "event_type": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "subject": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "body": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "project": {
                         "type": "string",
                         "format": "uuid",
@@ -21073,13 +21085,16 @@
                     }
                 },
                 "required": [
+                    "body",
                     "created_at",
+                    "event_type",
                     "id",
                     "mention",
                     "project",
                     "read_at",
                     "recipient",
                     "snippet",
+                    "subject",
                     "task_id"
                 ]
             },
