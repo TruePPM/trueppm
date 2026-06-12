@@ -6,8 +6,8 @@
 # this file to the next free number and repoint its dependency. All four fields are
 # additive with safe defaults (no NOT NULL without default, fully reversible).
 
-from django.db import migrations, models
 import django.db.models.deletion
+from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
