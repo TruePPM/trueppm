@@ -1533,6 +1533,40 @@ security:trivy:config:
   script:
     - trivy config --severity HIGH,CRITICAL --exit-code 1 --ignorefile .trivyignore.yaml --skip-dirs '**/node_modules' packages/
 
+security:semgrep:
+  # SAST for the application source: JS/TS/React (web) + Python/Django
+  # (api, scheduler). Complements bandit (Python-only) and the SCA scanners
+  # (security:osv) / IaC scanner (security:trivy:config).
+  #
+  # Gates on ERROR severity (high-confidence security findings) — currently
+  # clean. WARNING-level best-practice findings are tracked for triage in #1154;
+  # once cleared, drop --severity ERROR to harden the gate to WARNING too.
+  #
+  # Rules are pulled from the Semgrep registry (p/ packs); no Semgrep AppSec
+  # Platform account or token is used — this is a self-contained, local-rules run.
+  stage: security
+  image:
+    name: semgrep/semgrep:1.166.0
+    entrypoint: [""]
+  needs: []
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/web/src/**/*
+        - packages/api/src/**/*
+        - packages/scheduler/src/**/*
+        - .gitlab-ci.yml
+  variables:
+    SEMGREP_SEND_METRICS: "off"
+  script:
+    - semgrep scan
+        --config p/default --config p/django --config p/react
+        --severity ERROR --error --metrics off
+        --exclude 'node_modules' --exclude 'dist'
+        --exclude '*.test.ts' --exclude '*.test.tsx' --exclude 'e2e' --exclude 'tests'
+        packages/web/src packages/api/src packages/scheduler/src
+
 license:check:py:
   # Verify no copyleft-licensed Python dependency has been introduced.
   # LGPL is permitted (library-linking exemption applies).
