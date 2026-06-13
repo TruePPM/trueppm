@@ -41,6 +41,11 @@ workflow:
   auto_cancel:
     on_new_commit: interruptible
   rules:
+    # Scheduled pipelines are only for the Renovate runner (RENOVATE == "true").
+    # Block any other scheduled trigger so a stray schedule can't spin up a full
+    # pipeline. The Renovate schedule itself falls through to the branch rule.
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $RENOVATE != "true"'
+      when: never
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == "main"'
       auto_cancel:
@@ -1532,6 +1537,37 @@ security:trivy:config:
     - curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.71.0
   script:
     - trivy config --severity HIGH,CRITICAL --exit-code 1 --ignorefile .trivyignore.yaml --skip-dirs '**/node_modules' packages/
+
+renovate:
+  # Self-hosted Renovate runner (the #1153 rollout, step 4). Opens grouped
+  # dependency-update MRs so transitives never go stale enough to become a CVE
+  # scramble (the root cause of #1152). Behaviour is configured in renovate.json
+  # (no auto-merge — project policy; major bumps are opt-in via the dashboard).
+  #
+  # ONE-TIME SETUP (a maintainer must do this — the runner stays dormant until):
+  #   1. Create a GitLab access token (project or group) with `api` +
+  #      `write_repository` scope. Add it as a MASKED CI/CD variable RENOVATE_TOKEN.
+  #   2. Create a Pipeline Schedule (Settings -> CI/CD -> Pipeline schedules):
+  #      daily cron, with a variable RENOVATE = "true". renovate.json restricts
+  #      actual PR creation to Monday mornings, so a daily run is cheap.
+  #   3. RECOMMENDED isolation: point the schedule at a dedicated `renovate-bot`
+  #      branch (created off main). Because every other job is gated on
+  #      `branch == main`, only this job runs there — the schedule won't spin up
+  #      a full main pipeline. (A schedule on main also works but runs everything.)
+  stage: security
+  image: renovate/renovate:43
+  needs: []
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $RENOVATE == "true"'
+  variables:
+    RENOVATE_PLATFORM: gitlab
+    RENOVATE_ENDPOINT: "${CI_API_V4_URL}"
+    RENOVATE_TOKEN: "${RENOVATE_TOKEN}"
+    RENOVATE_AUTODISCOVER: "false"
+    RENOVATE_REPOSITORIES: "${CI_PROJECT_PATH}"
+    LOG_LEVEL: "info"
+  script:
+    - renovate
 
 license:check:py:
   # Verify no copyleft-licensed Python dependency has been introduced.
