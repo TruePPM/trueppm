@@ -1496,6 +1496,39 @@ security:osv:
         -L packages/website/package-lock.json
         -L packages/wasm-scheduler/Cargo.lock
 
+security:trivy:config:
+  # IaC misconfiguration scan (Dockerfiles + Helm chart) via Trivy. Complements
+  # security:osv (which covers dependency CVEs): this catches container/k8s
+  # hardening regressions — missing non-root USER, readOnlyRootFilesystem,
+  # dropped capabilities, etc. Gates on HIGH/CRITICAL.
+  #
+  # Justified, scoped suppressions live in .trivyignore.yaml (currently the
+  # intentional readOnlyRootFilesystem omission on the bundled dev/demo
+  # postgres + valkey sub-charts). Image-layer CVE scanning runs at release time
+  # in the publish jobs (trivy image before push).
+  stage: security
+  image:
+    name: aquasec/trivy:0.71.1
+    entrypoint: [""]
+  needs: []
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/**/Dockerfile
+        - packages/helm/**/*
+        - .trivyignore.yaml
+        - .gitlab-ci.yml
+  variables:
+    TRIVY_NO_PROGRESS: "true"
+    TRIVY_CACHE_DIR: ".trivycache/"
+  cache:
+    key: trivy-db
+    paths:
+      - .trivycache/
+  script:
+    - trivy config --severity HIGH,CRITICAL --exit-code 1 --ignorefile .trivyignore.yaml --skip-dirs '**/node_modules' packages/
+
 license:check:py:
   # Verify no copyleft-licensed Python dependency has been introduced.
   # LGPL is permitted (library-linking exemption applies).
@@ -1688,6 +1721,10 @@ scheduler:publish:
     DOCKER_TLS_CERTDIR: "/certs"
   before_script:
     - docker login -u "${CI_REGISTRY_USER}" -p "${CI_REGISTRY_PASSWORD}" "${CI_REGISTRY}"
+    # Trivy is used to scan each built image before it is pushed (see the
+    # docker save | trivy image --input gate in api:publish / web:publish).
+    - apk add --no-cache curl
+    - curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.71.1
 
 api:publish:
   extends: .docker-publish-base
@@ -1700,6 +1737,11 @@ api:publish:
         -t "${GL_IMAGE}:${CI_COMMIT_TAG}" \
         -t "${GL_IMAGE}:latest" \
         .
+      # Scan the built image before publishing — fail the release on fixable
+      # HIGH/CRITICAL CVEs. --ignore-unfixed skips base-image CVEs with no
+      # available patch (unactionable) while still gating on anything fixable.
+      docker save "${GL_IMAGE}:${CI_COMMIT_TAG}" -o /tmp/api-image.tar
+      trivy image --input /tmp/api-image.tar --no-progress --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
       docker push "${GL_IMAGE}:${CI_COMMIT_TAG}"
       docker push "${GL_IMAGE}:latest"
       if [ -n "${GHCR_USER}" ] && [ -n "${GHCR_TOKEN}" ]; then
@@ -1725,6 +1767,9 @@ web:publish:
         -t "${GL_IMAGE}:${CI_COMMIT_TAG}" \
         -t "${GL_IMAGE}:latest" \
         .
+      # Scan the built image before publishing (see api:publish for rationale).
+      docker save "${GL_IMAGE}:${CI_COMMIT_TAG}" -o /tmp/web-image.tar
+      trivy image --input /tmp/web-image.tar --no-progress --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
       docker push "${GL_IMAGE}:${CI_COMMIT_TAG}"
       docker push "${GL_IMAGE}:latest"
       if [ -n "${GHCR_USER}" ] && [ -n "${GHCR_TOKEN}" ]; then
