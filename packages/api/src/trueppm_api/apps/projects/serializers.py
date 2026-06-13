@@ -1869,7 +1869,12 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         # This is the single field-level gate the ADR introduces; the roll-ups and
         # standup omit reason entirely, so this serializer is the only surface that
         # ever returns it, and only to the two authorized parties.
-        if "blocked_reason" in data:
+        #
+        # Short-circuit on a *non-empty* reason: an unblocked task has nothing to
+        # protect (the field is ""), so we only consult the predicate — and only
+        # incur its Mention lookup — for the handful of actually-blocked tasks in a
+        # list, never once per row across a full board (N+1 avoidance).
+        if data.get("blocked_reason"):
             from trueppm_api.apps.projects.blocker_services import can_read_blocker_reason
 
             request = self.context.get("request")
