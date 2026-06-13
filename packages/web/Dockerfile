@@ -21,9 +21,17 @@ RUN npm run build
 
 # Serve stage (default) — nginx serves the pre-built bundle.
 # Used by docker-compose.prod.yml via the web-build init pattern.
-FROM nginx:alpine
+#
+# nginx-unprivileged runs as a non-root user (uid 101) and listens on an
+# unprivileged port (8080) — see nginx.conf. The reverse proxy in
+# docker-compose.prod.yml maps host 80 -> container 8080.
+FROM nginxinc/nginx-unprivileged:alpine
 
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-EXPOSE 80
+# Explicit non-root user (the base image already sets this; declared here so the
+# container's effective user is unambiguous and never root).
+USER 101
+
+EXPOSE 8080

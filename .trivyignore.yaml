@@ -1,0 +1,17 @@
+# Trivy ignore file (structured). Scoped, justified suppressions only.
+#
+# KSV-0014 (readOnlyRootFilesystem) on the bundled PostgreSQL and Valkey
+# sub-charts is intentional and documented in those templates: the postgres
+# image writes runtime sockets/locks to /var/run/postgresql + /tmp, and valkey
+# writes its append-only file alongside /tmp, both on the root filesystem. These
+# sub-charts are dev/demo datastores only — production deployments use managed
+# PostgreSQL/Redis (see docs/administration/sizing). The rest of the restricted
+# profile (no privilege escalation, all caps dropped, seccomp RuntimeDefault) is
+# applied. Scoped to those two files so the app deployments (api, celery-worker),
+# which DO set readOnlyRootFilesystem, are still gated.
+misconfigurations:
+  - id: KSV-0014
+    paths:
+      - "helm/charts/postgresql/templates/statefulset.yaml"
+      - "helm/charts/valkey/templates/statefulset.yaml"
+    statement: "Intentional for bundled dev/demo datastores; prod uses managed DB/Redis."
