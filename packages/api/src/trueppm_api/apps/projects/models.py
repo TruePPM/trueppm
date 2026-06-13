@@ -891,6 +891,26 @@ class TaskStatus(models.TextChoices):
     COMPLETE = "COMPLETE", "Complete"
 
 
+class BlockerType(models.TextChoices):
+    """Optional structured classification of a contributor's blocker (#1135, ADR-0124).
+
+    The *type* is the team-shareable triage signal — "3 tasks waiting on an external
+    vendor" routes to one call, whereas three paragraphs of free text route to nobody.
+    It is deliberately distinct from the free-text ``blocked_reason``, which stays
+    private to the assignee + @-mentioned (the Morgan surveillance boundary): type, age,
+    and actor are routable/queryable; the reason text is never a filterable field.
+
+    Empty string = no type recorded (the flag may be raised with only free text). This
+    is NOT a severity — it classifies *what kind* of impediment, to route the unblock.
+    """
+
+    DEPENDENCY = "dependency", "Waiting on dependency"
+    RESOURCE = "resource", "Missing resource"
+    VENDOR = "vendor", "External vendor"
+    DECISION = "decision", "Decision needed"
+    OTHER = "other", "Other"
+
+
 class TaskType(models.TextChoices):
     """Work-item taxonomy for a task (ADR-0105, #363).
 
@@ -1072,6 +1092,48 @@ class Task(VersionedModel):
         blank=True,
         default="",
         help_text="Why the task is blocked; empty means not blocked.",
+    )
+
+    # Structured blocker fields (#1135, ADR-0124) — the team-shareable half of the
+    # blocker signal that ``blocked_reason`` (private free text) is the other half of.
+    # All optional/derived; ``blocked_reason`` stays the flag-of-record (non-empty =
+    # blocked). ``blocked_since`` and the unflag-clear are stamped in ``save()``;
+    # ``blocked_by`` is the actor, set by the serializer on the flag transition.
+    blocker_type = models.CharField(
+        max_length=12,
+        choices=BlockerType.choices,
+        blank=True,
+        default="",
+        help_text="Optional structured classification of the blocker (triage signal).",
+    )
+    # A SOFT "waiting on" link — NOT a CPM dependency. Deliberately distinct from the
+    # ``Dependency`` edge (which feeds the scheduler's float/date/Monte-Carlo math); a
+    # soft blocker must never enter CPM input or it would corrupt the schedule, the
+    # same reason ``blocked_reason`` is kept distinct from the ``is_blocked``
+    # dependency-readiness annotation. SET_NULL so the blocked task survives deletion
+    # of the thing it was waiting on (the blocker simply reads as cleared of its link).
+    blocking_task = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="blocking",
+        help_text="Soft 'waiting on' link to another task; does NOT affect the schedule.",
+    )
+    # Derived: stamped on the empty->non-empty ``blocked_reason`` transition, cleared
+    # to null on the inverse, in ``save()`` (mirrors ``status_changed_at``). Drives the
+    # "Xd Xh blocked" age the badge/roll-ups show — and age is what triggers escalation.
+    blocked_since = models.DateTimeField(null=True, blank=True)
+    # The actor who raised the flag — Task's first actor-attribution column. SET_NULL
+    # (deleting a user must never delete their tasks). Set by the serializer, which has
+    # the request user; direct ORM saves leave it as-is.
+    blocked_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        help_text="Who flagged the task as blocked.",
     )
 
     # SNET constraint — set by the PM (e.g. via Gantt drag-to-reschedule).
@@ -1391,6 +1453,45 @@ class Task(VersionedModel):
             self.status_changed_at = timezone.now()
             if _update_fields is not None and "status_changed_at" not in _update_fields:
                 kwargs = {**kwargs, "update_fields": (*_update_fields, "status_changed_at")}
+
+        # Stamp blocked_since on the empty->non-empty blocked_reason transition, and
+        # clear the whole structured blocker (since/type/link/actor) on the inverse —
+        # mirrors status_changed_at. blocked_reason stays the flag-of-record; this only
+        # runs when blocked_reason is actually being written (cold path), so it adds no
+        # query to the common task save. blocked_by (actor) is set by the serializer.
+        _track_block = _update_fields is None or "blocked_reason" in _update_fields
+        if _track_block:
+            _old_reason = ""
+            if not is_new:
+                _old_reason = (
+                    type(self)
+                    .objects.filter(pk=self.pk)
+                    .values_list("blocked_reason", flat=True)
+                    .first()
+                    or ""
+                )
+            _was_blocked = bool(_old_reason.strip())
+            _is_blocked = bool((self.blocked_reason or "").strip())
+            _block_fields: list[str] = []
+            if _is_blocked and not _was_blocked:
+                self.blocked_since = timezone.now()
+                _block_fields.append("blocked_since")
+            elif _was_blocked and not _is_blocked:
+                self.blocked_since = None
+                self.blocker_type = ""
+                self.blocking_task = None
+                self.blocked_by = None
+                _block_fields += ["blocked_since", "blocker_type", "blocking_task", "blocked_by"]
+            if _block_fields:
+                _uf_now = kwargs.get("update_fields")
+                if _uf_now is not None:
+                    kwargs = {
+                        **kwargs,
+                        "update_fields": (
+                            *_uf_now,
+                            *[f for f in _block_fields if f not in _uf_now],
+                        ),
+                    }
         # REVIEW and COMPLETE both coerce percent_complete to 100 — a card in
         # the Review column is "work done, awaiting sign-off" and DONE is
         # finished by definition; both states imply 100% delivered work. The
