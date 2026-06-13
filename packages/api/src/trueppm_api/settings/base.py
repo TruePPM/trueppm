@@ -742,5 +742,10 @@ SPECTACULAR_SETTINGS = {
         # drf-spectacular does not hash-disambiguate it (project memory
         # project_drf_enum_name_collision).
         "SprintTaskDispositionEnum": "trueppm_api.apps.projects.models.SprintTaskDisposition",
+        # ADR-0124 (#1135): Task.blocker_type adds a new structured-blocker choice
+        # set. Pin to a stable model-prefixed name so drf-spectacular does not
+        # hash-disambiguate or rename existing components (same regression class as
+        # ScopeChangeStatus above — project memory project_drf_enum_name_collision).
+        "BlockerTypeEnum": "trueppm_api.apps.projects.models.BlockerType",
     },
 }

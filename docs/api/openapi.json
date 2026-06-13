@@ -5919,6 +5919,49 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/blocked/": {
+            "get": {
+                "operationId": "v1_projects_blocked_retrieve",
+                "description": "List flagged-blocked tasks on this project — the PM's impediment roll-up.\n\nReturns every task whose ``blocked_reason`` is non-empty (the flag of\nrecord), oldest-blocked first (age drives escalation), each row carrying\n``blocker_type`` + age + actor + assignee + the soft ``blocking_task`` link.\n\nReason text is **omitted entirely** from every row, for every requester —\nthe roll-up is a triage surface, not a place to read contributor voice\n(ADR-0124 §4, the Morgan boundary). The private reason is read only on the\ntask drawer, gated to the assignee + @-mentioned. There is no filter, sort,\nor search param on reason anywhere on this endpoint.\n\nProject membership (Viewer+) is required — enforced by the viewset\npermission classes plus ``check_object_permissions`` on the project.",
+                "summary": "Blocked tasks on this project (ADR-0124, #1134)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this project.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/board-config/": {
             "get": {
                 "operationId": "v1_projects_board_config_retrieve",
@@ -15237,7 +15280,7 @@
         "/api/v1/sprints/{id}/daily-delta/": {
             "get": {
                 "operationId": "v1_sprints_daily_delta_retrieve",
-                "description": "Team standup \"what changed since yesterday\" read (#925, ADR-0121).\n\nServer-computed delta for the team's Daily Scrum: status moves, new blockers\n(→ ON_HOLD), scope injections, the burndown swing, and a per-actor count\nrollup — all from existing history/snapshot data, no model. Pull-only.\n``?since=<iso8601>`` sets the window (default 24h ago, floored at sprint\nactivation). Team-private by membership: a PMO/org non-member is denied;\nthe read is status-level only (never hours/keystroke — Morgan's hard-NO).",
+                "description": "Team standup \"what changed since yesterday\" read (#925, ADR-0121).\n\nServer-computed delta for the team's Daily Scrum: status moves, new blockers\n(the blocked_reason flag transition — split impediment vs paused, ADR-0124\n#1125), scope injections, the burndown swing, and a per-actor count rollup —\nall from existing history/snapshot data, no model. Pull-only.\n``?since=<iso8601>`` sets the window (default 24h ago, floored at sprint\nactivation). Team-private by membership: a PMO/org non-member is denied;\nthe read is status-level only (never hours/keystroke — Morgan's hard-NO).",
                 "parameters": [
                     {
                         "in": "path",
@@ -20041,6 +20084,17 @@
                     ""
                 ]
             },
+            "BlockerTypeEnum": {
+                "enum": [
+                    "dependency",
+                    "resource",
+                    "vendor",
+                    "decision",
+                    "other"
+                ],
+                "type": "string",
+                "description": "* `dependency` - Waiting on dependency\n* `resource` - Missing resource\n* `vendor` - External vendor\n* `decision` - Decision needed\n* `other` - Other"
+            },
             "CadenceTypeEnum": {
                 "enum": [
                     "weekly",
@@ -21198,6 +21252,16 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "blocker_type": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "blocked_age_seconds": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "Whole seconds the task has been blocked (drives the My Work age badge).",
+                        "readOnly": true
+                    },
                     "group": {
                         "type": "string",
                         "readOnly": true
@@ -21212,7 +21276,9 @@
                     }
                 },
                 "required": [
+                    "blocked_age_seconds",
                     "blocked_reason",
+                    "blocker_type",
                     "due",
                     "due_source",
                     "group",
@@ -23636,6 +23702,22 @@
                     "blocked_reason": {
                         "type": "string",
                         "description": "Why the task is blocked; empty means not blocked."
+                    },
+                    "blocker_type": {
+                        "description": "Optional structured classification of the blocker (triage signal).\n\n* `dependency` - Waiting on dependency\n* `resource` - Missing resource\n* `vendor` - External vendor\n* `decision` - Decision needed\n* `other` - Other",
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/BlockerTypeEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            }
+                        ]
+                    },
+                    "blocking_task": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
                     },
                     "priority_rank": {
                         "type": "integer",
@@ -26606,6 +26688,10 @@
                             "additionalProperties": {}
                         }
                     },
+                    "blocker_summary": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    },
                     "burndown_delta": {
                         "type": "object",
                         "additionalProperties": {},
@@ -26629,6 +26715,7 @@
                 },
                 "required": [
                     "actor_aggregate",
+                    "blocker_summary",
                     "burndown_delta",
                     "new_blockers",
                     "per_actor",
@@ -27190,6 +27277,53 @@
                         "type": "string",
                         "description": "Why the task is blocked; empty means not blocked."
                     },
+                    "blocker_type": {
+                        "description": "Optional structured classification of the blocker (triage signal).\n\n* `dependency` - Waiting on dependency\n* `resource` - Missing resource\n* `vendor` - External vendor\n* `decision` - Decision needed\n* `other` - Other",
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/BlockerTypeEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            }
+                        ]
+                    },
+                    "blocking_task": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "blocking_task_detail": {
+                        "type": "object",
+                        "additionalProperties": {},
+                        "nullable": true,
+                        "description": "Lightweight read of the soft ``blocking_task`` link (ADR-0124, #1135).\n\nReturns ``{id, short_id, title}`` for the task this one is waiting on, or\n``None`` when no soft link is set. Reads the ``select_related`` relation so\na list response adds no per-row query. This is a *soft* link — it never\nfeeds CPM (distinct from a ``Dependency`` edge).",
+                        "readOnly": true
+                    },
+                    "blocked_since": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "blocked_by": {
+                        "type": "object",
+                        "additionalProperties": {},
+                        "nullable": true,
+                        "description": "Return the actor who flagged the task blocked as ``{id, username}`` (#1135).\n\nTeam-visible (per the ADR-0121 actor-attribution precedent). ``None`` when\nthe task is not flagged or the actor record was cleared.",
+                        "readOnly": true
+                    },
+                    "blocked_age_seconds": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "Whole seconds the task has been blocked, or ``None`` if not blocked (#1135).",
+                        "readOnly": true
+                    },
+                    "is_impediment": {
+                        "type": "boolean",
+                        "description": "True when the task is flagged blocked AND a structured type is recorded.\n\nThe \"impediment vs paused\" split (#1125): an impediment carries a\n``blocker_type`` the SM/PM can triage; a bare flag with no type is a plain\n\"paused\" signal.",
+                        "readOnly": true
+                    },
                     "linked_risks_count": {
                         "type": "integer",
                         "readOnly": true,
@@ -27377,6 +27511,10 @@
                     "assignments",
                     "baseline_finish",
                     "baseline_start",
+                    "blocked_age_seconds",
+                    "blocked_by",
+                    "blocked_since",
+                    "blocking_task_detail",
                     "criteria_met_count",
                     "criteria_total",
                     "dor_blockers",
@@ -27387,6 +27525,7 @@
                     "id",
                     "is_blocked",
                     "is_critical",
+                    "is_impediment",
                     "is_stalled",
                     "is_summary",
                     "late_finish",
@@ -28033,6 +28172,22 @@
                     "blocked_reason": {
                         "type": "string",
                         "description": "Why the task is blocked; empty means not blocked."
+                    },
+                    "blocker_type": {
+                        "description": "Optional structured classification of the blocker (triage signal).\n\n* `dependency` - Waiting on dependency\n* `resource` - Missing resource\n* `vendor` - External vendor\n* `decision` - Decision needed\n* `other` - Other",
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/BlockerTypeEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            }
+                        ]
+                    },
+                    "blocking_task": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
                     },
                     "priority_rank": {
                         "type": "integer",

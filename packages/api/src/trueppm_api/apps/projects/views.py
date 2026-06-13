@@ -1391,6 +1391,33 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
         )
 
     @extend_schema(
+        summary="Blocked tasks on this project (ADR-0124, #1134)",
+        responses={200: OpenApiResponse(response=OpenApiTypes.OBJECT)},
+    )
+    @action(detail=True, methods=["get"], url_path="blocked")
+    def blocked(self, request: Request, pk: str | None = None) -> Response:
+        """List flagged-blocked tasks on this project — the PM's impediment roll-up.
+
+        Returns every task whose ``blocked_reason`` is non-empty (the flag of
+        record), oldest-blocked first (age drives escalation), each row carrying
+        ``blocker_type`` + age + actor + assignee + the soft ``blocking_task`` link.
+
+        Reason text is **omitted entirely** from every row, for every requester —
+        the roll-up is a triage surface, not a place to read contributor voice
+        (ADR-0124 §4, the Morgan boundary). The private reason is read only on the
+        task drawer, gated to the assignee + @-mentioned. There is no filter, sort,
+        or search param on reason anywhere on this endpoint.
+
+        Project membership (Viewer+) is required — enforced by the viewset
+        permission classes plus ``check_object_permissions`` on the project.
+        """
+        from trueppm_api.apps.projects.blocker_services import project_blocked_rollup
+
+        project = self.get_object()
+        self.check_object_permissions(request, project)
+        return Response(project_blocked_rollup(project), status=status.HTTP_200_OK)
+
+    @extend_schema(
         summary="Get the project integrations summary",
         responses={
             200: OpenApiResponse(
@@ -1718,7 +1745,12 @@ def annotate_tasks_queryset(
     # that starts from a bare ``Task.objects`` manager (the #998 bulk re-fetch) gets
     # the same per-row-query-free serialization as the list path — not just the
     # annotations below. Idempotent for the viewset path (already applied upstream).
-    qs = qs.select_related("project", "sprint").prefetch_related("assignments__resource")
+    # ADR-0124 (#1135): blocked_by (actor) and blocking_task (soft link) are read
+    # by the TaskSerializer blocker getters — select_related so a list response
+    # serializes them without one query per row.
+    qs = qs.select_related("project", "sprint", "blocked_by", "blocking_task").prefetch_related(
+        "assignments__resource"
+    )
 
     # Summary task annotations: is_summary = has at least one direct child,
     # parent_id = the task whose wbs_path is this task's parent path,
@@ -2499,24 +2531,37 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
                         )
                     )
 
-        # task.blocked (#855, #476) — fires on the unblocked→blocked transition
-        # only, to the assignee (the owner of the blocked work), never the actor
-        # who raised the flag. The board broadcast above already carries the visual
-        # update; this is the personal in-app/email signal.
+        # task.blocked (#855, #476, ADR-0124 #1134) — fires on the unblocked→blocked
+        # transition only. The recipient set is the impediment-clearers: the
+        # assignee (existing) + the project's Scrum Master(s) + the PM(s), so the
+        # people whose job is removing impediments are told, not just the assignee
+        # who already knows. Each recipient is independently gated by their own
+        # NotificationPreference downstream. The subject/body carry blocker_type +
+        # age + NEVER the reason text (the Morgan boundary, enforced at render —
+        # see blocker_services.render_blocker_notification).
         new_is_blocked = bool((instance.blocked_reason or "").strip())
         became_blocked = not old_is_blocked and new_is_blocked
-        if became_blocked and new_assignee_id is not None and new_assignee_id != actor_id:
-            reason = (instance.blocked_reason or "").strip()
-            b_subj = f"{task_name} is blocked"
-            b_body = (
-                f'"{task_name}" was marked blocked: {reason}'
-                if reason
-                else f'"{task_name}" was marked blocked.'
+        if became_blocked:
+            from trueppm_api.apps.projects.blocker_services import (
+                render_blocker_notification,
+                resolve_impediment_recipients,
             )
-            b_rcpt = new_assignee_id
-            transaction.on_commit(
-                lambda: _notify_event("task.blocked", [b_rcpt], b_subj, b_body, project_id)
-            )
+
+            recipients = resolve_impediment_recipients(instance)
+            # Preserve the existing "notify the assignee, not the actor" contract:
+            # the actor who raised the flag is dropped only from the assignee path.
+            # A Scrum Master or PM who raised it is still NOT self-notified (they
+            # took the action), but a SM/PM who is a *different* person than the
+            # actor is notified. Simplest correct rule: never notify the actor.
+            recipients.discard(actor_id)
+            if recipients:
+                b_subj, b_body = render_blocker_notification(instance)
+                b_rcpts = list(recipients)
+                transaction.on_commit(
+                    lambda: _notify_event(
+                        "task.blocked", b_rcpts, b_subj, b_body, project_id, task_id=task_id
+                    )
+                )
 
     def _handle_task_write(
         self, super_method: Any, request: Request, *args: Any, **kwargs: Any
@@ -6573,8 +6618,9 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         """Team standup "what changed since yesterday" read (#925, ADR-0121).
 
         Server-computed delta for the team's Daily Scrum: status moves, new blockers
-        (→ ON_HOLD), scope injections, the burndown swing, and a per-actor count
-        rollup — all from existing history/snapshot data, no model. Pull-only.
+        (the blocked_reason flag transition — split impediment vs paused, ADR-0124
+        #1125), scope injections, the burndown swing, and a per-actor count rollup —
+        all from existing history/snapshot data, no model. Pull-only.
         ``?since=<iso8601>`` sets the window (default 24h ago, floored at sprint
         activation). Team-private by membership: a PMO/org non-member is denied;
         the read is status-level only (never hours/keystroke — Morgan's hard-NO).
@@ -6606,6 +6652,28 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
 
         payload = sprint_daily_delta(sprint, since, request)
         return Response(payload, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        summary="Blocked tasks in this sprint (ADR-0124, #1134)",
+        responses={200: OpenApiResponse(response=OpenApiTypes.OBJECT)},
+    )
+    @action(detail=True, methods=["get"], url_path="blocked")
+    def blocked(self, request: Request, pk: str | None = None) -> Response:
+        """List flagged-blocked tasks in this sprint — the SM's impediment roll-up.
+
+        Same reason-free shape as ``GET /projects/{id}/blocked/`` (type + age +
+        actor + assignee + soft link, oldest-blocked first), scoped to this
+        sprint's tasks. Reason text is omitted from every row for every requester
+        (ADR-0124 §4); no reason filter/sort/search param is exposed. Sprint
+        membership (Viewer+) is enforced via ``check_object_permissions``.
+        """
+        from trueppm_api.apps.projects.blocker_services import sprint_blocked_rollup
+
+        sprint = get_object_or_404(
+            Sprint.objects.select_related("project"), pk=pk, is_deleted=False
+        )
+        self.check_object_permissions(request, sprint)
+        return Response(sprint_blocked_rollup(sprint), status=status.HTTP_200_OK)
 
     @extend_schema(
         summary="Reorder the Sprint Review demo list (ADR-0118 amend, #1130)",

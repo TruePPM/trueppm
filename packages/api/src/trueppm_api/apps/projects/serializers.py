@@ -1040,6 +1040,28 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     # Definition-of-Ready blocker codes (#731). Empty ⇒ the story may be marked READY.
     dor_blockers = serializers.SerializerMethodField()
 
+    # ── Structured blocker fields (ADR-0124, #1135) ─────────────────────────────
+    # The team-shareable half of the blocker signal. ``blocker_type`` /
+    # ``blocking_task`` / ``blocked_since`` / ``blocked_by`` are visible to every
+    # project member (they are the triage signal); ``blocked_reason`` (the free
+    # text declared in fields below) is gated in ``to_representation`` so only the
+    # assignee + @-mentioned can read it. ``blocked_since`` / ``blocked_by`` are
+    # server-stamped (read-only); ``blocker_type`` / ``blocking_task`` are writable.
+    blocking_task = serializers.PrimaryKeyRelatedField(
+        queryset=Task.objects.all(), required=False, allow_null=True
+    )
+    # Lightweight read of the soft link target so the drawer can render its label
+    # without a second fetch. Null when no link is set. Avoids N+1 via the
+    # ``blocking_task`` select_related on TaskViewSet.get_queryset().
+    blocking_task_detail = serializers.SerializerMethodField()
+    blocked_by = serializers.SerializerMethodField()
+    # Whole seconds the task has been blocked (drives the "Xd Yh blocked" badge).
+    # Server-owned so an MCP/headless client reads the age fact, not the web
+    # re-deriving it from blocked_since.
+    blocked_age_seconds = serializers.SerializerMethodField()
+    # Convenience verdict: flagged blocked AND a structured type is recorded.
+    is_impediment = serializers.SerializerMethodField()
+
     class Meta:
         model = Task
         fields = [
@@ -1084,7 +1106,17 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "is_blocked",
             # Explicit human blocker (#476) — writable, distinct from the computed
             # dependency-readiness ``is_blocked`` above. Non-empty ⇒ flagged blocked.
+            # ``blocked_reason`` is READ-GATED in to_representation (assignee +
+            # @-mentioned only); the structured fields below are team-visible.
             "blocked_reason",
+            # ADR-0124 structured blocker (#1135) — team-shareable triage signal.
+            "blocker_type",
+            "blocking_task",
+            "blocking_task_detail",
+            "blocked_since",
+            "blocked_by",
+            "blocked_age_seconds",
+            "is_impediment",
             "linked_risks_count",
             "linked_risks_max_severity",
             "status_changed_at",
@@ -1148,6 +1180,14 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "readiness",
             "predecessor_count",
             "is_blocked",
+            # ADR-0124: blocked_since / blocked_by / age / impediment verdict are
+            # server-stamped or derived — read-only. blocker_type / blocking_task
+            # stay writable (the contributor sets them).
+            "blocked_since",
+            "blocked_by",
+            "blocking_task_detail",
+            "blocked_age_seconds",
+            "is_impediment",
             "linked_risks_count",
             "linked_risks_max_severity",
             "status_changed_at",
@@ -1226,6 +1266,30 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             if task_project_id is not None and str(sprint.project_id) != str(task_project_id):
                 raise serializers.ValidationError(
                     {"sprint": "Sprint does not belong to this project."}
+                )
+
+        # ADR-0124 (#1135): the soft ``blocking_task`` link must stay within the
+        # same project and may not point at the task itself. Validated here because
+        # the FK queryset is intentionally not project-scoped at the field level
+        # (a project-scoped queryset would need the project from the instance, which
+        # PrimaryKeyRelatedField cannot reach). A cross-project soft link would let
+        # a contributor reference work they may not be able to read.
+        blocking_task = attrs.get("blocking_task")
+        if "blocking_task" in attrs and blocking_task is not None:
+            task_project_id = (
+                self.instance.project_id
+                if self.instance is not None
+                else getattr(attrs.get("project"), "pk", None)
+            )
+            if self.instance is not None and str(blocking_task.pk) == str(self.instance.pk):
+                raise serializers.ValidationError(
+                    {"blocking_task": "A task cannot be marked as blocking itself."}
+                )
+            if task_project_id is not None and str(blocking_task.project_id) != str(
+                task_project_id
+            ):
+                raise serializers.ValidationError(
+                    {"blocking_task": "The blocking task must belong to the same project."}
                 )
 
         # ADR-0102 §3: a task pending sprint-acceptance is team-owned. Its sprint
@@ -1574,6 +1638,48 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
 
         return dor_blockers(obj)
 
+    def get_blocking_task_detail(self, obj: Task) -> dict[str, Any] | None:
+        """Lightweight read of the soft ``blocking_task`` link (ADR-0124, #1135).
+
+        Returns ``{id, short_id, title}`` for the task this one is waiting on, or
+        ``None`` when no soft link is set. Reads the ``select_related`` relation so
+        a list response adds no per-row query. This is a *soft* link — it never
+        feeds CPM (distinct from a ``Dependency`` edge).
+        """
+        bt = obj.blocking_task
+        if bt is None:
+            return None
+        return {
+            "id": str(bt.pk),
+            "short_id": f"T-{bt.short_id}" if bt.short_id else "",
+            "title": bt.name,
+        }
+
+    def get_blocked_by(self, obj: Task) -> dict[str, Any] | None:
+        """Return the actor who flagged the task blocked as ``{id, username}`` (#1135).
+
+        Team-visible (per the ADR-0121 actor-attribution precedent). ``None`` when
+        the task is not flagged or the actor record was cleared.
+        """
+        if obj.blocked_by_id is None or obj.blocked_by is None:
+            return None
+        return {"id": str(obj.blocked_by_id), "username": obj.blocked_by.username}
+
+    def get_blocked_age_seconds(self, obj: Task) -> int | None:
+        """Whole seconds the task has been blocked, or ``None`` if not blocked (#1135)."""
+        from trueppm_api.apps.projects.blocker_services import blocked_age_seconds
+
+        return blocked_age_seconds(obj.blocked_since)
+
+    def get_is_impediment(self, obj: Task) -> bool:
+        """True when the task is flagged blocked AND a structured type is recorded.
+
+        The "impediment vs paused" split (#1125): an impediment carries a
+        ``blocker_type`` the SM/PM can triage; a bare flag with no type is a plain
+        "paused" signal.
+        """
+        return bool((obj.blocked_reason or "").strip()) and bool(obj.blocker_type)
+
     def get_schedule_variance_days(self, obj: Task) -> int | None:
         """Compute schedule variance: actual_finish - baseline_finish in calendar days.
 
@@ -1754,6 +1860,22 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         ms_rollup = data.get("milestone_rollup")
         if ms_rollup and ms_rollup.get("percent_complete") is not None:
             data["percent_complete"] = ms_rollup["percent_complete"]
+
+        # ADR-0124 reason-privacy gate (#1135) — the Morgan surveillance boundary.
+        # ``blocked_reason`` is contributor voice: readable ONLY by the task's
+        # assignee or a user @-mentioned on it. For everyone else the key is
+        # DROPPED from the payload (not nulled) so a non-authorized member has no
+        # readable path to the reason text — the structured type/age/actor remain.
+        # This is the single field-level gate the ADR introduces; the roll-ups and
+        # standup omit reason entirely, so this serializer is the only surface that
+        # ever returns it, and only to the two authorized parties.
+        if "blocked_reason" in data:
+            from trueppm_api.apps.projects.blocker_services import can_read_blocker_reason
+
+            request = self.context.get("request")
+            user = getattr(request, "user", None) if request else None
+            if not can_read_blocker_reason(instance, user):
+                data.pop("blocked_reason", None)
         return data
 
     def update(self, instance: Task, validated_data: dict[str, Any]) -> Task:
@@ -1891,6 +2013,21 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             and "remaining_points" not in validated_data
         ):
             validated_data["remaining_points"] = instance.story_points
+
+        # ADR-0124 (#1135): stamp blocked_by (the actor) on the unblocked→blocked
+        # transition. Model.save() stamps blocked_since and clears the structured
+        # fields on unflag, but blocked_by needs the request user — which only the
+        # serializer has. Detected by the same empty→non-empty edge the task.blocked
+        # notification uses (the idempotency key); re-saving an already-blocked task
+        # does not re-stamp the actor.
+        if "blocked_reason" in validated_data:
+            old_blocked = bool((instance.blocked_reason or "").strip())
+            new_blocked = bool((validated_data.get("blocked_reason") or "").strip())
+            if new_blocked and not old_blocked:
+                request = self.context.get("request")
+                user = getattr(request, "user", None) if request else None
+                if user is not None and getattr(user, "is_authenticated", False):
+                    validated_data["blocked_by"] = user
 
         # Estimate governance: mark as pending when PERT fields are written in
         # suggest_approve mode. Caller must not pass estimate_status directly;
@@ -3244,7 +3381,11 @@ class SprintDailyDeltaSerializer(serializers.Serializer[dict[str, Any]]):
     # scope_added items carry story_points (velocity-gated, #1127) and an epic
     # {id, name} grouping label (null when ungrouped) alongside the base shape.
     scope_added = serializers.ListField(child=serializers.DictField())
+    # new_blockers items carry blocker_type + blocked_age_seconds + kind
+    # ("impediment" | "paused") — ADR-0124 #1125 — and NEVER the free-text reason.
     new_blockers = serializers.ListField(child=serializers.DictField())
+    # ADR-0124 (#1125): {"impediment": n, "paused": m} count headline for the split.
+    blocker_summary = serializers.DictField()
     burndown_delta = serializers.DictField(allow_null=True)
     # per_actor is empty for a Viewer-role reader (#1126, ADR-0119) — they get
     # actor_aggregate team totals only. Member+ get both.
@@ -3735,7 +3876,14 @@ class MeWorkTaskSerializer(serializers.Serializer[Any]):
     # readiness ``is_blocked`` that the board card carries is deliberately absent
     # here, so within My Work ``is_blocked`` is unambiguous.
     is_blocked = serializers.SerializerMethodField()
+    # blocked_reason is the assignee's own reason here (My Work returns only the
+    # caller's tasks), so it is safe to expose in full — the reason-privacy gate
+    # (ADR-0124) protects the *non*-assignee surfaces, not this one.
     blocked_reason = serializers.CharField(read_only=True)
+    # ADR-0124 (#1135) structured blocker — the type chip + age badge the My Work
+    # blocked row renders. blocker_type is "" when only free text was recorded.
+    blocker_type = serializers.CharField(read_only=True)
+    blocked_age_seconds = serializers.SerializerMethodField()
     # Server-computed bucket (#484): "today" | "this_sprint" | "upcoming". The
     # grouping decision is a server fact (API-first) so every client — web, mobile,
     # MCP — renders the same three sections without re-deriving date math.
@@ -3750,6 +3898,12 @@ class MeWorkTaskSerializer(serializers.Serializer[Any]):
 
     def get_is_blocked(self, obj: Any) -> bool:
         return bool((getattr(obj, "blocked_reason", "") or "").strip())
+
+    def get_blocked_age_seconds(self, obj: Any) -> int | None:
+        """Whole seconds the task has been blocked (drives the My Work age badge)."""
+        from trueppm_api.apps.projects.blocker_services import blocked_age_seconds
+
+        return blocked_age_seconds(getattr(obj, "blocked_since", None))
 
     def get_group(self, obj: Any) -> str:
         # ``_group_rank`` is annotated by the view; default to "upcoming" for any
