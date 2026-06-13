@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import type { Task, TaskStatus } from '@/types';
+import type { Task, TaskStatus, TaskType, GovernanceClass, DeliveryMode } from '@/types';
 import { ROLE_VIEWER, ROLE_MEMBER, ROLE_ADMIN } from '@/lib/roles';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useSprints } from '@/hooks/useSprints';
@@ -77,9 +77,47 @@ const STATUS_OPTIONS: Array<{ value: TaskStatus; label: string }> = [
   { value: 'COMPLETE', label: 'Complete' },
 ];
 
+// --- Classification vocabulary (task taxonomy editor) --------------------
+// Values mirror the backend enums exactly — TaskType (ADR-0105/#363),
+// GovernanceClass + DeliveryMode (ADR-0036/#407). The per-value descriptions
+// are grounded in those models' docstrings, not invented enforcement copy.
+interface TaxonomyOption<V extends string> {
+  value: V;
+  label: string;
+  desc: string;
+}
+
+const TYPE_OPTIONS: Array<TaxonomyOption<TaskType>> = [
+  { value: 'task', label: 'Task', desc: 'Standard unit of work with effort and dates.' },
+  { value: 'story', label: 'Story', desc: 'User-facing increment, estimated in story points.' },
+  { value: 'bug', label: 'Bug', desc: 'A defect against accepted scope.' },
+  { value: 'spike', label: 'Spike', desc: 'Time-boxed research; ships no deliverable.' },
+  { value: 'epic', label: 'Epic', desc: 'Structural parent — groups child work and rolls up. Excluded from scheduling.' },
+];
+
+const GOVERNANCE_OPTIONS: Array<TaxonomyOption<GovernanceClass>> = [
+  { value: 'flow', label: 'Flow', desc: 'Agile, sprint- or kanban-governed work (default).' },
+  { value: 'gated', label: 'Gated', desc: 'Phase-gate–governed waterfall work.' },
+  { value: 'hybrid', label: 'Hybrid', desc: 'Mixes flow and gated within the subtree.' },
+];
+
+const DELIVERY_OPTIONS: Array<TaxonomyOption<DeliveryMode>> = [
+  { value: 'waterfall', label: 'Waterfall', desc: 'Explicit percent-complete; participates in CPM and the baseline.' },
+  { value: 'scrum', label: 'Scrum', desc: 'Rolls up from story-point burndown; velocity-tracked.' },
+  { value: 'kanban', label: 'Kanban', desc: 'Rolls up from item throughput on a WIP-limited board.' },
+  { value: 'milestone', label: 'Milestone', desc: 'Zero-duration gate marking a date or phase.' },
+];
+
+function taxonomyDesc<V extends string>(options: Array<TaxonomyOption<V>>, value: V): string {
+  return options.find((o) => o.value === value)?.desc ?? '';
+}
+
 interface FormState {
   name: string;
   status: TaskStatus;
+  type: TaskType;
+  governanceClass: GovernanceClass;
+  deliveryMode: DeliveryMode;
   plannedStart: string;
   duration: number;
   progress: number;
@@ -95,6 +133,10 @@ function initialState(task: Task | null, defaultStatus: TaskStatus): FormState {
     return {
       name: '',
       status: defaultStatus,
+      // Server defaults (purely additive fields): TASK / FLOW / WATERFALL.
+      type: 'task',
+      governanceClass: 'flow',
+      deliveryMode: 'waterfall',
       plannedStart: '',
       duration: 1,
       progress: 0,
@@ -108,6 +150,10 @@ function initialState(task: Task | null, defaultStatus: TaskStatus): FormState {
   return {
     name: task.name,
     status: task.status,
+    // Legacy/non-agile rows may omit these — fall back to the server defaults.
+    type: task.taskType ?? 'task',
+    governanceClass: task.governanceClass ?? 'flow',
+    deliveryMode: task.deliveryMode ?? 'waterfall',
     plannedStart: task.plannedStart ?? '',
     duration: task.duration,
     progress: task.progress,
@@ -446,6 +492,10 @@ export function TaskFormModal({
           planned_start: form.plannedStart || null,
           notes: form.notes,
           ...(isMilestoneCreate ? { is_milestone: true } : {}),
+          // Classification is suppressed in milestone-create mode (see render).
+          ...(isMilestoneCreate
+            ? {}
+            : { type: form.type, governance_class: form.governanceClass, delivery_mode: form.deliveryMode }),
           ...(projectDetail?.agile_features ? { sprint: form.sprintId, story_points: form.storyPoints } : {}),
         });
         savedTaskId = created.id;
@@ -460,6 +510,9 @@ export function TaskFormModal({
           planned_start: form.plannedStart || null,
           status: form.status,
           notes: form.notes,
+          type: form.type,
+          governance_class: form.governanceClass,
+          delivery_mode: form.deliveryMode,
           ...(projectDetail?.agile_features ? { sprint: form.sprintId, story_points: form.storyPoints } : {}),
         });
         savedTaskId = task.id;
@@ -605,6 +658,90 @@ export function TaskFormModal({
             ))}
           </select>
         </div>
+
+        {/* Classification — the task taxonomy editor (type / governance_class /
+            delivery_mode). All three are server-writable and additive (defaults
+            task / flow / waterfall) but had no editor before this group, so the
+            taxonomy could be seeded but never changed from the UI. Suppressed in
+            milestone-create mode: a milestone is a zero-duration marker, not
+            typed/governed work (is_milestone is the relevant flag there). */}
+        {!isMilestoneCreate && (
+          <div
+            role="group"
+            aria-labelledby="task-classification-label"
+            className="border-t border-neutral-border pt-4 flex flex-col gap-3"
+          >
+            <div
+              id="task-classification-label"
+              className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary"
+            >
+              Classification
+            </div>
+
+            <div>
+              <label htmlFor="task-type" className="block text-xs font-medium text-neutral-text-secondary mb-1">
+                Type
+              </label>
+              <select
+                id="task-type"
+                disabled={isReadOnly}
+                value={form.type}
+                onChange={(e) => setForm({ ...form, type: e.target.value as TaskType })}
+                aria-describedby="task-type-hint"
+                className="w-full h-9 px-3 text-sm text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-60"
+              >
+                {TYPE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+              <p id="task-type-hint" className="mt-1 text-xs text-neutral-text-secondary">
+                {taxonomyDesc(TYPE_OPTIONS, form.type)}
+              </p>
+            </div>
+
+            <div>
+              <label htmlFor="task-governance" className="block text-xs font-medium text-neutral-text-secondary mb-1">
+                Governance class
+              </label>
+              <select
+                id="task-governance"
+                disabled={isReadOnly}
+                value={form.governanceClass}
+                onChange={(e) => setForm({ ...form, governanceClass: e.target.value as GovernanceClass })}
+                aria-describedby="task-governance-hint"
+                className="w-full h-9 px-3 text-sm text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-60"
+              >
+                {GOVERNANCE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+              <p id="task-governance-hint" className="mt-1 text-xs text-neutral-text-secondary">
+                {taxonomyDesc(GOVERNANCE_OPTIONS, form.governanceClass)}
+              </p>
+            </div>
+
+            <div>
+              <label htmlFor="task-delivery" className="block text-xs font-medium text-neutral-text-secondary mb-1">
+                Delivery mode
+              </label>
+              <select
+                id="task-delivery"
+                disabled={isReadOnly}
+                value={form.deliveryMode}
+                onChange={(e) => setForm({ ...form, deliveryMode: e.target.value as DeliveryMode })}
+                aria-describedby="task-delivery-hint"
+                className="w-full h-9 px-3 text-sm text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-60"
+              >
+                {DELIVERY_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+              <p id="task-delivery-hint" className="mt-1 text-xs text-neutral-text-secondary">
+                {taxonomyDesc(DELIVERY_OPTIONS, form.deliveryMode)}
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Parent phase — create mode only, when there is at least one summary
             task in the project. Native datalist gives free typeahead with no
