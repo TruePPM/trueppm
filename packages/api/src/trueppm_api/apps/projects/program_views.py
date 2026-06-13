@@ -12,6 +12,7 @@ delete, role checks) is in :mod:`trueppm_api.apps.access.services` and
 
 from __future__ import annotations
 
+import datetime
 import json
 from typing import Any
 
@@ -34,6 +35,7 @@ from trueppm_api.apps.access.permissions import (
     IsProgramMember,
     IsProgramNotClosed,
     IsProgramOwner,
+    IsProgramScheduler,
 )
 from trueppm_api.apps.access.services import (
     create_program,
@@ -41,7 +43,7 @@ from trueppm_api.apps.access.services import (
     transfer_program_sponsorship,
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
-from trueppm_api.apps.projects.models import Methodology, Program, Project
+from trueppm_api.apps.projects.models import Methodology, Program, Project, Task
 from trueppm_api.apps.projects.serializers import (
     ProgramRiskPolicySerializer,
     ProgramRollupConfigSerializer,
@@ -94,6 +96,11 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
             # member, including on closed programs (overview and data portability
             # stay available for forensics/archival).
             return [IsAuthenticated(), IsProgramMember()]
+        if self.action == "resource_contention":
+            # Resource allocation/contention data is Scheduler+ even on read
+            # (web-rule 94, matching the per-project resource-allocation gate);
+            # a Viewer or Member must not see who is staffed where.
+            return [IsAuthenticated(), IsProgramScheduler()]
         if self.action in ("retrieve", "projects", "integrations_summary"):
             return [IsAuthenticated(), IsProgramMember(), IsProgramNotClosed()]
         return [IsAuthenticated()]
@@ -236,6 +243,173 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
         response = HttpResponse(body, content_type="application/json")
         response["Content-Disposition"] = f'attachment; filename="{filename}"'
         return response
+
+    @extend_schema(
+        summary="Within-program resource contention (cross-project allocation)",
+        responses={
+            200: OpenApiResponse(
+                description=(
+                    "Per-resource task spans aggregated across every member project of the "
+                    "program, each tagged with its source project, so a caller can surface "
+                    "people over-allocated across sibling projects in overlapping windows. "
+                    "Overallocation detection stays client-side per ADR-0031."
+                )
+            ),
+            409: OpenApiResponse(description="No member project has a computed schedule yet."),
+        },
+    )
+    @action(detail=True, methods=["get"], url_path="resource-contention")
+    def resource_contention(self, request: Request, pk: str | None = None) -> Response:
+        """Cross-project resource allocation for the within-program contention view (#1149).
+
+        The program-scoped counterpart to ``ProjectViewSet.resource_allocation`` (#85):
+        returns each resource with their task spans across **every member project of this
+        program**, each span tagged with its source project, so the client can show who is
+        over-allocated across sibling projects in overlapping windows (the contention the
+        GA-launch sample program deliberately creates).
+
+        This is OSS, within-program **visibility** only — it surfaces contention data but
+        does not level resources or cross a program boundary. Cross-program leveling and the
+        portfolio heat map remain Enterprise. Overallocation detection is intentionally
+        client-side (ADR-0031): the caller receives the merged spans and sums daily units
+        against each resource's ``max_units``.
+
+        Query parameters mirror the per-project endpoint:
+          start    (YYYY-MM-DD, optional) — window start; defaults to the earliest
+                   early_start across all member projects. Returns 409 if no member
+                   project has CPM dates yet.
+          end      (YYYY-MM-DD, optional) — window end; defaults to the latest early_finish.
+          resource (UUID, optional, repeatable) — filter to specific resource IDs.
+          status   (string, optional, repeatable) — filter tasks by status value.
+        """
+        from trueppm_api.apps.resources.models import TaskResource
+
+        program = self.get_object()
+
+        # Member projects (non-deleted) — the contention scope. With no live
+        # projects (or none scheduled) and no explicit window, the window cannot
+        # be resolved and the endpoint returns 409 like the per-project one.
+        member_project_ids = list(
+            program.projects.filter(is_deleted=False).values_list("id", flat=True)
+        )
+
+        def _parse_date(s: str, param: str) -> datetime.date:
+            try:
+                return datetime.date.fromisoformat(s)
+            except ValueError:
+                raise ValueError(f"'{param}' must be a valid ISO 8601 date (YYYY-MM-DD).") from None
+
+        # --- Resolve window bounds across all member projects ---
+        start_str = request.query_params.get("start")
+        end_str = request.query_params.get("end")
+
+        base_tasks = Task.objects.filter(project_id__in=member_project_ids, is_deleted=False)
+
+        try:
+            if start_str:
+                window_start: datetime.date = _parse_date(start_str, "start")
+            else:
+                first = (
+                    base_tasks.filter(early_start__isnull=False)
+                    .order_by("early_start")
+                    .values_list("early_start", flat=True)
+                    .first()
+                )
+                if first is None:
+                    return Response(
+                        {"detail": "Schedule has not been computed. Run the scheduler first."},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+                window_start = first
+
+            if end_str:
+                window_end: datetime.date = _parse_date(end_str, "end")
+            else:
+                last = (
+                    base_tasks.filter(early_finish__isnull=False)
+                    .order_by("-early_finish")
+                    .values_list("early_finish", flat=True)
+                    .first()
+                )
+                window_end = last if last is not None else window_start
+
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        if window_start > window_end:
+            return Response(
+                {"detail": "'start' must not be after 'end'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # --- Optional filters ---
+        resource_ids = request.query_params.getlist("resource")
+        status_filters = request.query_params.getlist("status")
+
+        # --- Single query: all assignments across member projects in the window ---
+        # Tasks with null CPM dates are retained (unscheduled); the client renders
+        # them outside the contention math, mirroring the per-project endpoint.
+        qs = (
+            TaskResource.objects.filter(
+                task__project_id__in=member_project_ids,
+                task__is_deleted=False,
+            )
+            .select_related("resource", "task", "task__project")
+            .order_by("resource__name", "task__project__name", "task__early_start")
+        )
+
+        if resource_ids:
+            qs = qs.filter(resource__id__in=resource_ids)
+
+        if status_filters:
+            qs = qs.filter(task__status__in=status_filters)
+
+        qs = qs.exclude(
+            task__early_finish__isnull=False,
+            task__early_start__isnull=False,
+            task__early_finish__lt=window_start,
+        ).exclude(
+            task__early_finish__isnull=False,
+            task__early_start__isnull=False,
+            task__early_start__gt=window_end,
+        )
+
+        # --- Build response grouped by resource, each span tagged with its project ---
+        resources_map: dict[str, dict[str, Any]] = {}
+        for assignment in qs:
+            resource = assignment.resource
+            rid = str(resource.id)
+            if rid not in resources_map:
+                resources_map[rid] = {
+                    "id": rid,
+                    "name": resource.name,
+                    "email": resource.email,
+                    "max_units": str(resource.max_units),
+                    "tasks": [],
+                }
+            task = assignment.task
+            resources_map[rid]["tasks"].append(
+                {
+                    "assignment_id": str(assignment.id),
+                    "id": str(task.id),
+                    "name": task.name,
+                    "project_id": str(task.project_id),
+                    "project_name": task.project.name,
+                    "early_start": task.early_start.isoformat() if task.early_start else None,
+                    "early_finish": task.early_finish.isoformat() if task.early_finish else None,
+                    "units": str(assignment.units),
+                    "status": task.status,
+                }
+            )
+
+        return Response(
+            {
+                "program_id": str(program.id),
+                "window_start": window_start.isoformat(),
+                "window_end": window_end.isoformat(),
+                "resources": list(resources_map.values()),
+            }
+        )
 
     @extend_schema(
         summary="List bundled demo samples available to the loader",

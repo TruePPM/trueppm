@@ -10,6 +10,8 @@ import type {
   LinkType,
   TaskReadiness,
   TaskType,
+  GovernanceClass,
+  DeliveryMode,
   DorState,
 } from '@/types';
 import type { PaginatedResponse } from '@/api/types';
@@ -108,6 +110,8 @@ export interface ApiTask {
   }>;
   // Product backlog & scoring (ADR-0105) — snake_case on the wire.
   type?: TaskType;
+  governance_class?: GovernanceClass;
+  delivery_mode?: DeliveryMode;
   parent_epic?: string | null;
   dor?: DorState;
   sprint_rank?: number | null;
@@ -285,6 +289,8 @@ export function mapTask(t: ApiTask): Task {
     shortId: t.short_id,
     // Product backlog & scoring (ADR-0105). Absent on legacy/non-agile payloads.
     taskType: t.type ?? undefined,
+    governanceClass: t.governance_class ?? undefined,
+    deliveryMode: t.delivery_mode ?? undefined,
     parentEpic: t.parent_epic ?? null,
     dor: t.dor ?? undefined,
     sprintRank: t.sprint_rank ?? null,

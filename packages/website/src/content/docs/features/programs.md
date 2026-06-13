@@ -72,7 +72,7 @@ multiple programs at once.
 
 ## The program shell
 
-`/programs/:id` is a five-tab shell — **Overview**, **Backlog**, **Projects**, **Members**, and **Settings**:
+`/programs/:id` is a six-tab shell — **Overview**, **Backlog**, **Projects**, **Resources**, **Members**, and **Settings**:
 
 - **Overview** — rollup KPIs and program health at a glance across the
   program's projects.
@@ -88,6 +88,12 @@ multiple programs at once.
 - **Projects** — the projects currently in this program. Click a project name
   to navigate to it. The `Remove` action detaches the project (it becomes
   standalone, untouched).
+- **Resources** — *(coming in 0.3)* within-program resource contention. Surfaces
+  people staffed across more than one of the program's projects in overlapping
+  windows, broken down by project, with an over-allocation flag when someone is
+  above their capacity. Read-only and visible to Schedulers and above. It shows
+  contention; it does not level resources or cross a program boundary —
+  cross-program leveling and the portfolio heat map remain TruePPM Enterprise.
 - **Members** — manage program-level membership. Roles use the same 5-role
   model as projects: Viewer, Team Member, Resource Manager, Project Manager,
   Project Admin (Owner).
@@ -140,6 +146,7 @@ intermediate state where some memberships are removed but not others.
 |-------------------------------------|-----------------------|
 | View program shell and tabs         | Viewer                |
 | View program backlog                | Viewer                |
+| View resource contention (0.3)      | Resource Manager (Scheduler) |
 | Create / edit backlog items         | Team Member           |
 | Pull backlog item to project        | Team Member (on both program and target project) |
 | Add or remove projects              | Project Manager       |

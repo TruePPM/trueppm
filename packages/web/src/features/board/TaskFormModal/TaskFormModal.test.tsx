@@ -220,6 +220,61 @@ describe('TaskFormModal (issue #305)', () => {
     }));
   });
 
+  // ----- Classification (task taxonomy editor) -----------------------------
+
+  it('renders the Classification group with server defaults in create mode', () => {
+    renderModal();
+    expect(screen.getByLabelText<HTMLSelectElement>('Type').value).toBe('task');
+    expect(screen.getByLabelText<HTMLSelectElement>('Governance class').value).toBe('flow');
+    expect(screen.getByLabelText<HTMLSelectElement>('Delivery mode').value).toBe('waterfall');
+  });
+
+  it('includes the taxonomy fields in the create payload', async () => {
+    renderModal();
+    fireEvent.change(screen.getByLabelText('Task name *'), { target: { value: 'Spike it' } });
+    fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'spike' } });
+    fireEvent.change(screen.getByLabelText('Governance class'), { target: { value: 'gated' } });
+    fireEvent.change(screen.getByLabelText('Delivery mode'), { target: { value: 'kanban' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    await Promise.resolve();
+    expect(createMutate).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'spike',
+      governance_class: 'gated',
+      delivery_mode: 'kanban',
+    }));
+  });
+
+  it('prefills the taxonomy selects in edit mode and submits a changed type', async () => {
+    renderModal({
+      task: baseTask({ taskType: 'story', governanceClass: 'gated', deliveryMode: 'kanban' }),
+    });
+    expect(screen.getByLabelText<HTMLSelectElement>('Type').value).toBe('story');
+    expect(screen.getByLabelText<HTMLSelectElement>('Governance class').value).toBe('gated');
+    expect(screen.getByLabelText<HTMLSelectElement>('Delivery mode').value).toBe('kanban');
+    fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'bug' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await Promise.resolve();
+    expect(updateMutate).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'bug',
+      governance_class: 'gated',
+      delivery_mode: 'kanban',
+    }));
+  });
+
+  it('falls back to server defaults when the task omits taxonomy fields', () => {
+    renderModal({ task: baseTask() });
+    expect(screen.getByLabelText<HTMLSelectElement>('Type').value).toBe('task');
+    expect(screen.getByLabelText<HTMLSelectElement>('Governance class').value).toBe('flow');
+    expect(screen.getByLabelText<HTMLSelectElement>('Delivery mode').value).toBe('waterfall');
+  });
+
+  it('suppresses the Classification group in milestone-create mode', () => {
+    renderModal({ isMilestone: true });
+    expect(screen.queryByLabelText('Type')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Governance class')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Delivery mode')).not.toBeInTheDocument();
+  });
+
   it('parent picker includes leaf tasks and excludes milestones (#378)', () => {
     renderModal();
     const picker = screen.getByLabelText<HTMLSelectElement>(/Parent phase/);
