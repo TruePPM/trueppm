@@ -133,6 +133,11 @@ services:
   # can serve them. Exits immediately after the copy.
   web-build:
     image: ghcr.io/trueppm/web:${APP_VERSION:-latest}
+    # The web image now runs as a non-root user (uid 101, nginx-unprivileged).
+    # This one-shot init only copies the static bundle into the shared volume,
+    # which is root-owned on first mount, so run the copy as root. The actual
+    # serving is done by the hardened top-level nginx (read_only, no-new-privs).
+    user: "0"
     entrypoint: ["/bin/sh", "-c"]
     command: ["cp -r /usr/share/nginx/html/. /dist/"]
     volumes:

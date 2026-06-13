@@ -254,6 +254,8 @@ async function setupCommon(page: import('@playwright/test').Page) {
           not_accepted_points: 3,
           shipped: [],
           demo_list: [],
+          // #1129 committed-at-planning → shipped COUNT delta (required on review).
+          commitment: { committed_count: 10, shipped_count: 9, carried_count: 1 },
         },
         milestone_slip: {
           milestone_id: 'm-ga',

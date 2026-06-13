@@ -222,7 +222,8 @@ workflow:
     - npm ci --prefer-offline --quiet
 
 .website:
-  image: node:20-alpine
+  # node:22 — Astro 6 requires Node >=22.12 (dropped Node 20 support).
+  image: node:22-alpine
   cache:
     key:
       files:
@@ -1448,42 +1449,89 @@ security:pip-audit:
     # not apply. Remove once pyjwt either rescinds the advisory or ships a hardened release.
     - pip-audit --progress-spinner=off --desc on --ignore-vuln CVE-2026-4539 --ignore-vuln CVE-2026-3219 --ignore-vuln PYSEC-2025-183
 
-web:security:
-  # CVE scan for npm dependencies. Equivalent of pip-audit for the web package.
-  # --audit-level=high: fail on high/critical CVEs only; moderate is noisy for
-  # transitive dev dependencies. Adjust down to =moderate when the tree is stable.
+security:osv:
+  # Unified SCA across the committed lockfiles using the OSV database:
+  #   - npm:  packages/web, packages/website
+  #   - Cargo: packages/wasm-scheduler
+  # Replaces the per-package npm-audit jobs (former web:security + website:security)
+  # and adds Rust coverage that nothing scanned before. Python (api + scheduler)
+  # stays on security:pip-audit until each has a committed resolved lockfile —
+  # OSV can only scan a lockfile, and both currently ship only pyproject.toml
+  # (tracked in #1153).
+  #
+  # OSV-Scanner exits non-zero on any non-ignored advisory (it has no
+  # --audit-level threshold). Not-yet-fixable or sub-HIGH advisories are
+  # suppressed via per-directory osv-scanner.toml files that each carry a
+  # `reason` and an `ignoreUntil` expiry, so suppressions stay documented and
+  # self-expire rather than rotting silently (see packages/website/osv-scanner.toml,
+  # which defers the astro/esbuild/yaml advisories to the astro 6 bump in #1152).
+  # This is a stricter, more honest posture than the prior --audit-level=high
+  # blanket: the surgical, expiring ignore is the control npm audit lacked.
+  #
+  # Pinned binary download (the official image is distroless / shell-less, which
+  # GitLab's script runner can't use); the linux build is a static Go binary.
   stage: security
-  needs: [web:test]
-  image: node:20-alpine
+  image: alpine:3.20
+  needs: []
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
-        - packages/web/**/*
+        - packages/web/package-lock.json
+        - packages/website/package-lock.json
+        - packages/wasm-scheduler/Cargo.lock
+        - "**/osv-scanner.toml"
         - .gitlab-ci.yml
   before_script:
-    - cd packages/web
+    - apk add --no-cache wget
+    - wget -q -O /usr/local/bin/osv-scanner "https://github.com/google/osv-scanner/releases/download/v2.3.8/osv-scanner_linux_amd64"
+    - chmod +x /usr/local/bin/osv-scanner
   script:
-    - npm audit --audit-level=high
+    # Per-directory osv-scanner.toml files are auto-discovered next to each
+    # lockfile (do NOT pass --config, which would force a single global file and
+    # break the per-package scoping that keeps a web regression from being masked
+    # by a website ignore).
+    - osv-scanner scan source
+        -L packages/web/package-lock.json
+        -L packages/website/package-lock.json
+        -L packages/wasm-scheduler/Cargo.lock
 
-website:security:
-  # CVE scan for the docs-site (packages/website) npm dependencies — the
-  # npm-audit gate that #904 found missing (web had one; website did not).
-  # The two HIGH advisories (devalue, fast-uri) were cleared in #905; this job
-  # guards against new HIGH/CRITICAL CVEs entering the docs build chain.
+security:trivy:config:
+  # IaC misconfiguration scan (Dockerfiles + Helm chart) via Trivy. Complements
+  # security:osv (which covers dependency CVEs): this catches container/k8s
+  # hardening regressions — missing non-root USER, readOnlyRootFilesystem,
+  # dropped capabilities, etc. Gates on HIGH/CRITICAL.
   #
-  # allow_failure (report-first): the tree still carries moderate advisories
-  # that need the astro/starlight semver-major bump, and --audit-level=high can
-  # surface a transient transitive HIGH on a build runner. Flip to a hard gate
-  # (drop allow_failure) once the dependency tree is clean — mirrors the
-  # "adjust down to =moderate when stable" note on web:security.
-  extends: .website
+  # Justified, scoped suppressions live in .trivyignore.yaml (currently the
+  # intentional readOnlyRootFilesystem omission on the bundled dev/demo
+  # postgres + valkey sub-charts). Image-layer CVE scanning runs at release time
+  # in the publish jobs (trivy image before push).
   stage: security
-  needs: ["website:build"]
-  <<: *rules-website
-  allow_failure: true
+  # alpine + pinned binary download via the official install script. Avoids
+  # depending on the trivy container image's tag scheme and matches the install
+  # used by the trivy image scan in the publish jobs.
+  image: alpine:3.20
+  needs: []
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/**/Dockerfile
+        - packages/helm/**/*
+        - .trivyignore.yaml
+        - .gitlab-ci.yml
+  variables:
+    TRIVY_NO_PROGRESS: "true"
+    TRIVY_CACHE_DIR: ".trivycache/"
+  cache:
+    key: trivy-db
+    paths:
+      - .trivycache/
+  before_script:
+    - apk add --no-cache curl
+    - curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.71.0
   script:
-    - npm audit --audit-level=high
+    - trivy config --severity HIGH,CRITICAL --exit-code 1 --ignorefile .trivyignore.yaml --skip-dirs '**/node_modules' packages/
 
 license:check:py:
   # Verify no copyleft-licensed Python dependency has been introduced.
@@ -1495,7 +1543,7 @@ license:check:py:
   # the two halves run serially. Splitting drops the apt install entirely,
   # runs the halves in parallel, and scopes each rule to its own manifests so
   # a web-only dep bump no longer pays the Python re-link and vice versa.
-  # Mirrors the existing pip-audit (ci-api) / web:security (node) split.
+  # Mirrors the existing pip-audit (ci-api) / OSV-Scanner (node+cargo) split.
   #
   # Kaizen #640 N1: `changes:` is dep manifests only — license composition
   # only changes when manifests/lock files do; main + scheduled runs catch
@@ -1677,6 +1725,10 @@ scheduler:publish:
     DOCKER_TLS_CERTDIR: "/certs"
   before_script:
     - docker login -u "${CI_REGISTRY_USER}" -p "${CI_REGISTRY_PASSWORD}" "${CI_REGISTRY}"
+    # Trivy is used to scan each built image before it is pushed (see the
+    # docker save | trivy image --input gate in api:publish / web:publish).
+    - apk add --no-cache curl
+    - curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.71.0
 
 api:publish:
   extends: .docker-publish-base
@@ -1689,6 +1741,11 @@ api:publish:
         -t "${GL_IMAGE}:${CI_COMMIT_TAG}" \
         -t "${GL_IMAGE}:latest" \
         .
+      # Scan the built image before publishing — fail the release on fixable
+      # HIGH/CRITICAL CVEs. --ignore-unfixed skips base-image CVEs with no
+      # available patch (unactionable) while still gating on anything fixable.
+      docker save "${GL_IMAGE}:${CI_COMMIT_TAG}" -o /tmp/api-image.tar
+      trivy image --input /tmp/api-image.tar --no-progress --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
       docker push "${GL_IMAGE}:${CI_COMMIT_TAG}"
       docker push "${GL_IMAGE}:latest"
       if [ -n "${GHCR_USER}" ] && [ -n "${GHCR_TOKEN}" ]; then
@@ -1714,6 +1771,9 @@ web:publish:
         -t "${GL_IMAGE}:${CI_COMMIT_TAG}" \
         -t "${GL_IMAGE}:latest" \
         .
+      # Scan the built image before publishing (see api:publish for rationale).
+      docker save "${GL_IMAGE}:${CI_COMMIT_TAG}" -o /tmp/web-image.tar
+      trivy image --input /tmp/web-image.tar --no-progress --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
       docker push "${GL_IMAGE}:${CI_COMMIT_TAG}"
       docker push "${GL_IMAGE}:latest"
       if [ -n "${GHCR_USER}" ] && [ -n "${GHCR_TOKEN}" ]; then

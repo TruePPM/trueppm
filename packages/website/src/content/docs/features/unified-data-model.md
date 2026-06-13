@@ -19,6 +19,11 @@ Task
  │     wbs_path      ltree  (e.g. "1.2.3" — position in WBS hierarchy)
  │     project       FK → Project
  │
+ ├── Taxonomy (work-item type + governance overlay)
+ │     type             epic | story | task | bug | spike  (epic is structural, excluded from CPM)
+ │     governance_class flow | gated | hybrid              (which overlay governs the subtree)
+ │     delivery_mode    waterfall | scrum | kanban | milestone  (how the task rolls up)
+ │
  ├── Scheduling (CPM — Waterfall + Hybrid)
  │     duration          integer  (working days)
  │     planned_start     date     (PM's committed start — gates CPM early_start)
@@ -166,6 +171,7 @@ See [Methodology preset](/features/methodology-preset/) for the tab visibility m
 
 ## Related
 
+- [Task classification](/features/task-classification/) — set a task's type, governance class, and delivery mode
 - [Scheduler](/features/scheduler/) — how CPM and Monte Carlo consume the task fields
 - [Methodology preset](/features/methodology-preset/) — which views are shown per methodology
 - [The Story](/the-story/) — the eight-step hybrid flow, end-to-end

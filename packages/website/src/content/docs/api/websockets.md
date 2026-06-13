@@ -152,6 +152,10 @@ adding it to that frozen set. Events with no webhook counterpart are marked
 | `sprint_updated` | **WS-only** |
 | `sprint_deleted` | **WS-only** |
 | `sprint_scope_changed` | **WS-only** |
+| `demo_reordered` | **WS-only** |
+| `demo_presenter_set` | **WS-only** |
+| `review_note_set` | **WS-only** |
+| `flagged_for_backlog` | **WS-only** |
 | `tasks_bulk_mutated` | **WS-only** |
 | `tasks_reordered` | **WS-only** |
 | `tasks_restructured` | **WS-only** |

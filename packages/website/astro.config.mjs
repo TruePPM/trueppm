@@ -87,6 +87,7 @@ export default defineConfig({
           label: "Administration",
           items: [
             { slug: "administration/deployment" },
+            { slug: "administration/sizing" },
             { slug: "administration/configuration" },
             { slug: "administration/admin-password" },
             { slug: "administration/rbac" },
@@ -112,6 +113,7 @@ export default defineConfig({
               collapsed: false,
               items: [
                 { slug: "features/unified-data-model" },
+                { slug: "features/task-classification" },
                 { slug: "features/methodology-preset" },
                 { slug: "features/programs" },
                 { slug: "features/calendars" },

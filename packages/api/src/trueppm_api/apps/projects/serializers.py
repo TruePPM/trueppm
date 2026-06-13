@@ -3241,10 +3241,18 @@ class SprintDailyDeltaSerializer(serializers.Serializer[dict[str, Any]]):
     since = serializers.DateTimeField()
     until = serializers.DateTimeField()
     task_changes = serializers.ListField(child=serializers.DictField())
+    # scope_added items carry story_points (velocity-gated, #1127) and an epic
+    # {id, name} grouping label (null when ungrouped) alongside the base shape.
     scope_added = serializers.ListField(child=serializers.DictField())
     new_blockers = serializers.ListField(child=serializers.DictField())
     burndown_delta = serializers.DictField(allow_null=True)
+    # per_actor is empty for a Viewer-role reader (#1126, ADR-0119) — they get
+    # actor_aggregate team totals only. Member+ get both.
     per_actor = serializers.ListField(child=serializers.DictField())
+    actor_aggregate = serializers.DictField()
+    # sprint_load point figures are velocity-gated (#1127, ADR-0104): null for a
+    # below-audience reader.
+    sprint_load = serializers.DictField()
 
 
 class SprintCloseRequestSerializer(serializers.Serializer[dict[str, Any]]):

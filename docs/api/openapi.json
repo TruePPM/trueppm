@@ -14182,7 +14182,7 @@
                         "description": "The accepted scope-change row plus the sprint's pending_count."
                     },
                     "403": {
-                        "description": "Accepting scope changes is team-owned (Admin+)."
+                        "description": "Accepting scope changes is team-owned (Admin or SM/PO facet)."
                     }
                 }
             }
@@ -14226,7 +14226,7 @@
                         "description": "The rejected scope-change row plus the sprint's pending_count."
                     },
                     "403": {
-                        "description": "Rejecting scope changes is team-owned (Admin+)."
+                        "description": "Rejecting scope changes is team-owned (Admin or SM/PO facet)."
                     }
                 }
             }
@@ -14522,6 +14522,179 @@
                 "responses": {
                     "204": {
                         "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/sprint-task-outcomes/{id}/flag-for-backlog/": {
+            "post": {
+                "operationId": "v1_sprint_task_outcomes_flag_for_backlog_create",
+                "description": "Create a BACKLOG task from this story in one tap (Member+; idempotent).\n\nA second tap is a no-op — the created task is recorded on the outcome row,\nso two clicks never spawn two backlog items. Returns the (possibly already\nexisting) backlog task id and the flagged state.",
+                "summary": "Carry a not-shipped story forward to the backlog in one tap (#1132)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint task outcome.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sprint-task-outcomes/{id}/set-note/": {
+            "post": {
+                "operationId": "v1_sprint_task_outcomes_set_note_create",
+                "description": "Set the optional contributor review note (Member+; ``{note: str}``, ≤200).\n\nAlways optional — an empty string clears it (Priya's no-required-data-entry\nconstraint). Over-length notes are truncated server-side in the service.",
+                "summary": "Set the contributor review note on a story (#1131)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint task outcome.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": {}
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": {}
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": {}
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sprint-task-outcomes/{id}/set-presenter/": {
+            "post": {
+                "operationId": "v1_sprint_task_outcomes_set_presenter_create",
+                "description": "Set the per-story demo presenter (Member+; ``{presenter: str}``, ≤120).",
+                "summary": "Set the demo presenter for a shipped story (ADR-0118 amend, #1130)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint task outcome.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": {}
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": {}
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": {}
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
                     }
                 }
             }
@@ -15056,7 +15229,7 @@
                         "description": "Sprint is not ACTIVE or carry_over_to target is invalid."
                     },
                     "403": {
-                        "description": "Rejecting pending scope changes is team-owned (Project Manager+)."
+                        "description": "Rejecting pending scope changes is team-owned (Admin or SM/PO facet)."
                     }
                 }
             }
@@ -15094,6 +15267,71 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/SprintDailyDelta"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sprints/{id}/demo-list/reorder/": {
+            "post": {
+                "operationId": "v1_sprints_demo_list_reorder_create",
+                "description": "Drag reorder of the demo walkthrough (Member+; ADR-0110 shape, #1130).\n\nBody: ``{\"outcome_ids\": [\"<uuid>\", ...]}`` — the *complete* set of\ndemo-flagged ``SprintTaskOutcome`` ids in target walkthrough order. Writes\ndense ``demo_order`` 1..N under a row lock. Returns ``200 {\"updated\": <n>}``;\n``409`` with the offending ids if the demo set changed under the client (a\nflag was toggled concurrently) so the client refetches and replays; ``400``\non a malformed body. Gated team-owned (Member+) via the viewset's write\npermission, which checks object-level project membership on the sprint.",
+                "summary": "Reorder the Sprint Review demo list (ADR-0118 amend, #1130)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": {}
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": {}
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": {}
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
                                 }
                             }
                         },
@@ -16059,7 +16297,7 @@
                         "description": "Body includes the accepted scope-change rows and the pending_count."
                     },
                     "403": {
-                        "description": "Accepting scope changes is team-owned (Admin+)."
+                        "description": "Accepting scope changes is team-owned (Admin or SM/PO facet)."
                     }
                 }
             }
@@ -16125,7 +16363,7 @@
                         "description": "Body includes the rejected scope-change rows and the pending_count."
                     },
                     "403": {
-                        "description": "Rejecting scope changes is team-owned (Admin+)."
+                        "description": "Rejecting scope changes is team-owned (Admin or SM/PO facet)."
                     }
                 }
             }
@@ -26379,15 +26617,25 @@
                             "type": "object",
                             "additionalProperties": {}
                         }
+                    },
+                    "actor_aggregate": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    },
+                    "sprint_load": {
+                        "type": "object",
+                        "additionalProperties": {}
                     }
                 },
                 "required": [
+                    "actor_aggregate",
                     "burndown_delta",
                     "new_blockers",
                     "per_actor",
                     "scope_added",
                     "since",
                     "sprint_id",
+                    "sprint_load",
                     "task_changes",
                     "until"
                 ]
