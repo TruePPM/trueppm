@@ -65,18 +65,9 @@
       "groupSlug": "rust-minor-patch"
     },
     {
-      "description": "Auto-merge devDependency patch bumps if CI is green",
-      "matchManagers": ["npm"],
-      "matchDepTypes": ["devDependencies"],
-      "matchUpdateTypes": ["patch"],
-      "automerge": true,
-      "automergeType": "pr"
-    },
-    {
-      "description": "Auto-merge lock-file maintenance",
-      "matchUpdateTypes": ["lockFileMaintenance"],
-      "automerge": true,
-      "automergeType": "pr"
+      "description": "Project policy (CLAUDE.md): never auto-merge — every dependency MR goes through review and a green pipeline. Renovate opens PRs only.",
+      "matchPackageNames": ["*"],
+      "automerge": false
     },
     {
       "description": "Major updates — never auto-merge; open individually for review",
