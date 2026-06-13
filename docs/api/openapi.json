@@ -2848,6 +2848,44 @@
                 }
             }
         },
+        "/api/v1/programs/{id}/resource-contention/": {
+            "get": {
+                "operationId": "v1_programs_resource_contention_retrieve",
+                "description": "Cross-project resource allocation for the within-program contention view (#1149).\n\nThe program-scoped counterpart to ``ProjectViewSet.resource_allocation`` (#85):\nreturns each resource with their task spans across **every member project of this\nprogram**, each span tagged with its source project, so the client can show who is\nover-allocated across sibling projects in overlapping windows (the contention the\nGA-launch sample program deliberately creates).\n\nThis is OSS, within-program **visibility** only — it surfaces contention data but\ndoes not level resources or cross a program boundary. Cross-program leveling and the\nportfolio heat map remain Enterprise. Overallocation detection is intentionally\nclient-side (ADR-0031): the caller receives the merged spans and sums daily units\nagainst each resource's ``max_units``.\n\nQuery parameters mirror the per-project endpoint:\n  start    (YYYY-MM-DD, optional) — window start; defaults to the earliest\n           early_start across all member projects. Returns 409 if no member\n           project has CPM dates yet.\n  end      (YYYY-MM-DD, optional) — window end; defaults to the latest early_finish.\n  resource (UUID, optional, repeatable) — filter to specific resource IDs.\n  status   (string, optional, repeatable) — filter tasks by status value.",
+                "summary": "Within-program resource contention (cross-project allocation)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this program.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Per-resource task spans aggregated across every member project of the program, each tagged with its source project, so a caller can surface people over-allocated across sibling projects in overlapping windows. Overallocation detection stays client-side per ADR-0031."
+                    },
+                    "409": {
+                        "description": "No member project has a computed schedule yet."
+                    }
+                }
+            }
+        },
         "/api/v1/programs/{id}/risk-policy/": {
             "get": {
                 "operationId": "v1_programs_risk_policy_retrieve",

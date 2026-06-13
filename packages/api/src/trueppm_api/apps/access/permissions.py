@@ -508,6 +508,36 @@ class IsProgramMember(BasePermission):
         return _program_membership_role(request, program_id) is not None
 
 
+class IsProgramScheduler(BasePermission):
+    """Require Scheduler (2) or above on a program — for **reads** as well as writes.
+
+    The program counterpart to ``IsProjectScheduler``. Resource allocation /
+    contention data is Scheduler+ even on GET (web-rule 94 / the per-project
+    ``resource-allocation`` gate), so unlike ``IsProgramEditor`` this does **not**
+    open GET to every member — a Viewer or plain Member is denied 403.
+    """
+
+    message = "You need at least Scheduler role on this program."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        if not (request.user and request.user.is_authenticated):
+            return False
+        program_pk = _program_pk_from_view(view)
+        if program_pk is not None:
+            role = _program_membership_role(request, program_pk)
+            return role is not None and role >= Role.SCHEDULER
+        # Top-level routes (e.g. /programs/{pk}/…) carry no program_pk kwarg;
+        # defer to the per-object check, which get_object() triggers.
+        return True
+
+    def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
+        program_id = _get_program_id_from_obj(obj)
+        if program_id is None:
+            return False
+        role = _program_membership_role(request, program_id)
+        return role is not None and role >= Role.SCHEDULER
+
+
 class IsProgramEditor(BasePermission):
     """Allow Team Member (1) or above on a program.
 
