@@ -15,6 +15,16 @@ export type TaskReadiness = 'idea' | 'estimated' | 'ready' | 'baselined';
 /** Work-item taxonomy (ADR-0105 / #363). */
 export type TaskType = 'epic' | 'story' | 'task' | 'bug' | 'spike';
 
+/** Which governance overlay applies to a task's subtree (ADR-0036 / #407).
+ *  Distinct from `deliveryMode`: this selects *which* overlay governs (agile
+ *  flow vs phase-gate vs mixed); delivery mode selects *how* the work executes. */
+export type GovernanceClass = 'gated' | 'flow' | 'hybrid';
+
+/** How a task is executed, rolled up, and estimated (ADR-0036 / #407). Drives
+ *  the rollup engine's percent-complete interpretation (#408): WATERFALL = explicit
+ *  percent, SCRUM = story-point burndown, KANBAN = item throughput, MILESTONE = gate. */
+export type DeliveryMode = 'waterfall' | 'scrum' | 'kanban' | 'milestone';
+
 /** Definition-of-Ready signal for a backlog story (ADR-0105 / #731). Distinct from
  *  the computed board `readiness` chip — this is the PO's stored grooming intent. */
 export type DorState = 'idea' | 'refine' | 'ready';
@@ -207,6 +217,10 @@ export interface Task {
   // ── Product backlog & scoring (ADR-0105) ──────────────────────────────────
   /** Work-item type. Absent on legacy payloads → treat as 'task'. */
   taskType?: TaskType;
+  /** Governance overlay for this task's subtree. Absent on legacy payloads → 'flow'. */
+  governanceClass?: GovernanceClass;
+  /** Execution / rollup mode for this task. Absent on legacy payloads → 'waterfall'. */
+  deliveryMode?: DeliveryMode;
   /** Parent epic id (grouping parallel to the WBS), or null when ungrouped. */
   parentEpic?: string | null;
   /** Definition-of-Ready signal set by the PO; field is `dor` to avoid the

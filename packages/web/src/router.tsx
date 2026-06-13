@@ -95,6 +95,11 @@ const ProgramViewProjectsPage = lazy(() =>
     default: m.ProgramProjectsPage,
   })),
 );
+const ProgramResourcesPage = lazy(() =>
+  import('@/features/programs/resources/ProgramResourcesPage').then((m) => ({
+    default: m.ProgramResourcesPage,
+  })),
+);
 const ProgramMembersTab = lazy(() =>
   import('@/features/programs/members/ProgramMembersTab').then((m) => ({
     default: m.ProgramMembersTab,
@@ -629,6 +634,14 @@ export const router = createBrowserRouter([
                 element: (
                   <Suspense fallback={<RouteLoadingFallback />}>
                     <ProgramViewProjectsPage />
+                  </Suspense>
+                ),
+              },
+              {
+                path: 'resources',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <ProgramResourcesPage />
                   </Suspense>
                 ),
               },

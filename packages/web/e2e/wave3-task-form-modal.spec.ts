@@ -163,6 +163,26 @@ test.describe('Task create/edit modal (#305)', () => {
     await expect(dialog.getByText(/to save/)).toBeVisible();
   });
 
+  test('Classification group exposes the type / governance / delivery taxonomy with server defaults', async ({ page }) => {
+    await setup(page);
+    await page.goto(`${BASE_URL}/board`);
+    const addButton = page.getByRole('button', { name: /Add task to Alpha Phase/ });
+    await expect(addButton).toBeVisible({ timeout: 10_000 });
+    await addButton.click();
+
+    const dialog = page.getByRole('dialog', { name: /Add to Alpha Phase/ });
+    await expect(dialog).toBeVisible();
+    // The taxonomy editor (previously: stored + seeded but unreachable from the UI).
+    await expect(dialog.getByText('Classification', { exact: true })).toBeVisible();
+    await expect(dialog.getByLabel('Type')).toHaveValue('task');
+    await expect(dialog.getByLabel('Governance class')).toHaveValue('flow');
+    await expect(dialog.getByLabel('Delivery mode')).toHaveValue('waterfall');
+
+    // Switching delivery mode updates the grounded helper caption.
+    await dialog.getByLabel('Delivery mode').selectOption('kanban');
+    await expect(dialog.getByText(/item throughput on a WIP-limited board/)).toBeVisible();
+  });
+
   test('Parent phase picker resolves a leaf task label and shows the promotion hint (#378)', async ({ page }) => {
     await setup(page);
     await page.goto(`${BASE_URL}/board`);
