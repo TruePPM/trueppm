@@ -222,7 +222,8 @@ workflow:
     - npm ci --prefer-offline --quiet
 
 .website:
-  image: node:20-alpine
+  # node:22 — Astro 6 requires Node >=22.12 (dropped Node 20 support).
+  image: node:22-alpine
   cache:
     key:
       files:
