@@ -349,15 +349,18 @@ def test_blocked_notifies_scrum_master_and_pm_not_just_assignee(
 ) -> None:
     """Flagging a task blocked routes to the assignee + Scrum Master + PM (#1134).
 
-    The actor (a plain member who raised it) is excluded; the SM (team facet) and
-    the PM (Role.ADMIN) are both notified even though they are not the assignee.
+    The actor (who raised it) is excluded; the SM (team facet) and the other PM
+    (Role.ADMIN) are both notified even though they are not the assignee. The actor
+    is a PM here because raising a blocker on someone else's task requires write
+    access (IsProjectMemberWriteOrOwn) — a plain member can only flag their own task.
     """
     from trueppm_api.apps.teams.models import Team, TeamMembership, TeamRole
 
-    # carol raises the flag (the actor); dave is the SM; admin is the PM; bob owns it.
+    # carol (a PM) raises the flag on bob's task (the actor); dave is the SM; admin
+    # is the other PM; bob owns it. carol is excluded as the actor.
     carol = User.objects.create_user(username="carol", password="pw", email="carol@x.io")
     dave = User.objects.create_user(username="dave", password="pw", email="dave@x.io")
-    ProjectMembership.objects.create(project=project, user=carol, role=Role.MEMBER)
+    ProjectMembership.objects.create(project=project, user=carol, role=Role.ADMIN)
     ProjectMembership.objects.create(project=project, user=dave, role=Role.MEMBER)
     team = Team.objects.create(project=project, name="Default", short_id="T01", is_default=True)
     TeamMembership.objects.create(team=team, user=dave, role=TeamRole.MEMBER, is_scrum_master=True)

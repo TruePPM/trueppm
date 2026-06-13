@@ -157,6 +157,32 @@ def test_list_response_gates_reason_per_row(
     assert row["blocker_type"] == "vendor"
 
 
+@pytest.mark.django_db
+def test_task_history_never_leaks_reason(
+    blocked_task: Task, bystander: Any, assignee: Any, memberships: None, project: Project
+) -> None:
+    """The team-readable task-history diff feed must never carry blocked_reason.
+
+    HistoricalTask stores blocked_reason, so without excluding it from the diff a
+    bystander would read the reason (and every past reason) through the History
+    tab — bypassing the TaskSerializer gate entirely (ADR-0124 #1135). The
+    structured signal (blocker_type/blocked_since/…) may remain in the diff.
+    """
+    import json
+
+    # A second reason transition so the history has a before/after to diff.
+    blocked_task._history_user = assignee  # type: ignore[attr-defined]
+    blocked_task.blocked_reason = REASON + " (updated)"
+    blocked_task.save()
+
+    resp = _client(bystander).get(f"/api/v1/projects/{project.pk}/tasks/{blocked_task.pk}/history/")
+    assert resp.status_code == 200
+    blob = json.dumps(resp.data)
+    # Neither the field key nor the secret reason text appears anywhere.
+    assert "blocked_reason" not in blob
+    assert "SECRET" not in blob
+
+
 # ---------------------------------------------------------------------------
 # Roll-up endpoints (#1134) — reason omitted for EVERYONE
 # ---------------------------------------------------------------------------

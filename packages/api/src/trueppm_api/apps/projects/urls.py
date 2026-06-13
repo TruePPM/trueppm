@@ -333,6 +333,13 @@ urlpatterns = [
         SprintViewSet.as_view({"get": "daily_delta"}),
         name="sprints-daily-delta",
     ),
+    # Blocked-tasks roll-up for the sprint (ADR-0124, #1134). SprintViewSet uses
+    # manual path() registration (no router), so the @action needs its own entry.
+    path(
+        "sprints/<pk>/blocked/",
+        SprintViewSet.as_view({"get": "blocked"}),
+        name="sprints-blocked",
+    ),
     # Sprint↔milestone binding — the agile/waterfall bridge (ADR-0106 §2)
     path(
         "sprints/<pk>/promote-to-milestone/",

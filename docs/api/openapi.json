@@ -15103,6 +15103,49 @@
                 }
             }
         },
+        "/api/v1/sprints/{id}/blocked/": {
+            "get": {
+                "operationId": "v1_sprints_blocked_retrieve",
+                "description": "List flagged-blocked tasks in this sprint — the SM's impediment roll-up.\n\nSame reason-free shape as ``GET /projects/{id}/blocked/`` (type + age +\nactor + assignee + soft link, oldest-blocked first), scoped to this\nsprint's tasks. Reason text is omitted from every row for every requester\n(ADR-0124 §4); no reason filter/sort/search param is exposed. Sprint\nmembership (Viewer+) is enforced via ``check_object_permissions``.",
+                "summary": "Blocked tasks in this sprint (ADR-0124, #1134)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/sprints/{id}/burndown/": {
             "get": {
                 "operationId": "v1_sprints_burndown_retrieve",
