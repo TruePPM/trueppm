@@ -2548,12 +2548,13 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
             )
 
             recipients = resolve_impediment_recipients(instance)
-            # Preserve the existing "notify the assignee, not the actor" contract:
-            # the actor who raised the flag is dropped only from the assignee path.
-            # A Scrum Master or PM who raised it is still NOT self-notified (they
-            # took the action), but a SM/PM who is a *different* person than the
-            # actor is notified. Simplest correct rule: never notify the actor.
-            recipients.discard(actor_id)
+            # Never notify the actor who raised the flag (they took the action),
+            # whether they reach the set as the assignee, a Scrum Master, or a PM.
+            # NOTE: ``recipients`` holds raw user PKs (ints) from the resolver, while
+            # ``actor_id`` is ``str(pk)`` — discarding the string is a no-op against
+            # an int set, so discard the raw PK to actually drop the actor.
+            actor_pk = self.request.user.pk if self.request.user.is_authenticated else None
+            recipients.discard(actor_pk)
             if recipients:
                 b_subj, b_body = render_blocker_notification(instance)
                 b_rcpts = list(recipients)

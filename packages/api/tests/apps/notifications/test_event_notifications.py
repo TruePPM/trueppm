@@ -382,8 +382,8 @@ def test_blocked_notifies_scrum_master_and_pm_not_just_assignee(
             "recipient__username", flat=True
         )
     )
-    # assignee (bob) + SM (dave) + PM (admin); the actor (carol) is excluded.
-    assert recipients == {"bob", "dave", "admin"}
+    # assignee (bob) + SM (dave) + PM (admin=ev_admin); the actor (carol) is excluded.
+    assert recipients == {"bob", "dave", "ev_admin"}
     assert "carol" not in recipients
 
 
