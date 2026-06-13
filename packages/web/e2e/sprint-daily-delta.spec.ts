@@ -37,8 +37,13 @@ const DELTA = {
     },
   ],
   new_blockers: [
-    { task_id: 't2', task_short_id: 'T-2', task_title: 'Payments', actor_username: 'alex', at: '2026-04-10T08:30:00Z' },
+    {
+      task_id: 't2', task_short_id: 'T-2', task_title: 'Payments', actor_username: 'alex',
+      at: '2026-04-10T08:30:00Z', blocker_type: 'vendor', blocked_age_seconds: 3600,
+      kind: 'impediment',
+    },
   ],
+  blocker_summary: { impediment: 1, paused: 0 },
   burndown_delta: {
     prior_date: '2026-04-09', prior_remaining: 20, current_date: '2026-04-10',
     current_remaining: 12, remaining_delta: -8, completed_delta: 8,
@@ -99,8 +104,11 @@ test.describe('Daily standup delta (#925)', () => {
     await expect(panel.getByText(/Moved cards/i)).toBeVisible();
     await expect(panel.getByText('Login flow')).toBeVisible();
     await expect(panel.getByText(/In progress → Review/i)).toBeVisible();
-    await expect(panel.getByText(/New blockers/i)).toBeVisible();
+    await expect(panel.getByText(/New blockers \(1 impediment\)/i)).toBeVisible();
     await expect(panel.getByText('Payments')).toBeVisible();
+    // Structured type chip + age; the reason is never in the standup payload.
+    await expect(panel.getByText('External vendor')).toBeVisible();
+    await expect(panel.getByText('1h blocked')).toBeVisible();
     await expect(panel.getByText(/-8 pts remaining/i)).toBeVisible();
     // Anti-scoreboard per-actor (#1126) — counts only, never hours.
     await expect(panel.getByText(/not to compare contributors/i)).toBeVisible();

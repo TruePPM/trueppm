@@ -24,6 +24,8 @@ const firstPage: MyWorkPage = {
       group: 'this_sprint',
       is_blocked: false,
       blocked_reason: '',
+      blocker_type: '',
+      blocked_age_seconds: null,
       server_version: 100,
       url: '/projects/proj-1/schedule?task=task-1',
     },

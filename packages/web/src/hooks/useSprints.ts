@@ -878,6 +878,21 @@ export interface DailyDeltaBlocker {
   task_title: string;
   actor_username: string | null;
   at: string;
+  /**
+   * ADR-0124 (#1125): the structured blocker type (null when only free text was
+   * recorded), the server-computed age in seconds, and the split `kind` the
+   * standup renders. The free-text reason is NEVER carried in this payload — the
+   * standup is a shared screen and the reason stays contributor-private.
+   */
+  blocker_type: string | null;
+  blocked_age_seconds: number | null;
+  kind: 'impediment' | 'paused';
+}
+
+/** ADR-0124 (#1125): impediment-vs-paused count headline for the blockers section. */
+export interface DailyDeltaBlockerSummary {
+  impediment: number;
+  paused: number;
 }
 
 export interface DailyDeltaActor {
@@ -900,6 +915,8 @@ export interface SprintDailyDelta {
   task_changes: DailyDeltaStatusChange[];
   scope_added: DailyDeltaScopeItem[];
   new_blockers: DailyDeltaBlocker[];
+  /** ADR-0124 (#1125): {impediment, paused} counts for the blockers headline. */
+  blocker_summary: DailyDeltaBlockerSummary;
   burndown_delta: {
     prior_date: string;
     prior_remaining: number;

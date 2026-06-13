@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useSprintDailyDelta, type SprintDailyDelta } from '@/hooks/useSprints';
 import { useScheduleStore } from '@/stores/scheduleStore';
+import { blockerTypeLabel, formatBlockedAge } from '@/lib/blocker';
 import { ScopeChangeDrawer } from './ScopeChangeDrawer';
 
 interface Props {
@@ -175,7 +176,9 @@ export function SprintDailyDeltaPanel({ sprintId }: Props) {
           {d.burndown_delta && <BurndownRow delta={d.burndown_delta} />}
           {d.sprint_load && <SprintLoadRow load={d.sprint_load} />}
           <PerActorRow actors={d.per_actor} aggregate={d.actor_aggregate} />
-          {d.new_blockers.length > 0 && <BlockersRow blockers={d.new_blockers} />}
+          {d.new_blockers.length > 0 && (
+            <BlockersRow blockers={d.new_blockers} summary={d.blocker_summary} />
+          )}
           {d.task_changes.length > 0 && <MovedRow changes={d.task_changes} />}
           {d.scope_added.length > 0 && <ScopeRow items={d.scope_added} sprintId={sprintId} />}
           {lastUpdated && (
@@ -374,23 +377,57 @@ function countParts(a: {
   ].filter((p): p is string => p !== null);
 }
 
-function BlockersRow({ blockers }: { blockers: SprintDailyDelta['new_blockers'] }) {
+function BlockersRow({
+  blockers,
+  summary,
+}: {
+  blockers: SprintDailyDelta['new_blockers'];
+  summary: SprintDailyDelta['blocker_summary'];
+}) {
+  // ADR-0124 (#1125): the standup splits new blockers into "impediment" (a
+  // triageable blocker_type is recorded — the SM can route the unblock) vs
+  // "paused" (a bare flag with no type). The headline counts come from the
+  // server-computed summary so the split survives an empty list edge. The
+  // free-text reason is NEVER in this payload — the standup is a shared screen.
+  const headline =
+    summary.impediment > 0 && summary.paused > 0
+      ? `${summary.impediment} impediment, ${summary.paused} paused`
+      : summary.impediment > 0
+        ? `${summary.impediment} impediment`
+        : `${summary.paused} paused`;
   return (
     <div className="px-3 py-2 flex flex-col gap-1">
       <h4 id="dd-blockers" className="text-xs font-medium text-semantic-at-risk">
-        <span aria-hidden="true">⚠ </span>New blockers ({blockers.length})
+        <span aria-hidden="true">⚠ </span>New blockers ({headline})
       </h4>
       <ul aria-labelledby="dd-blockers" className="flex flex-col gap-0.5">
-        {blockers.map((b) => (
-          <li key={b.task_id} className="text-sm flex items-center gap-2">
-            <TaskRef taskId={b.task_id} shortId={b.task_short_id} title={b.task_title} />
-            {b.actor_username && (
-              <span className="text-xs text-neutral-text-secondary shrink-0">
-                by {b.actor_username}
+        {blockers.map((b) => {
+          const age = formatBlockedAge(b.blocked_age_seconds);
+          const typeLabel = blockerTypeLabel(b.blocker_type);
+          return (
+            <li key={b.task_id} className="text-sm flex flex-wrap items-center gap-2">
+              <TaskRef taskId={b.task_id} shortId={b.task_short_id} title={b.task_title} />
+              <span
+                className={[
+                  'inline-flex shrink-0 items-center rounded px-1.5 py-0.5 text-xs font-medium',
+                  b.kind === 'impediment'
+                    ? 'bg-semantic-at-risk-bg text-semantic-at-risk border border-semantic-at-risk/40'
+                    : 'bg-neutral-surface-sunken text-neutral-text-secondary border border-neutral-border',
+                ].join(' ')}
+              >
+                {b.kind === 'impediment' ? (typeLabel ?? 'Impediment') : 'Paused'}
               </span>
-            )}
-          </li>
-        ))}
+              {age && (
+                <span className="text-xs text-neutral-text-secondary shrink-0 tppm-mono">{age}</span>
+              )}
+              {b.actor_username && (
+                <span className="text-xs text-neutral-text-secondary shrink-0">
+                  by {b.actor_username}
+                </span>
+              )}
+            </li>
+          );
+        })}
       </ul>
     </div>
   );

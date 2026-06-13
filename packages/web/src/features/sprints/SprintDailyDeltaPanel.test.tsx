@@ -45,6 +45,7 @@ function delta(overrides: Partial<SprintDailyDelta> = {}): SprintDailyDelta {
     task_changes: [],
     scope_added: [],
     new_blockers: [],
+    blocker_summary: { impediment: 0, paused: 0 },
     burndown_delta: null,
     per_actor: [],
     actor_aggregate: { moved: 0, completed: 0, added: 0, blocked: 0 },
@@ -100,8 +101,13 @@ describe('SprintDailyDeltaPanel (#925)', () => {
             },
           ],
           new_blockers: [
-            { task_id: 't2', task_short_id: 'T-2', task_title: 'Payments', actor_username: 'alex', at: '2026-04-15T08:30:00Z' },
+            {
+              task_id: 't2', task_short_id: 'T-2', task_title: 'Payments', actor_username: 'alex',
+              at: '2026-04-15T08:30:00Z', blocker_type: 'vendor', blocked_age_seconds: 3600,
+              kind: 'impediment',
+            },
           ],
+          blocker_summary: { impediment: 1, paused: 0 },
           scope_added: [
             {
               task_id: 't3', task_short_id: 'T-3', task_title: 'Hotfix', added_by_username: 'jordan',
@@ -123,8 +129,11 @@ describe('SprintDailyDeltaPanel (#925)', () => {
     expect(screen.getByText(/Moved cards \(1\)/i)).toBeInTheDocument();
     expect(screen.getByText(/Login flow/)).toBeInTheDocument();
     expect(screen.getByText(/In progress → Review/i)).toBeInTheDocument();
-    expect(screen.getByText(/New blockers \(1\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/New blockers \(1 impediment\)/i)).toBeInTheDocument();
     expect(screen.getByText(/Payments/)).toBeInTheDocument();
+    // The structured type chip + age render; the free-text reason is never present.
+    expect(screen.getByText('External vendor')).toBeInTheDocument();
+    expect(screen.getByText('1h blocked')).toBeInTheDocument();
     expect(screen.getByText(/Scope added \(1\)/i)).toBeInTheDocument();
     expect(screen.getByText(/-8 pts remaining/i)).toBeInTheDocument();
     // Anti-scoreboard framing + team aggregate + per-actor block (#1126).
