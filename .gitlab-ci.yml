@@ -222,7 +222,8 @@ workflow:
     - npm ci --prefer-offline --quiet
 
 .website:
-  image: node:20-alpine
+  # node:22 — Astro 6 requires Node >=22.12 (dropped Node 20 support).
+  image: node:22-alpine
   cache:
     key:
       files:
@@ -1448,42 +1449,52 @@ security:pip-audit:
     # not apply. Remove once pyjwt either rescinds the advisory or ships a hardened release.
     - pip-audit --progress-spinner=off --desc on --ignore-vuln CVE-2026-4539 --ignore-vuln CVE-2026-3219 --ignore-vuln PYSEC-2025-183
 
-web:security:
-  # CVE scan for npm dependencies. Equivalent of pip-audit for the web package.
-  # --audit-level=high: fail on high/critical CVEs only; moderate is noisy for
-  # transitive dev dependencies. Adjust down to =moderate when the tree is stable.
+security:osv:
+  # Unified SCA across the committed lockfiles using the OSV database:
+  #   - npm:  packages/web, packages/website
+  #   - Cargo: packages/wasm-scheduler
+  # Replaces the per-package npm-audit jobs (former web:security + website:security)
+  # and adds Rust coverage that nothing scanned before. Python (api + scheduler)
+  # stays on security:pip-audit until each has a committed resolved lockfile —
+  # OSV can only scan a lockfile, and both currently ship only pyproject.toml
+  # (tracked in #1153).
+  #
+  # OSV-Scanner exits non-zero on any non-ignored advisory (it has no
+  # --audit-level threshold). Not-yet-fixable or sub-HIGH advisories are
+  # suppressed via per-directory osv-scanner.toml files that each carry a
+  # `reason` and an `ignoreUntil` expiry, so suppressions stay documented and
+  # self-expire rather than rotting silently (see packages/website/osv-scanner.toml,
+  # which defers the astro/esbuild/yaml advisories to the astro 6 bump in #1152).
+  # This is a stricter, more honest posture than the prior --audit-level=high
+  # blanket: the surgical, expiring ignore is the control npm audit lacked.
+  #
+  # Pinned binary download (the official image is distroless / shell-less, which
+  # GitLab's script runner can't use); the linux build is a static Go binary.
   stage: security
-  needs: [web:test]
-  image: node:20-alpine
+  image: alpine:3.20
+  needs: []
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
-        - packages/web/**/*
+        - packages/web/package-lock.json
+        - packages/website/package-lock.json
+        - packages/wasm-scheduler/Cargo.lock
+        - "**/osv-scanner.toml"
         - .gitlab-ci.yml
   before_script:
-    - cd packages/web
+    - apk add --no-cache wget
+    - wget -q -O /usr/local/bin/osv-scanner "https://github.com/google/osv-scanner/releases/download/v2.3.8/osv-scanner_linux_amd64"
+    - chmod +x /usr/local/bin/osv-scanner
   script:
-    - npm audit --audit-level=high
-
-website:security:
-  # CVE scan for the docs-site (packages/website) npm dependencies — the
-  # npm-audit gate that #904 found missing (web had one; website did not).
-  # The two HIGH advisories (devalue, fast-uri) were cleared in #905; this job
-  # guards against new HIGH/CRITICAL CVEs entering the docs build chain.
-  #
-  # allow_failure (report-first): the tree still carries moderate advisories
-  # that need the astro/starlight semver-major bump, and --audit-level=high can
-  # surface a transient transitive HIGH on a build runner. Flip to a hard gate
-  # (drop allow_failure) once the dependency tree is clean — mirrors the
-  # "adjust down to =moderate when stable" note on web:security.
-  extends: .website
-  stage: security
-  needs: ["website:build"]
-  <<: *rules-website
-  allow_failure: true
-  script:
-    - npm audit --audit-level=high
+    # Per-directory osv-scanner.toml files are auto-discovered next to each
+    # lockfile (do NOT pass --config, which would force a single global file and
+    # break the per-package scoping that keeps a web regression from being masked
+    # by a website ignore).
+    - osv-scanner scan source
+        -L packages/web/package-lock.json
+        -L packages/website/package-lock.json
+        -L packages/wasm-scheduler/Cargo.lock
 
 license:check:py:
   # Verify no copyleft-licensed Python dependency has been introduced.
@@ -1495,7 +1506,7 @@ license:check:py:
   # the two halves run serially. Splitting drops the apt install entirely,
   # runs the halves in parallel, and scopes each rule to its own manifests so
   # a web-only dep bump no longer pays the Python re-link and vice versa.
-  # Mirrors the existing pip-audit (ci-api) / web:security (node) split.
+  # Mirrors the existing pip-audit (ci-api) / OSV-Scanner (node+cargo) split.
   #
   # Kaizen #640 N1: `changes:` is dep manifests only — license composition
   # only changes when manifests/lock files do; main + scheduled runs catch
