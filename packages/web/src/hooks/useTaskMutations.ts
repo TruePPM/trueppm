@@ -104,6 +104,13 @@ export interface UpdateTaskPayload {
   governance_class?: GovernanceClass;
   /** Execution / rollup mode (ADR-0036/#407). */
   delivery_mode?: DeliveryMode;
+  /** Human blocker flag (ADR-0124). `blocked_reason` is the flag of
+   *  record — non-empty flags the task, '' unflags it (the server then clears
+   *  blocker_type / blocking_task / blocked_since). `blocking_task` is a soft
+   *  "waiting on" link (NOT a CPM edge); null clears it. */
+  blocked_reason?: string;
+  blocker_type?: string;
+  blocking_task?: string | null;
 }
 
 /**
@@ -127,6 +134,12 @@ function optimisticTaskPatch(vars: UpdateTaskPayload): Partial<Task> {
   if (vars.type !== undefined) patch.taskType = vars.type;
   if (vars.governance_class !== undefined) patch.governanceClass = vars.governance_class;
   if (vars.delivery_mode !== undefined) patch.deliveryMode = vars.delivery_mode;
+  // Human blocker flag (ADR-0124). blocked_since / blocked_by / age are
+  // server-stamped on the flag transition, so they are NOT optimistically set —
+  // the post-mutation refetch fills them. We only reflect what the user typed.
+  if (vars.blocked_reason !== undefined) patch.blockedReason = vars.blocked_reason;
+  if (vars.blocker_type !== undefined) patch.blockerType = vars.blocker_type;
+  if (vars.blocking_task !== undefined) patch.blockingTask = vars.blocking_task;
   return patch;
 }
 

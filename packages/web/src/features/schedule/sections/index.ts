@@ -20,6 +20,7 @@
 import { registry } from '@/lib/widget-registry';
 import type { Task } from '@/types';
 import { OverviewSection } from './OverviewSection';
+import { BlockerSection } from './BlockerSection';
 import { SprintSection } from './SprintSection';
 import { SubtasksSection } from './SubtasksSection';
 import { DependenciesSection } from './DependenciesSection';
@@ -96,6 +97,18 @@ export function registerOssDrawerSections(): void {
     component: ExternalLinksSection,
     priority: 450,
     tab: 'files',
+  });
+
+  // Blocker (ADR-0124) — the human "I'm stuck" flag. Sits just under the
+  // Overview/Sprint header, above Dependencies. Summary tasks are rollups, not
+  // hand-flagged work, so they don't get the section.
+  registry.register('task_detail.section', {
+    id: 'blocker',
+    title: 'Blocker',
+    component: BlockerSection,
+    priority: 175,
+    tab: 'details',
+    canRender: (ctx) => !(ctx as { task: Task }).task.isSummary,
   });
 
   registry.register('task_detail.section', {

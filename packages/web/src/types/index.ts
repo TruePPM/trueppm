@@ -123,6 +123,20 @@ export interface Task {
   predecessorCount?: number;
   /** True when any predecessor is not COMPLETE (board batch 3, ADR-0035). */
   isBlocked?: boolean;
+  /**
+   * Human blocker flag (ADR-0124) — distinct from {@link isBlocked}
+   * (dependency-readiness). `blockedReason` is the flag of record (non-empty ⇒
+   * flagged) and is read-gated server-side, so it is `undefined` for viewers who
+   * may not read it (the privacy signal). `blockedAgeSeconds != null` is the
+   * team-visible "is flagged" test; the rest are team-visible triage signals.
+   */
+  blockedReason?: string;
+  blockerType?: string;
+  blockingTask?: string | null;
+  blockingTaskDetail?: { id: string; shortId: string; title: string } | null;
+  blockedSince?: string | null;
+  blockedBy?: { id: string; username: string } | null;
+  blockedAgeSeconds?: number | null;
   /** Count of active linked risks (OPEN + MITIGATING; board batch 3, ADR-0035). */
   linkedRisksCount?: number;
   /** Max(probability * impact) across active linked risks; null when none. */

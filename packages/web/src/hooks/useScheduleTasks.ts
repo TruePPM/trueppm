@@ -57,6 +57,17 @@ export interface ApiTask {
   // Board batch 3 (ADR-0035) — PPM signal annotations.
   predecessor_count?: number;
   is_blocked?: boolean;
+  // Human blocker flag (ADR-0124). Distinct from is_blocked above
+  // (dependency-readiness). blocked_reason is the flag of record (non-empty ⇒
+  // flagged) and is READ-GATED server-side (assignee + @-mentioned only), so it
+  // is absent for other viewers; blocker_type/since/by/age/detail are team-visible.
+  blocked_reason?: string;
+  blocker_type?: string;
+  blocking_task?: string | null;
+  blocking_task_detail?: { id: string; short_id: string; title: string } | null;
+  blocked_since?: string | null;
+  blocked_by?: { id: string; username: string } | null;
+  blocked_age_seconds?: number | null;
   linked_risks_count?: number;
   linked_risks_max_severity?: number | null;
   // Board batch 5 (issue #105) — entry stamps, priority rank, readiness.
@@ -260,6 +271,22 @@ export function mapTask(t: ApiTask): Task {
     totalFloat: t.total_float,
     predecessorCount: t.predecessor_count ?? 0,
     isBlocked: t.is_blocked ?? false,
+    // Human blocker flag (ADR-0124). blockedReason stays `undefined` when the
+    // server gated it out (the privacy signal the section reads); never default
+    // it to '' or a non-assignee would look like they can read an empty reason.
+    blockedReason: t.blocked_reason,
+    blockerType: t.blocker_type ?? '',
+    blockingTask: t.blocking_task ?? null,
+    blockingTaskDetail: t.blocking_task_detail
+      ? {
+          id: t.blocking_task_detail.id,
+          shortId: t.blocking_task_detail.short_id,
+          title: t.blocking_task_detail.title,
+        }
+      : null,
+    blockedSince: t.blocked_since ?? null,
+    blockedBy: t.blocked_by ?? null,
+    blockedAgeSeconds: t.blocked_age_seconds ?? null,
     linkedRisksCount: t.linked_risks_count ?? 0,
     linkedRisksMaxSeverity: t.linked_risks_max_severity ?? null,
     statusEnteredAt: t.status_changed_at ?? undefined,
