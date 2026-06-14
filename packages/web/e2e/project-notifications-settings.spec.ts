@@ -199,7 +199,10 @@ test.describe('Project Settings → Notifications (#522)', () => {
     await expect.poll(() => captures.patches.length).toBe(1);
     expect(captures.patches[0]).toEqual({ quiet_hours_enabled: false });
 
-    const from = page.getByLabel('From');
+    // Scope to the settings pane — the v2 rail's "Import a project from a file"
+    // button's aria-label also contains "from", so an unscoped getByLabel('From')
+    // is ambiguous.
+    const from = page.getByTestId('settings-content-scroll').getByLabel('From');
     await from.selectOption('22:00');
     await expect.poll(() => captures.patches.length).toBe(2);
     expect(captures.patches[1]).toEqual({ quiet_hours_from: '22:00:00' });

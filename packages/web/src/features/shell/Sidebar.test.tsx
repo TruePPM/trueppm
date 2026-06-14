@@ -107,9 +107,12 @@ describe('Sidebar (v2 left rail)', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('hides the Organization group in the community edition', () => {
+  it('shows the OSS Resources link but gates Portfolio rollup in the community edition', () => {
     renderRail();
-    expect(screen.queryByText('Organization')).not.toBeInTheDocument();
+    // Organization group is present for the OSS Resources catalog...
+    expect(screen.getByText('Organization')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Resources catalog' })).toBeInTheDocument();
+    // ...but the cross-program Portfolio rollup stays Enterprise-only (rule 15).
     expect(screen.queryByText('Portfolio rollup')).not.toBeInTheDocument();
   });
 });
