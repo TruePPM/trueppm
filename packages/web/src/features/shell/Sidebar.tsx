@@ -101,8 +101,12 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
   const [showNewProgram, setShowNewProgram] = useState(false);
   const [showImport, setShowImport] = useState(false);
 
-  // Icon-only when collapsed on desktop (the drawer is always expanded).
+  // The drawer is always expanded. On desktop the rail is either expanded (248px)
+  // or fully hidden (0px, "hide-to-context-bar" per ADR-0127) — there is no icon
+  // rail. When hidden the rail is `inert` so its content leaves the tab order and
+  // the a11y tree; the re-open ≡ lives in the ContextBar.
   const showFull = !sidebarCollapsed || isDrawer;
+  const hidden = sidebarCollapsed && !isDrawer;
 
   const projectById = useMemo(() => {
     const m = new Map<string, NonNullable<typeof projects>[number]>();
@@ -152,6 +156,8 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
     <>
       <aside
         aria-label="Primary navigation"
+        aria-hidden={hidden || undefined}
+        inert={hidden || undefined}
         style={isDrawer ? undefined : { width: sidebarWidth, transition: 'width 200ms ease-out' }}
         className={[
           'flex flex-col h-full bg-chrome-surface overflow-hidden flex-shrink-0',
@@ -159,39 +165,25 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
           isDrawer ? 'w-[248px]' : '',
         ].join(' ')}
       >
-        {/* Brand + collapse */}
+        {/* Brand + collapse (≡ in the ContextBar re-opens when hidden) */}
         <div className="flex items-center gap-2 px-3 h-12 shrink-0 border-b border-chrome-border/8">
-          {showFull ? (
-            <>
-              <NavLink to="/me/work" aria-label="TruePPM — My Work" className="flex items-center gap-2 min-w-0">
-                <LogoMark size={22} className="shrink-0" />
-                <span className="font-display text-base font-bold tracking-[-0.02em] leading-none truncate">
-                  <span className="text-navy-700 dark:text-reversed">True</span>
-                  <span className="text-sage-500">PPM</span>
-                </span>
-              </NavLink>
-              <div className="flex-1" />
-              {!isDrawer && (
-                <button
-                  type="button"
-                  onClick={toggleSidebar}
-                  aria-label="Collapse sidebar"
-                  title={`Hide sidebar (${modifierKeyLabel()}B)`}
-                  className="w-9 h-9 flex items-center justify-center rounded text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface"
-                >
-                  <span aria-hidden="true" className="text-base leading-none">«</span>
-                </button>
-              )}
-            </>
-          ) : (
+          <NavLink to="/me/work" aria-label="TruePPM — My Work" className="flex items-center gap-2 min-w-0">
+            <LogoMark size={22} className="shrink-0" />
+            <span className="font-display text-base font-bold tracking-[-0.02em] leading-none truncate">
+              <span className="text-navy-700 dark:text-reversed">True</span>
+              <span className="text-sage-500">PPM</span>
+            </span>
+          </NavLink>
+          <div className="flex-1" />
+          {!isDrawer && (
             <button
               type="button"
               onClick={toggleSidebar}
-              aria-label="Expand sidebar"
-              title={`Show sidebar (${modifierKeyLabel()}B)`}
-              className="w-9 h-9 mx-auto flex items-center justify-center rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              aria-label="Collapse sidebar"
+              title={`Hide sidebar (${modifierKeyLabel()}B)`}
+              className="w-9 h-9 flex items-center justify-center rounded text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface"
             >
-              <LogoMark size={22} />
+              <span aria-hidden="true" className="text-base leading-none">«</span>
             </button>
           )}
         </div>

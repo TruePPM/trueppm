@@ -1,126 +1,12 @@
-import { useState, useEffect, useRef, type ReactNode, type RefObject } from 'react';
+import { useState, useEffect, useRef, type RefObject } from 'react';
 import { NavLink, useNavigate } from 'react-router';
-import { useThemeStore, type Theme } from '@/stores/themeStore';
 import { useAuthStore } from '@/stores/authStore';
 import { apiClient } from '@/api/client';
 import { queryClient } from '@/lib/queryClient';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useProjectId } from '@/hooks/useProjectId';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import { KeyboardShortcutsModal } from './KeyboardShortcutsModal';
-
-// ---------------------------------------------------------------------------
-// Theme pill SVG icons — extracted from TopBar.tsx THEME_BUTTONS
-// ---------------------------------------------------------------------------
-
-function SunIcon() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <circle cx="12" cy="12" r="4" />
-      <line x1="12" y1="2" x2="12" y2="4" />
-      <line x1="12" y1="20" x2="12" y2="22" />
-      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
-      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-      <line x1="2" y1="12" x2="4" y2="12" />
-      <line x1="20" y1="12" x2="22" y2="12" />
-      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
-      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
-    </svg>
-  );
-}
-
-function MonitorIcon() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <rect x="2" y="3" width="20" height="14" rx="2" />
-      <line x1="8" y1="21" x2="16" y2="21" />
-      <line x1="12" y1="17" x2="12" y2="21" />
-    </svg>
-  );
-}
-
-function MoonIcon() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-    </svg>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Theme pill — shared between desktop dropdown and mobile bottom sheet
-// ---------------------------------------------------------------------------
-
-const THEME_OPTIONS: { value: Theme; label: string; icon: ReactNode }[] = [
-  { value: 'light', label: 'Light mode', icon: <SunIcon /> },
-  { value: 'auto', label: 'Auto (system) mode', icon: <MonitorIcon /> },
-  { value: 'dark', label: 'Dark mode', icon: <MoonIcon /> },
-];
-
-interface ThemePillProps {
-  theme: Theme;
-  onSetTheme: (t: Theme) => void;
-}
-
-function ThemePill({ theme, onSetTheme }: ThemePillProps) {
-  return (
-    <div
-      role="group"
-      aria-label="Color scheme"
-      className="flex items-center border border-neutral-border rounded"
-    >
-      {THEME_OPTIONS.map(({ value, label, icon }, i) => (
-        <button
-          key={value}
-          type="button"
-          onClick={() => onSetTheme(value)}
-          aria-pressed={theme === value}
-          aria-label={label}
-          className={[
-            'h-7 w-7 flex items-center justify-center text-xs',
-            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-            i === 0 ? 'rounded-l' : '',
-            i === THEME_OPTIONS.length - 1 ? 'rounded-r' : 'border-r border-neutral-border',
-            theme === value
-              ? 'bg-neutral-surface-sunken text-neutral-text-primary'
-              : 'text-neutral-text-secondary hover:text-neutral-text-primary hover:bg-neutral-surface-raised',
-          ].join(' ')}
-        >
-          {icon}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Menu content — shared between desktop dropdown and mobile bottom sheet
@@ -131,8 +17,6 @@ interface MenuContentProps {
   initials: string | undefined;
   displayName: string | undefined;
   email: string | undefined;
-  theme: Theme;
-  onSetTheme: (t: Theme) => void;
   onSignOut: () => void;
   onOpenShortcuts: () => void;
   onClose: () => void;
@@ -146,8 +30,6 @@ function MenuContent({
   initials,
   displayName,
   email,
-  theme,
-  onSetTheme,
   onSignOut,
   onOpenShortcuts,
   onClose,
@@ -187,7 +69,7 @@ function MenuContent({
       {/* Theme row */}
       <div className={`${rowBase} justify-between`}>
         <span className="text-sm text-neutral-text-primary">Theme</span>
-        <ThemePill theme={theme} onSetTheme={onSetTheme} />
+        <ThemeToggle />
       </div>
 
       {/* My Work — cross-project contributor surface (#499, ADR-0065 Gap 2).
@@ -317,8 +199,6 @@ export function UserMenu() {
 
   const { user, isLoading } = useCurrentUser();
   const projectId = useProjectId();
-  const theme = useThemeStore((s) => s.theme);
-  const setTheme = useThemeStore((s) => s.setTheme);
   const clearTokens = useAuthStore((s) => s.clearTokens);
 
   function close() {
@@ -376,8 +256,6 @@ export function UserMenu() {
     initials: user?.initials,
     displayName: user?.display_name,
     email: user?.email,
-    theme,
-    onSetTheme: setTheme,
     onSignOut: handleSignOut,
     onOpenShortcuts: () => setShowShortcuts(true),
     onClose: close,

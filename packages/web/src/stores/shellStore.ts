@@ -78,7 +78,11 @@ export const useShellStore = create<ShellState>()((set) => ({
     }),
 }));
 
-/** Derived selector — use instead of re-deriving at call sites. v2 rail is 248px. */
-export function selectSidebarWidth(state: ShellState): 60 | 248 {
-  return state.sidebarCollapsed ? 60 : 248;
+/**
+ * Derived rail width. v2 rail is 248px expanded; collapsing now fully HIDES it
+ * (0px, "hide-to-context-bar" per ADR-0127) — the re-open ≡ lives in the context
+ * bar, with ⌘K as the jump-to power-nav. This supersedes the old 60px icon rail.
+ */
+export function selectSidebarWidth(state: ShellState): 0 | 248 {
+  return state.sidebarCollapsed ? 0 : 248;
 }

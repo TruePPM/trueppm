@@ -43,8 +43,8 @@ describe('selectSidebarWidth', () => {
     useShellStore.setState(state);
   });
 
-  it('returns 60 when collapsed', () => {
+  it('returns 0 when collapsed (hide-to-context-bar, ADR-0127)', () => {
     useShellStore.setState({ sidebarCollapsed: true });
-    expect(selectSidebarWidth(useShellStore.getState())).toBe(60);
+    expect(selectSidebarWidth(useShellStore.getState())).toBe(0);
   });
 });
