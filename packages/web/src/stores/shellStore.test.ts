@@ -36,10 +36,10 @@ describe('useShellStore', () => {
 });
 
 describe('selectSidebarWidth', () => {
-  it('returns 220 when expanded', () => {
+  it('returns 248 when expanded', () => {
     const state = useShellStore.getState();
     useShellStore.setState({ sidebarCollapsed: false });
-    expect(selectSidebarWidth(useShellStore.getState())).toBe(220);
+    expect(selectSidebarWidth(useShellStore.getState())).toBe(248);
     useShellStore.setState(state);
   });
 

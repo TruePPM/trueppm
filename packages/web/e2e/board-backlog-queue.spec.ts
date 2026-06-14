@@ -133,7 +133,10 @@ test.describe('Board queue layout (epic #361 child D, issue #384)', () => {
     await expect(page.getByTestId('backlog-band')).toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId('queue-layout')).toHaveCount(0);
 
-    await page.getByRole('button', { name: 'Queue' }).click();
+    await page
+      .getByRole('toolbar', { name: 'Board toolbar' })
+      .getByRole('button', { name: 'Queue', exact: true })
+      .click();
 
     await expect(page.getByTestId('queue-layout')).toBeVisible();
     // Rail and drawer are not mounted while queue is active. Phase-grid lane
@@ -152,7 +155,10 @@ test.describe('Board queue layout (epic #361 child D, issue #384)', () => {
       RECENTLY_DONE_TASK,
     ]);
     await page.goto(`${BASE_URL}/board`);
-    await page.getByRole('button', { name: 'Queue' }).click();
+    await page
+      .getByRole('toolbar', { name: 'Board toolbar' })
+      .getByRole('button', { name: 'Queue', exact: true })
+      .click();
 
     await expect(page.getByTestId('queue-group-nextUp')).toBeVisible();
     await expect(page.getByTestId('queue-group-inFlight')).toBeVisible();
@@ -169,7 +175,10 @@ test.describe('Board queue layout (epic #361 child D, issue #384)', () => {
   test('renders task names in the right groups, including the BACKLOG row', async ({ page }) => {
     await setup(page, [SUMMARY_TASK, NEXT_UP_TASK, BACKLOG_TASK]);
     await page.goto(`${BASE_URL}/board`);
-    await page.getByRole('button', { name: 'Queue' }).click();
+    await page
+      .getByRole('toolbar', { name: 'Board toolbar' })
+      .getByRole('button', { name: 'Queue', exact: true })
+      .click();
 
     const nextUp = page.getByTestId('queue-group-nextUp');
     await expect(nextUp.getByText('Stakeholder interviews')).toBeVisible();
