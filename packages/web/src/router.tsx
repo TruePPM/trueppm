@@ -17,6 +17,9 @@ const ProjectOverviewPage = lazy(() =>
 const ScheduleView = lazy(() =>
   import('@/features/schedule/ScheduleView').then((m) => ({ default: m.ScheduleView })),
 );
+const TaskDetailPage = lazy(() =>
+  import('@/features/schedule/TaskDetailPage').then((m) => ({ default: m.TaskDetailPage })),
+);
 const GridView = lazy(() =>
   import('@/features/grid/GridView').then((m) => ({ default: m.GridView })),
 );
@@ -374,6 +377,15 @@ export const router = createBrowserRouter([
                 element: (
                   <Suspense fallback={<RouteLoadingFallback />}>
                     <GridView />
+                  </Suspense>
+                ),
+              },
+              {
+                // Expand-to-full-page focus view of a single task (handoff #13).
+                path: 'tasks/:taskId',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <TaskDetailPage />
                   </Suspense>
                 ),
               },

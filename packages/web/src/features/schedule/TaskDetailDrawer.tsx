@@ -13,6 +13,7 @@ import {
   type DrawerSectionRegistration,
   type DrawerSectionTab,
 } from '@/lib/widget-registry';
+import { useNavigate } from 'react-router';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useUpdateTask } from '@/hooks/useTaskMutations';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
@@ -146,6 +147,16 @@ export function TaskDetailDrawer({
     onClose();
   }, [flush, onClose]);
 
+  // Expand → the full-page focus view of this task (ADR-0124 / handoff #13).
+  // Flush the deferred edit first, navigate, then close the drawer.
+  const navigate = useNavigate();
+  const handleExpand = useCallback(() => {
+    if (!task) return;
+    flush();
+    void navigate(`/projects/${projectId}/tasks/${task.id}`);
+    onClose();
+  }, [task, projectId, flush, navigate, onClose]);
+
   const changeTab = useCallback(
     (next: DrawerSectionTab) => {
       flush();
@@ -253,6 +264,7 @@ export function TaskDetailDrawer({
       drawerTitle={drawerTitle}
       closeButtonRef={closeButtonRef}
       onClose={handleClose}
+      onExpand={handleExpand}
       tabs={visibleTabs}
       activeTab={activeTab}
       onTabChange={changeTab}
@@ -331,6 +343,7 @@ interface DrawerContentProps {
   drawerTitle: string;
   closeButtonRef: RefObject<HTMLButtonElement | null>;
   onClose: () => void;
+  onExpand: () => void;
   tabs: ReadonlyArray<{ id: DrawerSectionTab; label: string }>;
   activeTab: DrawerSectionTab;
   onTabChange: (tab: DrawerSectionTab) => void;
@@ -359,6 +372,7 @@ function DrawerContent({
   drawerTitle,
   closeButtonRef,
   onClose,
+  onExpand,
   tabs,
   activeTab,
   onTabChange,
@@ -411,6 +425,25 @@ function DrawerContent({
             </span>
           )}
           <div className="flex-1" />
+          <button
+            type="button"
+            onClick={onExpand}
+            aria-label="Expand to full page"
+            title="Expand to full page"
+            className="w-11 h-11 flex items-center justify-center rounded text-neutral-text-secondary
+              hover:text-neutral-text-primary hover:bg-neutral-surface-raised
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          >
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path
+                d="M6 2H2v4M10 2h4v4M6 14H2v-4M10 14h4v-4"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
           <button
             ref={closeButtonRef}
             type="button"
@@ -640,7 +673,7 @@ function DescriptionField({
  * tab passes `firstOpen={false}` because its primary content (Overview) is
  * rendered curated above these secondary accordions.
  */
-function SectionList({
+export function SectionList({
   sections,
   taskId,
   projectId,
