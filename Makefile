@@ -63,8 +63,9 @@ lint-scheduler: ## Lint packages/scheduler (ruff)
 lint-api: ## Lint packages/api (ruff)
 	cd packages/api && ruff check src/ tests/ && ruff format --check src/ tests/
 
-lint-web: ## Lint packages/web (eslint)
+lint-web: ## Lint packages/web (eslint + design-system v2 gate)
 	cd packages/web && npm run lint
+	bash scripts/check-design-system-v2.sh
 
 # ─── Type-check ───────────────────────────────────────────────────────────────
 typecheck: typecheck-scheduler typecheck-api typecheck-web ## Type-check all packages

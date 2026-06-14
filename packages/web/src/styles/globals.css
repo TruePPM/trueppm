@@ -14,7 +14,11 @@
   html, body {
     font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
     color: theme('colors.neutral.text-primary');
-    background-color: rgb(var(--neutral-surface));
+    /* Warm-paper canvas (design-system v2, ADR-0126): the app sits on warm
+       paper, not cool grey or white — the deliberate antidote to "sterile".
+       Cards (`bg-neutral-surface` = white) pop against it. Was the white
+       `--neutral-surface`; now a distinct canvas token so cards stay white. */
+    background-color: rgb(var(--app-canvas));
   }
 
   /* ── Neutral content surface tokens ───────────────────────────────────────
@@ -23,10 +27,14 @@
      Light values match the hex literals previously in tailwind.config.ts.
      Dark values from the high-res mockup design (mockups.html, issue #163).   */
   :root {
-    --neutral-surface:         255 255 255;   /* #FFFFFF */
-    --neutral-surface-raised:  245 245 240;   /* #F5F5F0 */
-    --neutral-surface-sunken:  235 235 235;   /* #EBEBEB */
-    --neutral-border:          212 210 206;   /* #D4D2CE */
+    /* Warm-paper neutrals (design-system v2, ADR-0126). Cards stay white and
+       pop against the warm `--app-canvas`; raised/sunken/border warmed from the
+       old cool greys to the golden paper/line tones. Navy ink keeps ~12:1. */
+    --app-canvas:              242 238 229;   /* #F2EEE5 — paper-2: the app canvas */
+    --neutral-surface:         255 255 255;   /* #FFFFFF — card (raised over paper) */
+    --neutral-surface-raised:  250 248 243;   /* #FAF8F3 — paper (was cool #F5F5F0) */
+    --neutral-surface-sunken:  234 229 217;   /* #EAE5D9 — paper-3 (warm, was #EBEBEB) */
+    --neutral-border:          230 225 214;   /* #E6E1D6 — line (warm, was #D4D2CE) */
     --neutral-text-primary:    27 42 74;      /* #1B2A4A — navy ink (brand v1.0); ~12.6:1 on white */
     --neutral-text-secondary:  107 105 101;   /* #6B6965 — 4.63:1 on white */
     --neutral-text-disabled:   160 157 153;   /* #A09D99 */
@@ -34,6 +42,9 @@
   }
 
   .dark {
+    /* Dark navy family already matches the v2 golden values (ADR-0126):
+       canvas #0E1626, surface #15223C, card #1B2A4A. */
+    --app-canvas:              14 22 38;      /* #0E1626 — paper (darkest): the canvas */
     --neutral-surface:         21 34 60;      /* #15223C — navy-800 (brand dark surface) */
     --neutral-surface-raised:  27 42 74;      /* #1B2A4A — navy-700 */
     --neutral-surface-sunken:  11 18 32;      /* #0B1220 */
@@ -48,7 +59,8 @@
      `brand-primary` is the action/affordance token. It maps to the brand's
      prescribed FOREGROUND/ring sage shade so every existing text-/border-/
      ring-/bg-brand-primary usage (incl. /N alpha forms) stays WCAG AA after the
-     swap: sage-600 #3E8C6D on white = 4.6:1 (brand-tested). Dark reverses to
+     swap: sage-700 #316F57 on white = 5.93:1 (see the :root override below —
+     sage-600's 4.06:1 fails AA for text). Dark reverses to
      sage-400 #66B998 ("sage holds in both modes"). Vivid sage-500 FILLS (with
      navy text) are an explicit recipe applied to primary buttons in Stage 3,
      not this token. brand-accent (amber) stays static in tailwind.config.ts.   */
@@ -118,7 +130,7 @@
     --chrome-text-primary:        26 25 23;      /* #1A1917 — 16.1:1 on chrome-surface */
     --chrome-text-secondary:      107 105 101;   /* #6B6965 — 4.63:1 on chrome-surface */
     --chrome-row-hover:           rgba(0, 0, 0, 0.04);
-    --chrome-row-active:          rgba(62, 140, 109, 0.10);  /* brand-primary (sage-600) at 10% */
+    --chrome-row-active:          rgba(62, 140, 109, 0.10);  /* sage-600 #3E8C6D tint at 10% (fill, not the brand-primary text token) */
     --chrome-grid:                rgba(0, 0, 0, 0.06);
   }
 
@@ -157,7 +169,7 @@
      Dark-mode values use the same hues at slightly higher lightness so they
      remain legible against dark surfaces without blowing out to pastel.     */
   :root {
-    --avatar-color-0: #3E8C6D;  /* brand-primary (sage-600) */
+    --avatar-color-0: #3E8C6D;  /* sage-600 (fill) */
     --avatar-color-1: #2563EB;  /* blue-600 */
     --avatar-color-2: #9333EA;  /* purple-600 */
     --avatar-color-3: #D97706;  /* amber-600 */
@@ -168,7 +180,7 @@
   }
 
   .dark {
-    --avatar-color-0: #66B998;  /* brand-primary (sage-400) */
+    --avatar-color-0: #66B998;  /* sage-400 (fill, dark) */
     --avatar-color-1: #60A5FA;  /* blue-400 */
     --avatar-color-2: #C084FC;  /* purple-400 */
     --avatar-color-3: #FCD34D;  /* amber-300 */
@@ -176,6 +188,50 @@
     --avatar-color-5: #34D399;  /* emerald-400 */
     --avatar-color-6: #22D3EE;  /* cyan-400 */
     --avatar-color-7: #FB923C;  /* orange-400 */
+  }
+
+  /* ── v2 golden tokens (design-system v2, ADR-0126) ────────────────────────
+     The canonical handoff values (design_handoff_trueppm_v2/03-theming-and-
+     tokens.md), exposed verbatim as named aliases for NEW v2 components that
+     recreate the prototype pixel-faithfully. Existing components keep consuming
+     the semantic tokens above (re-pointed to the same warm-paper family), so
+     nothing churns. `--sage` is the brand FILL/accent identity (#3E8C6D); for
+     normal-weight TEXT use `--brand-primary` (sage-700) which is AA — sage-600
+     is only 4.06:1 on white and must not be used for body text (see ADR-0126
+     §Accessibility). Borders separate; shadow is reserved for pop surfaces.   */
+  :root {
+    --paper:    #FAF8F3;  --paper-2:  #F2EEE5;  --paper-3:  #EAE5D9;  --card: #FFFFFF;
+    --ink:      #1B2A4A;  --ink-2:    #3A4658;  --mute:     #6B7585;  --faint: #9AA4B2;
+    --line:     #E6E1D6;  --line-2:   #D8D2C4;
+    --sage:     #3E8C6D;  --sage-d:   #316F57;  --sage-l:   #D3ECE0;  --sage-2: #66B998;
+    --navy:     #1B2A4A;
+    --amber:    #DE9326;  --amber-d:  #9C6614;  --amber-l:  #FBF0DC;
+    --crit:     #CF4438;  --crit-d:   #A8352B;  --crit-l:   #FBE6E4;
+    --info:     #2F6FD1;  --info-l:   #E5EEFB;  --violet:   #6D4AC4;  --agile: #6D4AC4;
+
+    /* radius · elevation · motion (golden) */
+    --r-card: 12px;  --r-control: 8px;  --r-chip: 6px;  --r-pill: 9999px;
+    --shadow-card: 0 1px 0 rgba(20,25,33,.02), 0 1px 2px rgba(20,25,33,.04);
+    --shadow-pop:  0 1px 2px rgba(20,25,33,.05), 0 14px 36px -12px rgba(20,25,33,.24);
+    --ease: cubic-bezier(.2,.7,.2,1);
+    --dur-1: 120ms;  --dur-2: 200ms;  --dur-3: 320ms;
+
+    /* fonts (golden roles) */
+    --f-display: 'Space Grotesk', system-ui, sans-serif;
+    --f-body:    'Inter', system-ui, sans-serif;
+    --f-mono:    'JetBrains Mono', ui-monospace, monospace;
+  }
+
+  .dark {
+    --paper:    #0E1626;  --paper-2:  #15223C;  --paper-3:  #0B1220;  --card: #1B2A4A;
+    --ink:      #E9EDF3;  --ink-2:    #B8C2D4;  --mute:     #9BAAC6;  --faint: #6E7E9A;
+    --line:     #2A3A57;  --line-2:   #3A4D70;
+    --sage:     #66B998;  --sage-d:   #4FA884;  --sage-l:   rgba(102,185,152,.16);  --sage-2: #84CBAC;
+    --amber:    #E9B35A;  --amber-d:  #E9B35A;  --amber-l:  rgba(233,179,90,.16);
+    --crit:     #E8645A;  --crit-d:   #E8645A;  --crit-l:   rgba(232,100,90,.16);
+    --info:     #6FA0E8;  --info-l:   rgba(111,160,232,.16);
+    --shadow-card: 0 1px 0 rgba(0,0,0,.25), 0 1px 2px rgba(0,0,0,.35);
+    --shadow-pop:  0 1px 2px rgba(0,0,0,.4),  0 14px 36px -12px rgba(0,0,0,.6);
   }
 }
 
