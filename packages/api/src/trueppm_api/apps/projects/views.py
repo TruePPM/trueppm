@@ -116,7 +116,6 @@ from trueppm_api.apps.projects.serializers import (
     MilestoneListItemSerializer,
     MilestoneRollupLockedError,
     PhaseSerializer,
-    PlannedStartBeforeProjectStartError,
     ProgressAnchorError,
     ProjectApiTokenCreateSerializer,
     ProjectApiTokenSerializer,
@@ -1694,32 +1693,6 @@ def _summarize_api_tokens(scope_filter: Q) -> dict[str, Any]:
     }
 
 
-def _planned_start_before_project_start_body(
-    exc: PlannedStartBeforeProjectStartError,
-) -> dict[str, str]:
-    """Structured 400 body for the project-start floor guard (#868, ADR-0055).
-
-    Carries two dates (#884):
-      - ``project_start_date``: the literal project start (the "project starts
-        on …" copy in the dialog header).
-      - ``effective_floor_date``: the first working day on or after the start —
-        the date the CPM engine actually floors at, and the date "snap to
-        project start" must target so the snap clears the guard. Equal to
-        ``project_start_date`` when the start is already a working day.
-    The detail string quotes the effective floor, since that is the date the
-    user must satisfy.
-    """
-    start_iso = exc.project_start_date.isoformat()
-    floor_iso = exc.effective_floor_date.isoformat()
-    return {
-        "code": "planned_start_before_project_start",
-        "detail": f"A task cannot be scheduled before the project start date ({floor_iso}).",
-        "suggested_action": "snap_to_project_start",
-        "project_start_date": start_iso,
-        "effective_floor_date": floor_iso,
-    }
-
-
 def annotate_tasks_queryset(
     qs: QuerySet[Task],
     request: Request | None = None,
@@ -2335,6 +2308,13 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "task_created", {"id": task_id})
         )
+        # #867: a new task placed before the project start pulled the boundary
+        # earlier (auto-shift in TaskSerializer.create). Broadcast the project
+        # change in the same on_commit batch so collaborators re-fetch the start.
+        if getattr(instance, "_project_start_shifted_from", None) is not None:
+            transaction.on_commit(
+                lambda: broadcast_board_event(project_id, "project_updated", {"id": project_id})
+            )
         if is_subtask and parent is not None:
             parent_id_str = str(parent.pk)
             transaction.on_commit(
@@ -2411,6 +2391,13 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "task_updated", {"id": task_id})
         )
+        # #867: this edit pulled the project start earlier (auto-shift in
+        # TaskSerializer.update). Broadcast the project change in the same batch
+        # so collaborators re-fetch the new boundary alongside the task update.
+        if getattr(instance, "_project_start_shifted_from", None) is not None:
+            transaction.on_commit(
+                lambda: broadcast_board_event(project_id, "project_updated", {"id": project_id})
+            )
         # Capture the calling surface from X-Source header so downstream consumers
         # (webhooks, future audit views) can distinguish a status flip from /me/work
         # vs the schedule canvas vs the board — Morgan's sprint-sovereignty concern
@@ -2601,11 +2588,6 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        except PlannedStartBeforeProjectStartError as exc:
-            return Response(
-                _planned_start_before_project_start_body(exc),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
         except GuardrailBlockedError as exc:
             return Response(
                 {
@@ -2629,18 +2611,6 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
                 {"rule": rule, "detail": GUARDRAIL_WARNING_COPY.get(rule, "")} for rule in tripped
             ]
         return response
-
-    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        # The project-start floor (#868) fires on create too — the "+ Task" form
-        # can carry a planned_start before the project start. Convert it to the
-        # same structured 400 the update path returns instead of a bare 500.
-        try:
-            return super().create(request, *args, **kwargs)
-        except PlannedStartBeforeProjectStartError as exc:
-            return Response(
-                _planned_start_before_project_start_body(exc),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
 
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return self._handle_task_write(super().update, request, *args, **kwargs)
@@ -4248,6 +4218,9 @@ class TaskBulkView(IdempotencyMixin, APIView):
         # silently-wrong default — O(N) extra queries on this hot write path.
         created_ids: list[uuid.UUID] = []
         updated_ids: list[uuid.UUID] = []
+        # #867: track whether any create/update pulled the project start earlier
+        # so a single project_updated event rides the bulk on_commit batch.
+        project_start_shifted = False
 
         # Fetch the caller's role once for the delete permission check below.
         # delete mirrors IsProjectMemberWriteOrOwn: Admin+ or task assignee.
@@ -4285,13 +4258,10 @@ class TaskBulkView(IdempotencyMixin, APIView):
                             },
                             status=status.HTTP_400_BAD_REQUEST,
                         )
-                    except PlannedStartBeforeProjectStartError as exc:
-                        return Response(
-                            _planned_start_before_project_start_body(exc),
-                            status=status.HTTP_400_BAD_REQUEST,
-                        )
                     task = task_serializer.save()
                     created_ids.append(task.pk)
+                    if getattr(task, "_project_start_shifted_from", None) is not None:
+                        project_start_shifted = True
 
                 elif op_type == "update":
                     task = locked_tasks[op["id"]]
@@ -4328,16 +4298,10 @@ class TaskBulkView(IdempotencyMixin, APIView):
                             },
                             status=status.HTTP_400_BAD_REQUEST,
                         )
-                    except PlannedStartBeforeProjectStartError as exc:
-                        return Response(
-                            {
-                                **_planned_start_before_project_start_body(exc),
-                                "task_id": str(op["id"]),
-                            },
-                            status=status.HTTP_400_BAD_REQUEST,
-                        )
                     task = task_serializer.save()
                     updated_ids.append(task.pk)
+                    if getattr(task, "_project_start_shifted_from", None) is not None:
+                        project_start_shifted = True
 
                 elif op_type == "delete":
                     task = locked_tasks[op["id"]]
@@ -4361,6 +4325,12 @@ class TaskBulkView(IdempotencyMixin, APIView):
             transaction.on_commit(
                 lambda: broadcast_board_event(project_id, "tasks_bulk_mutated", {})
             )
+            # #867: a bulk op pulled the project start earlier — collaborators
+            # must re-fetch the boundary, which tasks_bulk_mutated doesn't carry.
+            if project_start_shifted:
+                transaction.on_commit(
+                    lambda: broadcast_board_event(project_id, "project_updated", {"id": project_id})
+                )
 
         # #998: one annotated batch fetch for every created/updated task, instead
         # of serializing bare instances inside the loop. Runs after the atomic

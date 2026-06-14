@@ -99,13 +99,11 @@ Three ways to zoom:
 
 ## Scheduling before the project start
 
-The project start date is the floor for the schedule: the critical-path engine never plans a task to begin before it. If you drag or type a task to a date earlier than the project start, TruePPM doesn't silently snap it back — it asks what you meant:
+The project start date is the floor for the schedule: the critical-path engine never plans a task to begin before it. But the floor is elastic in the *earlier* direction. When you place a task on a date before the project start — by typing a date, creating the task, importing from MS Project, or writing through the API — TruePPM keeps the floor honest by **pulling the project start back to fit the task**, in the same change. The task lands where you put it, and the project boundary follows; nothing is silently clamped or discarded.
 
-- **Snap to project start** moves the task to the project start date.
-- **Move project start** shifts the project's start date earlier to fit the task. This is a project-configuration change, so it's available only to a **Project Manager or Project Admin**; other roles see the snap and cancel options and can ask an admin to move the start.
-- **Cancel** leaves everything where it was.
+Only the earlier direction is automatic. Moving the project start *later* (past tasks that already begin before the new date) stays a deliberate Project Settings edit. Pulling the start earlier to fit a task needs only the permission to edit that task — the project boundary is treated as a derived artifact of its tasks — so it isn't gated behind project administration, and collaborators see the new start update in real time.
 
-The same floor is enforced by the API, so an integration that writes task dates directly can't push a task before the project start either.
+Because this lives at the API layer, every write path behaves the same way, including integrations and imports that set task dates directly.
 
 ## Promote a backlog idea onto the schedule
 

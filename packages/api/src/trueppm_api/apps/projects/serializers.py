@@ -1400,28 +1400,13 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                     }
                 )
 
-        # Project-start floor guard (#868): a task may not be pinned to start
-        # before the project's start_date. The CPM already clamps early_start to
-        # the project start, so persisting a sub-start planned_start is a "ghost"
-        # value that silently re-activates if the project start later moves
-        # earlier. Reject it at the API boundary with a structured code the
-        # frontend maps to its snap/move/cancel prompt. No role exemption — the
-        # supported escape is moving the project start date (Admin+-gated on the
-        # Project serializer), not bypassing the floor per task.
-        new_planned_start = attrs.get("planned_start")
-        if "planned_start" in attrs and new_planned_start is not None:
-            project = self.instance.project if self.instance is not None else attrs.get("project")
-            if project is not None:
-                # Compare against the first working day >= start_date, not the
-                # literal start_date (#884): the CPM forward pass floors
-                # early_start there, so a planned_start on a non-working start
-                # date (e.g. a Saturday) is a ghost value, and "snap to project
-                # start" must target the working-day floor to actually clear.
-                from trueppm_api.apps.projects.utilization import first_working_day
-
-                floor = first_working_day(project)
-                if new_planned_start < floor:
-                    raise PlannedStartBeforeProjectStartError(project.start_date, floor)
+        # Project-start floor (#867, supersedes the #868 rejection): a
+        # planned_start earlier than the project start is no longer rejected
+        # here. The earlier direction auto-shifts the project boundary back to
+        # the task (``shift_project_start_if_needed`` in create()/update()), so
+        # the task is never a sub-start ghost value and the CPM "no task before
+        # project start" invariant holds because the project start moved. The
+        # shift is a side effect, so it runs at save time, not in validate().
 
         self._validate_product_backlog(attrs)
 
@@ -1883,6 +1868,27 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                 data.pop("blocked_reason", None)
         return data
 
+    def create(self, validated_data: dict[str, Any]) -> Task:
+        """Create the task, auto-shifting the project start earlier when needed.
+
+        #867: when the new task's ``planned_start`` precedes the project start,
+        the project boundary is pulled back to it in the same transaction as the
+        insert (``shift_project_start_if_needed``) so a sub-start task never
+        persists as a ghost value. The prior start is stashed on the returned
+        instance so the viewset can broadcast the project change.
+        """
+        project = validated_data.get("project")
+        candidate = validated_data.get("planned_start")
+        instance = super().create(validated_data)
+        if project is not None and candidate is not None:
+            from trueppm_api.apps.projects.services import shift_project_start_if_needed
+
+            shifted_from = shift_project_start_if_needed(project, candidate)
+            if shifted_from is not None:
+                # Dynamic marker the viewset reads to broadcast project_updated.
+                instance._project_start_shifted_from = shifted_from  # type: ignore[attr-defined]
+        return instance
+
     def update(self, instance: Task, validated_data: dict[str, Any]) -> Task:
         """Auto-set actual dates on status transitions and enforce estimate governance.
 
@@ -1913,6 +1919,21 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         - estimate_status is never set by this method to 'accepted' — that path goes
           through the dedicated approve-estimates action on TaskViewSet.
         """
+        # #867 auto-shift: a planned_start earlier than the project boundary
+        # pulls the project start back to it (same transaction as this write)
+        # rather than rejecting or clamping. The prior start is stashed on the
+        # instance so the viewset can broadcast project_updated and the UI can
+        # offer an undo.
+        if "planned_start" in validated_data and validated_data["planned_start"] is not None:
+            from trueppm_api.apps.projects.services import shift_project_start_if_needed
+
+            shifted_from = shift_project_start_if_needed(
+                instance.project, validated_data["planned_start"]
+            )
+            if shifted_from is not None:
+                # Dynamic marker the viewset reads to broadcast project_updated.
+                instance._project_start_shifted_from = shifted_from  # type: ignore[attr-defined]
+
         if (
             "planned_start" in validated_data
             and validated_data["planned_start"] != instance.planned_start
@@ -2220,40 +2241,6 @@ class MilestoneRollupLockedError(Exception):
     """
 
     pass
-
-
-class PlannedStartBeforeProjectStartError(Exception):
-    """Raised by ``TaskSerializer.validate`` when ``planned_start`` precedes the
-    project's ``start_date`` (#868).
-
-    The CPM forward pass already clamps ``early_start`` to the project start
-    (``engine.py`` ``early_start = max([project_start, ...])``), so a persisted
-    sub-start ``planned_start`` is a ghost value: invisible while the project
-    start sits after it, but silently re-activating if the project start is
-    later moved earlier. Rejecting it at the API boundary keeps ``planned_start``
-    honest for every consumer, not just the web client (API-first).
-
-    No role exemption — the supported escape is to move the project's
-    ``start_date`` (a separate, Admin+-gated ``ProjectSerializer`` write), which
-    the frontend offers alongside "snap to project start" when the prompt fires.
-    The true relax-the-floor override is tracked separately (#867, ADR-gated).
-
-    Bypasses DRF's :class:`serializers.ValidationError` like
-    :class:`CycleDetectedError` so the frontend receives a structured
-    ``{"code", "detail", "suggested_action", "project_start_date",
-    "effective_floor_date"}`` body it can map to the snap/move/cancel prompt
-    (ADR-0055).
-
-    ``effective_floor_date`` is the first working day on or after the project
-    start (#884): the CPM engine floors ``early_start`` there, so the guard
-    compares against it and the frontend snaps to it. ``project_start_date``
-    remains the literal start (for the "project starts on …" copy).
-    """
-
-    def __init__(self, project_start_date: date, effective_floor_date: date) -> None:
-        self.project_start_date = project_start_date
-        self.effective_floor_date = effective_floor_date
-        super().__init__("Task cannot be scheduled before the project start date.")
 
 
 class GuardrailBlockedError(Exception):
