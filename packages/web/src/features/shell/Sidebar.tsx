@@ -266,9 +266,9 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
 
           {/* Organization — org-level destinations. Resources catalog is OSS and
               always present (its icon persists in the collapsed rail, parity with
-              My Work / Inbox — #1176); Portfolio rollup is cross-program
-              (Enterprise, post-1.0) and only lights up when the edition has it
-              (rule 15). The group heading + Portfolio are expanded-only. */}
+              My Work / Inbox); Portfolio rollup is cross-program (Enterprise,
+              post-1.0) and only lights up when the edition has it (rule 15). The
+              group heading + Portfolio are expanded-only. */}
           {showFull && <h2 className={GROUP_LABEL}>Organization</h2>}
           <NavLink
             to="/resources"
