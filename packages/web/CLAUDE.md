@@ -2,6 +2,27 @@
 
 These rules are enforced at review time. Violations block merge.
 
+> ## ⭐ Design System v2 — the golden standard (ADR-0126)
+>
+> The canonical UI is the **v2 redesign** (`docs/design/v2-golden-standard.md`,
+> upstream `design_handoff_trueppm_v2/`). Every new screen, component, fix, and
+> feature must conform. Foundation tokens are in `globals.css` + `tailwind.config.ts`;
+> conformance is machine-checked by `scripts/check-design-system-v2.sh` (in `make lint`
+> / CI). Key invariants beyond the numbered rules below:
+> - **Warm-paper canvas:** page backgrounds use `bg-app-canvas` (warm `#F2EEE5`),
+>   cards use `bg-neutral-surface` (white) and pop against it. Never a cool-grey or
+>   pure-white app canvas.
+> - **Sage has two roles (ADR-0126 §3):** `--sage` `#3E8C6D` is the **fill/accent**
+>   (with navy or white text); normal-weight **text/border/ring** use
+>   `brand-primary` (sage-700, AA). sage-600 is 4.06:1 on white — never body text.
+> - **One status vocabulary:** a **dot** = health, a **pill/chip** = state; color is
+>   signal only, calm-neutral by default.
+> - **Borders over shadows:** `shadow-card`/`shadow-pop` are reserved for
+>   popover/drawer/modal/command-palette/toast (see rule 1).
+> - **Full Light/Dark/Auto** via the `.dark` token swap on `<html>` — never a dark
+>   sidebar on a light app.
+> Staged adoption of the remaining surfaces is tracked in epic #1163.
+
 ## Layout & Visual
 
 1. **No drop shadows anywhere** — use `border border-neutral-border` for separation instead of `shadow-*`
@@ -12,7 +33,7 @@ These rules are enforced at review time. Violations block merge.
 
 4. **Focus rings on all interactive elements**: `focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1`
    - On a **sage fill** (primary button, `bg-sage-500`): use `focus-visible:ring-navy-700 focus-visible:ring-offset-sage-500` (navy-on-sage 6.8:1).
-   - **No dark-mode override needed for `brand-primary` (ADR-0103).** `brand-primary` is now mode-aware sage — sage-600 #3E8C6D (light, 4.6:1) / sage-400 #66B998 (dark, ≥3:1) — so `ring-brand-primary` passes WCAG 1.4.11 in both modes. The old `dark:focus-visible:ring-semantic-on-track` escape hatch (for green #1C6B3A's 2.81:1 dark failure) is **retired** — do not reintroduce it.
+   - **No dark-mode override needed for `brand-primary` (ADR-0103/0125).** `brand-primary` is mode-aware sage — sage-**700** #316F57 (light, 5.93:1) / sage-400 #66B998 (dark, ≥3:1) — so `ring-brand-primary` passes WCAG 1.4.11 in both modes. (sage-600 #3E8C6D is only 4.06:1 on white — a fill/dot shade, never the foreground/ring token; see rule 143 and ADR-0126 §3.) The old `dark:focus-visible:ring-semantic-on-track` escape hatch (for green #1C6B3A's 2.81:1 dark failure) is **retired** — do not reintroduce it.
    - Never use `outline-none` without a visible replacement
 5. **Touch targets** — minimum 44×44px at all breakpoints
 6. **Color dots** (8px project color indicators) are always `aria-hidden="true"` — health state must also be conveyed via text or `aria-label`

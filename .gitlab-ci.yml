@@ -340,6 +340,22 @@ lint:todo-grep:
     - bash scripts/check-todo-grep.sh
     - bash scripts/check-todo-grep.sh --self-test
 
+lint:design-system-v2:
+  # Design System v2 conformance gate (ADR-0125). Blocks design drift: arbitrary
+  # Tailwind color/shadow value classes (zero tolerance) and new raw hex literals
+  # in component source (ratchet against a committed baseline). This is the
+  # enforcement that makes "all future work inherits the v2 golden standard" real.
+  # See docs/design/v2-golden-standard.md. ~2s.
+  stage: lint
+  image: alpine:latest
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+    - apk add --no-cache bash grep
+  script:
+    - bash scripts/check-design-system-v2.sh
+
 ci:build-api-image:
   # Rebuild and push the custom ci-api image used by the .api / .api-no-db
   # job templates. Pre-bakes libpq-dev + gcc + all dev-dep wheels so the

@@ -45,6 +45,10 @@ const config: Config = {
           800: '#275844', 900: '#1B3D2F',
         },
         reversed: '#E9EDF3',
+        // The warm-paper app canvas (design-system v2, ADR-0126). The body sits
+        // on this; cards (`bg-neutral-surface` = white) pop against it. Driven by
+        // --app-canvas in globals.css so .dark swaps it to the navy canvas.
+        'app-canvas': 'rgb(var(--app-canvas) / <alpha-value>)',
         // Neutral content surface tokens — driven by CSS custom properties in
         // globals.css so a single .dark class on <html> swaps all values.
         neutral: {
@@ -154,6 +158,20 @@ const config: Config = {
         xl: '12px',
         '2xl': '16px',
         full: '9999px',
+        // v2 golden semantic radii (ADR-0126): name the role, not the size.
+        card: '12px',
+        control: '8px',
+        chip: '6px',
+      },
+      // v2 golden elevation (ADR-0126): borders separate; shadow is reserved
+      // for pop surfaces (popover/drawer/modal/command palette/toast) only.
+      boxShadow: {
+        card: 'var(--shadow-card)',
+        pop: 'var(--shadow-pop)',
+      },
+      // v2 golden motion easing (ADR-0126). Durations are the dur-1/2/3 tokens.
+      transitionTimingFunction: {
+        brand: 'cubic-bezier(.2,.7,.2,1)',
       },
     },
   },
