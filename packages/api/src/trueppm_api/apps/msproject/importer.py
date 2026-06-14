@@ -61,6 +61,10 @@ def import_project(
         "tasks_with_three_point_estimates": 0,
         "tasks_skipped_partial_three_point": 0,
         "project_start_date": data.start_date,
+        # #873/#867: set True when an imported task predated the project start and
+        # the start was pulled back. The import task broadcasts project_updated so
+        # live collaborators on an existing project re-fetch the moved boundary.
+        "project_start_shifted": False,
         "warnings": list(data.warnings),
     }
     # Count tasks the parser warned about for partial PERT data; the warning
@@ -170,6 +174,25 @@ def import_project(
             short_id=f"{start_seq + i:08X}",
         )
         task_objects.append(task)
+
+    # #873/#867: pull the project start back to the earliest imported task start
+    # before persisting. The importer bulk_creates tasks, bypassing the
+    # TaskSerializer auto-shift, so a .mpp whose tasks predate the project start
+    # would otherwise persist sub-start "ghost" planned_starts the CPM clamps.
+    # Mirrors the interactive path: the project boundary is elastic earlier.
+    # ``td.start`` is an ISO date string (sorts chronologically), parsed to a
+    # date for the comparison/assignment the helper performs.
+    from datetime import date as _date
+
+    from trueppm_api.apps.projects.services import shift_project_start_if_needed
+
+    task_start_strs = [td.start for td in data.tasks if td.start]
+    if task_start_strs:
+        earliest_start = _date.fromisoformat(min(task_start_strs))
+        project = Project.objects.filter(pk=project_id).first()
+        if project is not None and shift_project_start_if_needed(project, earliest_start):
+            summary["project_start_date"] = project.start_date.isoformat()
+            summary["project_start_shifted"] = True
 
     Task.objects.bulk_create(task_objects)
     summary["tasks_created"] = len(task_objects)

@@ -539,6 +539,42 @@ class TestImporter:
         tasks = Task.objects.filter(project=project, is_deleted=False)
         assert tasks.count() == 2
 
+    def test_import_shifts_project_start_when_task_predates_it(self, project: Project) -> None:
+        """#873/#867: an imported task starting before the project start pulls the
+        project start back to it, so the bulk_create path never persists a
+        sub-start "ghost" planned_start (the serializer auto-shift is bypassed)."""
+        # project fixture starts 2026-01-05; this task starts earlier.
+        data = ProjectData(
+            tasks=[
+                TaskData(
+                    uid=1, name="Early", duration_days=2, outline_number="1", start="2025-12-20"
+                ),
+                TaskData(
+                    uid=2, name="Later", duration_days=2, outline_number="2", start="2026-02-01"
+                ),
+            ]
+        )
+        summary = import_project(str(project.pk), data)
+        project.refresh_from_db()
+        assert project.start_date == date(2025, 12, 20)
+        assert summary["project_start_date"] == "2025-12-20"
+        early = Task.objects.get(project=project, name="Early")
+        assert early.planned_start == date(2025, 12, 20)
+        assert early.planned_start >= project.start_date  # no ghost value
+
+    def test_import_does_not_shift_when_tasks_start_after_project_start(
+        self, project: Project
+    ) -> None:
+        """Tasks at or after the project start leave the boundary untouched."""
+        data = ProjectData(
+            tasks=[
+                TaskData(uid=1, name="A", duration_days=2, outline_number="1", start="2026-01-10"),
+            ]
+        )
+        import_project(str(project.pk), data)
+        project.refresh_from_db()
+        assert project.start_date == date(2026, 1, 5)  # unchanged
+
     def test_import_wbs_path(self, project: Project) -> None:
         data = ProjectData(
             tasks=[

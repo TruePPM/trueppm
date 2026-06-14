@@ -31,6 +31,41 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Project-start auto-shift (#867)
+# ---------------------------------------------------------------------------
+
+
+def shift_project_start_if_needed(project: Any, candidate_start: date | None) -> date | None:
+    """Pull a project's start date back to ``candidate_start`` when a task lands
+    before it (#867 auto-shift).
+
+    The CPM forward pass treats ``project.start_date`` as a hard floor
+    (``early_start = max(project_start, planned_start, …)``), so a
+    ``planned_start`` earlier than the project start would be a silent ghost
+    value the engine immediately clamps. Rather than reject the placement (the
+    prior #868 behavior) or clamp the task, the project boundary is elastic in
+    the *earlier* direction: the user's intent to put the task on a date is
+    honored and the project start follows. The engine invariant is untouched —
+    no task starts before the project start because the project start moved.
+
+    Only the earlier direction is automatic. Moving a project start *later* past
+    existing tasks stays a deliberate, separately-validated Project edit.
+
+    Mutates and saves ``project`` in the caller's transaction (bumping
+    ``server_version`` via ``VersionedModel.save`` so sync clients observe the
+    change, and recording a history row for audit) and returns the prior
+    ``start_date`` so the caller can broadcast the change / offer an undo.
+    Returns ``None`` when no shift was needed.
+    """
+    if candidate_start is None or candidate_start >= project.start_date:
+        return None
+    old_start: date = project.start_date
+    project.start_date = candidate_start
+    project.save(update_fields=["start_date"])
+    return old_start
+
+
+# ---------------------------------------------------------------------------
 # Program rollup config — methodology-aware defaults (ADR-0079, #527)
 # ---------------------------------------------------------------------------
 

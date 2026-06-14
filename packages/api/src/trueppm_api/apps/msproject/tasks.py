@@ -137,6 +137,17 @@ def import_msproject(
 
             enqueue_recalculate(project_id)
 
+        # #873/#867: an imported task that predated the project start pulled the
+        # start back (committed inside import_project). Broadcast project_updated
+        # so collaborators viewing an existing project re-fetch the new boundary
+        # — the recalc's cpm_complete event does not invalidate the project query.
+        # Fired directly (the Celery task context has no ambient transaction, so
+        # the importer's project.save has already committed).
+        if summary.get("project_start_shifted"):
+            from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+            broadcast_board_event(project_id, "project_updated", {"id": project_id})
+
     if import_request_id:
         _mark_import_done(import_request_id)
 
