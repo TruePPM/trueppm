@@ -86,6 +86,16 @@ MAX_CALENDAR_SCAN_DAYS = 366 * 100
 # representable range (an uncaught OverflowError). 1000 years is far beyond any
 # real program and keeps every walk bounded regardless of task count.
 MAX_PROJECT_SPAN_DAYS = 366 * 1000
+# Ceiling on the number of leaf-level edges produced when expanding summary↔summary
+# dependencies for cycle detection (#357). A summary→summary edge fans out to the
+# full cross product of the two summaries' leaves — len(L(pred)) * len(L(succ))
+# tuples — so a single top-of-WBS edge on a 5,000-leaf project can demand 6.25M
+# tuples before networkx ever runs, stalling every subsequent dep-create. Typical
+# projects never approach this (a 100k ceiling allows e.g. a 300-leaf → 300-leaf
+# edge); a graph that exceeds it is pathological or hostile and is rejected with an
+# actionable error rather than allowed to spin. The cost is checked from leaf
+# *counts* before any cross product is materialised, so the guard itself is cheap.
+MAX_EXPANDED_EDGES = 100_000
 
 
 # ---------------------------------------------------------------------------
@@ -340,7 +350,10 @@ def find_cycle(
         InvalidScheduleInput: If ``children_map`` itself is malformed — it
             contains a cycle (a summary that is its own ancestor) or a summary
             with an empty children list — distinct from a cycle in the
-            ``edges`` being validated, which is returned, not raised.
+            ``edges`` being validated, which is returned, not raised. Also
+            raised if expanding summary→summary edges would exceed
+            :data:`MAX_EXPANDED_EDGES` leaf-level tuples (a pathological cross
+            product); the graph is rejected rather than allowed to spin.
     """
     if children_map:
         edges = _expand_edges_for_cycle_check(edges, children_map)
@@ -370,13 +383,43 @@ def _expand_edges_for_cycle_check(
     if not summary_ids:
         return edges
     _check_children_map(children_map)
+
+    # Resolve each endpoint to its leaves once and cache it: an endpoint id can
+    # recur across many edges, and _collect_leaves walks the subtree each call.
+    leaves_cache: dict[str, list[str]] = {}
+
+    def _leaves(node_id: str) -> list[str]:
+        if node_id not in summary_ids:
+            return [node_id]
+        cached = leaves_cache.get(node_id)
+        if cached is None:
+            cached = _collect_leaves(node_id, children_map)
+            leaves_cache[node_id] = cached
+        return cached
+
+    # Bound the cross product from leaf *counts* before materialising a single
+    # tuple (#357). The worst case — a wide summary→summary edge — is O(P*S) per
+    # edge; summing the per-edge products up front lets us reject a pathological
+    # graph in O(edges + leaves) instead of after building millions of tuples (or
+    # timing out). The estimate is an upper bound (it ignores cross-edge dedup),
+    # which is the safe direction: we never under-count and let a blowup through.
+    estimated = 0
+    for pred_id, succ_id in edges:
+        estimated += len(_leaves(pred_id)) * len(_leaves(succ_id))
+        if estimated > MAX_EXPANDED_EDGES:
+            raise InvalidScheduleInput(
+                f"Cannot validate cycles: expanding summary dependencies to leaf "
+                f"level would exceed {MAX_EXPANDED_EDGES:,} edges. A summary→summary "
+                "dependency is fanning out to the cross product of both summaries' "
+                "leaves — simplify the structure (depend on specific leaf tasks, or "
+                "split the wide summary edge) and retry."
+            )
+
     seen: set[tuple[str, str]] = set()
     expanded: list[tuple[str, str]] = []
     for pred_id, succ_id in edges:
-        preds = _collect_leaves(pred_id, children_map) if pred_id in summary_ids else [pred_id]
-        succs = _collect_leaves(succ_id, children_map) if succ_id in summary_ids else [succ_id]
-        for p in preds:
-            for s in succs:
+        for p in _leaves(pred_id):
+            for s in _leaves(succ_id):
                 key = (p, s)
                 if key in seen:
                     continue
@@ -889,6 +932,15 @@ def schedule(project: Project) -> ScheduleResult:
 
     The original project is not mutated; a deep copy is made for computation.
 
+    Every task in ``project.tasks`` is placed in the network and scheduled. The
+    engine has no concept of a recurring or template task: recurrence is a domain
+    concern filtered out one layer up, at the API (per ADR-0090). Callers must
+    therefore exclude any task that should not occupy the schedule (e.g. a
+    recurring-task template) *before* calling — passing one in is not an error,
+    it is simply scheduled like any other task. Keeping this boundary explicit
+    stops a future contributor from "helpfully" teaching the engine about
+    recurrence and breaking the separation.
+
     Args:
         project: The project to schedule. Must have at least one task.
 
@@ -1091,6 +1143,16 @@ def monte_carlo(
 
     A mixed project (scrum subtree + waterfall tasks) therefore produces a single
     finish-date distribution combining both sources of uncertainty.
+
+    .. note::
+       The per-run sprint horizon of the velocity path is capped at
+       ``ceil(story_points / mean_velocity) * 4 + 10`` sprints; any run that has
+       not burned down by that horizon is clamped to it rather than sampled
+       further. This truncates the slow right tail, so for a team with extreme
+       throughput variance the velocity-driven P80/P95 is a (very loose) *lower*
+       bound on completion, not an unbiased estimate. The cap exists to keep a
+       pathological bootstrap path from spinning; it is far beyond any realistic
+       sprint count and does not affect typical teams.
 
     The CPM network is evaluated `runs` times with sampled durations.
     All 4 dependency types are handled, ``planned_start`` is honored as the

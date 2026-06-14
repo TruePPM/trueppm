@@ -123,6 +123,14 @@ class Task:
         pc = d.get("percent_complete")
         if pc is not None and not math.isfinite(float(pc)):
             raise ValueError("percent_complete must be a finite number.")
+        # from_json rejects NaN/Infinity at the JSON layer, but the from_dict path
+        # bypasses json.loads — without this an infinite story_points slips through
+        # parse and only blows up later as a bare OverflowError inside the velocity
+        # sampler (int(np.ceil(inf/mean))), bypassing the documented input contract
+        # (#1010). NaN is harmless (it fails the > 0 sampler gate); Infinity is not.
+        sp = d.get("story_points")
+        if sp is not None and not math.isfinite(float(sp)):
+            raise ValueError("story_points must be a finite number.")
         for f in (
             "planned_start",
             "planned_finish",
@@ -141,7 +149,17 @@ class Task:
             if d.get(f) is not None:
                 d[f] = _parse_timedelta(d[f])
         if d.get("delivery_mode") is not None:
-            d["delivery_mode"] = DeliveryMode(d["delivery_mode"])
+            # Same first-run-legibility treatment as dep_type (#947): name the
+            # field and list the allowed modes instead of a bare enum ValueError.
+            try:
+                d["delivery_mode"] = DeliveryMode(d["delivery_mode"])
+            except ValueError as err:
+                from trueppm_scheduler.engine import InvalidScheduleInput
+
+                allowed = ", ".join(m.value for m in DeliveryMode)
+                raise InvalidScheduleInput(
+                    f"Invalid delivery_mode {d['delivery_mode']!r}; must be one of: {allowed}."
+                ) from err
         return cls(**d)
 
 
@@ -164,10 +182,24 @@ class Dependency:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
+        # A bad dep_type would otherwise surface as Python's bare
+        # ``ValueError: 'XX' is not a valid DependencyType`` — accurate but it
+        # neither names the field nor lists what *is* allowed, which is exactly
+        # the first-run error quality alpha adopters judge the library on (#947).
+        raw_type = data.get("dep_type", "FS")
+        try:
+            dep_type = DependencyType(raw_type)
+        except ValueError as err:
+            from trueppm_scheduler.engine import InvalidScheduleInput
+
+            allowed = ", ".join(t.value for t in DependencyType)
+            raise InvalidScheduleInput(
+                f"Invalid dependency type {raw_type!r}; must be one of: {allowed}."
+            ) from err
         return cls(
             predecessor_id=data["predecessor_id"],
             successor_id=data["successor_id"],
-            dep_type=DependencyType(data.get("dep_type", "FS")),
+            dep_type=dep_type,
             lag=_parse_timedelta(data.get("lag", 0)),
         )
 
@@ -256,6 +288,17 @@ class Project:
         from trueppm_scheduler.engine import InvalidScheduleInput
 
         try:
+            # Finite-check velocity_samples on the from_dict path too — from_json
+            # rejects non-finite literals up front, but a dict built in Python can
+            # smuggle an inf sample that later poisons the bootstrap mean in the
+            # velocity sampler (#1010). The bare ValueError is re-wrapped as
+            # InvalidScheduleInput by the surrounding except, matching the rest of
+            # the deserialization surface.
+            velocity_samples = data.get("velocity_samples")
+            if velocity_samples is not None:
+                for s in velocity_samples:
+                    if s is not None and not math.isfinite(float(s)):
+                        raise ValueError(f"velocity_samples must be finite numbers (got {s!r}).")
             return cls(
                 id=data["id"],
                 name=data["name"],
@@ -263,7 +306,7 @@ class Project:
                 tasks=[Task.from_dict(t) for t in data.get("tasks", [])],
                 dependencies=[Dependency.from_dict(d) for d in data.get("dependencies", [])],
                 calendar=Calendar.from_dict(data.get("calendar", {})),
-                velocity_samples=data.get("velocity_samples"),
+                velocity_samples=velocity_samples,
                 sprint_length_days=data.get("sprint_length_days"),
             )
         except (KeyError, ValueError, TypeError) as err:

@@ -12,6 +12,7 @@ from trueppm_scheduler import (
     DateRange,
     Dependency,
     DependencyType,
+    InvalidScheduleInput,
     MonteCarloResult,
     Project,
     ScheduleResult,
@@ -21,6 +22,7 @@ from trueppm_scheduler import (
     monte_carlo,
     schedule,
 )
+from trueppm_scheduler.engine import MAX_EXPANDED_EDGES
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -550,6 +552,52 @@ class TestFindCycle:
         edges = [("Eng", "Procurement")]
         children_map = {"Eng": ["E1"], "Procurement": ["P1"]}
         assert find_cycle(edges, children_map=children_map) is None
+
+
+class TestExpansionCap:
+    """The summary→summary cross product is bounded by MAX_EXPANDED_EDGES (#357)."""
+
+    def test_wide_summary_to_summary_edge_is_rejected_fast(self) -> None:
+        # A single 1,000-leaf → 1,000-leaf summary edge would fan out to 1,000,000
+        # leaf tuples. Before the cap this allocated the full cross product (or
+        # timed out); now the cost is checked from leaf counts and the call rejects
+        # the graph without materialising a single tuple.
+        import time
+
+        pred_leaves = [f"P{i}" for i in range(1_000)]
+        succ_leaves = [f"S{i}" for i in range(1_000)]
+        children_map = {"PSum": pred_leaves, "SSum": succ_leaves}
+        edges = [("PSum", "SSum")]
+
+        start = time.perf_counter()
+        with pytest.raises(InvalidScheduleInput, match="exceed"):
+            find_cycle(edges, children_map=children_map)
+        elapsed = time.perf_counter() - start
+        # Enumerating 1M tuples takes seconds and allocates ~1M entries; the leaf-
+        # count guard returns in well under the budget. Generous ceiling to stay
+        # robust on slow CI while still proving the cross product is never built.
+        assert elapsed < 1.0
+
+    def test_just_under_cap_still_expands_and_detects(self) -> None:
+        # 100 * 100 = 10,000 tuples is far below the cap, so expansion still runs
+        # and a real logical cycle is detected. Pred and Succ summaries share leaf
+        # "X", so PSum → SSum closes a self-loop on X after expansion.
+        shared = "X"
+        pred_leaves = [f"P{i}" for i in range(99)] + [shared]
+        succ_leaves = [shared] + [f"S{i}" for i in range(99)]
+        children_map = {"PSum": pred_leaves, "SSum": succ_leaves}
+        result = find_cycle([("PSum", "SSum"), ("SSum", "PSum")], children_map=children_map)
+        assert result is not None
+        assert result[0] == result[-1]
+
+    def test_cap_sums_across_multiple_edges(self) -> None:
+        # No single edge exceeds the cap, but their combined fan-out does. The
+        # guard sums per-edge products, so the aggregate blowup is still caught.
+        per_summary = MAX_EXPANDED_EDGES // 2 + 10  # two such leaf→summary edges overflow
+        children_map = {"Big": [f"L{i}" for i in range(per_summary)]}
+        edges = [("Big", "T1"), ("Big", "T2")]
+        with pytest.raises(InvalidScheduleInput, match="exceed"):
+            find_cycle(edges, children_map=children_map)
 
 
 # ---------------------------------------------------------------------------
