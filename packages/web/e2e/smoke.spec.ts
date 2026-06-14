@@ -92,12 +92,13 @@ test('top bar renders with logo and nav', async ({ page }) => {
   const header = page.getByRole('banner');
   await expect(header).toBeVisible();
   // Sidebar open/collapsed toggle is present (desktop — hamburger is md:hidden)
-  await expect(page.getByRole('navigation', { name: 'Project list' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Workspace navigation' })).toBeVisible();
 });
 
-test('sidebar shows PROJECTS section header', async ({ page }) => {
+test('rail shows the Programs section header', async ({ page }) => {
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'PROJECTS' })).toBeVisible();
+  // v2 rail: the always-present "Programs" group heading (replaced "PROJECTS").
+  await expect(page.getByRole('heading', { name: 'Programs' })).toBeVisible();
 });
 
 test('status bar shows build hash and omits the connection pill off-project', async ({ page }) => {

@@ -1,517 +1,419 @@
-import { useEffect, useCallback, useMemo, useState } from 'react';
+import { useMemo, useState, useEffect, useCallback } from 'react';
 import { NavLink, useNavigate } from 'react-router';
+
 import { useShellStore, selectSidebarWidth } from '@/stores/shellStore';
 import { useProjects } from '@/hooks/useProjects';
 import { usePrograms } from '@/hooks/usePrograms';
 import { useMyWork } from '@/hooks/useMyWork';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
-import { ProjectListItem } from './ProjectListItem';
-import { ProjectGroup } from './ProjectGroup';
-import { ProjectScopePicker } from './ProjectScopePicker';
+import { useEdition } from '@/hooks/useEdition';
+import { useCommandPaletteStore } from '@/stores/commandPaletteStore';
+import { modifierKeyLabel } from '@/lib/platform';
+import { LogoMark, SearchIcon, ChevronRightIcon, PlusIcon, SettingsIcon } from '@/components/Icons';
 import { NewProjectModal } from './NewProjectModal';
 import { NewProgramModal } from '@/features/programs/NewProgramModal';
 import { ImportProjectModal } from '@/components/import/ImportProjectModal';
-import { ProgramsSection } from './ProgramsSection';
+import { ProgramIdentitySquare } from '@/features/programs/ProgramIdentitySquare';
 
 interface Props {
   isDrawer?: boolean;
   onClose?: () => void;
 }
 
+type HealthState = 'on-track' | 'at-risk' | 'critical' | 'unknown';
+
+const HEALTH_LABEL: Record<HealthState, string> = {
+  'on-track': 'on track',
+  'at-risk': 'at risk',
+  critical: 'critical',
+  unknown: 'health unknown',
+};
+
+/** 8px health CIRCLE (rule 158: circle = health, never the program identity
+ *  square). Known states fill the semantic color; unknown is a hollow ring.
+ *  aria-hidden — the row's aria-label carries the health word (rule 6). */
+function HealthDot({ state }: { state: HealthState }) {
+  if (state === 'unknown') {
+    return (
+      <span
+        aria-hidden="true"
+        className="h-2 w-2 shrink-0 rounded-full border border-neutral-text-disabled"
+      />
+    );
+  }
+  const cls =
+    state === 'on-track'
+      ? 'bg-semantic-on-track'
+      : state === 'at-risk'
+        ? 'bg-semantic-at-risk'
+        : 'bg-semantic-critical';
+  return <span aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${cls}`} />;
+}
+
+const GROUP_LABEL =
+  'px-3 pt-3 pb-1 text-xs font-semibold uppercase tracking-widest text-chrome-text-secondary';
+
+// Active vs idle nav row (rule 37: 2px left border + sage tint fill).
+function rowClass(active: boolean): string {
+  return [
+    'group flex items-center gap-2 w-full pl-2.5 pr-2 py-2 rounded text-sm transition-colors',
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface',
+    active
+      ? 'bg-brand-primary/10 border-l-2 border-brand-primary text-chrome-text-primary font-medium'
+      : 'border-l-2 border-transparent text-chrome-text-secondary hover:bg-neutral-text-primary/5 hover:text-chrome-text-primary',
+  ].join(' ');
+}
+
+/**
+ * The v2 left rail (ADR-0126, handoff 01-shell-and-ia.md) — 248px, top→bottom:
+ * brand + collapse, ⌘K trigger, Personal (My Work / Inbox), Shortcuts (pinned
+ * projects), Organization (Portfolio rollup — Enterprise-gated, absent in OSS),
+ * Programs (expandable tree), and the user footer + settings gear. Replaces the
+ * #959 scope-picker sidebar.
+ *
+ * Kept the export name `Sidebar` + the isDrawer/onClose props so AppShell and the
+ * mobile drawer are unchanged. Collapsed desktop is an icon rail (the
+ * handoff's hide-to-context-bar collapse arrives with the context-bar MR).
+ */
 export function Sidebar({ isDrawer = false, onClose }: Props) {
+  const navigate = useNavigate();
   const { sidebarCollapsed, sidebarUserControlled, toggleSidebar, setSidebarCollapsed } =
     useShellStore();
   const sidebarWidth = useShellStore(selectSidebarWidth);
-  const projectScope = useShellStore((s) => s.projectScope);
-  const setProjectScope = useShellStore((s) => s.setProjectScope);
-  const { data: projects, isLoading, error } = useProjects();
+  const pinned = useShellStore((s) => s.pinnedProjectIds);
+  const togglePin = useShellStore((s) => s.togglePin);
+  const expanded = useShellStore((s) => s.expandedProgramIds);
+  const toggleProgram = useShellStore((s) => s.toggleProgram);
+  const openPalette = useCommandPaletteStore((s) => s.setOpen);
+
+  const { data: projects } = useProjects();
   const { data: programs } = usePrograms();
-  // My Work due-today count drives the actionable badge on the "My Work"
-  // sidebar entry (issue #499). useMyWork is cached and shared with MyWorkPage,
-  // so this adds at most one request per session unless the user opens the page.
   const { data: myWorkData } = useMyWork();
   const dueTodayCount = myWorkData?.pages[0]?.due_today_count ?? 0;
-  // #856: a contributor (no admin access anywhere) goes straight to their own
-  // notification settings; the admin Workspace/Project shell stays hidden from
-  // them. Admins keep the full settings shell. The admin routes are also
-  // route-guarded (RequireAdminSettings), so this is the affordance half.
-  const { user: currentUser } = useCurrentUser();
-  const canAccessAdminSettings = currentUser?.can_access_admin_settings ?? true;
+  const { user } = useCurrentUser();
+  const { edition } = useEdition();
+
+  const canAccessAdminSettings = user?.can_access_admin_settings ?? true;
   const settingsTo = canAccessAdminSettings ? '/settings' : '/me/settings/notifications';
   const settingsLabel = canAccessAdminSettings ? 'Workspace settings' : 'Notification settings';
+
   const [showNewProject, setShowNewProject] = useState(false);
   const [showNewProgram, setShowNewProgram] = useState(false);
   const [showImport, setShowImport] = useState(false);
-  const [query, setQuery] = useState('');
-  // Collapsed program groups in the "All programs" scope, keyed by group id.
-  // Default (absent key) is expanded — matches the design's open groups.
-  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
-  const navigate = useNavigate();
 
-  // The full redesign (scope picker + search + one-line list) renders in the
-  // expanded desktop sidebar and the mobile drawer. The collapsed desktop rail
-  // stays an icon-only column (#959, Direction C).
-  const showScopedList = !sidebarCollapsed || isDrawer;
+  // Icon-only when collapsed on desktop (the drawer is always expanded).
+  const showFull = !sidebarCollapsed || isDrawer;
 
-  // Project counts for the scope picker, derived from the cached project list.
-  const totalCount = projects?.length ?? 0;
-  const noProgramCount = useMemo(
-    () => projects?.filter((p) => !p.programId).length ?? 0,
-    [projects],
+  const projectById = useMemo(() => {
+    const m = new Map<string, NonNullable<typeof projects>[number]>();
+    for (const p of projects ?? []) m.set(p.id, p);
+    return m;
+  }, [projects]);
+
+  const pinnedProjects = useMemo(
+    () => pinned.map((id) => projectById.get(id)).filter((p): p is NonNullable<typeof p> => !!p),
+    [pinned, projectById],
   );
+  const orphanProjects = useMemo(() => (projects ?? []).filter((p) => !p.programId), [projects]);
   const countFor = useCallback(
-    (programId: string) => projects?.filter((p) => p.programId === programId).length ?? 0,
+    (programId: string) => (projects ?? []).filter((p) => p.programId === programId).length,
     [projects],
   );
 
-  // Projects narrowed by the active program scope, then by the in-scope search.
-  // Drives the PROJECTS · N header count and the flat (single-program) list.
-  const scopedProjects = useMemo(() => {
-    let list = projects ?? [];
-    if (projectScope === 'none') list = list.filter((p) => !p.programId);
-    else if (projectScope !== 'all') list = list.filter((p) => p.programId === projectScope);
-    const q = query.trim().toLowerCase();
-    if (q) list = list.filter((p) => p.name.toLowerCase().includes(q));
-    return list;
-  }, [projects, projectScope, query]);
-
-  // In the "All programs" scope the list is grouped under collapsible program
-  // headers (#959, Direction C "grouped"); orphan projects fall under a final
-  // "No program" group. Only groups with at least one matching project render.
-  const NONE_GROUP = '__none__';
-  const programGroups = useMemo(() => {
-    if (projectScope !== 'all') return [];
-    const q = query.trim().toLowerCase();
-    const allProjects = projects ?? [];
-    const matches = (p: (typeof allProjects)[number]) => !q || p.name.toLowerCase().includes(q);
-    const groups: {
-      id: string;
-      name: string;
-      color: string | null;
-      projects: typeof allProjects;
-    }[] = [];
-    for (const prog of programs ?? []) {
-      const kids = allProjects.filter((p) => p.programId === prog.id && matches(p));
-      if (kids.length)
-        groups.push({ id: prog.id, name: prog.name, color: prog.color, projects: kids });
-    }
-    const orphans = allProjects.filter((p) => !p.programId && matches(p));
-    if (orphans.length)
-      groups.push({ id: NONE_GROUP, name: 'No program', color: null, projects: orphans });
-    return groups;
-  }, [projectScope, programs, projects, query]);
-
-  const scopeName =
-    projectScope === 'all'
-      ? 'All programs'
-      : projectScope === 'none'
-        ? 'No program'
-        : (programs?.find((p) => p.id === projectScope)?.name ?? 'All programs');
-
-  // Auto-collapse at < lg (1024px) unless user has manually set state
+  // Auto-collapse < lg unless the user took control (preserved from the prior sidebar).
   const handleResize = useCallback(() => {
     if (sidebarUserControlled) return;
-    const isNarrow = window.matchMedia('(max-width: 1023px)').matches;
-    setSidebarCollapsed(isNarrow, false);
+    setSidebarCollapsed(window.matchMedia('(max-width: 1023px)').matches, false);
   }, [sidebarUserControlled, setSidebarCollapsed]);
-
   useEffect(() => {
-    if (isDrawer) return; // drawer state is controlled externally
+    if (isDrawer) return;
     handleResize();
     const mq = window.matchMedia('(max-width: 1023px)');
     mq.addEventListener('change', handleResize);
     return () => mq.removeEventListener('change', handleResize);
   }, [isDrawer, handleResize]);
 
-  // Trap focus and close on Escape when used as a drawer
+  // Drawer: Esc closes.
   useEffect(() => {
     if (!isDrawer) return;
-    const handleKey = (e: KeyboardEvent) => {
+    const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose?.();
     };
-    document.addEventListener('keydown', handleKey);
-    return () => document.removeEventListener('keydown', handleKey);
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
   }, [isDrawer, onClose]);
 
-  // Non-drawer width comes from the inline style (animated); only the drawer
-  // needs a static width class.
-  const widthClass = 'w-[220px]';
+  const go = (to: string) => {
+    void navigate(to);
+    if (isDrawer) onClose?.();
+  };
 
   return (
     <>
       <aside
-        aria-label="Projects"
+        aria-label="Primary navigation"
         style={isDrawer ? undefined : { width: sidebarWidth, transition: 'width 200ms ease-out' }}
         className={[
           'flex flex-col h-full bg-chrome-surface overflow-hidden flex-shrink-0',
           'border-r border-chrome-border/8',
-          isDrawer ? widthClass : '',
+          isDrawer ? 'w-[248px]' : '',
         ].join(' ')}
       >
-        {/* Collapse toggle — hidden in drawer mode */}
-        {!isDrawer && (
-          <div className="flex justify-end px-2 pt-2">
+        {/* Brand + collapse */}
+        <div className="flex items-center gap-2 px-3 h-12 shrink-0 border-b border-chrome-border/8">
+          {showFull ? (
+            <>
+              <NavLink to="/me/work" aria-label="TruePPM — My Work" className="flex items-center gap-2 min-w-0">
+                <LogoMark size={22} className="shrink-0" />
+                <span className="font-display text-base font-bold tracking-[-0.02em] leading-none truncate">
+                  <span className="text-navy-700 dark:text-reversed">True</span>
+                  <span className="text-sage-500">PPM</span>
+                </span>
+              </NavLink>
+              <div className="flex-1" />
+              {!isDrawer && (
+                <button
+                  type="button"
+                  onClick={toggleSidebar}
+                  aria-label="Collapse sidebar"
+                  title={`Hide sidebar (${modifierKeyLabel()}B)`}
+                  className="w-9 h-9 flex items-center justify-center rounded text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface"
+                >
+                  <span aria-hidden="true" className="text-base leading-none">«</span>
+                </button>
+              )}
+            </>
+          ) : (
             <button
               type="button"
               onClick={toggleSidebar}
-              aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              aria-expanded={!sidebarCollapsed}
-              className="flex items-center justify-center w-11 h-11 rounded text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface"
+              aria-label="Expand sidebar"
+              title={`Show sidebar (${modifierKeyLabel()}B)`}
+              className="w-9 h-9 mx-auto flex items-center justify-center rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 16 16"
-                fill="currentColor"
-                aria-hidden="true"
-                style={{
-                  transform: sidebarCollapsed ? 'rotate(180deg)' : 'none',
-                  transition: 'transform 200ms ease-out',
-                }}
-              >
-                <path d="M10.5 8L6 3.5 4.5 5l3 3-3 3L6 12.5l4.5-4.5z" />
-              </svg>
+              <LogoMark size={22} />
+            </button>
+          )}
+        </div>
+
+        {/* ⌘K trigger */}
+        {showFull && (
+          <div className="px-2 pt-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => openPalette(true)}
+              aria-label="Search or jump to (command palette)"
+              aria-keyshortcuts="Meta+K Control+K"
+              className="flex w-full items-center gap-2 h-8 rounded-control border border-chrome-border/15 bg-chrome-surface-raised px-2.5 text-chrome-text-secondary hover:text-chrome-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface"
+            >
+              <SearchIcon className="h-4 w-4 shrink-0" />
+              <span className="text-[13px]">Search or jump to…</span>
+              <kbd className="tppm-mono ml-auto shrink-0 rounded-chip border border-chrome-border/20 px-1.5 py-0.5 text-[10px]">
+                {modifierKeyLabel()}K
+              </kbd>
             </button>
           </div>
         )}
 
-        {/* My Work — cross-project surface (issue #499), pinned at the top so
-            contributors who don't think in projects have a one-tap path to their
-            work. The badge shows the due-today count when actionable. */}
-        {showScopedList ? (
-          <div className="shrink-0 px-2 py-2 border-b border-chrome-border/8">
-            <NavLink
-              to="/me/work"
-              aria-label={dueTodayCount > 0 ? `My Work, ${dueTodayCount} due today` : 'My Work'}
-              className={({ isActive }) =>
-                [
-                  'flex items-center justify-between gap-2 w-full px-2 py-2 rounded text-sm transition-colors',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface',
-                  isActive
-                    ? 'bg-brand-primary/10 border-l-2 border-brand-primary text-chrome-text-primary font-medium'
-                    : 'border-l-2 border-transparent text-chrome-text-secondary hover:bg-neutral-text-primary/5 hover:text-chrome-text-primary',
-                ].join(' ')
-              }
-            >
-              <span className="inline-flex items-center gap-2 min-w-0">
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 14 14"
-                  fill="currentColor"
-                  aria-hidden="true"
-                  className="shrink-0"
-                >
-                  <path d="M2 3h10v2H2V3zm0 3h10v2H2V6zm0 3h6v2H2V9z" />
-                </svg>
-                My Work
+        {/* Scrollable nav */}
+        <nav aria-label="Workspace navigation" className="flex-1 overflow-y-auto overflow-x-hidden px-2 pb-2">
+          {/* Personal */}
+          {showFull && <h2 className={GROUP_LABEL}>Personal</h2>}
+          <NavLink
+            to="/me/work"
+            aria-label={dueTodayCount > 0 ? `My Work, ${dueTodayCount} due today` : 'My Work'}
+            onClick={() => isDrawer && onClose?.()}
+            className={({ isActive }) => rowClass(isActive)}
+          >
+            <svg width="16" height="16" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true" className="shrink-0">
+              <path d="M2 3h10v2H2V3zm0 3h10v2H2V6zm0 3h6v2H2V9z" />
+            </svg>
+            {showFull && <span className="min-w-0 truncate">My Work</span>}
+            {showFull && dueTodayCount > 0 && (
+              <span className="tppm-mono ml-auto shrink-0 rounded-full bg-semantic-critical-bg px-1.5 py-0.5 text-xs text-semantic-critical">
+                {dueTodayCount}
               </span>
-              {dueTodayCount > 0 && (
-                <span
-                  aria-hidden="true"
-                  className="tppm-mono text-xs text-semantic-critical bg-semantic-critical-bg rounded-full px-1.5 py-0.5 shrink-0"
-                >
-                  {dueTodayCount}
-                </span>
-              )}
-            </NavLink>
-          </div>
-        ) : (
-          /* Collapsed sidebar: icon-only My Work link */
-          <div className="shrink-0 px-2 py-2 border-b border-chrome-border/8">
-            <NavLink
-              to="/me/work"
-              aria-label={dueTodayCount > 0 ? `My Work, ${dueTodayCount} due today` : 'My Work'}
-              className={({ isActive }) =>
-                [
-                  'relative flex items-center justify-center w-11 h-11 rounded transition-colors',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface',
-                  isActive
-                    ? 'bg-brand-primary/10 text-chrome-text-primary'
-                    : 'text-chrome-text-secondary hover:bg-neutral-text-primary/5 hover:text-chrome-text-primary',
-                ].join(' ')
-              }
-            >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 14 14"
-                fill="currentColor"
-                aria-hidden="true"
-              >
-                <path d="M2 3h10v2H2V3zm0 3h10v2H2V6zm0 3h6v2H2V9z" />
-              </svg>
-              {dueTodayCount > 0 && (
-                <span
-                  aria-hidden="true"
-                  className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-semantic-critical"
-                />
-              )}
-            </NavLink>
-          </div>
-        )}
+            )}
+          </NavLink>
+          <NavLink
+            to="/me/notifications"
+            aria-label="Inbox"
+            onClick={() => isDrawer && onClose?.()}
+            className={({ isActive }) => rowClass(isActive)}
+          >
+            <svg width="16" height="16" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true" className="shrink-0">
+              <path d="M7 1a3 3 0 0 0-3 3v2.5L2.5 9h9L10 6.5V4a3 3 0 0 0-3-3Zm0 12a2 2 0 0 0 2-2H5a2 2 0 0 0 2 2Z" />
+            </svg>
+            {showFull && <span className="min-w-0 truncate">Inbox</span>}
+          </NavLink>
 
-        {/* Program scope (#959) — searchable picker replaces the flat program
-            list and narrows the project list below. Collapsed desktop keeps the
-            icon-only Programs entry from ProgramsSection. */}
-        {showScopedList ? (
-          <ProjectScopePicker
-            scope={projectScope}
-            onScope={setProjectScope}
-            programs={programs ?? []}
-            countFor={countFor}
-            totalCount={totalCount}
-            noProgramCount={noProgramCount}
-            onNewProgram={() => setShowNewProgram(true)}
-            onNavigated={onClose}
-          />
-        ) : (
-          <ProgramsSection collapsed isDrawer={false} onNavigated={onClose} />
-        )}
-
-        {/* Project list */}
-        <nav aria-label="Project list" className="flex-1 flex flex-col overflow-hidden">
-          {showScopedList && (
+          {/* Shortcuts (pinned) */}
+          {showFull && pinnedProjects.length > 0 && (
             <>
-              <div className="flex items-center justify-between px-3 pt-1 pb-1">
-                <h2
-                  className="text-xs font-semibold tracking-widest uppercase text-chrome-text-secondary"
-                  aria-label={`Projects, ${scopedProjects.length}`}
-                >
-                  PROJECTS{' '}
-                  <span className="tppm-mono normal-case tracking-normal">
-                    · {scopedProjects.length}
-                  </span>
-                </h2>
-                {/* Touch targets are 44×44px; icons stay 12×12px visually (Rule 5) */}
-                <div className="flex items-center -mr-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowImport(true)}
-                    aria-label="Import a project"
-                    title="Import a project from a file"
-                    className="flex items-center justify-center w-11 h-11 rounded
-                      text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5
-                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-                      focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface"
-                  >
-                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                      <path
-                        d="M6 8V1m0 0L3.5 3.5M6 1l2.5 2.5M2 8.5v1A1.5 1.5 0 003.5 11h5A1.5 1.5 0 0010 9.5v-1"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowNewProject(true)}
-                    aria-label="New project"
-                    className="flex items-center justify-center w-11 h-11 rounded
-                      text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5
-                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-                      focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface"
-                  >
-                    <svg
-                      width="12"
-                      height="12"
-                      viewBox="0 0 12 12"
-                      fill="currentColor"
-                      aria-hidden="true"
-                    >
-                      <path
-                        d="M6 1v10M1 6h10"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        strokeLinecap="round"
-                      />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-
-              {/* In-scope project search (#959). Hidden until there is something
-                  to search to keep the empty state quiet. */}
-              {totalCount > 0 && (
-                <div className="px-2 pb-2">
-                  <div className="flex h-8 items-center gap-2 rounded-md border border-chrome-border/15 bg-chrome-surface-raised px-2 focus-within:border-brand-primary">
-                    <svg
-                      width="13"
-                      height="13"
-                      viewBox="0 0 16 16"
-                      fill="none"
-                      aria-hidden="true"
-                      className="shrink-0 text-chrome-text-secondary"
-                    >
-                      <path
-                        d="M7 11.5a4.5 4.5 0 100-9 4.5 4.5 0 000 9zM10.6 10.6l2.9 2.9"
-                        stroke="currentColor"
-                        strokeWidth="1.6"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                    <input
-                      type="text"
-                      value={query}
-                      onChange={(e) => setQuery(e.target.value)}
-                      placeholder={
-                        projectScope === 'all' ? 'Search all projects…' : `Search in ${scopeName}…`
-                      }
-                      aria-label="Search projects"
-                      className="min-w-0 flex-1 bg-transparent text-sm text-chrome-text-primary outline-none placeholder:text-chrome-text-secondary"
-                    />
-                  </div>
-                </div>
-              )}
+              <h2 className={GROUP_LABEL}>Shortcuts</h2>
+              {pinnedProjects.map((p) => (
+                <ProjectRow
+                  key={p.id}
+                  name={p.name}
+                  health={(p.healthState as HealthState) ?? 'unknown'}
+                  pinned
+                  onOpen={() => go(`/projects/${p.id}/overview`)}
+                  onTogglePin={() => togglePin(p.id)}
+                />
+              ))}
             </>
           )}
 
-          {/* Scrollable list region */}
-          <div className="flex-1 overflow-y-auto overflow-x-hidden pb-2">
-            {isLoading ? (
-              <ul className="space-y-1 px-2" aria-label="Loading projects">
-                {[1, 2, 3, 4].map((i) => (
-                  <li
-                    key={i}
-                    className="h-8 rounded animate-pulse bg-neutral-text-primary/5"
-                    aria-hidden="true"
-                  />
-                ))}
-              </ul>
-            ) : error ? (
-              <p role="alert" className="px-3 py-2 text-xs text-semantic-critical">
-                Failed to load projects
-              </p>
-            ) : totalCount === 0 ? (
-              <p className="px-3 py-2 text-xs text-chrome-text-secondary">No projects yet</p>
-            ) : !showScopedList ? (
-              /* Collapsed desktop rail: all projects as dots, ungrouped. */
-              <ul className="space-y-0.5 px-2">
-                {(projects ?? []).map((project) => (
-                  <ProjectListItem key={project.id} project={project} collapsed />
-                ))}
-              </ul>
-            ) : projectScope === 'all' ? (
-              /* All programs: grouped under collapsible program headers. Wrapped
-                 in a nav landmark so AT landmark navigation (VoiceOver VO+→, NVDA
-                 D) jumps between program groups without tabbing through every
-                 project (#1050). */
-              <nav aria-label="Program groups">
-                <ul className="space-y-1 px-2">
-                  {programGroups.length > 0 ? (
-                    programGroups.map((g) => (
-                      <ProjectGroup
-                        key={g.id}
-                        name={g.name}
-                        color={g.color}
-                        projects={g.projects}
-                        collapsed={!!collapsedGroups[g.id]}
-                        onToggle={() => setCollapsedGroups((s) => ({ ...s, [g.id]: !s[g.id] }))}
-                      />
-                    ))
-                  ) : (
-                    <li
-                      role="status"
-                      className="px-3 py-3 text-center text-xs text-chrome-text-secondary"
+          {/* Organization — Enterprise-only (cross-program portfolio, post-1.0).
+              Absent in OSS; lights up when the edition has it. */}
+          {showFull && edition === 'enterprise' && (
+            <>
+              <h2 className={GROUP_LABEL}>Organization</h2>
+              <NavLink
+                to="/portfolio"
+                onClick={() => isDrawer && onClose?.()}
+                className={({ isActive }) => rowClass(isActive)}
+              >
+                <svg width="16" height="16" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true" className="shrink-0">
+                  <path d="M2 2h4v4H2V2zm6 0h4v4H8V2zM2 8h4v4H2V8zm6 0h4v4H8V8z" />
+                </svg>
+                <span className="min-w-0 truncate">Portfolio rollup</span>
+              </NavLink>
+            </>
+          )}
+
+          {/* Programs — expandable tree */}
+          {showFull && (
+            <div className="flex items-center justify-between pr-1">
+              <h2 className={GROUP_LABEL}>Programs</h2>
+              <button
+                type="button"
+                onClick={() => setShowNewProgram(true)}
+                aria-label="New program"
+                className="w-8 h-8 flex items-center justify-center rounded text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface"
+              >
+                <PlusIcon className="h-3 w-3" />
+              </button>
+            </div>
+          )}
+          {showFull &&
+            (programs ?? []).map((prog) => {
+              const isExpanded = expanded.includes(prog.id);
+              const kids = (projects ?? []).filter((p) => p.programId === prog.id);
+              return (
+                <div key={prog.id}>
+                  <div className={rowClass(false)}>
+                    <button
+                      type="button"
+                      onClick={() => toggleProgram(prog.id)}
+                      aria-label={isExpanded ? `Collapse ${prog.name}` : `Expand ${prog.name}`}
+                      aria-expanded={isExpanded}
+                      className="shrink-0 -ml-0.5 flex h-5 w-5 items-center justify-center rounded text-chrome-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
                     >
-                      No projects match
-                    </li>
+                      <ChevronRightIcon
+                        className={`h-3 w-3 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                      />
+                    </button>
+                    {/* Program identity is a SQUARE (rule 158) — this is a
+                        cross-program list, so each row carries the accent square. */}
+                    <ProgramIdentitySquare program={prog} size="sm" />
+                    <button
+                      type="button"
+                      onClick={() => go(`/programs/${prog.id}/overview`)}
+                      className="min-w-0 flex-1 truncate text-left focus-visible:outline-none"
+                    >
+                      {prog.name}
+                    </button>
+                    <span className="tppm-mono shrink-0 text-xs text-chrome-text-secondary">
+                      {countFor(prog.id)}
+                    </span>
+                  </div>
+                  {isExpanded && (
+                    <div className="ml-3 border-l border-chrome-border/15 pl-1">
+                      {kids.length === 0 ? (
+                        <p className="px-3 py-1.5 text-xs italic text-chrome-text-secondary">No projects</p>
+                      ) : (
+                        kids.map((p) => (
+                          <ProjectRow
+                            key={p.id}
+                            name={p.name}
+                            health={(p.healthState as HealthState) ?? 'unknown'}
+                            pinned={pinned.includes(p.id)}
+                            onOpen={() => go(`/projects/${p.id}/overview`)}
+                            onTogglePin={() => togglePin(p.id)}
+                          />
+                        ))
+                      )}
+                    </div>
                   )}
-                </ul>
-              </nav>
-            ) : (
-              /* Scoped to one program (or "No program"): flat list. */
-              <ul className="space-y-0.5 px-2">
-                {scopedProjects.map((project) => (
-                  <ProjectListItem key={project.id} project={project} collapsed={false} />
-                ))}
-                {scopedProjects.length === 0 && (
-                  <li
-                    role="status"
-                    className="px-3 py-3 text-center text-xs text-chrome-text-secondary"
-                  >
-                    No projects match
-                  </li>
-                )}
-              </ul>
-            )}
-          </div>
+                </div>
+              );
+            })}
+
+          {/* Standalone projects (no program) */}
+          {showFull && orphanProjects.length > 0 && (
+            <>
+              <h2 className={GROUP_LABEL}>Projects</h2>
+              {orphanProjects.map((p) => (
+                <ProjectRow
+                  key={p.id}
+                  name={p.name}
+                  health={(p.healthState as HealthState) ?? 'unknown'}
+                  pinned={pinned.includes(p.id)}
+                  onOpen={() => go(`/projects/${p.id}/overview`)}
+                  onTogglePin={() => togglePin(p.id)}
+                />
+              ))}
+            </>
+          )}
+
+          {/* New project (kept from the prior sidebar's affordances) */}
+          {showFull && (
+            <div className="flex items-center gap-1 px-1 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowNewProject(true)}
+                className="flex-1 rounded-control border border-chrome-border/15 px-2 py-1.5 text-xs text-chrome-text-secondary hover:text-chrome-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface"
+              >
+                + New project
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowImport(true)}
+                aria-label="Import a project from a file"
+                title="Import a project from a file"
+                className="w-8 h-8 flex items-center justify-center rounded text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface"
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                  <path d="M6 8V1m0 0L3.5 3.5M6 1l2.5 2.5M2 8.5v1A1.5 1.5 0 003.5 11h5A1.5 1.5 0 0010 9.5v-1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            </div>
+          )}
         </nav>
 
-        {/* Org-level section — Resources and Settings links */}
-        {showScopedList ? (
-          <div className="shrink-0 border-t border-chrome-border/8 px-2 py-2">
-            <NavLink
-              to="/resources"
-              aria-label="Resources catalog"
-              className={({ isActive }) =>
-                [
-                  'flex items-center gap-2 w-full px-2 py-2 rounded text-sm transition-colors',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface',
-                  isActive
-                    ? 'bg-brand-primary/10 border-l-2 border-brand-primary text-chrome-text-primary font-medium'
-                    : 'border-l-2 border-transparent text-chrome-text-secondary hover:bg-neutral-text-primary/5 hover:text-chrome-text-primary',
-                ].join(' ')
-              }
+        {/* Footer — user + settings */}
+        <div className="shrink-0 border-t border-chrome-border/8 p-2">
+          <div className="flex items-center gap-2">
+            <span
+              aria-hidden="true"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-primary/15 text-xs font-semibold text-brand-primary"
             >
-              {/* People / users icon */}
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 14 14"
-                fill="currentColor"
-                aria-hidden="true"
-                className="shrink-0"
-              >
-                <path d="M5 6.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm-3 4.5a3 3 0 0 1 6 0H2Zm7-4.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm1 1.5c.7.3 1.3.8 1.7 1.4A3 3 0 0 0 9 11h-.5A4 4 0 0 0 9 9a3 3 0 0 0-.3-1.3c.4-.1.8-.2 1.3-.2Z" />
-              </svg>
-              Resources
-            </NavLink>
+              {user?.initials ?? '··'}
+            </span>
+            {showFull && (
+              <span className="min-w-0 truncate text-sm text-chrome-text-primary">
+                {user?.display_name ?? user?.username ?? 'Account'}
+              </span>
+            )}
+            <div className="flex-1" />
             <NavLink
               to={settingsTo}
               aria-label={settingsLabel}
+              onClick={() => isDrawer && onClose?.()}
               className={({ isActive }) =>
                 [
-                  'flex items-center gap-2 w-full px-2 py-2 rounded text-sm transition-colors',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface',
-                  isActive
-                    ? 'bg-brand-primary/10 border-l-2 border-brand-primary text-chrome-text-primary font-medium'
-                    : 'border-l-2 border-transparent text-chrome-text-secondary hover:bg-neutral-text-primary/5 hover:text-chrome-text-primary',
-                ].join(' ')
-              }
-            >
-              {/* Gear / settings icon */}
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 14 14"
-                fill="none"
-                aria-hidden="true"
-                className="shrink-0"
-              >
-                <path
-                  d="M5.5 1.5h3l.5 1.5a4 4 0 0 1 1.2.7l1.5-.5 1.5 2.6-1.2 1.1a4 4 0 0 1 0 1.2l1.2 1.1-1.5 2.6-1.5-.5A4 4 0 0 1 9 12l-.5 1.5h-3L5 12a4 4 0 0 1-1.2-.7l-1.5.5L.8 9.2 2 8.1a4 4 0 0 1 0-1.2L.8 5.8 2.3 3.2l1.5.5A4 4 0 0 1 5 2.5L5.5 1ZM7 9a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"
-                  stroke="currentColor"
-                  strokeWidth="1.2"
-                  strokeLinejoin="round"
-                />
-              </svg>
-              Settings
-            </NavLink>
-          </div>
-        ) : (
-          /* Collapsed sidebar: icon-only Resources and Settings links */
-          <div className="shrink-0 border-t border-chrome-border/8 px-2 py-2 flex flex-col gap-1">
-            <NavLink
-              to="/resources"
-              aria-label="Resources catalog"
-              className={({ isActive }) =>
-                [
-                  'flex items-center justify-center w-11 h-11 rounded transition-colors',
+                  'w-9 h-9 flex items-center justify-center rounded transition-colors',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface',
                   isActive
                     ? 'bg-brand-primary/10 text-chrome-text-primary'
@@ -519,43 +421,12 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
                 ].join(' ')
               }
             >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 14 14"
-                fill="currentColor"
-                aria-hidden="true"
-              >
-                <path d="M5 6.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm-3 4.5a3 3 0 0 1 6 0H2Zm7-4.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm1 1.5c.7.3 1.3.8 1.7 1.4A3 3 0 0 0 9 11h-.5A4 4 0 0 0 9 9a3 3 0 0 0-.3-1.3c.4-.1.8-.2 1.3-.2Z" />
-              </svg>
-            </NavLink>
-            <NavLink
-              to={settingsTo}
-              aria-label={settingsLabel}
-              className={({ isActive }) =>
-                [
-                  'flex items-center justify-center w-11 h-11 rounded transition-colors',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface',
-                  isActive
-                    ? 'bg-brand-primary/10 text-chrome-text-primary'
-                    : 'text-chrome-text-secondary hover:bg-neutral-text-primary/5 hover:text-chrome-text-primary',
-                ].join(' ')
-              }
-            >
-              <svg width="16" height="16" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                <path
-                  d="M5.5 1.5h3l.5 1.5a4 4 0 0 1 1.2.7l1.5-.5 1.5 2.6-1.2 1.1a4 4 0 0 1 0 1.2l1.2 1.1-1.5 2.6-1.5-.5A4 4 0 0 1 9 12l-.5 1.5h-3L5 12a4 4 0 0 1-1.2-.7l-1.5.5L.8 9.2 2 8.1a4 4 0 0 1 0-1.2L.8 5.8 2.3 3.2l1.5.5A4 4 0 0 1 5 2.5L5.5 1ZM7 9a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"
-                  stroke="currentColor"
-                  strokeWidth="1.2"
-                  strokeLinejoin="round"
-                />
-              </svg>
+              <SettingsIcon className="h-4 w-4" />
             </NavLink>
           </div>
-        )}
+        </div>
       </aside>
 
-      {/* New project modal — fixed overlay; rendered outside <aside> so it isn't clipped */}
       {showNewProject && (
         <NewProjectModal
           onClose={() => setShowNewProject(false)}
@@ -566,8 +437,6 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
           }}
         />
       )}
-
-      {/* New program modal — triggered from the scope picker's "+" affordance (#959). */}
       {showNewProgram && (
         <NewProgramModal
           onClose={() => setShowNewProgram(false)}
@@ -578,8 +447,6 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
           }}
         />
       )}
-
-      {/* Import-a-project modal — creates a project from an MS Project file (#797). */}
       {showImport && (
         <ImportProjectModal
           onClose={() => setShowImport(false)}
@@ -591,5 +458,55 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
         />
       )}
     </>
+  );
+}
+
+/** One project row — health dot + name (opens overview) + a ★ pin toggle. */
+function ProjectRow({
+  name,
+  health,
+  pinned,
+  onOpen,
+  onTogglePin,
+}: {
+  name: string;
+  health: HealthState;
+  pinned: boolean;
+  onOpen: () => void;
+  onTogglePin: () => void;
+}) {
+  return (
+    <div className={rowClass(false)}>
+      <HealthDot state={health} />
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={`${name}, ${HEALTH_LABEL[health]}`}
+        className="min-w-0 flex-1 truncate text-left focus-visible:outline-none"
+      >
+        {name}
+      </button>
+      <button
+        type="button"
+        onClick={onTogglePin}
+        aria-label={pinned ? `Unpin ${name}` : `Pin ${name} to Shortcuts`}
+        aria-pressed={pinned}
+        title={pinned ? 'Unpin' : 'Pin to Shortcuts'}
+        className="shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 aria-pressed:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+      >
+        <svg
+          width="13"
+          height="13"
+          viewBox="0 0 16 16"
+          fill={pinned ? 'currentColor' : 'none'}
+          stroke="currentColor"
+          strokeWidth="1.4"
+          aria-hidden="true"
+          className={pinned ? 'text-semantic-at-risk' : 'text-chrome-text-secondary'}
+        >
+          <path d="M8 1.5l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.8 4.2 13.3l.7-4.3-3.1-3 4.3-.6L8 1.5z" />
+        </svg>
+      </button>
+    </div>
   );
 }

@@ -483,18 +483,15 @@ test.describe('Programs — ungrouped projects (#697, ADR-0083)', () => {
 });
 
 test.describe('Programs — sidebar entry', () => {
-  test('scope picker lists the program after creation (#959)', async ({ page }) => {
+  test('the v2 rail lists the program in the Programs tree after creation', async ({ page }) => {
     await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
     await page.goto(`/programs/${PROGRAM_ID}/projects`);
-    const sidebar = page.locator('aside[aria-label="Projects"]');
+    const sidebar = page.locator('aside[aria-label="Primary navigation"]');
     await expect(sidebar).toBeVisible();
-    // The flat PROGRAMS list was replaced by the searchable scope picker (#959).
-    const picker = sidebar.getByRole('button', { name: /Program scope:/i });
-    await expect(picker).toBeVisible();
-    await picker.click();
-    // The program appears as an option inside the picker's listbox.
+    // The #959 scope picker was replaced by the v2 rail's Programs tree — the
+    // program is a row (its name is the open button's accessible name).
     await expect(
-      sidebar.getByRole('option', { name: /Phase 2 Modernization/i }),
+      sidebar.getByRole('button', { name: 'Phase 2 Modernization', exact: true }),
     ).toBeVisible();
   });
 });

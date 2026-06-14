@@ -79,7 +79,7 @@ test.describe('Login flow', () => {
 
     // Should land on the app shell (not /login).
     await expect(page).not.toHaveURL(/\/login/, { timeout: 5_000 });
-    await expect(page.getByRole('navigation', { name: 'Project list' })).toBeVisible();
+    await expect(page.getByRole('navigation', { name: 'Workspace navigation' })).toBeVisible();
   });
 
   test('invalid credentials shows error message', async ({ page }) => {

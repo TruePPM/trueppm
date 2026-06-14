@@ -99,31 +99,21 @@ test.beforeEach(async ({ page }) => {
 });
 
 function sidebar(page: Page) {
-  return page.locator('aside[aria-label="Projects"]');
+  return page.locator('aside[aria-label="Primary navigation"]');
 }
 
-test('the grouped list header shows the accent identity square; the name is the accessible signal', async ({
+test('the v2 rail program row shows the accent identity square; the name is the accessible signal', async ({
   page,
 }) => {
   await page.goto('/me/work');
   const sb = sidebar(page);
-  // The program NAME is the button's accessible name — the square is decorative.
-  const header = sb.getByRole('button', { name: /Cloud Migration/i });
-  await expect(header).toBeVisible();
-  // The decorative square is filled with the program accent.
-  const square = header.locator('span[aria-hidden="true"]');
-  await expect(square).toHaveCSS('background-color', ACCENT);
-});
-
-test('the scope-picker option row shows the accent identity square next to the program name', async ({
-  page,
-}) => {
-  await page.goto('/me/work');
-  const sb = sidebar(page);
-  await sb.getByRole('button', { name: /Program scope:/i }).click();
-  // The option's accessible name is the program name (color is decorative).
-  const option = sb.getByRole('option', { name: /Cloud Migration/i });
-  await expect(option).toBeVisible();
-  const square = option.locator('span[aria-hidden="true"]');
+  // The program NAME is the row's open-button accessible name — the square is decorative.
+  const nameBtn = sb.getByRole('button', { name: 'Cloud Migration', exact: true });
+  await expect(nameBtn).toBeVisible();
+  // The identity square (rule 158) is the direct-child aria-hidden span of the row,
+  // filled with the program accent. (The v2 rail is a cross-program list, so each
+  // program row carries the square; the scope picker it replaced is gone.)
+  const row = nameBtn.locator('xpath=..');
+  const square = row.locator('span[aria-hidden="true"]').first();
   await expect(square).toHaveCSS('background-color', ACCENT);
 });
