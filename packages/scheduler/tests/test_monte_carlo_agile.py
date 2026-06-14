@@ -89,6 +89,28 @@ def test_velocity_sampler_varies_with_throughput_spread() -> None:
     assert np.unique(out).size > 1
 
 
+def test_velocity_clamp_is_documented_lower_bound() -> None:
+    """The per-run sprint horizon clamps the slow tail, biasing velocity P95 down (#1010).
+
+    With story_points=100 and mean velocity 66.67 (samples [1, 1, 198]), the cap is
+    ceil(100/66.67)*4 + 10 = 18 sprints. A run that keeps drawing the slow (=1)
+    samples never burns down 100 points within 18 sprints, so it clamps to the cap:
+    18 sprints * 10 working days = 180 days. No run can exceed 180, and across
+    enough runs at least one hits it — so out.max() == 180 locks the clamp ceiling
+    against a refactor silently lengthening or dropping it (the bias the public
+    monte_carlo docstring now warns about).
+    """
+    out = _sample_velocity_durations(
+        100.0,
+        velocity_samples=[1.0, 1.0, 198.0],
+        sprint_length_days=10,
+        n=50_000,
+        rng=np.random.default_rng(0),
+    )
+    assert out is not None
+    assert out.max() == 180.0
+
+
 @pytest.mark.parametrize(
     ("story_points", "samples", "sprint_len"),
     [

@@ -308,6 +308,69 @@ class TestNonFiniteJson:
                 {"id": "a", "name": "A", "duration": 86400, "percent_complete": float("nan")}
             )
 
+    def test_from_dict_rejects_infinite_story_points(self) -> None:
+        """story_points is finite-checked at parse, matching the from_json path (#1010)."""
+        with pytest.raises(ValueError, match="story_points must be a finite number"):
+            Task.from_dict(
+                {"id": "a", "name": "A", "duration": 86400, "story_points": float("inf")}
+            )
+
+    def test_from_dict_rejects_infinite_velocity_sample(self) -> None:
+        """An inf velocity sample in a project dict is rejected as InvalidScheduleInput (#1010)."""
+        with pytest.raises(InvalidScheduleInput, match="velocity_samples must be finite"):
+            Project.from_dict(
+                {
+                    "id": "p",
+                    "name": "n",
+                    "start_date": "2026-01-01",
+                    "tasks": [{"id": "a", "name": "A", "duration": 86400}],
+                    "dependencies": [],
+                    "calendar": {},
+                    "velocity_samples": [10.0, float("inf")],
+                }
+            )
+
+
+class TestEnumInputMessages:
+    """Bad enum-valued fields fail with a legible, actionable message (#947).
+
+    Python's bare ``ValueError: 'XX' is not a valid DependencyType`` names neither
+    the field nor the allowed set — the first-run error quality alpha adopters
+    judge the library on. These lock the friendlier contract.
+    """
+
+    def test_invalid_dep_type_lists_allowed_set(self) -> None:
+        with pytest.raises(InvalidScheduleInput, match="Invalid dependency type") as exc:
+            Dependency.from_dict({"predecessor_id": "a", "successor_id": "b", "dep_type": "XX"})
+        msg = str(exc.value)
+        for allowed in ("FS", "FF", "SS", "SF"):
+            assert allowed in msg
+
+    def test_invalid_dep_type_via_project_from_dict_is_wrapped(self) -> None:
+        with pytest.raises(InvalidScheduleInput):
+            Project.from_dict(
+                {
+                    "id": "p",
+                    "name": "n",
+                    "start_date": "2026-01-01",
+                    "tasks": [
+                        {"id": "a", "name": "A", "duration": 86400},
+                        {"id": "b", "name": "B", "duration": 86400},
+                    ],
+                    "dependencies": [
+                        {"predecessor_id": "a", "successor_id": "b", "dep_type": "ZZ"}
+                    ],
+                    "calendar": {},
+                }
+            )
+
+    def test_invalid_delivery_mode_lists_allowed_set(self) -> None:
+        with pytest.raises(InvalidScheduleInput, match="Invalid delivery_mode") as exc:
+            Task.from_dict({"id": "a", "name": "A", "duration": 86400, "delivery_mode": "sprint"})
+        msg = str(exc.value)
+        for allowed in ("waterfall", "scrum"):
+            assert allowed in msg
+
 
 class TestPertEstimateOrdering:
     """A complete three-point estimate must be ordered (#1069).
