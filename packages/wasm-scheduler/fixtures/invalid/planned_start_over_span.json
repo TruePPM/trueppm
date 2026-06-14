@@ -1,0 +1,15 @@
+{
+  "id": "inv-planned-start-over-span",
+  "name": "planned_start pinned far beyond MAX_PROJECT_SPAN_DAYS",
+  "start_date": "2026-04-01",
+  "tasks": [
+    {"id": "A", "name": "Task A", "duration": 432000.0, "planned_start": "5000-01-01"}
+  ],
+  "dependencies": [],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

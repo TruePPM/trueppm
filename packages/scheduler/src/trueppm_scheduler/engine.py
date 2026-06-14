@@ -304,7 +304,15 @@ def _build_graph(project: Project) -> nx.DiGraph[str]:
         g.add_node(task.id)
     for dep in project.dependencies:
         if dep.predecessor_id not in task_ids or dep.successor_id not in task_ids:
-            raise ValueError(
+            # A dependency naming a non-existent task is degenerate input by the
+            # #749 definition, so raise the documented type (not a bare ValueError)
+            # — this keeps the cross-engine reject-parity contract symmetric: the
+            # Rust build_graph returns Err for the same input, and the shared
+            # fixtures/invalid/unknown_dependency_task.json conformance fixture
+            # asserts InvalidScheduleInput on both schedule() and monte_carlo()
+            # (#1087). InvalidScheduleInput subclasses ValueError, so existing
+            # ``except ValueError`` callers are unaffected.
+            raise InvalidScheduleInput(
                 f"Dependency references unknown task: {dep.predecessor_id!r} → {dep.successor_id!r}"
             )
         g.add_edge(dep.predecessor_id, dep.successor_id, dep=dep)

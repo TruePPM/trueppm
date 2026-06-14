@@ -24,6 +24,37 @@ impl std::fmt::Display for CyclicDependencyError {
     }
 }
 
+/// Anything `build_graph` can reject. A Rust `panic!` in WASM traps the entire
+/// module — every later call fails until the page reloads (#1087) — so a
+/// dependency that names a task id with no matching task must surface as an
+/// `Err` (mapped to a JS exception in `lib.rs`), never a panic. Mirrors the
+/// Python `_build_graph`, which raises `InvalidScheduleInput` for the same input.
+#[derive(Debug, Clone)]
+pub enum GraphBuildError {
+    /// A dependency references a predecessor or successor id with no matching task.
+    UnknownDependencyTask {
+        predecessor_id: String,
+        successor_id: String,
+    },
+    /// A cycle was detected during topological sort.
+    Cyclic(CyclicDependencyError),
+}
+
+impl std::fmt::Display for GraphBuildError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GraphBuildError::UnknownDependencyTask {
+                predecessor_id,
+                successor_id,
+            } => write!(
+                f,
+                "Dependency references unknown task: {predecessor_id:?} → {successor_id:?}"
+            ),
+            GraphBuildError::Cyclic(e) => e.fmt(f),
+        }
+    }
+}
+
 /// The built dependency graph, with index mappings for fast lookup.
 pub struct ProjectGraph {
     pub graph: DiGraph<String, usize>,
@@ -36,8 +67,8 @@ pub struct ProjectGraph {
 /// Edge weights are indices into `project.dependencies` for later lookup.
 ///
 /// Returns the graph, node index map, and topological order.
-/// Raises `CyclicDependencyError` if a cycle is detected.
-pub fn build_graph(project: &Project) -> Result<ProjectGraph, CyclicDependencyError> {
+/// Returns `Err` for a dependency referencing an unknown task or for a cycle.
+pub fn build_graph(project: &Project) -> Result<ProjectGraph, GraphBuildError> {
     let mut graph = DiGraph::<String, usize>::new();
     let mut node_index = HashMap::new();
     let task_ids: std::collections::HashSet<&str> =
@@ -52,10 +83,10 @@ pub fn build_graph(project: &Project) -> Result<ProjectGraph, CyclicDependencyEr
         if !task_ids.contains(dep.predecessor_id.as_str())
             || !task_ids.contains(dep.successor_id.as_str())
         {
-            panic!(
-                "Dependency references unknown task: {:?} → {:?}",
-                dep.predecessor_id, dep.successor_id
-            );
+            return Err(GraphBuildError::UnknownDependencyTask {
+                predecessor_id: dep.predecessor_id.clone(),
+                successor_id: dep.successor_id.clone(),
+            });
         }
         let pred = node_index[&dep.predecessor_id];
         let succ = node_index[&dep.successor_id];
@@ -66,9 +97,9 @@ pub fn build_graph(project: &Project) -> Result<ProjectGraph, CyclicDependencyEr
     let topo_indices = toposort(&graph, None).map_err(|cycle_node| {
         // Extract a cycle from the graph for the error message
         let cycle_id = graph[cycle_node.node_id()].clone();
-        CyclicDependencyError {
+        GraphBuildError::Cyclic(CyclicDependencyError {
             cycle: vec![cycle_id.clone(), cycle_id],
-        }
+        })
     })?;
 
     let topo_order: Vec<String> = topo_indices.iter().map(|&idx| graph[idx].clone()).collect();
@@ -231,5 +262,28 @@ mod tests {
             calendar: Calendar::default(),
         };
         assert!(build_graph(&project).is_err());
+    }
+
+    #[test]
+    fn test_unknown_dependency_task_errors_not_panics() {
+        // #1087: a dependency naming a task id with no matching task used to
+        // `panic!`, trapping the WASM module. It must return `Err` instead.
+        let project = Project {
+            id: "p1".to_string(),
+            name: "Test".to_string(),
+            start_date: chrono::NaiveDate::from_ymd_opt(2026, 4, 1).unwrap(),
+            tasks: vec![make_task("A", 5)],
+            dependencies: vec![Dependency {
+                predecessor_id: "A".to_string(),
+                successor_id: "GHOST".to_string(),
+                dep_type: DependencyType::FS,
+                lag: 0.0,
+            }],
+            calendar: Calendar::default(),
+        };
+        assert!(matches!(
+            build_graph(&project),
+            Err(GraphBuildError::UnknownDependencyTask { .. })
+        ));
     }
 }

@@ -1,0 +1,17 @@
+{
+  "id": "inv-unknown-dependency-task",
+  "name": "Dependency references a task id with no matching task",
+  "start_date": "2026-04-01",
+  "tasks": [
+    {"id": "A", "name": "Task A", "duration": 432000.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "A", "successor_id": "GHOST", "dep_type": "FS", "lag": 0.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

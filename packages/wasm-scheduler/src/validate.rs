@@ -65,6 +65,42 @@ pub fn validate_project(project: &Project) -> Result<(), String> {
                 check_duration(days, &format!("Task {:?} {}", t.id, label))?;
             }
         }
+
+        // A complete three-point estimate must be ordered. An inconsistent one
+        // (most_likely outside [optimistic, pessimistic], or optimistic above
+        // pessimistic) was previously sampled by the degenerate _sample_pert
+        // fallback as the constant most_likely, possibly beyond the user's own
+        // pessimistic bound (#1069). Partial estimates are not validated: Monte
+        // Carlo only samples when all three are present. Day-granularity match to
+        // Python's `.days` comparison (#1085).
+        if let (Some(o), Some(m), Some(pe)) =
+            (t.optimistic_duration, t.most_likely_duration, t.pessimistic_duration)
+        {
+            let od = (o / 86_400.0).round() as i64;
+            let md = (m / 86_400.0).round() as i64;
+            let pd = (pe / 86_400.0).round() as i64;
+            if !(od <= md && md <= pd) {
+                return Err(format!(
+                    "Task {:?} three-point estimates must satisfy optimistic <= most_likely \
+                     <= pessimistic (got {od} <= {md} <= {pd} days).",
+                    t.id
+                ));
+            }
+        }
+
+        // planned_start (SNET) extends the schedule directly, so it is bounded by
+        // the same span cap as durations and lags — otherwise a pin in year 9999
+        // is accepted by the bounded calendar walk and drives the day-by-day walk
+        // into a multi-million-entry scan (#1086, mirrors Python #1068).
+        if let Some(snet) = t.planned_start {
+            if (snet - project.start_date).num_days() > MAX_PROJECT_SPAN_DAYS {
+                return Err(format!(
+                    "Task {:?} planned_start is more than {MAX_PROJECT_SPAN_DAYS} days after the \
+                     project start; the schedule cannot be computed within a representable date range.",
+                    t.id
+                ));
+            }
+        }
     }
 
     for dep in &project.dependencies {
@@ -82,10 +118,14 @@ pub fn validate_project(project: &Project) -> Result<(), String> {
     // the sum keeps the day-by-day walk from spinning or overflowing the date
     // range no matter how many tasks are chained.
     let mut total_span: i64 = 0;
+    let mut max_snet_days: i64 = 0;
     for t in &project.tasks {
         // Worst case across the deterministic duration AND every PERT estimate:
         // Monte Carlo falls back to most_likely when the range is degenerate, so
-        // most_likely (which may exceed pessimistic) must count too.
+        // most_likely must count too. A complete triple is now validated as
+        // ordered (#1069/#1085) so most_likely cannot exceed pessimistic there;
+        // only a *partial* estimate can set most_likely above the deterministic
+        // duration, which is exactly the case this max() still guards.
         let mut task_max = i64::from(t.duration_days());
         for seconds in [t.optimistic_duration, t.most_likely_duration, t.pessimistic_duration]
             .into_iter()
@@ -94,10 +134,17 @@ pub fn validate_project(project: &Project) -> Result<(), String> {
             task_max = task_max.max((seconds / 86_400.0).round() as i64);
         }
         total_span += task_max.max(0);
+        if let Some(snet) = t.planned_start {
+            max_snet_days = max_snet_days.max((snet - project.start_date).num_days());
+        }
     }
     for dep in &project.dependencies {
         total_span += dep.lag_days().abs();
     }
+    // A planned_start pin shifts the whole downstream chain, so the furthest pin
+    // adds to the span bound exactly once (pins don't accumulate the way durations
+    // on a chain do). Mirrors the Python _validate_project (#1086 / #1068).
+    total_span += max_snet_days;
     if total_span > MAX_PROJECT_SPAN_DAYS {
         return Err(format!(
             "Total project span ({total_span} days across all task durations and lags) \
@@ -266,6 +313,68 @@ mod tests {
             })
             .collect();
         let p = project(tasks, vec![], Calendar::default());
+        assert!(validate_project(&p).is_err());
+    }
+
+    #[test]
+    fn accepts_ordered_three_point_estimate() {
+        // #1085: a complete, correctly-ordered triple must pass.
+        let mut t = task("A", 3);
+        t.optimistic_duration = Some(day(2));
+        t.most_likely_duration = Some(day(3));
+        t.pessimistic_duration = Some(day(5));
+        let p = project(vec![t], vec![], Calendar::default());
+        assert!(validate_project(&p).is_ok());
+    }
+
+    #[test]
+    fn rejects_inconsistent_three_point_estimate() {
+        // #1085: most_likely (10) above pessimistic (5) in a complete triple was
+        // accepted by Rust but rejected by Python — the engines must agree.
+        let mut t = task("A", 3);
+        t.optimistic_duration = Some(day(2));
+        t.most_likely_duration = Some(day(10));
+        t.pessimistic_duration = Some(day(5));
+        let p = project(vec![t], vec![], Calendar::default());
+        assert!(validate_project(&p).is_err());
+    }
+
+    #[test]
+    fn ignores_partial_three_point_estimate_ordering() {
+        // Only complete triples are ordered-checked; a partial estimate (no
+        // optimistic) is not, matching Python.
+        let mut t = task("A", 3);
+        t.most_likely_duration = Some(day(10));
+        t.pessimistic_duration = Some(day(5));
+        let p = project(vec![t], vec![], Calendar::default());
+        assert!(validate_project(&p).is_ok());
+    }
+
+    #[test]
+    fn rejects_planned_start_over_span() {
+        // #1086: a planned_start pin further than MAX_PROJECT_SPAN_DAYS after the
+        // project start was scheduled by Rust but rejected by Python.
+        let mut t = task("A", 1);
+        t.planned_start = Some(
+            NaiveDate::from_ymd_opt(2026, 4, 1).unwrap()
+                + chrono::Duration::days(MAX_PROJECT_SPAN_DAYS + 1),
+        );
+        let p = project(vec![t], vec![], Calendar::default());
+        assert!(validate_project(&p).is_err());
+    }
+
+    #[test]
+    fn rejects_span_via_planned_start_offset() {
+        // The furthest planned_start pin adds to the cumulative span bound once.
+        // Here the single task duration is small but the pin's offset pushes the
+        // total over the cap. (Just under the per-task eager cap so this exercises
+        // the accumulator path, not the eager check.)
+        let mut t = task("A", MAX_DURATION_DAYS);
+        t.planned_start = Some(
+            NaiveDate::from_ymd_opt(2026, 4, 1).unwrap()
+                + chrono::Duration::days(MAX_PROJECT_SPAN_DAYS),
+        );
+        let p = project(vec![t], vec![], Calendar::default());
         assert!(validate_project(&p).is_err());
     }
 }
