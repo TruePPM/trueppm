@@ -532,6 +532,45 @@ class TestDependencyAPI:
         assert "secret a" not in body
         assert "secret b" not in body
 
+    def test_create_surfaces_dense_graph_rejection_as_400(
+        self,
+        client: APIClient,
+        project: Project,
+        task: Task,
+        membership: ProjectMembership,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A summary→summary edge dense enough to trip the scheduler's
+        MAX_EXPANDED_EDGES cap must surface as a clean 400, not a 500 (#357).
+
+        The real cap (100k expanded edges) needs thousands of leaves to fire,
+        which is too slow for a unit test, so we patch ``find_cycle`` to raise
+        the engine's ``InvalidScheduleInput`` directly. The contract under test
+        is the serializer's try/except → ValidationError translation, not the
+        engine's counting logic (covered in the scheduler package's tests).
+        """
+        from trueppm_scheduler import InvalidScheduleInput
+
+        t2 = Task.objects.create(project=project, name="Build", duration=3)
+
+        def _raise(*_args: object, **_kwargs: object) -> None:
+            raise InvalidScheduleInput(
+                "Dependency graph is too dense to validate; simplify the structure."
+            )
+
+        monkeypatch.setattr("trueppm_api.apps.projects.serializers.find_cycle", _raise)
+
+        r = client.post(
+            "/api/v1/dependencies/",
+            {"predecessor": str(task.pk), "successor": str(t2.pk), "dep_type": "FS"},
+        )
+        assert r.status_code == 400
+        # Pathological-structure guard, not the cycle path: it's a plain
+        # ValidationError, so there is no structured `cycle` payload.
+        assert "cycle" not in r.data
+        body = str(r.data).lower()
+        assert "too dense" in body or "simplify" in body
+
     def test_update_to_same_endpoints_does_not_self_reject(
         self,
         client: APIClient,

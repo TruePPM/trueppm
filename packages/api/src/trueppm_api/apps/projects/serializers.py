@@ -13,7 +13,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import timezone
 from rest_framework import serializers
-from trueppm_scheduler import find_cycle
+from trueppm_scheduler import InvalidScheduleInput, find_cycle
 
 if TYPE_CHECKING:
     from trueppm_api.apps.workspace.models import Workspace
@@ -2589,7 +2589,17 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
         edges: list[tuple[str, str]] = [(str(p), str(s)) for p, s in existing_qs]
         edges.append((str(predecessor.id), str(successor.id)))
 
-        cycle_ids = find_cycle(edges, children_map=children_map)
+        try:
+            cycle_ids = find_cycle(edges, children_map=children_map)
+        except InvalidScheduleInput as exc:
+            # The scheduler caps how far a summary→summary dependency may fan out
+            # to leaf level before cycle detection (trueppm_scheduler #357). A
+            # graph dense enough to trip that cap can't be validated cheaply, so
+            # surface the engine's actionable message as a 400 rather than letting
+            # it become an opaque 500. This is a pathological-structure guard, not
+            # the cycle path, so it uses a plain ValidationError (not the
+            # structured CycleDetectedError the frontend renders as a cycle toast).
+            raise serializers.ValidationError(str(exc)) from exc
         if cycle_ids is None:
             return
 
