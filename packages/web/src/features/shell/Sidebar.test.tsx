@@ -115,4 +115,15 @@ describe('Sidebar (v2 left rail)', () => {
     // ...but the cross-program Portfolio rollup stays Enterprise-only (rule 15).
     expect(screen.queryByText('Portfolio rollup')).not.toBeInTheDocument();
   });
+
+  it('keeps the Resources icon in the collapsed rail but drops the heading + label (#1176)', () => {
+    // User-controlled collapse so the mount-time resize effect leaves it collapsed.
+    useShellStore.setState({ sidebarCollapsed: true, sidebarUserControlled: true });
+    renderRail();
+    // Icon link persists (accessible name from aria-label, parity with My Work)...
+    expect(screen.getByRole('link', { name: 'Resources catalog' })).toBeInTheDocument();
+    // ...while the group heading and the text label collapse away.
+    expect(screen.queryByText('Organization')).not.toBeInTheDocument();
+    expect(screen.queryByText('Resources')).not.toBeInTheDocument();
+  });
 });

@@ -265,35 +265,33 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
           )}
 
           {/* Organization — org-level destinations. Resources catalog is OSS and
-              always present; Portfolio rollup is cross-program (Enterprise,
-              post-1.0) and only lights up when the edition has it (rule 15). */}
-          {showFull && (
-            <>
-              <h2 className={GROUP_LABEL}>Organization</h2>
-              <NavLink
-                to="/resources"
-                aria-label="Resources catalog"
-                onClick={() => isDrawer && onClose?.()}
-                className={({ isActive }) => rowClass(isActive)}
-              >
-                <svg width="16" height="16" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true" className="shrink-0">
-                  <path d="M5 3.5a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm8 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM0 11c0-1.7 1.3-3 3-3s3 1.3 3 3v1H0v-1Zm8 0c0-1.7 1.3-3 3-3s3 1.3 3 3v1H8v-1Z" />
-                </svg>
-                <span className="min-w-0 truncate">Resources</span>
-              </NavLink>
-              {edition === 'enterprise' && (
-                <NavLink
-                  to="/portfolio"
-                  onClick={() => isDrawer && onClose?.()}
-                  className={({ isActive }) => rowClass(isActive)}
-                >
-                  <svg width="16" height="16" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true" className="shrink-0">
-                    <path d="M2 2h4v4H2V2zm6 0h4v4H8V2zM2 8h4v4H2V8zm6 0h4v4H8V8z" />
-                  </svg>
-                  <span className="min-w-0 truncate">Portfolio rollup</span>
-                </NavLink>
-              )}
-            </>
+              always present (its icon persists in the collapsed rail, parity with
+              My Work / Inbox — #1176); Portfolio rollup is cross-program
+              (Enterprise, post-1.0) and only lights up when the edition has it
+              (rule 15). The group heading + Portfolio are expanded-only. */}
+          {showFull && <h2 className={GROUP_LABEL}>Organization</h2>}
+          <NavLink
+            to="/resources"
+            aria-label="Resources catalog"
+            onClick={() => isDrawer && onClose?.()}
+            className={({ isActive }) => rowClass(isActive)}
+          >
+            <svg width="16" height="16" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true" className="shrink-0">
+              <path d="M5 3.5a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm8 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM0 11c0-1.7 1.3-3 3-3s3 1.3 3 3v1H0v-1Zm8 0c0-1.7 1.3-3 3-3s3 1.3 3 3v1H8v-1Z" />
+            </svg>
+            {showFull && <span className="min-w-0 truncate">Resources</span>}
+          </NavLink>
+          {showFull && edition === 'enterprise' && (
+            <NavLink
+              to="/portfolio"
+              onClick={() => isDrawer && onClose?.()}
+              className={({ isActive }) => rowClass(isActive)}
+            >
+              <svg width="16" height="16" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true" className="shrink-0">
+                <path d="M2 2h4v4H2V2zm6 0h4v4H8V2zM2 8h4v4H2V8zm6 0h4v4H8V8z" />
+              </svg>
+              <span className="min-w-0 truncate">Portfolio rollup</span>
+            </NavLink>
           )}
 
           {/* Programs — expandable tree */}
