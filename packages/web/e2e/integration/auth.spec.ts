@@ -26,7 +26,8 @@ test.describe('Integration — Auth flow', () => {
 
     await expect(page).not.toHaveURL(/\/login/, { timeout: 15_000 });
     // App shell navigation is present — confirms we are past the auth gate.
-    await expect(page.getByRole('navigation', { name: 'Project list' })).toBeVisible({
+    // The v2 left rail (ADR-0126) renamed this landmark from "Project list".
+    await expect(page.getByRole('navigation', { name: 'Workspace navigation' })).toBeVisible({
       timeout: 10_000,
     });
   });
