@@ -18,6 +18,9 @@ const FIXTURE_ME = {
   display_name: 'Alice',
   initials: 'AL',
   email: 'alice@example.com',
+  max_project_role: 400,
+  workspace_role: null,
+  can_access_admin_settings: false,
 };
 
 const FIXTURE_PROGRAM = {
@@ -52,8 +55,21 @@ async function setup(page: Page) {
       }),
     );
   });
-  await page.route('**/api/v1/me/', (r) =>
+  // Catch-all fallback so no shell endpoint reaches a real backend, where the
+  // fixture token would 401 and raise the session-expired modal. Registered
+  // first → Playwright (last-registered-wins) lets the specific routes win.
+  await page.route('**/api/v1/**', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  );
+  await page.route('**/api/v1/auth/me/', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_ME) }),
+  );
+  await page.route('**/api/v1/edition/', (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj({ edition: 'community' }),
+    }),
   );
   await page.route('**/api/v1/programs/', (r) =>
     r.fulfill({

@@ -44,7 +44,10 @@ export function seedImportErrors(error: unknown): string[] {
  * POST /api/v1/programs/import/ — import a program from a JSON seed file (#615).
  *
  * Sends the file as multipart. On success the new program is owned by the
- * caller; invalidate ``['programs']`` so the list and sidebar refetch.
+ * caller; invalidate both ``['programs']`` (program list / program tabs) and
+ * ``['projects']`` (the sidebar project list, which is NOT a child key of
+ * ``['programs']`` so prefix invalidation does not reach it) so the import's
+ * new projects appear without a manual page refresh.
  */
 export function useImportProgramSeed(): UseMutationResult<Program, Error, File> {
   const queryClient = useQueryClient();
@@ -59,6 +62,7 @@ export function useImportProgramSeed(): UseMutationResult<Program, Error, File> 
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['programs'] });
+      void queryClient.invalidateQueries({ queryKey: ['projects'] });
     },
   });
 }
@@ -67,7 +71,12 @@ export function useImportProgramSeed(): UseMutationResult<Program, Error, File> 
  * POST /api/v1/programs/load-sample/ — load the bundled demo program (#375).
  *
  * The "Load demo data" empty-state action. Creates the Atlas hybrid-large
- * sample (owned by the caller) and invalidates ``['programs']``.
+ * sample (owned by the caller) and invalidates both ``['programs']`` and
+ * ``['projects']`` — the sample creates a program *and* its projects, and the
+ * sidebar project list keys on ``['projects']`` (not a child of ``['programs']``),
+ * so without the second invalidation the new projects only appear after a manual
+ * page refresh. The per-program projects tab (``['programs', id, 'projects']``)
+ * is already covered by the prefix-matching ``['programs']`` invalidation.
  */
 export function useLoadSampleProgram(): UseMutationResult<Program, Error, string | undefined> {
   const queryClient = useQueryClient();
@@ -78,6 +87,7 @@ export function useLoadSampleProgram(): UseMutationResult<Program, Error, string
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['programs'] });
+      void queryClient.invalidateQueries({ queryKey: ['projects'] });
     },
   });
 }
@@ -86,7 +96,9 @@ export function useLoadSampleProgram(): UseMutationResult<Program, Error, string
  * POST /api/v1/programs/{id}/remove-sample/ — tear down sample data (#375).
  *
  * The "Remove sample data" banner action. Owner-only server-side; refuses to
- * delete a non-sample program.
+ * delete a non-sample program. Tears down the sample's projects too, so it
+ * invalidates ``['projects']`` alongside ``['programs']`` — otherwise the
+ * removed projects linger in the sidebar until a manual refresh.
  */
 export function useRemoveSampleProgram(): UseMutationResult<void, Error, string> {
   const queryClient = useQueryClient();
@@ -96,6 +108,7 @@ export function useRemoveSampleProgram(): UseMutationResult<void, Error, string>
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['programs'] });
+      void queryClient.invalidateQueries({ queryKey: ['projects'] });
     },
   });
 }

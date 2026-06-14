@@ -16,6 +16,9 @@ const FIXTURE_ME = {
   display_name: 'Alice',
   initials: 'AL',
   email: 'alice@example.com',
+  max_project_role: 400,
+  workspace_role: null,
+  can_access_admin_settings: false,
 };
 
 const FIXTURE_PROGRAM = {
@@ -52,8 +55,22 @@ async function setup(page: Page) {
       }),
     );
   });
-  await page.route('**/api/v1/me/', (r) =>
+  // Catch-all fallback so no shell endpoint (notifications, active sprints,
+  // presence, …) reaches a real backend, where the fixture token would 401 and
+  // raise the session-expired modal that blocks every click. Registered first,
+  // so Playwright (last-registered-wins) lets the specific routes below win.
+  await page.route('**/api/v1/**', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  );
+  await page.route('**/api/v1/auth/me/', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_ME) }),
+  );
+  await page.route('**/api/v1/edition/', (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj({ edition: 'community' }),
+    }),
   );
   await page.route('**/api/v1/programs/', (r) =>
     r.fulfill({
@@ -120,6 +137,72 @@ test.describe('Load demo data', () => {
     await page.getByRole('menuitem', { name: /Atlas Platform Launch/i }).click();
 
     await expect(page).toHaveURL(new RegExp(`/programs/${PROGRAM_ID}/overview`));
+  });
+
+  test('the sample projects appear in the sidebar without a manual refresh', async ({ page }) => {
+    await setup(page);
+
+    // Stateful projects endpoint: empty until the sample is loaded, then it
+    // returns the sample's projects. This models the real backend, where
+    // load-sample creates a program *and* its projects in one transaction.
+    // The project is registered with `program: null` so it lands in the
+    // always-visible standalone "Projects" sidebar section, isolating the
+    // refetch behavior from program-group expand/collapse state.
+    let sampleLoaded = false;
+    const SAMPLE_PROJECT = {
+      id: 'e2e-sample-proj-00000000-0000-0000-0000-000000000001',
+      name: 'Atlas Core Platform',
+      description: '',
+      start_date: '2026-06-06',
+      calendar: 'cal-1',
+      methodology: 'HYBRID',
+      program: null,
+    };
+    await page.route('**/api/v1/projects/**', (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({
+          results: sampleLoaded ? [SAMPLE_PROJECT] : [],
+          count: sampleLoaded ? 1 : 0,
+          next: null,
+          previous: null,
+          due_today_count: 0,
+        }),
+      }),
+    );
+    await page.route('**/api/v1/programs/load-sample/', (r) => {
+      sampleLoaded = true;
+      r.fulfill({ status: 201, contentType: 'application/json', body: pj(FIXTURE_PROGRAM) });
+    });
+
+    await page.goto('/programs');
+
+    const nav = page.getByRole('navigation', { name: 'Workspace navigation' });
+    const projectRow = nav.getByRole('button', { name: 'Atlas Core Platform, health unknown' });
+
+    // Not present before the sample is loaded.
+    await expect(projectRow).toHaveCount(0);
+
+    // The invalidation triggers a *second* GET /projects/ — the one that runs
+    // after the sample is loaded (so the mock returns the new project). Wait on
+    // it explicitly rather than racing the async refetch + re-render against a
+    // fixed assertion timeout.
+    const refetch = page.waitForResponse(
+      (res) =>
+        res.url().includes('/api/v1/projects/') &&
+        res.request().method() === 'GET' &&
+        sampleLoaded,
+    );
+
+    await page.getByRole('button', { name: /Load demo data/i }).first().click();
+    await page.getByRole('menuitem', { name: /Atlas Platform Launch/i }).click();
+    await expect(page).toHaveURL(new RegExp(`/programs/${PROGRAM_ID}/overview`));
+
+    // The mutation invalidates ['projects'], so the sidebar refetches and shows
+    // the new project — no page.reload() here is the whole point of the test.
+    await refetch;
+    await expect(projectRow).toBeVisible();
   });
 
   test('remove-sample confirm warns that user changes are also deleted (#1053)', async ({
