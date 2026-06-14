@@ -289,7 +289,11 @@ test.describe('Wave 10 — Sprints view header', () => {
 
     await page.goto(BASE_URL);
 
-    await expect(page.getByRole('navigation', { name: /Breadcrumb/i })).toContainText('Sprints');
+    // Scope to the in-view breadcrumb — the global context bar (ADR-0127) also
+    // renders a "Breadcrumb" nav, but it lives outside #main-content.
+    await expect(
+      page.locator('#main-content').getByRole('navigation', { name: /Breadcrumb/i }),
+    ).toContainText('Sprints');
     await expect(
       page.getByRole('heading', { level: 1, name: /Sprint 2 — Telemetry & FAT prep/ }),
     ).toBeVisible();

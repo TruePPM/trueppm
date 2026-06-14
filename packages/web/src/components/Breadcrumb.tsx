@@ -22,7 +22,7 @@ export function Breadcrumb({ items, className }: { items: BreadcrumbItem[]; clas
         {items.map((item, i) => {
           const isLast = i === items.length - 1;
           return (
-            <li key={`${item.label}-${i}`} className="flex items-center gap-1.5 min-w-0">
+            <li key={i} className="flex items-center gap-1.5 min-w-0">
               {i > 0 && (
                 <span aria-hidden="true" className="shrink-0 text-chrome-text-secondary/60">
                   ›

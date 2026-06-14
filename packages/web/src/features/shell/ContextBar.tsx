@@ -56,6 +56,7 @@ export function ContextBar() {
         type="button"
         onClick={toggleSidebar}
         aria-label={sidebarCollapsed ? 'Show navigation' : 'Hide navigation'}
+        aria-controls="primary-nav-rail"
         aria-expanded={!sidebarCollapsed}
         title={`${sidebarCollapsed ? 'Show' : 'Hide'} navigation (${modifierKeyLabel()}B)`}
         className="hidden md:inline-flex shrink-0 w-8 h-8 items-center justify-center rounded text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface"

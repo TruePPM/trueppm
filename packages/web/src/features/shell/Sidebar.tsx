@@ -72,8 +72,8 @@ function rowClass(active: boolean): string {
  * #959 scope-picker sidebar.
  *
  * Kept the export name `Sidebar` + the isDrawer/onClose props so AppShell and the
- * mobile drawer are unchanged. Collapsed desktop is an icon rail (the
- * handoff's hide-to-context-bar collapse arrives with the context-bar MR).
+ * mobile drawer are unchanged. On desktop the rail is expanded (248px) or fully
+ * hidden (0px, `inert` + aria-hidden — ADR-0127); the context bar's ≡ re-opens it.
  */
 export function Sidebar({ isDrawer = false, onClose }: Props) {
   const navigate = useNavigate();
@@ -155,6 +155,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
   return (
     <>
       <aside
+        id="primary-nav-rail"
         aria-label="Primary navigation"
         aria-hidden={hidden || undefined}
         inert={hidden || undefined}

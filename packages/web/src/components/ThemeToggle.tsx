@@ -99,7 +99,7 @@ export function ThemeToggle({ className }: { className?: string }) {
           aria-label={label}
           className={[
             'h-7 w-7 flex items-center justify-center text-xs',
-            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface',
             i === 0 ? 'rounded-l' : '',
             i === THEME_OPTIONS.length - 1 ? 'rounded-r' : 'border-r border-neutral-border',
             theme === value
