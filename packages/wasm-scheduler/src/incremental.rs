@@ -28,6 +28,15 @@ pub fn incremental_update(
 
     let pg = build_graph(project).map_err(|e| e.to_string())?;
 
+    // A stale changed_task_id (e.g. the task was deleted while a drag-preview was
+    // in flight) would index-panic in bfs_downstream's `pg.node_index[&id]`,
+    // trapping the WASM module (#1087). Reject it as a clean Err first.
+    if !pg.node_index.contains_key(changed_task_id) {
+        return Err(format!(
+            "changed_task_id {changed_task_id:?} does not exist in the project."
+        ));
+    }
+
     // BFS to find downstream tasks (inclusive of the changed task)
     let downstream = bfs_downstream(&pg, changed_task_id);
 
@@ -131,4 +140,61 @@ fn bfs_downstream(pg: &ProjectGraph, start_id: &str) -> HashSet<String> {
     }
 
     visited
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::NaiveDate;
+
+    use super::incremental_update;
+    use crate::models::{Calendar, Dependency, DependencyType, Project, Task};
+
+    fn task(id: &str, days: i64) -> Task {
+        Task {
+            id: id.to_string(),
+            name: id.to_string(),
+            duration: (days * 86_400) as f64,
+            planned_start: None,
+            planned_finish: None,
+            early_start: None,
+            early_finish: None,
+            late_start: None,
+            late_finish: None,
+            total_float: 0.0,
+            free_float: 0.0,
+            is_critical: false,
+            percent_complete: 0.0,
+            optimistic_duration: None,
+            most_likely_duration: None,
+            pessimistic_duration: None,
+        }
+    }
+
+    fn project() -> Project {
+        Project {
+            id: "p".to_string(),
+            name: "p".to_string(),
+            start_date: NaiveDate::from_ymd_opt(2026, 4, 1).unwrap(),
+            tasks: vec![task("A", 5), task("B", 3)],
+            dependencies: vec![Dependency {
+                predecessor_id: "A".to_string(),
+                successor_id: "B".to_string(),
+                dep_type: DependencyType::FS,
+                lag: 0.0,
+            }],
+            calendar: Calendar::default(),
+        }
+    }
+
+    #[test]
+    fn unknown_changed_task_id_errors_not_panics() {
+        // #1087: a stale changed_task_id (deleted mid-drag) previously index-panicked
+        // in bfs_downstream, trapping the module. It must return a clean Err.
+        assert!(incremental_update(&project(), "GHOST").is_err());
+    }
+
+    #[test]
+    fn known_changed_task_id_succeeds() {
+        assert!(incremental_update(&project(), "A").is_ok());
+    }
 }

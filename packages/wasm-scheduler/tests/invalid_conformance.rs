@@ -84,3 +84,26 @@ fn rejects_duplicate_task_id() {
     // silently shadows one task; both engines reject it at validation (#749).
     assert_rejected("duplicate_task_id");
 }
+
+#[test]
+fn rejects_unknown_dependency_task() {
+    // A dependency names a task id with no matching task. This used to `panic!`
+    // in build_graph, trapping the WASM module; it must surface as a clean Err.
+    // Python's _build_graph raises InvalidScheduleInput for the same input (#1087).
+    assert_rejected("unknown_dependency_task");
+}
+
+#[test]
+fn rejects_planned_start_over_span() {
+    // A planned_start (SNET) pinned more than MAX_PROJECT_SPAN_DAYS after the
+    // project start: scheduled by Rust, rejected by Python before the fix (#1086).
+    assert_rejected("planned_start_over_span");
+}
+
+#[test]
+fn rejects_pert_ordering_inconsistent() {
+    // A complete three-point estimate with most_likely above pessimistic: the
+    // degenerate _sample_pert fallback used to sample it; both engines now reject
+    // it eagerly at validation (#1085).
+    assert_rejected("pert_ordering_inconsistent");
+}

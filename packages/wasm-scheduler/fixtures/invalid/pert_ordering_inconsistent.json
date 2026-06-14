@@ -1,0 +1,22 @@
+{
+  "id": "inv-pert-ordering-inconsistent",
+  "name": "Complete three-point estimate with most_likely above pessimistic",
+  "start_date": "2026-04-01",
+  "tasks": [
+    {
+      "id": "A",
+      "name": "Task A",
+      "duration": 432000.0,
+      "optimistic_duration": 172800.0,
+      "most_likely_duration": 864000.0,
+      "pessimistic_duration": 432000.0
+    }
+  ],
+  "dependencies": [],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}
