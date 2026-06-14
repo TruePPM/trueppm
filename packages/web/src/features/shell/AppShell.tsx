@@ -9,10 +9,15 @@ import { StatusBar } from './StatusBar';
 import { BottomNav } from './BottomNav';
 import { SessionExpiredBanner } from './SessionExpiredBanner';
 import { OfflineBanner } from './OfflineBanner';
+import { CommandPalette } from './commandPalette/CommandPalette';
+import { useCommandPaletteHotkey } from './commandPalette/useCommandPaletteHotkey';
 
 export function AppShell() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const hamburgerRef = useRef<HTMLButtonElement>(null);
+
+  // ⌘K / Ctrl+K opens the command palette from anywhere (v2 design system).
+  useCommandPaletteHotkey();
 
   const openDrawer = useCallback(() => setDrawerOpen(true), []);
   const closeDrawer = useCallback(() => {
@@ -105,6 +110,9 @@ export function AppShell() {
       )}
 
       <SessionExpiredBanner />
+
+      {/* ⌘K command palette (v2 design system) — portaled overlay; renders only when open */}
+      <CommandPalette />
 
       {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} />}
     </QueryClientProvider>
