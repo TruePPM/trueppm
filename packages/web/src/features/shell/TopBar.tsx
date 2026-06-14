@@ -12,7 +12,6 @@ import { WarningIcon, CriticalDotIcon } from '@/components/Icons';
 import { Logo } from './Logo';
 import { ViewTabs } from './ViewTabs';
 import { ProgramTabs } from './ProgramTabs';
-import { CommandPaletteTrigger } from './commandPalette/CommandPaletteTrigger';
 import { BadgePopover } from './BadgePopover';
 import { TaskRunIndicator } from './TaskRunIndicator';
 import { PresenceAvatarStack } from './PresenceAvatarStack';
@@ -162,16 +161,15 @@ export function TopBar({ onHamburgerClick }: Props) {
         </svg>
       </button>
 
-      <Logo />
+      {/* Brand is mobile-only here — on desktop the v2 left rail carries it. */}
+      <span className="md:hidden">
+        <Logo />
+      </span>
       <ViewTabs />
       <ProgramTabs />
 
-      {/* Command palette trigger (v2 design system) — pushed right, before the badges */}
-      <div className="ml-auto" />
-      <CommandPaletteTrigger />
-
       {/* Badges */}
-      <div className="flex items-center gap-2">
+      <div className="ml-auto flex items-center gap-2">
         {/* Status pills — lg+ shows individually; below lg collapses to Health dropdown */}
         <div className="hidden lg:flex items-center gap-2">
           {/* P80 — outlined at-risk pill; click opens MC distribution panel (issue #196). */}

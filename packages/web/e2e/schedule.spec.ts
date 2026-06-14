@@ -191,7 +191,8 @@ test.describe('Accessibility basics', () => {
   });
 
   test('sidebar has accessible label', async ({ page }) => {
-    await expect(page.getByRole('complementary', { name: 'Projects' })).toBeVisible();
+    // v2 left rail (ADR-0126): the aside is now labeled "Primary navigation".
+    await expect(page.getByRole('complementary', { name: 'Primary navigation' })).toBeVisible();
   });
 
   test('status bar is a contentinfo landmark', async ({ page }) => {

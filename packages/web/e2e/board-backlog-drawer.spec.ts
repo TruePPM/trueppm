@@ -123,7 +123,10 @@ test.describe('Board BACKLOG drawer (epic #361 child C, issue #383)', () => {
     await expect(page.getByTestId('backlog-band')).toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId('backlog-drawer')).toHaveCount(0);
 
-    await page.getByRole('button', { name: 'Drawer' }).click();
+    await page
+      .getByRole('toolbar', { name: 'Board toolbar' })
+      .getByRole('button', { name: 'Drawer', exact: true })
+      .click();
 
     await expect(page.getByTestId('backlog-drawer')).toBeVisible();
     // Rail no longer mounted while drawer is active.
@@ -135,7 +138,10 @@ test.describe('Board BACKLOG drawer (epic #361 child C, issue #383)', () => {
     await setup(page, [SUMMARY_TASK, COMMITTED_TASK, BACKLOG_FRESH, BACKLOG_STALE]);
     await page.goto(`${BASE_URL}/board`);
 
-    await page.getByRole('button', { name: 'Drawer' }).click();
+    await page
+      .getByRole('toolbar', { name: 'Board toolbar' })
+      .getByRole('button', { name: 'Drawer', exact: true })
+      .click();
 
     const drawer = page.getByTestId('backlog-drawer');
     await expect(drawer.getByText('2 ideas')).toBeVisible();
@@ -147,7 +153,10 @@ test.describe('Board BACKLOG drawer (epic #361 child C, issue #383)', () => {
     await setup(page, [SUMMARY_TASK, COMMITTED_TASK, BACKLOG_FRESH]);
     await page.goto(`${BASE_URL}/board`);
 
-    await page.getByRole('button', { name: 'Drawer' }).click();
+    await page
+      .getByRole('toolbar', { name: 'Board toolbar' })
+      .getByRole('button', { name: 'Drawer', exact: true })
+      .click();
 
     const drawer = page.getByTestId('backlog-drawer');
     // Default is open; collapse it.
