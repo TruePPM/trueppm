@@ -1688,11 +1688,18 @@ def sprint_daily_delta(sprint: Any, since: Any, request: Any) -> dict[str, Any]:
     """Team standup "what changed since yesterday" read for a sprint (ADR-0121, #925).
 
     Computed entirely from existing data — NO model: status moves + new blockers
-    from ``HistoricalTask`` (status transitions in the window), scope injections
-    from ``SprintScopeChange``, the burndown swing from ``SprintBurnSnapshot``, and
-    a per-actor count rollup. Status-level only — never time entries, durations, or
-    edit counts (Morgan's surveillance hard-NO holds by construction). Pull-only;
-    no side effects.
+    from ``HistoricalTask``, scope injections from ``SprintScopeChange``, the
+    burndown swing from ``SprintBurnSnapshot``, and a per-actor count rollup.
+    Status-level only — never time entries, durations, or edit counts (Morgan's
+    surveillance hard-NO holds by construction). Pull-only; no side effects.
+
+    New blockers (ADR-0124, #1125): a "new blocker" is the ``blocked_reason``
+    empty→non-empty transition — the intentional human flag — NOT a move into the
+    deprecated ``ON_HOLD`` status (which conflated blocked / parked / deprioritized).
+    Each entry is split ``impediment`` (a structured ``blocker_type`` is set) vs
+    ``paused`` (flagged with no type) and carries type + age, NEVER the free-text
+    reason (the standup is a shared screen — the reason stays contributor-private).
+    A ``blocker_summary`` count of each is included for the panel headline.
 
     ``since`` is floored at ``sprint.activated_at`` so the window never reaches
     before the sprint started (and stays inside the 90-day history retention).
@@ -1751,6 +1758,10 @@ def sprint_daily_delta(sprint: Any, since: Any, request: Any) -> dict[str, Any]:
     task_changes: list[dict[str, Any]] = []
     new_blockers: list[dict[str, Any]] = []
 
+    def _is_flagged(history_row: Any) -> bool:
+        """A history row is 'blocked' iff its blocked_reason is non-empty (#1125)."""
+        return bool((getattr(history_row, "blocked_reason", "") or "").strip())
+
     if task_ids:
         # All history for the current sprint tasks, oldest-first per task, so each
         # in-window row can be diffed against its true predecessor (which may pre-
@@ -1766,34 +1777,56 @@ def sprint_daily_delta(sprint: Any, since: Any, request: Any) -> dict[str, Any]:
             prev_by_task[r.id] = r
             if prev is None:
                 continue
-            # Only transitions that landed in the window, and only status moves
-            # ("moved cards" — the issue's core signal; assignee churn is noise).
-            if r.history_date < effective_since or r.status == prev.status:
+            if r.history_date < effective_since:
                 continue
             actor = r.history_user
-            entry = {
-                "task_id": str(r.id),
-                "task_short_id": f"T-{r.short_id}" if r.short_id else "",
-                "task_title": r.name,
-                "kind": "status",
-                "from": prev.status,
-                "to": r.status,
-                "actor_id": actor.pk if actor else None,
-                "actor_username": getattr(actor, "username", None) if actor else None,
-                "at": r.history_date.isoformat(),
-            }
-            task_changes.append(entry)
-            _bump(actor, "moved")
-            if r.status == TaskStatus.COMPLETE:
-                _bump(actor, "completed")
-            if r.status == TaskStatus.ON_HOLD:
+            actor_username = getattr(actor, "username", None) if actor else None
+            short_id = f"T-{r.short_id}" if r.short_id else ""
+
+            # Status moves ("moved cards" — the issue's core signal). Tracked
+            # independently of the blocker flag so a task can both move and be
+            # flagged in the same window.
+            if r.status != prev.status:
+                task_changes.append(
+                    {
+                        "task_id": str(r.id),
+                        "task_short_id": short_id,
+                        "task_title": r.name,
+                        "kind": "status",
+                        "from": prev.status,
+                        "to": r.status,
+                        "actor_id": actor.pk if actor else None,
+                        "actor_username": actor_username,
+                        "at": r.history_date.isoformat(),
+                    }
+                )
+                _bump(actor, "moved")
+                if r.status == TaskStatus.COMPLETE:
+                    _bump(actor, "completed")
+
+            # ADR-0124 (#1125): a "new blocker" is the blocked_reason empty→non-empty
+            # transition — the intentional human flag — NOT a move into the deprecated
+            # ON_HOLD status (which conflated blocked / deprioritized / parked). The
+            # entry splits "impediment" (a structured blocker_type is set) vs "paused"
+            # (flagged with no type). It carries type + age, NEVER the reason text
+            # (the Morgan boundary — the standup is a shared screen).
+            if _is_flagged(r) and not _is_flagged(prev):
+                age_seconds: int | None = None
+                if r.blocked_since is not None:
+                    age_seconds = max(0, int((until - r.blocked_since).total_seconds()))
+                btype = (getattr(r, "blocker_type", "") or "").strip() or None
                 new_blockers.append(
                     {
                         "task_id": str(r.id),
-                        "task_short_id": entry["task_short_id"],
+                        "task_short_id": short_id,
                         "task_title": r.name,
-                        "actor_username": entry["actor_username"],
-                        "at": entry["at"],
+                        "actor_username": actor_username,
+                        "at": r.history_date.isoformat(),
+                        "blocker_type": btype,
+                        "blocked_age_seconds": age_seconds,
+                        # The split the standup renders: impediment = a triageable
+                        # type is recorded; paused = a bare flag with no type.
+                        "kind": "impediment" if btype else "paused",
                     }
                 )
                 _bump(actor, "blocked")
@@ -1897,6 +1930,13 @@ def sprint_daily_delta(sprint: Any, since: Any, request: Any) -> dict[str, Any]:
         }
     )
 
+    # ADR-0124 (#1125): the standup splits the blocker count into impediments
+    # (a structured type is recorded — the SM can triage) vs paused (a bare flag).
+    blocker_summary = {
+        "impediment": sum(1 for b in new_blockers if b["kind"] == "impediment"),
+        "paused": sum(1 for b in new_blockers if b["kind"] == "paused"),
+    }
+
     return {
         "sprint_id": str(sprint.pk),
         "since": effective_since.isoformat(),
@@ -1904,6 +1944,7 @@ def sprint_daily_delta(sprint: Any, since: Any, request: Any) -> dict[str, Any]:
         "task_changes": task_changes,
         "scope_added": scope_added,
         "new_blockers": new_blockers,
+        "blocker_summary": blocker_summary,
         "burndown_delta": burndown_delta,
         "per_actor": per_actor,
         "actor_aggregate": actor_aggregate,

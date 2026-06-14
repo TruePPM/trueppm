@@ -332,3 +332,136 @@ def test_blocked_default_seed_in_app_on_email_off(bob: Any) -> None:
     )
     assert in_app.enabled is True
     assert email.enabled is False
+
+
+# ---------------------------------------------------------------------------
+# ADR-0124 #1134 — impediment routing to SM + PM, reason never in the body
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_blocked_notifies_scrum_master_and_pm_not_just_assignee(
+    client: APIClient,
+    project: Project,
+    admin: Any,
+    bob: Any,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """Flagging a task blocked routes to the assignee + Scrum Master + PM (#1134).
+
+    The actor (who raised it) is excluded; the SM (team facet) and the other PM
+    (Role.ADMIN) are both notified even though they are not the assignee. The actor
+    is a PM here because raising a blocker on someone else's task requires write
+    access (IsProjectMemberWriteOrOwn) — a plain member can only flag their own task.
+    """
+    from trueppm_api.apps.teams.models import Team, TeamMembership, TeamRole
+
+    # carol (a PM) raises the flag on bob's task (the actor); dave is the SM; admin
+    # is the other PM; bob owns it. carol is excluded as the actor.
+    carol = User.objects.create_user(username="carol", password="pw", email="carol@x.io")
+    dave = User.objects.create_user(username="dave", password="pw", email="dave@x.io")
+    ProjectMembership.objects.create(project=project, user=carol, role=Role.ADMIN)
+    ProjectMembership.objects.create(project=project, user=dave, role=Role.MEMBER)
+    team = Team.objects.create(project=project, name="Default", short_id="T01", is_default=True)
+    TeamMembership.objects.create(team=team, user=dave, role=TeamRole.MEMBER, is_scrum_master=True)
+
+    task = Task.objects.create(project=project, name="Foundation pour", duration=1, assignee=bob)
+
+    actor_client = APIClient()
+    actor_client.force_authenticate(user=carol)
+    with django_capture_on_commit_callbacks(execute=True):
+        resp = actor_client.patch(
+            f"/api/v1/tasks/{task.pk}/",
+            {"blocked_reason": "Waiting on the permit", "blocker_type": "vendor"},
+            format="json",
+        )
+    assert resp.status_code == 200, resp.data
+
+    recipients = set(
+        Notification.objects.filter(event_type="task.blocked").values_list(
+            "recipient__username", flat=True
+        )
+    )
+    # assignee (bob) + SM (dave) + PM (admin=ev_admin); the actor (carol) is excluded.
+    assert recipients == {"bob", "dave", "ev_admin"}
+    assert "carol" not in recipients
+
+
+@pytest.mark.django_db
+def test_blocked_notification_body_never_contains_reason(
+    client: APIClient,
+    project: Project,
+    admin: Any,
+    bob: Any,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """The task.blocked subject/body carry type + age, NEVER the reason (Morgan)."""
+    secret = "SECRET vendor escalation details"
+    task = Task.objects.create(project=project, name="Foundation pour", duration=1, assignee=bob)
+    with django_capture_on_commit_callbacks(execute=True):
+        resp = client.patch(
+            f"/api/v1/tasks/{task.pk}/",
+            {"blocked_reason": secret, "blocker_type": "vendor"},
+            format="json",
+        )
+    assert resp.status_code == 200, resp.data
+    notif = Notification.objects.get(recipient=bob, event_type="task.blocked")
+    assert secret not in notif.subject
+    assert secret not in notif.body
+    # The triage signal (the type label) IS present.
+    assert "External vendor" in notif.body
+
+
+# ---------------------------------------------------------------------------
+# ADR-0124 #1136 — opt-in email fires off-device, still reason-free
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+def test_blocked_email_fires_for_opted_in_recipient_without_reason(
+    client: APIClient,
+    project: Project,
+    admin: Any,
+    bob: Any,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """A recipient who opted into the task.blocked EMAIL channel gets an email (#1136).
+
+    The email is the off-device nudge Sarah/Priya asked for; its body still never
+    contains the free-text reason. Drives the real Notification.email_pending →
+    drain path end to end.
+    """
+    from trueppm_api.apps.notifications.tasks import _do_drain_emails
+
+    NotificationPreference.objects.create(
+        user=bob,
+        event_type=NotificationEventType.TASK_BLOCKED,
+        channel=NotificationChannel.EMAIL,
+        enabled=True,
+    )
+    secret = "SECRET reason text"
+    task = Task.objects.create(project=project, name="Foundation pour", duration=1, assignee=bob)
+    mail.outbox.clear()
+    with django_capture_on_commit_callbacks(execute=True):
+        resp = client.patch(
+            f"/api/v1/tasks/{task.pk}/",
+            {"blocked_reason": secret, "blocker_type": "decision"},
+            format="json",
+        )
+    assert resp.status_code == 200, resp.data
+    notif = Notification.objects.get(recipient=bob, event_type="task.blocked")
+    assert notif.email_pending is True
+    # Backdate past the email orphan window so the drain picks it up (the window
+    # exists so a rolled-back transaction never strands an email — not relevant here).
+    from datetime import timedelta as _td
+
+    from django.utils import timezone as _tz
+
+    Notification.objects.filter(pk=notif.pk).update(created_at=_tz.now() - _td(minutes=30))
+    _do_drain_emails()
+    assert len(mail.outbox) == 1
+    assert mail.outbox[0].to == ["bob@x.io"]
+    assert secret not in mail.outbox[0].subject
+    assert secret not in mail.outbox[0].body
+    assert "Decision needed" in mail.outbox[0].body

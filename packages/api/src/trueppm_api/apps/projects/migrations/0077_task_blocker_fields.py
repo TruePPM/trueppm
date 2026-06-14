@@ -1,0 +1,111 @@
+# Structured blocker fields for the blocker end-to-end wave (#1135, ADR-0124).
+# Renumbered 0076 -> 0077: the original 0076 collided with the merged
+# 0076_sprinttaskoutcome_review_polish (Wave D, !587); dependency repointed to it.
+
+import django.db.models.deletion
+from django.conf import settings
+from django.db import migrations, models
+
+
+class Migration(migrations.Migration):
+    dependencies = [
+        ("projects", "0076_sprinttaskoutcome_review_polish"),
+        migrations.swappable_dependency(settings.AUTH_USER_MODEL),
+    ]
+
+    operations = [
+        migrations.AddField(
+            model_name="historicaltask",
+            name="blocked_by",
+            field=models.ForeignKey(
+                blank=True,
+                db_constraint=False,
+                help_text="Who flagged the task as blocked.",
+                null=True,
+                on_delete=django.db.models.deletion.DO_NOTHING,
+                related_name="+",
+                to=settings.AUTH_USER_MODEL,
+            ),
+        ),
+        migrations.AddField(
+            model_name="historicaltask",
+            name="blocked_since",
+            field=models.DateTimeField(blank=True, null=True),
+        ),
+        migrations.AddField(
+            model_name="historicaltask",
+            name="blocker_type",
+            field=models.CharField(
+                blank=True,
+                choices=[
+                    ("dependency", "Waiting on dependency"),
+                    ("resource", "Missing resource"),
+                    ("vendor", "External vendor"),
+                    ("decision", "Decision needed"),
+                    ("other", "Other"),
+                ],
+                default="",
+                help_text="Optional structured classification of the blocker (triage signal).",
+                max_length=12,
+            ),
+        ),
+        migrations.AddField(
+            model_name="historicaltask",
+            name="blocking_task",
+            field=models.ForeignKey(
+                blank=True,
+                db_constraint=False,
+                help_text="Soft 'waiting on' link to another task; does NOT affect the schedule.",
+                null=True,
+                on_delete=django.db.models.deletion.DO_NOTHING,
+                related_name="+",
+                to="projects.task",
+            ),
+        ),
+        migrations.AddField(
+            model_name="task",
+            name="blocked_by",
+            field=models.ForeignKey(
+                blank=True,
+                help_text="Who flagged the task as blocked.",
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                related_name="+",
+                to=settings.AUTH_USER_MODEL,
+            ),
+        ),
+        migrations.AddField(
+            model_name="task",
+            name="blocked_since",
+            field=models.DateTimeField(blank=True, null=True),
+        ),
+        migrations.AddField(
+            model_name="task",
+            name="blocker_type",
+            field=models.CharField(
+                blank=True,
+                choices=[
+                    ("dependency", "Waiting on dependency"),
+                    ("resource", "Missing resource"),
+                    ("vendor", "External vendor"),
+                    ("decision", "Decision needed"),
+                    ("other", "Other"),
+                ],
+                default="",
+                help_text="Optional structured classification of the blocker (triage signal).",
+                max_length=12,
+            ),
+        ),
+        migrations.AddField(
+            model_name="task",
+            name="blocking_task",
+            field=models.ForeignKey(
+                blank=True,
+                help_text="Soft 'waiting on' link to another task; does NOT affect the schedule.",
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                related_name="blocking",
+                to="projects.task",
+            ),
+        ),
+    ]

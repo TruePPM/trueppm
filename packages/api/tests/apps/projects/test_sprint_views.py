@@ -1694,11 +1694,17 @@ def test_scope_changes_requires_membership(stranger_client: APIClient, project: 
 
 def _active_with_history(project: Project, actor: object) -> tuple[Sprint, Task]:
     """An ACTIVE sprint (activated 2 days ago) with a task moved NOT_STARTED →
-    IN_PROGRESS → ON_HOLD by ``actor``, so the window has two status moves and one
-    new blocker."""
+    IN_PROGRESS → ON_HOLD by ``actor``, with the blocker flag raised on the ON_HOLD
+    save — so the window has two status moves and one new blocker.
+
+    Post-#1125 (ADR-0124) the daily-delta detects a "new blocker" from the
+    ``blocked_reason`` empty→non-empty transition (a structured ``blocker_type``
+    makes it an *impediment*), NOT the deprecated ON_HOLD status alone."""
     from datetime import timedelta
 
     from django.utils import timezone
+
+    from trueppm_api.apps.projects.models import BlockerType
 
     s = _make_sprint(
         project, state=SprintState.ACTIVE, activated_at=timezone.now() - timedelta(days=2)
@@ -1711,6 +1717,8 @@ def _active_with_history(project: Project, actor: object) -> tuple[Sprint, Task]
     t.save()
     t._history_user = actor  # type: ignore[attr-defined]
     t.status = TaskStatus.ON_HOLD
+    t.blocked_reason = "Waiting on the payments API"
+    t.blocker_type = BlockerType.DEPENDENCY
     t.save()
     return s, t
 

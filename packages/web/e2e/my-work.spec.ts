@@ -46,6 +46,9 @@ const TASK = {
   group: 'this_sprint',
   is_blocked: false,
   blocked_reason: '',
+  // ADR-0124 #1135 structured blocker.
+  blocker_type: '',
+  blocked_age_seconds: null,
   server_version: 100,
   url: `/projects/${PROJECT_ID}/schedule?task=${TASK_ID}`,
 };
@@ -283,7 +286,9 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
     await expect(page.getByRole('button', { name: /Load demo data/i })).toHaveCount(0);
   });
 
-  test('a blocked task shows the Blocked badge with its reason (#476/#855)', async ({ page }) => {
+  test('a blocked task shows the Blocked badge, type chip, age, and reason (#476/#855/#1135)', async ({
+    page,
+  }) => {
     await setupAuthenticatedPage(page);
     await page.route('**/api/v1/projects/', (route) =>
       route.fulfill({
@@ -301,7 +306,14 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           results: [
-            { ...TASK, group: 'today', is_blocked: true, blocked_reason: 'Waiting on the API key' },
+            {
+              ...TASK,
+              group: 'today',
+              is_blocked: true,
+              blocked_reason: 'Waiting on the API key',
+              blocker_type: 'vendor',
+              blocked_age_seconds: 93600, // 1d 2h
+            },
           ],
           next: null,
           previous: null,
@@ -314,9 +326,11 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
 
     await page.goto('/me/work');
 
-    // Blocked badge + the reason render in the row; the task sits under "Today".
+    // Blocked badge + type chip + age + reason render in the row; under "Today".
     await expect(page.getByRole('heading', { name: /Today, 1 task/i })).toBeVisible();
     await expect(page.getByText('Blocked', { exact: true })).toBeVisible();
+    await expect(page.getByText('External vendor')).toBeVisible();
+    await expect(page.getByText('1d 2h blocked')).toBeVisible();
     await expect(page.getByText('Waiting on the API key')).toBeVisible();
   });
 });

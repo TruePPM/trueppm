@@ -17,6 +17,7 @@ import {
 } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type { TaskStatus } from '@/types';
+import type { BlockerType } from '@/lib/blocker';
 
 export type DueSource = 'actual' | 'planned' | 'estimated' | 'sprint' | null;
 
@@ -51,6 +52,14 @@ export interface MyWorkTask {
    */
   is_blocked: boolean;
   blocked_reason: string;
+  /**
+   * ADR-0124 (#1135) structured blocker — the team-shareable triage signal.
+   * `blocker_type` classifies the impediment (empty string when only free text
+   * was recorded); `blocked_age_seconds` is the server-computed age the row's
+   * "Xd Yh blocked" badge renders (null when the task is not flagged).
+   */
+  blocker_type: BlockerType | '';
+  blocked_age_seconds: number | null;
   server_version: number;
   url: string;
   /**

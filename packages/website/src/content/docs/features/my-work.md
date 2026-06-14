@@ -39,7 +39,13 @@ Tasks are grouped into three sections, computed on the server so every client gr
 2. **This Sprint** — your remaining work committed to the current active sprint.
 3. **Upcoming** — everything else assigned to you.
 
-Within each section, **blocked** tasks sort first, then by due date and priority. A blocked task shows a red **Blocked** badge with the reason a teammate gave — so you can see what's stuck without opening it.
+Within each section, **blocked** tasks sort first, then by due date and priority. A blocked task shows a red **Blocked** badge — and, when one is set, a **blocker type** ("External vendor", "Decision needed", and so on) and an **age** ("2d 3h blocked") so you can see at a glance what is stuck and for how long.
+
+### What is shared, and what stays private *(ships in 0.3, ADR-0124)*
+
+A blocker has two halves. The **structured signal** — the blocker *type*, its *age*, who flagged it, and an optional "waiting on" link to another task — is team-shareable: it drives the notifications and roll-ups your Scrum Master and PM use to clear impediments. The **free-text reason** you type is private: only you (the assignee) and anyone you @-mention on the task can read it. It is never carried in a notification, a roll-up, or the standup, and a teammate who is not the assignee or @-mentioned has no way to read or filter on it. The type is the triage signal; your words stay your voice.
+
+When you flag a task blocked, the **Scrum Master and PM are notified** (each can mute it in their notification preferences), and the task appears in the project's and the sprint's **blocked roll-up** — both carrying the type and age, never the reason.
 
 :::note[0.3]
 The Today / This Sprint / Upcoming grouping and the blocked badge land in 0.3. Before 0.3, My Work groups by active sprint.

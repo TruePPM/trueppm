@@ -14,6 +14,7 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 import type { TaskStatus } from '@/types';
 import { useMyWorkStatusUpdate, type MyWorkTask } from '@/hooks/useMyWork';
+import { blockerTypeLabel, formatBlockedAge } from '@/lib/blocker';
 import { formatDueLabel } from './dueLabel';
 import { StatusPicker } from './StatusPicker';
 import { PendingAcceptanceChip } from '@/features/board/PendingAcceptanceChip';
@@ -119,16 +120,29 @@ export function MyWorkTaskRow({ task }: Props) {
             </>
           )}
         </p>
-        {/* Blocked badge (#476/#855) — prominent, with the reason inline. The
-            human flag, not the board's dependency-readiness signal. */}
+        {/* Blocked badge (#476/#855, ADR-0124 #1135) — the human flag, not the
+            board's dependency-readiness signal. Shows the structured type chip +
+            an age ("Xd Yh blocked") alongside the private reason (My Work is the
+            assignee's own surface, so the reason is always theirs to read). */}
         {task.is_blocked && (
-          <p className="mt-1 flex items-start gap-1.5 text-xs text-semantic-critical">
+          <p className="mt-1 flex flex-wrap items-start gap-1.5 text-xs text-semantic-critical">
             <span
               className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 font-semibold
                 bg-semantic-critical-bg border border-semantic-critical/40"
             >
               <span aria-hidden="true">●</span> <span>Blocked</span>
             </span>
+            {task.blocker_type && (
+              <span className="inline-flex shrink-0 items-center rounded px-1.5 py-0.5 font-medium
+                bg-neutral-surface-sunken text-neutral-text-secondary border border-neutral-border">
+                {blockerTypeLabel(task.blocker_type)}
+              </span>
+            )}
+            {formatBlockedAge(task.blocked_age_seconds) && (
+              <span className="shrink-0 text-neutral-text-secondary tppm-mono">
+                {formatBlockedAge(task.blocked_age_seconds)}
+              </span>
+            )}
             {task.blocked_reason && (
               <span className="min-w-0 text-neutral-text-secondary">{task.blocked_reason}</span>
             )}

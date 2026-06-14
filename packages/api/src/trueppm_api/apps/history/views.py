@@ -44,6 +44,14 @@ _DIFF_EXCLUDED = frozenset(
         "history_change_reason",
         "history_user",
         "history_type",
+        # ADR-0124 reason-privacy (#1135): blocked_reason is contributor voice,
+        # readable only by the assignee + @-mentioned via the gated TaskSerializer.
+        # HistoricalTask carries it, so the team-readable history diff feed MUST
+        # exclude it — otherwise any project member reads the reason (and every
+        # past reason) through the History tab, bypassing the serializer gate. The
+        # structured signal (blocker_type / blocked_since / blocked_by / blocking_task)
+        # is team-shareable and may remain in the diff.
+        "blocked_reason",
     ]
 )
 
