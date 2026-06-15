@@ -370,3 +370,55 @@ def compute_velocity_suggestions(sprint_id: str | uuid.UUID) -> int:
             sprint_id,
         )
     return touched
+
+
+def build_sched_tasks(db_tasks: list[Any], *, suggest_approve: bool) -> list[Any]:
+    """Convert Django ``Task`` rows into scheduler ``Task`` dataclasses.
+
+    Single source of truth for the API → engine task mapping, shared by the
+    deterministic CPM pass (``scheduling.tasks``) and the Monte Carlo endpoint
+    (``scheduling.views``). Keeping one converter is what stops the CPM and MC
+    inputs from drifting — the exact failure mode of #1185, where Monte Carlo
+    silently dropped ``planned_start``. Every progress/actual field (ADR-0132) is
+    mapped here, so it reaches both engines or neither.
+
+    Args:
+        db_tasks: Django ``Task`` rows, already filtered to the committed set.
+        suggest_approve: When True (``project.estimation_mode`` is
+            ``SUGGEST_APPROVE``) a task's three-point estimate is withheld unless
+            its ``estimate_status`` is ACCEPTED. The scheduler's all-or-none rule
+            means a single ``None`` falls back to the deterministic duration.
+            (No-op for the deterministic CPM pass, which ignores PERT, but applied
+            uniformly so the two paths share one code path.)
+    """
+    from datetime import timedelta
+
+    from trueppm_scheduler.models import Task as SchedTask
+
+    from trueppm_api.apps.projects.models import EstimateStatus
+
+    def _pert(value: int | None, estimate_status: str | None) -> timedelta | None:
+        if value is None:
+            return None
+        if suggest_approve and estimate_status != EstimateStatus.ACCEPTED:
+            return None
+        return timedelta(days=value)
+
+    return [
+        SchedTask(
+            id=str(t.id),
+            name=t.name,
+            # Milestones are zero-duration gates regardless of any stored duration
+            # (MS Project allows non-zero milestone durations); the engine operates
+            # on duration only, so normalise at the boundary.
+            duration=timedelta(days=0) if t.is_milestone else timedelta(days=t.duration),
+            planned_start=t.planned_start,
+            percent_complete=t.percent_complete,
+            actual_start=t.actual_start,
+            actual_finish=t.actual_finish,
+            optimistic_duration=_pert(t.optimistic_duration, t.estimate_status),
+            most_likely_duration=_pert(t.most_likely_duration, t.estimate_status),
+            pessimistic_duration=_pert(t.pessimistic_duration, t.estimate_status),
+        )
+        for t in db_tasks
+    ]

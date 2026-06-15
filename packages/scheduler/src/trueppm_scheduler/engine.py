@@ -264,6 +264,25 @@ def _start_from_finish(finish: date, duration_days: int, calendar: Calendar) -> 
     return current
 
 
+def _effective_duration_days(task: Task) -> int:
+    """Working-day duration of the *remaining* work on a task (ADR-0132).
+
+    A task that has not started (``percent_complete == 0``) contributes its full
+    estimate. An in-progress task contributes only the portion not yet done:
+    ``duration - floor(duration * pct/100)``, clamped to ``[0, duration]``. The
+    elapsed portion uses integer truncation so the rule is unambiguous and
+    reproducible across the Python and Rust engines (the conformance contract).
+    A completed task (``actual_finish`` set) is pinned to its actuals by the
+    caller and never routed through this function.
+    """
+    duration_days = task.duration.days
+    pct = task.percent_complete
+    if not pct or pct <= 0:
+        return duration_days
+    elapsed = int(duration_days * min(pct, 100.0) / 100.0)
+    return max(0, duration_days - elapsed)
+
+
 def _working_days_between(start: date, end: date, calendar: Calendar) -> int:
     """Count working days in [start, end) — start inclusive, end exclusive.
 
@@ -447,13 +466,41 @@ def _forward_pass(
     g: nx.DiGraph[str],
     project_start: date,
     calendar: Calendar,
+    status_date: date | None = None,
 ) -> None:
-    """Compute early_start and early_finish for every task (in-place)."""
+    """Compute early_start and early_finish for every task (in-place).
+
+    Progress-aware (ADR-0132): a completed task (``actual_finish`` set) is pinned
+    to its recorded dates and removed from network logic; an in-progress task
+    contributes only its remaining duration; and when ``status_date`` (the data
+    date) is given, remaining/not-started work is floored at it — future work is
+    never scheduled in the past. With no actuals and no status date the result is
+    byte-identical to a pure planning pass.
+    """
     start = _next_working_day(project_start, calendar)
+    # The data date floors all not-yet-finished work: nothing remaining can be
+    # scheduled before "as of now". A status date at or before project start is
+    # already covered by the project-start floor.
+    if status_date is not None:
+        start = max(start, _next_working_day(status_date, calendar))
 
     for node_id in topo_order:
         task = task_map[node_id]
-        duration_days = task.duration.days
+
+        # Completed: pin to recorded actuals. The actual finish drives FS
+        # successors; the actual start drives SS/SF successors. Actuals are truth,
+        # so the task is taken out of network logic entirely (it may even sit
+        # before a predecessor — out-of-sequence reality is surfaced, not fixed).
+        if task.actual_finish is not None:
+            task.early_finish = task.actual_finish
+            task.early_start = (
+                task.actual_start if task.actual_start is not None else task.actual_finish
+            )
+            continue
+
+        # In-progress work contributes only what is left, laid forward from the
+        # data date; not-started work uses its full estimate.
+        duration_days = _effective_duration_days(task)
 
         # Collect ES and EF constraints from all predecessor dependencies.
         # planned_start (SNET) is an additional ES lower-bound: the task may
@@ -513,10 +560,26 @@ def _backward_pass(
     project_finish: date,
     calendar: Calendar,
 ) -> None:
-    """Compute late_start and late_finish for every task (in-place)."""
+    """Compute late_start and late_finish for every task (in-place).
+
+    Progress-aware (ADR-0132): a completed task is pinned to its actuals (late ==
+    early ⇒ zero float — it is done, it has no slack), and an in-progress task's
+    late dates span only its remaining duration, matching the forward pass so
+    total/free float stay internally consistent.
+    """
     for node_id in reversed(topo_order):
         task = task_map[node_id]
-        duration_days = task.duration.days
+
+        # Completed: pin late dates to the same actuals the forward pass used, so
+        # the task carries zero float and never distorts the critical path.
+        if task.actual_finish is not None:
+            task.late_finish = task.actual_finish
+            task.late_start = (
+                task.actual_start if task.actual_start is not None else task.actual_finish
+            )
+            continue
+
+        duration_days = _effective_duration_days(task)
 
         # Collect LF and LS constraints from all successor dependencies.
         lf_constraints: list[date] = [project_finish]
@@ -895,6 +958,22 @@ def _validate_project(project: Project) -> None:
                 f"the maximum of ±{MAX_LAG_DAYS} days (got {dep.lag.days})."
             )
 
+    # status_date (the data date, ADR-0132) floors all not-yet-finished work, so
+    # like a planned_start pin it shifts the schedule directly and is bounded by
+    # the same span cap — otherwise a data date in year 9999 drives the Monte
+    # Carlo working-day index build into a multi-million-entry walk. The MC index
+    # adds (status_date - start_date) to its size, so this guard runs before the
+    # index is built (#1186).
+    status_offset = 0
+    if project.status_date is not None:
+        status_offset = (project.status_date - project.start_date).days
+        if status_offset > MAX_PROJECT_SPAN_DAYS:
+            raise InvalidScheduleInput(
+                f"status_date is more than {MAX_PROJECT_SPAN_DAYS} days after the "
+                "project start; the schedule cannot be computed within a "
+                "representable date range."
+            )
+
     # Cumulative span: an upper bound on the longest path (and on the Monte Carlo
     # completion offset, which can sample each task up to its pessimistic
     # duration). Bounding the sum keeps the day-by-day walk and the working-day
@@ -918,10 +997,10 @@ def _validate_project(project: Project) -> None:
         if t.planned_start is not None:
             max_snet_days = max(max_snet_days, (t.planned_start - project.start_date).days)
     total_span += sum(abs(dep.lag.days) for dep in project.dependencies)
-    # A planned_start pin shifts the whole downstream chain, so the furthest pin
-    # adds to the span bound exactly once (pins don't accumulate the way
-    # durations on a chain do).
-    total_span += max_snet_days
+    # A planned_start pin and the data-date floor each shift the whole downstream
+    # chain, so the furthest of the two adds to the span bound exactly once (they
+    # don't accumulate the way durations on a chain do).
+    total_span += max(max_snet_days, max(0, status_offset))
     if total_span > MAX_PROJECT_SPAN_DAYS:
         raise InvalidScheduleInput(
             f"Total project span ({total_span} days across all task durations and lags) "
@@ -977,7 +1056,9 @@ def schedule(project: Project) -> ScheduleResult:
     tasks = [copy.deepcopy(t) for t in project.tasks]
     task_map = {t.id: t for t in tasks}
 
-    _forward_pass(task_map, topo_order, g, project.start_date, project.calendar)
+    _forward_pass(
+        task_map, topo_order, g, project.start_date, project.calendar, project.status_date
+    )
 
     # Project finish = latest early_finish across all tasks.
     # Forward pass guarantees every task has early_finish set.
@@ -1308,7 +1389,13 @@ def monte_carlo(
     lag_upper = sum(
         data["dep"].lag.days for _, _, data in g.edges(data=True) if data["dep"].lag.days > 0
     )
-    index_size = dur_upper + lag_upper + snet_upper + n_tasks + 30
+    # The data date (ADR-0132) floors remaining/not-started work, so a not-started
+    # task can finish as late as status_date + its duration. Cover the status date
+    # like a planned-start pin (calendar days over-estimate working-day offsets).
+    status_upper = 0
+    if project.status_date is not None:
+        status_upper = max(0, (project.status_date - project.start_date).days)
+    index_size = dur_upper + lag_upper + snet_upper + status_upper + n_tasks + 30
     wd_index = _build_working_day_index(project.start_date, calendar, index_size)
     offset_of = {d: i for i, d in enumerate(wd_index)}
 
@@ -1388,8 +1475,63 @@ def monte_carlo(
             off = offset_of.get(snapped)
             snet_floor[t.id] = float(off) if off is not None else float(len(wd_index) - 1)
 
+    # --- Progress-aware inputs (ADR-0132) ---
+    # The data date floors all not-yet-finished work: nothing remaining can be
+    # sampled before "as of now". Mirrors the deterministic forward pass.
+    status_floor = 0.0
+    if project.status_date is not None and project.status_date > project.start_date:
+        snapped_sd = _next_working_day(project.status_date, calendar)
+        sd_off = offset_of.get(snapped_sd)
+        status_floor = float(sd_off) if sd_off is not None else float(len(wd_index) - 1)
+
+    def _completed_offsets(t: Task) -> tuple[float, float]:
+        """Constant (ES, exclusive-EF) offset pair for a completed task."""
+        assert t.actual_finish is not None
+        fin_wd = _prev_working_day(t.actual_finish, calendar)
+        fin_off = offset_of.get(fin_wd)
+        if fin_off is None:
+            ef_off = 0.0 if fin_wd < wd_index[0] else float(len(wd_index) - 1)
+        else:
+            ef_off = float(fin_off + 1)  # exclusive EF: one past the inclusive last day
+        if t.actual_start is not None:
+            st_wd = _next_working_day(t.actual_start, calendar)
+            st_off = offset_of.get(st_wd)
+            es_off = (
+                float(st_off)
+                if st_off is not None
+                else (0.0 if st_wd < wd_index[0] else float(len(wd_index) - 1))
+            )
+            es_off = min(es_off, ef_off)
+        else:
+            es_off = max(0.0, ef_off - 1.0)
+        return es_off, ef_off
+
+    # Completed tasks are pinned to their actuals with zero variance — not
+    # re-sampled. In-progress tasks have a fixed elapsed portion subtracted from
+    # every sampled duration, so only the *remaining* work carries uncertainty
+    # (and a deterministic in-progress task still simulates to exactly its CPM
+    # finish, preserving that invariant). ``elapsed_days`` uses the same integer
+    # rule as _effective_duration_days so the two engines agree.
+    completed_offsets: dict[str, tuple[float, float]] = {
+        t.id: _completed_offsets(t) for t in task_map.values() if t.actual_finish is not None
+    }
+    elapsed_days: dict[str, float] = {}
+    for t in task_map.values():
+        if t.actual_finish is None and t.percent_complete and t.percent_complete > 0:
+            elapsed_days[t.id] = float(
+                int(t.duration.days * min(t.percent_complete, 100.0) / 100.0)
+            )
+
     for col, tid in enumerate(topo_order):
-        es_constraints = np.full(runs, snet_floor.get(tid, 0.0))
+        # Completed: pin both offsets to constants across every run and skip the
+        # network/sampling logic entirely.
+        if tid in completed_offsets:
+            es_off, ef_off = completed_offsets[tid]
+            es_mat[:, col] = es_off
+            ef_mat[:, col] = ef_off
+            continue
+
+        es_constraints = np.full(runs, max(snet_floor.get(tid, 0.0), status_floor))
         ef_constraints = np.zeros(runs)
         has_ef_constraint = False
 
@@ -1419,7 +1561,13 @@ def monte_carlo(
         # exclusive EF collapsed onto its ES — FS successors started a working
         # day early, lag anchors indexed the day *before* the milestone, and a
         # terminal milestone's completion date converted one day early (#1066).
-        eff_dur = np.maximum(dur_matrix[:, col], 1.0)
+        # Subtract the fixed elapsed portion of an in-progress task so only its
+        # remaining work is sampled (ADR-0132); the 1.0 floor then applies, so a
+        # fully-burned-down task behaves like a zero-remaining milestone.
+        sampled = dur_matrix[:, col]
+        if tid in elapsed_days:
+            sampled = sampled - elapsed_days[tid]
+        eff_dur = np.maximum(sampled, 1.0)
         es = es_constraints
         ef = es + eff_dur
 

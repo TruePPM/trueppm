@@ -165,6 +165,9 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "name",
             "description",
             "start_date",
+            # Data date for progress-aware forecasting (ADR-0132); null = no
+            # explicit anchor (Monte Carlo falls back to today).
+            "status_date",
             "calendar",
             "code",
             "health",

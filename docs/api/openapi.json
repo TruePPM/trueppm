@@ -23469,6 +23469,11 @@
                         "type": "string",
                         "format": "date"
                     },
+                    "status_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
                     "calendar": {
                         "type": "string",
                         "format": "uuid",
@@ -24783,6 +24788,11 @@
                         "type": "string",
                         "format": "date"
                     },
+                    "status_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
                     "calendar": {
                         "type": "string",
                         "format": "uuid",
@@ -25071,6 +25081,11 @@
                     "start_date": {
                         "type": "string",
                         "format": "date"
+                    },
+                    "status_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
                     },
                     "calendar": {
                         "type": "string",
@@ -25437,6 +25452,11 @@
                     "start_date": {
                         "type": "string",
                         "format": "date"
+                    },
+                    "status_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
                     },
                     "calendar": {
                         "type": "string",

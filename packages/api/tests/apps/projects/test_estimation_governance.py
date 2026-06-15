@@ -324,8 +324,9 @@ def test_mc_gate_pending_estimates_treated_as_none(
         pessimistic_duration=8,
         estimate_status=EstimateStatus.PENDING,
     )
-    # The MC view uses _pert_field() to gate; verify by calling the endpoint
-    # and checking the result uses deterministic duration (not PERT samples).
+    # The shared build_sched_tasks() converter gates pending estimates; verify by
+    # calling the endpoint and checking the result uses deterministic duration
+    # (not PERT samples).
     c = _client(sa_scheduler)
     resp = c.post(f"/api/v1/projects/{suggest_project.pk}/monte-carlo/", format="json")
     # Monte Carlo should run (200 or 202) without error even with pending estimates.

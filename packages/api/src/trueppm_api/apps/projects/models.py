@@ -632,6 +632,13 @@ class Project(VersionedModel):
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True)
     start_date = models.DateField()
+    # Data date / status date for progress-aware forecasting (ADR-0132). The
+    # "as-of" anchor: completed work is held fixed and remaining/not-started work
+    # is forecast from this date. Null means "no explicit anchor" — the Monte
+    # Carlo forecast falls back to today, while the deterministic CPM plan keeps
+    # showing earliest-possible dates. PM-settable so a forecast can be frozen
+    # for a report rather than drifting every run.
+    status_date = models.DateField(null=True, blank=True)
     calendar = models.ForeignKey(
         Calendar,
         on_delete=models.PROTECT,

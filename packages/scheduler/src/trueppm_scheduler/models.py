@@ -93,10 +93,19 @@ class Task:
 
     # Status
     is_critical: bool = False
-    # RESERVED (#826): round-trips for API parity but is NOT consumed by schedule()
-    # or monte_carlo() — neither uses it as a remaining-duration driver yet.
-    # Documented rather than removed to keep serialized documents valid.
+    # Progress (ADR-0132). Consumed by both schedule() and monte_carlo() as a
+    # remaining-duration driver: an in-progress task contributes only
+    # ``duration * (1 - percent_complete/100)`` of remaining work, scheduled
+    # forward from the project ``status_date`` (the data date), not its full
+    # estimate from project start. Clamped to [0, 100] by the engine.
     percent_complete: float = 0.0
+
+    # Actuals (ADR-0132). When ``actual_finish`` is set the task is treated as
+    # complete and pinned to its recorded dates — not re-scheduled or (in Monte
+    # Carlo) re-sampled. ``actual_start`` records when work began; both default
+    # to absent, so a document with no actuals schedules exactly as before.
+    actual_start: date | None = None
+    actual_finish: date | None = None
 
     # Three-point estimation (PERT)
     optimistic_duration: timedelta | None = None
@@ -138,6 +147,8 @@ class Task:
             "early_finish",
             "late_start",
             "late_finish",
+            "actual_start",
+            "actual_finish",
         ):
             if d.get(f) is not None:
                 d[f] = date.fromisoformat(d[f])
@@ -266,6 +277,14 @@ class Project:
     velocity_samples: list[float] | None = None
     sprint_length_days: int | None = None
 
+    # Data date (ADR-0132). The "as-of" anchor for progress-aware forecasting:
+    # completed work is held fixed, and remaining/not-started work is scheduled
+    # no earlier than this date. ``None`` means "no status anchor" — the engine
+    # schedules from ``start_date`` exactly as before. Callers resolve a null
+    # project status date to today before invoking the engine (the engine itself
+    # stays pure and never reads the wall clock).
+    status_date: date | None = None
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
@@ -276,6 +295,7 @@ class Project:
             "calendar": self.calendar.to_dict(),
             "velocity_samples": self.velocity_samples,
             "sprint_length_days": self.sprint_length_days,
+            "status_date": self.status_date.isoformat() if self.status_date else None,
         }
 
     @classmethod
@@ -308,6 +328,11 @@ class Project:
                 calendar=Calendar.from_dict(data.get("calendar", {})),
                 velocity_samples=velocity_samples,
                 sprint_length_days=data.get("sprint_length_days"),
+                status_date=(
+                    date.fromisoformat(data["status_date"])
+                    if data.get("status_date") is not None
+                    else None
+                ),
             )
         except (KeyError, ValueError, TypeError) as err:
             raise InvalidScheduleInput(f"Invalid project document: {err}") from err
