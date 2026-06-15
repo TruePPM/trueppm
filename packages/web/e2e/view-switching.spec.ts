@@ -77,6 +77,15 @@ async function setup(page: import('@playwright/test').Page) {
   await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/my-tasks/`, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ tasks: [] }) }),
   );
+  // Blocked roll-up (ADR-0124) — the Overview page mounts useProjectBlocked; an
+  // unmocked 401 here pops the session-expired modal and blocks navigation clicks.
+  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/blocked/`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ project_id: FIXTURE_PROJECT_ID, count: 0, blocked: [] }),
+    }),
+  );
   await page.route('**/api/v1/projects/*/presence/', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
   );
