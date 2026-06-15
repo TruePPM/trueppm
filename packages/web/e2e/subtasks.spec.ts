@@ -180,7 +180,10 @@ async function setupRoutes(page: Page, tasks: object[]) {
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ id: 'mem-e2e', role: 300, user_id: 'e2e-user' }),
+      // members/?self= returns a list; useCurrentUserRole reads data[0] to gate
+      // the drawer's write controls (ADR-0133). A bare object would make role
+      // resolve to null and the new canEdit gate would hide the add-subtask form.
+      body: JSON.stringify([{ id: 'mem-e2e', role: 300, user_id: 'e2e-user' }]),
     }),
   );
   await page.route('**/api/v1/tasks/**', (route) =>
