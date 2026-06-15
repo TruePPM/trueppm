@@ -104,14 +104,14 @@ describe('SprintSection', () => {
   it('shows empty-state message when no assignable sprints and task has no sprint', () => {
     mockTasks.splice(0, mockTasks.length, baseTask);
     mockSprints = [];
-    renderWithProviders(<SprintSection taskId="t1" projectId="p1" />);
+    renderWithProviders(<SprintSection taskId="t1" projectId="p1" canEdit />);
     expect(screen.getByText(/No active or planned sprints/i)).toBeInTheDocument();
   });
 
   it('renders the sprint selector when assignable sprints exist', () => {
     mockTasks.splice(0, mockTasks.length, baseTask);
     mockSprints = [activeSprint, plannedSprint];
-    renderWithProviders(<SprintSection taskId="t1" projectId="p1" />);
+    renderWithProviders(<SprintSection taskId="t1" projectId="p1" canEdit />);
     expect(screen.getByRole('combobox', { name: /Sprint assignment/i })).toBeInTheDocument();
   });
 
@@ -127,7 +127,7 @@ describe('SprintSection', () => {
   it('shows Remove button when task is assigned to a sprint', () => {
     mockTasks.splice(0, mockTasks.length, { ...baseTask, sprintId: 'sprint-1' });
     mockSprints = [activeSprint];
-    renderWithProviders(<SprintSection taskId="t1" projectId="p1" />);
+    renderWithProviders(<SprintSection taskId="t1" projectId="p1" canEdit />);
     expect(screen.getByRole('button', { name: /Remove from sprint/i })).toBeInTheDocument();
   });
 

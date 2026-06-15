@@ -88,6 +88,16 @@ export interface Task {
   isSummary: boolean;
   isMilestone: boolean;
   status: TaskStatus;
+  /**
+   * Server-derived edit/delete capability for the requesting user (ADR-0132, #1144).
+   * The drawer gates its write controls off these instead of re-deriving a client
+   * rule that drifts from the server (Scheduler / Member-own / PO-facet cases).
+   * Wire keys are snake_case `can_edit` / `can_delete`, mapped in `mapTask`.
+   * `undefined` on WebSocket-synced rows that predate the field and on optimistic
+   * local creates — callers fall back to `canEditTask(role)` (`task.canEdit ?? …`).
+   */
+  canEdit?: boolean;
+  canDelete?: boolean;
   /** ISO date string — when work actually started */
   actualStart?: string;
   /** ISO date string — when work actually finished */

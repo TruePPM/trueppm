@@ -13,9 +13,16 @@ import { ResourceSearchCombobox } from './ResourceSearchCombobox';
 export interface ResourceAssignmentSectionProps {
   taskId: string;
   projectId: string;
+  /** ADR-0132/#1142: when false, assignments render read-only (no units input,
+   *  no remove, no "+ Add resource") so a non-editor never hits a 403. */
+  canEdit?: boolean;
 }
 
-export function ResourceAssignmentSection({ taskId, projectId }: ResourceAssignmentSectionProps) {
+export function ResourceAssignmentSection({
+  taskId,
+  projectId,
+  canEdit = true,
+}: ResourceAssignmentSectionProps) {
   const [showSearch, setShowSearch] = useState(false);
   const [overallocationWarning, setOverallocationWarning] = useState<AssignmentWarning | null>(null);
   const [skillMismatchWarning, setSkillMismatchWarning] = useState<AssignmentWarning | null>(null);
@@ -95,6 +102,7 @@ export function ResourceAssignmentSection({ taskId, projectId }: ResourceAssignm
                 removeAssignment.isPending &&
                 removeAssignment.variables === assignment.id
               }
+              readOnly={!canEdit}
             />
           ))}
 
@@ -119,7 +127,8 @@ export function ResourceAssignmentSection({ taskId, projectId }: ResourceAssignm
         </>
       )}
 
-      {/* Add resource controls */}
+      {/* Add resource controls — hidden for non-editors (ADR-0132/#1142). */}
+      {canEdit && (
       <div className="mt-2">
         {showSearch ? (
           <ResourceSearchCombobox
@@ -142,6 +151,7 @@ export function ResourceAssignmentSection({ taskId, projectId }: ResourceAssignm
           </button>
         )}
       </div>
+      )}
     </section>
   );
 }

@@ -3,6 +3,7 @@ import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useUpdateTask, parseProgressAnchorError } from '@/hooks/useTaskMutations';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
+import { canEditTask } from '@/lib/roles';
 import type { TaskStatus } from '@/types';
 import { ResourceAssignmentSection } from '../ResourceAssignmentSection';
 import { BacklogDemoteConfirmDialog } from '../BacklogDemoteConfirmDialog';
@@ -36,11 +37,15 @@ const DEMOTION_GUARD: ReadonlySet<TaskStatus> = new Set(['IN_PROGRESS', 'REVIEW'
  * ADR-0057: demoting from IN_PROGRESS/REVIEW/COMPLETE → BACKLOG requires
  * confirmation via BacklogDemoteConfirmDialog.
  */
-export function OverviewSection({ taskId, projectId }: DrawerSectionProps) {
+export function OverviewSection({ taskId, projectId, userRole, canEdit }: DrawerSectionProps) {
   const itl = useIterationLabel(projectId);
   const { tasks } = useScheduleTasks();
   const task = tasks?.find((t) => t.id === taskId);
   const { mutate: updateTask, isPending } = useUpdateTask();
+
+  // ADR-0132/#1142: gate every write control off the server-derived verdict the
+  // drawer threads down; fall back to the client role rule only when it is absent.
+  const editable = canEdit ?? canEditTask(userRole);
 
   // Local progress state so the input feels immediate before the blur PATCH.
   const [localProgress, setLocalProgress] = useState<string | null>(null);
@@ -122,7 +127,7 @@ export function OverviewSection({ taskId, projectId }: DrawerSectionProps) {
         {/* Status — editable (#405) */}
         <div className="flex-1 min-w-0">
           <div className={LABEL_CLASS}>Status</div>
-          {task.isSummary ? (
+          {task.isSummary || !editable ? (
             <p className="text-sm text-neutral-text-primary">
               {STATUS_OPTIONS.find((o) => o.value === task.status)?.label ?? task.status}
             </p>
@@ -162,7 +167,7 @@ export function OverviewSection({ taskId, projectId }: DrawerSectionProps) {
           </div>
           {milestoneRollupActive && task.milestoneRollup ? (
             <MilestoneRollupReadOnly rollup={task.milestoneRollup} />
-          ) : task.isSummary ? (
+          ) : task.isSummary || !editable ? (
             <p className="text-sm tppm-mono text-neutral-text-primary">
               {Math.round(task.progress)}%
             </p>
@@ -203,7 +208,7 @@ export function OverviewSection({ taskId, projectId }: DrawerSectionProps) {
       </div>
 
       {/* People / assignees */}
-      <ResourceAssignmentSection taskId={taskId} projectId={projectId} />
+      <ResourceAssignmentSection taskId={taskId} projectId={projectId} canEdit={editable} />
     </div>
   );
 }

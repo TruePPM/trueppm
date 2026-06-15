@@ -3,6 +3,7 @@ import { Button } from '@/components/Button';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useCreateTask } from '@/hooks/useTaskMutations';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
+import { canEditTask } from '@/lib/roles';
 import type { Task, TaskStatus } from '@/types';
 
 const STATUS_DOT: Record<TaskStatus, string> = {
@@ -52,10 +53,13 @@ function SubtaskRow({ subtask }: { subtask: Task }) {
  * max(subtask finishes). Depth is capped at 1 — adding a subtask to a subtask
  * is rejected by the API and blocked in the UI.
  */
-export function SubtasksSection({ taskId, projectId }: DrawerSectionProps) {
+export function SubtasksSection({ taskId, projectId, userRole, canEdit }: DrawerSectionProps) {
   const { tasks } = useScheduleTasks();
   const task = tasks?.find((t) => t.id === taskId);
   const { mutate: createTask, isPending } = useCreateTask(projectId);
+
+  // ADR-0132/#1142: gate write controls off the server-derived verdict; fall back to the client role rule only when absent.
+  const editable = canEdit ?? canEditTask(userRole);
 
   const [isAdding, setIsAdding] = useState(false);
   const [draftName, setDraftName] = useState('');
@@ -165,11 +169,14 @@ export function SubtasksSection({ taskId, projectId }: DrawerSectionProps) {
 
       {subtasks.length === 0 && !isAdding && (
         <p className="text-sm italic text-neutral-text-secondary">
-          No subtasks yet — break this task into smaller pieces.
+          {editable
+            ? 'No subtasks yet — break this task into smaller pieces.'
+            : 'No subtasks.'}
         </p>
       )}
 
-      {isAdding ? (
+      {editable &&
+        (isAdding ? (
         <form onSubmit={handleSubmit} className="flex items-center gap-2">
           <input
             ref={inputRef}
@@ -218,7 +225,7 @@ export function SubtasksSection({ taskId, projectId }: DrawerSectionProps) {
         >
           + Add subtask
         </button>
-      )}
+        ))}
     </div>
   );
 }

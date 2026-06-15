@@ -100,4 +100,27 @@ describe('AssignmentRow', () => {
     expect(screen.getByRole('spinbutton', { name: /Allocation percent for Alice/i })).toBeDisabled();
     expect(screen.getByRole('button', { name: /Remove Alice from task/i })).toBeDisabled();
   });
+
+  // ADR-0132/#1142: a non-editor sees the allocation read-only.
+  it('renders allocation as static text with no input or remove control when readOnly', () => {
+    renderWithProviders(
+      <AssignmentRow
+        assignment={ASSIGNMENT}
+        onUnitsChange={vi.fn()}
+        onRemove={vi.fn()}
+        isUpdating={false}
+        isRemoving={false}
+        readOnly
+      />,
+    );
+    expect(
+      screen.queryByRole('spinbutton', { name: /Allocation percent for Alice/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /Remove Alice from task/i }),
+    ).not.toBeInTheDocument();
+    // The allocation value is still visible (read display, not a hole).
+    expect(screen.getByText('100%')).toBeInTheDocument();
+    expect(screen.getByText('Alice')).toBeInTheDocument();
+  });
 });

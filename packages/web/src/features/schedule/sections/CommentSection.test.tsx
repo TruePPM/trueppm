@@ -97,7 +97,7 @@ describe('CommentSection — list states', () => {
 
   it('renders the empty-state copy + the composer when no comments', () => {
     useCommentsMock.mockReturnValue({ comments: [], isLoading: false, error: null });
-    render(<CommentSection taskId="t1" projectId="p1" />);
+    render(<CommentSection taskId="t1" projectId="p1" canEdit />);
     expect(screen.getByText('Be the first to comment.')).toBeTruthy();
     expect(screen.getByRole('combobox')).toBeTruthy();
   });
@@ -191,7 +191,7 @@ describe('CommentSection — interactions', () => {
       isLoading: false,
       error: null,
     });
-    render(<CommentSection taskId="t1" projectId="p1" />);
+    render(<CommentSection taskId="t1" projectId="p1" canEdit />);
     fireEvent.click(screen.getByLabelText('Acknowledge this comment'));
     expect(mutate).toHaveBeenCalledWith(
       expect.objectContaining({ commentId: 'c1', acknowledge: true }),
@@ -206,7 +206,7 @@ describe('CommentSection — interactions', () => {
       isLoading: false,
       error: null,
     });
-    render(<CommentSection taskId="t1" projectId="p1" />);
+    render(<CommentSection taskId="t1" projectId="p1" canEdit />);
     fireEvent.click(screen.getByLabelText('React with 👍'));
     expect(mutate).toHaveBeenCalledWith(
       expect.objectContaining({ commentId: 'c1', emoji: '👍' }),
@@ -233,7 +233,7 @@ describe('CommentSection — interactions', () => {
       isLoading: false,
       error: null,
     });
-    render(<CommentSection taskId="t1" projectId="p1" />);
+    render(<CommentSection taskId="t1" projectId="p1" canEdit />);
     fireEvent.click(screen.getByLabelText('Reply to this comment'));
     // Two composers now: top-level Post + reply composer (parentId set).
     expect(screen.getAllByRole('combobox').length).toBe(2);

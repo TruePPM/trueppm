@@ -537,9 +537,16 @@ function AddLinkInput({ projectId, taskId }: AddLinkInputProps) {
  * loads, so the add/delete affordances never flash before the role resolves.
  * The server still 403s a Viewer's write — this is the trust-preserving UX gate.
  */
-export function ExternalLinksSection({ taskId, projectId, userRole }: DrawerSectionProps) {
+export function ExternalLinksSection({
+  taskId,
+  projectId,
+  userRole,
+  canEdit: canEditCap,
+}: DrawerSectionProps) {
   const { links, isLoading, error } = useTaskLinks(projectId, taskId);
-  const canEdit = canEditTask(userRole);
+  // ADR-0132: prefer the server-derived per-task verdict; fall back to the client
+  // role rule only when it is absent (pre-field synced rows).
+  const canEdit = canEditCap ?? canEditTask(userRole);
 
   return (
     <div className="flex flex-col gap-2">

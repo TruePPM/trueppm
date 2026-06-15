@@ -405,6 +405,14 @@ function DrawerContent({
     onTabChange(nextId);
     tabRefs.current[nextId]?.focus();
   };
+
+  // Effective edit/delete capability for this drawer (ADR-0132, #1144). Prefer
+  // the server-derived per-task verdict; fall back to the client role rule only
+  // when the field is absent (pre-field synced rows / optimistic local creates),
+  // so a Viewer never sees a flash of editable controls and Scheduler /
+  // Member-on-others-tasks / PO cases the client rule gets wrong are corrected.
+  const canEdit = task.canEdit ?? canEditTask(userRole);
+
   return (
     <>
       {/* Header — chips row, editable name, tab strip */}
@@ -422,6 +430,31 @@ function DrawerContent({
               title="This task is on the critical path — a delay here delays the project end date"
             >
               CP
+            </span>
+          )}
+          {/* "View only" indicator (ADR-0132, #1143). A muted, neutral read-state
+              chip — not a warning — present whenever the drawer is non-editable,
+              so the absence of write controls is never ambiguous ("is it a bug or
+              am I not allowed?"). The lock glyph is decorative; the accessible
+              name carries the full reason. */}
+          {!canEdit && (
+            <span
+              className="inline-flex items-center gap-1 text-xs font-medium text-neutral-text-secondary bg-neutral-surface-sunken px-1.5 py-0.5 rounded"
+              title="Viewer access — ask an admin for edit access"
+              aria-label="View only — Viewer access, ask an admin for edit access"
+            >
+              <svg
+                width="11"
+                height="11"
+                viewBox="0 0 16 16"
+                fill="none"
+                aria-hidden="true"
+                className="shrink-0"
+              >
+                <rect x="3" y="7" width="10" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
+                <path d="M5 7V5a3 3 0 0 1 6 0v2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+              </svg>
+              View only
             </span>
           )}
           <div className="flex-1" />
@@ -468,9 +501,17 @@ function DrawerContent({
           onKeyDown={(e) => {
             if (e.key === 'Enter') e.currentTarget.blur();
           }}
-          className="w-full bg-transparent border-none outline-none px-0 mb-2
-            text-xl font-semibold tracking-tight text-neutral-text-primary
-            focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-sm"
+          // ADR-0132/#1142: the title is read-only for non-editors. A readOnly
+          // input renders as plain text (bg-transparent, no border) and drops the
+          // edit focus ring + caret so it never invites an edit that would 403.
+          readOnly={!canEdit}
+          className={[
+            'w-full bg-transparent border-none outline-none px-0 mb-2',
+            'text-xl font-semibold tracking-tight text-neutral-text-primary rounded-sm',
+            canEdit
+              ? 'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1'
+              : 'cursor-default focus:outline-none',
+          ].join(' ')}
         />
 
         {/* Tabs — arrow-key handling lives on each focusable tab button rather
@@ -541,7 +582,12 @@ function DrawerContent({
                   <TaskScheduleStrip task={task} />
                   {OverviewComp && (
                     <SectionErrorBoundary sectionTitle="Overview">
-                      <OverviewComp taskId={task.id} projectId={projectId} userRole={userRole} />
+                      <OverviewComp
+                        taskId={task.id}
+                        projectId={projectId}
+                        userRole={userRole}
+                        canEdit={canEdit}
+                      />
                     </SectionErrorBoundary>
                   )}
                   <DescriptionField
@@ -549,7 +595,7 @@ function DrawerContent({
                     onChange={onNotesChange}
                     onBlur={onFlush}
                     changedElsewhere={notesChangedElsewhere}
-                    readOnly={canEditTask(userRole) === false}
+                    readOnly={!canEdit}
                   />
                 </div>
                 <SectionList
@@ -557,6 +603,7 @@ function DrawerContent({
                   taskId={task.id}
                   projectId={projectId}
                   userRole={userRole}
+                  canEdit={canEdit}
                   firstOpen={false}
                 />
               </div>
@@ -569,6 +616,7 @@ function DrawerContent({
             taskId={task.id}
             projectId={projectId}
             userRole={userRole}
+            canEdit={canEdit}
           />
         )}
       </div>
@@ -678,12 +726,16 @@ export function SectionList({
   taskId,
   projectId,
   userRole,
+  canEdit,
   firstOpen = true,
 }: {
   sections: DrawerSectionRegistration[];
   taskId: string;
   projectId: string;
   userRole?: number | null;
+  /** Effective server-derived edit capability for the task (ADR-0132); threaded
+   *  to every section so write controls gate off the authoritative verdict. */
+  canEdit?: boolean;
   firstOpen?: boolean;
 }) {
   // The 'sprint' section is registered with a static title in the module-level
@@ -708,7 +760,12 @@ export function SectionList({
               defaultOpen={firstOpen && idx === 0}
             >
               {() => (
-                <SectionComponent taskId={taskId} projectId={projectId} userRole={userRole} />
+                <SectionComponent
+                  taskId={taskId}
+                  projectId={projectId}
+                  userRole={userRole}
+                  canEdit={canEdit}
+                />
               )}
             </CollapsibleSection>
           </SectionErrorBoundary>

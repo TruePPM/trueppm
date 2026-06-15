@@ -118,6 +118,17 @@ export interface DrawerSectionProps {
    * worse than no button"). The server still enforces; this is the UX half.
    */
   userRole?: number | null;
+  /**
+   * Server-derived effective edit/delete capability for THIS task (ADR-0132,
+   * #1144), computed once by the drawer as `task.canEdit ?? canEditTask(userRole)`
+   * and threaded down so every section gates off the same authoritative verdict
+   * instead of re-deriving `canEditTask(userRole)` (which is wrong for Scheduler,
+   * Member-on-others-tasks, and Product-Owner cases). Optional + backward-compatible:
+   * sections that don't read it are unaffected; a section that does should prefer
+   * `canEdit` and only fall back to `canEditTask(userRole)` when it is `undefined`.
+   */
+  canEdit?: boolean;
+  canDelete?: boolean;
 }
 
 /**

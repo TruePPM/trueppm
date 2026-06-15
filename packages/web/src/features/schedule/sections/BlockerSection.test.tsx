@@ -24,14 +24,14 @@ afterEach(() => {
   TASKS = [];
 });
 
-function renderSection() {
-  return render(<BlockerSection taskId="task-1" projectId="proj-1" />);
+function renderSection(canEdit = false) {
+  return render(<BlockerSection taskId="task-1" projectId="proj-1" canEdit={canEdit} />);
 }
 
 describe('BlockerSection — not flagged', () => {
   it('shows the flag affordance and reveals the form', () => {
     setTask({ blockedAgeSeconds: null, blockedReason: '', blockerType: '' });
-    renderSection();
+    renderSection(true);
     expect(screen.getByText('Not blocked')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /flag as blocked/i }));
     expect(screen.getByLabelText('Reason')).toBeInTheDocument();
@@ -39,7 +39,7 @@ describe('BlockerSection — not flagged', () => {
 
   it('requires a reason to flag (type stays optional)', () => {
     setTask({ blockedAgeSeconds: null, blockedReason: '', blockerType: '' });
-    renderSection();
+    renderSection(true);
     fireEvent.click(screen.getByRole('button', { name: /flag as blocked/i }));
     const flagBtn = screen.getByRole('button', { name: 'Flag blocked' });
     expect(flagBtn).toBeDisabled();
@@ -59,7 +59,7 @@ describe('BlockerSection — not flagged', () => {
 
   it('sends the chosen type when one is picked', () => {
     setTask({ blockedAgeSeconds: null, blockedReason: '', blockerType: '' });
-    renderSection();
+    renderSection(true);
     fireEvent.click(screen.getByRole('button', { name: /flag as blocked/i }));
     fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'vendor late' } });
     fireEvent.change(screen.getByLabelText(/Type/), { target: { value: 'vendor' } });
@@ -69,7 +69,7 @@ describe('BlockerSection — not flagged', () => {
 
   it('labels the soft link as informational and warns it does not move dates', () => {
     setTask({ blockedAgeSeconds: null, blockedReason: '', blockerType: '' });
-    renderSection();
+    renderSection(true);
     fireEvent.click(screen.getByRole('button', { name: /flag as blocked/i }));
     expect(screen.getByText(/Related task/)).toBeInTheDocument();
     expect(screen.getByText(/informational/)).toBeInTheDocument();
@@ -85,7 +85,7 @@ describe('BlockerSection — flagged', () => {
       blockerType: 'vendor',
       blockedBy: { id: 'u1', username: 'alex' },
     });
-    renderSection();
+    renderSection(true);
     expect(screen.getByText('Blocked')).toBeInTheDocument();
     // "External vendor" appears as both the at-a-glance chip and the selected
     // <option> in the editable picker — assert at least the chip is present.
@@ -117,7 +117,7 @@ describe('BlockerSection — flagged', () => {
       blockerType: 'vendor',
       blockedBy: { id: 'u1', username: 'alex' },
     });
-    renderSection();
+    renderSection(true);
     fireEvent.click(screen.getByRole('button', { name: 'Unblock' }));
     expect(mutate).toHaveBeenCalledTimes(1);
     expect(mutate.mock.calls[0][0]).toMatchObject({

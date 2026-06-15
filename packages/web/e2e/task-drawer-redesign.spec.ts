@@ -96,7 +96,10 @@ const FIXTURE_HISTORY = {
   ],
 };
 
-async function gotoSchedule(page: Page) {
+async function gotoSchedule(
+  page: Page,
+  opts: { role?: number; canEdit?: boolean } = {},
+) {
   await page.addInitScript(() => {
     localStorage.setItem(
       'trueppm-auth',
@@ -124,7 +127,7 @@ async function gotoSchedule(page: Page) {
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify([{ id: 'mem-admin', role: 300 }]),
+      body: JSON.stringify([{ id: 'mem-self', role: opts.role ?? 300 }]),
     }),
   );
   await page.route('**/api/v1/projects/*/status-summary/', (route) =>
@@ -180,7 +183,13 @@ async function gotoSchedule(page: Page) {
   // the list on save, so the PATCH must persist into the copy the GET returns —
   // otherwise the saved notes never round-trip and the dirty save-bar never
   // clears. Deep-clone so concurrent specs never share mutated fixtures.
-  const tasks = FIXTURE_API_TASKS.map((t) => ({ ...t }));
+  // ADR-0132: when the caller drives a capability, stamp the server-derived
+  // can_edit/can_delete onto the task rows so the drawer gates off the
+  // authoritative field (not just the role fallback).
+  const tasks = FIXTURE_API_TASKS.map((t) => ({
+    ...t,
+    ...(opts.canEdit !== undefined ? { can_edit: opts.canEdit, can_delete: opts.canEdit } : {}),
+  }));
   await page.route('**/api/v1/tasks/**', (route) => {
     const request = route.request();
     if (request.method() === 'PATCH') {
@@ -422,5 +431,45 @@ test.describe('TaskDetailDrawer redesign — chrome', () => {
     const drawer = await openDrawer(page, 'Discovery & Design');
     await drawer.getByRole('button', { name: 'Close task detail' }).click();
     await expect(drawer).not.toBeVisible();
+  });
+});
+
+test.describe('TaskDetailDrawer — Viewer read-only (#1142/#1143, ADR-0132)', () => {
+  test.beforeEach(async ({ page }) => {
+    // A Viewer: server says can_edit=false AND role resolves to 0, so both the
+    // capability field and the fallback agree on read-only.
+    await gotoSchedule(page, { role: 0, canEdit: false });
+  });
+
+  test('shows the "View only" chip and gates the status control to static text', async ({
+    page,
+  }) => {
+    const drawer = await openDrawer(page, 'Discovery & Design');
+
+    // #1143: the explicit, unambiguous read-state indicator.
+    await expect(drawer.getByText('View only')).toBeVisible();
+
+    // #1142: the status control is hidden (Sarah's "client clicks the dropdown
+    // and nothing happens" blocker) — no editable select, but the value remains.
+    await expect(drawer.getByRole('combobox', { name: /Task status/i })).toHaveCount(0);
+    await expect(drawer.getByText('In progress').first()).toBeVisible();
+
+    // The task name is read-only, not an editable input.
+    await expect(drawer.getByRole('textbox', { name: 'Task name' })).toHaveAttribute(
+      'readonly',
+      '',
+    );
+  });
+});
+
+test.describe('TaskDetailDrawer — editor sees controls (ADR-0132 contrast)', () => {
+  test.beforeEach(async ({ page }) => {
+    await gotoSchedule(page, { role: 300, canEdit: true });
+  });
+
+  test('an editor sees the status select and no "View only" chip', async ({ page }) => {
+    const drawer = await openDrawer(page, 'Discovery & Design');
+    await expect(drawer.getByText('View only')).toHaveCount(0);
+    await expect(drawer.getByRole('combobox', { name: /Task status/i })).toBeVisible();
   });
 });

@@ -9,6 +9,7 @@ import {
   formatBlockedAge,
 } from '@/lib/blocker';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
+import { canEditTask } from '@/lib/roles';
 
 const LABEL_CLASS =
   'text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-2';
@@ -30,10 +31,13 @@ const CONTROL_CLASS =
  * moves schedule dates; the UI labels it accordingly so a PM doesn't
  * mistake it for a real predecessor.
  */
-export function BlockerSection({ taskId, projectId }: DrawerSectionProps) {
+export function BlockerSection({ taskId, projectId, userRole, canEdit }: DrawerSectionProps) {
   const { tasks } = useScheduleTasks();
   const task = tasks?.find((t) => t.id === taskId);
   const { mutate: updateTask, isPending } = useUpdateTask();
+
+  // ADR-0132/#1142: gate write controls off the server-derived verdict; fall back to the client role rule only when absent.
+  const editable = canEdit ?? canEditTask(userRole);
 
   const [formOpen, setFormOpen] = useState(false);
   const [reason, setReason] = useState<string | null>(null);
@@ -149,6 +153,64 @@ export function BlockerSection({ taskId, projectId }: DrawerSectionProps) {
       </div>
     </>
   );
+
+  // Read-only "waiting on" link name for the read display (the soft link is
+  // not shown in the team-visible summary chips, so surface it here as text).
+  const blockingTaskName = task.blockingTask
+    ? (linkOptions.find((o) => o.id === task.blockingTask)?.name ?? null)
+    : null;
+
+  // Non-editor view: the team-visible signals (badge / type / age / who flagged)
+  // and the private reason (when readable) render, but no write control does.
+  if (!editable) {
+    return (
+      <div className="space-y-4">
+        {!isFlagged ? (
+          <span className="text-sm text-neutral-text-secondary">Not blocked</span>
+        ) : (
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <span className="inline-flex items-center rounded-chip bg-semantic-at-risk-bg px-2 py-0.5 text-xs font-medium text-semantic-at-risk">
+                Blocked
+              </span>
+              {task.blockerType && (
+                <span className="inline-flex items-center rounded-chip bg-neutral-surface-sunken px-2 py-0.5 text-xs text-neutral-text-secondary">
+                  {blockerTypeLabel(task.blockerType)}
+                </span>
+              )}
+              {age && <span className="tppm-mono text-xs text-neutral-text-secondary">{age}</span>}
+              {task.blockedBy && (
+                <span className="text-xs text-neutral-text-secondary">
+                  flagged by {task.blockedBy.username}
+                </span>
+              )}
+            </div>
+
+            {canReadReason ? (
+              <div>
+                <div className={LABEL_CLASS}>Reason</div>
+                <p className="text-sm text-neutral-text-primary whitespace-pre-wrap break-words">
+                  {task.blockedReason}
+                </p>
+              </div>
+            ) : (
+              <p className="flex items-center gap-1.5 rounded-control border border-neutral-border bg-neutral-surface-sunken px-3 py-2 text-xs text-neutral-text-secondary">
+                <span aria-hidden="true">🔒</span>
+                The reason is private to the assignee and anyone they @mentioned.
+              </p>
+            )}
+
+            {blockingTaskName && (
+              <div>
+                <div className={LABEL_CLASS}>Related task</div>
+                <p className="text-sm text-neutral-text-primary">{blockingTaskName}</p>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
