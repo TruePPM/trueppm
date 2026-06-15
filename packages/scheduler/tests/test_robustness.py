@@ -457,3 +457,74 @@ class TestEmptyChildrenSummary:
     def test_find_cycle_rejects_empty_children(self) -> None:
         with pytest.raises(InvalidScheduleInput, match="empty children"):
             find_cycle([("S", "B")], children_map={"S": []})
+
+
+class TestMonteCarloLagDeltaCap:
+    """The MC lag-delta precompute must not scale with edge *count* (#1201).
+
+    The vectorised forward pass builds one delta array of length ``index_size``
+    per dependency. Pre-fix that was one array *per edge*, so a wide fan-out of
+    SF/lag-0 edges — which contribute 0 to Σlag and so slip the span guard
+    entirely — allocated O(edges x span) memory and spun a Python loop of the
+    same size, OOM-ing or tying up a worker on the synchronous MC endpoint.
+    Post-fix the arrays are memoized per distinct ``(dep_type, lag)`` key and the
+    distinct-keys x span product is capped explicitly.
+    """
+
+    def test_wide_identical_key_fanout_simulates_cheaply(self) -> None:
+        """N edges sharing one (dep_type, lag) key cost a single delta array.
+
+        A fully-connected acyclic DAG of SF/lag-0 edges has one distinct key, so
+        the precompute is O(span), independent of the ~edge count. Pre-fix this
+        was the OOM vector; here it must simply complete.
+        """
+        n = 60
+        tasks = [task(str(i), 1) for i in range(n)]
+        deps = [
+            Dependency(str(i), str(j), DependencyType.SF, lag=timedelta(0))
+            for i in range(n)
+            for j in range(i + 1, n)
+        ]
+        p = make_project(tasks, deps)
+        result = monte_carlo(p, runs=10, seed=0, max_tasks=None)
+        assert result.runs == 10
+        assert len(result.distribution) == 10
+
+    def test_many_distinct_lags_rejected_by_cell_cap(self) -> None:
+        """distinct (dep_type, lag) keys x span over the cap is rejected eagerly.
+
+        A fan of FS edges with all-distinct lags 1..N keeps Σlag (hence the span
+        guard) satisfied while driving distinct keys x index_size past
+        MAX_LAG_DELTA_CELLS. Must raise the documented type, not allocate.
+        """
+        from trueppm_scheduler.engine import MAX_LAG_DELTA_CELLS
+
+        n = 600  # Σlag = 600*601/2 ≈ 180k (< span cap); keys x span ≈ 1.1e8 (> cell cap)
+        tasks = [task(str(i), 1) for i in range(n + 1)]
+        deps = [
+            Dependency("0", str(i), DependencyType.FS, lag=timedelta(days=i))
+            for i in range(1, n + 1)
+        ]
+        p = make_project(tasks, deps)
+        with pytest.raises(InvalidScheduleInput, match="lag-delta table"):
+            monte_carlo(p, runs=10, seed=0, max_tasks=None)
+        # Sanity: the input otherwise clears the span guard, so the rejection is
+        # the cell cap firing — not some other guard tripping first.
+        assert n * (sum(range(1, n + 1)) + n + 30) > MAX_LAG_DELTA_CELLS
+
+    def test_memoized_deltas_preserve_lagged_results(self) -> None:
+        """Sharing one array across same-key edges must not change MC output.
+
+        Two FS edges with the same 2-day lag from a common predecessor now share
+        a single delta array; a fully-deterministic project must still simulate
+        to exactly its CPM finish, lag included.
+        """
+        tasks = [task("A", 5), task("B", 3), task("C", 3)]
+        deps = [
+            Dependency("A", "B", DependencyType.FS, lag=timedelta(days=2)),
+            Dependency("A", "C", DependencyType.FS, lag=timedelta(days=2)),
+        ]
+        p = make_project(tasks, deps)
+        det = schedule(p)
+        mc = monte_carlo(p, runs=50, seed=0)
+        assert mc.p50 == mc.p95 == det.project_finish
