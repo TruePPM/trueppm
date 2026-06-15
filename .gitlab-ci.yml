@@ -1517,33 +1517,31 @@ scheduler:sbom:
   #
   # allow_failure during the 0.3 shake-out: this job bakes the path on MRs/main
   # without ever blocking, then the blocking copy in scheduler:publish: takes
-  # over before scheduler-v0.3.0b1 is cut. cyclonedx-py is pinned and resident
-  # in the ci-scheduler image (see .gitlab/ci-images/scheduler.Dockerfile), so
-  # there is no live tool install at runtime.
+  # over before scheduler-v0.3.0b1 is cut.
+  #
+  # cyclonedx-bom is pinned + resident in the ci-scheduler image
+  # (.gitlab/ci-images/scheduler.Dockerfile), but the image is published under
+  # the mutable :py3.11 tag and our runners only permit the if-not-present pull
+  # policy, so a runner holding a pre-rebuild :py3.11 runs without cyclonedx-py
+  # ("command not found") on the pipeline that first adds the tool. The
+  # before_script install (mirroring scheduler:publish, which runs on a vanilla
+  # base) is a fast no-op when the resident copy is present and supplies the
+  # tool when the cached image is stale — making the job robust to image churn.
   #
   # The SBOM describes the RUNTIME closure only (networkx + numpy), not dev
   # tooling, so it is generated from a fresh runtime-only venv rather than the
-  # image's scheduler[dev] environment. cyclonedx-py runs from the image env
-  # and points at that venv's interpreter, keeping the tool's own deps out of
-  # the SBOM. Switch to locked generation once the scheduler ships a committed
-  # uv.lock (TODO(#1153)).
+  # image's scheduler[dev] environment. cyclonedx-py points at that venv's
+  # interpreter, keeping the tool's own deps out of the SBOM. Switch to locked
+  # generation once the scheduler ships a committed uv.lock (TODO(#1153)).
   extends: .scheduler
-  # Override the inherited string image to force a fresh pull: this job is the
-  # only consumer of the cyclonedx-bom baked into ci-scheduler, so when that
-  # image is rebuilt (as in the MR that adds the tool) a runner holding a stale
-  # :py3.11 under the default if-not-present policy runs without cyclonedx-py
-  # ("command not found"). The fallback list re-pulls when the runner permits
-  # `always` and otherwise degrades to today's if-not-present — no regression.
-  image:
-    name: $CI_REGISTRY_IMAGE/ci-scheduler:py3.11
-    pull_policy: [always, if-not-present]
   stage: security
   <<: *rules-scheduler
   allow_failure: true
   cache:
     <<: *scheduler-cache
     policy: pull
-  before_script: []
+  before_script:
+    - pip install --quiet cyclonedx-bom==7.3.0
   script:
     - python -m venv /tmp/sbom-venv
     - /tmp/sbom-venv/bin/pip install --quiet ./packages/scheduler
