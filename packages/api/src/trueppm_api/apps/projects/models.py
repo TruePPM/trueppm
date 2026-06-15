@@ -3243,6 +3243,14 @@ SIGNAL_DEFAULTS: dict[str, dict[str, str]] = {
     },
     # pulse (#923): most private; locked to team by default, team-raisable only.
     "pulse": {"audience": SignalAudience.TEAM, "ceiling": SignalAudience.TEAM},
+    # flow_metrics (#1072, ADR-0130): cycle/lead-time distributions, the CFD series,
+    # and the weekly throughput series are team-health performance analytics — a PM/PMO
+    # reading them by default makes them a surveillance metric (Morgan's hard-NO).
+    # Strictest posture, mirroring pulse: TEAM/TEAM, team-raisable only, so the PM band
+    # never reads the historical distributions until the team explicitly shares upward.
+    # Current board state (D2 per-column counts + breach) is operational, not historical,
+    # and is NOT gated — it is the same live state the board already shows every member.
+    "flow_metrics": {"audience": SignalAudience.TEAM, "ceiling": SignalAudience.TEAM},
 }
 
 

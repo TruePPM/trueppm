@@ -29,6 +29,7 @@ from trueppm_api.apps.projects.views import (
     CalendarViewSet,
     CommentReactionViewSet,
     DependencyViewSet,
+    FlowMetricsView,
     MeActiveSprintsView,
     MeWorkView,
     PhaseReorderView,
@@ -486,6 +487,13 @@ urlpatterns = [
         "projects/<pk>/sprint-forecast/",
         ProjectSprintForecastView.as_view(),
         name="project-sprint-forecast",
+    ),
+    # Methodology-neutral flow analytics: cycle/lead time, CFD, weekly throughput
+    # (ADR-0130 D1, #1072). Historical distributions gated under the flow_metrics signal.
+    path(
+        "projects/<pk>/flow-metrics/",
+        FlowMetricsView.as_view(),
+        name="project-flow-metrics",
     ),
     # Slim milestone list for the bind-existing picker (ADR-0106 §E1.3, #928)
     path(
