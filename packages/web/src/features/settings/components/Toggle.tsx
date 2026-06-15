@@ -3,7 +3,7 @@ export interface ToggleProps {
   onChange: (on: boolean) => void;
   /** Words shown beside the switch for the on / off states. The visible word is
    *  derived from `on`, so it can never contradict the switch — a green (on) switch
-   *  always reads "Enabled", never a stale hardcoded "Disabled" (#978). */
+   *  always reads "Enabled", never a stale hardcoded "Disabled". */
   onLabel?: string;
   offLabel?: string;
   hint?: string;
@@ -13,7 +13,7 @@ export interface ToggleProps {
 }
 
 /**
- * On/off switch whose visible word is always derived from state (#978).
+ * On/off switch whose visible word is always derived from state.
  *
  * Extracted from WorkspaceGeneralPage so the same switch backs both the
  * workspace-scope toggles and the program/project `InheritableToggleField`

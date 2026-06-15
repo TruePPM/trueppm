@@ -16,7 +16,7 @@ export interface InheritableToggleFieldProps {
   /** Noun for the read-only "set on this {scopeNoun}" line. */
   scopeNoun?: string;
   /** Words shown beside the override switch for on / off. Passed straight to
-   *  Toggle so the visible word is always derived from state (#978). */
+   *  Toggle so the visible word is always derived from state. */
   onLabel?: string;
   offLabel?: string;
   /** Accessible name for BOTH the radiogroup and the override switch, e.g.
@@ -40,14 +40,14 @@ const chipClass = (selected: boolean) =>
   ].join(' ');
 
 /**
- * Inheritable boolean control for a scope that can INHERIT or OVERRIDE (ADR-0135, #978).
+ * Inheritable boolean control for a scope that can INHERIT or OVERRIDE (ADR-0135).
  *
  * The boolean analog of {@link InheritableIterationLabelField}: an inherit/override
  * radio pair wrapping the shared {@link Toggle}. "Inherit (On/Off)" emits `null`;
  * "Override" reveals the switch and emits `true`/`false`. The displayed state is
  * always derived from `value` and the parent's resolved `inherited`
  * (`effective = value ?? inherited`), so the chip suffix and the switch word can
- * never contradict — the #978 unintuitive-toggle fix carried through.
+ * never contradict — the unintuitive-toggle fix carried through.
  *
  * Below role >= ADMIN (`canEdit === false`) it collapses to a read-only indicator:
  * a status dot + the literal word + provenance, one composite `aria-label`.
