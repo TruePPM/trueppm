@@ -229,7 +229,7 @@ interface KpiCardProps {
   title?: string;
   /**
    * A focus card (the top-3 risk-ranked metrics). Larger padding and a bigger
-   * value clamp than the demoted secondary-strip cards (#1191).
+   * value clamp than the demoted secondary-strip cards.
    */
   prominent?: boolean;
 }
@@ -248,7 +248,7 @@ function KpiCard({ label, value, sub, variant = 'neutral', title, prominent = fa
   // (#506). `break-words` is the last-resort wrap for unbreakable strings;
   // `min-w-0 overflow-hidden` allows the grid track to shrink past content width.
   // Prominent focus cards get extra padding and a larger value clamp so the
-  // three risk-ranked leads read bigger than the demoted secondary strip (#1191).
+  // three risk-ranked leads read bigger than the demoted secondary strip.
   const padding = prominent ? 'p-5' : 'p-4';
   const valueClamp = prominent
     ? 'text-[clamp(1.125rem,9cqi,1.875rem)]'
@@ -275,7 +275,7 @@ function KpiCard({ label, value, sub, variant = 'neutral', title, prominent = fa
 // ---------------------------------------------------------------------------
 
 // Two-tier skeleton mirroring the loaded layout (3 prominent focus + 3 compact
-// secondary) so there is no layout shift when the ranked data arrives (#1191).
+// secondary) so there is no layout shift when the ranked data arrives.
 function KpiSkeleton() {
   return (
     <div className="flex flex-col gap-4">
@@ -822,7 +822,7 @@ export function ProjectOverviewPage() {
   const { data: mcData } = useMonteCarloResult(projectId);
 
   // Build the six overview metrics once, then rank them worst-first and split
-  // into a 3-card focus row + a 3-card secondary strip (#1191). Plain-language
+  // into a 3-card focus row + a 3-card secondary strip. Plain-language
   // leads only — SPI survives only as the schedule card's `title` because the
   // `/overview/` payload has no signed day-variance field to show honestly
   // (rule 120: never fabricate a day count from SPI).
@@ -838,7 +838,7 @@ export function ProjectOverviewPage() {
       {overview && !overviewLoading && <ProjectHeader overview={overview} />}
 
       {/* KPI rows — three risk-ranked focus cards lead, three demote to a
-          compact secondary strip (#1191). Worst-first ordering means the card
+          compact secondary strip. Worst-first ordering means the card
           a PM needs to act on is always at the top-left. Visual order ===
           DOM order: the data is sorted and rendered in that order, never CSS
           `order`, so screen-reader order matches the visual priority. */}

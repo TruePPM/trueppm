@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Project Overview metric ranking (#1191 / #1192)
+// Project Overview metric ranking
 //
 // The Overview KPI strip used to render six co-equal cards. A PM scanning a
 // project in trouble had to read all six to find the one that mattered. This
