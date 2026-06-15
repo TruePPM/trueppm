@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import { renderWithRouter } from '@/test/utils';
 import { ViewTabs } from './ViewTabs';
@@ -26,8 +26,10 @@ vi.mock('@/hooks/useProject', () => ({
 
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
+import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 const mockUseProjectId = useProjectId as ReturnType<typeof vi.fn>;
 const mockUseProject = useProject as ReturnType<typeof vi.fn>;
+const mockUseRole = useCurrentUserRole as ReturnType<typeof vi.fn>;
 
 describe('ViewTabs', () => {
   it('renders null when there is no projectId', () => {
@@ -156,5 +158,39 @@ describe('ViewTabs', () => {
     expect(boardLink).toHaveAttribute('href', '/projects/proj-abc/board');
     const scheduleLink = screen.getByRole('link', { name: /Schedule/i });
     expect(scheduleLink).toHaveAttribute('href', '/projects/proj-abc/schedule');
+  });
+
+  // ADR-0128 — grouped PLAN / TRACK / PEOPLE structure
+  it('renders PLAN / TRACK / PEOPLE groups with accessible names', () => {
+    mockUseProjectId.mockReturnValue('proj-1');
+    renderWithRouter(<ViewTabs />, { initialEntries: ['/projects/proj-1/board'] });
+    expect(screen.getByRole('group', { name: 'Plan views' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Track views' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'People views' })).toBeInTheDocument();
+  });
+
+  it('Board is in TRACK and Backlog is in PLAN', () => {
+    mockUseProjectId.mockReturnValue('proj-1');
+    renderWithRouter(<ViewTabs />, { initialEntries: ['/projects/proj-1/board'] });
+    const plan = screen.getByRole('group', { name: 'Plan views' });
+    const track = screen.getByRole('group', { name: 'Track views' });
+    expect(within(plan).getByRole('link', { name: /Backlog/i })).toBeInTheDocument();
+    expect(within(track).getByRole('link', { name: 'Board' })).toBeInTheDocument();
+  });
+
+  it('hides the PEOPLE group when the Team view is role-gated out', () => {
+    mockUseProjectId.mockReturnValue('proj-1');
+    mockUseRole.mockReturnValueOnce({ role: 1, isLoading: false }); // MEMBER < SCHEDULER
+    renderWithRouter(<ViewTabs />, { initialEntries: ['/projects/proj-1/board'] });
+    expect(screen.queryByRole('group', { name: 'People views' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Team' })).not.toBeInTheDocument();
+  });
+
+  it('is suppressed on a project settings route (rule 123 / ADR-0128 §C)', () => {
+    mockUseProjectId.mockReturnValue('proj-1');
+    const { container } = renderWithRouter(<ViewTabs />, {
+      initialEntries: ['/projects/proj-1/settings/general'],
+    });
+    expect(container.firstChild).toBeNull();
   });
 });

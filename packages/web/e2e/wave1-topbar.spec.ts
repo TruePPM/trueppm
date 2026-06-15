@@ -1,10 +1,13 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * Wave 1 — TopBar health badges (issue #205).
+ * Wave 1 — TopBar health cluster (issue #205, updated for the v2 methodology-adaptive
+ * health cluster — ADR-0128 / #1167).
  *
- * Covers: P80 pill, at-risk/critical BadgePopover, mobile HealthDropdown,
- * and empty-state (no badges when there are no health signals).
+ * The fixture project resolves to HYBRID in this harness, so the cluster shows the
+ * Sprint · Forecast · Critical trio. The WATERFALL trio (Forecast · At-risk · Critical)
+ * and the AGILE trio (Sprint · Points · Velocity) — including the velocity privacy
+ * wall — are covered deterministically in the HealthCluster.test.tsx vitest spec.
  */
 
 const FIXTURE_PROJECT_ID = 'e2e-wave1-0000-0000-0000-000000000001';
@@ -67,6 +70,19 @@ async function setupBase(page: import('@playwright/test').Page, statusSummary: o
       body: JSON.stringify({ count: 1, next: null, previous: null, results: FIXTURE_PROJECTS }),
     }),
   );
+  // The cluster mounts useActiveSprint + useProjectVelocity unconditionally; stub
+  // them empty so the cluster doesn't hit the live network for unused data (and the
+  // HYBRID Sprint segment reads "No active Sprint").
+  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/sprints/`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
+  );
+  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/velocity/`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ sprints: [], rolling_avg_points: null, rolling_stdev_points: null, forecast_range_low: null, forecast_range_high: null, rolling_avg_tasks: null, rolling_stdev_tasks: null, team_velocity_per_day: null, excluded_count: 0 }),
+    }),
+  );
   await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/overview/`, (route) =>
     route.fulfill({
       status: 200,
@@ -117,7 +133,7 @@ async function setupBase(page: import('@playwright/test').Page, statusSummary: o
   );
 }
 
-test.describe('Wave 1 — TopBar health badges (desktop, lg+ viewport)', () => {
+test.describe('Wave 1 — TopBar health cluster (desktop, lg+ viewport)', () => {
   test.use({ viewport: { width: 1280, height: 720 } });
 
   test.beforeEach(async ({ page }) => {
@@ -125,43 +141,41 @@ test.describe('Wave 1 — TopBar health badges (desktop, lg+ viewport)', () => {
     await page.goto(`${BASE_URL}/overview`);
   });
 
-  test('P80 badge renders with month-day date when monte_carlo_p80 is set', async ({ page }) => {
+  test('the bordered health cluster renders', async ({ page }) => {
+    await expect(page.getByTestId('health-cluster')).toBeVisible();
+  });
+
+  test('Forecast (P80) segment renders with month-day date when monte_carlo_p80 is set', async ({ page }) => {
     const p80Btn = page.getByRole('button', { name: /monte carlo p80/i });
     await expect(p80Btn).toBeVisible();
-    await expect(p80Btn).toContainText('P80:');
+    await expect(p80Btn).toContainText('P80');
     await expect(p80Btn).toContainText('Nov');
   });
 
-  test('clicking P80 badge opens MC distribution panel', async ({ page }) => {
+  test('clicking Forecast segment opens MC distribution panel', async ({ page }) => {
     await page.getByRole('button', { name: /monte carlo p80/i }).click();
     await expect(page.getByRole('dialog', { name: /monte carlo confidence distribution/i })).toBeVisible();
   });
 
-  test('at-risk badge renders count from status-summary', async ({ page }) => {
-    await expect(page.getByRole('button', { name: /2 at risk tasks/i })).toBeVisible();
+  test('critical segment renders count from status-summary', async ({ page }) => {
+    await expect(page.getByRole('button', { name: /1 critical task/i })).toBeVisible();
   });
 
-  test('clicking at-risk badge opens popover with task items', async ({ page }) => {
-    await page.getByRole('button', { name: /2 at risk tasks/i }).click();
-    const menu = page.getByRole('menu', { name: /2 at risk tasks/i });
-    await expect(menu).toBeVisible();
-    await expect(menu.getByRole('menuitem', { name: /frontend build/i })).toBeVisible();
-    await expect(menu.getByRole('menuitem', { name: /backend implementation/i })).toBeVisible();
-  });
-
-  test('critical badge renders count from status-summary', async ({ page }) => {
-    await expect(page.getByRole('button', { name: /1 critical tasks/i })).toBeVisible();
-  });
-
-  test('clicking critical badge opens popover with task items', async ({ page }) => {
-    await page.getByRole('button', { name: /1 critical tasks/i }).click();
-    const menu = page.getByRole('menu', { name: /1 critical tasks/i });
+  test('clicking critical segment opens popover with task items', async ({ page }) => {
+    await page.getByRole('button', { name: /1 critical task/i }).click();
+    const menu = page.getByRole('menu', { name: /1 critical task/i });
     await expect(menu).toBeVisible();
     await expect(menu.getByRole('menuitem', { name: /database migration/i })).toBeVisible();
   });
 
-  test('no health badges render when status-summary has no signals', async ({ page }) => {
-    // Re-stub with empty summary and reload
+  test('Sprint segment reads "No active Sprint" when there is no active sprint', async ({ page }) => {
+    const cluster = page.getByTestId('health-cluster');
+    await expect(cluster.getByText(/no active sprint/i)).toBeVisible();
+  });
+
+  test('cluster shows calm zero/— reads (no actionable buttons) when there are no signals', async ({ page }) => {
+    // The v2 cluster has fixed slots (ADR-0128) — it does not vanish; each segment
+    // renders a calm static read: P80 "—", "0 critical". None are drill-down buttons.
     await page.route('**/api/v1/projects/*/status-summary/', (route) =>
       route.fulfill({
         status: 200,
@@ -170,13 +184,15 @@ test.describe('Wave 1 — TopBar health badges (desktop, lg+ viewport)', () => {
       }),
     );
     await page.reload();
+    const cluster = page.getByTestId('health-cluster');
+    await expect(cluster).toBeVisible();
+    await expect(cluster).toContainText('—');
     await expect(page.getByRole('button', { name: /monte carlo p80/i })).not.toBeVisible();
-    await expect(page.getByRole('button', { name: /at risk tasks/i })).not.toBeVisible();
-    await expect(page.getByRole('button', { name: /critical tasks/i })).not.toBeVisible();
+    await expect(page.getByRole('button', { name: /critical task/i })).not.toBeVisible();
   });
 });
 
-test.describe('Wave 1 — TopBar health badges (mobile, collapsed HealthDropdown)', () => {
+test.describe('Wave 1 — TopBar health cluster (mobile, collapsed Health dropdown)', () => {
   test.use({ viewport: { width: 375, height: 812 } });
 
   test.beforeEach(async ({ page }) => {
@@ -184,21 +200,21 @@ test.describe('Wave 1 — TopBar health badges (mobile, collapsed HealthDropdown
     await page.goto(`${BASE_URL}/overview`);
   });
 
-  test('HealthDropdown button is visible on mobile', async ({ page }) => {
+  test('collapsed Health button is visible on mobile', async ({ page }) => {
     await expect(page.getByRole('button', { name: /project health summary/i })).toBeVisible();
   });
 
-  test('HealthDropdown expands to show P80 and task items on click', async ({ page }) => {
+  test('collapsed Health expands to show segment reads and task items on click', async ({ page }) => {
     const btn = page.getByRole('button', { name: /project health summary/i });
     await btn.click();
     await expect(btn).toHaveAttribute('aria-expanded', 'true');
     const menu = page.getByRole('menu', { name: /project health summary/i });
     await expect(menu).toBeVisible();
-    await expect(menu.getByRole('menuitem', { name: /frontend build/i })).toBeVisible();
     await expect(menu.getByRole('menuitem', { name: /database migration/i })).toBeVisible();
   });
 
-  test('HealthDropdown is absent when there are no health signals', async ({ page }) => {
+  test('collapsed Health stays present and shows zero/— reads when there are no signals', async ({ page }) => {
+    // The v2 cluster has fixed slots (ADR-0128) — its collapsed form does not vanish.
     await page.route('**/api/v1/projects/*/status-summary/', (route) =>
       route.fulfill({
         status: 200,
@@ -207,7 +223,11 @@ test.describe('Wave 1 — TopBar health badges (mobile, collapsed HealthDropdown
       }),
     );
     await page.reload();
-    await expect(page.getByRole('button', { name: /project health summary/i })).not.toBeVisible();
+    const btn = page.getByRole('button', { name: /project health summary/i });
+    await expect(btn).toBeVisible();
+    await btn.click();
+    const menu = page.getByRole('menu', { name: /project health summary/i });
+    await expect(menu).toContainText('0 critical');
   });
 });
 

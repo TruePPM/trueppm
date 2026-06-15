@@ -124,17 +124,22 @@ async function setup(page: Page, { ownerCount = 1 }: { ownerCount?: number } = {
 // ---------------------------------------------------------------------------
 
 test.describe('Members Settings — golden path', () => {
-  test('Settings tab is visible in ViewTabs', async ({ page }) => {
+  test('project view bar is suppressed on settings routes (ADR-0128 §C)', async ({ page }) => {
     await setup(page);
     await page.goto(`/projects/${PROJECT_ID}/settings/members`);
-    // Exact match — the sidebar exposes a separate "Workspace settings" link.
-    await expect(page.getByRole('link', { name: 'Settings', exact: true })).toBeVisible();
+    // The grouped project ViewTabs self-suppresses on settings routes — the
+    // SettingsShell carries its own chrome (rule 123 / ADR-0128 §C), so the
+    // view row's `nav[aria-label="View"]` is not mounted here.
+    await expect(page.getByRole('navigation', { name: 'View' })).toHaveCount(0);
   });
 
-  test('Settings tab is active when on settings route', async ({ page }) => {
+  test('settings shell chrome identifies the active project', async ({ page }) => {
     await setup(page);
     await page.goto(`/projects/${PROJECT_ID}/settings/members`);
-    await expect(page.getByRole('link', { name: 'Settings', exact: true })).toHaveAttribute('aria-current', 'page');
+    // Wayfinding in settings is the SettingsShell rail + context pill, not a
+    // tab (rule 123): the sections nav is present and the pill names the project.
+    await expect(page.getByRole('navigation', { name: 'Settings sections' })).toBeVisible();
+    await expect(page.getByText('Members Test Project').first()).toBeVisible();
   });
 
   test('member list renders alice and bob', async ({ page }) => {

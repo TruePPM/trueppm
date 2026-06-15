@@ -77,6 +77,15 @@ async function setup(page: import('@playwright/test').Page) {
   await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/my-tasks/`, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ tasks: [] }) }),
   );
+  // Blocked roll-up (ADR-0124) — the Overview page mounts useProjectBlocked; an
+  // unmocked 401 here pops the session-expired modal and blocks navigation clicks.
+  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/blocked/`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ project_id: FIXTURE_PROJECT_ID, count: 0, blocked: [] }),
+    }),
+  );
   await page.route('**/api/v1/projects/*/presence/', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
   );
@@ -222,10 +231,12 @@ test.describe('View switching', () => {
       .toHaveAttribute('aria-current', 'page');
   });
 
-  test('Overview tab is first and Board is second in the tab strip (ADR-0030)', async ({ page }) => {
+  test('Overview leads the grouped view bar; Board is present in TRACK (ADR-0030/0128)', async ({ page }) => {
+    // v2 groups the tabs into PLAN / TRACK / PEOPLE (ADR-0128). Overview stays the
+    // standalone leading tab; Board moved into the TRACK group (no longer 2nd).
     const nav = page.getByRole('navigation', { name: 'View' });
     const links = nav.getByRole('link');
     await expect(links.nth(0)).toHaveText('Overview');
-    await expect(links.nth(1)).toHaveText('Board');
+    await expect(nav.getByRole('link', { name: 'Board' })).toBeVisible();
   });
 });
