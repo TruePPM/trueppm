@@ -104,7 +104,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
   // The drawer is always expanded. On desktop the rail is either expanded (248px)
   // or fully hidden (0px, "hide-to-context-bar" per ADR-0127) — there is no icon
   // rail. When hidden the rail is `inert` so its content leaves the tab order and
-  // the a11y tree; the re-open ≡ lives in the ContextBar.
+  // the a11y tree; the re-open ≡ lives in the unified shell bar.
   const showFull = !sidebarCollapsed || isDrawer;
   const hidden = sidebarCollapsed && !isDrawer;
 
@@ -166,7 +166,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
           isDrawer ? 'w-[248px]' : '',
         ].join(' ')}
       >
-        {/* Brand + collapse (≡ in the ContextBar re-opens when hidden) */}
+        {/* Brand + collapse (≡ in the unified shell bar re-opens when hidden) */}
         <div className="flex items-center gap-2 px-3 h-12 shrink-0 border-b border-chrome-border/8">
           <NavLink to="/me/work" aria-label="TruePPM — My Work" className="flex items-center gap-2 min-w-0">
             <LogoMark size={22} className="shrink-0" />

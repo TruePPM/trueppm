@@ -1,13 +1,48 @@
-import { within, screen } from '@testing-library/react';
+import { within, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { renderWithRouter } from '@/test/utils';
 import { useThemeStore } from '@/stores/themeStore';
+import { useShellStore } from '@/stores/shellStore';
 import { TopBar } from './TopBar';
 
-// ViewTabs hides itself when there is no :projectId in the URL path (ADR-0030).
-vi.mock('@/hooks/useProjectId', () => ({
-  useProjectId: () => 'test-project-id',
+// Route + data hooks are driven by mutable fixtures so each test can pick a context.
+let projectId: string | undefined = 'test-project-id';
+let programId: string | undefined;
+let projectData: unknown = {
+  id: 'test-project-id',
+  name: 'Launch Site',
+  methodology: 'HYBRID',
+  program_detail: { id: 'prog-1', name: 'Apollo' },
+};
+let programData: unknown = { id: 'prog-1', name: 'Apollo', color: '#3E8C6D', code: 'APL' };
+let presenceUsers: { user_id: string; display_name: string }[] = [];
+let currentUser: { id: string } | null = null;
+
+vi.mock('@/hooks/useProjectId', () => ({ useProjectId: () => projectId }));
+vi.mock('@/hooks/useProgramId', () => ({ useProgramId: () => programId }));
+vi.mock('@/hooks/useProject', () => ({
+  useProject: () => ({ data: projectData, isLoading: false, error: null }),
+}));
+vi.mock('@/hooks/useProgram', () => ({ useProgram: () => ({ data: programData }) }));
+vi.mock('@/hooks/useProjectPresence', () => ({
+  useProjectPresence: (id: string | undefined) => (id ? presenceUsers : []),
+}));
+vi.mock('@/hooks/useCurrentUser', () => ({
+  useCurrentUser: () => ({ user: currentUser, isLoading: false }),
+}));
+vi.mock('@/hooks/useCurrentUserRole', () => ({
+  useCurrentUserRole: () => ({ role: 200, isLoading: false }),
+}));
+vi.mock('@/hooks/useNotifications', () => ({
+  useUnreadNotificationCount: () => ({ count: 0, isLoading: false }),
+}));
+// The health cluster + create menu own their own data hooks and are covered by their
+// own specs; stub them so the structural TopBar tests don't fire their XHRs.
+vi.mock('./HealthCluster', () => ({ HealthCluster: () => <div data-testid="health-cluster" /> }));
+vi.mock('./CreateMenu', () => ({ CreateMenu: () => null }));
+vi.mock('@/features/programs/ProgramIdentitySquare', () => ({
+  ProgramIdentitySquare: () => <span data-testid="identity-square" aria-hidden="true" />,
 }));
 
 // Stub useNavigate to avoid react-router navigation side-effects in JSDOM tests.
@@ -17,38 +52,25 @@ vi.mock('react-router', async (importOriginal) => {
   return { ...actual, useNavigate: () => mockNavigate };
 });
 
-// The health cluster owns its own data hooks (useSprints, useProjectVelocity,
-// useShellStats, …) and is covered by HealthCluster.test.tsx. Stub it here so the
-// TopBar structural tests don't fire its (unmocked) XHRs / crash the worker.
-vi.mock('./HealthCluster', () => ({
-  HealthCluster: () => <div data-testid="health-cluster" />,
-}));
-
-vi.mock('@/hooks/useNotifications', () => ({
-  useUnreadNotificationCount: () => ({ count: 0, isLoading: false }),
-}));
-
-vi.mock('@/hooks/useCurrentUser', () => ({
-  useCurrentUser: () => ({ user: null, isLoading: false }),
-}));
-
-// ViewTabs (rendered inside TopBar) calls useProject and useCurrentUserRole.
-vi.mock('@/hooks/useProject', () => ({
-  useProject: () => ({ data: { id: 'test-project-id', methodology: 'HYBRID' }, isLoading: false, error: null }),
-}));
-
-vi.mock('@/hooks/useCurrentUserRole', () => ({
-  useCurrentUserRole: () => ({ role: 200, isLoading: false }),
-}));
-
 beforeEach(() => {
+  projectId = 'test-project-id';
+  programId = undefined;
+  projectData = {
+    id: 'test-project-id',
+    name: 'Launch Site',
+    methodology: 'HYBRID',
+    program_detail: { id: 'prog-1', name: 'Apollo' },
+  };
+  programData = { id: 'prog-1', name: 'Apollo', color: '#3E8C6D', code: 'APL' };
+  presenceUsers = [];
+  currentUser = null;
   useThemeStore.setState({ theme: 'auto' });
+  useShellStore.setState({ sidebarCollapsed: false, sidebarUserControlled: false });
 });
 
-describe('TopBar', () => {
-  it('renders the logo', () => {
+describe('TopBar (unified shell bar, ADR-0134)', () => {
+  it('renders the logo (mobile brand)', () => {
     renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
-    // Two-color wordmark splits the text across spans; assert the accessible name.
     expect(screen.getByLabelText('TruePPM')).toBeInTheDocument();
   });
 
@@ -75,32 +97,23 @@ describe('TopBar', () => {
     expect(screen.getByRole('group', { name: /plan views/i })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: /track views/i })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: /people views/i })).toBeInTheDocument();
-    // Board lives in TRACK; Backlog in PLAN.
     const track = screen.getByRole('group', { name: /track views/i });
     expect(within(track).getByRole('link', { name: 'Board' })).toBeInTheDocument();
   });
 
-  it('renders the methodology workspace tag', () => {
+  it('renders the methodology workspace tag and health cluster', () => {
     renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
     expect(screen.getByText(/hybrid workspace/i)).toBeInTheDocument();
-  });
-
-  it('renders the health cluster', () => {
-    renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
     expect(screen.getByTestId('health-cluster')).toBeInTheDocument();
   });
 
-  it('renders hamburger button for mobile', () => {
+  it('renders hamburger + user menu', () => {
     renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
     expect(screen.getByRole('button', { name: /open sidebar/i })).toBeInTheDocument();
-  });
-
-  it('renders user avatar button', () => {
-    renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
     expect(screen.getAllByRole('button', { name: /user menu/i }).length).toBeGreaterThan(0);
   });
 
-  it('calls onHamburgerClick when hamburger button is clicked', async () => {
+  it('calls onHamburgerClick when the hamburger is clicked', async () => {
     const user = userEvent.setup();
     const onHamburgerClick = vi.fn();
     renderWithRouter(<TopBar onHamburgerClick={onHamburgerClick} />);
@@ -108,13 +121,75 @@ describe('TopBar', () => {
     expect(onHamburgerClick).toHaveBeenCalledOnce();
   });
 
-  it('marks the Board tab as active when on the board route', () => {
+  it('marks the Board tab active on the board route', () => {
     renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />, {
       initialEntries: ['/projects/test-project-id/board'],
     });
-    const boardLink = screen.getByRole('link', { name: /Board/i });
-    expect(boardLink).toHaveAttribute('aria-current', 'page');
-    const scheduleLink = screen.getByRole('link', { name: /Schedule/i });
-    expect(scheduleLink).not.toHaveAttribute('aria-current');
+    expect(screen.getByRole('link', { name: /Board/i })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('link', { name: /Schedule/i })).not.toHaveAttribute('aria-current');
+  });
+
+  // --- ADR-0134: adaptive identity (the breadcrumb absorbed from the old ContextBar) ---
+
+  it('builds Workspace › Program › Project, project as the leaf', () => {
+    renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
+    const crumb = screen.getByRole('navigation', { name: 'Breadcrumb' });
+    expect(within(crumb).getByRole('link', { name: 'Workspace' })).toBeInTheDocument();
+    expect(within(crumb).getByRole('link', { name: 'Apollo' })).toHaveAttribute(
+      'href',
+      '/programs/prog-1/overview',
+    );
+    expect(within(crumb).getByText('Launch Site')).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('adaptive identity: hidden on desktop when the rail is open, shown when collapsed', () => {
+    renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
+    // Rail open (default): the identity is display:none on md+ (removed from the a11y
+    // tree, not aria-hidden) so it never duplicates the rail.
+    expect(screen.getByRole('navigation', { name: 'Breadcrumb' }).className).toContain('md:hidden');
+
+    // Collapse the rail via the ≡ toggle: identity becomes visible at all widths (it
+    // is now the only wayfinding, and the hidden rail freed the width).
+    fireEvent.click(screen.getByRole('button', { name: 'Hide navigation' }));
+    const crumbCollapsed = screen.getByRole('navigation', { name: 'Breadcrumb' });
+    expect(crumbCollapsed.className).toContain('block');
+    expect(crumbCollapsed.className).not.toContain('md:hidden');
+  });
+
+  it('shows the program as the leaf on a program route', () => {
+    projectId = undefined;
+    projectData = undefined;
+    programId = 'prog-1';
+    renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
+    const crumb = screen.getByRole('navigation', { name: 'Breadcrumb' });
+    expect(within(crumb).getByText('Apollo')).toHaveAttribute('aria-current', 'page');
+  });
+
+  // --- presence (absorbed from the old ContextBar, ADR-0127/0134) ---
+
+  it('shows presence avatars on a project route, excluding self', () => {
+    currentUser = { id: 'me' };
+    presenceUsers = [
+      { user_id: 'me', display_name: 'Me Myself' },
+      { user_id: 'u-alice', display_name: 'Alice Smith' },
+    ];
+    renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
+    const presence = screen.getByRole('status');
+    expect(presence).toHaveAccessibleName(/Alice Smith/);
+    expect(presence).not.toHaveAccessibleName(/Me Myself/);
+  });
+
+  // --- rail re-open toggle (absorbed from the old ContextBar, ADR-0127) ---
+
+  it('toggles the rail and reflects state via aria-expanded', () => {
+    renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
+    const toggle = screen.getByRole('button', { name: 'Hide navigation' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.click(toggle);
+    expect(useShellStore.getState().sidebarCollapsed).toBe(true);
+    expect(screen.getByRole('button', { name: 'Show navigation' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
   });
 });

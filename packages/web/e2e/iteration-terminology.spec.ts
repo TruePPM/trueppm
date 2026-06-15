@@ -143,8 +143,8 @@ test.describe('Configurable iteration terminology', () => {
     await page.goto(BASE_URL);
 
     // Breadcrumb + tab use the plural form. Scope to the in-view breadcrumb —
-    // the global context bar (ADR-0127) also renders a "Breadcrumb" nav outside
-    // #main-content.
+    // the unified shell bar (ADR-0134) also renders a "Breadcrumb" nav (when the
+    // rail is hidden) outside #main-content.
     await expect(
       page.locator('#main-content').getByRole('navigation', { name: /Breadcrumb/i }),
     ).toContainText('Iterations');

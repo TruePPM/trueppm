@@ -4,6 +4,15 @@
 Accepted (2026-06-14) — founder ratified Decision D = hide-to-context-bar (0px),
 Decision E = defer presence, Decision B = drop "+ New".
 
+> **Superseded in part by [ADR-0134](0134-v2-unified-shell-bar.md) (2026-06-15).** The
+> **two-row coexistence (Decision A)** is superseded: the `ContextBar` is merged into a
+> single unified shell bar (`TopBar`) and deleted. The *content* contracts here — the
+> always-visible rail re-open ≡ (Decision D), presence as ephemeral (Decision E), and the
+> context-aware create being out of this slice (Decision B, since delivered by ADR-0131) —
+> remain in force; only the host row changed. The breadcrumb is now **adaptive** (shown only
+> when the rail is hidden / on mobile) rather than always-on, and the theme toggle collapses
+> to `UserMenu` only.
+
 ## Context
 The v2 UI redesign (epic #1163, golden standard in ADR-0126) replaces the legacy
 16-element top bar with a calm **two-row top region**: a *context row* (wayfinding +

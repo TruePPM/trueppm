@@ -122,7 +122,7 @@ describe('Sidebar (v2 left rail)', () => {
     renderRail();
     // There is no icon rail anymore: collapsing hides the rail entirely (0px,
     // inert + aria-hidden), so its nav links leave the accessibility tree —
-    // the ContextBar ≡ is the re-open affordance.
+    // the unified shell bar ≡ is the re-open affordance.
     const rail = document.getElementById('primary-nav-rail');
     expect(rail).toHaveAttribute('aria-hidden', 'true');
     expect(rail).toHaveAttribute('inert');

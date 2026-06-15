@@ -4,7 +4,6 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { queryClient } from '@/lib/queryClient';
 import { TopBar } from './TopBar';
-import { ContextBar } from './ContextBar';
 import { Sidebar } from './Sidebar';
 import { StatusBar } from './StatusBar';
 import { BottomNav } from './BottomNav';
@@ -66,15 +65,13 @@ export function AppShell() {
         >
           Skip to main content
         </a>
-        {/* Top bar — full width */}
+        {/* v2 unified shell bar (ADR-0134) — one full-width bar carrying wayfinding,
+            the rail re-open ≡, the scrollable view/program nav, and the right cluster.
+            Supersedes the former TopBar + ContextBar two-row split. */}
         <TopBar onHamburgerClick={openDrawer} />
 
         {/* Proactive offline indicator (WCAG 4.1.3) — renders only when offline */}
         <OfflineBanner />
-
-        {/* Context row (v2 shell slice 2, ADR-0127) — wayfinding + rail re-open ≡
-            + theme. Sits above the body so it spans the full width. */}
-        <ContextBar />
 
         {/* Body row: sidebar + main content */}
         <div className="flex flex-1 overflow-hidden">
