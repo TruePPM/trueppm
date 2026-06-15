@@ -90,6 +90,20 @@ describe('useScheduleTasks mapper', () => {
     expect(task.deliveryMode).toBeUndefined();
   });
 
+  it('maps server-derived can_edit / can_delete capabilities (ADR-0133)', () => {
+    const task = mapTask({ ...base, can_edit: true, can_delete: false });
+    expect(task.canEdit).toBe(true);
+    expect(task.canDelete).toBe(false);
+  });
+
+  it('preserves undefined capabilities on pre-field payloads so the drawer can fall back', () => {
+    // A WebSocket-synced row that predates the field must NOT be coerced to false —
+    // the drawer's `canEdit ?? canEditTask(role)` fallback depends on undefined.
+    const task = mapTask(base);
+    expect(task.canEdit).toBeUndefined();
+    expect(task.canDelete).toBeUndefined();
+  });
+
   it('uses early_finish for leaf tasks once CPM has produced it', () => {
     const task = mapTask(base);
     expect(task.finish).toBe('2026-10-15');

@@ -76,6 +76,13 @@ async function setup(page: import('@playwright/test').Page) {
   await page.route(`**/api/v1/programs/${GID}/`, (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj({ id: GID, name: 'Delivery Program', description: '', my_role: 300, project_count: 1, color: null, code: '', server_version: 1 }) }),
   );
+  // Program rollup — ProgramOverviewPage reads this and does `Object.entries(rollup.kpis)`.
+  // Without an explicit mock the catch-all returns the list shape `{count, results}` (truthy,
+  // but no `kpis`), so `Object.entries(undefined)` throws and the root error boundary replaces
+  // the whole shell — detaching the context-bar button mid-click. That was the #1190 flake.
+  await page.route(`**/api/v1/programs/${GID}/rollup/`, (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj({ aggregation_policy: 'worst', policy_available: true, project_count: 1, program_health: 'unknown', kpis: {} }) }),
+  );
 }
 
 test.describe('#1179 context-aware "+ New" (desktop)', () => {
@@ -96,10 +103,13 @@ test.describe('#1179 context-aware "+ New" (desktop)', () => {
 
   test('Program context → a single "New project" button opens the project create modal', async ({ page }) => {
     await page.goto(`/programs/${GID}/overview`);
+    // Wait for the overview to finish rendering before clicking the context-bar control.
+    // The program <h1> renders only after /programs/:id/ (+ its rollup) resolve, so it is a
+    // reliable "page loaded without crashing" signal — clicking before then races the
+    // bootstrap and was the #1190 detach flake.
+    await expect(page.getByRole('heading', { name: 'Delivery Program' })).toBeVisible();
     // exact:true so this matches the context-bar control, not the Sidebar's "+ New project".
-    const newProject = page.getByRole('button', { name: 'New project', exact: true });
-    await expect(newProject).toBeVisible();
-    await newProject.click();
+    await page.getByRole('button', { name: 'New project', exact: true }).click();
     await expect(page.getByRole('dialog', { name: /new project/i })).toBeVisible();
   });
 });

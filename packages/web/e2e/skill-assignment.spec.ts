@@ -101,6 +101,13 @@ async function seedAndNavigate(page: import('@playwright/test').Page) {
   await page.route('**/api/v1/project-resources/**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
   );
+  // The redesigned drawer gates write controls (the "add resource" button) off
+  // the caller's project role via GET members/?self= (ADR-0133). Without this
+  // mock the role never resolves, canEdit falls to false, and the button is
+  // hidden. Return an Admin (role 300) as a single-element list.
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/members/**`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id: 'mem-e2e', role: 300, user_id: 'e2e-user' }]) }),
+  );
 
   await page.goto(`/projects/${PROJECT_ID}/schedule`);
   await page.waitForLoadState('networkidle');

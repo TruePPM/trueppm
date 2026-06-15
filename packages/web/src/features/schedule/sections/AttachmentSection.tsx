@@ -226,11 +226,18 @@ function AttachmentRow({ attachment, projectId, taskId, canEdit }: AttachmentRow
   );
 }
 
-export function AttachmentSection({ taskId, projectId, userRole }: DrawerSectionProps) {
+export function AttachmentSection({
+  taskId,
+  projectId,
+  userRole,
+  canEdit: canEditCap,
+}: DrawerSectionProps) {
   const { attachments, isLoading, error } = useTaskAttachments(projectId, taskId);
-  // #1046: Viewers can list/download but not upload, pin, or delete. canEditTask
-  // returns false while the role loads so the controls never flash.
-  const canEdit = canEditTask(userRole);
+  // 1046 / ADR-0133: Viewers can list/download but not upload, pin, or delete.
+  // Prefer the server-derived per-task verdict; fall back to the client role rule
+  // only when it is absent (and it returns false while the role loads, so the
+  // controls never flash).
+  const canEdit = canEditCap ?? canEditTask(userRole);
   const createAttachment = useCreateAttachment();
   const [linkModalOpen, setLinkModalOpen] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);

@@ -240,8 +240,9 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     # Shared converter (ADR-0132): the deterministic CPM pass and Monte Carlo
     # build their scheduler input through one function, so a field can never reach
     # one engine and not the other — the drift that caused #1185 (MC had silently
-    # dropped planned_start). The suggest_approve gate withholds pending
-    # three-point estimates in SUGGEST_APPROVE mode.
+    # dropped planned_start). build_sched_tasks honors the planned_start floor for
+    # every task (the #1185 fix, now centralized) and withholds pending three-point
+    # estimates in SUGGEST_APPROVE mode.
     sched_tasks = build_sched_tasks(
         db_tasks,
         suggest_approve=project.estimation_mode == EstimationMode.SUGGEST_APPROVE,

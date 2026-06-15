@@ -954,6 +954,12 @@ class AcceptanceCriterionSerializer(serializers.ModelSerializer[AcceptanceCriter
         return attrs
 
 
+# Upper bound on a resize span (#951). ``planned_finish`` derives a working-day
+# duration via a day-by-day count; an unbounded finish date is a CPU-burn DoS
+# vector, so a span beyond this is rejected. ~100 years — far past any real task.
+MAX_TASK_SPAN_DAYS = 36525
+
+
 class TaskSerializer(serializers.ModelSerializer[Task]):
     # Duration round-trips as integer working days.
     # CPM output fields are read-only — written by the scheduling engine.
@@ -963,6 +969,14 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     # baseline is active for the project.
     baseline_start = serializers.DateField(read_only=True, allow_null=True, default=None)
     baseline_finish = serializers.DateField(read_only=True, allow_null=True, default=None)
+
+    # Write-only target finish date (#951). The Gantt resize handler sends the
+    # date the user dropped the bar's right edge on instead of a calendar-day
+    # duration; ``validate()`` converts it to a working-day ``duration`` via the
+    # project calendar so a bar dragged across a weekend or holiday commits the
+    # correct working-day count, not the inflated calendar span. Never persisted —
+    # ``duration`` remains the stored field; this is popped in ``validate()``.
+    planned_finish = serializers.DateField(required=False, allow_null=True, write_only=True)
 
     # Computed: actual_finish - early_finish in days.  Positive = late, negative = early.
     schedule_variance_days = serializers.SerializerMethodField()
@@ -1065,6 +1079,17 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     # Convenience verdict: flagged blocked AND a structured type is recorded.
     is_impediment = serializers.SerializerMethodField()
 
+    # ── Server-derived edit capabilities (ADR-0133, #1144) ──────────────────────
+    # The authoritative "may this user write / delete this task" verdict for the
+    # requesting user. The web client gates its drawer write controls off these
+    # instead of re-deriving a parallel client rule that drifts (Scheduler,
+    # Member-own, and PO-facet cases the old client rule got wrong). Both call the
+    # SAME predicate the IsProjectMemberWriteOrOwn permission class enforces, so
+    # declaration and enforcement can never diverge. Fail closed: ``False`` when
+    # serialized without a request (nested serialization, tests).
+    can_edit = serializers.SerializerMethodField()
+    can_delete = serializers.SerializerMethodField()
+
     class Meta:
         model = Task
         fields = [
@@ -1080,6 +1105,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "percent_complete",
             "notes",
             "planned_start",
+            "planned_finish",
             "actual_start",
             "actual_finish",
             "early_start",
@@ -1158,6 +1184,9 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "criteria_met_count",
             "criteria_total",
             "dor_blockers",
+            # Server-derived edit capabilities (ADR-0133, #1144)
+            "can_edit",
+            "can_delete",
         ]
         read_only_fields = [
             "id",
@@ -1257,6 +1286,50 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             is_milestone = self.instance.is_milestone
         if is_milestone:
             attrs["duration"] = 0
+
+        # #951: resolve a target finish date into a working-day duration. The web
+        # Gantt resize sends ``planned_finish`` (the date the user dropped the
+        # bar's right edge on) and the server derives ``duration`` from the
+        # project calendar, so the committed value skips non-working days instead
+        # of counting raw calendar days. ``planned_finish`` is never persisted
+        # (it is not a model field) — pop it regardless of branch. Milestones
+        # keep their pinned ``duration = 0`` above and ignore it.
+        planned_finish = attrs.pop("planned_finish", None)
+        if planned_finish is not None and not is_milestone:
+            from trueppm_api.apps.projects.services import working_day_duration
+
+            # Anchor the duration on the same start the bar paints from — the CPM
+            # ``early_start`` (the web ``task.start``), which is where the left
+            # edge sits and what ``duration`` combines with to produce
+            # ``early_finish``. ``early_start >= planned_start`` always holds, so a
+            # task scheduled purely by CPM (null ``planned_start``) still resolves.
+            # A planned_start sent in the same request (combined move) takes
+            # precedence; the committed planned_start is the last fallback.
+            eff_start = attrs.get("planned_start")
+            if eff_start is None and self.instance is not None:
+                eff_start = self.instance.early_start or self.instance.planned_start
+            if eff_start is None:
+                raise serializers.ValidationError(
+                    {"planned_finish": "Cannot derive a duration without a start date."}
+                )
+            if planned_finish < eff_start:
+                raise serializers.ValidationError(
+                    {"planned_finish": "Finish date must be on or after the start date."}
+                )
+            # Bound the span before the day-by-day working-day count. An
+            # unbounded finish date would make the count burn CPU (a single
+            # ``9999`` finish is ~2.9M iterations holding the request's worker +
+            # DB transaction — an authenticated DoS) so reject an absurd span
+            # rather than loop. A single task spanning >100 years is nonsensical.
+            if (planned_finish - eff_start).days > MAX_TASK_SPAN_DAYS:
+                raise serializers.ValidationError(
+                    {"planned_finish": "Finish date is too far from the start date."}
+                )
+            project = self.instance.project if self.instance is not None else attrs.get("project")
+            attrs["duration"] = max(
+                1,
+                working_day_duration(eff_start, planned_finish, getattr(project, "calendar", None)),
+            )
 
         # Sprint cross-project ownership check.
         sprint = attrs.get("sprint")
@@ -1625,6 +1698,32 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         from trueppm_api.apps.projects.product_backlog_services import dor_blockers
 
         return dor_blockers(obj)
+
+    def get_can_edit(self, obj: Task) -> bool:
+        """Authoritative per-task edit verdict for the requesting user (ADR-0133).
+
+        Delegates to the SAME predicate the IsProjectMemberWriteOrOwn permission
+        class enforces, so the client's gate can never drift from the server's.
+        """
+        request = self.context.get("request")
+        if request is None:
+            return False
+        from trueppm_api.apps.access.permissions import can_user_edit_task
+
+        return can_user_edit_task(request, obj, method="PATCH")
+
+    def get_can_delete(self, obj: Task) -> bool:
+        """Authoritative per-task delete verdict (ADR-0133).
+
+        Differs from ``can_edit`` only for a Product Owner: the PO facet grooms
+        (edits) EPIC/STORY items but may not DELETE them.
+        """
+        request = self.context.get("request")
+        if request is None:
+            return False
+        from trueppm_api.apps.access.permissions import can_user_edit_task
+
+        return can_user_edit_task(request, obj, method="DELETE")
 
     def get_blocking_task_detail(self, obj: Task) -> dict[str, Any] | None:
         """Lightweight read of the soft ``blocking_task`` link (ADR-0124, #1135).
