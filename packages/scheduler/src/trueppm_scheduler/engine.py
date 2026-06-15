@@ -958,6 +958,22 @@ def _validate_project(project: Project) -> None:
                 f"the maximum of ±{MAX_LAG_DAYS} days (got {dep.lag.days})."
             )
 
+    # status_date (the data date, ADR-0132) floors all not-yet-finished work, so
+    # like a planned_start pin it shifts the schedule directly and is bounded by
+    # the same span cap — otherwise a data date in year 9999 drives the Monte
+    # Carlo working-day index build into a multi-million-entry walk. The MC index
+    # adds (status_date - start_date) to its size, so this guard runs before the
+    # index is built (#1186).
+    status_offset = 0
+    if project.status_date is not None:
+        status_offset = (project.status_date - project.start_date).days
+        if status_offset > MAX_PROJECT_SPAN_DAYS:
+            raise InvalidScheduleInput(
+                f"status_date is more than {MAX_PROJECT_SPAN_DAYS} days after the "
+                "project start; the schedule cannot be computed within a "
+                "representable date range."
+            )
+
     # Cumulative span: an upper bound on the longest path (and on the Monte Carlo
     # completion offset, which can sample each task up to its pessimistic
     # duration). Bounding the sum keeps the day-by-day walk and the working-day
@@ -981,10 +997,10 @@ def _validate_project(project: Project) -> None:
         if t.planned_start is not None:
             max_snet_days = max(max_snet_days, (t.planned_start - project.start_date).days)
     total_span += sum(abs(dep.lag.days) for dep in project.dependencies)
-    # A planned_start pin shifts the whole downstream chain, so the furthest pin
-    # adds to the span bound exactly once (pins don't accumulate the way
-    # durations on a chain do).
-    total_span += max_snet_days
+    # A planned_start pin and the data-date floor each shift the whole downstream
+    # chain, so the furthest of the two adds to the span bound exactly once (they
+    # don't accumulate the way durations on a chain do).
+    total_span += max(max_snet_days, max(0, status_offset))
     if total_span > MAX_PROJECT_SPAN_DAYS:
         raise InvalidScheduleInput(
             f"Total project span ({total_span} days across all task durations and lags) "

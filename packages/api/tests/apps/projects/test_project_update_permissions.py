@@ -113,3 +113,20 @@ def test_admin_can_set_and_clear_status_date(project: Project) -> None:
     assert cleared.status_code == 200
     project.refresh_from_db()
     assert project.status_date is None
+
+
+@pytest.mark.django_db
+def test_scheduler_cannot_set_status_date(project: Project) -> None:
+    """status_date is a PM-level (Admin+) field, not a scheduling-governance one,
+    so a Scheduler is rejected (400) — same as any general project setting."""
+    from trueppm_api.apps.access.models import Role as _Role
+
+    client = _client_for(project, _Role.SCHEDULER, "u_sched_sd")
+    resp = client.patch(
+        f"/api/v1/projects/{project.pk}/",
+        {"status_date": "2026-03-23"},
+        format="json",
+    )
+    assert resp.status_code == 400
+    project.refresh_from_db()
+    assert project.status_date is None

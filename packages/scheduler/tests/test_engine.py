@@ -1265,6 +1265,17 @@ class TestProgressAware:
         mc = monte_carlo(p, runs=200, seed=0)
         assert mc.p50 == mc.p80 == mc.p95 == cpm_finish
 
+    def test_far_future_status_date_is_rejected(self) -> None:
+        """A data date beyond the span cap is rejected on both engines before any
+        working-day index is built — guarding the MC index against a
+        multi-million-entry allocation (#1186 DoS guard)."""
+        p = make_project([task("A", "A", 5)], start=date(2026, 3, 2))
+        p.status_date = date(9999, 12, 31)
+        with pytest.raises(InvalidScheduleInput, match="status_date"):
+            schedule(p)
+        with pytest.raises(InvalidScheduleInput, match="status_date"):
+            monte_carlo(p, runs=10, seed=0)
+
     def test_status_date_round_trips_through_serialization(self) -> None:
         """Project.status_date and Task actuals survive to_dict/from_dict."""
         p = make_project(
