@@ -1,15 +1,11 @@
 import { useNavigate } from 'react-router';
 import { useShellStore } from '@/stores/shellStore';
 import { useScheduleStore } from '@/stores/scheduleStore';
-import { useProjectPresence } from '@/hooks/useProjectPresence';
-import { useProjectId } from '@/hooks/useProjectId';
-import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { Logo } from './Logo';
 import { ViewTabs, MethodWorkspaceLabel } from './ViewTabs';
 import { ProgramTabs } from './ProgramTabs';
 import { HealthCluster } from './HealthCluster';
 import { TaskRunIndicator } from './TaskRunIndicator';
-import { PresenceAvatarStack } from './PresenceAvatarStack';
 import { NotificationBell } from './NotificationBell';
 import { UserMenu } from './UserMenu';
 
@@ -22,10 +18,6 @@ export function TopBar({ onHamburgerClick }: Props) {
   const setSelectedTaskId = useScheduleStore((s) => s.setSelectedTaskId);
   const scrollToTask = useScheduleStore((s) => s.scrollToTask);
   const navigate = useNavigate();
-  const projectId = useProjectId() ?? null;
-  const allOnlineUsers = useProjectPresence(projectId);
-  const { user: currentUser } = useCurrentUser();
-  const onlineUsers = allOnlineUsers.filter((u) => u.user_id !== currentUser?.id);
 
   function handleTaskNavigate(id: string) {
     setSelectedTaskId(id);
@@ -69,9 +61,6 @@ export function TopBar({ onHamburgerClick }: Props) {
 
         {/* Background operations indicator — visible only when runs are active */}
         <TaskRunIndicator />
-
-        {/* Online collaborators — desktop only (hidden md:flex inside component) */}
-        <PresenceAvatarStack users={onlineUsers} />
 
         {/* Notification bell — visible at all widths; opens slide-out on md+,
             navigates to /me/notifications on mobile (frontend phase 3). */}
