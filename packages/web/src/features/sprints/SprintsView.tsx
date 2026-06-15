@@ -17,6 +17,7 @@ import {
 import { ExcludeFromVelocityToggle } from './ExcludeFromVelocityToggle';
 import { SprintClosedOutcome } from './SprintClosedOutcome';
 import { SprintDailyDeltaPanel } from './SprintDailyDeltaPanel';
+import { BlockedRollupPanel } from '@/features/blocker/BlockedRollupPanel';
 import { SprintHeader } from './SprintHeader';
 import { SprintGoalCard } from './SprintGoalCard';
 import { AdvancingToMilestoneCard } from './AdvancingToMilestoneCard';
@@ -543,6 +544,8 @@ export function SprintsView() {
                 </div>
                 {/* Team daily standup — "what changed since yesterday" (#925). */}
                 <SprintDailyDeltaPanel sprintId={selectedSprint.id} />
+                {/* Impediment roll-up — the SM's blocked-task triage list (ADR-0124). */}
+                <BlockedRollupPanel scope="sprint" sprintId={selectedSprint.id} />
               </>
             )}
 
