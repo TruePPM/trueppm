@@ -3,10 +3,28 @@ import type { Risk } from '@/api/types';
 import { useRisks } from '@/hooks/useRisks';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProjects } from '@/hooks/useProjects';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { RiskChip } from './RiskChip';
 import { RiskMatrix, type SelectedCell } from './RiskMatrix';
 import { RiskDrawer } from './RiskDrawer';
+import { RiskSegmentedFilter } from './RiskSegmentedFilter';
 import { exportRisksToCSV } from './riskExport';
+import {
+  RISK_FILTERS,
+  type RiskFilter,
+  type SeveritySort,
+  isUnmitigated,
+  matchesRiskFilter,
+  nextSeveritySort,
+  severityAriaSort,
+  sortRisksBySeverity,
+} from './riskFilters';
+
+const FILTER_EMPTY_COPY: Record<Exclude<RiskFilter, 'all'>, string> = {
+  high: 'No high-severity risks.',
+  unmitigated: 'No unmitigated risks — every risk is resolved, accepted, or closed.',
+  mine: 'None of the risks are assigned to you.',
+};
 
 const STATUS_LABELS: Record<Risk['status'], string> = {
   OPEN: 'Open',
@@ -20,12 +38,18 @@ export function RiskRegisterView() {
   const projectId = useProjectId() ?? '';
   const { risks, isLoading, error } = useRisks(projectId || null);
   const { data: projects } = useProjects();
+  const { user } = useCurrentUser();
   const [showHeatmap, setShowHeatmap] = useState(true);
 
   // null = drawer closed, undefined = create mode, Risk = edit mode
   const [selectedRisk, setSelectedRisk] = useState<Risk | null | undefined>(null);
 
   const [selectedCell, setSelectedCell] = useState<SelectedCell | null>(null);
+  // Segment facet (All/High/Unmitigated/Mine) and severity sort — both
+  // client-side over the loaded list (#1170). Composed with the matrix-cell
+  // facet below via AND.
+  const [filter, setFilter] = useState<RiskFilter>('all');
+  const [severitySort, setSeveritySort] = useState<SeveritySort>('none');
   // When true the drawer opens directly in edit mode (✎ quick-edit affordance)
   const [editMode, setEditMode] = useState(false);
 
@@ -64,12 +88,25 @@ export function RiskRegisterView() {
   const criticalCount = risks.filter((r) => r.severity >= 20).length;
   const highCount = risks.filter((r) => r.severity >= 12 && r.severity < 20).length;
 
-  // When a matrix cell is selected, filter the table to that P×I coordinate.
-  const displayRisks = selectedCell
-    ? risks.filter(
+  // Two orthogonal facets compose with AND: the segment filter, then the matrix
+  // cell coordinate, then the severity sort applied last. The heatmap matrix and
+  // the count chips above always reflect the *full* set — only the table
+  // consumes the facets (dimming the matrix to its own selection would be
+  // circular).
+  const currentUserId = user?.id ?? null;
+  const segmentRisks = risks.filter((r) => matchesRiskFilter(r, filter, currentUserId));
+  const cellRisks = selectedCell
+    ? segmentRisks.filter(
         (r) => r.probability === selectedCell.probability && r.impact === selectedCell.impact,
       )
-    : risks;
+    : segmentRisks;
+  const displayRisks = sortRisksBySeverity(cellRisks, severitySort);
+
+  const isFiltered = filter !== 'all' || selectedCell !== null;
+  function clearAllFilters() {
+    setFilter('all');
+    setSelectedCell(null);
+  }
 
   // Overdue: MITIGATING status + mitigation_due_date in the past (client-side, ADR-0043)
   const todayIso = new Date().toISOString().slice(0, 10);
@@ -333,214 +370,298 @@ export function RiskRegisterView() {
           {/* Table */}
           {!isLoading && !error && risks.length > 0 && (
             <>
-              {/* Matrix cell-filter chip */}
-              {selectedCell && (
+              {/* Segment filter — single-select facet (All/High/Unmitigated/Mine).
+                  A radiogroup (pick exactly one) with roving-tabindex keyboard
+                  nav, not a tablist (it filters one list, doesn't swap panels). */}
+              <RiskSegmentedFilter value={filter} onChange={setFilter} />
+
+              {/* Active-facet status chip — renders a removable token per active
+                  facet (segment and/or matrix cell), each independently
+                  clearable, plus a Clear all reset. */}
+              {isFiltered && (
                 <div
-                  className="flex items-center gap-2 mb-2 px-1 shrink-0"
+                  className="flex flex-wrap items-center gap-2 mb-2 px-1 shrink-0"
                   role="status"
                   aria-live="polite"
                 >
                   <span className="text-xs text-neutral-text-secondary">Filtered to</span>
-                  <span
-                    className="inline-flex items-center text-xs font-medium tppm-mono
-                    bg-brand-primary/10 text-brand-primary border border-brand-primary/20 rounded px-2 py-0.5"
-                  >
-                    P{selectedCell.probability} × I{selectedCell.impact}
-                  </span>
+                  {filter !== 'all' && (
+                    <span
+                      className="inline-flex items-center gap-1 text-xs font-medium
+                      bg-brand-primary/10 text-brand-primary border border-brand-primary/20 rounded px-2 py-0.5"
+                    >
+                      {RISK_FILTERS.find((f) => f.value === filter)?.label}
+                      <button
+                        type="button"
+                        onClick={() => setFilter('all')}
+                        aria-label="Clear severity/ownership filter"
+                        className="text-brand-primary hover:text-brand-primary-dark
+                          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
+                          focus-visible:ring-offset-1 rounded"
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  )}
+                  {selectedCell && (
+                    <span
+                      className="inline-flex items-center gap-1 text-xs font-medium tppm-mono
+                      bg-brand-primary/10 text-brand-primary border border-brand-primary/20 rounded px-2 py-0.5"
+                    >
+                      P{selectedCell.probability} × I{selectedCell.impact}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedCell(null)}
+                        aria-label="Clear matrix cell filter"
+                        className="text-brand-primary hover:text-brand-primary-dark
+                          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
+                          focus-visible:ring-offset-1 rounded"
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  )}
                   <span className="text-xs text-neutral-text-disabled">
                     {displayRisks.length} of {risks.length}
                   </span>
                   <button
                     type="button"
-                    onClick={() => setSelectedCell(null)}
+                    onClick={clearAllFilters}
                     className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary ml-1
                       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
                       focus-visible:ring-offset-1 rounded"
                   >
-                    Clear filter
+                    Clear all
                   </button>
                 </div>
               )}
-              <div className="flex-1 overflow-auto rounded-lg border border-neutral-border">
-                <table className="w-full text-sm border-collapse">
-                  <thead className="sticky top-0 z-10">
-                    <tr className="bg-neutral-surface-raised border-b border-neutral-border">
-                      <th
-                        scope="col"
-                        className="text-left px-4 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-[88px]"
-                      >
-                        ID
-                      </th>
-                      <th
-                        scope="col"
-                        className="text-left px-4 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide"
-                      >
-                        Risk
-                      </th>
-                      <th
-                        scope="col"
-                        className="text-center px-3 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-10"
-                      >
-                        P
-                      </th>
-                      <th
-                        scope="col"
-                        className="text-center px-3 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-10"
-                      >
-                        I
-                      </th>
-                      <th
-                        scope="col"
-                        className="text-left px-4 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-[148px]"
-                      >
-                        Severity
-                      </th>
-                      <th
-                        scope="col"
-                        className="text-center px-3 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-[72px]"
-                      >
-                        Trend
-                      </th>
-                      <th
-                        scope="col"
-                        className="text-left px-4 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-[180px]"
-                      >
-                        Owner
-                      </th>
-                      {/* Quick-edit affordance column — no header */}
-                      <th scope="col" className="w-10 px-2 py-3" aria-label="Actions" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {displayRisks.map((risk) => {
-                      const isOverdue =
-                        risk.status === 'MITIGATING' &&
-                        !!risk.mitigation_due_date &&
-                        risk.mitigation_due_date < todayIso;
 
-                      return (
-                        <tr
-                          key={risk.id}
-                          onClick={() => openRisk(risk)}
-                          className={[
-                            'group h-14 border-b border-neutral-border last:border-b-0 cursor-pointer',
-                            isOverdue
-                              ? 'bg-semantic-at-risk-bg hover:bg-semantic-at-risk/10'
-                              : 'hover:bg-neutral-surface-raised',
-                            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary',
-                            'dark:focus-visible:ring-semantic-on-track focus-visible:ring-inset',
-                          ].join(' ')}
-                          tabIndex={0}
-                          role="button"
-                          aria-label={`Open risk: ${risk.title}${isOverdue ? ' (overdue mitigation)' : ''}`}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault();
-                              openRisk(risk);
-                            }
-                          }}
+              {/* Filtered-empty — risks exist but none match the active facets */}
+              {displayRisks.length === 0 && (
+                <div
+                  className="flex flex-col items-center justify-center gap-3 py-16"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <p className="text-sm text-neutral-text-secondary">
+                    {selectedCell && filter !== 'all'
+                      ? 'No risks match the selected cell and filter.'
+                      : filter !== 'all'
+                        ? FILTER_EMPTY_COPY[filter]
+                        : 'No risks match the selected cell.'}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={clearAllFilters}
+                    className="text-sm text-brand-primary hover:underline
+                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
+                      dark:focus-visible:ring-semantic-on-track focus-visible:ring-offset-1 rounded"
+                  >
+                    Show all risks
+                  </button>
+                </div>
+              )}
+
+              {displayRisks.length > 0 && (
+                <div className="flex-1 overflow-auto rounded-lg border border-neutral-border">
+                  <table className="w-full text-sm border-collapse">
+                    <thead className="sticky top-0 z-10">
+                      <tr className="bg-neutral-surface-raised border-b border-neutral-border">
+                        <th
+                          scope="col"
+                          className="text-left px-4 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-[88px]"
                         >
-                          {/* ID — server-formatted (#929); the client no longer
-                              derives it from the raw short_id. */}
-                          <td className="px-4 text-xs text-neutral-text-secondary tppm-mono">
-                            {risk.short_id_display}
-                          </td>
-
-                          {/* Risk — title + status sub-label + overdue badge */}
-                          <td className="px-4">
-                            <div className="flex flex-col gap-0.5 min-w-0">
-                              <span className="text-sm font-medium text-neutral-text-primary leading-snug truncate">
-                                {risk.title}
-                              </span>
-                              <span className="flex items-center gap-1.5 text-xs text-neutral-text-secondary leading-none">
-                                {STATUS_LABELS[risk.status]}
-                                {isOverdue && (
-                                  <span
-                                    className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium
-                                bg-semantic-at-risk-bg text-semantic-at-risk border border-semantic-at-risk/30"
-                                  >
-                                    Overdue
-                                  </span>
-                                )}
-                              </span>
-                            </div>
-                          </td>
-
-                          {/* P */}
-                          <td className="px-3 text-center text-xs text-neutral-text-secondary tabular-nums">
-                            {risk.probability}
-                          </td>
-
-                          {/* I */}
-                          <td className="px-3 text-center text-xs text-neutral-text-secondary tabular-nums">
-                            {risk.impact}
-                          </td>
-
-                          {/* Severity chip */}
-                          <td className="px-4">
-                            <RiskChip severity={risk.severity} showScore />
-                          </td>
-
-                          {/* Trend — placeholder arrow (no trend data in API) */}
-                          <td className="px-3 text-center" aria-label="No trend data available">
-                            <span
-                              className="text-base text-neutral-text-disabled"
-                              aria-hidden="true"
-                            >
-                              →
+                          ID
+                        </th>
+                        <th
+                          scope="col"
+                          className="text-left px-4 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide"
+                        >
+                          Risk
+                        </th>
+                        <th
+                          scope="col"
+                          className="text-center px-3 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-10"
+                        >
+                          P
+                        </th>
+                        <th
+                          scope="col"
+                          className="text-center px-3 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-10"
+                        >
+                          I
+                        </th>
+                        <th
+                          scope="col"
+                          aria-sort={severityAriaSort(severitySort)}
+                          className="px-4 py-3 w-[148px]"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => setSeveritySort((s) => nextSeveritySort(s))}
+                            className="inline-flex items-center gap-1 font-medium text-neutral-text-secondary
+                            hover:text-neutral-text-primary text-xs uppercase tracking-wide
+                            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
+                            dark:focus-visible:ring-semantic-on-track focus-visible:ring-offset-1 rounded"
+                          >
+                            Severity
+                            <span aria-hidden="true" className="text-[10px] leading-none">
+                              {severitySort === 'desc' ? '▼' : severitySort === 'asc' ? '▲' : '⇅'}
                             </span>
-                          </td>
+                          </button>
+                        </th>
+                        <th
+                          scope="col"
+                          className="text-center px-3 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-[72px]"
+                        >
+                          Trend
+                        </th>
+                        <th
+                          scope="col"
+                          className="text-left px-4 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-[180px]"
+                        >
+                          Owner
+                        </th>
+                        {/* Quick-edit affordance column — no header */}
+                        <th scope="col" className="w-10 px-2 py-3" aria-label="Actions" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {displayRisks.map((risk) => {
+                        const isOverdue =
+                          risk.status === 'MITIGATING' &&
+                          !!risk.mitigation_due_date &&
+                          risk.mitigation_due_date < todayIso;
+                        // Always-on signal for live threats. Overdue is a strict
+                        // subset of unmitigated, so an overdue row layers the
+                        // louder bg fill over this left accent border.
+                        const unmitigated = isUnmitigated(risk);
 
-                          {/* Owner — initials avatar + display name (design conformance) */}
-                          <td className="px-4">
-                            {risk.owner ? (
-                              <span className="flex items-center gap-2 min-w-0">
-                                <span
-                                  className="inline-flex items-center justify-center w-7 h-7 rounded-full shrink-0
+                        return (
+                          <tr
+                            key={risk.id}
+                            onClick={() => openRisk(risk)}
+                            className={[
+                              'group h-14 border-b border-neutral-border last:border-b-0 cursor-pointer',
+                              unmitigated ? 'border-l-2 border-l-semantic-at-risk/40' : '',
+                              isOverdue
+                                ? 'bg-semantic-at-risk-bg hover:bg-semantic-at-risk/10'
+                                : 'hover:bg-neutral-surface-raised',
+                              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary',
+                              'dark:focus-visible:ring-semantic-on-track focus-visible:ring-inset',
+                            ].join(' ')}
+                            tabIndex={0}
+                            role="button"
+                            aria-label={`Open risk: ${risk.title}${isOverdue ? ' (overdue mitigation)' : ''}`}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                openRisk(risk);
+                              }
+                            }}
+                          >
+                            {/* ID — server-formatted (#929); the client no longer
+                              derives it from the raw short_id. */}
+                            <td className="px-4 text-xs text-neutral-text-secondary tppm-mono">
+                              {risk.short_id_display}
+                            </td>
+
+                            {/* Risk — title + status sub-label + overdue badge */}
+                            <td className="px-4">
+                              <div className="flex flex-col gap-0.5 min-w-0">
+                                <span className="text-sm font-medium text-neutral-text-primary leading-snug truncate">
+                                  {risk.title}
+                                </span>
+                                <span className="flex items-center gap-1.5 text-xs text-neutral-text-secondary leading-none">
+                                  {STATUS_LABELS[risk.status]}
+                                  {isOverdue && (
+                                    <span
+                                      className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium
+                                bg-semantic-at-risk-bg text-semantic-at-risk border border-semantic-at-risk/30"
+                                    >
+                                      Overdue
+                                    </span>
+                                  )}
+                                </span>
+                              </div>
+                            </td>
+
+                            {/* P */}
+                            <td className="px-3 text-center text-xs text-neutral-text-secondary tabular-nums">
+                              {risk.probability}
+                            </td>
+
+                            {/* I */}
+                            <td className="px-3 text-center text-xs text-neutral-text-secondary tabular-nums">
+                              {risk.impact}
+                            </td>
+
+                            {/* Severity chip */}
+                            <td className="px-4">
+                              <RiskChip severity={risk.severity} showScore />
+                            </td>
+
+                            {/* Trend — placeholder arrow (no trend data in API) */}
+                            <td className="px-3 text-center" aria-label="No trend data available">
+                              <span
+                                className="text-base text-neutral-text-disabled"
+                                aria-hidden="true"
+                              >
+                                →
+                              </span>
+                            </td>
+
+                            {/* Owner — initials avatar + display name (design conformance) */}
+                            <td className="px-4">
+                              {risk.owner ? (
+                                <span className="flex items-center gap-2 min-w-0">
+                                  <span
+                                    className="inline-flex items-center justify-center w-7 h-7 rounded-full shrink-0
                                 bg-neutral-surface-sunken border border-neutral-border
                                 text-xs font-semibold text-neutral-text-primary tppm-mono"
-                                  aria-hidden="true"
+                                    aria-hidden="true"
+                                  >
+                                    {risk.owner_initials ?? '?'}
+                                  </span>
+                                  <span className="text-xs text-neutral-text-secondary truncate">
+                                    {risk.owner_name ?? 'Assigned'}
+                                  </span>
+                                </span>
+                              ) : (
+                                <span
+                                  className="text-xs text-neutral-text-disabled"
+                                  aria-label="Unassigned"
                                 >
-                                  {risk.owner_initials ?? '?'}
+                                  —
                                 </span>
-                                <span className="text-xs text-neutral-text-secondary truncate">
-                                  {risk.owner_name ?? 'Assigned'}
-                                </span>
-                              </span>
-                            ) : (
-                              <span
-                                className="text-xs text-neutral-text-disabled"
-                                aria-label="Unassigned"
-                              >
-                                —
-                              </span>
-                            )}
-                          </td>
+                              )}
+                            </td>
 
-                          {/* Quick-edit affordance — visible on hover/focus-within (ADR-0044) */}
-                          <td className="px-2 text-center">
-                            <button
-                              type="button"
-                              aria-label={`Edit risk: ${risk.title}`}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openRiskEdit(risk);
-                              }}
-                              className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100
+                            {/* Quick-edit affordance — visible on hover/focus-within (ADR-0044) */}
+                            <td className="px-2 text-center">
+                              <button
+                                type="button"
+                                aria-label={`Edit risk: ${risk.title}`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openRiskEdit(risk);
+                                }}
+                                className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100
                             w-8 h-8 flex items-center justify-center rounded
                             text-neutral-text-secondary hover:text-neutral-text-primary
                             focus-visible:outline-none focus-visible:ring-2
                             focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-                            >
-                              ✎
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                              >
+                                ✎
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </>
           )}
         </div>

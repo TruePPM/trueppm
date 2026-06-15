@@ -1,4 +1,4 @@
-import { fireEvent, screen } from '@testing-library/react';
+import { fireEvent, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderWithProviders } from '@/test/utils';
 import type { Risk } from '@/api/types';
@@ -60,6 +60,14 @@ vi.mock('@/hooks/useProjects', () => ({
   useProjects: () => ({ data: [{ id: 'p1', name: 'Test Project' }] }),
 }));
 
+const currentUserState = { id: 'user-1' as string | null };
+vi.mock('@/hooks/useCurrentUser', () => ({
+  useCurrentUser: () => ({
+    user: currentUserState.id ? { id: currentUserState.id } : undefined,
+    isLoading: false,
+  }),
+}));
+
 vi.mock('@/hooks/useRisks', () => ({
   useRisks: () => useRisksState,
   useCreateRisk: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
@@ -107,6 +115,7 @@ describe('RiskRegisterView', () => {
     useRisksState.risks = [FIXTURE_RISK];
     useRisksState.isLoading = false;
     useRisksState.error = null;
+    currentUserState.id = 'user-1';
   });
 
   it('renders the drawer as a sibling of the table column inside the two-column flex container (issue #293)', () => {
@@ -221,5 +230,99 @@ describe('RiskRegisterView', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '+ New risk' }));
     expect(screen.getByRole('dialog', { name: 'New risk' })).toBeInTheDocument();
+  });
+
+  // ── Segment filter + severity sort (#1170) ────────────────────────────────
+
+  const LOW_RESOLVED: Risk = {
+    ...FIXTURE_RISK,
+    id: 'risk-low',
+    short_id_display: 'R-LOW',
+    title: 'Low resolved risk',
+    status: 'RESOLVED',
+    probability: 2,
+    impact: 2,
+    severity: 4,
+    owner: 'user-2',
+  };
+  const MINE_HIGH: Risk = {
+    ...HIGH_RISK,
+    id: 'risk-mine',
+    short_id_display: 'R-MINE',
+    title: 'My high risk',
+    status: 'MITIGATING',
+    owner: 'user-1',
+  };
+
+  it('renders the segment filter as a radiogroup with four options', () => {
+    renderWithProviders(<RiskRegisterView />);
+    const group = screen.getByRole('radiogroup', { name: 'Filter risks' });
+    expect(within(group).getAllByRole('radio')).toHaveLength(4);
+    expect(within(group).getByRole('radio', { name: 'All' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+  });
+
+  it('High filters to severity >= 12', () => {
+    useRisksState.risks = [FIXTURE_RISK, LOW_RESOLVED];
+    renderWithProviders(<RiskRegisterView />);
+    fireEvent.click(screen.getByRole('radio', { name: 'High' }));
+    expect(screen.getByText('Critical infrastructure failure')).toBeInTheDocument();
+    expect(screen.queryByText('Low resolved risk')).not.toBeInTheDocument();
+  });
+
+  it('Unmitigated excludes resolved/accepted/closed risks', () => {
+    useRisksState.risks = [FIXTURE_RISK, LOW_RESOLVED];
+    renderWithProviders(<RiskRegisterView />);
+    fireEvent.click(screen.getByRole('radio', { name: 'Unmitigated' }));
+    expect(screen.getByText('Critical infrastructure failure')).toBeInTheDocument();
+    expect(screen.queryByText('Low resolved risk')).not.toBeInTheDocument();
+  });
+
+  it('Mine filters to risks owned by the current user', () => {
+    useRisksState.risks = [FIXTURE_RISK, MINE_HIGH];
+    renderWithProviders(<RiskRegisterView />);
+    fireEvent.click(screen.getByRole('radio', { name: 'Mine' }));
+    expect(screen.getByText('My high risk')).toBeInTheDocument();
+    // FIXTURE_RISK has owner null → not mine
+    expect(screen.queryByText('Critical infrastructure failure')).not.toBeInTheDocument();
+  });
+
+  it('shows a filter-specific empty state with a reset when nothing matches', () => {
+    useRisksState.risks = [LOW_RESOLVED]; // owned by user-2, resolved
+    renderWithProviders(<RiskRegisterView />);
+    fireEvent.click(screen.getByRole('radio', { name: 'Mine' }));
+    expect(screen.getByText('None of the risks are assigned to you.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Show all risks' }));
+    expect(screen.getByRole('radio', { name: 'All' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByText('Low resolved risk')).toBeInTheDocument();
+  });
+
+  it('toggles severity sort and reflects it via aria-sort', () => {
+    useRisksState.risks = [FIXTURE_RISK, HIGH_RISK]; // sev 25, sev 16
+    renderWithProviders(<RiskRegisterView />);
+    const header = screen.getByRole('columnheader', { name: /Severity/ });
+    expect(header).toHaveAttribute('aria-sort', 'none');
+
+    const sortButton = within(header).getByRole('button', { name: /Severity/ });
+    fireEvent.click(sortButton); // → descending
+    expect(header).toHaveAttribute('aria-sort', 'descending');
+
+    // Ascending after a second click reorders the lowest-severity row first.
+    fireEvent.click(sortButton); // → ascending
+    expect(header).toHaveAttribute('aria-sort', 'ascending');
+    const rows = screen.getAllByRole('button', { name: /Open risk:/ });
+    expect(rows[0]).toHaveAccessibleName(/Vendor delay/); // severity 16 < 25
+  });
+
+  it('clears both facets via Clear all', () => {
+    useRisksState.risks = [FIXTURE_RISK, MINE_HIGH];
+    renderWithProviders(<RiskRegisterView />);
+    fireEvent.click(screen.getByRole('radio', { name: 'Mine' }));
+    expect(screen.getByText(/Filtered to/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Clear all' }));
+    expect(screen.queryByText(/Filtered to/)).not.toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'All' })).toHaveAttribute('aria-checked', 'true');
   });
 });
