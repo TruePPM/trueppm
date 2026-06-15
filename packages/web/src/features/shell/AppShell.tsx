@@ -12,6 +12,7 @@ import { SessionExpiredBanner } from './SessionExpiredBanner';
 import { OfflineBanner } from './OfflineBanner';
 import { CommandPalette } from './commandPalette/CommandPalette';
 import { useCommandPaletteHotkey } from './commandPalette/useCommandPaletteHotkey';
+import { useSidebarCollapseHotkey } from './useSidebarCollapseHotkey';
 import { CreateDispatcher } from './CreateDispatcher';
 
 export function AppShell() {
@@ -20,6 +21,8 @@ export function AppShell() {
 
   // ⌘K / Ctrl+K opens the command palette from anywhere (v2 design system).
   useCommandPaletteHotkey();
+  // ⌘B / Ctrl+B toggles the sidebar rail (v2 collapse affordance, ADR-0127).
+  useSidebarCollapseHotkey();
 
   const openDrawer = useCallback(() => setDrawerOpen(true), []);
   const closeDrawer = useCallback(() => {
