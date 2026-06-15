@@ -1528,6 +1528,15 @@ scheduler:sbom:
   # the SBOM. Switch to locked generation once the scheduler ships a committed
   # uv.lock (TODO(#1153)).
   extends: .scheduler
+  # Override the inherited string image to force a fresh pull: this job is the
+  # only consumer of the cyclonedx-bom baked into ci-scheduler, so when that
+  # image is rebuilt (as in the MR that adds the tool) a runner holding a stale
+  # :py3.11 under the default if-not-present policy runs without cyclonedx-py
+  # ("command not found"). The fallback list re-pulls when the runner permits
+  # `always` and otherwise degrades to today's if-not-present — no regression.
+  image:
+    name: $CI_REGISTRY_IMAGE/ci-scheduler:py3.11
+    pull_policy: [always, if-not-present]
   stage: security
   <<: *rules-scheduler
   allow_failure: true
