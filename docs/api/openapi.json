@@ -23852,6 +23852,12 @@
                         "nullable": true,
                         "description": "Start no earlier than (SNET). CPM floor applied during forward pass."
                     },
+                    "planned_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "writeOnly": true,
+                        "nullable": true
+                    },
                     "actual_start": {
                         "type": "string",
                         "format": "date",
@@ -28334,6 +28340,12 @@
                         "format": "date",
                         "nullable": true,
                         "description": "Start no earlier than (SNET). CPM floor applied during forward pass."
+                    },
+                    "planned_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "writeOnly": true,
+                        "nullable": true
                     },
                     "actual_start": {
                         "type": "string",

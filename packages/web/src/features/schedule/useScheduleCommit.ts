@@ -123,13 +123,35 @@ function extractErrorMessage(err: unknown, fallback: string): string {
   return fallback;
 }
 
+const DAY_MS = 86_400_000;
+
 function isoFromUtcMs(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
 }
 
+/**
+ * Mon–Fri working days in `[startIso, finishIso]` inclusive — a client-side
+ * preview estimate of the duration the server computes from `planned_finish`
+ * (#951). The server is authoritative on commit (it derives `duration` from the
+ * project calendar's weekday mask); this matches it for the default Mon–Fri
+ * calendar and is used only to label the commit popover (old → new working
+ * days). It exists because the web side has no project calendar to count
+ * against — the real value round-trips back via the post-commit CPM refetch.
+ */
+function workingDaysInclusive(startIso: string, finishIso: string): number {
+  const startMs = new Date(startIso + 'T00:00:00Z').getTime();
+  const finishMs = new Date(finishIso + 'T00:00:00Z').getTime();
+  let count = 0;
+  for (let ms = startMs; ms <= finishMs; ms += DAY_MS) {
+    const dow = new Date(ms).getUTCDay(); // 0 = Sun … 6 = Sat
+    if (dow !== 0 && dow !== 6) count += 1;
+  }
+  return Math.max(1, count);
+}
+
 function computeNewFinishIso(newStartIso: string, durationDays: number): string {
   const startMs = new Date(newStartIso + 'T00:00:00Z').getTime();
-  return isoFromUtcMs(startMs + durationDays * 86_400_000);
+  return isoFromUtcMs(startMs + durationDays * DAY_MS);
 }
 
 function computeRescheduleResize(
@@ -250,14 +272,25 @@ export function useScheduleCommit({
       if (!scales) return;
       const task = allTasksRef.current.find((t) => t.id === id);
       if (!task?.start) return;
-      const newFinish = leftToDate(right, scales);
-      const startMs = new Date(task.start + 'T00:00:00Z').getTime();
-      const newDuration = Math.max(1, Math.round((newFinish.getTime() - startMs) / 86_400_000));
-      if (newDuration === task.duration) return;
-      const proposed = computeRescheduleResize(task.start, newDuration);
+      // The resize handle tracks the bar's EXCLUSIVE right edge — `dateToRight`
+      // paints one day past the inclusive finish (the morning after the last
+      // working day). Snap that edge to a day boundary (the FSM emits an
+      // unsnapped pixel `right`) and step back one day to recover the finish
+      // DATE the user dropped on.
+      const exclusiveEdgeMs = Math.round(leftToDate(right, scales).getTime() / DAY_MS) * DAY_MS;
+      const newFinish = isoFromUtcMs(exclusiveEdgeMs - DAY_MS);
+      // No-op / invalid guards compare the finish DATE — NOT a calendar-day vs
+      // working-day duration, which falsely fired when the bar spanned a weekend
+      // or holiday (#951): a no-op grab read the calendar span (e.g. 4) against
+      // the stored working-day duration (e.g. 2) and proposed a phantom resize.
+      if (newFinish < task.start) return;
+      if (newFinish === task.finish) return;
+      // Duration is derived server-side from `planned_finish` via the project
+      // calendar (#951); this working-day estimate only labels the popover.
+      const newDuration = workingDaysInclusive(task.start, newFinish);
       engine.updateTask(id, {
-        finish: proposed.newFinish,
-        duration: proposed.newDuration,
+        finish: newFinish,
+        duration: newDuration,
       });
       const newBarLeft = dateToLeft(task.start, scales);
       const anchor = computeAnchor(id, newBarLeft, right);
@@ -273,9 +306,9 @@ export function useScheduleCommit({
         originalStart: task.start,
         originalFinish: task.finish,
         originalDuration: task.duration,
-        newStart: proposed.newStart,
-        newFinish: proposed.newFinish,
-        newDuration: proposed.newDuration,
+        newStart: task.start,
+        newFinish,
+        newDuration,
         anchor,
         error: null,
         activeSprintName: findActiveSprintName(task),
@@ -371,9 +404,13 @@ export function useScheduleCommit({
             optimistic: { start: newStart, finish: newFinish },
           }
         : {
+            // #951: send the target finish DATE; the server derives the
+            // working-day duration from the project calendar. `newDuration` is
+            // the client estimate used only for the optimistic preview — the
+            // CPM refetch replaces it with the server-computed value.
             id: taskId,
             projectId,
-            duration: newDuration,
+            planned_finish: newFinish,
             optimistic: { finish: newFinish, duration: newDuration },
           };
     rescheduleTask.mutate(payload, {
