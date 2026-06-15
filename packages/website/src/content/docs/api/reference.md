@@ -120,6 +120,12 @@ Content`, whether or not a cookie was present.
 | PUT / PATCH | `/api/v1/projects/{id}/` | Update |
 | DELETE | `/api/v1/projects/{id}/` | Soft-delete |
 
+Projects and programs carry the inheritable sharing settings. The override fields
+`public_sharing` and `allow_guests` are nullable (`null` = inherit from the parent
+scope) and writable by an Owner/Admin; the resolved fields `effective_public_sharing`,
+`inherited_public_sharing`, `effective_allow_guests`, and `inherited_allow_guests` are
+read-only. See [Sharing & Access Inheritance](/administration/sharing-and-access/).
+
 ### Project members
 
 | Method | Path | Description |
@@ -190,6 +196,11 @@ applies to the list endpoint to bound bulk scraping; exceeding it returns
 |--------|------|------|-------------|
 | GET | `/api/v1/workspace/` | Any active member | Retrieve workspace config. |
 | PATCH | `/api/v1/workspace/` | Workspace Admin+ | Update workspace config (partial). |
+
+The workspace config includes `public_sharing` and `allow_guests` (the inheritance
+defaults for all programs and projects) and `public_sharing_override_policy`
+(`suggest`/`enforce`). `enforce` is an Enterprise-only lock and degrades to `suggest` in
+the community edition. See [Sharing & Access Inheritance](/administration/sharing-and-access/).
 
 ### Workspace members
 

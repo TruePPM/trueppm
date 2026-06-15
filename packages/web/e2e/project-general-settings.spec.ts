@@ -38,6 +38,15 @@ const FIXTURE_PROJECT = {
   visibility: 'WORKSPACE',
   timezone: 'Europe/London',
   default_view: 'BOARD',
+  // Sharing override fields (ADR-0135, #978). Own override null = inherit;
+  // inherited_* is what program/workspace would supply if the override were
+  // cleared; effective_* resolves own ?? inherited.
+  public_sharing: null,
+  allow_guests: null,
+  effective_public_sharing: false,
+  effective_allow_guests: true,
+  inherited_public_sharing: false,
+  inherited_allow_guests: true,
 };
 
 type Page = import('@playwright/test').Page;
@@ -47,7 +56,16 @@ interface Captures {
   patch?: Record<string, unknown>;
 }
 
-async function setup(page: Page, captures: Captures, opts: { patchStatus?: number; patchBody?: unknown } = {}) {
+async function setup(
+  page: Page,
+  captures: Captures,
+  opts: { patchStatus?: number; patchBody?: unknown; selfRole?: number } = {},
+) {
+  // Role ordinals (ADR-0072): VIEWER=0, MEMBER=100, SCHEDULER=200, ADMIN=300,
+  // OWNER=400. ProjectGeneralPage gates the sharing override on role >= ADMIN via
+  // useCurrentUserRole → GET /projects/:id/members/?self=true. Default Admin so
+  // the override chips/switch render; pass a lower selfRole to exercise read-only.
+  const selfRole = opts.selfRole ?? 300;
   await page.addInitScript(() => {
     localStorage.setItem(
       'trueppm-auth',
@@ -107,6 +125,16 @@ async function setup(page: Page, captures: Captures, opts: { patchStatus?: numbe
       body: pj(FIXTURE_PROJECT),
     });
   });
+  // useCurrentUserRole reads the first row of this self-scoped list (a plain
+  // array, not the paginated envelope). Without this the catch-all returns `[]`,
+  // role resolves null, and the sharing controls would render read-only.
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/members/**`, (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj([{ id: 'membership-self', role: selfRole }]),
+    }),
+  );
 }
 
 test.describe('Project Settings → General', () => {
@@ -172,5 +200,79 @@ test.describe('Project Settings → General', () => {
     await expect.poll(() => captures.patch).toBeDefined();
     expect(captures.patch).toMatchObject({ code: '-ATLAS' });
     await expect(page.getByRole('button', { name: /Save changes/i })).toBeVisible();
+  });
+
+  // ADR-0135 / #978: the two sharing rows render via InheritableToggleField.
+  // An Admin (self role 300) gets the Inherit/Override chip pair and a
+  // role="switch" when overriding. Flipping and saving must PATCH
+  // public_sharing / allow_guests with the overridden boolean.
+  test('Admin overrides sharing and PATCHes public_sharing / allow_guests on save', async ({
+    page,
+  }) => {
+    const captures: Captures = {};
+    await setup(page, captures); // default selfRole = 300 (Admin)
+    await page.goto(`/projects/${PROJECT_ID}/settings/general`);
+
+    await expect(page.getByRole('heading', { name: 'General' })).toBeVisible();
+
+    // (b) Both rows start on "Inherit"; the chip suffix reflects inherited_*
+    // (allow_guests inherited On, public_sharing inherited Off).
+    const guestGroup = page.getByRole('radiogroup', { name: 'Allow guest access' });
+    const sharingGroup = page.getByRole('radiogroup', { name: 'Allow public link sharing' });
+    await expect(guestGroup.getByText('Inherit (On)')).toBeVisible();
+    await expect(sharingGroup.getByText('Inherit (Off)')).toBeVisible();
+
+    // (a) Override public sharing → flip the revealed switch on (was inherited Off).
+    await sharingGroup.getByText('Override', { exact: true }).click();
+    const sharingSwitch = page.getByRole('switch', { name: 'Allow public link sharing' });
+    await expect(sharingSwitch).toHaveAttribute('aria-checked', 'false');
+    await sharingSwitch.click();
+    await expect(sharingSwitch).toHaveAttribute('aria-checked', 'true');
+
+    // Override allow guests → flip its switch off (was inherited On).
+    await guestGroup.getByText('Override', { exact: true }).click();
+    const guestSwitch = page.getByRole('switch', { name: 'Allow guest access' });
+    await expect(guestSwitch).toHaveAttribute('aria-checked', 'true');
+    await guestSwitch.click();
+    await expect(guestSwitch).toHaveAttribute('aria-checked', 'false');
+
+    await page.getByRole('button', { name: /Save changes/i }).click();
+
+    await expect.poll(() => captures.patch).toBeDefined();
+    expect(captures.patch).toMatchObject({
+      public_sharing: true,
+      allow_guests: false,
+    });
+  });
+
+  // (c) Edge / read-only: a Member (role 100 < ADMIN) cannot override sharing.
+  // The control collapses to a read-only indicator whose composite aria-label
+  // ends "View only." and reflects the effective value + provenance — no
+  // radiogroup, no switch.
+  test('a Member below Admin sees a read-only sharing indicator, not the override control', async ({
+    page,
+  }) => {
+    const captures: Captures = {};
+    await setup(page, captures, { selfRole: 100 }); // Member
+    await page.goto(`/projects/${PROJECT_ID}/settings/general`);
+
+    await expect(page.getByRole('heading', { name: 'General' })).toBeVisible();
+
+    // No editable affordances for either sharing row.
+    await expect(page.getByRole('radiogroup', { name: 'Allow guest access' })).toHaveCount(0);
+    await expect(page.getByRole('switch', { name: 'Allow public link sharing' })).toHaveCount(0);
+
+    // Read-only indicator: effective values are guests On (inherited true),
+    // public sharing Off (inherited false), both inherited from the parent.
+    await expect(
+      page.getByLabel(
+        'Allow guest access: On, inherited from the program or workspace default. View only.',
+      ),
+    ).toBeVisible();
+    await expect(
+      page.getByLabel(
+        'Allow public link sharing: Off, inherited from the program or workspace default. View only.',
+      ),
+    ).toBeVisible();
   });
 });

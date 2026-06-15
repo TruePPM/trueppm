@@ -47,6 +47,15 @@ const FIXTURE_PROGRAM = {
   my_role_label: 'Project Admin',
   project_count: 2,
   member_count: 1,
+  // Sharing override fields (ADR-0135, #978). Own override null = inherit; the
+  // effective_* values resolve own ?? inherited; inherited_* is what the parent
+  // (workspace) would supply if the override were cleared.
+  public_sharing: null,
+  allow_guests: null,
+  effective_public_sharing: false,
+  effective_allow_guests: true,
+  inherited_public_sharing: false,
+  inherited_allow_guests: true,
 };
 
 type Page = import('@playwright/test').Page;
@@ -259,5 +268,70 @@ test.describe('Program Settings → General', () => {
 
     await expect(page.getByLabel('Program name')).toHaveValue('Phase 2 Modernization');
     expect(captures.patch).toBeUndefined();
+  });
+
+  // ADR-0135 / #978: the two sharing rows render via InheritableToggleField.
+  // Admin (my_role=400) gets the Inherit/Override chip pair plus a role="switch"
+  // when overriding. Flipping the switch and saving must PATCH public_sharing /
+  // allow_guests with the overridden boolean.
+  test('Admin overrides sharing and PATCHes public_sharing / allow_guests on save', async ({
+    page,
+  }) => {
+    const captures: { patch?: Record<string, unknown> } = {};
+    await setup(page, captures);
+    await page.goto(`/programs/${PROGRAM_ID}/settings/general`);
+
+    await expect(page.getByRole('heading', { name: 'General' })).toBeVisible();
+
+    // (b) Both rows start on "Inherit", and the chip suffix reflects inherited_*
+    // (allow_guests inherited On, public_sharing inherited Off).
+    const guestGroup = page.getByRole('radiogroup', { name: 'Allow guest access' });
+    const sharingGroup = page.getByRole('radiogroup', { name: 'Allow public link sharing' });
+    await expect(guestGroup.getByText('Inherit (On)')).toBeVisible();
+    await expect(sharingGroup.getByText('Inherit (Off)')).toBeVisible();
+
+    // (a) Override public sharing, then flip the revealed switch to On.
+    await sharingGroup.getByText('Override', { exact: true }).click();
+    const sharingSwitch = page.getByRole('switch', { name: 'Allow public link sharing' });
+    await expect(sharingSwitch).toBeVisible();
+    // Seeded from the effective value (inherited Off) → starts unchecked.
+    await expect(sharingSwitch).toHaveAttribute('aria-checked', 'false');
+    await sharingSwitch.click();
+    await expect(sharingSwitch).toHaveAttribute('aria-checked', 'true');
+
+    // Override allow guests and flip its switch to Off (was inherited On).
+    await guestGroup.getByText('Override', { exact: true }).click();
+    const guestSwitch = page.getByRole('switch', { name: 'Allow guest access' });
+    await expect(guestSwitch).toHaveAttribute('aria-checked', 'true');
+    await guestSwitch.click();
+    await expect(guestSwitch).toHaveAttribute('aria-checked', 'false');
+
+    await page.getByRole('button', { name: /Save changes/i }).click();
+
+    await expect.poll(() => captures.patch).toBeDefined();
+    expect(captures.patch).toMatchObject({
+      public_sharing: true,
+      allow_guests: false,
+    });
+  });
+
+  // (c) Edge: re-selecting "Inherit" after overriding clears the override back to
+  // null. With a clean form (no other edits) the save bar is not armed, so we
+  // assert the switch disappears and the inheriting body line returns instead.
+  test('selecting Inherit clears a sharing override back to the inherited value', async ({
+    page,
+  }) => {
+    const captures: { patch?: Record<string, unknown> } = {};
+    await setup(page, captures);
+    await page.goto(`/programs/${PROGRAM_ID}/settings/general`);
+
+    const sharingGroup = page.getByRole('radiogroup', { name: 'Allow public link sharing' });
+    await sharingGroup.getByText('Override', { exact: true }).click();
+    await expect(page.getByRole('switch', { name: 'Allow public link sharing' })).toBeVisible();
+
+    // Back to Inherit → switch is gone, inheriting line shows the workspace value.
+    await sharingGroup.getByText(/^Inherit/).click();
+    await expect(page.getByRole('switch', { name: 'Allow public link sharing' })).toHaveCount(0);
+    await expect(sharingGroup.getByText('Inherit (Off)')).toBeVisible();
   });
 });

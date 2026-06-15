@@ -442,6 +442,8 @@ export function ProgramGeneralPage() {
             inherited={program?.inherited_allow_guests ?? false}
             inheritFromLabel="the workspace default"
             scopeNoun="program"
+            onLabel="On"
+            offLabel="Off"
             ariaLabel="Allow guest access"
             canEdit={canEditSharing}
           />
@@ -457,6 +459,8 @@ export function ProgramGeneralPage() {
             inherited={program?.inherited_public_sharing ?? false}
             inheritFromLabel="the workspace default"
             scopeNoun="program"
+            onLabel="On"
+            offLabel="Off"
             ariaLabel="Allow public link sharing"
             canEdit={canEditSharing}
           />

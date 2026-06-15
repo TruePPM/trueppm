@@ -89,9 +89,7 @@ export function InheritableToggleField({
                 : 'w-2 h-2 rounded-full border border-neutral-border'
             }
           />
-          <span className="font-medium text-neutral-text-primary">
-            {effective ? onLabel : offLabel}
-          </span>
+          <span className="font-medium text-neutral-text-primary">{effective ? 'On' : 'Off'}</span>
         </span>
         <span className="text-neutral-text-secondary" aria-hidden="true">
           · {provenance}

@@ -423,6 +423,8 @@ export function ProjectGeneralPage() {
             inherited={project?.inherited_allow_guests ?? false}
             inheritFromLabel="the program or workspace default"
             scopeNoun="project"
+            onLabel="On"
+            offLabel="Off"
             ariaLabel="Allow guest access"
             canEdit={canEditSharing}
           />
@@ -438,6 +440,8 @@ export function ProjectGeneralPage() {
             inherited={project?.inherited_public_sharing ?? false}
             inheritFromLabel="the program or workspace default"
             scopeNoun="project"
+            onLabel="On"
+            offLabel="Off"
             ariaLabel="Allow public link sharing"
             canEdit={canEditSharing}
           />
