@@ -63,7 +63,7 @@ The tables below attribute the major **direct** dependencies by layer. They are 
 | numpy | Numerical computing (Monte Carlo) | BSD-3-Clause |
 | trueppm-scheduler | TruePPM's own scheduling engine ² | Apache-2.0 |
 
-¹ **psycopg is LGPL-3.0** — the one copyleft dependency, and it is permitted deliberately. It is dynamically linked, not statically incorporated, so under the LGPL's library-linking exemption it does not affect the licensing of TruePPM's own code. This is the honest detail behind "LGPL is permitted" above.
+¹ **psycopg is LGPL-3.0** — the one copyleft dependency, and it is permitted deliberately. It is dynamically linked, not statically incorporated, so under the LGPL's library-linking exemption it does not affect the licensing of TruePPM's own code. This is the honest detail behind "LGPL is permitted" above. **Redistributing a frozen image** (a self-hosted bundle that vendors the psycopg binary, rather than pip-installing it at build time) carries the LGPL's standard relinking obligation: you must let recipients replace the library. The stock TruePPM images install psycopg from PyPI as a normal, replaceable dependency, so this obligation is satisfied without any extra step — it only becomes your responsibility if you build a deliberately frozen/vendored derivative.
 
 ² `trueppm-scheduler` is TruePPM's own CPM/Monte Carlo engine, published as a standalone Apache 2.0 package on [PyPI](https://pypi.org/project/trueppm-scheduler/).
 

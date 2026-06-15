@@ -20,7 +20,7 @@ authors = [
 # currently resolves; patch/minor security fixes within the current major are
 # still allowed.
 dependencies = [
-    "trueppm-scheduler>=0.1.0a0",
+    "trueppm-scheduler>=0.1.0a0,<1",
     "django>=5.2.15,<6.0",
     "djangorestframework>=3.15,<4.0",
     "djangorestframework-simplejwt>=5.3,<6.0",
@@ -28,8 +28,16 @@ dependencies = [
     "defusedxml>=0.7,<0.8",
     "channels>=4.0,<5.0",
     "channels-redis>=4.0,<5.0",
-    "celery>=5.4,<6.0",
-    "redis>=5.0,<8.0",
+    # 5.4/5.5 are no longer security-maintained upstream; track the supported
+    # line (5.6+ requires Python >=3.9, satisfied by our >=3.11 floor).
+    "celery>=5.6,<6.0",
+    # Floor tracks the installed major (7.x); 5.x/6.x span unsupported majors.
+    "redis>=7.0,<8.0",
+    # LGPL-3.0: dynamically-imported runtime dep in an application (not a
+    # library) — Apache 2.0 compatibility per CLAUDE.md §Licenses. Note the
+    # frozen-deployment implication: redistributing a bundled binary obliges
+    # offering the psycopg source (it is pip-installed, not vendored, so this
+    # is satisfied by default).
     "psycopg[binary]>=3.1,<4.0",
     "django-environ>=0.11,<1.0",
     "django-simple-history>=3.7,<4.0",

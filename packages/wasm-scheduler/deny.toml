@@ -1,3 +1,14 @@
+[advisories]
+# RustSec advisory-db coverage. Before this section existed, `cargo deny check`
+# scanned licenses only — RustSec CVEs and yanked crates went unflagged on the
+# wasm engine (the OSS scheduler's other half). version 2 is deny-by-default:
+# any unignored vulnerability, unsound, or yanked-crate finding fails the gate.
+# Suppress a specific advisory by adding its RUSTSEC id to `ignore` with a
+# comment justifying it — never by loosening the whole section.
+version = 2
+yanked = "deny"
+ignore = []
+
 [licenses]
 # Only allow these licenses — anything else (including copyleft) is denied.
 allow = [

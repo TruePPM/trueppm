@@ -1786,19 +1786,23 @@ license:check:web:
         --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;CC0-1.0;CC-BY-3.0;CC-BY-4.0;Python-2.0;Unlicense;WTFPL;BlueOak-1.0.0"
 
 wasm:license-check:
-  # Verify no copyleft-licensed Rust dependency has been introduced.
-  # Uses cargo-deny to check crate licenses against an allow-list in deny.toml.
+  # Verify no copyleft-licensed Rust dependency has been introduced, and that no
+  # crate carries an unignored RustSec advisory or has been yanked.
+  # Uses cargo-deny to check crate licenses + advisories against deny.toml.
   extends: .wasm
   stage: security
   needs: [wasm:test]
   <<: *rules-wasm
   before_script:
     - apt-get update -qq && apt-get install -y -qq curl
-    - curl -sSfL https://github.com/EmbarkStudios/cargo-deny/releases/download/0.18.3/cargo-deny-0.18.3-x86_64-unknown-linux-musl.tar.gz
-        | tar xz -C /usr/local/bin --strip-components=1 cargo-deny-0.18.3-x86_64-unknown-linux-musl/cargo-deny
+    # cargo-deny 0.19.x is required for the advisories check: 0.18.3 cannot parse
+    # CVSS 4.0 entries in the live RustSec DB and aborts on DB load (the licenses
+    # check alone was unaffected, which is why the older pin sufficed before).
+    - curl -sSfL https://github.com/EmbarkStudios/cargo-deny/releases/download/0.19.9/cargo-deny-0.19.9-x86_64-unknown-linux-musl.tar.gz
+        | tar xz -C /usr/local/bin --strip-components=1 cargo-deny-0.19.9-x86_64-unknown-linux-musl/cargo-deny
     - cd packages/wasm-scheduler
   script:
-    - cargo deny check licenses
+    - cargo deny check licenses advisories
 
 # ---------------------------------------------------------------------------
 # PUBLISH — tag-triggered release jobs.
