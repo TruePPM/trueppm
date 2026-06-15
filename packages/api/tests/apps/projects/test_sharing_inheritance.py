@@ -270,9 +270,7 @@ def test_program_serializer_exposes_effective_and_inherited(calendar: Calendar) 
 def test_project_admin_can_set_override(calendar: Calendar, role: int) -> None:
     p = _project(calendar)
     client = _client_for_project(p, role, f"u_proj_admin_{int(role)}")
-    resp = client.patch(
-        f"/api/v1/projects/{p.pk}/", {"public_sharing": True}, format="json"
-    )
+    resp = client.patch(f"/api/v1/projects/{p.pk}/", {"public_sharing": True}, format="json")
     assert resp.status_code == 200, resp.content
     p.refresh_from_db()
     assert p.public_sharing is True
@@ -284,9 +282,7 @@ def test_project_scheduler_cannot_set_override(calendar: Calendar) -> None:
     """Sharing fields are not in ``_SCHEDULER_WRITABLE_FIELDS`` → Scheduler 400."""
     p = _project(calendar)
     client = _client_for_project(p, Role.SCHEDULER, "u_proj_sched")
-    resp = client.patch(
-        f"/api/v1/projects/{p.pk}/", {"public_sharing": True}, format="json"
-    )
+    resp = client.patch(f"/api/v1/projects/{p.pk}/", {"public_sharing": True}, format="json")
     assert resp.status_code == 400
     p.refresh_from_db()
     assert p.public_sharing is None
@@ -298,9 +294,7 @@ def test_project_below_scheduler_blocked_at_gate(calendar: Calendar, role: int) 
     """Viewer/Member never reach the serializer — blocked at the permission gate (403)."""
     p = _project(calendar)
     client = _client_for_project(p, role, f"u_proj_low_{int(role)}")
-    resp = client.patch(
-        f"/api/v1/projects/{p.pk}/", {"public_sharing": True}, format="json"
-    )
+    resp = client.patch(f"/api/v1/projects/{p.pk}/", {"public_sharing": True}, format="json")
     assert resp.status_code == 403
     p.refresh_from_db()
     assert p.public_sharing is None
@@ -315,9 +309,7 @@ def test_project_patch_null_clears_override(calendar: Calendar) -> None:
     p = _project(calendar, public_sharing=False)  # overriding to False
     client = _client_for_project(p, Role.ADMIN, "u_proj_clear")
 
-    resp = client.patch(
-        f"/api/v1/projects/{p.pk}/", {"public_sharing": None}, format="json"
-    )
+    resp = client.patch(f"/api/v1/projects/{p.pk}/", {"public_sharing": None}, format="json")
     assert resp.status_code == 200, resp.content
     p.refresh_from_db()
     assert p.public_sharing is None
@@ -334,9 +326,7 @@ def test_project_patch_null_clears_override(calendar: Calendar) -> None:
 def test_program_admin_can_set_override(role: int) -> None:
     prog = Program.objects.create(name="Prog")
     client = _client_for_program(prog, role, f"u_prog_admin_{int(role)}")
-    resp = client.patch(
-        f"/api/v1/programs/{prog.pk}/", {"public_sharing": True}, format="json"
-    )
+    resp = client.patch(f"/api/v1/programs/{prog.pk}/", {"public_sharing": True}, format="json")
     assert resp.status_code == 200, resp.content
     prog.refresh_from_db()
     assert prog.public_sharing is True
@@ -349,9 +339,7 @@ def test_program_non_admin_cannot_set_override(role: int) -> None:
     """Below ADMIN the program viewset gate rejects the write (403)."""
     prog = Program.objects.create(name="Prog")
     client = _client_for_program(prog, role, f"u_prog_low_{int(role)}")
-    resp = client.patch(
-        f"/api/v1/programs/{prog.pk}/", {"public_sharing": True}, format="json"
-    )
+    resp = client.patch(f"/api/v1/programs/{prog.pk}/", {"public_sharing": True}, format="json")
     assert resp.status_code == 403
     prog.refresh_from_db()
     assert prog.public_sharing is None
@@ -365,9 +353,7 @@ def test_program_patch_null_clears_override() -> None:
     prog = Program.objects.create(name="Prog", public_sharing=False)
     client = _client_for_program(prog, Role.ADMIN, "u_prog_clear")
 
-    resp = client.patch(
-        f"/api/v1/programs/{prog.pk}/", {"public_sharing": None}, format="json"
-    )
+    resp = client.patch(f"/api/v1/programs/{prog.pk}/", {"public_sharing": None}, format="json")
     assert resp.status_code == 200, resp.content
     prog.refresh_from_db()
     assert prog.public_sharing is None
