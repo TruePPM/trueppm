@@ -28,6 +28,11 @@ WORKDIR /opt/ci-deps
 # stay resident in the image so re-install is a near-instant editable re-link.
 COPY packages/scheduler/pyproject.toml ./scheduler/pyproject.toml
 COPY packages/scheduler/README.md      ./scheduler/README.md
+# CHANGELOG.md is force-included into the wheel (pyproject [tool.hatch.build
+# .targets.wheel.force-include], #945), so the editable build below needs it
+# present even in this metadata-only stub tree — otherwise hatchling fails the
+# build with "Forced include not found".
+COPY packages/scheduler/CHANGELOG.md   ./scheduler/CHANGELOG.md
 
 # Stub the source root so hatchling can build the editable wheel. The stub
 # package is uninstalled at the end — only the dep wheels remain.
