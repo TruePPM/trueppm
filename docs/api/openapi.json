@@ -6396,6 +6396,53 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/flow-metrics/": {
+            "get": {
+                "operationId": "v1_projects_flow_metrics_retrieve",
+                "description": "``GET /api/v1/projects/<pk>/flow-metrics/`` — methodology-neutral flow analytics.\n\nCycle/lead-time distributions, a cumulative flow diagram, and a weekly throughput\nseries (ADR-0130 D1, #1072), computed-on-read from ``Task`` history — no new model.\n``?window=<days>`` (default 90, capped) sets the look-back window.\n\nPermission: any project member (matching the velocity/forecast reads). The\nhistorical distributions are team-health performance analytics, so they are gated\nunder the ``flow_metrics`` signal (ADR-0130 D4): a reader below the signal's\naudience (e.g. a PM/PMO at the TEAM_SM_PM band when the default is TEAM) gets the\npayload with the distribution arrays emptied and ``flow_metrics_suppressed=true``,\nnever a 403 — the team always reads its own flow metrics, the PM reads them only\nonce the team shares upward. The aggregate-only ``data_integrity`` advisory block\nis not a performance signal and survives suppression.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "window",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Look-back window in days (default 90, capped at 365)."
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/FlowMetrics"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/forecast/": {
             "get": {
                 "operationId": "v1_projects_forecast_retrieve",
@@ -21005,6 +21052,60 @@
                 "type": "string",
                 "description": "* `TEXT` - Text\n* `NUMBER` - Number\n* `DATE` - Date\n* `SINGLE_SELECT` - Single-select\n* `MULTI_SELECT` - Multi-select\n* `USER` - Person\n* `BOOLEAN` - Boolean"
             },
+            "FlowMetrics": {
+                "type": "object",
+                "description": "Methodology-neutral flow analytics response (ADR-0130 D1, #1072).\n\nCycle/lead-time distributions, a cumulative flow diagram (CFD), and a weekly\nthroughput series — all computed-on-read from ``Task`` history, no new model.\n\n``cfd`` entries and the per-day ``counts`` are keyed by **raw status strings**\n(``BACKLOG``/``NOT_STARTED``/``IN_PROGRESS``/``REVIEW``/``COMPLETE``) via plain\n``DictField``s rather than a ``TaskStatus``-typed ChoiceField, so drf-spectacular\nemits no new status-enum component (avoiding the known enum-name-collision\nregression class; project_drf_enum_name_collision).\n\nThe historical distributions (``cycle_time``/``lead_time``/``cfd``/``throughput``)\nare team-private (ADR-0130 D4): for a reader below the ``flow_metrics`` audience the\nview empties them and sets ``flow_metrics_suppressed=true``. The ``data_integrity``\nadvisory block and the window metadata survive suppression.",
+                "properties": {
+                    "window_days": {
+                        "type": "integer"
+                    },
+                    "since": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "until": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "cycle_time": {
+                        "$ref": "#/components/schemas/_FlowPercentiles"
+                    },
+                    "lead_time": {
+                        "$ref": "#/components/schemas/_FlowPercentiles"
+                    },
+                    "cfd": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": {}
+                        }
+                    },
+                    "throughput": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": {}
+                        }
+                    },
+                    "data_integrity": {
+                        "$ref": "#/components/schemas/_FlowDataIntegrity"
+                    },
+                    "flow_metrics_suppressed": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "cfd",
+                    "cycle_time",
+                    "data_integrity",
+                    "flow_metrics_suppressed",
+                    "lead_time",
+                    "since",
+                    "throughput",
+                    "until",
+                    "window_days"
+                ]
+            },
             "ForecastBasisEnum": {
                 "enum": [
                     "monte_carlo",
@@ -26553,10 +26654,11 @@
                 "enum": [
                     "velocity",
                     "throughput_rollup",
-                    "pulse"
+                    "pulse",
+                    "flow_metrics"
                 ],
                 "type": "string",
-                "description": "* `velocity` - velocity\n* `throughput_rollup` - throughput_rollup\n* `pulse` - pulse"
+                "description": "* `velocity` - velocity\n* `throughput_rollup` - throughput_rollup\n* `pulse` - pulse\n* `flow_metrics` - flow_metrics"
             },
             "SignalPrivacyPolicy": {
                 "type": "object",
@@ -26961,12 +27063,16 @@
             },
             "SprintForecast": {
                 "type": "object",
-                "description": "Backlog delivery forecast response (#487) — velocity Monte Carlo.\n\nP50/P80 sprint counts + calendar dates for clearing the remaining committed\nbacklog at the team's historical throughput. ``status`` is ``\"ready\"`` once\nthere are ≥2 closed sprints and a backlog, else ``\"warming_up\"`` (the forecast\nfields are null). ``basis`` is always ``\"monte_carlo\"`` — unlike the milestone\nband, this is a real simulation, so percentile vocabulary is honest\n(web-rule 166). All forecast fields are nulled for readers below the velocity\naudience (ADR-0104), in which case ``velocity_suppressed`` is true.",
+                "description": "Unified backlog delivery forecast response (#487, ADR-0130 D3 #1161).\n\nP50/P80/P95 calendar dates for clearing the remaining backlog at the team's\nhistorical pace, from one of two bases:\n\n- **velocity** (closed-sprint story points): ``forecast_basis=\"velocity\"``,\n  ``remaining_points`` + ``p50/p80_sprints`` populated, ``status`` ``\"ready\"``\n  once there are ≥2 closed sprints and a backlog, else ``\"warming_up\"``.\n- **throughput** (weekly item completions — a continuous-flow / kanban team):\n  ``forecast_basis=\"throughput\"``, ``remaining_count`` populated, ``status``\n  ``\"ready\"`` once there are ≥4 non-zero throughput weeks and a backlog, else\n  the honest ``\"insufficient_flow_history\"`` (no false precision).\n\n``forecast_basis`` is the ADR-0130 D3 input discriminator so a consumer never\ncompares a throughput forecast to a velocity one unknowingly. ``basis`` is kept\nas the legacy ``\"monte_carlo\"`` constant for existing clients; both bases are\nreal Monte Carlo simulations, so percentile vocabulary is honest (web-rule 166).\n\nThe forecast *dates* follow the velocity precedent under ADR-0104/0130 D4 —\nschedule confidence remains visible — but every velocity/throughput-derived\nfield is nulled for readers below the relevant signal audience, in which case\n``velocity_suppressed`` is true.",
                 "properties": {
                     "status": {
                         "$ref": "#/components/schemas/SprintForecastStatusEnum"
                     },
                     "remaining_points": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "remaining_count": {
                         "type": "integer",
                         "nullable": true
                     },
@@ -26992,7 +27098,15 @@
                         "format": "date",
                         "nullable": true
                     },
+                    "p95_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
                     "basis": {
+                        "type": "string"
+                    },
+                    "forecast_basis": {
                         "type": "string"
                     },
                     "velocity_suppressed": {
@@ -27001,10 +27115,13 @@
                 },
                 "required": [
                     "basis",
+                    "forecast_basis",
                     "p50_date",
                     "p50_sprints",
                     "p80_date",
                     "p80_sprints",
+                    "p95_date",
+                    "remaining_count",
                     "remaining_points",
                     "sample_count",
                     "status",
@@ -27014,10 +27131,11 @@
             "SprintForecastStatusEnum": {
                 "enum": [
                     "ready",
-                    "warming_up"
+                    "warming_up",
+                    "insufficient_flow_history"
                 ],
                 "type": "string",
-                "description": "* `ready` - ready\n* `warming_up` - warming_up"
+                "description": "* `ready` - ready\n* `warming_up` - warming_up\n* `insufficient_flow_history` - insufficient_flow_history"
             },
             "SprintGoalOutcomeEnum": {
                 "enum": [
@@ -29684,6 +29802,49 @@
                 },
                 "required": [
                     "access"
+                ]
+            },
+            "_FlowDataIntegrity": {
+                "type": "object",
+                "description": "Aggregate-only advisory counts so a consumer can caveat the metrics (D1).\n\nNever per-person (Priya): only project-wide totals of cards whose history makes\nthe cycle/lead/CFD numbers less trustworthy (bulk moves, backdated edits, missing\ntransitions). Always present, even under suppression.",
+                "properties": {
+                    "bulk_moved_count": {
+                        "type": "integer"
+                    },
+                    "backdated_count": {
+                        "type": "integer"
+                    },
+                    "missing_transition_count": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "backdated_count",
+                    "bulk_moved_count",
+                    "missing_transition_count"
+                ]
+            },
+            "_FlowPercentiles": {
+                "type": "object",
+                "description": "P50/P80/P95 day-count distribution for cycle or lead time (ADR-0130 D1).\n\nAll three are null when no task completed in the window, or when the historical\ndistributions are suppressed for a below-audience reader (ADR-0130 D4).",
+                "properties": {
+                    "p50": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "p80": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "p95": {
+                        "type": "integer",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "p50",
+                    "p80",
+                    "p95"
                 ]
             },
             "_LoginResponse": {

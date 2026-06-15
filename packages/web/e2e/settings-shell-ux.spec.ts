@@ -18,7 +18,7 @@ const FIXTURE_PROJECT = {
   description: 'Original description.',
   start_date: '2026-01-01',
   calendar: 'default',
-  estimation_mode: 'hours',
+  estimation_mode: 'open',
   agile_features: false,
   methodology: 'HYBRID',
 };

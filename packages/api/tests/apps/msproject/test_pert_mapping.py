@@ -526,18 +526,12 @@ def test_round_trip_three_point_exact_at_8h_multiples(project: Project, calendar
 
 
 @pytest.mark.django_db
-@pytest.mark.skipif(
-    not (_FIXTURES / "cloud_migration.xml").exists(),
-    reason="cloud_migration.xml fixture not present (lands with #801 / MR !427)",
-)
 def test_cloud_migration_fixture_imports_three_point_estimates(project: Project) -> None:
     """Integration test against the realistic mpp-sample-generator fixture.
 
-    Skipped automatically when the fixture isn't on disk (the fixture is
-    landing in a sibling MR — !427 / #801 — and this test will activate as
-    soon as the branches merge through main). The fixture has 28 tasks with
-    17 leaf work tasks carrying three-point estimates and project-level
-    Duration1–4 ExtendedAttribute definitions.
+    The fixture (landed with #801 / MR !427) has 28 tasks with 17 leaf work
+    tasks carrying three-point estimates and project-level Duration1–4
+    ExtendedAttribute definitions.
     """
     xml = (_FIXTURES / "cloud_migration.xml").read_bytes()
     data = parse_xml(xml)
