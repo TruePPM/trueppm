@@ -3,7 +3,7 @@
 
 .PHONY: help setup doctor lint typecheck test build clean up down logs admin up-prod \
         migrations-check schema-check web-lint web-typecheck pre-push pre-push-checks \
-        pre-push-behind-warn \
+        pre-push-behind-warn pre-push-wasm \
         coverage-diff coverage-diff-scheduler coverage-diff-api coverage-diff-web \
         release-smoke wt-new wt-list wt-remove wt-prune wt-doctor
 
@@ -134,6 +134,24 @@ web-lint: ## Run the web:lint CI job locally (eslint on packages/web/src)
 web-typecheck: ## Run the web:type-check CI job locally (tsc --noEmit)
 	cd packages/web && npx tsc --noEmit
 
+pre-push-wasm: ## Run the wasm:lint CI gate locally (cargo clippy -D warnings), change-gated to packages/wasm-scheduler
+	@# Mirrors the CI wasm:lint job, which runs `cargo clippy --all-targets -- -D
+	@# warnings` and blocks the pipeline on the ~12% of MRs that touch the wasm
+	@# package — a failure class make pre-push otherwise leaves to a ~7min CI
+	@# round-trip (#912). CI gates clippy ONLY (no cargo fmt --check), so we don't
+	@# add a fmt gate here either: pre-push exists to catch what CI fails on, and a
+	@# stricter local gate would block pushes CI would accept. Change-gated against
+	@# origin/main (mirror of CI rules-wasm) and skipped when cargo is absent, so a
+	@# non-wasm push stays inside the ~60s pre-push budget.
+	@if ! command -v cargo >/dev/null 2>&1; then \
+	  echo "→ wasm clippy: cargo not installed — skipped"; \
+	elif ! git diff --name-only origin/main...HEAD 2>/dev/null | grep -q '^packages/wasm-scheduler/'; then \
+	  echo "→ wasm clippy: no packages/wasm-scheduler changes — skipped"; \
+	else \
+	  echo "→ wasm clippy"; \
+	  cd packages/wasm-scheduler && cargo clippy --all-targets -- -D warnings; \
+	fi
+
 # ─── Diff coverage ────────────────────────────────────────────────────────────
 # Enforces ≥ $(COVERAGE_DIFF_MIN)% coverage on lines changed vs $(COVERAGE_DIFF_BASE).
 # Each per-package target skips itself if no files in that package changed,
@@ -196,7 +214,7 @@ pre-push-behind-warn: ## Warn (non-blocking) if HEAD is behind origin/main — c
 	  fi; \
 	fi
 
-pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check schema-check ## Run pre-push gate subtargets (use via `pre-push`, not directly)
+pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check schema-check pre-push-wasm ## Run pre-push gate subtargets (use via `pre-push`, not directly)
 
 pre-push: pre-push-behind-warn ## Run pre-push CI gates in parallel (lint+typecheck, migrations, schema). Diff-coverage runs in CI only — run `make coverage-diff` to check locally.
 	@# Re-invoke ourselves with -j to fan out the independent lint/typecheck/

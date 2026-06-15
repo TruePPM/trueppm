@@ -107,6 +107,34 @@ except InvalidScheduleInput as e:
     print("Bad input:", e)  # "Task 't-1' duration exceeds the maximum of 36525 days (got …)."
 ```
 
+## API stability and versioning
+
+**The public API is the `__all__` surface of the top-level `trueppm_scheduler`
+package** — the names you can import directly from `trueppm_scheduler`
+(`schedule`, `monte_carlo`, `Project`, `Task`, `Dependency`, `DependencyType`,
+`Calendar`, `ScheduleResult`, `MonteCarloResult`, the exception types, etc.).
+Everything else — the `trueppm_scheduler.engine` internals, any underscore-
+prefixed helper, and module layout — is **unstable** and may move or change
+without notice.
+
+This package is **`Development Status :: 3 - Alpha`**: the public API may change
+before 1.0. **Pin an exact version** rather than a range:
+
+```
+trueppm-scheduler==0.2.0a1
+```
+
+Alpha releases are pre-releases — `pip install trueppm-scheduler` skips them
+unless you pass `--pre`. Breaking changes are recorded in
+[`CHANGELOG.md`](./CHANGELOG.md), which also ships inside the wheel.
+
+### Monte Carlo determinism
+
+Monte Carlo simulation is **deterministic for a fixed seed**: the same `seed`
+always yields the same P50/P80/P95 forecast for the same input. This is a
+supported, tested property you can rely on for reproducible reports and
+regression baselines — not an implementation detail.
+
 ## License
 
 Apache 2.0
