@@ -35,6 +35,25 @@ The severity is read-only in the UI — it is always derived from the two inputs
 
 The risk matrix on the register view treats `OPEN` and `MITIGATING` as **active** risks. `RESOLVED`, `ACCEPTED`, and `CLOSED` risks are hidden by default; use the **Show closed** toggle to include them.
 
+## Filtering and sorting
+
+:::note[0.3]
+Register filtering and severity sort land in 0.3.
+:::
+
+Above the risk table, a segment filter narrows the list to the slice that needs attention:
+
+| Filter | Shows |
+|--------|-------|
+| **All** | Every risk (default) |
+| **High** | Severity ≥ 12 (HIGH and CRITICAL) |
+| **Unmitigated** | Risks still `OPEN` or `MITIGATING` — the live threats |
+| **Mine** | Risks you own |
+
+The segment filter composes with the **exposure-matrix cell filter** (clicking a P×I cell): both apply together, and each is shown as a removable token with a **Clear all** reset. The exposure matrix and the critical/high count chips always reflect the full risk set, not the filtered view.
+
+The **Severity** column header sorts the table — click to cycle descending → ascending → back to the default order (most impactful first). Unmitigated risks also carry an always-on left-edge highlight so live threats stand out regardless of the active filter.
+
 ## Response strategies
 
 Each risk can be assigned one response strategy:
