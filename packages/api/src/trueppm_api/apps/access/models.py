@@ -99,7 +99,11 @@ class ProjectMembership(VersionedModel):
 
     class Meta:
         db_table = "access_project_membership"
-        unique_together = [("project", "user")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "user"], name="uniq_project_membership_project_user"
+            ),
+        ]
         indexes = [
             # Sync delta pull: WHERE project_id = X AND server_version > since (#810).
             models.Index(fields=["project", "server_version"], name="pm_proj_serverver_idx"),
@@ -151,7 +155,11 @@ class ProgramMembership(VersionedModel):
 
     class Meta:
         db_table = "access_program_membership"
-        unique_together = [("program", "user")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["program", "user"], name="uniq_program_membership_program_user"
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"{self.user} — {self.program} ({Role(self.role).label})"
