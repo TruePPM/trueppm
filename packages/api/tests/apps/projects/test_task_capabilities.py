@@ -209,9 +209,7 @@ class TestTaskCapabilityFields:
         row = _fetch_task(user, project, task)
         assert row["can_edit"] is False
 
-    def test_admin_can_edit_true(
-        self, user: object, other_user: object, project: Project
-    ) -> None:
+    def test_admin_can_edit_true(self, user: object, other_user: object, project: Project) -> None:
         task = Task.objects.create(project=project, name="T", duration=1, assignee=other_user)
         _add_member(user, project, Role.ADMIN)
         row = _fetch_task(user, project, task)
