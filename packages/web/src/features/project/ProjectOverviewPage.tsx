@@ -11,6 +11,11 @@ import { BurnChart } from '@/features/reports/BurnChart';
 import { ImportProvenanceSection } from '@/features/project/ImportProvenanceSection';
 import { SprintForecastWidget } from '@/features/project/SprintForecastWidget';
 import { BlockedRollupPanel } from '@/features/blocker/BlockedRollupPanel';
+import {
+  rankOverviewMetrics,
+  focusHeading,
+  type OverviewMetric,
+} from '@/features/project/overviewMetrics';
 
 // ---------------------------------------------------------------------------
 // API response types
@@ -220,9 +225,16 @@ interface KpiCardProps {
   value: string;
   sub?: string;
   variant?: 'on-track' | 'at-risk' | 'critical' | 'neutral';
+  /** Explanatory hover/AT text (e.g. the raw SPI behind a schedule band). */
+  title?: string;
+  /**
+   * A focus card (the top-3 risk-ranked metrics). Larger padding and a bigger
+   * value clamp than the demoted secondary-strip cards (#1191).
+   */
+  prominent?: boolean;
 }
 
-function KpiCard({ label, value, sub, variant = 'neutral' }: KpiCardProps) {
+function KpiCard({ label, value, sub, variant = 'neutral', title, prominent = false }: KpiCardProps) {
   const valueColor = {
     'on-track': 'text-semantic-on-track',
     'at-risk': 'text-semantic-at-risk',
@@ -232,17 +244,25 @@ function KpiCard({ label, value, sub, variant = 'neutral' }: KpiCardProps) {
 
   // `container-type: inline-size` + `cqi` units make the value font scale with the
   // card's own width rather than the viewport, so long values (milestone names,
-  // dates) stay legible when the 6-column grid squeezes each card under ~180px
+  // dates) stay legible when the grid track squeezes each card under ~180px
   // (#506). `break-words` is the last-resort wrap for unbreakable strings;
   // `min-w-0 overflow-hidden` allows the grid track to shrink past content width.
+  // Prominent focus cards get extra padding and a larger value clamp so the
+  // three risk-ranked leads read bigger than the demoted secondary strip (#1191).
+  const padding = prominent ? 'p-5' : 'p-4';
+  const valueClamp = prominent
+    ? 'text-[clamp(1.125rem,9cqi,1.875rem)]'
+    : 'text-[clamp(0.875rem,7cqi,1.5rem)]';
+
   return (
-    <div className="flex flex-col gap-1 p-4 rounded border border-neutral-border bg-neutral-surface-raised min-w-0 overflow-hidden [container-type:inline-size]">
+    <div
+      title={title}
+      className={`flex flex-col gap-1 ${padding} rounded border border-neutral-border bg-neutral-surface-raised min-w-0 overflow-hidden [container-type:inline-size]`}
+    >
       <span className="text-xs font-medium uppercase tracking-wide text-neutral-text-secondary truncate">
         {label}
       </span>
-      <span
-        className={`font-semibold tppm-mono break-words leading-tight text-[clamp(0.875rem,7cqi,1.5rem)] ${valueColor}`}
-      >
+      <span className={`font-semibold tppm-mono break-words leading-tight ${valueClamp} ${valueColor}`}>
         {value}
       </span>
       {sub && <span className="text-xs text-neutral-text-disabled tppm-mono truncate">{sub}</span>}
@@ -254,15 +274,27 @@ function KpiCard({ label, value, sub, variant = 'neutral' }: KpiCardProps) {
 // Skeleton loader
 // ---------------------------------------------------------------------------
 
+// Two-tier skeleton mirroring the loaded layout (3 prominent focus + 3 compact
+// secondary) so there is no layout shift when the ranked data arrives (#1191).
 function KpiSkeleton() {
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-      {Array.from({ length: 5 }).map((_, i) => (
-        <div
-          key={i}
-          className="h-24 rounded border border-neutral-border animate-pulse bg-neutral-surface-raised"
-        />
-      ))}
+    <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div
+            key={i}
+            className="h-28 rounded border border-neutral-border animate-pulse bg-neutral-surface-raised"
+          />
+        ))}
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div
+            key={i}
+            className="h-20 rounded border border-neutral-border animate-pulse bg-neutral-surface-raised"
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -653,6 +685,125 @@ function MonteCarloWidget({ projectId }: MonteCarloWidgetProps) {
 }
 
 // ---------------------------------------------------------------------------
+// Overview metric builder
+// ---------------------------------------------------------------------------
+
+const HEALTH_LABEL: Record<OverviewData['schedule_health'], string> = {
+  on_track: 'On track',
+  at_risk: 'At risk',
+  critical: 'Critical',
+  unknown: 'Unknown',
+};
+
+const HEALTH_VARIANT: Record<OverviewData['schedule_health'], OverviewMetric['variant']> = {
+  on_track: 'on-track',
+  at_risk: 'at-risk',
+  critical: 'critical',
+  unknown: 'neutral',
+};
+
+/**
+ * Build the six Overview KPI metrics from the loaded payloads. Pre-load (no
+ * `overview` yet) returns the all-neutral "—" placeholder set so the focus
+ * heading reads calm ("Project health") rather than alarming. The ranking and
+ * the focus/secondary split happen in the caller against this array.
+ *
+ * Plain-language leads only: no SPI/EVM/CPI/WBS in any label or subtitle. The
+ * raw SPI rides along in the schedule card's `title` for the PM who wants it —
+ * the `/overview/` payload exposes no signed day-variance, so a "+9d vs
+ * baseline" subtitle would be fabricated from SPI, which rule 120 forbids.
+ */
+function buildOverviewMetrics(
+  overview: OverviewData | undefined,
+  mcData: MonteCarloResult | undefined,
+): OverviewMetric[] {
+  // ── Schedule health ────────────────────────────────────────────────────
+  const health = overview?.schedule_health ?? 'unknown';
+  const scheduleSub =
+    health === 'on_track'
+      ? 'On schedule'
+      : health === 'at_risk' || health === 'critical'
+        ? 'Behind schedule'
+        : 'Not yet computed';
+  const scheduleMetric: OverviewMetric = {
+    key: 'schedule_health',
+    label: 'Schedule health',
+    value: HEALTH_LABEL[health],
+    sub: scheduleSub,
+    variant: HEALTH_VARIANT[health],
+    title: overview?.spi != null ? `Schedule Performance Index: ${overview.spi.toFixed(2)}` : undefined,
+  };
+
+  // ── Forecast finish (P80 date — informational, always neutral) ─────────
+  const forecastMetric: OverviewMetric = {
+    key: 'forecast_finish',
+    label: 'Forecast finish',
+    value: mcData?.p80 ? formatIsoDate(mcData.p80) : '—',
+    sub: '8 in 10 finish by',
+    variant: 'neutral',
+    title: mcData?.p80 ? undefined : 'Run the scheduler',
+  };
+
+  // ── Tasks late ─────────────────────────────────────────────────────────
+  const lateCount = overview?.tasks_late_count;
+  const tasksLateMetric: OverviewMetric = {
+    key: 'tasks_late',
+    label: 'Tasks late',
+    value: lateCount != null ? `${lateCount} late` : '—',
+    sub: overview?.total_tasks != null ? `of ${overview.total_tasks} tasks` : undefined,
+    variant: lateCount != null && lateCount > 0 ? 'at-risk' : overview ? 'on-track' : 'neutral',
+  };
+
+  // ── Open risks ─────────────────────────────────────────────────────────
+  const high = overview?.high_risk_count;
+  const open = overview?.open_risk_count;
+  const risksValue =
+    high != null && high > 0 ? `${high} high` : open != null ? `${open} open` : '—';
+  const openRisksMetric: OverviewMetric = {
+    key: 'open_risks',
+    label: 'Open risks',
+    value: risksValue,
+    sub: open != null ? `${open} in register` : undefined,
+    variant: high != null && high > 0 ? 'at-risk' : overview ? 'on-track' : 'neutral',
+  };
+
+  // ── Team utilization ───────────────────────────────────────────────────
+  const util = overview?.team_utilization_pct;
+  const utilVariant: OverviewMetric['variant'] =
+    util == null ? 'neutral' : util > 100 ? 'critical' : util >= 85 ? 'at-risk' : 'on-track';
+  const utilizationMetric: OverviewMetric = {
+    key: 'team_utilization',
+    label: 'Team utilization',
+    value: util != null ? `${Math.round(util)}%` : '—',
+    sub: util != null ? 'of capacity' : undefined,
+    variant: utilVariant,
+  };
+
+  // ── Next milestone (informational, always neutral) ─────────────────────
+  let milestoneSub: string | undefined;
+  if (overview?.next_milestone?.date) {
+    const days = daysFromToday(overview.next_milestone.date);
+    milestoneSub = days < 0 ? `${Math.abs(days)}d ago` : days === 0 ? 'Today' : `in ${days}d`;
+  }
+  const milestoneMetric: OverviewMetric = {
+    key: 'next_milestone',
+    label: 'Next milestone',
+    value: overview?.next_milestone?.name ?? '—',
+    sub: milestoneSub,
+    variant: 'neutral',
+  };
+
+  return [
+    scheduleMetric,
+    forecastMetric,
+    tasksLateMetric,
+    openRisksMetric,
+    utilizationMetric,
+    milestoneMetric,
+  ];
+}
+
+// ---------------------------------------------------------------------------
 // ProjectOverviewPage
 // ---------------------------------------------------------------------------
 
@@ -670,117 +821,79 @@ export function ProjectOverviewPage() {
   const { data: cpTasks, isLoading: cpTasksLoading } = useCriticalPathTasks(projectId);
   const { data: mcData } = useMonteCarloResult(projectId);
 
-  const healthVariant = (() => {
-    if (!overview) return 'neutral' as const;
-    const map = {
-      on_track: 'on-track' as const,
-      at_risk: 'at-risk' as const,
-      critical: 'critical' as const,
-      unknown: 'neutral' as const,
-    };
-    return map[overview.schedule_health];
-  })();
-
-  const healthLabel = (() => {
-    if (!overview) return '—';
-    const map = {
-      on_track: 'On track',
-      at_risk: 'At risk',
-      critical: 'Critical',
-      unknown: 'Unknown',
-    };
-    return map[overview.schedule_health];
-  })();
-
-  const nextMilestoneSub = (() => {
-    if (!overview?.next_milestone?.date) return undefined;
-    const days = daysFromToday(overview.next_milestone.date);
-    if (days < 0) return `${Math.abs(days)}d ago`;
-    if (days === 0) return 'Today';
-    return `in ${days}d`;
-  })();
-
-  const utilizationVariant = (() => {
-    if (overview?.team_utilization_pct == null) return 'neutral' as const;
-    if (overview.team_utilization_pct > 100) return 'critical' as const;
-    if (overview.team_utilization_pct >= 85) return 'at-risk' as const;
-    return 'on-track' as const;
-  })();
-
-  const forecastVariant = (() => {
-    if (!mcData?.p80) return 'neutral' as const;
-    const days = daysFromToday(mcData.p80);
-    if (days < 0) return 'critical' as const;
-    if (days < 14) return 'at-risk' as const;
-    return 'neutral' as const;
-  })();
+  // Build the six overview metrics once, then rank them worst-first and split
+  // into a 3-card focus row + a 3-card secondary strip (#1191). Plain-language
+  // leads only — SPI survives only as the schedule card's `title` because the
+  // `/overview/` payload has no signed day-variance field to show honestly
+  // (rule 120: never fabricate a day count from SPI).
+  const metrics = buildOverviewMetrics(overview, mcData);
+  const ranked = rankOverviewMetrics(metrics);
+  const focus = ranked.slice(0, 3);
+  const secondary = ranked.slice(3);
+  const focusHeadingText = focusHeading(focus);
 
   return (
     <div className="flex flex-col gap-6 p-6 overflow-y-auto h-full bg-neutral-surface">
       {/* Project header */}
       {overview && !overviewLoading && <ProjectHeader overview={overview} />}
 
-      {/* KPI row — 6 cards per design spec (mockups-pages.jsx OverviewBody) */}
-      <section aria-label="Project KPIs">
-        {overviewLoading ? (
+      {/* KPI rows — three risk-ranked focus cards lead, three demote to a
+          compact secondary strip (#1191). Worst-first ordering means the card
+          a PM needs to act on is always at the top-left. Visual order ===
+          DOM order: the data is sorted and rendered in that order, never CSS
+          `order`, so screen-reader order matches the visual priority. */}
+      {overviewLoading ? (
+        <section aria-label="Project health">
           <KpiSkeleton />
-        ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-            <KpiCard
-              label="Schedule health"
-              value={healthLabel}
-              sub={overview?.spi != null ? `SPI ${overview.spi.toFixed(2)}` : 'SPI —'}
-              variant={healthVariant}
-            />
-            <KpiCard
-              label="Forecast finish"
-              value={mcData?.p80 ? formatIsoDate(mcData.p80) : '—'}
-              sub="P80 finish estimate"
-              variant={forecastVariant}
-            />
-            <KpiCard
-              label="Tasks late"
-              value={overview?.tasks_late_count != null ? String(overview.tasks_late_count) : '—'}
-              sub={overview?.total_tasks != null ? `of ${overview.total_tasks} total` : undefined}
-              variant={overview && overview.tasks_late_count > 0 ? 'at-risk' : 'on-track'}
-            />
-            <KpiCard
-              label="Next milestone"
-              value={overview?.next_milestone?.name ?? '—'}
-              sub={nextMilestoneSub}
-            />
-            <KpiCard
-              label="Team utilization"
-              value={
-                overview?.team_utilization_pct != null
-                  ? `${Math.round(overview.team_utilization_pct)}%`
-                  : '—'
-              }
-              variant={utilizationVariant}
-            />
-            <KpiCard
-              label="Open risks"
-              value={
-                overview?.high_risk_count != null && overview.high_risk_count > 0
-                  ? `${overview.high_risk_count} high`
-                  : overview?.open_risk_count != null
-                    ? String(overview.open_risk_count)
-                    : '—'
-              }
-              sub={
-                overview?.open_risk_count != null
-                  ? `${overview.open_risk_count} register total`
-                  : undefined
-              }
-              variant={
-                overview && overview.high_risk_count != null && overview.high_risk_count > 0
-                  ? 'at-risk'
-                  : 'on-track'
-              }
-            />
-          </div>
-        )}
-      </section>
+        </section>
+      ) : (
+        <>
+          <section aria-labelledby="overview-focus-heading">
+            <h2
+              id="overview-focus-heading"
+              className="text-sm font-semibold text-neutral-text-secondary uppercase tracking-wide mb-3"
+            >
+              {focusHeadingText}
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {focus.map((m) => (
+                <KpiCard
+                  key={m.key}
+                  label={m.label}
+                  value={m.value}
+                  sub={m.sub}
+                  variant={m.variant}
+                  title={m.title}
+                  prominent
+                />
+              ))}
+            </div>
+          </section>
+
+          {secondary.length > 0 && (
+            <section aria-labelledby="overview-secondary-heading">
+              <h2
+                id="overview-secondary-heading"
+                className="text-sm font-semibold text-neutral-text-secondary uppercase tracking-wide mb-3"
+              >
+                More metrics
+              </h2>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                {secondary.map((m) => (
+                  <KpiCard
+                    key={m.key}
+                    label={m.label}
+                    value={m.value}
+                    sub={m.sub}
+                    variant={m.variant}
+                    title={m.title}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+        </>
+      )}
 
       {/* Blocked-task roll-up — the PM's impediment triage list (ADR-0124). */}
       {projectId && <BlockedRollupPanel scope="project" projectId={projectId} />}

@@ -175,8 +175,13 @@ test.describe('Project overview page', () => {
   test.beforeEach(async ({ page }) => {
     await setupRoutes(page);
     await page.goto(`/projects/${PROJECT_ID}/overview`);
-    // Wait for the KPI section to appear
-    await expect(page.getByRole('region', { name: /project kpis/i })).toBeVisible({ timeout: 10_000 });
+    // Wait for the ranked KPI focus section (#1191). Its heading is calm-aware
+    // ("Project health" before data / when all-neutral, "Needs attention" once
+    // an at-risk metric loads), so gate on the always-present secondary strip
+    // heading instead — it renders as soon as the page mounts and never changes.
+    await expect(page.getByRole('region', { name: /more metrics/i })).toBeVisible({
+      timeout: 10_000,
+    });
   });
 
   test('renders the backlog delivery forecast (#487)', async ({ page }) => {
@@ -231,8 +236,11 @@ test.describe('Project overview page', () => {
       route.fulfill({ status: 500, contentType: 'application/json', body: '{}' }),
     );
     await page.reload();
-    // Page should still render — KPI section exists even if data is empty
-    await expect(page.getByRole('region', { name: /project kpis/i })).toBeVisible({ timeout: 10_000 });
+    // Page should still render — the secondary "More metrics" strip is always
+    // present even when overview data is empty (#1191).
+    await expect(page.getByRole('region', { name: /more metrics/i })).toBeVisible({
+      timeout: 10_000,
+    });
   });
 
   test('project header shows health badge and project name', async ({ page }) => {
