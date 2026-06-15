@@ -252,6 +252,11 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
             id=str(t.id),
             name=t.name,
             duration=timedelta(days=t.duration),
+            # Honor the planned-start floor (#1068) exactly as the deterministic
+            # CPM pass does (scheduling/tasks.py). Without it, simulated tasks
+            # float back to project.start_date and the forecast can finish before
+            # the deterministic CPM date — an impossible result (#1185).
+            planned_start=t.planned_start,
             percent_complete=t.percent_complete,
             optimistic_duration=_pert_field(t.optimistic_duration, t.estimate_status),
             most_likely_duration=_pert_field(t.most_likely_duration, t.estimate_status),
