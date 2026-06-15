@@ -75,9 +75,12 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('ProjectOverviewPage', () => {
-  it('renders KPIs section with landmark role', () => {
+  it('renders the focus + secondary KPI sections as landmarks', async () => {
     renderPage();
-    expect(screen.getByRole('region', { name: /project kpis/i })).toBeInTheDocument();
+    // Default fixture has at-risk metrics (1 late, 1 high risk) → heading reads
+    // "Needs attention"; the secondary strip heading is "More metrics" (#1191).
+    expect(await screen.findByRole('region', { name: /needs attention/i })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: /more metrics/i })).toBeInTheDocument();
   });
 
   it('renders burn-up chart section', () => {
@@ -100,7 +103,7 @@ describe('ProjectOverviewPage', () => {
     expect(screen.getByRole('region', { name: /monte carlo forecast/i })).toBeInTheDocument();
   });
 
-  it('renders six KPI card labels', async () => {
+  it('renders all six KPI card labels across the two tiers', async () => {
     renderPage();
     expect(await screen.findByText(/schedule health/i)).toBeInTheDocument();
     expect(screen.getByText(/forecast finish/i)).toBeInTheDocument();
@@ -119,11 +122,30 @@ describe('ProjectOverviewPage', () => {
     expect(screen.getByText('78%')).toBeInTheDocument();
   });
 
-  it('shows SPI sub-label on schedule health card', async () => {
+  it('renders plain-language leads, not EVM jargon (#1192)', async () => {
     renderPage();
-    await waitFor(() => {
-      expect(screen.getByText(/SPI 0\.97/)).toBeInTheDocument();
-    });
+    // Schedule health leads with its band word + a plain "On schedule" subtitle…
+    expect(await screen.findByText('On schedule')).toBeInTheDocument();
+    // …tasks-late reads "N late" / "of M tasks", risks read "N high" / "N in register".
+    expect(screen.getByText('1 late')).toBeInTheDocument();
+    expect(screen.getByText('of 20 tasks')).toBeInTheDocument();
+    expect(screen.getByText('1 high')).toBeInTheDocument();
+    expect(screen.getByText('4 in register')).toBeInTheDocument();
+    // …the forecast card reads in plain language, never "P80 finish estimate".
+    expect(screen.getByText('8 in 10 finish by')).toBeInTheDocument();
+  });
+
+  it('strips SPI/EVM/CPI/WBS jargon from all rendered labels and subtitles (#1192)', async () => {
+    const { container } = renderPage();
+    await screen.findByText('On schedule');
+    // SPI lives only in the schedule card's title attribute, never in visible text.
+    expect(container.textContent).not.toMatch(/\bSPI\b/);
+    expect(container.textContent).not.toMatch(/\bEVM\b/);
+    expect(container.textContent).not.toMatch(/\bCPI\b/);
+    expect(container.textContent).not.toMatch(/\bWBS\b/);
+    // The raw SPI is still available as an explanatory title for the curious PM.
+    const scheduleTitle = container.querySelector('[title*="Schedule Performance Index"]');
+    expect(scheduleTitle).not.toBeNull();
   });
 
   // #506: long milestone names clipped at narrow card widths. The fix uses
@@ -474,7 +496,7 @@ describe('Open risks KPI card branches', () => {
     renderPage();
     await waitFor(() => {
       expect(screen.getByText('2 high')).toBeInTheDocument();
-      expect(screen.getByText('5 register total')).toBeInTheDocument();
+      expect(screen.getByText('5 in register')).toBeInTheDocument();
     });
   });
 
@@ -492,9 +514,10 @@ describe('Open risks KPI card branches', () => {
     });
     renderPage();
     await waitFor(() => {
-      // Open risks card label + value "3"
+      // Open risks card label + value "3 open" + register subtitle.
       expect(screen.getByText(/^Open risks$/)).toBeInTheDocument();
-      expect(screen.getByText('3 register total')).toBeInTheDocument();
+      expect(screen.getByText('3 open')).toBeInTheDocument();
+      expect(screen.getByText('3 in register')).toBeInTheDocument();
     });
   });
 
