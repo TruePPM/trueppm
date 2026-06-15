@@ -19,7 +19,7 @@ import { PresenceAvatarStack } from './PresenceAvatarStack';
  * ≡ is the only affordance that re-opens the rail once it is hidden (collapse = 0px),
  * so it must always be visible on desktop; ⌘K remains the jump-to power-nav.
  *
- * Presence (#1180, ADR-0127) lives here rather than the view bar because presence is
+ * Presence (ADR-0127) lives here rather than the view bar because presence is
  * a property of the *context* (who else is in this project), not the active view.
  * It is ephemeral wayfinding only — who is online right now — never aggregated and
  * never reported (Morgan's surveillance line). It self-suppresses off-project:
@@ -91,7 +91,7 @@ export function ContextBar() {
       {/* Context-aware "+ New" (ADR-0131, 1179) — self-gates by route + RBAC. */}
       <CreateMenu />
 
-      {/* Online collaborators (#1180) — desktop only (hidden md:flex inside the
+      {/* Online collaborators — desktop only (hidden md:flex inside the
           component); renders nothing off-project or when no one else is online. */}
       <PresenceAvatarStack users={onlineUsers} />
 
