@@ -1,108 +1,207 @@
-import { NavLink, useLocation } from 'react-router';
-import { GanttIcon, BoardIcon, ListIcon, CalendarIcon, ResourcesIcon, RiskIcon, SprintIcon, SettingsIcon, BarChartIcon, WbsIcon } from '@/components/Icons';
+import { NavLink, useLocation, useMatch } from 'react-router';
+import {
+  GanttIcon,
+  BoardIcon,
+  ListIcon,
+  CalendarIcon,
+  ResourcesIcon,
+  RiskIcon,
+  SprintIcon,
+  SettingsIcon,
+  BarChartIcon,
+  WbsIcon,
+} from '@/components/Icons';
 import { OverviewIcon } from '@/components/Icons';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useProject } from '@/hooks/useProject';
-import { isTabVisibleForMethodology } from '@/features/shell/methodologyTabs';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
+import {
+  groupedVisibleViews,
+  STANDALONE_LEADING,
+  STANDALONE_TRAILING,
+} from '@/features/shell/methodologyTabs';
 import { ROLE_SCHEDULER } from '@/lib/roles';
-import { iterationLabelForms } from '@/lib/iterationLabel';
 import type { ComponentType } from 'react';
+import type { Methodology } from '@/types';
 
-interface Tab {
-  view: string;
+type IconType = ComponentType<{ className?: string; 'aria-hidden'?: 'true' }>;
+
+interface TabMeta {
   label: string;
-  Icon: ComponentType<{ className?: string; 'aria-hidden'?: 'true' }>;
+  Icon: IconType;
 }
 
-// Overview is first — it is the project landing/orientation surface (ADR-0030).
-// Board is second — the execution surface for task planning and status.
-// Backlog is third — the PO grooming surface that feeds Sprints (#1096); it routes
-// to the existing /product-backlog page and is methodology-gated to Agile/Hybrid.
-// Sprints is fourth — between Backlog and Schedule, paired with execution surfaces (ADR-0041).
-// Grid replaces the previous WBS + Table entries (issue #334, ADR-0053). Hierarchy
-// is now a display mode inside Grid, not a separate top-level view.
-const TABS: Tab[] = [
-  { view: 'overview',        label: 'Overview',   Icon: OverviewIcon },
-  { view: 'board',           label: 'Board',      Icon: BoardIcon },
-  { view: 'product-backlog', label: 'Backlog',    Icon: WbsIcon },
-  { view: 'sprints',         label: 'Sprints',    Icon: SprintIcon },
-  { view: 'schedule',   label: 'Schedule',   Icon: GanttIcon },
-  { view: 'grid',       label: 'Grid',       Icon: ListIcon },
-  { view: 'calendar',   label: 'Calendar',   Icon: CalendarIcon },
-  { view: 'resources',  label: 'Team',       Icon: ResourcesIcon },
-  { view: 'risk',       label: 'Risks',      Icon: RiskIcon },
-  { view: 'reports',   label: 'Reports',    Icon: BarChartIcon },
-  // Settings tab — visible to all members (Viewer+); write controls are OWNER-gated
-  // inside the page. Not in BottomNav (infrequent, admin access — same rationale as Risks).
-  { view: 'settings',  label: 'Settings',   Icon: SettingsIcon },
-];
+// View key → display label + icon. Grouping order lives in `methodologyTabs.ts`
+// (`VIEW_GROUPS`); this map is render metadata only. `grid` replaced the legacy
+// WBS + Table entries (ADR-0053).
+const TAB_META: Record<string, TabMeta> = {
+  overview: { label: 'Overview', Icon: OverviewIcon },
+  'product-backlog': { label: 'Backlog', Icon: WbsIcon },
+  sprints: { label: 'Sprints', Icon: SprintIcon },
+  schedule: { label: 'Schedule', Icon: GanttIcon },
+  grid: { label: 'Grid', Icon: ListIcon },
+  calendar: { label: 'Calendar', Icon: CalendarIcon },
+  board: { label: 'Board', Icon: BoardIcon },
+  risk: { label: 'Risks', Icon: RiskIcon },
+  reports: { label: 'Reports', Icon: BarChartIcon },
+  resources: { label: 'Team', Icon: ResourcesIcon },
+  // Settings — visible to all members (Viewer+); write controls are OWNER-gated
+  // inside the page.
+  settings: { label: 'Settings', Icon: SettingsIcon },
+};
+
+// Mono group-header + workspace-label token (rule 36/101).
+const GROUP_LABEL =
+  'self-center px-2 text-xs font-semibold tracking-widest uppercase text-chrome-text-secondary select-none whitespace-nowrap';
+
+function Divider() {
+  return <span aria-hidden="true" className="self-center mx-1 h-5 w-px bg-chrome-border" />;
+}
+
+interface TabProps {
+  projectId: string;
+  view: string;
+  label: string;
+  Icon: IconType;
+  currentView: string;
+}
+
+function Tab({ projectId, view, label, Icon, currentView }: TabProps) {
+  const isActive = currentView === view;
+  return (
+    <NavLink
+      to={`/projects/${projectId}/${view}`}
+      replace
+      className={[
+        'flex items-center gap-1.5 px-3 text-sm font-medium border-b-2 transition-colors',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+        isActive
+          ? 'border-brand-primary text-brand-primary'
+          : 'border-transparent text-neutral-text-secondary hover:text-neutral-text-primary',
+      ].join(' ')}
+      aria-current={isActive ? 'page' : undefined}
+    >
+      <Icon
+        className={isActive ? 'text-brand-primary' : 'text-neutral-text-disabled'}
+        aria-hidden="true"
+      />
+      {label}
+    </NavLink>
+  );
+}
 
 /**
- * Top-bar tab strip for switching between project views (ADR-0030).
+ * v2 grouped project view bar (ADR-0128 §A). Replaces the flat 11-tab strip
+ * with PLAN / TRACK / PEOPLE groups (Overview leads standalone, Settings trails
+ * standalone), method-filtered via the ADR-0041 matrix. Route segments are
+ * unchanged (rule 108): links are still `/projects/:id/:view`.
  *
- * Links are path-based (`/projects/:projectId/:view`) so each view has a
- * shareable URL.  Hidden when no project is selected (no projectId in params).
+ * Project-scoped: returns null off a project route (the `useProjectId()` null path,
+ * which also covers My Work / Inbox / Portfolio / Program / workspace settings —
+ * `ProgramTabs` owns program routes per ADR-0091) and on project settings routes
+ * (the SettingsShell carries its own chrome — rule 123 / ADR-0128 §C).
  */
-// SCHEDULER role ordinal — same value as Role.SCHEDULER in the Django model.
-
 export function ViewTabs() {
   const location = useLocation();
   const projectId = useProjectId();
   const { role } = useCurrentUserRole(projectId ?? undefined);
   const project = useProject(projectId);
+  const iteration = useIterationLabel(projectId);
+  const onSettingsRoute = useMatch('/projects/:projectId/settings/*');
 
-  if (!projectId) return null;
+  if (!projectId || onSettingsRoute) return null;
 
   // Derive active view from the path segment immediately after the projectId.
-  // e.g. /projects/abc/schedule → 'schedule'
-  //      /projects/abc/settings/members → 'settings'
   const pathSegments = location.pathname.split('/');
   const projectIdIndex = pathSegments.indexOf(projectId ?? '');
-  const currentView = (projectIdIndex >= 0 ? pathSegments[projectIdIndex + 1] : undefined) ?? 'overview';
+  const currentView =
+    (projectIdIndex >= 0 ? pathSegments[projectIdIndex + 1] : undefined) ?? 'overview';
 
-  // Default to HYBRID (all tabs visible) until the project loads — preserves
-  // pre-methodology behavior during the brief loading window.
+  // Default to HYBRID (all tabs visible) until the project loads.
   const methodology = project.data?.methodology ?? 'HYBRID';
 
-  // The Sprints tab adopts the project's configured container label (ADR-0111, #862).
-  const sprintsLabel = iterationLabelForms(project.data?.iteration_label).plural;
+  // Role gate (pessimistic): the Team view is hidden while role is loading (null)
+  // or for role < SCHEDULER. Direct URL access still works (PermissionDeniedNotice).
+  const roleAllows = (view: string) =>
+    view !== 'resources' || (role !== null && role >= ROLE_SCHEDULER);
 
-  // Pessimistic: hide Team tab while role is loading (null) or for role < SCHEDULER.
-  // Direct URL access still works — TeamView renders PermissionDeniedNotice (rule 94).
-  // Methodology preset filter (ADR-0041) layers on top of role gating.
-  const visibleTabs = TABS.filter(
-    (t) =>
-      isTabVisibleForMethodology(t.view, methodology) &&
-      (t.view !== 'resources' || (role !== null && role >= ROLE_SCHEDULER)),
-  );
+  // Per-view label: Sprints adopts the configured container label (ADR-0111/0116).
+  const labelFor = (view: string) =>
+    view === 'sprints' ? iteration.plural : (TAB_META[view]?.label ?? view);
+
+  const groups = groupedVisibleViews(methodology)
+    .map((g) => ({ ...g, visibleViews: g.visibleViews.filter(roleAllows) }))
+    .filter((g) => g.visibleViews.length > 0);
 
   return (
-    <nav aria-label="View" className="hidden md:flex items-stretch h-full gap-0.5">
-      {visibleTabs.map(({ view, label, Icon }) => {
-        const isActive = currentView === view;
-        return (
-          <NavLink
-            key={view}
-            to={`/projects/${projectId}/${view}`}
-            replace
-            className={[
-              'flex items-center gap-1.5 px-3 text-sm font-medium border-b-2 transition-colors',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-              isActive
-                ? 'border-brand-primary text-brand-primary'
-                : 'border-transparent text-neutral-text-secondary hover:text-neutral-text-primary',
-            ].join(' ')}
-            aria-current={isActive ? 'page' : undefined}
-          >
-            <Icon
-              className={isActive ? 'text-brand-primary' : 'text-neutral-text-disabled'}
-              aria-hidden="true"
+    <nav aria-label="View" className="hidden md:flex items-stretch h-full">
+      <Tab
+        projectId={projectId}
+        view={STANDALONE_LEADING}
+        label={labelFor(STANDALONE_LEADING)}
+        Icon={TAB_META[STANDALONE_LEADING].Icon}
+        currentView={currentView}
+      />
+
+      {groups.map((group) => (
+        <div
+          key={group.id}
+          role="group"
+          aria-label={`${group.label} views`}
+          className="flex items-stretch h-full"
+        >
+          <Divider />
+          <span aria-hidden="true" className={GROUP_LABEL}>
+            {group.id}
+          </span>
+          {group.visibleViews.map((view) => (
+            <Tab
+              key={view}
+              projectId={projectId}
+              view={view}
+              label={labelFor(view)}
+              Icon={TAB_META[view].Icon}
+              currentView={currentView}
             />
-            {view === 'sprints' ? sprintsLabel : label}
-          </NavLink>
-        );
-      })}
+          ))}
+        </div>
+      ))}
+
+      <Divider />
+      <Tab
+        projectId={projectId}
+        view={STANDALONE_TRAILING}
+        label={labelFor(STANDALONE_TRAILING)}
+        Icon={TAB_META[STANDALONE_TRAILING].Icon}
+        currentView={currentView}
+      />
     </nav>
+  );
+}
+
+const METHOD_LABEL: Record<Methodology, string> = {
+  AGILE: 'Agile',
+  WATERFALL: 'Waterfall',
+  HYBRID: 'Hybrid',
+};
+
+/**
+ * Right-aligned "{METHOD} Workspace" tag for the v2 view row (ADR-0128 §A). Lives
+ * at the left edge of the TopBar's right cluster (just before the health cluster)
+ * so it is reliably right-aligned without making the tab nav grow. `hidden xl:inline`
+ * — it is the first thing to drop as width tightens. Self-gates exactly like
+ * `ViewTabs` (off-project / settings routes).
+ */
+export function MethodWorkspaceLabel() {
+  const projectId = useProjectId();
+  const { data: project } = useProject(projectId);
+  const onSettingsRoute = useMatch('/projects/:projectId/settings/*');
+
+  if (!projectId || onSettingsRoute) return null;
+
+  const methodology = project?.methodology ?? 'HYBRID';
+  return (
+    <span className={`${GROUP_LABEL} hidden xl:inline`}>{METHOD_LABEL[methodology]} Workspace</span>
   );
 }

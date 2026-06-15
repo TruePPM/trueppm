@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { isTabVisibleForMethodology } from './methodologyTabs';
+import {
+  isTabVisibleForMethodology,
+  groupedVisibleViews,
+  VIEW_GROUPS,
+  STANDALONE_LEADING,
+  STANDALONE_TRAILING,
+} from './methodologyTabs';
 
 // Encodes the ADR-0041 visibility matrix as a single source of truth.
 // Amended by ADR-0053: `wbs` and `list` consolidated into `grid`, visible in
@@ -58,5 +64,41 @@ describe('isTabVisibleForMethodology', () => {
     expect(isTabVisibleForMethodology('unknown-future-tab', 'WATERFALL')).toBe(true);
     expect(isTabVisibleForMethodology('unknown-future-tab', 'AGILE')).toBe(true);
     expect(isTabVisibleForMethodology('unknown-future-tab', 'HYBRID')).toBe(true);
+  });
+});
+
+describe('groupedVisibleViews (ADR-0128)', () => {
+  it('every grouped view (besides the standalones) has tab metadata coverage', () => {
+    // Guards the "a view in no group silently never renders" risk: the standalone
+    // leading/trailing views must NOT appear in any group.
+    const grouped = VIEW_GROUPS.flatMap((g) => g.views);
+    expect(grouped).not.toContain(STANDALONE_LEADING);
+    expect(grouped).not.toContain(STANDALONE_TRAILING);
+    // no view is double-assigned
+    expect(new Set(grouped).size).toBe(grouped.length);
+  });
+
+  it('HYBRID keeps every group fully populated', () => {
+    const groups = groupedVisibleViews('HYBRID');
+    expect(groups.map((g) => g.id)).toEqual(['PLAN', 'TRACK', 'PEOPLE']);
+    expect(groups[0].visibleViews).toEqual(['product-backlog', 'sprints', 'schedule', 'grid', 'calendar']);
+  });
+
+  it('AGILE drops Schedule + Calendar from PLAN (ADR-0041 filter composes within the group)', () => {
+    const plan = groupedVisibleViews('AGILE').find((g) => g.id === 'PLAN');
+    expect(plan?.visibleViews).toEqual(['product-backlog', 'sprints', 'grid']);
+  });
+
+  it('WATERFALL drops Backlog + Sprints from PLAN', () => {
+    const plan = groupedVisibleViews('WATERFALL').find((g) => g.id === 'PLAN');
+    expect(plan?.visibleViews).toEqual(['schedule', 'grid', 'calendar']);
+  });
+
+  it('never returns a group with zero visible views', () => {
+    for (const m of ['WATERFALL', 'AGILE', 'HYBRID'] as const) {
+      for (const g of groupedVisibleViews(m)) {
+        expect(g.visibleViews.length).toBeGreaterThan(0);
+      }
+    }
   });
 });

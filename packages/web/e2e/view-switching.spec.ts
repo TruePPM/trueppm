@@ -222,10 +222,12 @@ test.describe('View switching', () => {
       .toHaveAttribute('aria-current', 'page');
   });
 
-  test('Overview tab is first and Board is second in the tab strip (ADR-0030)', async ({ page }) => {
+  test('Overview leads the grouped view bar; Board is present in TRACK (ADR-0030/0128)', async ({ page }) => {
+    // v2 groups the tabs into PLAN / TRACK / PEOPLE (ADR-0128). Overview stays the
+    // standalone leading tab; Board moved into the TRACK group (no longer 2nd).
     const nav = page.getByRole('navigation', { name: 'View' });
     const links = nav.getByRole('link');
     await expect(links.nth(0)).toHaveText('Overview');
-    await expect(links.nth(1)).toHaveText('Board');
+    await expect(nav.getByRole('link', { name: 'Board' })).toBeVisible();
   });
 });
