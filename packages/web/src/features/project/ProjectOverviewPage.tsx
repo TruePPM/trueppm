@@ -10,6 +10,7 @@ import { formatRelative } from '@/lib/formatRelative';
 import { BurnChart } from '@/features/reports/BurnChart';
 import { ImportProvenanceSection } from '@/features/project/ImportProvenanceSection';
 import { SprintForecastWidget } from '@/features/project/SprintForecastWidget';
+import { BlockedRollupPanel } from '@/features/blocker/BlockedRollupPanel';
 
 // ---------------------------------------------------------------------------
 // API response types
@@ -780,6 +781,9 @@ export function ProjectOverviewPage() {
           </div>
         )}
       </section>
+
+      {/* Blocked-task roll-up — the PM's impediment triage list (ADR-0124). */}
+      {projectId && <BlockedRollupPanel scope="project" projectId={projectId} />}
 
       {/* Monte Carlo forecast widget (#172) */}
       {projectId && <MonteCarloWidget projectId={projectId} />}

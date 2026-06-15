@@ -13,7 +13,9 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 # Install the scheduler package first so the api package can find it on the path.
 COPY packages/scheduler/src /build/scheduler/src
-COPY packages/scheduler/pyproject.toml packages/scheduler/README.md /build/scheduler/
+# CHANGELOG.md is force-included into the wheel (scheduler pyproject
+# force-include, #945); the build fails without it present here.
+COPY packages/scheduler/pyproject.toml packages/scheduler/README.md packages/scheduler/CHANGELOG.md /build/scheduler/
 RUN pip install --no-cache-dir /build/scheduler
 
 # Install the api package and its dependencies.

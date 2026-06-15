@@ -2,10 +2,14 @@
 name: scheduler-engine
 model: opus
 description: >
-  CPM, Monte Carlo, and scheduling algorithm work for trueppm-scheduler. Use when
-  implementing or modifying the scheduling engine, adding new algorithm features,
-  or debugging scheduling correctness issues. This is the core IP of TruePPM — the
-  separable Apache 2.0 Python library that ships independently on PyPI.
+  CPM, Monte Carlo, and scheduling algorithm work for the TruePPM scheduling
+  engine. Use when implementing or modifying the engine, adding new algorithm
+  features, or debugging scheduling correctness issues. This is the core IP of
+  TruePPM, and it lives in two coordinated implementations: the separable Apache
+  2.0 Python library `packages/scheduler` (`trueppm-scheduler`, ships on PyPI)
+  and the Rust + petgraph CPM engine `packages/wasm-scheduler` (compiled to WASM
+  via wasm-pack for browser/offline recompute). A change to scheduling semantics
+  must keep the two in conformance.
 ---
 
 # Scheduler Engine Skill
@@ -37,10 +41,25 @@ You are working on trueppm-scheduler, a pure Python library with ZERO Django dep
 3. Output: P50, P80, P95 dates. Criticality index per task. Sensitivity ranking.
 4. Seed RNG for reproducible tests.
 
-## WASM Build
-The engine compiles to WebAssembly for browser (live impact simulation) and mobile (offline CPM).
-Two options: Pyodide (Python in WASM) or Rust port (petgraph + wasm-pack).
+## WASM engine — `packages/wasm-scheduler`
+The browser (live impact simulation) and mobile (offline CPM) recompute path is
+served by `packages/wasm-scheduler`: a Rust CPM engine built on **petgraph** and
+compiled to WebAssembly with **wasm-pack**. It is a coordinated reimplementation
+of the same CPM semantics as the Python library, not a Pyodide wrapper.
 Target: <10ms incremental recalc for 5K tasks.
+
+Neither implementation is declared "canonical" — they must agree. Any change to
+scheduling semantics in one must be mirrored in the other and proven by the
+conformance suite. CI gates for the package:
+
+- `wasm:lint` — `cargo clippy --all-targets -- -D warnings` (mirrored locally by
+  `make pre-push-wasm`; there is intentionally no `cargo fmt --check` gate)
+- `wasm:conformance` — Rust engine vs Python engine on shared fixtures
+- `wasm:test` — Rust unit tests
+- `wasm:license-check` — `cargo deny check licenses` against the `deny.toml` allow-list
+
+The Rust toolchain is pinned (`rust:1.85-slim` in CI). `make pre-push-wasm` is
+change-gated to `packages/wasm-scheduler` and skips cleanly when cargo is absent.
 
 ## Performance Targets
 | Operation | Tasks | Target |
