@@ -36,7 +36,7 @@ dependencies = [
     "drf-spectacular>=0.27,<1.0",
     "jsonschema>=4.21,<5.0",
     "uvicorn[standard]>=0.29,<1.0",
-    "cryptography>=46.0.7,<47",
+    "cryptography>=48.0.1,<49",
 ]
 
 [project.optional-dependencies]
