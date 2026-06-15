@@ -6,8 +6,11 @@ import { useDirtyForm } from '../hooks/useDirtyForm';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
 import { useUpdateProject } from '@/hooks/useProjectMutations';
+import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
+import { ROLE_ADMIN } from '@/lib/roles';
 import type { ProjectDefaultView, ProjectHealth, ProjectVisibility } from '@/api/types';
 import { InheritableIterationLabelField } from '../components/InheritableIterationLabelField';
+import { InheritableToggleField } from '../components/InheritableToggleField';
 import { DEFAULT_ITERATION_LABEL } from '@/lib/iterationLabel';
 
 const TIMEZONES = [
@@ -70,6 +73,7 @@ export function ProjectGeneralPage() {
   const projectId = useProjectId();
   const { data: project } = useProject(projectId);
   const updateProject = useUpdateProject(projectId);
+  const { role } = useCurrentUserRole(projectId);
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -83,6 +87,9 @@ export function ProjectGeneralPage() {
   const [lead, setLead] = useState<string | null>(null);
   // null = inherit the program/workspace default (ADR-0116, #1106).
   const [iterationLabel, setIterationLabel] = useState<string | null>(null);
+  // null = inherit the program/workspace value (ADR-0135, #978).
+  const [publicSharing, setPublicSharing] = useState<boolean | null>(null);
+  const [allowGuests, setAllowGuests] = useState<boolean | null>(null);
 
   // Re-seed whenever the loaded project's identity changes. React Router reuses
   // this component across `:projectId` changes (no `key` → no remount), so a
@@ -103,6 +110,8 @@ export function ProjectGeneralPage() {
   const [initialCalendarId, setInitialCalendarId] = useState<string | null>(null);
   const [initialLead, setInitialLead] = useState<string | null>(null);
   const [initialIterationLabel, setInitialIterationLabel] = useState<string | null>(null);
+  const [initialPublicSharing, setInitialPublicSharing] = useState<boolean | null>(null);
+  const [initialAllowGuests, setInitialAllowGuests] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (!project || seededProjectIdRef.current === project.id) return;
@@ -117,6 +126,8 @@ export function ProjectGeneralPage() {
     setCalendarId(project.calendar);
     setLead(project.lead ?? null);
     setIterationLabel(project.iteration_label ?? null);
+    setPublicSharing(project.public_sharing ?? null);
+    setAllowGuests(project.allow_guests ?? null);
     setInitialName(project.name);
     setInitialDescription(project.description ?? '');
     setInitialCode(project.code);
@@ -127,6 +138,8 @@ export function ProjectGeneralPage() {
     setInitialCalendarId(project.calendar);
     setInitialLead(project.lead ?? null);
     setInitialIterationLabel(project.iteration_label ?? null);
+    setInitialPublicSharing(project.public_sharing ?? null);
+    setInitialAllowGuests(project.allow_guests ?? null);
   }, [project]);
 
   const values = useMemo(
@@ -141,6 +154,8 @@ export function ProjectGeneralPage() {
       calendar: calendarId,
       lead,
       iteration_label: iterationLabel,
+      public_sharing: publicSharing,
+      allow_guests: allowGuests,
     }),
     [
       name,
@@ -153,6 +168,8 @@ export function ProjectGeneralPage() {
       calendarId,
       lead,
       iterationLabel,
+      publicSharing,
+      allowGuests,
     ],
   );
   const initialValues = useMemo(
@@ -167,6 +184,8 @@ export function ProjectGeneralPage() {
       calendar: initialCalendarId,
       lead: initialLead,
       iteration_label: initialIterationLabel,
+      public_sharing: initialPublicSharing,
+      allow_guests: initialAllowGuests,
     }),
     [
       initialName,
@@ -179,6 +198,8 @@ export function ProjectGeneralPage() {
       initialCalendarId,
       initialLead,
       initialIterationLabel,
+      initialPublicSharing,
+      initialAllowGuests,
     ],
   );
 
@@ -197,6 +218,9 @@ export function ProjectGeneralPage() {
       // too — "inherit" is the explicit null and the serializer rejects empty strings
       // (ADR-0116).
       iteration_label: iterationLabel === null ? null : iterationLabel.trim() || null,
+      // null clears the sharing override so the project inherits program/workspace (ADR-0135).
+      public_sharing: publicSharing,
+      allow_guests: allowGuests,
     });
     const savedIterationLabel = iterationLabel === null ? null : iterationLabel.trim() || null;
     setIterationLabel(savedIterationLabel);
@@ -210,6 +234,8 @@ export function ProjectGeneralPage() {
     setInitialCalendarId(calendarId);
     setInitialLead(lead);
     setInitialIterationLabel(savedIterationLabel);
+    setInitialPublicSharing(publicSharing);
+    setInitialAllowGuests(allowGuests);
   }, [
     updateProject,
     name,
@@ -222,6 +248,8 @@ export function ProjectGeneralPage() {
     calendarId,
     lead,
     iterationLabel,
+    publicSharing,
+    allowGuests,
   ]);
 
   const handleReset = useCallback(() => {
@@ -235,6 +263,8 @@ export function ProjectGeneralPage() {
     setCalendarId(initialCalendarId);
     setLead(initialLead);
     setIterationLabel(initialIterationLabel);
+    setPublicSharing(initialPublicSharing);
+    setAllowGuests(initialAllowGuests);
   }, [
     initialName,
     initialDescription,
@@ -246,6 +276,8 @@ export function ProjectGeneralPage() {
     initialCalendarId,
     initialLead,
     initialIterationLabel,
+    initialPublicSharing,
+    initialAllowGuests,
   ]);
 
   useDirtyForm({
@@ -257,6 +289,9 @@ export function ProjectGeneralPage() {
   });
 
   const calendarInherited = calendarId === null;
+  // Sharing overrides are Admin+ (ADR-0135); lower roles see a read-only indicator.
+  // The server enforces this too — this only gates the affordance.
+  const canEditSharing = role !== null && role >= ROLE_ADMIN;
 
   return (
     <div>
@@ -376,6 +411,36 @@ export function ProjectGeneralPage() {
               </label>
             ))}
           </div>
+        </FieldRow>
+
+        <FieldRow
+          label="Allow guests"
+          hint="Guests are external collaborators (vendors, auditors), limited to what they're invited to. Inherits the program or workspace setting unless you override it here."
+        >
+          <InheritableToggleField
+            value={allowGuests}
+            onChange={setAllowGuests}
+            inherited={project?.inherited_allow_guests ?? false}
+            inheritFromLabel="the program or workspace default"
+            scopeNoun="project"
+            ariaLabel="Allow guest access"
+            canEdit={canEditSharing}
+          />
+        </FieldRow>
+
+        <FieldRow
+          label="Public sharing"
+          hint="Anyone with the link can view selected reports — no sign-in required. Inherits the program or workspace setting unless you override it here."
+        >
+          <InheritableToggleField
+            value={publicSharing}
+            onChange={setPublicSharing}
+            inherited={project?.inherited_public_sharing ?? false}
+            inheritFromLabel="the program or workspace default"
+            scopeNoun="project"
+            ariaLabel="Allow public link sharing"
+            canEdit={canEditSharing}
+          />
         </FieldRow>
 
         <FieldRow label="Timezone" hint="Used for due dates, Gantt rendering, and sprint cutovers.">

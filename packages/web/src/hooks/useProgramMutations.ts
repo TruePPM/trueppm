@@ -42,6 +42,8 @@ export interface UpdateProgramInput {
       | 'code'
       | 'methodology'
       | 'iteration_label'
+      | 'public_sharing'
+      | 'allow_guests'
       | 'health'
       | 'visibility'
       | 'lead'

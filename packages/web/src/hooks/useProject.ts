@@ -54,6 +54,15 @@ export interface ApiProjectDetail {
    * affordance (ADR-0116, #1106).
    */
   inherited_iteration_label: string;
+  /** Sharing overrides (ADR-0135, #978). null = inherit program/workspace value. */
+  public_sharing: boolean | null;
+  allow_guests: boolean | null;
+  /** Read-only server-resolved effective values (project ?? program ?? workspace). */
+  effective_public_sharing: boolean;
+  effective_allow_guests: boolean;
+  /** Read-only values inherited if the override were cleared (program ?? workspace). */
+  inherited_public_sharing: boolean;
+  inherited_allow_guests: boolean;
   /** Lifecycle (#530) — archived projects are hard read-only across all writes. */
   is_archived: boolean;
   archived_at: string | null;
