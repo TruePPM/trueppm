@@ -2,6 +2,20 @@ import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type { AxiosError } from 'axios';
 
+/**
+ * Role-based app front door (ADR-0129). The server resolves *where* a user lands
+ * and the client only navigates — it holds no role→surface policy. These unions
+ * mirror the server contract on `/auth/me/`:
+ *   - DefaultLanding: the user's stored preference ("auto" if unset). Writable
+ *     via PATCH /auth/me/profile/.
+ *   - LandingIntent: the stable semantic target the server resolved to.
+ *   - LandingResolvedBy: how the front door was decided — drives honest
+ *     first-login / "why am I here?" affordances.
+ */
+export type DefaultLanding = 'auto' | 'my_work' | 'project_overview' | 'portfolio';
+export type LandingIntent = 'my_work' | 'project_overview' | 'portfolio';
+export type LandingResolvedBy = 'preference' | 'role_policy' | 'fallback';
+
 export interface CurrentUser {
   id: string;
   username: string;
@@ -22,6 +36,18 @@ export interface CurrentUser {
   max_project_role: number | null;
   workspace_role: number | null;
   can_access_admin_settings: boolean;
+  /**
+   * Role-based app front door (ADR-0129). `default_landing` is the user's stored
+   * preference; `landing` is the server-resolved destination the client
+   * navigates to (`path`), tagged with the semantic `intent` and a `resolved_by`
+   * explaining the decision.
+   */
+  default_landing: DefaultLanding;
+  landing: {
+    intent: LandingIntent;
+    path: string;
+    resolved_by: LandingResolvedBy;
+  };
 }
 
 /**

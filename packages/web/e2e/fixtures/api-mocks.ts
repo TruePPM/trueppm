@@ -117,15 +117,20 @@ const DEFAULT_USER: UserFixture = {
   display_name: 'E2E User',
   initials: 'EU',
   email: 'e2e@example.com',
+  // Role-based landing (ADR-0129). Default to a concrete preference so the
+  // first-login prompt stays hidden in unrelated specs; RootRedirect resolves
+  // `/` to My Work via landing.path. Specs that exercise landing override `user`.
+  default_landing: 'my_work',
+  landing: { intent: 'my_work', path: '/me/work', resolved_by: 'preference' },
 };
 
 const DEFAULT_BOARD_CONFIG = {
   columns: [
-    { status: 'BACKLOG',     label: 'Backlog',     visible: true, wip_limit: null, color: '#94A3B8' },
-    { status: 'NOT_STARTED', label: 'To Do',       visible: true, wip_limit: null, color: '#64748B' },
-    { status: 'IN_PROGRESS', label: 'In Progress', visible: true, wip_limit: 5,    color: '#3B82F6' },
-    { status: 'REVIEW',      label: 'Review',      visible: true, wip_limit: 3,    color: '#A855F7' },
-    { status: 'COMPLETE',    label: 'Done',        visible: true, wip_limit: null, color: '#22C55E' },
+    { status: 'BACKLOG', label: 'Backlog', visible: true, wip_limit: null, color: '#94A3B8' },
+    { status: 'NOT_STARTED', label: 'To Do', visible: true, wip_limit: null, color: '#64748B' },
+    { status: 'IN_PROGRESS', label: 'In Progress', visible: true, wip_limit: 5, color: '#3B82F6' },
+    { status: 'REVIEW', label: 'Review', visible: true, wip_limit: 3, color: '#A855F7' },
+    { status: 'COMPLETE', label: 'Done', visible: true, wip_limit: null, color: '#22C55E' },
   ],
 };
 
@@ -188,7 +193,10 @@ export async function setupCatchAll(page: Page): Promise<void> {
     // eslint-disable-next-line no-console
     console.warn(`[e2e mock] unmocked ${req.method()} ${req.url()} → 404`);
     await route.fulfill(
-      jsonResponse({ detail: 'unmocked in test — add to setupApiMocks options or add a per-spec page.route' }, 404),
+      jsonResponse(
+        { detail: 'unmocked in test — add to setupApiMocks options or add a per-spec page.route' },
+        404,
+      ),
     );
   });
 }
@@ -211,12 +219,8 @@ export async function setupApiMocks(page: Page, opts: ApiMockOptions = {}): Prom
   await page.route('**/api/v1/edition/', (route) =>
     route.fulfill(jsonResponse({ edition: opts.edition ?? 'community' })),
   );
-  await page.route('**/api/v1/auth/me/', (route) =>
-    route.fulfill(jsonResponse(user)),
-  );
-  await page.route('**/api/v1/calendars/', (route) =>
-    route.fulfill(jsonResponse(paginated([]))),
-  );
+  await page.route('**/api/v1/auth/me/', (route) => route.fulfill(jsonResponse(user)));
+  await page.route('**/api/v1/calendars/', (route) => route.fulfill(jsonResponse(paginated([]))));
   // NotificationBell (TopBar, mounted on every project route) polls this every
   // 30s. Default to empty so every spec touching a routed page doesn't fall
   // through setupCatchAll → 404 → TanStack retry, which under high Playwright
@@ -233,9 +237,7 @@ export async function setupApiMocks(page: Page, opts: ApiMockOptions = {}): Prom
 
   // ----- Project-scoped (any project id, glob) -----
   // Registered with a wildcard so multiple project IDs in one test still match.
-  await page.route('**/api/v1/projects/*/presence/', (route) =>
-    route.fulfill(jsonResponse([])),
-  );
+  await page.route('**/api/v1/projects/*/presence/', (route) => route.fulfill(jsonResponse([])));
   await page.route('**/api/v1/projects/*/attention/', (route) =>
     route.fulfill(jsonResponse({ items: [] })),
   );
@@ -259,13 +261,13 @@ export async function setupApiMocks(page: Page, opts: ApiMockOptions = {}): Prom
     ),
   );
   await page.route('**/api/v1/monte-carlo/**', (route) =>
-    route.fulfill(
-      jsonResponse({ runs: 0, p50: null, p80: null, p95: null, buckets: [] }),
-    ),
+    route.fulfill(jsonResponse({ runs: 0, p50: null, p80: null, p95: null, buckets: [] })),
   );
   // Wave-7 unified Monte Carlo data path — a separate per-project endpoint.
   await page.route('**/api/v1/projects/*/monte-carlo/latest/', (route) =>
-    route.fulfill(jsonResponse({ runs: 0, p50: null, p80: null, p95: null, buckets: [], last_run_at: null })),
+    route.fulfill(
+      jsonResponse({ runs: 0, p50: null, p80: null, p95: null, buckets: [], last_run_at: null }),
+    ),
   );
 
   // ----- Project-scoped (specific project id) -----
@@ -399,8 +401,14 @@ export async function setupApiMocks(page: Page, opts: ApiMockOptions = {}): Prom
   await page.route(/\/api\/v1\/sprints\/.*\/daily-delta\//, (route) =>
     route.fulfill(
       jsonResponse({
-        sprint_id: 'sp', since: '', until: '', task_changes: [], scope_added: [],
-        new_blockers: [], burndown_delta: null, per_actor: [],
+        sprint_id: 'sp',
+        since: '',
+        until: '',
+        task_changes: [],
+        scope_added: [],
+        new_blockers: [],
+        burndown_delta: null,
+        per_actor: [],
       }),
     ),
   );

@@ -3,6 +3,8 @@ import { useNavigate, useSearchParams } from 'react-router';
 import axios from 'axios';
 import { useAuthStore } from '@/stores/authStore';
 import { queryClient } from '@/lib/queryClient';
+import type { CurrentUser } from '@/hooks/useCurrentUser';
+import { safeLandingPath } from '@/features/me/landing';
 import { LogoMark } from '@/components/Icons';
 
 interface TokenResponse {
@@ -12,25 +14,31 @@ interface TokenResponse {
 }
 
 /**
- * Post-login destination. Prefer Overview (ADR-0030 canonical landing) when
- * the captured `next` param is a project's `/board` route — the common case
- * of "logged out from board, log back in" should land on Overview instead.
- * Other deep links (risk, schedule, sprints, resources, etc.) pass through
- * untouched so shared URLs still work after a re-auth.
+ * Post-login destination. A safe `next` deep link always wins (the captured
+ * route the user was trying to reach), with a project `/board` route folded to
+ * Overview — the common "logged out from board, log back in" case. Other deep
+ * links (risk, schedule, sprints, resources, etc.) pass through untouched so
+ * shared URLs still work after a re-auth.
+ *
+ * When there is no safe `next`, defer to the server-resolved app front door
+ * (ADR-0129, #1181) — `me.landing.path`, guarded by the same allowlist — instead
+ * of the bare root. This means a contributor lands on My Work, a PM on a project
+ * Overview, etc. directly, rather than bouncing through `/`'s RootRedirect.
  *
  * `next` is attacker-controllable via the query string, so it is validated as
  * a same-origin relative path before use to prevent an open redirect (#899):
  * anything not starting with a single `/`, any protocol-relative (`//`) or
  * backslash-smuggled (`/\`) value, and anything that resolves off-origin falls
- * back to the root path.
+ * through to the landing path (then `/` if that is also unavailable).
  */
-export function loginRedirectDest(next: string): string {
-  if (!next.startsWith('/') || next.startsWith('//') || next.startsWith('/\\')) return '/';
+export function loginRedirectDest(next: string, landingPath?: string): string {
+  const fallback = landingPath ? safeLandingPath(landingPath) : '/';
+  if (!next.startsWith('/') || next.startsWith('//') || next.startsWith('/\\')) return fallback;
   try {
     const u = new URL(next, window.location.origin);
-    if (u.origin !== window.location.origin) return '/';
+    if (u.origin !== window.location.origin) return fallback;
   } catch {
-    return '/';
+    return fallback;
   }
   return next.replace(/^(\/projects\/[^/]+)\/board(\/.*)?$/, '$1/overview');
 }
@@ -128,8 +136,26 @@ export function LoginPage() {
       });
       setAccessToken(response.data.access);
       queryClient.clear();
-      const next = searchParams.get('next') ?? '/';
-      void navigate(loginRedirectDest(next), { replace: true });
+
+      // Resolve the server-decided front door (ADR-0129) for the no-`next` case.
+      // Use bare axios with the just-minted access token (apiClient's interceptor
+      // hasn't observed the new token yet, and importing apiClient here would
+      // couple login to its module init). A network hiccup must not block
+      // sign-in — fall back to bare `/`, whose RootRedirect resolves the same
+      // landing once `me` is fetched into the cache.
+      let landingPath: string | undefined;
+      try {
+        const me = await axios.get<CurrentUser>('/api/v1/auth/me/', {
+          headers: { Authorization: `Bearer ${response.data.access}` },
+        });
+        queryClient.setQueryData(['current-user'], me.data);
+        landingPath = me.data.landing?.path;
+      } catch {
+        /* offline / slow — RootRedirect resolves the landing after navigation */
+      }
+
+      const next = searchParams.get('next') ?? '';
+      void navigate(loginRedirectDest(next, landingPath), { replace: true });
     } catch (err: unknown) {
       if (axios.isAxiosError(err) && err.response?.status === 401) {
         setError('Invalid email or password.');

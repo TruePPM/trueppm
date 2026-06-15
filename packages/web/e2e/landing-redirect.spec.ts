@@ -1,0 +1,264 @@
+import { test, expect, type Page } from '@playwright/test';
+
+/**
+ * E2E coverage for the role-based app front door (ADR-0129, issue #1181).
+ *
+ * The server resolves `me.landing.path`; the client navigates there from `/`.
+ * Verifies:
+ *   - golden path per role bucket — My Work (contributor), a project Overview
+ *     (PM), each driven by the `landing.intent`/`path` the server returns
+ *   - a saved preference (default_landing) override lands on that surface
+ *   - the off-allowlist / unreachable path degrades to My Work (guard)
+ *   - the zero-membership My Work empty state keeps its demo CTA
+ *
+ * All API calls are intercepted with Playwright route mocking; no server.
+ */
+
+const PROJECT_ID = 'e2e-landing-00000000-0000-0000-0000-000000001181';
+
+const PROJECT_DETAIL = {
+  id: PROJECT_ID,
+  name: 'Atlas Launch',
+  description: '',
+  start_date: '2026-04-01',
+  calendar: 'default',
+  estimation_mode: 'open',
+  agile_features: true,
+  methodology: 'HYBRID',
+};
+
+interface Landing {
+  intent: 'my_work' | 'project_overview' | 'portfolio';
+  path: string;
+  resolved_by: 'preference' | 'role_policy' | 'fallback';
+}
+
+interface MeOptions {
+  defaultLanding?: string;
+  landing: Landing;
+  maxProjectRole?: number | null;
+}
+
+async function setupAuth(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      'trueppm-auth',
+      JSON.stringify({
+        state: { accessToken: 'e2e-token', refreshToken: 'e2e-refresh', isAuthenticated: true },
+        version: 0,
+      }),
+    );
+  });
+}
+
+async function mockShell(page: Page, me: MeOptions, projects: unknown[]): Promise<void> {
+  await page.route('**/api/v1/auth/me/', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: 'e2e-user',
+        username: 'casey',
+        display_name: 'Casey',
+        initials: 'C',
+        email: 'casey@example.com',
+        max_project_role: me.maxProjectRole ?? 100,
+        workspace_role: null,
+        can_access_admin_settings: false,
+        default_landing: me.defaultLanding ?? 'auto',
+        landing: me.landing,
+      }),
+    }),
+  );
+  await page.route('**/api/v1/edition/', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ edition: 'community' }),
+    }),
+  );
+  await page.route('**/api/v1/projects/', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        count: projects.length,
+        next: null,
+        previous: null,
+        results: projects,
+      }),
+    }),
+  );
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(PROJECT_DETAIL),
+    }),
+  );
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/overview/`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        schedule_health: 'on_track',
+        spi: null,
+        tasks_late_count: 0,
+        critical_task_count: 0,
+        total_tasks: 0,
+        complete_tasks: 0,
+        next_milestone: null,
+        team_utilization_pct: null,
+        owner_name: null,
+        start_date: '2026-04-01',
+      }),
+    }),
+  );
+  // Common auxiliaries so the shell renders without 404→retry noise.
+  await page.route('**/api/v1/projects/*/presence/', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  );
+  await page.route('**/api/v1/projects/*/status-summary/', (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        task_count: 0,
+        critical_path_count: 0,
+        monte_carlo_p80: null,
+        at_risk_count: 0,
+        critical_count: 0,
+        at_risk_tasks: [],
+        critical_tasks: [],
+        last_saved: null,
+        recalculated_at: null,
+      }),
+    }),
+  );
+  await page.route('**/api/v1/projects/*/attention/', (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ items: [] }),
+    }),
+  );
+  await page.route('**/api/v1/projects/*/my-tasks/', (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ tasks: [] }),
+    }),
+  );
+  await page.route('**/api/v1/projects/*/members/**', (r) => {
+    const url = new URL(r.request().url());
+    if (url.searchParams.get('self') === 'true') {
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([{ id: 'm1', role: 100, user_id: 'e2e-user' }]),
+      });
+    }
+    return r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([{ id: 'm1', role: 100 }]),
+    });
+  });
+  await page.route('**/api/v1/me/active-sprints/', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  );
+  await page.route('**/api/v1/me/notifications/**', (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+    }),
+  );
+  await page.route('**/api/v1/me/work/**', (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        results: [],
+        next: null,
+        previous: null,
+        active_sprints: [],
+        due_today_count: 0,
+        server_version_high_water: 0,
+      }),
+    }),
+  );
+}
+
+test.describe('Role-based landing redirect (#1181, ADR-0129)', () => {
+  test('contributor with my_work intent lands on My Work', async ({ page }) => {
+    await setupAuth(page);
+    await mockShell(
+      page,
+      { landing: { intent: 'my_work', path: '/me/work', resolved_by: 'role_policy' } },
+      [PROJECT_DETAIL],
+    );
+    await page.goto('/');
+    await page.waitForURL(/\/me\/work/, { timeout: 10_000 });
+    await expect(page.getByRole('heading', { name: 'My Work' })).toBeVisible();
+  });
+
+  test('PM with project_overview intent lands on the project Overview', async ({ page }) => {
+    await setupAuth(page);
+    await mockShell(
+      page,
+      {
+        maxProjectRole: 300,
+        landing: {
+          intent: 'project_overview',
+          path: `/projects/${PROJECT_ID}/overview`,
+          resolved_by: 'role_policy',
+        },
+      },
+      [PROJECT_DETAIL],
+    );
+    await page.goto('/');
+    await page.waitForURL(new RegExp(`/projects/${PROJECT_ID}/overview`), { timeout: 10_000 });
+  });
+
+  test('a saved preference overrides — landing.path is honored', async ({ page }) => {
+    await setupAuth(page);
+    await mockShell(
+      page,
+      {
+        defaultLanding: 'my_work',
+        landing: { intent: 'my_work', path: '/me/work', resolved_by: 'preference' },
+      },
+      [PROJECT_DETAIL],
+    );
+    await page.goto('/');
+    await page.waitForURL(/\/me\/work/, { timeout: 10_000 });
+    await expect(page.getByRole('heading', { name: 'My Work' })).toBeVisible();
+  });
+
+  test('an off-allowlist landing path degrades to My Work (guard)', async ({ page }) => {
+    await setupAuth(page);
+    await mockShell(
+      page,
+      // Server hands back a portfolio path the OSS client cannot route to.
+      { landing: { intent: 'portfolio', path: '/portfolio', resolved_by: 'role_policy' } },
+      [PROJECT_DETAIL],
+    );
+    await page.goto('/');
+    await page.waitForURL(/\/me\/work/, { timeout: 10_000 });
+    await expect(page.getByRole('heading', { name: 'My Work' })).toBeVisible();
+  });
+
+  test('zero-membership My Work keeps the Explore a demo project CTA', async ({ page }) => {
+    await setupAuth(page);
+    await mockShell(
+      page,
+      { landing: { intent: 'my_work', path: '/me/work', resolved_by: 'fallback' } },
+      [],
+    );
+    await page.goto('/');
+    await page.waitForURL(/\/me\/work/, { timeout: 10_000 });
+    await expect(page.getByRole('heading', { name: /get you started/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Explore a demo project' })).toBeVisible();
+  });
+});

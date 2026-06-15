@@ -10,6 +10,7 @@ from trueppm_api.apps.access.views import (
     ProjectMembershipViewSet,
     UserSearchView,
 )
+from trueppm_api.apps.profiles.views import MyProfileView
 
 _members = ProjectMembershipViewSet.as_view(
     {
@@ -40,6 +41,7 @@ _program_member_detail = ProgramMembershipViewSet.as_view(
 
 urlpatterns = [
     path("auth/me/", MeView.as_view(), name="auth-me"),
+    path("auth/me/profile/", MyProfileView.as_view(), name="auth-me-profile"),
     path("users/search/", UserSearchView.as_view(), name="user-search"),
     path(
         "projects/<uuid:project_pk>/members/",

@@ -28,7 +28,16 @@ const FIXTURE_PROJECT = {
 
 // 8-week window; Alice is over-allocated in W19 and W20 (util > 100).
 const FIXTURE_HEATMAP = {
-  weeks: ['2026-W17', '2026-W18', '2026-W19', '2026-W20', '2026-W21', '2026-W22', '2026-W23', '2026-W24'],
+  weeks: [
+    '2026-W17',
+    '2026-W18',
+    '2026-W19',
+    '2026-W20',
+    '2026-W21',
+    '2026-W22',
+    '2026-W23',
+    '2026-W24',
+  ],
   resources: [
     {
       id: 'res-alice',
@@ -54,7 +63,7 @@ const FIXTURE_SUMMARY = {
 
 // SCHEDULER = 2, MEMBER = 1
 const MEMBER_SCHEDULER = [{ id: 'mem-sched', role: 200 }];
-const MEMBER_MEMBER   = [{ id: 'mem-member', role: 100 }];
+const MEMBER_MEMBER = [{ id: 'mem-member', role: 100 }];
 
 // ---------------------------------------------------------------------------
 // Setup helpers
@@ -77,36 +86,89 @@ async function setup(page: Page, memberRows = MEMBER_SCHEDULER) {
     JSON.stringify({ count: results.length, next: null, previous: null, results });
 
   // --- Standard shell routes ---
+  // /auth/me/ drives RootRedirect's server-resolved landing (ADR-0129). Point it
+  // at this project's overview so `goto('/')` lands on /projects/.../overview.
+  await page.route('**/api/v1/auth/me/', (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: 'e2e-user',
+        username: 'pm',
+        display_name: 'PM',
+        initials: 'PM',
+        email: 'pm@example.com',
+        max_project_role: 300,
+        workspace_role: null,
+        can_access_admin_settings: true,
+        default_landing: 'auto',
+        landing: {
+          intent: 'project_overview',
+          path: `/projects/${PROJECT_ID}/overview`,
+          resolved_by: 'role_policy',
+        },
+      }),
+    }),
+  );
+  await page.route('**/api/v1/edition/', (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ edition: 'community' }),
+    }),
+  );
   await page.route('**/api/v1/projects/', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj([FIXTURE_PROJECT]) }),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/overview/`, (r) =>
     r.fulfill({
-      status: 200, contentType: 'application/json',
+      status: 200,
+      contentType: 'application/json',
       body: JSON.stringify({
-        schedule_health: 'on_track', spi: null, tasks_late_count: 0,
-        critical_task_count: 0, total_tasks: 3, complete_tasks: 1,
-        next_milestone: null, team_utilization_pct: 92, owner_name: null,
+        schedule_health: 'on_track',
+        spi: null,
+        tasks_late_count: 0,
+        critical_task_count: 0,
+        total_tasks: 3,
+        complete_tasks: 1,
+        next_milestone: null,
+        team_utilization_pct: 92,
+        owner_name: null,
         start_date: '2026-04-01',
       }),
     }),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/attention/`, (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [] }) }),
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ items: [] }),
+    }),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/my-tasks/`, (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ tasks: [] }) }),
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ tasks: [] }),
+    }),
   );
   await page.route('**/api/v1/projects/*/presence/', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
   );
   await page.route('**/api/v1/projects/*/status-summary/', (r) =>
     r.fulfill({
-      status: 200, contentType: 'application/json',
+      status: 200,
+      contentType: 'application/json',
       body: JSON.stringify({
-        task_count: 3, critical_path_count: 0, monte_carlo_p80: null,
-        at_risk_count: 0, critical_count: 0, at_risk_tasks: [], critical_tasks: [],
-        last_saved: null, recalculated_at: null,
+        task_count: 3,
+        critical_path_count: 0,
+        monte_carlo_p80: null,
+        at_risk_count: 0,
+        critical_count: 0,
+        at_risk_tasks: [],
+        critical_tasks: [],
+        last_saved: null,
+        recalculated_at: null,
       }),
     }),
   );
@@ -121,20 +183,28 @@ async function setup(page: Page, memberRows = MEMBER_SCHEDULER) {
   );
   await page.route('**/api/v1/projects/*/board-config/', (r) =>
     r.fulfill({
-      status: 200, contentType: 'application/json',
+      status: 200,
+      contentType: 'application/json',
       body: JSON.stringify({ columns: [] }),
     }),
   );
   await page.route('**/api/v1/monte-carlo/**', (r) =>
     r.fulfill({
-      status: 200, contentType: 'application/json',
+      status: 200,
+      contentType: 'application/json',
       body: JSON.stringify({ runs: 0, p50: null, p80: null, p95: null, buckets: [] }),
     }),
   );
   await page.route('**/api/v1/projects/*/resource-allocation/**', (r) =>
     r.fulfill({
-      status: 200, contentType: 'application/json',
-      body: JSON.stringify({ project_id: PROJECT_ID, window_start: '2026-01-01', window_end: '2026-06-01', resources: [] }),
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        project_id: PROJECT_ID,
+        window_start: '2026-01-01',
+        window_end: '2026-06-01',
+        resources: [],
+      }),
     }),
   );
 
@@ -145,28 +215,42 @@ async function setup(page: Page, memberRows = MEMBER_SCHEDULER) {
 
   // --- Wave 6 heatmap endpoints ---
   await page.route(`**/api/v1/projects/${PROJECT_ID}/resources/heatmap/**`, (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(FIXTURE_HEATMAP) }),
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(FIXTURE_HEATMAP),
+    }),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/resources/summary/**`, (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(FIXTURE_SUMMARY) }),
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(FIXTURE_SUMMARY),
+    }),
   );
 
   // --- Empty project routes (for empty-state test) ---
   // Specific routes first so the standard wildcards (*) don't need order-awareness.
   await page.route(`**/api/v1/projects/${EMPTY_PROJECT_ID}/resources/heatmap/**`, (r) =>
     r.fulfill({
-      status: 200, contentType: 'application/json',
+      status: 200,
+      contentType: 'application/json',
       body: JSON.stringify({ weeks: FIXTURE_HEATMAP.weeks, resources: [] }),
     }),
   );
   await page.route(`**/api/v1/projects/${EMPTY_PROJECT_ID}/resources/summary/**`, (r) =>
     r.fulfill({
-      status: 200, contentType: 'application/json',
+      status: 200,
+      contentType: 'application/json',
       body: JSON.stringify({ ...FIXTURE_SUMMARY, over_allocated_count: 0, headcount: 0 }),
     }),
   );
   await page.route(`**/api/v1/projects/${EMPTY_PROJECT_ID}/members/**`, (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(MEMBER_SCHEDULER) }),
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(MEMBER_SCHEDULER),
+    }),
   );
   // Standard wildcard mocks (presence, status-summary, tasks, etc.) already cover
   // all other EMPTY_PROJECT_ID endpoints — no catch-all needed.
@@ -208,9 +292,9 @@ test.describe('Heatmap page', () => {
     await setup(page);
     await page.goto(`/projects/${PROJECT_ID}/resources/heatmap`);
     // Wait for React hydration and heatmap data before each test.
-    await expect(
-      page.getByRole('grid', { name: 'Resource utilization heatmap' }),
-    ).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('grid', { name: 'Resource utilization heatmap' })).toBeVisible({
+      timeout: 10_000,
+    });
   });
 
   test('Heatmap sub-tab renders KPI row and grid', async ({ page }) => {
@@ -250,8 +334,12 @@ test.describe('Heatmap page', () => {
     const resource4w = { ...FIXTURE_HEATMAP.resources[0], util: [80, 95, 130, 120] };
     await page.route(`**/api/v1/projects/${PROJECT_ID}/resources/heatmap/**`, (r) =>
       r.fulfill({
-        status: 200, contentType: 'application/json',
-        body: JSON.stringify({ weeks: ['2026-W17', '2026-W18', '2026-W19', '2026-W20'], resources: [resource4w] }),
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          weeks: ['2026-W17', '2026-W18', '2026-W19', '2026-W20'],
+          resources: [resource4w],
+        }),
       }),
     );
 

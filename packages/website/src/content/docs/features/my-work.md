@@ -82,6 +82,28 @@ This page deliberately omits:
 
 The PM-facing "My Tasks" view inside each project is a different surface. It shows tasks due this calendar week and is part of the project overview; My Work is your cross-project list and includes everything assigned, not just the immediate week.
 
+## Default home screen and role-based landing
+
+When you open TruePPM (or navigate to the app root), the app routes you to a screen based on your role instead of always dropping you on a project's Overview page.
+
+- **Contributors** — anyone whose highest role across all projects is Team Member or Viewer — land on **My Work** automatically.
+- **Project managers** — anyone who holds Scheduler, Admin, or Owner on at least one project — land on the **Overview of their most recently active project**.
+- **Users with no projects** land on My Work's onboarding empty state, which prompts you to join or create a project.
+
+A brief, dismissible hint explains why you landed where you did and links directly to the preference if you want to change it.
+
+### Changing your default home screen
+
+Go to **Preferences → General** (`/me/settings/general`). The **Default home screen** setting has three options:
+
+| Option | What it does |
+|--------|-------------|
+| **Automatic** | Follows your role as described above. Updates if your highest role changes — promote to Scheduler and the app starts opening on a project Overview. |
+| **My Work** | Always open on My Work, regardless of your role. |
+| **Project Overview** | Always open on the most recently active project's Overview. |
+
+A **first-login prompt** on My Work lets you make the same choice without hunting through Settings.
+
 ## Notifications and settings
 
 Two changes will land in 0.3 to make the contributor experience quieter and less PM-heavy:

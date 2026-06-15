@@ -95,15 +95,26 @@ function MenuContent({
         </NavLink>
       )}
 
+      {/* General preferences — default landing screen (ADR-0129, #1181).
+          Placed directly above Notifications. */}
+      <NavLink
+        to="/me/settings/general"
+        role="menuitem"
+        onClick={onClose}
+        className={`${rowInteractive} text-sm text-neutral-text-primary no-underline`}
+      >
+        General
+      </NavLink>
+
       {/* Notifications row */}
-      <a
-        href="/settings/notifications"
+      <NavLink
+        to="/me/settings/notifications"
         role="menuitem"
         onClick={onClose}
         className={`${rowInteractive} text-sm text-neutral-text-primary no-underline`}
       >
         Notifications
-      </a>
+      </NavLink>
 
       {/* Keyboard shortcuts row */}
       <button

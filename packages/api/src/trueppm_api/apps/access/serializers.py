@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from django.contrib.auth import get_user_model
+from drf_spectacular.utils import extend_schema_field, inline_serializer
 from rest_framework import serializers
 
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
@@ -212,6 +213,13 @@ class MeSerializer(serializers.Serializer[Any]):
     max_project_role = serializers.SerializerMethodField()
     workspace_role = serializers.SerializerMethodField()
     can_access_admin_settings = serializers.SerializerMethodField()
+    # Role-based app front door (ADR-0129). The web router reads these and
+    # navigates — it holds no role→surface policy itself. API-first: the
+    # destination is a server fact, identical for web, mobile, and MCP clients.
+    #   - default_landing: the user's stored preference ("auto" if unset).
+    #   - landing: {intent, path, resolved_by} — the resolved front door.
+    default_landing = serializers.SerializerMethodField()
+    landing = serializers.SerializerMethodField()
 
     def get_max_project_role(self, obj: Any) -> int | None:
         # Memoized: get_can_access_admin_settings also needs this, so without the
@@ -245,6 +253,42 @@ class MeSerializer(serializers.Serializer[Any]):
         return (proj is not None and proj >= Role.ADMIN) or (
             ws is not None and ws >= WorkspaceRole.ADMIN
         )
+
+    def get_default_landing(self, obj: Any) -> str:
+        # Memoized: get_landing also needs the preference, so without the cache
+        # /auth/me would read UserProfile twice per response.
+        if not hasattr(self, "_default_landing"):
+            from trueppm_api.apps.profiles.services import get_default_landing
+
+            self._default_landing: str = get_default_landing(obj)
+        return self._default_landing
+
+    @extend_schema_field(
+        inline_serializer(
+            "Landing",
+            {
+                "intent": serializers.CharField(),
+                "path": serializers.CharField(),
+                "resolved_by": serializers.CharField(),
+            },
+        )
+    )
+    def get_landing(self, obj: Any) -> dict[str, str]:
+        from trueppm_api.apps.profiles.services import resolve_landing
+
+        # Reuse the already-computed preference and max project role so the
+        # resolver doesn't re-query UserProfile / re-aggregate Max(role) — both
+        # are memoized above and computed for sibling fields on this same request.
+        landing = resolve_landing(
+            obj,
+            pref=self.get_default_landing(obj),
+            max_role=self.get_max_project_role(obj),
+        )
+        return {
+            "intent": landing.intent,
+            "path": landing.path,
+            "resolved_by": landing.resolved_by,
+        }
 
     def get_display_name(self, obj: Any) -> str:
         name = f"{obj.first_name} {obj.last_name}".strip()

@@ -1,6 +1,7 @@
 import { createBrowserRouter, Navigate, useNavigate } from 'react-router';
 import { lazy, Suspense, useEffect } from 'react';
-import { useProjects } from '@/hooks/useProjects';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { safeLandingPath } from '@/features/me/landing';
 import { AppShell } from '@/features/shell/AppShell';
 import { ProjectShell } from '@/features/project/ProjectShell';
 import { LoginPage } from '@/features/auth/LoginPage';
@@ -69,6 +70,12 @@ const NotificationListPage = lazy(() =>
 const NotificationPreferencesPage = lazy(() =>
   import('@/features/me/NotificationPreferencesPage').then((m) => ({
     default: m.NotificationPreferencesPage,
+  })),
+);
+
+const MyGeneralPreferencesPage = lazy(() =>
+  import('@/features/me/MyGeneralPreferencesPage').then((m) => ({
+    default: m.MyGeneralPreferencesPage,
   })),
 );
 
@@ -304,26 +311,27 @@ function RouteLoadingFallback() {
 }
 
 /**
- * Redirects to the first project's overview when landing on `/` with no project
- * selected. Overview is the canonical landing surface (ADR-0030).
+ * Redirects `/` to the server-resolved app front door (ADR-0129, #1181).
+ *
+ * The client holds no role→surface policy: `me.landing.path` is the resolved
+ * destination (My Work, a project Overview, or — Enterprise only — Portfolio).
+ * We navigate to it through `safeLandingPath`, an allowlist guard mirroring
+ * `loginRedirectDest`'s open-redirect protection, so an unreachable or
+ * unexpected path degrades to My Work rather than a dead route.
  */
 function RootRedirect() {
-  const { data: projects, isLoading } = useProjects();
+  const { user, isLoading } = useCurrentUser();
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (isLoading || !projects) return;
-    const first = projects[0];
-    if (first) {
-      void navigate(`/projects/${first.id}/overview`, { replace: true });
-    }
-  }, [projects, isLoading, navigate]);
+    if (isLoading || !user) return;
+    void navigate(safeLandingPath(user.landing?.path), { replace: true });
+  }, [user, isLoading, navigate]);
 
-  if (isLoading) return null;
-
+  // Hold the loading state while `me` resolves — never flash a fallback first.
   return (
     <div className="flex items-center justify-center h-full text-sm text-neutral-text-secondary">
-      Select a project from the sidebar to get started.
+      {isLoading ? 'Loading…' : 'Taking you to your home screen…'}
     </div>
   );
 }
@@ -584,6 +592,16 @@ export const router = createBrowserRouter([
             element: (
               <Suspense fallback={<RouteLoadingFallback />}>
                 <NotificationListPage />
+              </Suspense>
+            ),
+          },
+          // Per-user general preferences — default landing screen (ADR-0129, #1181).
+          // Flat route like the other /me/settings/* pages (no SettingsShell).
+          {
+            path: 'me/settings/general',
+            element: (
+              <Suspense fallback={<RouteLoadingFallback />}>
+                <MyGeneralPreferencesPage />
               </Suspense>
             ),
           },

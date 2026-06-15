@@ -88,6 +88,13 @@ async function setupAuthenticatedPage(page: Page): Promise<void> {
         max_project_role: 100,
         workspace_role: null,
         can_access_admin_settings: false,
+        // ADR-0129: default_landing + resolved landing so LandingContextHint
+        // and LandingPrimaryUsePrompt have the correct shape and render correctly.
+        // A concrete preference ('my_work') means neither the hint nor the prompt
+        // show (prompt requires default_landing==='auto', hint requires role_policy
+        // or fallback resolved_by), so the My Work tests are unaffected.
+        default_landing: 'my_work',
+        landing: { intent: 'my_work', path: '/me/work', resolved_by: 'preference' },
       }),
     }),
   );
@@ -169,8 +176,7 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
 
     // Capture the PATCH request to verify the body + header.
     const patchRequest = page.waitForRequest(
-      (req) =>
-        req.url().includes(`/api/v1/tasks/${TASK_ID}/`) && req.method() === 'PATCH',
+      (req) => req.url().includes(`/api/v1/tasks/${TASK_ID}/`) && req.method() === 'PATCH',
     );
     await page.route(`**/api/v1/tasks/${TASK_ID}/`, (route) =>
       route.fulfill({
@@ -205,12 +211,10 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
     await page.goto('/me/work');
     // The expanded Sidebar shows "My Work" with the count chip; both
     // accessible names are merged via aria-label when count is set.
-    await expect(
-      page.getByRole('link', { name: /My Work, 1 due today/i }),
-    ).toBeVisible();
+    await expect(page.getByRole('link', { name: /My Work, 1 due today/i })).toBeVisible();
   });
 
-  test('empty state — no projects — shows the Load demo data CTA and docs link', async ({
+  test('empty state — no projects — shows the Explore a demo project CTA and docs link', async ({
     page,
   }) => {
     await setupAuthenticatedPage(page);
@@ -242,9 +246,10 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
 
     await page.goto('/me/work');
 
-    await expect(page.getByRole('heading', { name: 'Nothing assigned to you yet' })).toBeVisible();
-    await expect(page.getByText(/coming soon/i)).toBeVisible();
-    await expect(page.getByRole('link', { name: /Learn about the contributor view/i })).toBeVisible();
+    // v2 warm empty state (ADR-0129): welcoming copy + the demo CTA + docs link.
+    await expect(page.getByRole('heading', { name: /get you started/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Explore a demo project' })).toBeVisible();
+    await expect(page.getByRole('link', { name: /Learn more/i })).toBeVisible();
   });
 
   test('empty state — projects exist but no assignments — shows the unassigned flavor', async ({
@@ -279,11 +284,9 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
 
     await page.goto('/me/work');
 
-    await expect(
-      page.getByRole('heading', { name: /not assigned to any active work right now/i }),
-    ).toBeVisible();
-    // No demo CTA in flavor B.
-    await expect(page.getByRole('button', { name: /Load demo data/i })).toHaveCount(0);
+    // v2 flavor B (has projects, no assignments): refreshed copy, NO demo CTA.
+    await expect(page.getByRole('heading', { name: /all caught up/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Explore a demo project/i })).toHaveCount(0);
   });
 
   test('a blocked task shows the Blocked badge, type chip, age, and reason (#476/#855/#1135)', async ({
