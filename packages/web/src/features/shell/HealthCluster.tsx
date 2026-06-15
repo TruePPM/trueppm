@@ -21,9 +21,14 @@ interface BadgeTaskItem {
   name: string;
 }
 
-function formatP80(iso: string): string {
+function formatForecastDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
+
+// The velocity number is audience-scoped (ADR-0104). Even when the viewer is in
+// audience, the slot surfaces this boundary so teams trust the figure isn't piped
+// up to portfolio/PMO surfaces (issue 1197 — Morgan's trust ask).
+const VELOCITY_PRIVACY_NOTE = 'Visible to project members only — not on portfolio dashboards';
 
 // Inline padlock glyph for the ADR-0104 velocity privacy wall (rule 168). No
 // LockIcon exists in the icon set; this is decorative (aria-hidden) — the gate is
@@ -189,7 +194,7 @@ function Segment({
   onTaskNavigate,
 }: SegmentProps) {
   switch (segment.kind) {
-    case 'forecast':
+    case 'forecast': {
       if (segment.p80 == null) {
         return (
           <span className={CELL} title="Forecast unavailable — run the scheduler">
@@ -198,18 +203,34 @@ function Segment({
           </span>
         );
       }
+      // Surface the P50·P80 band (issue 1197) — Janet's "binary forecast" is a hard-NO; the
+      // MC engine already computes both percentiles. P50 is null only when no MC
+      // distribution is cached, in which case the slot degrades to P80 alone.
+      const p50 = segment.p50;
+      const ariaLabel =
+        p50 != null
+          ? `Monte Carlo forecast: P50 ${formatForecastDate(p50)}, P80 ${formatForecastDate(segment.p80)}. View distribution.`
+          : `Monte Carlo P80 completion ${formatForecastDate(segment.p80)}. View distribution.`;
       return (
         <button
           type="button"
           onClick={onOpenForecast}
           aria-haspopup="dialog"
-          aria-label={`Monte Carlo P80 completion ${formatP80(segment.p80)}. View distribution.`}
+          aria-label={ariaLabel}
           className={CELL_BTN}
         >
+          {p50 != null && (
+            <>
+              <span className="text-neutral-text-secondary">P50</span>
+              <span className="tppm-mono text-neutral-text-primary">{formatForecastDate(p50)}</span>
+              <span aria-hidden="true" className="text-neutral-text-disabled">·</span>
+            </>
+          )}
           <span className="text-neutral-text-secondary">P80</span>
-          <span className="tppm-mono text-neutral-text-primary">{formatP80(segment.p80)}</span>
+          <span className="tppm-mono text-neutral-text-primary">{formatForecastDate(segment.p80)}</span>
         </button>
       );
+    }
 
     case 'atRisk':
       return (
@@ -306,9 +327,15 @@ function Segment({
         <button
           type="button"
           onClick={onGoToSprints}
-          aria-label={`Velocity ${segment.avg} points per ${iterationLower}${range}${excluded}. View ${iterationLower}s.`}
+          title={VELOCITY_PRIVACY_NOTE}
+          aria-label={`Velocity ${segment.avg} points per ${iterationLower}${range}${excluded}. ${VELOCITY_PRIVACY_NOTE}. View ${iterationLower}s.`}
           className={CELL_BTN}
         >
+          {/* Lock = the audience boundary on the in-audience figure (issue 1197). Decorative;
+              the boundary text lives in the button's aria-label + title. */}
+          <span className="text-neutral-text-secondary">
+            <LockGlyph />
+          </span>
           <span className="text-neutral-text-secondary">Velocity</span>
           <span className="tppm-mono text-neutral-text-primary">
             {segment.avg} pts/{iterationLower}
@@ -344,7 +371,10 @@ function segmentSummary(
 ): string {
   switch (segment.kind) {
     case 'forecast':
-      return segment.p80 ? `P80: ${formatP80(segment.p80)}` : 'P80: — (run the scheduler)';
+      if (segment.p80 == null) return 'P80: — (run the scheduler)';
+      return segment.p50 != null
+        ? `P50 ${formatForecastDate(segment.p50)} · P80 ${formatForecastDate(segment.p80)}`
+        : `P80: ${formatForecastDate(segment.p80)}`;
     case 'atRisk':
       return `${segment.count} at-risk task${segment.count === 1 ? '' : 's'}`;
     case 'critical':
@@ -360,7 +390,7 @@ function segmentSummary(
     case 'velocity':
       return segment.avg == null
         ? 'Velocity: —'
-        : `Velocity ${segment.avg} pts/${iterationLower}`;
+        : `Velocity ${segment.avg} pts/${iterationLower} · members only`;
     default:
       return '';
   }
@@ -479,6 +509,9 @@ export function HealthCluster({ onTaskNavigate }: Props) {
     stats,
     activeSprint,
     velocity,
+    // P50 for the forecast band comes from the same MC result the drill-through
+    // panel renders (issue 1197); P80 stays sourced from the status-summary.
+    mc: mcResult ? { p50: mcResult.p50, p80: mcResult.p80 } : undefined,
     now: new Date(),
   });
 

@@ -43,12 +43,15 @@ const VELOCITY: ProjectVelocity = {
   excluded_count: 0,
 };
 
+const MC = { p50: '2026-10-05', p80: '2026-11-03' };
+
 function input(over: Partial<HealthClusterInput>): HealthClusterInput {
   return {
     methodology: 'AGILE',
     stats: STATS,
     activeSprint: sprint({}),
     velocity: VELOCITY,
+    mc: MC,
     now: new Date('2026-06-10T12:00:00Z'),
     ...over,
   };
@@ -85,13 +88,18 @@ describe('healthClusterModel', () => {
     expect(segs.map((s) => s.kind)).toEqual(['sprint', 'points', 'velocity']);
   });
 
-  it('forecast carries the P80 date, or null when the scheduler has not run', () => {
+  it('forecast carries the P50·P80 band, or p80 null when the scheduler has not run', () => {
     const segs = healthClusterModel(input({ methodology: 'WATERFALL' }));
-    expect(segs[0]).toMatchObject({ kind: 'forecast', p80: '2026-11-03' });
+    expect(segs[0]).toMatchObject({ kind: 'forecast', p50: '2026-10-05', p80: '2026-11-03' });
     const none = healthClusterModel(
       input({ methodology: 'WATERFALL', stats: { ...STATS, monteCarlop80: null } }),
     );
     expect(none[0]).toMatchObject({ kind: 'forecast', p80: null });
+  });
+
+  it('forecast P50 is null (P80 alone) when no MC distribution is cached', () => {
+    const segs = healthClusterModel(input({ methodology: 'WATERFALL', mc: undefined }));
+    expect(segs[0]).toMatchObject({ kind: 'forecast', p50: null, p80: '2026-11-03' });
   });
 
   it('no active sprint → sprintEmpty and the Points slot is omitted (AGILE 2 segments)', () => {
