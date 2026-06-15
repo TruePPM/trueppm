@@ -466,6 +466,13 @@ ci:build-integration-image:
   image: docker:27
   variables:
     DOCKER_BUILDKIT: "0"
+    # The runner's environment defaults DOCKER_HOST to the dind service
+    # (tcp://docker:2376). Point it back at the host daemon's socket so the build
+    # uses the runner's locally-cached Playwright base instead of an isolated
+    # dind store. TLS vars are cleared since the unix socket needs no TLS.
+    DOCKER_HOST: "unix:///var/run/docker.sock"
+    DOCKER_TLS_VERIFY: ""
+    DOCKER_CERT_PATH: ""
     IMAGE: "$CI_REGISTRY_IMAGE/ci-integration:noble"
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
