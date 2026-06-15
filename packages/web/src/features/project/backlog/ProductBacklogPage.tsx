@@ -20,7 +20,8 @@
  * Rendered against the navy/sage design-system tokens.
  */
 
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCreateIntentStore } from '@/stores/createIntentStore';
 import {
   DndContext,
   KeyboardSensor,
@@ -293,6 +294,19 @@ export function ProductBacklogPage() {
   const reorder = useReorderBacklog(projectId);
   const quickAdd = useQuickAddStory(projectId);
   const canManageBacklog = useCanManageBacklog(projectId);
+
+  // Context-aware "+ New" (ADR-0130, #1179): a `story` create intent for this project
+  // focuses the inline quick-add (the create flow native to the backlog), then clears.
+  const quickAddRef = useRef<HTMLInputElement>(null);
+  const createIntent = useCreateIntentStore((s) => s.intent);
+  const closeCreateIntent = useCreateIntentStore((s) => s.close);
+  useEffect(() => {
+    if (createIntent?.kind === 'story' && createIntent.projectId === projectId) {
+      quickAddRef.current?.focus();
+      quickAddRef.current?.scrollIntoView({ block: 'nearest' });
+      closeCreateIntent();
+    }
+  }, [createIntent, projectId, closeCreateIntent]);
   const [conflict, setConflict] = useState(false);
   const [draft, setDraft] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -496,6 +510,7 @@ export function ProductBacklogPage() {
             +
           </span>
           <input
+            ref={quickAddRef}
             type="text"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
