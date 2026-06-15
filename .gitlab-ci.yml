@@ -26,6 +26,11 @@ variables:
   POSTGRES_DB: trueppm_test
   POSTGRES_USER: trueppm
   POSTGRES_PASSWORD: trueppm
+  # Playwright base-image tag, mirrored into our registry by
+  # ci:mirror-playwright-base and consumed by ci:build-integration-image so MR
+  # pipelines never pull anonymously from mcr.microsoft.com (which throttles CI
+  # runner IPs). Bump alongside the Dockerfile ARG default and packages/web.
+  PLAYWRIGHT_BASE_TAG: "v1.58.2-noble"
 
 # ---------------------------------------------------------------------------
 # Prevent duplicate pipelines.
@@ -439,6 +444,54 @@ ci:build-scheduler-image:
         .
     - docker push "$IMAGE"
 
+ci:mirror-playwright-base:
+  # Mirror the upstream Playwright base image into our own GitLab Container
+  # Registry so the rest of CI never pulls it anonymously from mcr.microsoft.com.
+  # Microsoft throttles cold anonymous pulls from CI runner IPs (401/429 on its
+  # oauth2/token endpoint); an isolated dind daemon hits that on every build. Our
+  # registry has no such limit and dind authenticates to it via CI_REGISTRY creds.
+  #
+  # This is the ONLY job that pulls from MCR, so the throttle is taken off the MR
+  # critical path: it runs manually (on a Playwright bump) and weekly via schedule
+  # as a freshness/safety net. The cold pull is wrapped in an exponential-backoff
+  # retry because that one pull may still hit the throttle window; once pushed,
+  # the mirror tag persists until the next bump.
+  stage: lint
+  image: docker:27
+  services:
+    - docker:27-dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+    SRC: "mcr.microsoft.com/playwright:$PLAYWRIGHT_BASE_TAG"
+    DEST: "$CI_REGISTRY_IMAGE/playwright-base:$PLAYWRIGHT_BASE_TAG"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual
+      allow_failure: true
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: manual
+      allow_failure: true
+  before_script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+  script:
+    - |
+      attempt=1
+      max_attempts=5
+      delay=30
+      until docker pull "$SRC"; do
+        if [ "$attempt" -ge "$max_attempts" ]; then
+          echo "docker pull $SRC failed after ${max_attempts} attempts" >&2
+          exit 1
+        fi
+        echo "pull attempt ${attempt} failed (MCR throttle?); retrying in ${delay}s..." >&2
+        sleep "$delay"
+        attempt=$((attempt + 1))
+        delay=$((delay * 2))
+      done
+    - docker tag "$SRC" "$DEST"
+    - docker push "$DEST"
+
 ci:build-integration-image:
   # Rebuild and push the custom ci-integration image used by web:integration.
   # Bakes Python 3 + libpq-dev + gcc + uvicorn + scheduler[dev] + api[dev]
@@ -449,31 +502,19 @@ ci:build-integration-image:
   # plus the weekly scheduled run. Validated on MR pipelines when the relevant
   # files change so a broken Dockerfile is caught before merge; web:integration
   # itself is main-only and pulls the existing registry tag in steady state.
+  #
+  # Builds FROM our registry mirror of the Playwright base (built by
+  # ci:mirror-playwright-base) via the PLAYWRIGHT_BASE build-arg, so this job —
+  # which runs on every qualifying MR — never pulls from the throttled MCR
+  # endpoint. On a Playwright bump, run ci:mirror-playwright-base first.
   stage: lint
-  # Build against the runner's host Docker daemon (the executor binds
-  # /var/run/docker.sock) rather than a docker-in-docker service. The base
-  # image is FROM mcr.microsoft.com/playwright (see the Dockerfile), and
-  # Microsoft's registry throttles cold anonymous pulls (401/429 from its
-  # oauth2/token endpoint) — which is exactly what an isolated dind daemon hits
-  # on every build, since it starts with an empty image store. The web:e2e jobs
-  # never hit this: they run the same Playwright image as their job image, which
-  # the runner serves from its host-daemon cache under an if-not-present pull
-  # policy. Building on the host daemon replicates that — the legacy builder's
-  # default pull behavior is if-not-present, so it reuses the cached base image
-  # instead of re-resolving the manifest from MCR. (BuildKit, the dind default,
-  # always re-resolves the FROM manifest from the registry, which is why the
-  # previous dind build was throttled.)
   image: docker:27
+  services:
+    - docker:27-dind
   variables:
-    DOCKER_BUILDKIT: "0"
-    # The runner's environment defaults DOCKER_HOST to the dind service
-    # (tcp://docker:2376). Point it back at the host daemon's socket so the build
-    # uses the runner's locally-cached Playwright base instead of an isolated
-    # dind store. TLS vars are cleared since the unix socket needs no TLS.
-    DOCKER_HOST: "unix:///var/run/docker.sock"
-    DOCKER_TLS_VERIFY: ""
-    DOCKER_CERT_PATH: ""
+    DOCKER_TLS_CERTDIR: "/certs"
     IMAGE: "$CI_REGISTRY_IMAGE/ci-integration:noble"
+    PLAYWRIGHT_BASE: "$CI_REGISTRY_IMAGE/playwright-base:$PLAYWRIGHT_BASE_TAG"
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
     - if: '$CI_COMMIT_BRANCH == "main"'
@@ -491,6 +532,7 @@ ci:build-integration-image:
   script:
     - docker pull "$IMAGE" || true
     - docker build
+        --build-arg PLAYWRIGHT_BASE="$PLAYWRIGHT_BASE"
         --cache-from "$IMAGE"
         --tag "$IMAGE"
         --file .gitlab/ci-images/integration.Dockerfile
