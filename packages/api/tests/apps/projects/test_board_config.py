@@ -48,6 +48,19 @@ def _bare(columns: list[dict]) -> list[dict]:
     return [{"status": c["status"], "label": c["label"], "visible": c["visible"]} for c in columns]
 
 
+def _with_breach(columns: list[dict]) -> list[dict]:
+    """Annotate columns with the computed current_count/breach the GET now adds (D2).
+
+    These tests create no tasks, so every count is 0: a column with a wip_limit reads
+    ``ok`` (0 < limit), a column without one reads ``None``.
+    """
+    out = []
+    for c in columns:
+        breach = "ok" if c.get("wip_limit") is not None else None
+        out.append({**c, "current_count": 0, "breach": breach})
+    return out
+
+
 @pytest.fixture
 def calendar(db):
     return Calendar.objects.create(name="Standard")
@@ -89,7 +102,8 @@ def test_get_returns_defaults_when_no_config(scheduler_client, project):
     """GET returns the 5-column default with color and wip_limit when no config row exists."""
     resp = scheduler_client.get(f"/api/v1/projects/{project.pk}/board-config/")
     assert resp.status_code == 200
-    assert resp.data["columns"] == DEFAULT_COLUMNS
+    # GET now annotates each column with the computed WIP-breach verdict (D2, #1071).
+    assert resp.data["columns"] == _with_breach(DEFAULT_COLUMNS)
 
 
 @pytest.mark.django_db
@@ -141,7 +155,8 @@ def test_put_saves_config_with_color_and_wip_limit(scheduler_client, project):
     assert put_resp.data["columns"] == new_columns
 
     get_resp = scheduler_client.get(f"/api/v1/projects/{project.pk}/board-config/")
-    assert get_resp.data["columns"] == new_columns
+    # GET reflects the saved config plus the computed WIP-breach annotation (D2).
+    assert get_resp.data["columns"] == _with_breach(new_columns)
 
 
 @pytest.mark.django_db

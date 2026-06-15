@@ -218,6 +218,48 @@ def suppress_velocity_summary(summary: dict[str, Any]) -> dict[str, Any]:
     return redacted
 
 
+# flow_metrics arrays that are team-private historical performance detail
+# (cycle/lead distributions, the CFD series, the weekly throughput series).
+# Emptied for a below-tier reader; the keys themselves and the aggregate-only
+# data_integrity block are retained so existing clients keep a stable shape
+# (ADR-0130 D4 / ADR-0104 §2.1 — suppress, don't 403). data_integrity is NOT
+# stripped: it is aggregate-only advisory data (no per-person rows) and carries
+# no team-performance signal on its own.
+_FLOW_METRICS_GATED_ARRAYS = ("cfd", "throughput")
+
+
+def suppress_flow_metrics(payload: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of a flow_metrics payload with the team-private detail stripped.
+
+    Empties the cycle/lead-time distributions, the CFD series, and the weekly
+    throughput series, and sets ``flow_metrics_suppressed=True`` so the client can
+    render the gated empty-state (ADR-0130 D4). Models
+    :func:`suppress_velocity_summary`.
+
+    The ``data_integrity`` counts are zeroed too: ``bulk_moved_count`` /
+    ``backdated_count`` are derived from the same completed-task replay as the
+    throughput series, so a non-zero count reveals a floor on completions in the
+    window and partially reconstructs the very signal being suppressed. This mirrors
+    ADR-0104's treatment of ``excluded_count`` on velocity suppression. The block is
+    kept in the shape (zeroed) so the response contract survives suppression.
+    """
+    redacted = {
+        **payload,
+        "cycle_time": {"p50": None, "p80": None, "p95": None},
+        "lead_time": {"p50": None, "p80": None, "p95": None},
+        "data_integrity": {
+            "bulk_moved_count": 0,
+            "backdated_count": 0,
+            "missing_transition_count": 0,
+        },
+        "flow_metrics_suppressed": True,
+    }
+    for field in _FLOW_METRICS_GATED_ARRAYS:
+        if field in redacted:
+            redacted[field] = []
+    return redacted
+
+
 # ---------------------------------------------------------------------------
 # Writes — two gates (§1.1). Audience within [TEAM, ceiling]; ceiling team-owned.
 # ---------------------------------------------------------------------------
