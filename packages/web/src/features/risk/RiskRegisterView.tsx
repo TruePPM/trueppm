@@ -46,7 +46,7 @@ export function RiskRegisterView() {
 
   const [selectedCell, setSelectedCell] = useState<SelectedCell | null>(null);
   // Segment facet (All/High/Unmitigated/Mine) and severity sort — both
-  // client-side over the loaded list (#1170). Composed with the matrix-cell
+  // client-side over the loaded list. Composed with the matrix-cell
   // facet below via AND.
   const [filter, setFilter] = useState<RiskFilter>('all');
   const [severitySort, setSeveritySort] = useState<SeveritySort>('none');

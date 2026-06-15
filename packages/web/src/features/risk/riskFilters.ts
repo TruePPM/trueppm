@@ -1,7 +1,7 @@
 import type { Risk } from '@/api/types';
 
 /**
- * Risk register facet filtering and severity sort (#1170).
+ * Risk register facet filtering and severity sort.
  *
  * Pure helpers so the segment/sort logic is unit-testable in isolation from the
  * view. The register composes two orthogonal facets — the segment filter below
