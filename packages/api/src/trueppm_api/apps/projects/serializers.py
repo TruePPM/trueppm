@@ -3591,28 +3591,101 @@ class ProjectForecastSerializer(serializers.Serializer[dict[str, Any]]):
 
 
 class SprintForecastSerializer(serializers.Serializer[dict[str, Any]]):
-    """Backlog delivery forecast response (#487) — velocity Monte Carlo.
+    """Unified backlog delivery forecast response (#487, ADR-0130 D3 #1161).
 
-    P50/P80 sprint counts + calendar dates for clearing the remaining committed
-    backlog at the team's historical throughput. ``status`` is ``"ready"`` once
-    there are ≥2 closed sprints and a backlog, else ``"warming_up"`` (the forecast
-    fields are null). ``basis`` is always ``"monte_carlo"`` — unlike the milestone
-    band, this is a real simulation, so percentile vocabulary is honest
-    (web-rule 166). All forecast fields are nulled for readers below the velocity
-    audience (ADR-0104), in which case ``velocity_suppressed`` is true.
+    P50/P80/P95 calendar dates for clearing the remaining backlog at the team's
+    historical pace, from one of two bases:
+
+    - **velocity** (closed-sprint story points): ``forecast_basis="velocity"``,
+      ``remaining_points`` + ``p50/p80_sprints`` populated, ``status`` ``"ready"``
+      once there are ≥2 closed sprints and a backlog, else ``"warming_up"``.
+    - **throughput** (weekly item completions — a continuous-flow / kanban team):
+      ``forecast_basis="throughput"``, ``remaining_count`` populated, ``status``
+      ``"ready"`` once there are ≥4 non-zero throughput weeks and a backlog, else
+      the honest ``"insufficient_flow_history"`` (no false precision).
+
+    ``forecast_basis`` is the ADR-0130 D3 input discriminator so a consumer never
+    compares a throughput forecast to a velocity one unknowingly. ``basis`` is kept
+    as the legacy ``"monte_carlo"`` constant for existing clients; both bases are
+    real Monte Carlo simulations, so percentile vocabulary is honest (web-rule 166).
+
+    The forecast *dates* follow the velocity precedent under ADR-0104/0130 D4 —
+    schedule confidence remains visible — but every velocity/throughput-derived
+    field is nulled for readers below the relevant signal audience, in which case
+    ``velocity_suppressed`` is true.
     """
 
-    status = serializers.ChoiceField(choices=["ready", "warming_up"])
+    status = serializers.ChoiceField(choices=["ready", "warming_up", "insufficient_flow_history"])
     remaining_points = serializers.IntegerField(allow_null=True)
-    # Nulled for below-velocity-audience readers (ADR-0104): the closed-sprint
-    # count is a team-private organisational fact, like excluded_count.
+    # Throughput-path remaining backlog *item count* (null on the velocity path,
+    # which forecasts in points). ADR-0130 D3.
+    remaining_count = serializers.IntegerField(allow_null=True)
+    # Nulled for below-velocity-audience readers (ADR-0104): the closed-sprint /
+    # throughput-week count is a team-private organisational fact, like excluded_count.
     sample_count = serializers.IntegerField(allow_null=True)
     p50_sprints = serializers.IntegerField(allow_null=True)
     p80_sprints = serializers.IntegerField(allow_null=True)
     p50_date = serializers.DateField(allow_null=True)
     p80_date = serializers.DateField(allow_null=True)
+    p95_date = serializers.DateField(allow_null=True)
     basis = serializers.CharField()
+    # New ADR-0130 D3 discriminator: "velocity" | "throughput".
+    forecast_basis = serializers.CharField()
     velocity_suppressed = serializers.BooleanField()
+
+
+class _FlowPercentilesSerializer(serializers.Serializer[dict[str, Any]]):
+    """P50/P80/P95 day-count distribution for cycle or lead time (ADR-0130 D1).
+
+    All three are null when no task completed in the window, or when the historical
+    distributions are suppressed for a below-audience reader (ADR-0130 D4).
+    """
+
+    p50 = serializers.IntegerField(allow_null=True)
+    p80 = serializers.IntegerField(allow_null=True)
+    p95 = serializers.IntegerField(allow_null=True)
+
+
+class _FlowDataIntegritySerializer(serializers.Serializer[dict[str, Any]]):
+    """Aggregate-only advisory counts so a consumer can caveat the metrics (D1).
+
+    Never per-person (Priya): only project-wide totals of cards whose history makes
+    the cycle/lead/CFD numbers less trustworthy (bulk moves, backdated edits, missing
+    transitions). Always present, even under suppression.
+    """
+
+    bulk_moved_count = serializers.IntegerField()
+    backdated_count = serializers.IntegerField()
+    missing_transition_count = serializers.IntegerField()
+
+
+class FlowMetricsSerializer(serializers.Serializer[dict[str, Any]]):
+    """Methodology-neutral flow analytics response (ADR-0130 D1, #1072).
+
+    Cycle/lead-time distributions, a cumulative flow diagram (CFD), and a weekly
+    throughput series — all computed-on-read from ``Task`` history, no new model.
+
+    ``cfd`` entries and the per-day ``counts`` are keyed by **raw status strings**
+    (``BACKLOG``/``NOT_STARTED``/``IN_PROGRESS``/``REVIEW``/``COMPLETE``) via plain
+    ``DictField``s rather than a ``TaskStatus``-typed ChoiceField, so drf-spectacular
+    emits no new status-enum component (avoiding the known enum-name-collision
+    regression class; project_drf_enum_name_collision).
+
+    The historical distributions (``cycle_time``/``lead_time``/``cfd``/``throughput``)
+    are team-private (ADR-0130 D4): for a reader below the ``flow_metrics`` audience the
+    view empties them and sets ``flow_metrics_suppressed=true``. The ``data_integrity``
+    advisory block and the window metadata survive suppression.
+    """
+
+    window_days = serializers.IntegerField()
+    since = serializers.DateField()
+    until = serializers.DateField()
+    cycle_time = _FlowPercentilesSerializer()
+    lead_time = _FlowPercentilesSerializer()
+    cfd = serializers.ListField(child=serializers.DictField())
+    throughput = serializers.ListField(child=serializers.DictField())
+    data_integrity = _FlowDataIntegritySerializer()
+    flow_metrics_suppressed = serializers.BooleanField()
 
 
 # ---------------------------------------------------------------------------
