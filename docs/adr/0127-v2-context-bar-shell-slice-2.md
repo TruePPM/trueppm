@@ -86,7 +86,10 @@ left→right:
   superseded** rather than merged. UX rationale: ⌘K already covers fast jump-to, so the
   icon rail is redundant; 0px maximizes canvas (Sarah/Alex VoC) and gives a clean
   two-state model. `selectSidebarWidth` gains a `0` case; auto-collapse `< lg` now hides
-  rather than shrinks; `sidebarUserControlled` still guards it.
+  rather than shrinks; `sidebarUserControlled` still guards it. A *deliberate*
+  (user-controlled) collapse is persisted to `localStorage` (`trueppm.rail.collapsed`)
+  so it survives a reload; viewport-driven auto-collapse is recomputed per mount and
+  never persisted.
 - **E. Presence avatars — RATIFIED: defer from this slice.** Per-project only (empty on
   most context-bar routes), lukewarm VoC, Morgan surveillance flag, and relocating from
   `TopBar` adds churn. Pull into the context row when #1167 refactors `TopBar`. (If later

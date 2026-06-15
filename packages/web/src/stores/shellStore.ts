@@ -30,6 +30,34 @@ function writeIds(key: string, ids: string[]): void {
   }
 }
 
+// Persisted rail collapse intent (ADR-0127). Only a *user-controlled* collapse is
+// persisted — viewport-driven auto-collapse (< lg) is derived fresh on each mount,
+// so it must not leak across reloads. On load we restore the user's choice and the
+// `userControlled` flag so the mount-time resize handler won't override it.
+const COLLAPSED_KEY = 'trueppm.rail.collapsed';
+function readCollapsed(): { collapsed: boolean; userControlled: boolean } {
+  try {
+    const raw = localStorage.getItem(COLLAPSED_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : null;
+    if (parsed && typeof parsed === 'object' && 'collapsed' in parsed) {
+      return {
+        collapsed: Boolean((parsed as { collapsed: unknown }).collapsed),
+        userControlled: true,
+      };
+    }
+  } catch {
+    // ignore — fall through to the default
+  }
+  return { collapsed: false, userControlled: false };
+}
+function writeCollapsed(collapsed: boolean): void {
+  try {
+    localStorage.setItem(COLLAPSED_KEY, JSON.stringify({ collapsed }));
+  } catch {
+    // localStorage unavailable — keep the in-memory value only.
+  }
+}
+
 interface ShellState {
   sidebarCollapsed: boolean;
   /** Whether the user manually set the collapsed state (prevents auto-collapse from overriding) */
@@ -46,16 +74,23 @@ interface ShellState {
   toggleProgram: (programId: string) => void;
 }
 
+const initialCollapse = readCollapsed();
+
 export const useShellStore = create<ShellState>()((set) => ({
-  sidebarCollapsed: false,
-  sidebarUserControlled: false,
+  sidebarCollapsed: initialCollapse.collapsed,
+  sidebarUserControlled: initialCollapse.userControlled,
   toggleSidebar: () =>
-    set((s) => ({
-      sidebarCollapsed: !s.sidebarCollapsed,
-      sidebarUserControlled: true,
-    })),
-  setSidebarCollapsed: (collapsed, userControlled = false) =>
-    set({ sidebarCollapsed: collapsed, sidebarUserControlled: userControlled }),
+    set((s) => {
+      const next = !s.sidebarCollapsed;
+      writeCollapsed(next);
+      return { sidebarCollapsed: next, sidebarUserControlled: true };
+    }),
+  setSidebarCollapsed: (collapsed, userControlled = false) => {
+    // Persist only deliberate (user-controlled) collapses — auto-collapse is
+    // viewport-derived and recomputed on each mount.
+    if (userControlled) writeCollapsed(collapsed);
+    set({ sidebarCollapsed: collapsed, sidebarUserControlled: userControlled });
+  },
   projectScope: 'all',
   setProjectScope: (scope) => set({ projectScope: scope }),
   pinnedProjectIds: readIds(PINNED_KEY),

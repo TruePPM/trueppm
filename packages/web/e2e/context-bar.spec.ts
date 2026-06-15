@@ -62,4 +62,22 @@ test.describe('v2 context bar (#1177)', () => {
     await page.getByRole('button', { name: 'Show navigation' }).click();
     await expect(rail).toBeVisible();
   });
+
+  test('a hidden rail stays hidden across reload (ADR-0127 persistence)', async ({ page }) => {
+    await setup(page);
+    await page.goto(`/projects/${PROJECT_ID}/overview`);
+
+    const rail = page.getByRole('complementary', { name: 'Primary navigation' });
+    await expect(rail).toBeVisible({ timeout: 10_000 });
+    await page.getByRole('button', { name: 'Hide navigation' }).click();
+    await expect(rail).toHaveCount(0);
+
+    await page.reload();
+
+    // The deliberate collapse is restored from localStorage, not reset to expanded.
+    await expect(page.getByRole('button', { name: 'Show navigation' })).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(rail).toHaveCount(0);
+  });
 });
