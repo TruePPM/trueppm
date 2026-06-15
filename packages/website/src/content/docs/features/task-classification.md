@@ -25,9 +25,12 @@ The controls are read-only for Viewers and non-owning Members; the server remain
 | **Story** | A user-facing increment, estimated in story points. |
 | **Bug** | A defect against accepted scope. |
 | **Spike** | Time-boxed research; answers a question and ships no deliverable. |
+| **Tech Debt** | Refactoring or remediation work. Scheduled like a Task and **counts toward velocity**, but reported separately so a team can see how much capacity went to debt. |
 | **Epic** | A structural parent. It groups child work and rolls up — and it is **excluded from CPM scheduling** and every committed-delivery aggregate, exactly like a recurring template. |
 
 Epic is special: it changes hierarchy rather than adding schedulable work, so changing a task to or from `epic` is gated to the Product Owner or an Admin. If you do not hold that role, the editor surfaces the server's refusal rather than silently dropping the change.
+
+**Tech Debt** is the deliberate opposite of Epic: it *is* schedulable work that consumes sprint capacity, so it is **not** excluded from velocity — hiding it would understate a team's real throughput. Its only distinct treatment is visibility. A tech-debt card will carry a **Tech Debt** badge on its board face (other types stay unbadged to keep the board calm), the board toolbar will gain a quiet **Tech debt** filter that narrows the board to remediation work, and any client can chart debt distinctly through the `?type=tech_debt` task-list filter. Together these answer the recurring engineering question — *how much of our capacity is going to debt versus features?* — without removing that capacity from the numbers.
 
 ## Governance class — which overlay governs the subtree
 

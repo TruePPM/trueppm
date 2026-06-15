@@ -50,6 +50,8 @@ function Harness(overrides: Partial<CalmToolbarProps> = {}) {
     onMyTasksToggle: vi.fn(),
     riskLinkedOnly: false,
     onRiskLinkedToggle: vi.fn(),
+    debtOnly: false,
+    onDebtOnlyToggle: vi.fn(),
     showCost: false,
     onShowCostToggle: vi.fn(),
     onCollapseAll: vi.fn(),
@@ -150,6 +152,23 @@ describe('CalmToolbar', () => {
     renderToolbar({ onShowCostToggle });
     await user.click(screen.getByRole('button', { name: 'Show cost' }));
     expect(onShowCostToggle).toHaveBeenCalled();
+  });
+
+  // Acceptance: tech-debt lens (ADR-0135, #1076) ---------------------------
+  it('clicking the Tech debt pill toggles via onDebtOnlyToggle', async () => {
+    const user = userEvent.setup();
+    const onDebtOnlyToggle = vi.fn();
+    renderToolbar({ onDebtOnlyToggle });
+    await user.click(screen.getByRole('button', { name: 'Tech-debt only' }));
+    expect(onDebtOnlyToggle).toHaveBeenCalled();
+  });
+
+  it('Tech debt toggle reflects pressed state', () => {
+    renderToolbar({ debtOnly: true });
+    expect(screen.getByRole('button', { name: 'Tech-debt only' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
   });
 
   // Acceptance: layout switcher --------------------------------------------

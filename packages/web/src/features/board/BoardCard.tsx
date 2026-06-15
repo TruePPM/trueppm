@@ -14,6 +14,7 @@ import { severityRagBand } from '@/hooks/useTaskDependencies';
 import { isTaskScheduled } from '@/lib/task';
 import { PendingAcceptanceChip } from './PendingAcceptanceChip';
 import { ReadinessChip } from './ReadinessChip';
+import { TypeBadge } from '@/features/project/backlog/components/TypeBadge';
 
 export type BoardDensity = 'compact' | 'comfortable' | 'detailed';
 
@@ -692,6 +693,16 @@ export function BoardCard({
         {task.readiness && (
           <div className="mb-1.5">
             <ReadinessChip readiness={task.readiness} />
+          </div>
+        )}
+
+        {/* Tech-debt badge (ADR-0135, #1076) — debt is the one type surfaced on
+            the card face so a team can see remediation work at a glance; other
+            types stay unbadged to keep the board calm. Neutral pill, word carries
+            the meaning (rule 12). */}
+        {task.taskType === 'tech_debt' && (
+          <div className="mb-1.5">
+            <TypeBadge type="tech_debt" />
           </div>
         )}
 

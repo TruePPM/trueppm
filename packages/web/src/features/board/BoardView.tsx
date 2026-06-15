@@ -957,6 +957,10 @@ export function BoardView() {
     isSynthetic?: boolean;
   } | null>(null);
   const [riskLinkedOnly, setRiskLinkedOnly] = useState(false);
+  // Tech-debt filter (ADR-0135, #1076) — transient board toggle that narrows to
+  // type=tech_debt so a team can see remediation work distinctly. Not part of a
+  // saved view; it's a quick lens, like the at-risk toggle's intent.
+  const [debtOnly, setDebtOnly] = useState(false);
   const [evmMode, setEvmMode] = useState<EvmMode>('off');
   const [showCost, setShowCost] = useState(false);
   // Built-in view filter state (issue #191)
@@ -1291,10 +1295,11 @@ export function BoardView() {
         if (!t.assignees.some((a) => a.resourceId === myResourceId)) continue;
       }
       if (riskLinkedOnly && (t.linkedRisksCount ?? 0) === 0) continue;
+      if (debtOnly && t.taskType !== 'tech_debt') continue;
       out.push(t);
     }
     return out;
-  }, [tasks, cpOnly, dueSoonDays, mineActive, myResourceId, riskLinkedOnly]);
+  }, [tasks, cpOnly, dueSoonDays, mineActive, myResourceId, riskLinkedOnly, debtOnly]);
 
   // Per-phase, per-status task groupings — applies active sort order.
   const phaseTaskMap = useMemo(() => {
@@ -1328,6 +1333,8 @@ export function BoardView() {
           if (myResourceId === null) continue;
           if (!task.assignees.some((a) => a.resourceId === myResourceId)) continue;
         }
+        // Tech-debt lens (ADR-0135, #1076): narrow to remediation work.
+        if (debtOnly && task.taskType !== 'tech_debt') continue;
         byStatus[task.status]?.push(task);
       }
       // Apply sort within each status cell
@@ -1337,7 +1344,7 @@ export function BoardView() {
       result.set(phase.id, byStatus);
     }
     return result;
-  }, [phases, sort, cpOnly, dueSoonDays, mineActive, myResourceId]);
+  }, [phases, sort, cpOnly, dueSoonDays, mineActive, myResourceId, debtOnly]);
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
     setActiveId(String(event.active.id));
@@ -1725,6 +1732,8 @@ export function BoardView() {
             onMyTasksToggle={() => myTasksFilter.setEnabled(!myTasksFilter.enabled)}
             riskLinkedOnly={riskLinkedOnly}
             onRiskLinkedToggle={() => setRiskLinkedOnly((v) => !v)}
+            debtOnly={debtOnly}
+            onDebtOnlyToggle={() => setDebtOnly((v) => !v)}
             showCost={showCost}
             onShowCostToggle={() => setShowCost((v) => !v)}
             onCollapseAll={() => collapseAll(phases.map((p) => p.id))}
@@ -1782,6 +1791,28 @@ export function BoardView() {
               <button
                 type="button"
                 onClick={() => myTasksFilter.setEnabled(false)}
+                className="ml-1 underline hover:no-underline
+                  focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none rounded"
+              >
+                Show all →
+              </button>
+            </div>
+          )}
+
+          {/* "Tech debt" active chip (ADR-0135, #1076) — keeps the lens
+              inescapable so a narrowed board doesn't read as "lost tasks". */}
+          {debtOnly && (
+            <div
+              className="flex items-center gap-2 px-3 py-1.5 text-xs
+                bg-brand-primary/5 border-b border-brand-primary/20
+                text-brand-primary-dark dark:text-brand-primary"
+              role="status"
+            >
+              <span aria-hidden="true">⚒</span>
+              <span>Filter: Tech debt</span>
+              <button
+                type="button"
+                onClick={() => setDebtOnly(false)}
                 className="ml-1 underline hover:no-underline
                   focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none rounded"
               >
@@ -1928,7 +1959,7 @@ export function BoardView() {
                     // phases with no visible tasks. Without this the empty-state
                     // branch below can never render — phases would stay even when
                     // every cell has been emptied by the filter.
-                    if (cpOnly || dueSoonDays !== null || mineActive) {
+                    if (cpOnly || dueSoonDays !== null || mineActive || debtOnly) {
                       const visibleCount = Object.values(phaseCells ?? {}).reduce(
                         (s: number, arr) => s + (arr as unknown[]).length,
                         0,

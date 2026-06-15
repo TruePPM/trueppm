@@ -17557,6 +17557,14 @@
                             "type": "string"
                         },
                         "description": "Filter by task status value."
+                    },
+                    {
+                        "in": "query",
+                        "name": "type",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Filter by task type value (epic/story/task/bug/spike/tech_debt). Backs the board tech-debt filter (ADR-0135, #1076)."
                     }
                 ],
                 "tags": [
@@ -28937,10 +28945,11 @@
                     "story",
                     "task",
                     "bug",
-                    "spike"
+                    "spike",
+                    "tech_debt"
                 ],
                 "type": "string",
-                "description": "* `epic` - Epic\n* `story` - Story\n* `task` - Task\n* `bug` - Bug\n* `spike` - Spike"
+                "description": "* `epic` - Epic\n* `story` - Story\n* `task` - Task\n* `bug` - Bug\n* `spike` - Spike\n* `tech_debt` - Tech Debt"
             },
             "Team": {
                 "type": "object",
