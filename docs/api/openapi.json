@@ -25520,8 +25520,7 @@
                 },
                 "required": [
                     "duration_ms",
-                    "id",
-                    "trigger"
+                    "id"
                 ]
             },
             "PurgeRunQueued": {

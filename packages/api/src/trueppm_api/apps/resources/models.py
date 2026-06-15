@@ -80,7 +80,11 @@ class ResourceSkill(VersionedModel):
 
     class Meta:
         db_table = "resources_resource_skill"
-        unique_together = [("resource", "skill")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["resource", "skill"], name="uniq_resource_skill_resource_skill"
+            ),
+        ]
         indexes = [models.Index(fields=["skill", "proficiency"], name="res_skill_prof_idx")]
         ordering = ["skill__name"]
 
@@ -107,7 +111,11 @@ class ProjectResource(VersionedModel):
 
     class Meta:
         db_table = "resources_project_resource"
-        unique_together = [("project", "resource")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "resource"], name="uniq_project_resource_project_resource"
+            ),
+        ]
         indexes = [models.Index(fields=["project", "is_deleted"], name="proj_res_proj_del_idx")]
 
     def __str__(self) -> str:
@@ -133,7 +141,11 @@ class TaskSkillRequirement(VersionedModel):
 
     class Meta:
         db_table = "resources_task_skill_requirement"
-        unique_together = [("task", "skill")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["task", "skill"], name="uniq_task_skill_req_task_skill"
+            ),
+        ]
         ordering = ["skill__name"]
 
     def __str__(self) -> str:
@@ -153,7 +165,11 @@ class TaskResource(models.Model):
 
     class Meta:
         db_table = "resources_task_resource"
-        unique_together = [("task", "resource")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["task", "resource"], name="uniq_task_resource_task_resource"
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"{self.resource} on {self.task} ({self.units}u)"

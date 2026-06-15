@@ -122,7 +122,11 @@ class PurgeRun(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     started_at = models.DateTimeField(default=timezone.now, db_index=True)
     finished_at = models.DateTimeField(null=True, blank=True)
-    trigger = models.CharField(max_length=10, choices=Trigger.choices)
+    # default=SCHEDULED is self-documenting: every PurgeRun is written by the
+    # coordinator, which always sets ``trigger`` explicitly, but the field-level
+    # default makes the most common case (the periodic Celery beat run) obvious
+    # without reading the writer (#841).
+    trigger = models.CharField(max_length=10, choices=Trigger.choices, default=Trigger.SCHEDULED)
     state = models.CharField(max_length=8, choices=State.choices, default=State.RUNNING)
     # [{"key","label","rows","bytes","state","error"}] — one entry per attempted table.
     tables = models.JSONField(default=list)

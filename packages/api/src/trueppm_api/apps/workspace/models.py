@@ -222,7 +222,11 @@ class WorkspaceMembership(VersionedModel):
 
     class Meta:
         db_table = "workspace_membership"
-        unique_together = [("workspace", "user")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["workspace", "user"], name="uniq_workspace_membership_workspace_user"
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"{self.user} — {WorkspaceRole(self.role).label} ({self.status})"
@@ -354,7 +358,11 @@ class GroupMembership(VersionedModel):
 
     class Meta:
         db_table = "workspace_group_membership"
-        unique_together = [("group", "user")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["group", "user"], name="uniq_group_membership_group_user"
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"{self.user} ∈ {self.group}"
@@ -392,7 +400,11 @@ class GroupProject(models.Model):
 
     class Meta:
         db_table = "workspace_group_project"
-        unique_together = [("group", "project")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["group", "project"], name="uniq_group_project_group_project"
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"{self.group} → {self.project_id} ({Role(self.role).label})"

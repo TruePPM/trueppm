@@ -2048,7 +2048,9 @@ class RiskTask(models.Model):
 
     class Meta:
         db_table = "projects_risk_task"
-        unique_together = [("risk", "task")]
+        constraints = [
+            models.UniqueConstraint(fields=["risk", "task"], name="uniq_risk_task_risk_task"),
+        ]
 
     def __str__(self) -> str:
         return f"RiskTask risk={self.risk_id} task={self.task_id}"

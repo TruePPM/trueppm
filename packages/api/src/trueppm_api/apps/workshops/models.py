@@ -76,7 +76,11 @@ class WorkshopParticipant(models.Model):
         db_table = "workshops_participant"
         ordering = ["joined_at"]
         # DB-level guard against duplicate rows from simultaneous reconnects.
-        unique_together = [("session", "user")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["session", "user"], name="uniq_workshop_participant_session_user"
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"WorkshopParticipant({self.user_id} in {self.session_id})"
