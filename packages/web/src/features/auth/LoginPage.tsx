@@ -21,7 +21,7 @@ interface TokenResponse {
  * shared URLs still work after a re-auth.
  *
  * When there is no safe `next`, defer to the server-resolved app front door
- * (ADR-0129, #1181) — `me.landing.path`, guarded by the same allowlist — instead
+ * (ADR-0129) — `me.landing.path`, guarded by the same allowlist — instead
  * of the bare root. This means a contributor lands on My Work, a PM on a project
  * Overview, etc. directly, rather than bouncing through `/`'s RootRedirect.
  *

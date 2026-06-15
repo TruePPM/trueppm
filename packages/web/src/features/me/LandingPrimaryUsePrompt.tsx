@@ -1,5 +1,5 @@
 /**
- * First-login "primary use" prompt (ADR-0129, #1181).
+ * First-login "primary use" prompt (ADR-0129).
  *
  * An inline presentational card at the top of My Work — NOT a modal (it is page
  * content: no focus trap, no auto-focus). Contributor-first: it mounts only on

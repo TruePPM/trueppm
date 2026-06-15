@@ -1,6 +1,6 @@
 /**
  * MyGeneralPreferencesPage — per-user general preferences at
- * /me/settings/general (ADR-0129, #1181).
+ * /me/settings/general (ADR-0129).
  *
  * Mirrors NotificationPreferencesPage's page chrome and per-change auto-save:
  * no save bar, no dirty-form gate. Selecting a landing option PATCHes

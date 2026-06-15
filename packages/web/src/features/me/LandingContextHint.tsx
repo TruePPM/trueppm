@@ -1,5 +1,5 @@
 /**
- * Transparency hint for the role-based front door (ADR-0129, #1181).
+ * Transparency hint for the role-based front door (ADR-0129).
  *
  * A slim, dismissible `role="status"` strip at the top of the landing surface
  * that explains *why* the user landed here — calm neutral styling, no semantic

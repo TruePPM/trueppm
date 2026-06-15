@@ -93,7 +93,7 @@ export function MyWorkPage() {
         )}
       </header>
 
-      {/* Role-based landing transparency (ADR-0129, #1181). Both self-gate and
+      {/* Role-based landing transparency (ADR-0129). Both self-gate and
           render null when not applicable — the hint explains "why am I here",
           the prompt is the contributor-first first-login home picker. */}
       <LandingContextHint />

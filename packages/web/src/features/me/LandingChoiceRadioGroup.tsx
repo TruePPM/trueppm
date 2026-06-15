@@ -1,5 +1,5 @@
 /**
- * Shared radio-card group for picking a default landing screen (ADR-0129, #1181).
+ * Shared radio-card group for picking a default landing screen (ADR-0129).
  *
  * Reuses the `PulseRadioGroup` / `QuarterModeControl` roving-tabindex pattern
  * (rule 167): arrow keys move DOM focus across the options WITHOUT committing;

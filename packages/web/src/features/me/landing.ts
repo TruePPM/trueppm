@@ -1,5 +1,5 @@
 /**
- * Shared helpers for the role-based app front door (ADR-0129, issue #1181).
+ * Shared helpers for the role-based app front door (ADR-0129).
  *
  * The server resolves *where* a user lands (`me.landing.path`); the client only
  * navigates there. This module owns the one piece of client-side safety the

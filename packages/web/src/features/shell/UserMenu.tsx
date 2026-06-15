@@ -95,7 +95,7 @@ function MenuContent({
         </NavLink>
       )}
 
-      {/* General preferences — default landing screen (ADR-0129, #1181).
+      {/* General preferences — default landing screen (ADR-0129).
           Placed directly above Notifications. */}
       <NavLink
         to="/me/settings/general"

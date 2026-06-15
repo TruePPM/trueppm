@@ -1,5 +1,5 @@
 /**
- * Empty states for /me/work (issue #499; v2 warm refresh ADR-0129/#1181).
+ * Empty states for /me/work (v2 warm refresh, ADR-0129).
  *
  * Three flavors, all `role="status"`:
  *   - Flavor A — user has no project memberships at all (brand-new). Warm
