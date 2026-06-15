@@ -189,7 +189,7 @@ describe('useActivateBaseline', () => {
     expect(postMock).toHaveBeenCalledWith('/projects/proj-1/baselines/bl-1/activate/');
   });
 
-  it('invalidates baselines and tasks queries on success', async () => {
+  it('useActivateBaseline — invalidates baselines and tasks queries on success', async () => {
     postMock.mockResolvedValueOnce({ data: { ...BASELINE, is_active: true } });
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
 
@@ -234,7 +234,7 @@ describe('useDeleteBaseline', () => {
     expect(deleteMock).toHaveBeenCalledWith('/projects/proj-1/baselines/bl-1/');
   });
 
-  it('invalidates baselines and tasks queries on success', async () => {
+  it('useDeleteBaseline — invalidates baselines and tasks queries on success', async () => {
     deleteMock.mockResolvedValueOnce({});
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
 
