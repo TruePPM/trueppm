@@ -138,8 +138,13 @@ test.describe('Members Settings — golden path', () => {
     await page.goto(`/projects/${PROJECT_ID}/settings/members`);
     // Wayfinding in settings is the SettingsShell rail + context pill, not a
     // tab (rule 123): the sections nav is present and the pill names the project.
+    // Scope to #main-content — the unified shell bar's adaptive breadcrumb (ADR-0134)
+    // also names the project but is display:none while the rail is open, so an
+    // unscoped `.first()` would resolve to that hidden node.
     await expect(page.getByRole('navigation', { name: 'Settings sections' })).toBeVisible();
-    await expect(page.getByText('Members Test Project').first()).toBeVisible();
+    await expect(
+      page.locator('#main-content').getByText('Members Test Project').first(),
+    ).toBeVisible();
   });
 
   test('member list renders alice and bob', async ({ page }) => {
