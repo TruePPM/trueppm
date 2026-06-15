@@ -116,14 +116,17 @@ describe('Sidebar (v2 left rail)', () => {
     expect(screen.queryByText('Portfolio rollup')).not.toBeInTheDocument();
   });
 
-  it('keeps the Resources icon in the collapsed rail but drops the heading + label (#1176)', () => {
+  it('fully hides the desktop rail when collapsed — inert + out of the a11y tree (ADR-0127, supersedes #1176)', () => {
     // User-controlled collapse so the mount-time resize effect leaves it collapsed.
     useShellStore.setState({ sidebarCollapsed: true, sidebarUserControlled: true });
     renderRail();
-    // Icon link persists (accessible name from aria-label, parity with My Work)...
-    expect(screen.getByRole('link', { name: 'Resources catalog' })).toBeInTheDocument();
-    // ...while the group heading and the text label collapse away.
+    // There is no icon rail anymore: collapsing hides the rail entirely (0px,
+    // inert + aria-hidden), so its nav links leave the accessibility tree —
+    // the ContextBar ≡ is the re-open affordance.
+    const rail = document.getElementById('primary-nav-rail');
+    expect(rail).toHaveAttribute('aria-hidden', 'true');
+    expect(rail).toHaveAttribute('inert');
+    expect(screen.queryByRole('link', { name: 'Resources catalog' })).not.toBeInTheDocument();
     expect(screen.queryByText('Organization')).not.toBeInTheDocument();
-    expect(screen.queryByText('Resources')).not.toBeInTheDocument();
   });
 });
