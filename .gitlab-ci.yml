@@ -472,11 +472,34 @@ ci:build-integration-image:
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
   script:
     - docker pull "$IMAGE" || true
-    - docker build
-        --cache-from "$IMAGE"
-        --tag "$IMAGE"
-        --file .gitlab/ci-images/integration.Dockerfile
-        .
+    # The image is built FROM mcr.microsoft.com/playwright (see the Dockerfile).
+    # Microsoft's registry throttles anonymous pulls from shared CI runner IPs by
+    # returning 401 (and sometimes 429) from its oauth2/token endpoint, which
+    # surfaces as a metadata-load failure at the very start of the build. Retry
+    # with exponential backoff so a transient throttle doesn't red the pipeline —
+    # it fails fast, so retries are cheap, and the backoff (0/30/60/120s) outlasts
+    # a typical throttle window. A genuinely broken Dockerfile still fails
+    # deterministically once attempts are exhausted. Backoff delay matters here,
+    # which is why this is a shell loop rather than GitLab's `retry:` keyword (the
+    # latter retries instantly, before the throttle window has cleared).
+    - |
+      attempt=1
+      max_attempts=4
+      delay=30
+      until docker build \
+          --cache-from "$IMAGE" \
+          --tag "$IMAGE" \
+          --file .gitlab/ci-images/integration.Dockerfile \
+          .; do
+        if [ "$attempt" -ge "$max_attempts" ]; then
+          echo "docker build failed after ${max_attempts} attempts" >&2
+          exit 1
+        fi
+        echo "docker build attempt ${attempt} failed; retrying in ${delay}s..." >&2
+        sleep "$delay"
+        attempt=$((attempt + 1))
+        delay=$((delay * 2))
+      done
     - docker push "$IMAGE"
 
 scheduler:lint:
