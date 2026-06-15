@@ -450,11 +450,22 @@ ci:build-integration-image:
   # files change so a broken Dockerfile is caught before merge; web:integration
   # itself is main-only and pulls the existing registry tag in steady state.
   stage: lint
+  # Build against the runner's host Docker daemon (the executor binds
+  # /var/run/docker.sock) rather than a docker-in-docker service. The base
+  # image is FROM mcr.microsoft.com/playwright (see the Dockerfile), and
+  # Microsoft's registry throttles cold anonymous pulls (401/429 from its
+  # oauth2/token endpoint) — which is exactly what an isolated dind daemon hits
+  # on every build, since it starts with an empty image store. The web:e2e jobs
+  # never hit this: they run the same Playwright image as their job image, which
+  # the runner serves from its host-daemon cache under an if-not-present pull
+  # policy. Building on the host daemon replicates that — the legacy builder's
+  # default pull behavior is if-not-present, so it reuses the cached base image
+  # instead of re-resolving the manifest from MCR. (BuildKit, the dind default,
+  # always re-resolves the FROM manifest from the registry, which is why the
+  # previous dind build was throttled.)
   image: docker:27
-  services:
-    - docker:27-dind
   variables:
-    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_BUILDKIT: "0"
     IMAGE: "$CI_REGISTRY_IMAGE/ci-integration:noble"
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
@@ -472,34 +483,11 @@ ci:build-integration-image:
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
   script:
     - docker pull "$IMAGE" || true
-    # The image is built FROM mcr.microsoft.com/playwright (see the Dockerfile).
-    # Microsoft's registry throttles anonymous pulls from shared CI runner IPs by
-    # returning 401 (and sometimes 429) from its oauth2/token endpoint, which
-    # surfaces as a metadata-load failure at the very start of the build. Retry
-    # with exponential backoff so a transient throttle doesn't red the pipeline —
-    # it fails fast, so retries are cheap, and the backoff (0/30/60/120s) outlasts
-    # a typical throttle window. A genuinely broken Dockerfile still fails
-    # deterministically once attempts are exhausted. Backoff delay matters here,
-    # which is why this is a shell loop rather than GitLab's `retry:` keyword (the
-    # latter retries instantly, before the throttle window has cleared).
-    - |
-      attempt=1
-      max_attempts=4
-      delay=30
-      until docker build \
-          --cache-from "$IMAGE" \
-          --tag "$IMAGE" \
-          --file .gitlab/ci-images/integration.Dockerfile \
-          .; do
-        if [ "$attempt" -ge "$max_attempts" ]; then
-          echo "docker build failed after ${max_attempts} attempts" >&2
-          exit 1
-        fi
-        echo "docker build attempt ${attempt} failed; retrying in ${delay}s..." >&2
-        sleep "$delay"
-        attempt=$((attempt + 1))
-        delay=$((delay * 2))
-      done
+    - docker build
+        --cache-from "$IMAGE"
+        --tag "$IMAGE"
+        --file .gitlab/ci-images/integration.Dockerfile
+        .
     - docker push "$IMAGE"
 
 scheduler:lint:
