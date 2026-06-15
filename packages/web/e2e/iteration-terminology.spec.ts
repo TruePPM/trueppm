@@ -142,8 +142,12 @@ test.describe('Configurable iteration terminology', () => {
     await setup(page);
     await page.goto(BASE_URL);
 
-    // Breadcrumb + tab use the plural form.
-    await expect(page.getByRole('navigation', { name: /Breadcrumb/i })).toContainText('Iterations');
+    // Breadcrumb + tab use the plural form. Scope to the in-view breadcrumb —
+    // the global context bar (ADR-0127) also renders a "Breadcrumb" nav outside
+    // #main-content.
+    await expect(
+      page.locator('#main-content').getByRole('navigation', { name: /Breadcrumb/i }),
+    ).toContainText('Iterations');
 
     // Header heading uses the singular form (not "Sprint N — …").
     await expect(
@@ -156,7 +160,9 @@ test.describe('Configurable iteration terminology', () => {
     // The close control reads "Close active iteration".
     await expect(page.getByRole('button', { name: /Close active iteration/i })).toBeVisible();
 
-    // And no "Sprint" container wording leaks into the breadcrumb.
-    await expect(page.getByRole('navigation', { name: /Breadcrumb/i })).not.toContainText('Sprints');
+    // And no "Sprint" container wording leaks into the in-view breadcrumb.
+    await expect(
+      page.locator('#main-content').getByRole('navigation', { name: /Breadcrumb/i }),
+    ).not.toContainText('Sprints');
   });
 });

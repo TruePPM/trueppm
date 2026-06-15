@@ -33,6 +33,20 @@ describe('useShellStore', () => {
     useShellStore.getState().setSidebarCollapsed(true, true);
     expect(useShellStore.getState().sidebarUserControlled).toBe(true);
   });
+
+  it('persists a user-controlled collapse to localStorage (ADR-0127)', () => {
+    localStorage.removeItem('trueppm.rail.collapsed');
+    useShellStore.getState().toggleSidebar();
+    expect(JSON.parse(localStorage.getItem('trueppm.rail.collapsed') ?? '{}')).toEqual({
+      collapsed: true,
+    });
+  });
+
+  it('does NOT persist a viewport-driven (non-user-controlled) collapse', () => {
+    localStorage.removeItem('trueppm.rail.collapsed');
+    useShellStore.getState().setSidebarCollapsed(true, false);
+    expect(localStorage.getItem('trueppm.rail.collapsed')).toBeNull();
+  });
 });
 
 describe('selectSidebarWidth', () => {
@@ -43,8 +57,8 @@ describe('selectSidebarWidth', () => {
     useShellStore.setState(state);
   });
 
-  it('returns 60 when collapsed', () => {
+  it('returns 0 when collapsed (hide-to-context-bar, ADR-0127)', () => {
     useShellStore.setState({ sidebarCollapsed: true });
-    expect(selectSidebarWidth(useShellStore.getState())).toBe(60);
+    expect(selectSidebarWidth(useShellStore.getState())).toBe(0);
   });
 });
