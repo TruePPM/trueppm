@@ -1794,7 +1794,10 @@ wasm:license-check:
   needs: [wasm:test]
   <<: *rules-wasm
   before_script:
-    - apt-get update -qq && apt-get install -y -qq curl
+    # git is required by the advisories check: cargo-deny clones the RustSec
+    # advisory DB (https://github.com/RustSec/advisory-db) via git on first run.
+    # The licenses-only check never fetched it, which is why curl alone sufficed.
+    - apt-get update -qq && apt-get install -y -qq curl git
     # cargo-deny 0.19.x is required for the advisories check: 0.18.3 cannot parse
     # CVSS 4.0 entries in the live RustSec DB and aborts on DB load (the licenses
     # check alone was unaffected, which is why the older pin sufficed before).
