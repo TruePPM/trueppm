@@ -134,7 +134,7 @@ describe('useCreateDependency', () => {
     );
   });
 
-  it('also invalidates tasks cache so CPM cascade is visible without WS (#314)', async () => {
+  it('useCreateDependency — also invalidates tasks cache so CPM cascade is visible without WS (#314)', async () => {
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
     const { result } = renderHook(() => useCreateDependency('proj1'), {
       wrapper: makeWrapper(qc),
@@ -149,7 +149,7 @@ describe('useCreateDependency', () => {
     );
   });
 
-  it('invalidates with undefined when projectId is null', async () => {
+  it('useCreateDependency — invalidates with undefined when projectId is null', async () => {
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
     const { result } = renderHook(() => useCreateDependency(null), {
       wrapper: makeWrapper(qc),
@@ -198,7 +198,7 @@ describe('useUpdateDependency', () => {
     );
   });
 
-  it('invalidates dependencies cache on success', async () => {
+  it('useUpdateDependency — invalidates dependencies cache on success', async () => {
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
     const { result } = renderHook(() => useUpdateDependency('proj1'), {
       wrapper: makeWrapper(qc),
@@ -213,7 +213,7 @@ describe('useUpdateDependency', () => {
     );
   });
 
-  it('also invalidates tasks cache so CPM cascade is visible without WS (#314)', async () => {
+  it('useUpdateDependency — also invalidates tasks cache so CPM cascade is visible without WS (#314)', async () => {
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
     const { result } = renderHook(() => useUpdateDependency('proj1'), {
       wrapper: makeWrapper(qc),
@@ -228,7 +228,7 @@ describe('useUpdateDependency', () => {
     );
   });
 
-  it('invalidates with undefined when projectId is null', async () => {
+  it('useUpdateDependency — invalidates with undefined when projectId is null', async () => {
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
     const { result } = renderHook(() => useUpdateDependency(null), {
       wrapper: makeWrapper(qc),
@@ -274,7 +274,7 @@ describe('useDeleteDependency', () => {
     );
   });
 
-  it('invalidates dependencies cache on success', async () => {
+  it('useDeleteDependency — invalidates dependencies cache on success', async () => {
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
     const { result } = renderHook(() => useDeleteDependency('proj1'), {
       wrapper: makeWrapper(qc),
@@ -289,7 +289,7 @@ describe('useDeleteDependency', () => {
     );
   });
 
-  it('also invalidates tasks cache so CPM cascade is visible without WS (#314)', async () => {
+  it('useDeleteDependency — also invalidates tasks cache so CPM cascade is visible without WS (#314)', async () => {
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
     const { result } = renderHook(() => useDeleteDependency('proj1'), {
       wrapper: makeWrapper(qc),
@@ -304,7 +304,7 @@ describe('useDeleteDependency', () => {
     );
   });
 
-  it('invalidates with undefined when projectId is null', async () => {
+  it('useDeleteDependency — invalidates with undefined when projectId is null', async () => {
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
     const { result } = renderHook(() => useDeleteDependency(null), {
       wrapper: makeWrapper(qc),
