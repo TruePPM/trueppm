@@ -297,6 +297,74 @@ describe('useScheduleTasks mapper', () => {
     expect(task.storyPoints).toBeNull();
     expect(task.remainingPoints).toBeNull();
   });
+
+  // ---- sprint scope changes + milestone rollup (ADR-0060/#308, ADR-0074) ----
+  // These optional payload fields are absent from `base`; without explicit
+  // coverage a wire-shape change (renamed key, dropped status default) would
+  // pass every test above by coincidence (#849 shape-drift guard).
+
+  it('leaves sprintScopeChanges undefined and milestoneRollup null when the payload omits them', () => {
+    const task = mapTask(base);
+    expect(task.sprintScopeChanges).toBeUndefined();
+    expect(task.milestoneRollup).toBeNull();
+  });
+
+  it('maps sprint_scope_changes rows to camelCase, defaulting itemName and goalImpact', () => {
+    const task = mapTask({
+      ...base,
+      sprint_scope_changes: [
+        {
+          id: 'sc1',
+          subtask_name: 'Add retry',
+          added_by_name: 'Alex',
+          added_at: '2026-10-06T12:00:00Z',
+          status: 'pending',
+        },
+      ],
+    });
+    expect(task.sprintScopeChanges).toEqual([
+      {
+        id: 'sc1',
+        subtaskName: 'Add retry',
+        // itemName falls back to subtask_name when item_name is absent.
+        itemName: 'Add retry',
+        addedByName: 'Alex',
+        addedAt: '2026-10-06T12:00:00Z',
+        goalImpact: false,
+        status: 'pending',
+      },
+    ]);
+  });
+
+  it('treats legacy scope-change rows with no status as accepted (never resurface as pending)', () => {
+    const task = mapTask({
+      ...base,
+      sprint_scope_changes: [
+        {
+          subtask_name: 'Legacy item',
+          item_name: 'Legacy item (full)',
+          added_by_name: null,
+          added_at: '2026-10-01T00:00:00Z',
+        },
+      ],
+    });
+    expect(task.sprintScopeChanges?.[0].status).toBe('accepted');
+    expect(task.sprintScopeChanges?.[0].itemName).toBe('Legacy item (full)');
+    expect(task.sprintScopeChanges?.[0].addedByName).toBeNull();
+  });
+
+  it('passes milestone_rollup through unchanged when present', () => {
+    const rollup = {
+      percent_complete: 42,
+      rollup_basis: 'points' as const,
+      variance_days: -3,
+      sprint_scope_changed: true,
+      scope_change_sprint_id: 'spr-1',
+      sprint_count: 2,
+    };
+    const task = mapTask({ ...base, is_milestone: true, milestone_rollup: rollup });
+    expect(task.milestoneRollup).toEqual(rollup);
+  });
 });
 
 // ---------------------------------------------------------------------------

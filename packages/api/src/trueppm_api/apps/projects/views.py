@@ -108,6 +108,7 @@ from trueppm_api.apps.projects.serializers import (
     CommentReactionSerializer,
     CycleDetectedError,
     DependencySerializer,
+    FlowMetricsSerializer,
     ForecastSnapshotSerializer,
     GuardrailBlockedError,
     InboundTaskSyncPayloadSerializer,
@@ -4638,6 +4639,8 @@ class BoardColumnConfigView(IdempotencyMixin, APIView):
         return [IsAuthenticated(), IsProjectScheduler(), IsProjectNotArchived()]
 
     def get(self, request: Request, pk: str) -> Response:
+        from trueppm_api.apps.projects.services import annotate_wip_breach
+
         project = get_object_or_404(Project, pk=pk)
         self.check_object_permissions(request, project)
         try:
@@ -4645,6 +4648,10 @@ class BoardColumnConfigView(IdempotencyMixin, APIView):
             columns = config.columns or _DEFAULT_COLUMNS
         except BoardColumnConfig.DoesNotExist:
             columns = _DEFAULT_COLUMNS
+        # D2 (#1071): annotate each column with its live count + WIP-breach verdict
+        # so the breach is a server fact (API-first). Passive — visible to every
+        # project member (current board state, not gated historical performance).
+        columns = annotate_wip_breach(pk, columns)
         return Response({"columns": columns}, status=status.HTTP_200_OK)
 
     def put(self, request: Request, pk: str) -> Response:
@@ -8092,15 +8099,78 @@ class ProjectSprintForecastView(APIView):
             data = {
                 "status": "warming_up",
                 "remaining_points": None,
+                "remaining_count": None,
                 "sample_count": None,
                 "p50_sprints": None,
                 "p80_sprints": None,
                 "p50_date": None,
                 "p80_date": None,
+                "p95_date": None,
                 "basis": data["basis"],
+                # forecast_basis is a non-revealing discriminator (which input *would*
+                # drive the forecast), not a team-private value, so it survives
+                # suppression — the client still knows whether to label the (empty)
+                # forecast a velocity or throughput one.
+                "forecast_basis": data["forecast_basis"],
                 "velocity_suppressed": True,
             }
         return Response(SprintForecastSerializer(data).data, status=status.HTTP_200_OK)
+
+
+class FlowMetricsView(APIView):
+    """``GET /api/v1/projects/<pk>/flow-metrics/`` — methodology-neutral flow analytics.
+
+    Cycle/lead-time distributions, a cumulative flow diagram, and a weekly throughput
+    series (ADR-0130 D1, #1072), computed-on-read from ``Task`` history — no new model.
+    ``?window=<days>`` (default 90, capped) sets the look-back window.
+
+    Permission: any project member (matching the velocity/forecast reads). The
+    historical distributions are team-health performance analytics, so they are gated
+    under the ``flow_metrics`` signal (ADR-0130 D4): a reader below the signal's
+    audience (e.g. a PM/PMO at the TEAM_SM_PM band when the default is TEAM) gets the
+    payload with the distribution arrays emptied and ``flow_metrics_suppressed=true``,
+    never a 403 — the team always reads its own flow metrics, the PM reads them only
+    once the team shares upward. The aggregate-only ``data_integrity`` advisory block
+    is not a performance signal and survives suppression.
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="window",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Look-back window in days (default 90, capped at 365).",
+            )
+        ],
+        responses=FlowMetricsSerializer,
+    )
+    def get(self, request: Request, pk: str) -> Response:
+        from trueppm_api.apps.projects.services import flow_metrics
+        from trueppm_api.apps.projects.signal_privacy_services import (
+            can_read_signal,
+            suppress_flow_metrics,
+        )
+
+        project = get_object_or_404(Project, pk=pk, is_deleted=False)
+        self.check_object_permissions(request, project)
+
+        try:
+            window_days = int(request.query_params.get("window", 90))
+        except (TypeError, ValueError):
+            window_days = 90
+
+        data = flow_metrics(project.pk, window_days=window_days)
+        # ADR-0130 D4: the cycle/lead/CFD/throughput SERIES are team-private historical
+        # performance analytics. A reader below the flow_metrics audience gets the
+        # suppressed shape (arrays emptied, flag set), not a 403 — current board state
+        # (D2 breach) stays visible elsewhere, but historical distributions do not.
+        if not can_read_signal(request, project.pk, "flow_metrics"):
+            data = suppress_flow_metrics(data)
+        return Response(FlowMetricsSerializer(data).data, status=status.HTTP_200_OK)
 
 
 class ProjectMilestonesView(APIView):

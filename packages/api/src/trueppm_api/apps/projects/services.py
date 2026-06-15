@@ -3706,30 +3706,71 @@ def _sample_backlog_sprint_counts(
     return counts.astype(np.float64)
 
 
+def _prefers_throughput_forecast(
+    project_id: str | uuid.UUID, *, velocity_sample_count: int
+) -> bool:
+    """Whether a project's delivery forecast should use throughput, not velocity.
+
+    A continuous-flow team forecasts from item throughput (ADR-0130 D3) when:
+
+    - it has no usable velocity signal (< 2 closed eligible sprints — the old
+      ``warming_up`` dead-end), OR
+    - its board predominantly runs in kanban delivery mode (a deliberate
+      flow-without-sprints choice), even if a few sprints happen to have closed.
+
+    ``delivery_mode`` lives on ``Task`` (not ``Project`` — ADR-0036), so "kanban
+    project" is read as: a non-deleted task delivery-mode majority of kanban among
+    tasks that declare a mode. A project with no velocity is always routed to flow.
+    """
+    if velocity_sample_count < 2:
+        return True
+    from django.db.models import Count
+
+    from trueppm_api.apps.projects.models import DeliveryMode, Task
+
+    mode_counts = dict(
+        Task.objects.filter(project_id=project_id, is_deleted=False)
+        .values_list("delivery_mode")
+        .annotate(n=Count("id"))
+        .values_list("delivery_mode", "n")
+    )
+    total_moded = sum(mode_counts.values())
+    if total_moded == 0:
+        return False
+    kanban = mode_counts.get(DeliveryMode.KANBAN, 0)
+    return kanban * 2 > total_moded
+
+
 def sprint_forecast(
     project_id: str | uuid.UUID,
     *,
     runs: int = 1000,
     seed: int = 0xC0FFEE,
 ) -> dict[str, Any]:
-    """Computed-on-read backlog delivery forecast from velocity Monte Carlo (#487).
+    """Computed-on-read unified backlog delivery forecast (#487, ADR-0130 D3 #1161).
 
-    Answers "when is the backlog done?" without a spreadsheet: it reuses
-    :func:`project_forecast`'s velocity series and remaining committed backlog,
-    runs ``runs`` velocity-bootstrap simulations
-    (:func:`_sample_backlog_sprint_counts`), and returns P50/P80 sprint counts
-    paced onto the calendar at the team's typical sprint length.
+    Answers "when is the backlog done?" without a spreadsheet, from whichever input
+    basis fits the team (ADR-0130 D3):
 
-    Unlike the milestone reforecast (a deterministic velocity *band*), this is a
-    real Monte Carlo distribution, so P50/P80 percentile vocabulary is honest here
-    (web-rule 166). There is **no persisted model** — the result is cached for an
-    hour keyed on the inputs, so a sprint close (which changes the velocity series
-    and remaining backlog) busts the cache naturally. A fixed seed makes the same
-    inputs reproducible, which both the cache and the tests rely on.
+    - **velocity** (default): reuses :func:`project_forecast`'s velocity series and
+      remaining committed *points*, runs ``runs`` velocity-bootstrap simulations
+      (:func:`_sample_backlog_sprint_counts`), and returns P50/P80/P95 sprint counts
+      paced onto the calendar at the team's typical sprint length.
+    - **throughput**: for a continuous-flow / kanban team — no closed sprints, or a
+      kanban-mode board — delegates to :func:`throughput_forecast`, a count-based
+      Monte Carlo over the weekly throughput series. ``forecast_basis`` discriminates
+      the two so a consumer never compares them unknowingly.
 
-    The velocity-privacy gate (ADR-0104) is applied by the *view*, mirroring
-    ``/forecast/`` — every field here derives from the team-private velocity
-    series, so a below-tier reader is suppressed at the sink.
+    Both bases are real Monte Carlo distributions, so P50/P80/P95 percentile
+    vocabulary is honest here (web-rule 166). There is **no persisted model** — the
+    velocity result is cached for an hour keyed on the inputs, so a sprint close busts
+    the cache naturally. A fixed seed makes the same inputs reproducible, which both
+    the cache and the tests rely on.
+
+    The signal-privacy gate (ADR-0104 / ADR-0130 D4) is applied by the *view*,
+    mirroring ``/forecast/`` — every velocity/throughput-derived field is suppressed
+    for a below-tier reader at the sink (the forecast dates themselves follow the
+    velocity precedent: schedule confidence stays, the underlying series does not).
     """
     from datetime import timedelta
 
@@ -3748,17 +3789,43 @@ def sprint_forecast(
 
     base: dict[str, Any] = {
         "remaining_points": remaining,
+        # remaining_count is the throughput-path equivalent of remaining_points
+        # (ADR-0130 D3). It is null on the velocity path — that path forecasts in
+        # points, not item counts — so a consumer always reads the figure matching
+        # the basis it was handed.
+        "remaining_count": None,
         "sample_count": len(samples),
         "p50_sprints": None,
         "p80_sprints": None,
         "p50_date": None,
         "p80_date": None,
+        "p95_date": None,
+        # ``basis`` is kept as the legacy "monte_carlo" constant: existing web/MCP
+        # consumers branch on that literal (VelocityForecastLine, SprintForecastWidget,
+        # useSprints). ``forecast_basis`` is the new ADR-0130 D3 input discriminator
+        # ("velocity" | "throughput") so a consumer never compares a throughput
+        # forecast to a velocity forecast unknowingly without breaking the old field.
         "basis": "monte_carlo",
+        "forecast_basis": "velocity",
         "velocity_suppressed": False,
     }
-    # Warm-up: need a real backlog and at least two closed sprints — a single
-    # observation cannot express the velocity variance this forecast is built on.
-    if remaining <= 0 or len(samples) < 2 or sprint_length <= 0:
+    # Route to the throughput (flow) forecast for a continuous-flow team: either a
+    # board that predominantly runs in kanban delivery mode, or one with no usable
+    # velocity signal (< 2 closed eligible sprints) that never closes sprints. The
+    # flow path is count-based and returns its own basis/status (ADR-0130 D3),
+    # replacing the old "warming_up forever" dead-end with a real forecast or an
+    # honest "insufficient_flow_history".
+    if _prefers_throughput_forecast(project_id, velocity_sample_count=len(samples)):
+        flow = throughput_forecast(project_id, runs=runs, seed=seed)
+        if flow is not None:
+            return flow
+        # No throughput either (no completed-task history) → genuine warm-up.
+        base["status"] = "warming_up"
+        return base
+
+    # Warm-up: need a real backlog and a usable sprint length — a single observation
+    # cannot express the velocity variance this forecast is built on.
+    if remaining <= 0 or sprint_length <= 0:
         base["status"] = "warming_up"
         return base
 
@@ -3778,9 +3845,10 @@ def sprint_forecast(
     p50_sprints = int(np.ceil(float(np.percentile(counts, 50))))
     p80_sprints = int(np.ceil(float(np.percentile(counts, 80))))
     # Pace the continuous percentile (not the rounded sprint count) onto the
-    # calendar so the P80 date lands strictly after P50.
+    # calendar so the P80/P95 dates land strictly after P50.
     p50_days = round(float(np.percentile(counts, 50)) * sprint_length)
     p80_days = round(float(np.percentile(counts, 80)) * sprint_length)
+    p95_days = round(float(np.percentile(counts, 95)) * sprint_length)
     result = {
         **base,
         "status": "ready",
@@ -3788,9 +3856,508 @@ def sprint_forecast(
         "p80_sprints": p80_sprints,
         "p50_date": (today + timedelta(days=p50_days)).isoformat(),
         "p80_date": (today + timedelta(days=p80_days)).isoformat(),
+        "p95_date": (today + timedelta(days=p95_days)).isoformat(),
     }
     cache.set(key, result, 3600)
     return result
+
+
+# ---------------------------------------------------------------------------
+# Flow analytics — cycle/lead time, CFD, throughput (ADR-0130 D1, #1072)
+# ---------------------------------------------------------------------------
+
+# The five canonical board statuses, in board order. ON_HOLD is a legacy value
+# folded into BACKLOG (ADR-0039) so the CFD has exactly these five buckets. Keyed
+# by RAW status strings throughout — never TaskStatus.choices on a serializer
+# field — so drf-spectacular never emits a TaskStatusEnum component (the known
+# enum-name-collision regression class; project_drf_enum_name_collision).
+FLOW_CANONICAL_STATUSES = ("BACKLOG", "NOT_STARTED", "IN_PROGRESS", "REVIEW", "COMPLETE")
+
+# Remaining-backlog statuses for the throughput forecast: everything not yet done.
+_FLOW_REMAINING_STATUSES = ("BACKLOG", "NOT_STARTED", "IN_PROGRESS", "REVIEW")
+
+# A flow team needs at least this many non-zero throughput weeks before a
+# count-based forecast is honest — fewer cannot express the weekly variance the
+# bootstrap is built on. Mirrors the velocity-path "≥2 closed sprints" warm-up
+# rule (ADR-0130 D3).
+MIN_THROUGHPUT_WEEKS = 4
+
+# Hard cap on the flow-metrics window so a caller can't ask for an unbounded
+# history replay (perf gate). 90 d is the default and the django-simple-history
+# retention horizon anyway.
+MAX_FLOW_WINDOW_DAYS = 365
+
+
+def annotate_wip_breach(
+    project_id: str | uuid.UUID, columns: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Annotate each board column with its live count and WIP-breach verdict (D2, #1071).
+
+    Returns a *copy* of ``columns`` where each entry gains:
+
+    - ``current_count``: live count of non-deleted tasks whose status maps to that
+      column (ON_HOLD folds into BACKLOG, ADR-0039).
+    - ``breach``: ``"ok"`` | ``"at"`` | ``"over"`` when the column has a ``wip_limit``,
+      else ``None`` (no limit set).
+
+    Counts come from **one** grouped query (``values("status").annotate(Count)``) — no
+    per-column query (perf-check gate). The verdict is **passive**: it is current board
+    state, not a historical performance signal, so it is visible to all project members
+    and the API still does not reject breaching mutations (ADR-0039 / ADR-0130 D2).
+    """
+    from django.db.models import Count
+
+    from trueppm_api.apps.projects.models import Task
+
+    raw_counts = dict(
+        Task.objects.filter(project_id=project_id, is_deleted=False)
+        .values_list("status")
+        .annotate(n=Count("id"))
+        .values_list("status", "n")
+    )
+    # Fold every status into its canonical column bucket (ON_HOLD → BACKLOG) so a
+    # legacy row still counts toward the right column.
+    folded_counts: dict[str, int] = dict.fromkeys(FLOW_CANONICAL_STATUSES, 0)
+    for raw_status, n in raw_counts.items():
+        bucket = _fold_status(raw_status)
+        if bucket is not None:
+            folded_counts[bucket] += n
+
+    annotated: list[dict[str, Any]] = []
+    for col in columns:
+        status_key = str(col.get("status") or "")
+        count = folded_counts.get(status_key, 0)
+        limit = col.get("wip_limit")
+        if limit is None:
+            breach: str | None = None
+        elif count > limit:
+            breach = "over"
+        elif count == limit:
+            breach = "at"
+        else:
+            breach = "ok"
+        annotated.append({**col, "current_count": count, "breach": breach})
+    return annotated
+
+
+def _fold_status(raw: str | None) -> str | None:
+    """Fold the legacy ON_HOLD status into BACKLOG; pass through canonical values.
+
+    Returns None for an unknown/empty status so the caller can skip it rather than
+    invent a sixth CFD bucket.
+    """
+    if raw == "ON_HOLD":
+        return "BACKLOG"
+    if raw in FLOW_CANONICAL_STATUSES:
+        return raw
+    return None
+
+
+def _weekly_throughput(
+    completions: list[date],
+    *,
+    since: date,
+    until: date,
+) -> list[dict[str, Any]]:
+    """Bucket completion dates into ISO-week throughput counts (ADR-0130 D1).
+
+    Every ISO-Monday-anchored week intersecting ``[since, until]`` gets a row
+    (zero-filled), so the series is dense and the forecast can count non-zero weeks
+    honestly. ``week_start`` is the ISO Monday (``date.isoformat``); ``completed_count``
+    is the number of tasks that reached COMPLETE in that week. This is the input
+    series :func:`throughput_forecast` consumes — factored out so the two never drift.
+    """
+    by_week: dict[date, int] = {}
+    # Anchor the window start to its ISO Monday so the dense grid lines up with the
+    # week each completion is bucketed into.
+    first_monday = since - timedelta(days=since.weekday())
+    cur = first_monday
+    while cur <= until:
+        by_week[cur] = 0
+        cur += timedelta(days=7)
+    for d in completions:
+        monday = d - timedelta(days=d.weekday())
+        if monday in by_week:
+            by_week[monday] += 1
+    return [
+        {"week_start": monday.isoformat(), "completed_count": count}
+        for monday, count in sorted(by_week.items())
+    ]
+
+
+def flow_metrics(project_id: str | uuid.UUID, *, window_days: int = 90) -> dict[str, Any]:
+    """Methodology-neutral flow analytics for a project (ADR-0130 D1, #1072).
+
+    Computed-on-read from the ``HistoricalTask`` table (the same replay
+    ``burn_series`` / ``sprint_daily_delta`` use): one windowed query ordered by
+    ``(id, history_date)``, then per-task diffs in Python — no per-task subqueries.
+
+    Returns:
+        A dict with:
+
+        - ``cycle_time`` / ``lead_time``: ``{p50, p80, p95}`` day counts over tasks
+          that reached COMPLETE in the window. Cycle time runs from the first
+          transition *into* ``IN_PROGRESS`` to the ``COMPLETE`` transition (fallback
+          ``actual_finish``); lead time from the earliest history row (board entry —
+          Task has no ``created_at``) to ``COMPLETE``. Empty distributions when no
+          task completed in the window.
+        - ``cfd``: daily ``{date, counts:{<status>: n}}`` across the window,
+          reconstructed from history (``ON_HOLD`` folded into ``BACKLOG``).
+        - ``throughput``: weekly ``{week_start, completed_count}`` (ISO Monday).
+        - ``data_integrity``: aggregate-only advisory counts
+          (``bulk_moved_count``, ``backdated_count``, ``missing_transition_count``)
+          so a consumer can caveat the numbers — **never per-person** (Priya).
+        - ``window_days`` / ``since`` / ``until``: the resolved window.
+        - ``flow_metrics_suppressed``: always False here; the view flips it for a
+          below-audience reader via :func:`suppress_flow_metrics`.
+
+    The historical distributions are team-private (ADR-0130 D4): the view gates them
+    under the ``flow_metrics`` signal and empties the arrays for a below-tier reader.
+    """
+    import numpy as np
+
+    from trueppm_api.apps.projects.models import Task
+
+    HistoricalTask = Task.history.model
+
+    window_days = max(1, min(int(window_days), MAX_FLOW_WINDOW_DAYS))
+    until_date = timezone.localdate()
+    since_date = until_date - timedelta(days=window_days - 1)
+    tz = timezone.get_current_timezone()
+    window_start = datetime.combine(since_date, datetime.min.time(), tzinfo=tz)
+    window_end = datetime.combine(until_date, datetime.max.time(), tzinfo=tz)
+
+    # One windowed query: every history row up to the window end, oldest-first per
+    # task so each row can be diffed against its predecessor (which may pre-date the
+    # window — needed to detect the IN_PROGRESS entry and board-entry time).
+    # Ordered by (id, history_date) for the replay (CFD + cycle/lead), exactly like
+    # burn_series. ``history_id`` (the insertion-sequence pk) rides along so the
+    # data_integrity scan can detect backdated rows: within date order, a non-monotonic
+    # history_id means a later-inserted row was stamped earlier than an earlier one.
+    rows = list(
+        HistoricalTask.objects.filter(
+            project_id=project_id,
+            history_date__lte=window_end,
+        )
+        .order_by("id", "history_date")
+        .values(
+            "id",
+            "history_id",
+            "history_date",
+            "history_type",
+            "status",
+            "actual_finish",
+            "is_deleted",
+        )
+    )
+
+    by_task: dict[Any, list[dict[str, Any]]] = {}
+    for row in rows:
+        by_task.setdefault(row["id"], []).append(row)
+
+    cycle_days: list[float] = []
+    lead_days: list[float] = []
+    bulk_moved_count = 0
+    backdated_count = 0
+    missing_transition_count = 0
+
+    for task_rows in by_task.values():
+        first_in_progress: datetime | None = None
+        completed_at: datetime | None = None
+        prev_status: str | None = None
+        prev_history_id: int | None = None
+        board_entry: datetime = task_rows[0]["history_date"]
+        actual_finish_at_complete: date | None = None
+        saw_complete_transition = False
+        task_backdated = False
+
+        for r in task_rows:
+            status = r["status"]
+            hist_date = r["history_date"]
+            # Backdated edit: rows are date-ordered, so a later-inserted row (larger
+            # history_id) appearing before an earlier-inserted one means a row was
+            # stamped earlier than its true insertion time (clock skew / manual
+            # backfill). Flag the task once — its replay ordering can't be trusted.
+            hid = r["history_id"]
+            if prev_history_id is not None and hid < prev_history_id:
+                task_backdated = True
+            if first_in_progress is None and status == "IN_PROGRESS":
+                first_in_progress = hist_date
+            # Only count the *transition* into COMPLETE that happened in-window.
+            if (
+                status == "COMPLETE"
+                and prev_status != "COMPLETE"
+                and window_start <= hist_date <= window_end
+            ):
+                completed_at = hist_date
+                actual_finish_at_complete = r["actual_finish"]
+                saw_complete_transition = True
+            prev_status = status
+            prev_history_id = hid
+
+        if task_backdated:
+            backdated_count += 1
+
+        if not saw_complete_transition or completed_at is None:
+            continue  # task did not reach COMPLETE in the window
+
+        # Lead time: board entry → completion. Always available for a completed task.
+        lead_days.append(max(0.0, (completed_at - board_entry).total_seconds() / 86400.0))
+
+        # Cycle time: first IN_PROGRESS entry → completion. Fallback to actual_finish
+        # when the card never recorded an IN_PROGRESS row (bulk move / direct jump):
+        # treat actual_finish as the start-of-work proxy. If neither exists the task
+        # is missing the transition the cycle-time math needs.
+        if first_in_progress is not None and first_in_progress <= completed_at:
+            cycle_days.append((completed_at - first_in_progress).total_seconds() / 86400.0)
+        elif actual_finish_at_complete is not None:
+            start_dt = datetime.combine(actual_finish_at_complete, datetime.min.time(), tzinfo=tz)
+            cycle_days.append(max(0.0, (completed_at - start_dt).total_seconds() / 86400.0))
+            bulk_moved_count += 1  # jumped to COMPLETE without an IN_PROGRESS row
+        else:
+            missing_transition_count += 1
+
+    def _pcts(values: list[float]) -> dict[str, int | None]:
+        if not values:
+            return {"p50": None, "p80": None, "p95": None}
+        arr = np.asarray(values, dtype=float)
+        return {
+            "p50": round(float(np.percentile(arr, 50))),
+            "p80": round(float(np.percentile(arr, 80))),
+            "p95": round(float(np.percentile(arr, 95))),
+        }
+
+    # CFD: for each day in the window, count tasks per canonical status using each
+    # task's latest in-window-or-earlier state (mirrors burn_series' replay). Rows
+    # are oldest-first, so we scan once per day keeping the last applicable row.
+    cfd: list[dict[str, Any]] = []
+    for day in _date_range_inclusive(since_date, until_date):
+        end_of_day = datetime.combine(day, datetime.max.time(), tzinfo=tz)
+        counts = dict.fromkeys(FLOW_CANONICAL_STATUSES, 0)
+        for task_rows in by_task.values():
+            state: dict[str, Any] | None = None
+            for r in task_rows:
+                if r["history_date"] <= end_of_day:
+                    state = r
+                else:
+                    break
+            if state is None:
+                continue
+            if state["history_type"] == "-" or state.get("is_deleted"):
+                continue  # task didn't exist (or was deleted) on this day
+            folded = _fold_status(state["status"])
+            if folded is not None:
+                counts[folded] += 1
+        cfd.append({"date": day.isoformat(), "counts": counts})
+
+    completions = [
+        r["history_date"].astimezone(tz).date()
+        for task_rows in by_task.values()
+        for r in _completion_rows(task_rows, window_start, window_end)
+    ]
+    throughput = _weekly_throughput(completions, since=since_date, until=until_date)
+
+    return {
+        "window_days": window_days,
+        "since": since_date.isoformat(),
+        "until": until_date.isoformat(),
+        "cycle_time": _pcts(cycle_days),
+        "lead_time": _pcts(lead_days),
+        "cfd": cfd,
+        "throughput": throughput,
+        "data_integrity": {
+            "bulk_moved_count": bulk_moved_count,
+            "backdated_count": backdated_count,
+            "missing_transition_count": missing_transition_count,
+        },
+        "flow_metrics_suppressed": False,
+    }
+
+
+def _completion_rows(
+    task_rows: list[dict[str, Any]],
+    window_start: datetime,
+    window_end: datetime,
+) -> list[dict[str, Any]]:
+    """Yield the history rows where a task *transitions into* COMPLETE in-window.
+
+    A task can re-open and re-complete; each genuine transition into COMPLETE inside
+    the window is one throughput event. Edits while already COMPLETE are not counted.
+    """
+    out: list[dict[str, Any]] = []
+    prev_status: str | None = None
+    for r in task_rows:
+        if (
+            r["status"] == "COMPLETE"
+            and prev_status != "COMPLETE"
+            and window_start <= r["history_date"] <= window_end
+        ):
+            out.append(r)
+        prev_status = r["status"]
+    return out
+
+
+def _project_weekly_throughput(
+    project_id: str | uuid.UUID, *, window_days: int
+) -> tuple[list[dict[str, Any]], date]:
+    """Compute the weekly throughput series for the forecast (ADR-0130 D3).
+
+    Reuses :func:`flow_metrics`' throughput factoring without rebuilding the CFD —
+    the forecast only needs the weekly completion counts and the window start. One
+    windowed history query.
+    """
+    from trueppm_api.apps.projects.models import Task
+
+    HistoricalTask = Task.history.model
+
+    # Cap defensively, matching flow_metrics(): the only current caller hardcodes 90,
+    # but an unbounded window would scan the full retained history.
+    window_days = max(1, min(int(window_days), MAX_FLOW_WINDOW_DAYS))
+    until_date = timezone.localdate()
+    since_date = until_date - timedelta(days=window_days - 1)
+    tz = timezone.get_current_timezone()
+    window_start = datetime.combine(since_date, datetime.min.time(), tzinfo=tz)
+    window_end = datetime.combine(until_date, datetime.max.time(), tzinfo=tz)
+
+    rows = list(
+        HistoricalTask.objects.filter(project_id=project_id, history_date__lte=window_end)
+        .order_by("id", "history_date")
+        .values("id", "history_date", "status")
+    )
+    by_task: dict[Any, list[dict[str, Any]]] = {}
+    for row in rows:
+        by_task.setdefault(row["id"], []).append(row)
+
+    completions = [
+        r["history_date"].astimezone(tz).date()
+        for task_rows in by_task.values()
+        for r in _completion_rows(task_rows, window_start, window_end)
+    ]
+    return _weekly_throughput(completions, since=since_date, until=until_date), since_date
+
+
+def _sample_throughput_counts(
+    weekly_throughput: list[int],
+    remaining_count: float,
+    n: int,
+    rng: Any,
+) -> Any:
+    """Bootstrap weeks-to-completion from a weekly throughput series (ADR-0130 D3).
+
+    Count-based Monte Carlo, the item-count analogue of
+    :func:`_sample_backlog_sprint_counts`: for each of ``n`` runs, bootstrap-sample
+    completed-items-per-week observations with replacement, accumulate, and count the
+    weeks needed to clear ``remaining_count`` items. The ``rng`` is a seeded
+    ``np.random.Generator`` so a given window yields a stable distribution within a
+    request (idempotent reads, ADR-0130 §DE).
+
+    Returns ``None`` when there are no positive weekly observations or
+    ``remaining_count`` is non-positive; a single positive week yields a degenerate
+    (constant) distribution, which is honest — one observation cannot express variance.
+    """
+    import numpy as np
+
+    positive = np.asarray([w for w in weekly_throughput if w and w > 0], dtype=float)
+    if remaining_count <= 0 or positive.size == 0:
+        return None
+    mean = float(positive.mean())
+    # Bound the per-run horizon the same way the velocity sampler does: ~4× the
+    # naive estimate, hard-capped so a pathological backlog/slow-mean pair can't
+    # drive an unbounded allocation. 2000 weeks is ~38 years — beyond that the
+    # answer is "never" and runs saturate to the cap.
+    max_weeks = min(int(np.ceil(remaining_count / mean)) * 4 + 10, 2000)
+    draws = rng.choice(positive, size=(n, max_weeks), replace=True)
+    cumulative = np.cumsum(draws, axis=1)
+    reached = cumulative >= remaining_count
+    counts = np.where(reached.any(axis=1), reached.argmax(axis=1) + 1, max_weeks)
+    return counts.astype(np.float64)
+
+
+def throughput_forecast(
+    project_id: str | uuid.UUID,
+    *,
+    window_days: int = 90,
+    runs: int = 1000,
+    seed: int = 0xF10C0DE,
+) -> dict[str, Any] | None:
+    """Count-based delivery forecast for a continuous-flow team (ADR-0130 D3, #1161).
+
+    The flow-team analogue of the velocity Monte Carlo: forecasts P50/P80/P95
+    completion *dates* for the remaining backlog item count from the weekly
+    throughput series, requiring no sprints, story points, or Scrum cadence.
+
+    Remaining backlog count = non-deleted tasks whose status is one of
+    BACKLOG/NOT_STARTED/IN_PROGRESS/REVIEW (COMPLETE excluded). The bootstrap uses a
+    deterministically-seeded ``np.random.Generator`` so identical windows yield an
+    identical distribution within a request.
+
+    Returns:
+        The unified delivery-forecast dict (``basis:"monte_carlo"``,
+        ``forecast_basis:"throughput"``, ``remaining_count``, ``p50/p80/p95_date``,
+        ``sample_count`` = non-zero throughput weeks). ``status`` is ``"ready"`` with
+        ≥ :data:`MIN_THROUGHPUT_WEEKS` non-zero weeks and a remaining backlog, else the
+        honest ``"insufficient_flow_history"`` (the flow-path parallel to the velocity
+        ``"warming_up"`` — no false precision). Returns ``None`` only when there is no
+        completed-task history at all, so the caller can fall back to ``"warming_up"``.
+    """
+    import numpy as np
+
+    from trueppm_api.apps.projects.models import Task
+
+    series, _since = _project_weekly_throughput(project_id, window_days=window_days)
+    weekly = [row["completed_count"] for row in series]
+    nonzero_weeks = sum(1 for w in weekly if w > 0)
+
+    if nonzero_weeks == 0:
+        # No completed-task history — there is nothing to forecast from. Let the
+        # caller decide between throughput and velocity warm-up shapes.
+        return None
+
+    remaining_count = Task.objects.filter(
+        project_id=project_id,
+        is_deleted=False,
+        status__in=_FLOW_REMAINING_STATUSES,
+    ).count()
+
+    base: dict[str, Any] = {
+        "remaining_points": None,
+        "remaining_count": remaining_count,
+        "sample_count": nonzero_weeks,
+        "p50_sprints": None,
+        "p80_sprints": None,
+        "p50_date": None,
+        "p80_date": None,
+        "p95_date": None,
+        "basis": "monte_carlo",
+        "forecast_basis": "throughput",
+        "velocity_suppressed": False,
+    }
+
+    # Honest insufficiency: too few non-zero weeks to express weekly variance, or no
+    # remaining backlog to forecast. No false precision (ADR-0130 D3).
+    if nonzero_weeks < MIN_THROUGHPUT_WEEKS or remaining_count <= 0:
+        base["status"] = "insufficient_flow_history"
+        return base
+
+    rng = np.random.default_rng(seed)
+    counts = _sample_throughput_counts(weekly, float(remaining_count), runs, rng)
+    if counts is None:
+        base["status"] = "insufficient_flow_history"
+        return base
+
+    today = timezone.localdate()
+    # Pace the continuous percentile (in weeks) onto the calendar so P80/P95 land
+    # strictly after P50.
+    p50_days = round(float(np.percentile(counts, 50)) * 7)
+    p80_days = round(float(np.percentile(counts, 80)) * 7)
+    p95_days = round(float(np.percentile(counts, 95)) * 7)
+    return {
+        **base,
+        "status": "ready",
+        "p50_date": (today + timedelta(days=p50_days)).isoformat(),
+        "p80_date": (today + timedelta(days=p80_days)).isoformat(),
+        "p95_date": (today + timedelta(days=p95_days)).isoformat(),
+    }
 
 
 # ---------------------------------------------------------------------------

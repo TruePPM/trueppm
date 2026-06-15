@@ -48,7 +48,7 @@ const SEED_PROJECT = {
   description: 'Migrate the data warehouse to the new platform.',
   start_date: '2026-01-01',
   calendar: 'cal-1',
-  estimation_mode: 'hours',
+  estimation_mode: 'open',
   agile_features: false,
   methodology: 'HYBRID',
   code: 'ATLAS',
