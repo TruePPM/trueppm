@@ -183,7 +183,7 @@ async function gotoSchedule(
   // the list on save, so the PATCH must persist into the copy the GET returns —
   // otherwise the saved notes never round-trip and the dirty save-bar never
   // clears. Deep-clone so concurrent specs never share mutated fixtures.
-  // ADR-0132: when the caller drives a capability, stamp the server-derived
+  // ADR-0133: when the caller drives a capability, stamp the server-derived
   // can_edit/can_delete onto the task rows so the drawer gates off the
   // authoritative field (not just the role fallback).
   const tasks = FIXTURE_API_TASKS.map((t) => ({
@@ -434,7 +434,7 @@ test.describe('TaskDetailDrawer redesign — chrome', () => {
   });
 });
 
-test.describe('TaskDetailDrawer — Viewer read-only (#1142/#1143, ADR-0132)', () => {
+test.describe('TaskDetailDrawer — Viewer read-only (#1142/#1143, ADR-0133)', () => {
   test.beforeEach(async ({ page }) => {
     // A Viewer: server says can_edit=false AND role resolves to 0, so both the
     // capability field and the fallback agree on read-only.
@@ -462,7 +462,7 @@ test.describe('TaskDetailDrawer — Viewer read-only (#1142/#1143, ADR-0132)', (
   });
 });
 
-test.describe('TaskDetailDrawer — editor sees controls (ADR-0132 contrast)', () => {
+test.describe('TaskDetailDrawer — editor sees controls (ADR-0133 contrast)', () => {
   test.beforeEach(async ({ page }) => {
     await gotoSchedule(page, { role: 300, canEdit: true });
   });

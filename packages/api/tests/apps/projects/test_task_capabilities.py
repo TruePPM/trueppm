@@ -1,4 +1,4 @@
-"""Server-derived task edit capabilities (ADR-0132, #1144).
+"""Server-derived task edit capabilities (ADR-0133, #1144).
 
 Two layers:
   1. ``can_user_edit_task`` — the shared predicate that backs BOTH the

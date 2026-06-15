@@ -233,7 +233,7 @@ export function AttachmentSection({
   canEdit: canEditCap,
 }: DrawerSectionProps) {
   const { attachments, isLoading, error } = useTaskAttachments(projectId, taskId);
-  // #1046 / ADR-0132: Viewers can list/download but not upload, pin, or delete.
+  // #1046 / ADR-0133: Viewers can list/download but not upload, pin, or delete.
   // Prefer the server-derived per-task verdict; fall back to the client role rule
   // only when it is absent (and it returns false while the role loads, so the
   // controls never flash).

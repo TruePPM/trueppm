@@ -544,7 +544,7 @@ export function ExternalLinksSection({
   canEdit: canEditCap,
 }: DrawerSectionProps) {
   const { links, isLoading, error } = useTaskLinks(projectId, taskId);
-  // ADR-0132: prefer the server-derived per-task verdict; fall back to the client
+  // ADR-0133: prefer the server-derived per-task verdict; fall back to the client
   // role rule only when it is absent (pre-field synced rows).
   const canEdit = canEditCap ?? canEditTask(userRole);
 

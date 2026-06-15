@@ -330,7 +330,7 @@ describe('OverviewSection — milestone rollup', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Read-only gating for non-editors (ADR-0132, #1142)
+// Read-only gating for non-editors (ADR-0133, #1142)
 // ---------------------------------------------------------------------------
 
 describe('OverviewSection — read-only when canEdit is false', () => {

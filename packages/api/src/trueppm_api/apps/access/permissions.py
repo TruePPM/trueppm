@@ -108,7 +108,7 @@ def _is_product_owner(request: Request, project_id: Any) -> bool:
 
 
 def can_user_edit_task(request: Request, task: Any, *, method: str = "PATCH") -> bool:
-    """Authoritative "may this user write this task" predicate (ADR-0132).
+    """Authoritative "may this user write this task" predicate (ADR-0133).
 
     This is the single source of truth for task-edit permission. It backs BOTH
     enforcement (``IsProjectMemberWriteOrOwn.has_object_permission``) and the
@@ -274,7 +274,7 @@ class IsProjectMemberWriteOrOwn(BasePermission):
         if request.method in ("GET", "HEAD", "OPTIONS"):
             return True
 
-        # Delegate the write decision to the shared predicate (ADR-0132) so the
+        # Delegate the write decision to the shared predicate (ADR-0133) so the
         # rule the serializer's can_edit/can_delete fields declare is the exact
         # rule enforced here — one rule, called twice, can never drift. The PO
         # facet, Scheduler-read-only, Member-own-only, and Admin+ branches all

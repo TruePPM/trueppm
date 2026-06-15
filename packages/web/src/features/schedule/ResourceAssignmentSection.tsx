@@ -13,7 +13,7 @@ import { ResourceSearchCombobox } from './ResourceSearchCombobox';
 export interface ResourceAssignmentSectionProps {
   taskId: string;
   projectId: string;
-  /** ADR-0132/#1142: when false, assignments render read-only (no units input,
+  /** ADR-0133/#1142: when false, assignments render read-only (no units input,
    *  no remove, no "+ Add resource") so a non-editor never hits a 403. */
   canEdit?: boolean;
 }
@@ -127,7 +127,7 @@ export function ResourceAssignmentSection({
         </>
       )}
 
-      {/* Add resource controls — hidden for non-editors (ADR-0132/#1142). */}
+      {/* Add resource controls — hidden for non-editors (ADR-0133/#1142). */}
       {canEdit && (
       <div className="mt-2">
         {showSearch ? (

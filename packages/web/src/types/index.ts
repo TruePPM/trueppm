@@ -89,7 +89,7 @@ export interface Task {
   isMilestone: boolean;
   status: TaskStatus;
   /**
-   * Server-derived edit/delete capability for the requesting user (ADR-0132, #1144).
+   * Server-derived edit/delete capability for the requesting user (ADR-0133, #1144).
    * The drawer gates its write controls off these instead of re-deriving a client
    * rule that drifts from the server (Scheduler / Member-own / PO-facet cases).
    * Wire keys are snake_case `can_edit` / `can_delete`, mapped in `mapTask`.

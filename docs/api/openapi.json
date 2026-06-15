@@ -27836,12 +27836,12 @@
                     },
                     "can_edit": {
                         "type": "boolean",
-                        "description": "Authoritative per-task edit verdict for the requesting user (ADR-0132).\n\nDelegates to the SAME predicate the IsProjectMemberWriteOrOwn permission\nclass enforces, so the client's gate can never drift from the server's.",
+                        "description": "Authoritative per-task edit verdict for the requesting user (ADR-0133).\n\nDelegates to the SAME predicate the IsProjectMemberWriteOrOwn permission\nclass enforces, so the client's gate can never drift from the server's.",
                         "readOnly": true
                     },
                     "can_delete": {
                         "type": "boolean",
-                        "description": "Authoritative per-task delete verdict (ADR-0132).\n\nDiffers from ``can_edit`` only for a Product Owner: the PO facet grooms\n(edits) EPIC/STORY items but may not DELETE them.",
+                        "description": "Authoritative per-task delete verdict (ADR-0133).\n\nDiffers from ``can_edit`` only for a Product Owner: the PO facet grooms\n(edits) EPIC/STORY items but may not DELETE them.",
                         "readOnly": true
                     }
                 },

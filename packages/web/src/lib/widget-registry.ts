@@ -119,7 +119,7 @@ export interface DrawerSectionProps {
    */
   userRole?: number | null;
   /**
-   * Server-derived effective edit/delete capability for THIS task (ADR-0132,
+   * Server-derived effective edit/delete capability for THIS task (ADR-0133,
    * #1144), computed once by the drawer as `task.canEdit ?? canEditTask(userRole)`
    * and threaded down so every section gates off the same authoritative verdict
    * instead of re-deriving `canEditTask(userRole)` (which is wrong for Scheduler,

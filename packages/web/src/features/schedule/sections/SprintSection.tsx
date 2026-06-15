@@ -37,7 +37,7 @@ export function SprintSection({ taskId, projectId, userRole, canEdit }: DrawerSe
   const { sprints, isLoading } = useSprints(projectId);
   const { mutate: updateTask, isPending } = useUpdateTask();
 
-  // ADR-0132/#1142: gate write controls off the server-derived verdict; fall back to the client role rule only when absent.
+  // ADR-0133/#1142: gate write controls off the server-derived verdict; fall back to the client role rule only when absent.
   const editable = canEdit ?? canEditTask(userRole);
 
   // Guardrail UI state (ADR-0101). `warnings` is shown after a successful

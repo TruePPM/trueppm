@@ -39,7 +39,7 @@ export interface ApiTask {
   is_milestone: boolean;
   is_summary: boolean;
   parent_id: string | null;
-  // Server-derived edit capabilities (ADR-0132, #1144). Optional: absent on
+  // Server-derived edit capabilities (ADR-0133, #1144). Optional: absent on
   // pre-field WebSocket deltas and on nested serializations without a request.
   can_edit?: boolean;
   can_delete?: boolean;
@@ -252,7 +252,7 @@ export function mapTask(t: ApiTask): Task {
     isSummary: t.is_summary,
     isMilestone: t.is_milestone,
     status: t.status,
-    // Server-derived edit capabilities (ADR-0132). Preserve `undefined` when the
+    // Server-derived edit capabilities (ADR-0133). Preserve `undefined` when the
     // payload omits them (pre-field synced rows) so the drawer's
     // `canEdit ?? canEditTask(role)` fallback engages instead of forcing read-only.
     canEdit: t.can_edit,

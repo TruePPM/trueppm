@@ -1,4 +1,4 @@
-# ADR-0132: Server-Derived Task Edit Capabilities
+# ADR-0133: Server-Derived Task Edit Capabilities
 
 ## Status
 Accepted

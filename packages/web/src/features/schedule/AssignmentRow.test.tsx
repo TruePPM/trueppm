@@ -101,7 +101,7 @@ describe('AssignmentRow', () => {
     expect(screen.getByRole('button', { name: /Remove Alice from task/i })).toBeDisabled();
   });
 
-  // ADR-0132/#1142: a non-editor sees the allocation read-only.
+  // ADR-0133/#1142: a non-editor sees the allocation read-only.
   it('renders allocation as static text with no input or remove control when readOnly', () => {
     renderWithProviders(
       <AssignmentRow

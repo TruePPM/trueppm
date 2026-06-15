@@ -90,7 +90,7 @@ describe('useScheduleTasks mapper', () => {
     expect(task.deliveryMode).toBeUndefined();
   });
 
-  it('maps server-derived can_edit / can_delete capabilities (ADR-0132)', () => {
+  it('maps server-derived can_edit / can_delete capabilities (ADR-0133)', () => {
     const task = mapTask({ ...base, can_edit: true, can_delete: false });
     expect(task.canEdit).toBe(true);
     expect(task.canDelete).toBe(false);

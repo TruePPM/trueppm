@@ -58,7 +58,7 @@ export function SubtasksSection({ taskId, projectId, userRole, canEdit }: Drawer
   const task = tasks?.find((t) => t.id === taskId);
   const { mutate: createTask, isPending } = useCreateTask(projectId);
 
-  // ADR-0132/#1142: gate write controls off the server-derived verdict; fall back to the client role rule only when absent.
+  // ADR-0133/#1142: gate write controls off the server-derived verdict; fall back to the client role rule only when absent.
   const editable = canEdit ?? canEditTask(userRole);
 
   const [isAdding, setIsAdding] = useState(false);

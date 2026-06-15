@@ -1062,7 +1062,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     # Convenience verdict: flagged blocked AND a structured type is recorded.
     is_impediment = serializers.SerializerMethodField()
 
-    # ── Server-derived edit capabilities (ADR-0132, #1144) ──────────────────────
+    # ── Server-derived edit capabilities (ADR-0133, #1144) ──────────────────────
     # The authoritative "may this user write / delete this task" verdict for the
     # requesting user. The web client gates its drawer write controls off these
     # instead of re-deriving a parallel client rule that drifts (Scheduler,
@@ -1166,7 +1166,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "criteria_met_count",
             "criteria_total",
             "dor_blockers",
-            # Server-derived edit capabilities (ADR-0132, #1144)
+            # Server-derived edit capabilities (ADR-0133, #1144)
             "can_edit",
             "can_delete",
         ]
@@ -1638,7 +1638,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         return dor_blockers(obj)
 
     def get_can_edit(self, obj: Task) -> bool:
-        """Authoritative per-task edit verdict for the requesting user (ADR-0132).
+        """Authoritative per-task edit verdict for the requesting user (ADR-0133).
 
         Delegates to the SAME predicate the IsProjectMemberWriteOrOwn permission
         class enforces, so the client's gate can never drift from the server's.
@@ -1651,7 +1651,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         return can_user_edit_task(request, obj, method="PATCH")
 
     def get_can_delete(self, obj: Task) -> bool:
-        """Authoritative per-task delete verdict (ADR-0132).
+        """Authoritative per-task delete verdict (ADR-0133).
 
         Differs from ``can_edit`` only for a Product Owner: the PO facet grooms
         (edits) EPIC/STORY items but may not DELETE them.
