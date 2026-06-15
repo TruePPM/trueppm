@@ -29,6 +29,15 @@ between releases. Pin an exact version (e.g. `trueppm-scheduler==0.2.0a1`).
   engines.
 - Bounded the cycle-check graph expansion to keep `find_cycle` / scheduling from
   doing unbounded work on adversarial summary-dependency graphs.
+- Monte Carlo lag-delta precompute is vectorized (`searchsorted`) instead of a
+  per-cell Python loop, cutting the worst-case build time on networks with many
+  distinct lag values roughly 7× (#1205).
+- `Calendar.is_working_day` resolves exceptions via a cached merged-interval
+  bisect (O(log E)) rather than a linear scan, and the engine rejects a calendar
+  with more than 100,000 exception ranges (#1206).
+- `expand_summary_dependencies` now bounds the leaf cross product with the same
+  `MAX_EXPANDED_EDGES` cap as the cycle-check path, and caches leaf resolution
+  per node (#1208).
 
 ### Fixed
 
@@ -36,6 +45,17 @@ between releases. Pin an exact version (e.g. `trueppm-scheduler==0.2.0a1`).
   start-no-earlier-than (SNET) lag, and start-to-finish lag.
 - Critical-path topological ordering and free-float computation.
 - Determinism: a fixed `seed` produces stable P50/P80/P95 results.
+
+### Security
+
+- Deserialization and the public engine API only raise documented exceptions on
+  hostile input: deeply nested JSON (`RecursionError`), a start date that would
+  overflow the representable date range (`OverflowError`, previously reaching the
+  CLI and worker), a non-object top-level document (`AttributeError`), and
+  type-confused direct calls (`find_cycle`, non-`timedelta` durations/lags, a
+  `datetime` where a `date` is expected, non-numeric velocity samples, a
+  non-integer `working_days` mask) now all surface as `InvalidScheduleInput`
+  (#1207, #1209).
 
 ## [0.2.0a1] - 2026-05-31
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import bisect
 import enum
 import json
 import math
@@ -125,53 +126,65 @@ class Task:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
-        d = dict(data)
-        d["duration"] = _parse_timedelta(d["duration"])
-        d["total_float"] = _parse_timedelta(d.get("total_float", 0))
-        d["free_float"] = _parse_timedelta(d.get("free_float", 0))
-        pc = d.get("percent_complete")
-        if pc is not None and not math.isfinite(float(pc)):
-            raise ValueError("percent_complete must be a finite number.")
-        # from_json rejects NaN/Infinity at the JSON layer, but the from_dict path
-        # bypasses json.loads — without this an infinite story_points slips through
-        # parse and only blows up later as a bare OverflowError inside the velocity
-        # sampler (int(np.ceil(inf/mean))), bypassing the documented input contract
-        # (#1010). NaN is harmless (it fails the > 0 sampler gate); Infinity is not.
-        sp = d.get("story_points")
-        if sp is not None and not math.isfinite(float(sp)):
-            raise ValueError("story_points must be a finite number.")
-        for f in (
-            "planned_start",
-            "planned_finish",
-            "early_start",
-            "early_finish",
-            "late_start",
-            "late_finish",
-            "actual_start",
-            "actual_finish",
-        ):
-            if d.get(f) is not None:
-                d[f] = date.fromisoformat(d[f])
-        for f in (
-            "optimistic_duration",
-            "most_likely_duration",
-            "pessimistic_duration",
-        ):
-            if d.get(f) is not None:
-                d[f] = _parse_timedelta(d[f])
-        if d.get("delivery_mode") is not None:
-            # Same first-run-legibility treatment as dep_type (#947): name the
-            # field and list the allowed modes instead of a bare enum ValueError.
-            try:
-                d["delivery_mode"] = DeliveryMode(d["delivery_mode"])
-            except ValueError as err:
-                from trueppm_scheduler.engine import InvalidScheduleInput
+        # Wrap the whole body so a directly-called Task.from_dict (a public
+        # classmethod) raises the documented InvalidScheduleInput rather than a bare
+        # TypeError/KeyError — e.g. a non-string planned_start hitting
+        # date.fromisoformat, or an unknown field reaching cls(**d) (#1209). Via
+        # Project.from_dict the same coverage already applied; this closes the
+        # direct-call surface. InvalidScheduleInput is re-raised unwrapped so its
+        # specific message (bad delivery_mode) survives.
+        from trueppm_scheduler.engine import InvalidScheduleInput
 
-                allowed = ", ".join(m.value for m in DeliveryMode)
-                raise InvalidScheduleInput(
-                    f"Invalid delivery_mode {d['delivery_mode']!r}; must be one of: {allowed}."
-                ) from err
-        return cls(**d)
+        try:
+            d = dict(data)
+            d["duration"] = _parse_timedelta(d["duration"])
+            d["total_float"] = _parse_timedelta(d.get("total_float", 0))
+            d["free_float"] = _parse_timedelta(d.get("free_float", 0))
+            pc = d.get("percent_complete")
+            if pc is not None and not math.isfinite(float(pc)):
+                raise ValueError("percent_complete must be a finite number.")
+            # from_json rejects NaN/Infinity at the JSON layer, but the from_dict path
+            # bypasses json.loads — without this an infinite story_points slips through
+            # parse and only blows up later as a bare OverflowError inside the velocity
+            # sampler (int(np.ceil(inf/mean))), bypassing the documented input contract
+            # (#1010). NaN is harmless (it fails the > 0 sampler gate); Infinity is not.
+            sp = d.get("story_points")
+            if sp is not None and not math.isfinite(float(sp)):
+                raise ValueError("story_points must be a finite number.")
+            for f in (
+                "planned_start",
+                "planned_finish",
+                "early_start",
+                "early_finish",
+                "late_start",
+                "late_finish",
+                "actual_start",
+                "actual_finish",
+            ):
+                if d.get(f) is not None:
+                    d[f] = date.fromisoformat(d[f])
+            for f in (
+                "optimistic_duration",
+                "most_likely_duration",
+                "pessimistic_duration",
+            ):
+                if d.get(f) is not None:
+                    d[f] = _parse_timedelta(d[f])
+            if d.get("delivery_mode") is not None:
+                # Same first-run-legibility treatment as dep_type (#947): name the
+                # field and list the allowed modes instead of a bare enum ValueError.
+                try:
+                    d["delivery_mode"] = DeliveryMode(d["delivery_mode"])
+                except ValueError as err:
+                    allowed = ", ".join(m.value for m in DeliveryMode)
+                    raise InvalidScheduleInput(
+                        f"Invalid delivery_mode {d['delivery_mode']!r}; must be one of: {allowed}."
+                    ) from err
+            return cls(**d)
+        except InvalidScheduleInput:
+            raise
+        except (KeyError, ValueError, TypeError, AttributeError) as err:
+            raise InvalidScheduleInput(f"Invalid task document: {err}") from err
 
 
 @dataclass
@@ -233,11 +246,54 @@ class Calendar:
     hours_per_day: float = 8.0
     timezone: str = "UTC"
 
+    # Cached sorted/merged exception intervals as parallel ordinal lists, for an
+    # O(log E) is_working_day lookup instead of an O(E) linear scan (#1206). The
+    # calendar walk calls is_working_day once per day stepped, so the old linear
+    # scan made a schedule on a calendar with thousands of exceptions O(span x E)
+    # — minutes of synchronous work. Lazily built on first use and keyed by a cheap
+    # (len, id) token so a reassigned/grown exceptions list rebuilds. Excluded from
+    # init, repr, equality, and the manual to_dict — not part of the public surface.
+    _exc_index: tuple[list[int], list[int]] | None = field(
+        default=None, init=False, repr=False, compare=False
+    )
+    _exc_token: tuple[int, int] | None = field(default=None, init=False, repr=False, compare=False)
+
     def is_working_day(self, d: date) -> bool:
         # date.weekday(): Monday=0, Sunday=6
         if not (self.working_days >> d.weekday()) & 1:
             return False
-        return not any(exc.start <= d <= exc.end for exc in self.exceptions)
+        if not self.exceptions:
+            return True
+        starts, ends = self._exception_intervals()
+        o = d.toordinal()
+        # The intervals are merged and disjoint, so d is an exception iff it falls
+        # within the single interval whose start is the rightmost <= d.
+        i = bisect.bisect_right(starts, o) - 1
+        return not (i >= 0 and o <= ends[i])
+
+    def _exception_intervals(self) -> tuple[list[int], list[int]]:
+        """Sorted, merged exception intervals as parallel ordinal lists (#1206).
+
+        Rebuilt only when the exceptions list is replaced or changes length (the
+        cheap ``(len, id)`` token). Merging overlapping/adjacent ranges keeps the
+        intervals disjoint, so a single :func:`bisect.bisect_right` locates the only
+        range that could contain a date.
+        """
+        token = (len(self.exceptions), id(self.exceptions))
+        if self._exc_token == token and self._exc_index is not None:
+            return self._exc_index
+        ranges = sorted((e.start.toordinal(), e.end.toordinal()) for e in self.exceptions)
+        starts: list[int] = []
+        ends: list[int] = []
+        for s, e in ranges:
+            if ends and s <= ends[-1] + 1:
+                ends[-1] = max(ends[-1], e)
+            else:
+                starts.append(s)
+                ends.append(e)
+        self._exc_index = (starts, ends)
+        self._exc_token = token
+        return self._exc_index
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -249,8 +305,24 @@ class Calendar:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
+        from trueppm_scheduler.engine import InvalidScheduleInput
+
+        # A non-dict ``calendar`` (e.g. the JSON string ``"weekdays"``) otherwise
+        # reaches ``data.get`` and leaks a bare AttributeError past the documented
+        # exception contract (#1207).
+        if not isinstance(data, dict):
+            raise InvalidScheduleInput(f"calendar must be an object, got {type(data).__name__}.")
+        # Validate the bitmask at parse time: a string/float/negative working_days
+        # is silently accepted here and only blows up later inside schedule() as a
+        # bare TypeError on ``working_days & mask`` (#1209). bool is an int subclass
+        # but never a valid mask, so reject it explicitly.
+        wd = data.get("working_days", 0b0011111)
+        if isinstance(wd, bool) or not isinstance(wd, int) or not (0 <= wd < 0b1000_0000):
+            raise InvalidScheduleInput(
+                f"working_days must be an integer bitmask in [0, 127] (got {wd!r})."
+            )
         return cls(
-            working_days=data.get("working_days", 0b0011111),
+            working_days=wd,
             exceptions=[DateRange.from_dict(e) for e in data.get("exceptions", [])],
             hours_per_day=data.get("hours_per_day", 8.0),
             timezone=data.get("timezone", "UTC"),
@@ -334,7 +406,11 @@ class Project:
                     else None
                 ),
             )
-        except (KeyError, ValueError, TypeError) as err:
+        except (KeyError, ValueError, TypeError, AttributeError) as err:
+            # AttributeError covers a non-dict top-level document (``[1,2,3]``,
+            # ``42``) reaching ``data.get`` / ``data[...]`` — without it the
+            # untrusted-input ``from_json`` path leaked a bare AttributeError past
+            # the documented exception contract (#1207).
             raise InvalidScheduleInput(f"Invalid project document: {err}") from err
 
     def to_json(self, **kwargs: Any) -> str:
@@ -352,6 +428,12 @@ class Project:
             data = json.loads(s, parse_constant=_reject_nonfinite)
         except (ValueError, TypeError) as err:  # JSONDecodeError is a ValueError
             raise InvalidScheduleInput(f"Invalid project JSON: {err}") from err
+        except RecursionError as err:
+            # Deeply nested JSON (e.g. ``"[" * 20000``) overflows the parser's C
+            # recursion limit; RecursionError is neither ValueError nor TypeError,
+            # so without this a ~20 KB untrusted payload escaped the contract as a
+            # raw RecursionError / DoS (#1207).
+            raise InvalidScheduleInput("Project JSON is nested too deeply to parse.") from err
         return cls.from_dict(data)
 
 
