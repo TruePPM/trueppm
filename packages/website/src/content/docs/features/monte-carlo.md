@@ -139,6 +139,34 @@ will keep the **newest 100 runs per project** (`MC_HISTORY_CAP`); a nightly job
 trims older runs. Enterprise sets the cap to `None` (unlimited history). 100 runs
 is ample to read multi-month drift on an actively re-forecast project.
 
+## Progress-aware forecasting
+
+:::note[Coming in 0.3]
+Progress-aware forecasting is planned for the **0.3** release. The behavior
+described in this section is not yet in a tagged build.
+:::
+
+In 0.3 the forecast will account for what is already done rather than
+re-simulating the project from its original start date every run. As work
+progresses, the simulation will:
+
+- **Pin completed tasks** to their recorded actual finish dates instead of
+  re-rolling their durations — finished work is a fact, not a probability.
+- **Sample only the remaining duration** of in-progress tasks. A task that is
+  60% complete contributes the uncertainty of its last 40%, not its whole
+  estimate.
+- **Anchor remaining work at a data date.** Not-started and remaining work will
+  be scheduled no earlier than the project's **status date**, so the forecast
+  never places future work in the past.
+
+A new optional `status_date` field on the project (`GET`/`PATCH
+/api/v1/projects/<id>/`) will set that anchor. When it is left null the forecast
+defaults to today, so an actively-tracked project reads correctly with no extra
+configuration; a PM who wants a reproducible, frozen forecast for a report can
+pin an explicit date. The same progress signals will flow through the
+deterministic CPM schedule, so the Gantt bars and the Monte Carlo band stay
+consistent.
+
 ## The math
 
 ### PERT-Beta distribution
