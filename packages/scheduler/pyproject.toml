@@ -69,10 +69,16 @@ Homepage = "https://trueppm.com"
 Documentation = "https://docs.trueppm.com/features/scheduler"
 Repository = "https://gitlab.com/trueppm/trueppm"
 Issues = "https://gitlab.com/trueppm/trueppm/-/issues"
-Changelog = "https://gitlab.com/trueppm/trueppm/-/blob/main/CHANGELOG.md"
+Changelog = "https://gitlab.com/trueppm/trueppm/-/blob/main/packages/scheduler/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/trueppm_scheduler"]
+
+# Ship the package-local changelog inside the wheel so PyPI consumers (who can't
+# read the monorepo changelog.d/ fragment system) get the history with the
+# install (#945).
+[tool.hatch.build.targets.wheel.force-include]
+"CHANGELOG.md" = "trueppm_scheduler/CHANGELOG.md"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

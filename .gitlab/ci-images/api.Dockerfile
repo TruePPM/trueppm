@@ -42,6 +42,11 @@ WORKDIR /opt/ci-deps
 # near-instant editable re-link rather than a 100s wheel download.
 COPY packages/scheduler/pyproject.toml ./scheduler/pyproject.toml
 COPY packages/scheduler/README.md      ./scheduler/README.md
+# CHANGELOG.md is force-included into the scheduler wheel (scheduler
+# pyproject force-include, #945), so the editable build below needs it present
+# even in this metadata-only stub tree — otherwise hatchling fails the build
+# with "Forced include not found".
+COPY packages/scheduler/CHANGELOG.md   ./scheduler/CHANGELOG.md
 COPY packages/api/pyproject.toml       ./api/pyproject.toml
 COPY packages/api/README.md            ./api/README.md
 
