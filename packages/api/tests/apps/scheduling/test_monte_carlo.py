@@ -256,3 +256,46 @@ class TestMonteCarloEndpoint:
             format="json",
         )
         assert r.status_code == 400
+
+
+@pytest.mark.django_db
+class TestMonteCarloProgressAware:
+    """The forecast accounts for what is open vs. closed (ADR-0132): completed
+    work is pinned to its actuals instead of being re-simulated from scratch."""
+
+    def test_completed_phase_is_pinned_to_actuals(
+        self,
+        member_client: APIClient,
+        project: Project,
+    ) -> None:
+        from trueppm_api.apps.projects.models import Dependency, Task, TaskStatus
+
+        # Anchor the project and pick an explicit data date so the assertion is
+        # deterministic (not dependent on the wall clock).
+        project.start_date = date(2026, 3, 2)  # Monday
+        project.status_date = date(2026, 3, 23)  # Monday
+        project.save(update_fields=["start_date", "status_date"])
+
+        # A is a 5-day task that *actually* ran long, finishing 20-Mar (not the
+        # 6-Mar its plan implies). B is a 3-day not-started successor.
+        a = Task.objects.create(
+            project=project,
+            name="A",
+            duration=5,
+            status=TaskStatus.COMPLETE,
+            actual_start=date(2026, 3, 2),
+            actual_finish=date(2026, 3, 20),  # Friday
+        )
+        b = Task.objects.create(project=project, name="B", duration=3)
+        Dependency.objects.create(predecessor=a, successor=b)
+
+        r = member_client.post(
+            f"/api/v1/projects/{project.pk}/monte-carlo/",
+            {"n_simulations": 100},
+            format="json",
+        )
+        assert r.status_code == 200
+        # B starts the working day after A's ACTUAL finish (Mon 23-Mar) and takes
+        # 3 days → Wed 25-Mar. Were completion ignored (the old behavior), B would
+        # be re-rolled from the planned schedule and finish far earlier.
+        assert r.data["p50"] == r.data["p80"] == r.data["p95"] == "2026-03-25"

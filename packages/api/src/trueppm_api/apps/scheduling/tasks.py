@@ -361,7 +361,14 @@ def _run_schedule(
     from trueppm_scheduler.models import Project as SchedProject
     from trueppm_scheduler.models import Task as SchedTask
 
-    from trueppm_api.apps.projects.models import Dependency, Project, Task, TaskType
+    from trueppm_api.apps.projects.models import (
+        Dependency,
+        EstimationMode,
+        Project,
+        Task,
+        TaskType,
+    )
+    from trueppm_api.apps.scheduling.services import build_sched_tasks
 
     def _update(pct: int, msg: str) -> None:
         if tracker is not None:
@@ -404,31 +411,16 @@ def _run_schedule(
         timezone=cal.timezone if cal else "UTC",
     )
 
-    # Convert Django Task objects to scheduler dataclasses.
-    # Milestones are zero-duration single-point gates regardless of any non-zero
-    # duration that may have been imported (MS Project allows non-zero milestone
-    # durations) or persisted before the serializer invariant was enforced. The
-    # scheduler engine "operates on duration only" (see Task.is_milestone docstring)
-    # so we normalise here at the boundary.
-    sched_tasks = [
-        SchedTask(
-            id=str(t.id),
-            name=t.name,
-            duration=timedelta(days=0) if t.is_milestone else timedelta(days=t.duration),
-            planned_start=t.planned_start,
-            percent_complete=t.percent_complete,
-            optimistic_duration=timedelta(days=t.optimistic_duration)
-            if t.optimistic_duration is not None
-            else None,
-            most_likely_duration=timedelta(days=t.most_likely_duration)
-            if t.most_likely_duration is not None
-            else None,
-            pessimistic_duration=timedelta(days=t.pessimistic_duration)
-            if t.pessimistic_duration is not None
-            else None,
-        )
-        for t in db_tasks
-    ]
+    # Convert Django Task objects to scheduler dataclasses through the shared
+    # converter (ADR-0132), the single source of truth the Monte Carlo endpoint
+    # also uses — so progress/actual fields and milestone normalisation can never
+    # drift between the two engines (the cause of #1185). The suggest_approve gate
+    # is a no-op for the deterministic CPM pass (which ignores PERT) but is passed
+    # for parity so both paths run identical code.
+    sched_tasks = build_sched_tasks(
+        db_tasks,
+        suggest_approve=db_project.estimation_mode == EstimationMode.SUGGEST_APPROVE,
+    )
 
     # Convert Django Dependency objects to scheduler dataclasses. Drop any edge that
     # touches an excluded (recurring) task — its endpoint is absent from sched_tasks,
@@ -480,6 +472,13 @@ def _run_schedule(
         tasks=leaf_tasks,
         dependencies=expanded_deps,
         calendar=sched_calendar,
+        # The stored plan honors recorded actuals (completed tasks pin, in-progress
+        # tasks use remaining duration) always; it only floors not-started work at
+        # the data date when a PM has set one explicitly. Null status_date keeps the
+        # deterministic schedule showing earliest-possible dates rather than drifting
+        # every recalc — the Monte Carlo forecast is what defaults to "today"
+        # (ADR-0132).
+        status_date=db_project.status_date,
     )
 
     _update(50, "Running CPM…")

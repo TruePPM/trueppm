@@ -81,3 +81,35 @@ def test_update_project_allowed_admin_and_owner(project: Project, role: int) -> 
     assert resp.status_code == 200
     project.refresh_from_db()
     assert project.name == "Renamed"
+
+
+@pytest.mark.django_db
+def test_admin_can_set_and_clear_status_date(project: Project) -> None:
+    """The data date (ADR-0132) is a PM-level forecasting setting: starts null,
+    Admin+ may set it, and it can be cleared back to null."""
+    from trueppm_api.apps.access.models import Role as _Role
+
+    client = _client_for(project, _Role.ADMIN, "u_admin_sd")
+
+    # Defaults to null and round-trips on read.
+    got = client.get(f"/api/v1/projects/{project.pk}/")
+    assert got.data["status_date"] is None
+
+    resp = client.patch(
+        f"/api/v1/projects/{project.pk}/",
+        {"status_date": "2026-03-23"},
+        format="json",
+    )
+    assert resp.status_code == 200
+    assert resp.data["status_date"] == "2026-03-23"
+    project.refresh_from_db()
+    assert project.status_date == date(2026, 3, 23)
+
+    cleared = client.patch(
+        f"/api/v1/projects/{project.pk}/",
+        {"status_date": None},
+        format="json",
+    )
+    assert cleared.status_code == 200
+    project.refresh_from_db()
+    assert project.status_date is None

@@ -39,7 +39,6 @@ from trueppm_api.apps.access.permissions import (
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import (
     Dependency,
-    EstimateStatus,
     EstimationMode,
     Project,
     Task,
@@ -56,7 +55,11 @@ from trueppm_api.apps.scheduling.serializers import (
     MonteCarloRunSerializer,
     VelocitySuggestionSerializer,
 )
-from trueppm_api.apps.scheduling.services import enqueue_recalculate, record_monte_carlo_run
+from trueppm_api.apps.scheduling.services import (
+    build_sched_tasks,
+    enqueue_recalculate,
+    record_monte_carlo_run,
+)
 
 
 @extend_schema(
@@ -195,7 +198,6 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     from trueppm_scheduler.models import Dependency as SchedDependency
     from trueppm_scheduler.models import DependencyType
     from trueppm_scheduler.models import Project as SchedProject
-    from trueppm_scheduler.models import Task as SchedTask
 
     try:
         project = (
@@ -235,30 +237,15 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     # part of the forecast. ADR-0057 / Task.committed.
     db_tasks = list(Task.committed.filter(project=project))
 
-    # Gate: in suggest_approve mode, pending estimates are excluded from MC.
-    # The scheduler's all-or-none rule means passing None for any field is
-    # sufficient — the engine falls back to deterministic duration automatically.
-    _suggest_approve = project.estimation_mode == EstimationMode.SUGGEST_APPROVE
-
-    def _pert_field(value: int | None, task_estimate_status: str | None) -> timedelta | None:
-        if value is None:
-            return None
-        if _suggest_approve and task_estimate_status != EstimateStatus.ACCEPTED:
-            return None
-        return timedelta(days=value)
-
-    sched_tasks = [
-        SchedTask(
-            id=str(t.id),
-            name=t.name,
-            duration=timedelta(days=t.duration),
-            percent_complete=t.percent_complete,
-            optimistic_duration=_pert_field(t.optimistic_duration, t.estimate_status),
-            most_likely_duration=_pert_field(t.most_likely_duration, t.estimate_status),
-            pessimistic_duration=_pert_field(t.pessimistic_duration, t.estimate_status),
-        )
-        for t in db_tasks
-    ]
+    # Shared converter (ADR-0132): the deterministic CPM pass and Monte Carlo
+    # build their scheduler input through one function, so a field can never reach
+    # one engine and not the other — the drift that caused #1185 (MC had silently
+    # dropped planned_start). The suggest_approve gate withholds pending
+    # three-point estimates in SUGGEST_APPROVE mode.
+    sched_tasks = build_sched_tasks(
+        db_tasks,
+        suggest_approve=project.estimation_mode == EstimationMode.SUGGEST_APPROVE,
+    )
 
     # Drop any edge whose endpoint is absent from sched_tasks: cross-project
     # dependencies (successor lives in another project) and edges to non-committed
@@ -289,6 +276,10 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
         tasks=sched_tasks,
         dependencies=sched_deps,
         calendar=sched_calendar,
+        # Data date for the forecast (ADR-0132): the project's explicit status
+        # date, or today when unset — so Monte Carlo never schedules remaining
+        # work in the past and pins completed work to its actuals.
+        status_date=project.status_date or timezone.localdate(),
     )
 
     try:
