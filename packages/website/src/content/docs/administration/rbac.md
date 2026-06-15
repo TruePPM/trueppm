@@ -100,3 +100,9 @@ All querysets are scoped to projects the requesting user is a member of via `Pro
 ## WebSocket auth
 
 WebSocket connections authenticate via `?token=<jwt>` on the connection URL. Viewer (role=0) connections are rejected with close code 4003 — real-time push requires Member or above.
+
+## Server-derived capability flags
+
+Every task in the API response carries two read-only booleans for the requesting user: `can_edit` and `can_delete`. They are computed server-side from the **same** predicate the write-permission check enforces (`can_user_edit_task`), so a client never re-implements the rule and the declared capability can never drift from the enforced one. The values reflect the full per-task rule, including the assignee-own case (a Member may edit a task only when they are its assignee) and the Product Owner facet (a PO may edit — but not delete — `EPIC`/`STORY` items). `can_delete` differs from `can_edit` only for a Product Owner, who grooms stories but does not delete them.
+
+These flags are advisory for clients (the server still authorizes every write — hiding a control is defense-in-depth, never the only gate). The web app gates the entire task detail drawer off `can_edit`: a user who cannot edit a task sees a fully read-only drawer with a **"View only"** indicator in the header, rather than controls that silently fail on submit. A future admin role-capability matrix view (`GET /projects/{id}/role-capabilities/`) will expose the full role × capability grid for compliance review.

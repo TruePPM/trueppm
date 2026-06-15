@@ -105,6 +105,16 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
   await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/my-tasks/`, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ tasks: [] }) }),
   );
+  // ADR-0133/#1142: the drawer gates write controls off the caller's project role
+  // (GET members/?self=true). Without this mock the role never resolves and the
+  // assignment controls render read-only, failing the editable-flow assertions.
+  await page.route('**/api/v1/projects/*/members/**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([{ id: 'mem-self', role: 300 }]),
+    }),
+  );
   await page.route('**/api/v1/tasks/**', (route) =>
     route.fulfill({
       status: 200,

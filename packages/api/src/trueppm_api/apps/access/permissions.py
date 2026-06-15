@@ -81,6 +81,89 @@ def _membership_role(request: Request, project_id: Any) -> int | None:
     return role
 
 
+def _is_product_owner(request: Request, project_id: Any) -> bool:
+    """Request-cached ``is_product_owner`` facet check (ADR-0078).
+
+    ``can_user_edit_task`` is evaluated once per task row on list endpoints, and a
+    Product Owner grooming a large EPIC/STORY backlog is exactly the persona who
+    loads the biggest such list. The underlying ``has_team_facet`` lookup is a DB
+    query, so without this cache the PO path would be N queries for N rows. The
+    facet is constant per (user, project) for the request, so memoize it on the
+    request object the same way ``_membership_role`` caches the role.
+    """
+    cache: dict[str, bool] | None = getattr(request, "_rbac_po_facet_cache", None)
+    if cache is None:
+        cache = {}
+        request._rbac_po_facet_cache = cache  # type: ignore[attr-defined]
+
+    cache_key = str(project_id)
+    if cache_key in cache:
+        return cache[cache_key]
+
+    from trueppm_api.apps.teams.services import has_team_facet
+
+    result = bool(has_team_facet(request.user, project_id, "is_product_owner"))
+    cache[cache_key] = result
+    return result
+
+
+def can_user_edit_task(request: Request, task: Any, *, method: str = "PATCH") -> bool:
+    """Authoritative "may this user write this task" predicate (ADR-0133).
+
+    This is the single source of truth for task-edit permission. It backs BOTH
+    enforcement (``IsProjectMemberWriteOrOwn.has_object_permission``) and the
+    declarative ``TaskSerializer.can_edit`` / ``can_delete`` fields, so the
+    contract the client gates off can never drift from the contract the server
+    enforces. There is one rule; it is called twice.
+
+    ``method`` is the would-be write verb: ``"DELETE"`` excludes the Product
+    Owner facet branch (a PO may groom — edit — EPIC/STORY items, but removing
+    another member's story stays an Admin/assignee act), so ``can_edit`` and
+    ``can_delete`` legitimately differ for a PO.
+
+    Fails closed: any unresolved context (no auth, no membership) yields
+    ``False`` — never an exception, never an over-permissive ``True``.
+    """
+    if not (request.user and request.user.is_authenticated):
+        return False
+
+    project_id = getattr(task, "project_id", None)
+    if project_id is None:
+        return False
+
+    role = _membership_role(request, project_id)
+    if role is None:
+        return False
+
+    # Project Manager (3) and Project Admin (4): full write on any task.
+    if role >= Role.ADMIN:
+        return True
+
+    # Product Owner facet (ADR-0078 / #1095): edits EPIC/STORY work items below
+    # Admin and regardless of assignment — but never DELETE (see docstring). The
+    # facet lookup is request-cached so a PO grooming a large backlog stays O(1).
+    if method != "DELETE":
+        from trueppm_api.apps.projects.models import TaskType
+
+        if getattr(task, "type", None) in (
+            TaskType.EPIC,
+            TaskType.STORY,
+        ) and _is_product_owner(request, project_id):
+            return True
+
+    # Resource Manager (2): cannot edit task content (only resource assignment).
+    if role == Role.SCHEDULER:
+        return False
+
+    # Team Member (1): may only edit their own assigned tasks.
+    if role == Role.MEMBER:
+        assignee_id = getattr(task, "assignee_id", None)
+        return assignee_id is not None and assignee_id == request.user.pk
+
+    # Viewer (0): no writes.
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Permission classes
 # ---------------------------------------------------------------------------
@@ -184,47 +267,19 @@ class IsProjectMemberWriteOrOwn(BasePermission):
         project_id = _get_project_id_from_obj(obj)
         if project_id is None:
             return False
-        role = _membership_role(request, project_id)
-        if role is None:
+        if _membership_role(request, project_id) is None:
             return False
 
         # Safe methods: any project member may read
         if request.method in ("GET", "HEAD", "OPTIONS"):
             return True
 
-        # Project Manager (3) and Project Admin (4): full write on any task
-        if role >= Role.ADMIN:
-            return True
-
-        # Product Owner facet (ADR-0078 / #1095): the PO owns the backlog and may
-        # EDIT its EPIC/STORY work items below Admin and regardless of task
-        # assignment — otherwise the PM outranks them on their own backlog. Scoped
-        # tightly: (1) only EPIC/STORY work items, so the facet never widens write
-        # access to schedule tasks/milestones; (2) edits only, never DELETE — removing
-        # another member's story stays an Admin/assignee act (this wave needs grooming,
-        # not deletion). The TaskSerializer's structural gate further confines the
-        # PO-only fields (type, epic links, scoring inputs) to PO/Admin within those.
-        from trueppm_api.apps.projects.models import TaskType
-        from trueppm_api.apps.teams.services import has_team_facet
-
-        if (
-            request.method != "DELETE"
-            and getattr(obj, "type", None) in (TaskType.EPIC, TaskType.STORY)
-            and has_team_facet(request.user, project_id, "is_product_owner")
-        ):
-            return True
-
-        # Resource Manager (2): cannot edit task content (only resource assignment)
-        if role == Role.SCHEDULER:
-            return False
-
-        # Team Member (1): may only edit their own assigned tasks
-        if role == Role.MEMBER:
-            assignee_id = getattr(obj, "assignee_id", None)
-            return assignee_id is not None and assignee_id == request.user.pk
-
-        # Viewer (0): no writes
-        return False
+        # Delegate the write decision to the shared predicate (ADR-0133) so the
+        # rule the serializer's can_edit/can_delete fields declare is the exact
+        # rule enforced here — one rule, called twice, can never drift. The PO
+        # facet, Scheduler-read-only, Member-own-only, and Admin+ branches all
+        # live in can_user_edit_task now.
+        return can_user_edit_task(request, obj, method=request.method or "PATCH")
 
 
 class IsProjectScheduler(BasePermission):

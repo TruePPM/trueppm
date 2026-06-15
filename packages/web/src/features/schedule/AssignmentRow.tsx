@@ -7,6 +7,9 @@ export interface AssignmentRowProps {
   onRemove: () => void;
   isUpdating: boolean;
   isRemoving: boolean;
+  /** ADR-0133/1142: non-editors see the assignment read-only — the allocation
+   *  as static text and no remove control — instead of inputs that 403 on blur. */
+  readOnly?: boolean;
 }
 
 export function AssignmentRow({
@@ -15,6 +18,7 @@ export function AssignmentRow({
   onRemove,
   isUpdating,
   isRemoving,
+  readOnly = false,
 }: AssignmentRowProps) {
   // Draft state: integer percent shown in the input
   const [draft, setDraft] = useState<string>(String(Math.round(assignment.units * 100)));
@@ -54,42 +58,54 @@ export function AssignmentRow({
         {assignment.resourceName}
       </span>
 
-      {/* Units input — integer percent */}
-      <input
-        type="number"
-        min={1}
-        max={200}
-        value={draft}
-        disabled={isDisabled}
-        aria-label={`Allocation percent for ${assignment.resourceName}`}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commitDraft}
-        onKeyDown={handleKeyDown}
-        className="w-14 text-xs text-center border border-neutral-border rounded px-1.5 py-1
-          bg-neutral-surface text-neutral-text-primary
-          disabled:opacity-40 disabled:cursor-not-allowed
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-      />
+      {readOnly ? (
+        /* Read-only: static allocation, no input or remove control. */
+        <span
+          className="text-xs tabular-nums text-neutral-text-secondary shrink-0"
+          aria-label={`Allocation ${serverPct} percent for ${assignment.resourceName}`}
+        >
+          {serverPct}%
+        </span>
+      ) : (
+        <>
+          {/* Units input — integer percent */}
+          <input
+            type="number"
+            min={1}
+            max={200}
+            value={draft}
+            disabled={isDisabled}
+            aria-label={`Allocation percent for ${assignment.resourceName}`}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commitDraft}
+            onKeyDown={handleKeyDown}
+            className="w-14 text-xs text-center border border-neutral-border rounded px-1.5 py-1
+              bg-neutral-surface text-neutral-text-primary
+              disabled:opacity-40 disabled:cursor-not-allowed
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          />
 
-      {/* Percent label */}
-      <span className="text-xs text-neutral-text-disabled shrink-0" aria-hidden="true">
-        %
-      </span>
+          {/* Percent label */}
+          <span className="text-xs text-neutral-text-disabled shrink-0" aria-hidden="true">
+            %
+          </span>
 
-      {/* Remove button */}
-      <button
-        type="button"
-        onClick={onRemove}
-        disabled={isDisabled}
-        aria-label={`Remove ${assignment.resourceName} from task`}
-        className="w-6 h-6 flex items-center justify-center rounded text-neutral-text-disabled
-          hover:text-semantic-critical
-          disabled:opacity-40 disabled:cursor-not-allowed
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
-          p-3 -mx-1 md:mx-0 md:p-0"
-      >
-        ×
-      </button>
+          {/* Remove button */}
+          <button
+            type="button"
+            onClick={onRemove}
+            disabled={isDisabled}
+            aria-label={`Remove ${assignment.resourceName} from task`}
+            className="w-6 h-6 flex items-center justify-center rounded text-neutral-text-disabled
+              hover:text-semantic-critical
+              disabled:opacity-40 disabled:cursor-not-allowed
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+              p-3 -mx-1 md:mx-0 md:p-0"
+          >
+            ×
+          </button>
+        </>
+      )}
     </div>
   );
 }

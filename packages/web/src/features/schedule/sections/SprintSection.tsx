@@ -10,6 +10,7 @@ import {
   type GuardrailBlockedError,
 } from '@/hooks/useTaskMutations';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
+import { canEditTask } from '@/lib/roles';
 import { GuardrailNotice } from './GuardrailNotice';
 import { GuardrailBlock } from './GuardrailBlock';
 
@@ -29,12 +30,15 @@ const LABEL_CLASS =
  * when the task is already in a sprint. If no PLANNED or ACTIVE sprints exist,
  * renders an empty-state nudge toward the Sprints tab.
  */
-export function SprintSection({ taskId, projectId }: DrawerSectionProps) {
+export function SprintSection({ taskId, projectId, userRole, canEdit }: DrawerSectionProps) {
   const itl = useIterationLabel(projectId);
   const { tasks } = useScheduleTasks();
   const task = tasks?.find((t) => t.id === taskId);
   const { sprints, isLoading } = useSprints(projectId);
   const { mutate: updateTask, isPending } = useUpdateTask();
+
+  // ADR-0133/1142: gate write controls off the server-derived verdict; fall back to the client role rule only when absent.
+  const editable = canEdit ?? canEditTask(userRole);
 
   // Guardrail UI state (ADR-0101). `warnings` is shown after a successful
   // assignment that tripped a warn-level rule; `priorSprintId` lets Undo revert
@@ -102,6 +106,12 @@ export function SprintSection({ taskId, projectId }: DrawerSectionProps) {
         <div className={LABEL_CLASS}>{itl.singular}</div>
         {isLoading ? (
           <div className="h-9 rounded bg-neutral-surface-raised animate-pulse w-full" aria-label={`Loading ${itl.lowerPlural}`} />
+        ) : !editable ? (
+          // Read-only: show the assigned iteration name as static text (the
+          // state badge / dates / remove control render separately below).
+          <p className="text-sm text-neutral-text-primary">
+            {currentSprint ? currentSprint.name : <span className="italic text-neutral-text-secondary">Not assigned</span>}
+          </p>
         ) : assignable.length === 0 && !task.sprintId ? (
           <p className="text-sm italic text-neutral-text-secondary">
             No active or planned {itl.lowerPlural} — create one in the {itl.plural} tab.
@@ -152,17 +162,19 @@ export function SprintSection({ taskId, projectId }: DrawerSectionProps) {
               {currentSprint.start_date} – {currentSprint.finish_date}
             </span>
           </div>
-          <button
-            type="button"
-            onClick={handleRemove}
-            disabled={isPending}
-            aria-label={`Remove from ${itl.lower}`}
-            className="text-xs text-neutral-text-secondary hover:text-semantic-critical rounded shrink-0
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
-              disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Remove ×
-          </button>
+          {editable && (
+            <button
+              type="button"
+              onClick={handleRemove}
+              disabled={isPending}
+              aria-label={`Remove from ${itl.lower}`}
+              className="text-xs text-neutral-text-secondary hover:text-semantic-critical rounded shrink-0
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+                disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Remove ×
+            </button>
+          )}
         </div>
       )}
 

@@ -1076,6 +1076,17 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     # Convenience verdict: flagged blocked AND a structured type is recorded.
     is_impediment = serializers.SerializerMethodField()
 
+    # ── Server-derived edit capabilities (ADR-0133, #1144) ──────────────────────
+    # The authoritative "may this user write / delete this task" verdict for the
+    # requesting user. The web client gates its drawer write controls off these
+    # instead of re-deriving a parallel client rule that drifts (Scheduler,
+    # Member-own, and PO-facet cases the old client rule got wrong). Both call the
+    # SAME predicate the IsProjectMemberWriteOrOwn permission class enforces, so
+    # declaration and enforcement can never diverge. Fail closed: ``False`` when
+    # serialized without a request (nested serialization, tests).
+    can_edit = serializers.SerializerMethodField()
+    can_delete = serializers.SerializerMethodField()
+
     class Meta:
         model = Task
         fields = [
@@ -1170,6 +1181,9 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "criteria_met_count",
             "criteria_total",
             "dor_blockers",
+            # Server-derived edit capabilities (ADR-0133, #1144)
+            "can_edit",
+            "can_delete",
         ]
         read_only_fields = [
             "id",
@@ -1681,6 +1695,32 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         from trueppm_api.apps.projects.product_backlog_services import dor_blockers
 
         return dor_blockers(obj)
+
+    def get_can_edit(self, obj: Task) -> bool:
+        """Authoritative per-task edit verdict for the requesting user (ADR-0133).
+
+        Delegates to the SAME predicate the IsProjectMemberWriteOrOwn permission
+        class enforces, so the client's gate can never drift from the server's.
+        """
+        request = self.context.get("request")
+        if request is None:
+            return False
+        from trueppm_api.apps.access.permissions import can_user_edit_task
+
+        return can_user_edit_task(request, obj, method="PATCH")
+
+    def get_can_delete(self, obj: Task) -> bool:
+        """Authoritative per-task delete verdict (ADR-0133).
+
+        Differs from ``can_edit`` only for a Product Owner: the PO facet grooms
+        (edits) EPIC/STORY items but may not DELETE them.
+        """
+        request = self.context.get("request")
+        if request is None:
+            return False
+        from trueppm_api.apps.access.permissions import can_user_edit_task
+
+        return can_user_edit_task(request, obj, method="DELETE")
 
     def get_blocking_task_detail(self, obj: Task) -> dict[str, Any] | None:
         """Lightweight read of the soft ``blocking_task`` link (ADR-0124, #1135).

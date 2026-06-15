@@ -80,26 +80,26 @@ describe('SubtasksSection', () => {
 
   it('shows empty-state message when task has no subtasks', () => {
     mockTasks.splice(0, mockTasks.length, baseTask);
-    renderWithProviders(<SubtasksSection taskId="parent-1" projectId="p1" />);
+    renderWithProviders(<SubtasksSection taskId="parent-1" projectId="p1" canEdit />);
     expect(screen.getByText(/No subtasks yet/i)).toBeInTheDocument();
   });
 
   it('renders Add subtask button', () => {
     mockTasks.splice(0, mockTasks.length, baseTask);
-    renderWithProviders(<SubtasksSection taskId="parent-1" projectId="p1" />);
+    renderWithProviders(<SubtasksSection taskId="parent-1" projectId="p1" canEdit />);
     expect(screen.getByRole('button', { name: /add subtask/i })).toBeInTheDocument();
   });
 
   it('shows inline form on Add subtask click', () => {
     mockTasks.splice(0, mockTasks.length, baseTask);
-    renderWithProviders(<SubtasksSection taskId="parent-1" projectId="p1" />);
+    renderWithProviders(<SubtasksSection taskId="parent-1" projectId="p1" canEdit />);
     fireEvent.click(screen.getByRole('button', { name: /add subtask/i }));
     expect(screen.getByRole('textbox', { name: /new subtask name/i })).toBeInTheDocument();
   });
 
   it('dismisses form on cancel', () => {
     mockTasks.splice(0, mockTasks.length, baseTask);
-    renderWithProviders(<SubtasksSection taskId="parent-1" projectId="p1" />);
+    renderWithProviders(<SubtasksSection taskId="parent-1" projectId="p1" canEdit />);
     fireEvent.click(screen.getByRole('button', { name: /add subtask/i }));
     fireEvent.click(screen.getByRole('button', { name: /cancel adding subtask/i }));
     expect(screen.queryByRole('textbox', { name: /new subtask name/i })).not.toBeInTheDocument();
@@ -108,7 +108,7 @@ describe('SubtasksSection', () => {
   it('calls createTask with is_subtask: true on form submit', () => {
     mockCreate.mockClear();
     mockTasks.splice(0, mockTasks.length, baseTask);
-    renderWithProviders(<SubtasksSection taskId="parent-1" projectId="p1" />);
+    renderWithProviders(<SubtasksSection taskId="parent-1" projectId="p1" canEdit />);
     fireEvent.click(screen.getByRole('button', { name: /add subtask/i }));
     fireEvent.change(screen.getByRole('textbox', { name: /new subtask name/i }), {
       target: { value: 'My new subtask' },

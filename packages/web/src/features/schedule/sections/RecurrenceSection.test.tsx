@@ -59,7 +59,8 @@ function fixtureRule(overrides: Partial<TaskRecurrenceRule> = {}): TaskRecurrenc
   };
 }
 
-const render = () => renderWithProviders(<RecurrenceSection taskId="t1" projectId="p1" />);
+const render = (canEdit = false) =>
+  renderWithProviders(<RecurrenceSection taskId="t1" projectId="p1" canEdit={canEdit} />);
 
 beforeEach(() => {
   mockRecurrence.rule = null;
@@ -85,7 +86,7 @@ describe('RecurrenceSection states', () => {
   });
 
   it('empty state for a Scheduler+ shows an Add recurrence button', () => {
-    render();
+    render(true);
     expect(screen.getByText(/doesn't repeat/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Add recurrence' })).toBeInTheDocument();
   });
@@ -111,14 +112,14 @@ describe('RecurrenceSection configured rule', () => {
 
   it('Scheduler+ sees an Edit recurrence button on a configured rule', () => {
     mockRecurrence.rule = fixtureRule();
-    render();
+    render(true);
     expect(screen.getByRole('button', { name: 'Edit recurrence' })).toBeInTheDocument();
   });
 });
 
 describe('RecurrenceSection form', () => {
   it('opening the create form shows the banner and renders deferred toggles disabled + labeled', () => {
-    render();
+    render(true);
     fireEvent.click(screen.getByRole('button', { name: 'Add recurrence' }));
 
     // Banner is always present in the editor.
@@ -132,7 +133,7 @@ describe('RecurrenceSection form', () => {
   });
 
   it('weekly default selects the weekday picker and shows a live preview', () => {
-    render();
+    render(true);
     fireEvent.click(screen.getByRole('button', { name: 'Add recurrence' }));
     // Weekly is the default → the weekday group renders.
     expect(screen.getByRole('group', { name: 'Days of week' })).toBeInTheDocument();
@@ -140,7 +141,7 @@ describe('RecurrenceSection form', () => {
   });
 
   it('selected frequency pill uses navy-on-sage fill, not white-on-sage (#1025, WCAG 1.4.3)', () => {
-    render();
+    render(true);
     fireEvent.click(screen.getByRole('button', { name: 'Add recurrence' }));
     const freqGroup = screen.getByRole('group', { name: 'Repeat frequency' });
     const selected = freqGroup.querySelector('button[aria-pressed="true"]');
@@ -153,7 +154,7 @@ describe('RecurrenceSection form', () => {
   });
 
   it('blocks save and surfaces a message when a weekly rule has no weekday', () => {
-    render();
+    render(true);
     fireEvent.click(screen.getByRole('button', { name: 'Add recurrence' }));
     // Deselect the only selected weekday (today's). Toggle every set day off by
     // clicking the pressed ones, then attempt save.
@@ -166,7 +167,7 @@ describe('RecurrenceSection form', () => {
   });
 
   it('saves a valid rule via the create mutation', () => {
-    render();
+    render(true);
     fireEvent.click(screen.getByRole('button', { name: 'Add recurrence' }));
     // Switch to Daily — no weekday needed, always valid.
     fireEvent.click(screen.getByRole('button', { name: 'Daily' }));

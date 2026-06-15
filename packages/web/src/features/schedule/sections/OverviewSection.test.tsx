@@ -73,18 +73,18 @@ beforeEach(() => {
 
 describe('OverviewSection — status select', () => {
   it('renders an editable status select for leaf tasks', () => {
-    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
     expect(screen.getByRole('combobox', { name: /Task status/i })).toBeInTheDocument();
   });
 
   it('select reflects the current task status', () => {
-    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
     const select = screen.getByRole('combobox', { name: /Task status/i });
     expect(select).toHaveValue('IN_PROGRESS');
   });
 
   it('fires updateTask on status change', () => {
-    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
     const select = screen.getByRole('combobox', { name: /Task status/i });
     fireEvent.change(select, { target: { value: 'REVIEW' } });
     expect(updateMock).toHaveBeenCalledWith(
@@ -93,7 +93,7 @@ describe('OverviewSection — status select', () => {
   });
 
   it('shows BacklogDemoteConfirmDialog when demoting from IN_PROGRESS to BACKLOG', () => {
-    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
     const select = screen.getByRole('combobox', { name: /Task status/i });
     fireEvent.change(select, { target: { value: 'BACKLOG' } });
     expect(screen.getByRole('alertdialog')).toBeInTheDocument();
@@ -101,7 +101,7 @@ describe('OverviewSection — status select', () => {
   });
 
   it('fires updateTask with BACKLOG after demotion is confirmed', () => {
-    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
     const select = screen.getByRole('combobox', { name: /Task status/i });
     fireEvent.change(select, { target: { value: 'BACKLOG' } });
     fireEvent.click(screen.getByRole('button', { name: /Move to Backlog/i }));
@@ -111,7 +111,7 @@ describe('OverviewSection — status select', () => {
   });
 
   it('cancels demotion without firing updateTask', () => {
-    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
     const select = screen.getByRole('combobox', { name: /Task status/i });
     fireEvent.change(select, { target: { value: 'BACKLOG' } });
     fireEvent.click(screen.getByRole('button', { name: /Cancel/i }));
@@ -121,7 +121,7 @@ describe('OverviewSection — status select', () => {
 
   it('does not show BacklogDemoteDialog when moving from NOT_STARTED to BACKLOG', () => {
     mockTasks.splice(0, mockTasks.length, { ...baseTask, status: 'NOT_STARTED' });
-    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
     const select = screen.getByRole('combobox', { name: /Task status/i });
     fireEvent.change(select, { target: { value: 'BACKLOG' } });
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
@@ -130,7 +130,7 @@ describe('OverviewSection — status select', () => {
 
   it('shows read-only status text for summary tasks (no select)', () => {
     mockTasks.splice(0, mockTasks.length, { ...baseTask, isSummary: true });
-    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
     expect(screen.queryByRole('combobox', { name: /Task status/i })).not.toBeInTheDocument();
     expect(screen.getByText(/In progress/i)).toBeInTheDocument();
   });
@@ -142,17 +142,17 @@ describe('OverviewSection — status select', () => {
 
 describe('OverviewSection — progress field', () => {
   it('renders a progress slider for leaf tasks', () => {
-    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
     expect(screen.getByRole('slider', { name: /Task progress/i })).toBeInTheDocument();
   });
 
   it('pre-fills with the current progress value', () => {
-    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
     expect(screen.getByRole('slider', { name: /Task progress/i })).toHaveValue('40');
   });
 
   it('fires updateTask with percent_complete on blur', () => {
-    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
     const input = screen.getByRole('slider', { name: /Task progress/i });
     fireEvent.change(input, { target: { value: '75' } });
     fireEvent.blur(input);
@@ -163,7 +163,7 @@ describe('OverviewSection — progress field', () => {
   });
 
   it('clamps values above 100', () => {
-    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
     const input = screen.getByRole('slider', { name: /Task progress/i });
     fireEvent.change(input, { target: { value: '150' } });
     fireEvent.blur(input);
@@ -174,7 +174,7 @@ describe('OverviewSection — progress field', () => {
   });
 
   it('clamps values below 0', () => {
-    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
     const input = screen.getByRole('slider', { name: /Task progress/i });
     fireEvent.change(input, { target: { value: '-5' } });
     fireEvent.blur(input);
@@ -186,13 +186,13 @@ describe('OverviewSection — progress field', () => {
 
   it('disables the progress input when status is COMPLETE', () => {
     mockTasks.splice(0, mockTasks.length, { ...baseTask, status: 'COMPLETE', progress: 100 });
-    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
     expect(screen.getByRole('slider', { name: /Task progress/i })).toBeDisabled();
   });
 
   it('renders read-only progress for summary tasks', () => {
     mockTasks.splice(0, mockTasks.length, { ...baseTask, isSummary: true, progress: 55 });
-    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
     expect(screen.queryByRole('slider')).not.toBeInTheDocument();
     expect(screen.getByText(/55%/)).toBeInTheDocument();
     expect(screen.getByText(/rolled up/i)).toBeInTheDocument();
@@ -212,7 +212,7 @@ describe('OverviewSection — progress field', () => {
       detail: 'Cannot record progress without a planned start date or sprint assignment.',
       suggested_action: 'set_planned_start' as const,
     });
-    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
     const input = screen.getByRole('slider', { name: /Task progress/i });
     fireEvent.change(input, { target: { value: '75' } });
     fireEvent.blur(input);
@@ -222,7 +222,7 @@ describe('OverviewSection — progress field', () => {
   });
 
   it('does not call updateTask when the progress slider is released without a change', () => {
-    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
     const input = screen.getByRole('slider', { name: /Task progress/i });
     // Blur without ever calling fireEvent.change → localProgress stays null.
     fireEvent.blur(input);
@@ -248,7 +248,7 @@ describe('OverviewSection — milestone rollup', () => {
         sprint_count: 1,
       },
     });
-    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
     expect(screen.queryByRole('slider')).not.toBeInTheDocument();
     expect(screen.getByText(/73%/)).toBeInTheDocument();
     expect(screen.getByText(/by points/i)).toBeInTheDocument();
@@ -269,7 +269,7 @@ describe('OverviewSection — milestone rollup', () => {
         sprint_count: 3,
       },
     });
-    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
     expect(screen.getByText(/across 3 sprints/i)).toBeInTheDocument();
     const variance = screen.getByText(/Sprint plan: \+8d slip/i);
     expect(variance.className).toMatch(/text-semantic-critical/);
@@ -289,7 +289,7 @@ describe('OverviewSection — milestone rollup', () => {
         sprint_count: 1,
       },
     });
-    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
     // Persistent, clickable chip replaces the former hover-only inline text.
     expect(screen.getByRole('button', { name: /Scope changed/i })).toBeInTheDocument();
   });
@@ -306,7 +306,7 @@ describe('OverviewSection — milestone rollup', () => {
         sprint_count: 0,
       },
     });
-    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
     // Editable input still rendered — no rollup-driven lock when basis=none.
     expect(screen.getByRole('slider', { name: /Task progress/i })).toBeInTheDocument();
   });
@@ -324,7 +324,45 @@ describe('OverviewSection — milestone rollup', () => {
         sprint_count: 1,
       },
     });
-    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
     expect(screen.getByText(/by tasks/i)).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Read-only gating for non-editors (ADR-0133, #1142)
+// ---------------------------------------------------------------------------
+
+describe('OverviewSection — read-only when canEdit is false', () => {
+  it('renders status as static text, not a select', () => {
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit={false} />);
+    expect(screen.queryByRole('combobox', { name: /Task status/i })).not.toBeInTheDocument();
+    // The current status value still renders so the section is not a hole.
+    expect(screen.getByText(/In progress/i)).toBeInTheDocument();
+  });
+
+  it('renders progress as static text, not a slider', () => {
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit={false} />);
+    expect(screen.queryByRole('slider', { name: /Task progress/i })).not.toBeInTheDocument();
+    // 40% from the fixture is still shown.
+    expect(screen.getAllByText(/40%/i).length).toBeGreaterThan(0);
+  });
+
+  it('defaults to read-only when neither canEdit nor a role is provided (no flash of controls)', () => {
+    // canEdit undefined + userRole undefined → canEditTask(undefined) === false.
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
+    expect(screen.queryByRole('combobox', { name: /Task status/i })).not.toBeInTheDocument();
+  });
+
+  it('a Viewer role (userRole=0) with no capability field is read-only', () => {
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" userRole={0} />);
+    expect(screen.queryByRole('combobox', { name: /Task status/i })).not.toBeInTheDocument();
+  });
+
+  it('the server can_edit field overrides the client role rule', () => {
+    // userRole=0 (Viewer) would be read-only by the client rule, but the server
+    // says canEdit — e.g. a PO editing a story — so the control renders.
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" userRole={0} canEdit />);
+    expect(screen.getByRole('combobox', { name: /Task status/i })).toBeInTheDocument();
   });
 });

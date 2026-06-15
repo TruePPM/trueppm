@@ -27839,6 +27839,16 @@
                             "type": "string"
                         },
                         "readOnly": true
+                    },
+                    "can_edit": {
+                        "type": "boolean",
+                        "description": "Authoritative per-task edit verdict for the requesting user (ADR-0133).\n\nDelegates to the SAME predicate the IsProjectMemberWriteOrOwn permission\nclass enforces, so the client's gate can never drift from the server's.",
+                        "readOnly": true
+                    },
+                    "can_delete": {
+                        "type": "boolean",
+                        "description": "Authoritative per-task delete verdict (ADR-0133).\n\nDiffers from ``can_edit`` only for a Product Owner: the PO facet grooms\n(edits) EPIC/STORY items but may not DELETE them.",
+                        "readOnly": true
                     }
                 },
                 "required": [
@@ -27851,6 +27861,8 @@
                     "blocked_by",
                     "blocked_since",
                     "blocking_task_detail",
+                    "can_delete",
+                    "can_edit",
                     "criteria_met_count",
                     "criteria_total",
                     "dor_blockers",

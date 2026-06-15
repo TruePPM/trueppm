@@ -13,6 +13,7 @@
 import type { ReactElement } from 'react';
 import { useMemo, useState } from 'react';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
+import { canEditTask } from '@/lib/roles';
 import { useAcknowledgeComment, useReactToComment, useTaskComments } from '@/hooks/useTaskComments';
 import { useTaskAttachments } from '@/hooks/useTaskAttachments';
 import { formatRelative } from '@/lib/formatRelative';
@@ -129,6 +130,11 @@ interface CommentRowProps {
   attachmentIndex: Map<string, TaskAttachment>;
   /** Indent depth — 0 for top-level, 1 for reply. (One-level nesting only.) */
   depth: number;
+  /**
+   * Whether the viewer may post/reply/react/ack (ADR-0133/1142). When false,
+   * the comment body still renders but every write affordance is hidden.
+   */
+  editable: boolean;
   /** True when this row's reply composer is open. Reply only available on top-level rows. */
   isReplying?: boolean;
   /** Called when the user clicks Reply. */
@@ -143,6 +149,7 @@ function CommentRow({
   taskId,
   attachmentIndex,
   depth,
+  editable,
   isReplying,
   onReplyClick,
   onReplyClose,
@@ -189,60 +196,64 @@ function CommentRow({
       <div className="text-sm text-neutral-text-primary whitespace-pre-wrap break-words">
         {renderBody(comment.body, attachmentIndex)}
       </div>
-      <div className="flex items-center gap-1 mt-1">
-        {depth === 0 && onReplyClick && (
+      {/* The action bar holds only write affordances (reply / ack / react);
+          a non-editor sees the comment body but none of these controls. */}
+      {editable && (
+        <div className="flex items-center gap-1 mt-1">
+          {depth === 0 && onReplyClick && (
+            <button
+              type="button"
+              onClick={onReplyClick}
+              className="text-xs border border-neutral-border rounded px-2 h-7 font-medium
+                text-neutral-text-secondary hover:bg-neutral-surface
+                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none"
+              aria-label="Reply to this comment"
+            >
+              ↩ Reply
+            </button>
+          )}
           <button
             type="button"
-            onClick={onReplyClick}
+            onClick={handleAckToggle}
+            disabled={ack.isPending}
+            aria-pressed={comment.has_my_acknowledgement}
+            aria-label={
+              comment.has_my_acknowledgement
+                ? 'Remove your acknowledgement'
+                : 'Acknowledge this comment'
+            }
+            className={`text-xs border rounded px-2 h-7 font-medium
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
+              disabled:opacity-50
+              ${
+                comment.has_my_acknowledgement
+                  ? 'border-semantic-on-track/40 text-semantic-on-track bg-semantic-on-track-bg'
+                  : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface'
+              }`}
+          >
+            ✅
+            {comment.acknowledged_count > 0 && (
+              <span className="ml-1 tppm-mono">{comment.acknowledged_count}</span>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={handleReact}
+            disabled={react.isPending}
+            aria-label="React with 👍"
             className="text-xs border border-neutral-border rounded px-2 h-7 font-medium
               text-neutral-text-secondary hover:bg-neutral-surface
-              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none"
-            aria-label="Reply to this comment"
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
+              disabled:opacity-50"
           >
-            ↩ Reply
+            👍
+            {comment.reaction_count > 0 && (
+              <span className="ml-1 tppm-mono">{comment.reaction_count}</span>
+            )}
           </button>
-        )}
-        <button
-          type="button"
-          onClick={handleAckToggle}
-          disabled={ack.isPending}
-          aria-pressed={comment.has_my_acknowledgement}
-          aria-label={
-            comment.has_my_acknowledgement
-              ? 'Remove your acknowledgement'
-              : 'Acknowledge this comment'
-          }
-          className={`text-xs border rounded px-2 h-7 font-medium
-            focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
-            disabled:opacity-50
-            ${
-              comment.has_my_acknowledgement
-                ? 'border-semantic-on-track/40 text-semantic-on-track bg-semantic-on-track-bg'
-                : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface'
-            }`}
-        >
-          ✅
-          {comment.acknowledged_count > 0 && (
-            <span className="ml-1 tppm-mono">{comment.acknowledged_count}</span>
-          )}
-        </button>
-        <button
-          type="button"
-          onClick={handleReact}
-          disabled={react.isPending}
-          aria-label="React with 👍"
-          className="text-xs border border-neutral-border rounded px-2 h-7 font-medium
-            text-neutral-text-secondary hover:bg-neutral-surface
-            focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
-            disabled:opacity-50"
-        >
-          👍
-          {comment.reaction_count > 0 && (
-            <span className="ml-1 tppm-mono">{comment.reaction_count}</span>
-          )}
-        </button>
-      </div>
-      {isReplying && depth === 0 && (
+        </div>
+      )}
+      {editable && isReplying && depth === 0 && (
         <div className="mt-2 ml-6">
           <CommentComposer
             projectId={projectId}
@@ -257,10 +268,13 @@ function CommentRow({
   );
 }
 
-export function CommentSection({ taskId, projectId }: DrawerSectionProps) {
+export function CommentSection({ taskId, projectId, userRole, canEdit }: DrawerSectionProps) {
   const { comments, isLoading, error } = useTaskComments(projectId, taskId);
   const { attachments } = useTaskAttachments(projectId, taskId);
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
+
+  // ADR-0133/1142: gate write controls off the server-derived verdict; fall back to the client role rule only when absent.
+  const editable = canEdit ?? canEditTask(userRole);
 
   // Lookup table for [[attachment:uuid]] rendering. Soft-deleted attachments
   // are filtered out at the list endpoint so missing-id is the soft-delete
@@ -311,7 +325,9 @@ export function CommentSection({ taskId, projectId }: DrawerSectionProps) {
   return (
     <div className="flex flex-col gap-3">
       {topLevel.length === 0 ? (
-        <p className="text-sm text-neutral-text-secondary px-1">Be the first to comment.</p>
+        <p className="text-sm text-neutral-text-secondary px-1">
+          {editable ? 'Be the first to comment.' : 'No comments yet.'}
+        </p>
       ) : (
         <ol
           aria-label={`Comments — ${comments.length} total`}
@@ -325,6 +341,7 @@ export function CommentSection({ taskId, projectId }: DrawerSectionProps) {
                 taskId={taskId}
                 attachmentIndex={attachmentIndex}
                 depth={0}
+                editable={editable}
                 isReplying={replyingTo === c.id}
                 onReplyClick={() => setReplyingTo(c.id)}
                 onReplyClose={() => setReplyingTo(null)}
@@ -337,13 +354,14 @@ export function CommentSection({ taskId, projectId }: DrawerSectionProps) {
                   taskId={taskId}
                   attachmentIndex={attachmentIndex}
                   depth={1}
+                  editable={editable}
                 />
               ))}
             </li>
           ))}
         </ol>
       )}
-      <CommentComposer projectId={projectId} taskId={taskId} />
+      {editable && <CommentComposer projectId={projectId} taskId={taskId} />}
     </div>
   );
 }

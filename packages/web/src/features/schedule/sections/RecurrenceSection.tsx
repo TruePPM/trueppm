@@ -17,7 +17,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
-import { ROLE_SCHEDULER } from '@/lib/roles';
+import { ROLE_SCHEDULER, canEditTask } from '@/lib/roles';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import {
   useCreateRecurrenceRule,
@@ -636,14 +636,19 @@ function describeRule(rule: TaskRecurrenceRule): string {
   return `${base} at ${time}${ends}`;
 }
 
-export function RecurrenceSection({ taskId, projectId }: DrawerSectionProps) {
+export function RecurrenceSection({ taskId, projectId, userRole, canEdit }: DrawerSectionProps) {
   const { rule, isLoading, error } = useRecurrenceRule(projectId, taskId);
   const { role, isLoading: roleLoading } = useCurrentUserRole(projectId);
   const [editing, setEditing] = useState(false);
 
-  // Pessimistic while the role loads: hide write affordances to avoid a flash of
-  // controls a Member can't use (they'd 403 on save anyway).
-  const canEdit = role !== null && role >= ROLE_SCHEDULER;
+  // ADR-0133/1142: gate write controls off the server-derived verdict; fall back to the client role rule only when absent.
+  const verdict = canEdit ?? canEditTask(userRole);
+
+  // Recurrence writes require Scheduler+ (ADR-0090) AND the effective edit
+  // verdict for this task. Pessimistic while the role loads: hide write
+  // affordances to avoid a flash of controls the user can't use (they'd 403 on
+  // save anyway). Members and Viewers see a read-only summary.
+  const editable = verdict && role !== null && role >= ROLE_SCHEDULER;
 
   if (isLoading || roleLoading) {
     return (
@@ -680,9 +685,9 @@ export function RecurrenceSection({ taskId, projectId }: DrawerSectionProps) {
           className="rounded border border-dashed border-neutral-border bg-neutral-surface-sunken px-4 py-3 text-xs text-neutral-text-secondary"
         >
           🔁 This task doesn&apos;t repeat.
-          {canEdit ? ' Add a recurrence to spawn it on a schedule.' : ''}
+          {editable ? ' Add a recurrence to spawn it on a schedule.' : ''}
         </p>
-        {canEdit && (
+        {editable && (
           <button
             type="button"
             onClick={() => setEditing(true)}
@@ -696,7 +701,7 @@ export function RecurrenceSection({ taskId, projectId }: DrawerSectionProps) {
   }
 
   // A rule exists.
-  if (!canEdit) {
+  if (!editable) {
     return <RecurrenceReadOnly rule={rule} />;
   }
 
