@@ -244,6 +244,10 @@ def _iter_view_classes() -> list[tuple[str, str | None, type, set[str]]]:
 # - project-signal-privacy-ratchet-down (SignalPrivacyRatchetDownView POST) sets every signal's
 #   audience to TEAM in one converging write on the singleton — replaying lands on the same
 #   all-team posture (naturally idempotent).
+# - auth-me-profile (MyProfileView PATCH, ADR-0129 / #1181) sets the caller's own
+#   default_landing on their UserProfile singleton; setting the current value is a no-op and a
+#   replay converges to the same stored preference — the same naturally-idempotent
+#   retention-settings shape, with no replayable resource to dedup.
 EXEMPT_URL_NAMES = frozenset(
     {
         "project-schedule",
@@ -256,6 +260,7 @@ EXEMPT_URL_NAMES = frozenset(
         "project-signal-privacy",
         "project-signal-privacy-raise-ceiling",
         "project-signal-privacy-ratchet-down",
+        "auth-me-profile",
     }
 )
 
