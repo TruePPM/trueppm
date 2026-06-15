@@ -1139,3 +1139,149 @@ class TestMonteCarloPlannedStart:
             monte_carlo(p, runs=10, seed=0)
         with pytest.raises(InvalidScheduleInput, match="planned_start"):
             schedule(p)
+
+
+# ---------------------------------------------------------------------------
+# Progress-aware forecasting (ADR-0132)
+# ---------------------------------------------------------------------------
+
+
+class TestProgressAware:
+    """schedule() and monte_carlo() honor completion, remaining work, and the
+    data date — they no longer forecast a project as if starting from scratch."""
+
+    def test_completed_task_pins_successor_to_actual_finish(self) -> None:
+        """A completed predecessor anchors its FS successor to its *actual*
+        finish, not its planned schedule."""
+        # A planned 5d (would finish 6-Mar) but actually ran long, finishing
+        # 20-Mar. B must start after the actual finish, not the planned one.
+        p = make_project(
+            tasks=[
+                task(
+                    "A",
+                    "A",
+                    5,
+                    actual_start=date(2026, 3, 2),
+                    actual_finish=date(2026, 3, 20),  # Friday
+                    percent_complete=100.0,
+                ),
+                task("B", "B", 3),
+            ],
+            dependencies=[Dependency("A", "B")],
+            start=date(2026, 3, 2),
+        )
+        p.status_date = date(2026, 3, 23)  # Monday
+        r = schedule(p)
+        by_id = {t.id: t for t in r.tasks}
+
+        # A is pinned to its actuals (not re-scheduled to 2-Mar..6-Mar).
+        assert by_id["A"].early_start == date(2026, 3, 2)
+        assert by_id["A"].early_finish == date(2026, 3, 20)
+        assert by_id["A"].total_float == timedelta(0)  # done => no slack
+        # B starts the working day after A's actual finish.
+        assert by_id["B"].early_start == date(2026, 3, 23)  # Monday
+        assert by_id["B"].early_finish == date(2026, 3, 25)  # Wed
+        assert r.project_finish == date(2026, 3, 25)
+
+    def test_in_progress_task_uses_remaining_duration_from_data_date(self) -> None:
+        """A 10d task that is 60% done has 4 working days left, laid forward from
+        the data date — not 10 days from project start."""
+        p = make_project(
+            tasks=[
+                task(
+                    "A",
+                    "A",
+                    10,
+                    actual_start=date(2026, 3, 2),
+                    percent_complete=60.0,
+                ),
+            ],
+            start=date(2026, 3, 2),
+        )
+        p.status_date = date(2026, 3, 16)  # Monday, two weeks in
+        r = schedule(p)
+        t = r.tasks[0]
+        # 4 remaining days from 16-Mar: Mon16, Tue17, Wed18, Thu19.
+        assert t.early_start == date(2026, 3, 16)
+        assert t.early_finish == date(2026, 3, 19)
+        assert r.project_finish == date(2026, 3, 19)
+
+    def test_status_date_floors_not_started_work(self) -> None:
+        """Not-started work cannot be scheduled before the data date."""
+        p = make_project([task("A", "A", 5)], start=date(2026, 3, 2))
+        p.status_date = date(2026, 3, 16)  # Monday
+        r = schedule(p)
+        t = r.tasks[0]
+        assert t.early_start == date(2026, 3, 16)
+        assert t.early_finish == date(2026, 3, 20)  # Fri
+
+    def test_no_progress_and_no_status_date_is_unchanged(self) -> None:
+        """With percent_complete=0, no actuals, and no status date, the schedule
+        is byte-identical to a pure planning pass (backward compatible)."""
+        p = make_project([task("A", "A", 5, percent_complete=0.0)], start=date(2026, 3, 2))
+        r = schedule(p)
+        t = r.tasks[0]
+        assert t.early_start == date(2026, 3, 2)
+        assert t.early_finish == date(2026, 3, 6)
+
+    def test_monte_carlo_matches_cpm_finish_with_completed_phase(self) -> None:
+        """A deterministic project with a completed phase simulates to exactly the
+        progress-aware CPM finish — proving MC pins completed work instead of
+        re-rolling it from project start (which would finish far too early)."""
+        p = make_project(
+            tasks=[
+                task(
+                    "A",
+                    "A",
+                    5,
+                    actual_start=date(2026, 3, 2),
+                    actual_finish=date(2026, 3, 20),
+                    percent_complete=100.0,
+                ),
+                task("B", "B", 3),
+            ],
+            dependencies=[Dependency("A", "B")],
+            start=date(2026, 3, 2),
+        )
+        p.status_date = date(2026, 3, 23)
+        cpm_finish = schedule(p).project_finish
+        mc = monte_carlo(p, runs=200, seed=0)
+        # Deterministic network => every run identical, equal to the CPM finish.
+        assert mc.p50 == mc.p80 == mc.p95 == cpm_finish == date(2026, 3, 25)
+
+    def test_monte_carlo_matches_cpm_finish_with_in_progress_task(self) -> None:
+        """In-progress remaining work flows through Monte Carlo the same way it
+        flows through CPM (deterministic network => MC == CPM)."""
+        p = make_project(
+            tasks=[
+                task("A", "A", 10, actual_start=date(2026, 3, 2), percent_complete=60.0),
+                task("B", "B", 3),
+            ],
+            dependencies=[Dependency("A", "B")],
+            start=date(2026, 3, 2),
+        )
+        p.status_date = date(2026, 3, 16)
+        cpm_finish = schedule(p).project_finish
+        mc = monte_carlo(p, runs=200, seed=0)
+        assert mc.p50 == mc.p80 == mc.p95 == cpm_finish
+
+    def test_status_date_round_trips_through_serialization(self) -> None:
+        """Project.status_date and Task actuals survive to_dict/from_dict."""
+        p = make_project(
+            tasks=[
+                task(
+                    "A",
+                    "A",
+                    5,
+                    actual_start=date(2026, 3, 2),
+                    actual_finish=date(2026, 3, 6),
+                    percent_complete=100.0,
+                ),
+            ],
+            start=date(2026, 3, 2),
+        )
+        p.status_date = date(2026, 3, 16)
+        restored = Project.from_dict(p.to_dict())
+        assert restored.status_date == date(2026, 3, 16)
+        assert restored.tasks[0].actual_start == date(2026, 3, 2)
+        assert restored.tasks[0].actual_finish == date(2026, 3, 6)
