@@ -164,6 +164,17 @@ class Workspace(models.Model):
         choices=TermOverridePolicy.choices,
         default=TermOverridePolicy.SUGGEST,
     )
+    # Governs whether a program/project may override the workspace sharing
+    # settings (public_sharing / allow_guests) — ADR-0135, #978. SUGGEST (OSS
+    # default) lets lower scopes loosen *or* tighten freely; ENFORCE (Enterprise)
+    # makes the workspace value a hard ceiling so downstream cannot loosen it.
+    # ENFORCE is a no-op in the community edition (degrades to SUGGEST) unless a
+    # sharing-enforcement provider is registered (``apps.projects.sharing_settings``).
+    public_sharing_override_policy = models.CharField(
+        max_length=16,
+        choices=TermOverridePolicy.choices,
+        default=TermOverridePolicy.SUGGEST,
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
