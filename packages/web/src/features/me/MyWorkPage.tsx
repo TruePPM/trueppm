@@ -24,6 +24,8 @@ import { useProjects } from '@/hooks/useProjects';
 import { MyWorkTaskRow } from './MyWorkTaskRow';
 import { MyWorkEmptyState } from './MyWorkEmptyState';
 import { MyWorkRetroSection } from './MyWorkRetroSection';
+import { LandingPrimaryUsePrompt } from './LandingPrimaryUsePrompt';
+import { LandingContextHint } from './LandingContextHint';
 
 interface WorkGroup {
   group: MyWorkGroup;
@@ -90,6 +92,12 @@ export function MyWorkPage() {
           </span>
         )}
       </header>
+
+      {/* Role-based landing transparency (ADR-0129). Both self-gate and
+          render null when not applicable — the hint explains "why am I here",
+          the prompt is the contributor-first first-login home picker. */}
+      <LandingContextHint />
+      <LandingPrimaryUsePrompt />
 
       {error && (
         <div

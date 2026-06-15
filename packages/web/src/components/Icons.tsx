@@ -469,6 +469,27 @@ export function ExternalLinkIcon({ className, ...rest }: IconProps) {
   );
 }
 
+/** Inbox tray — empty "My Work" warm empty state (line style, navy stroke) */
+export function InboxIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className={className} {...rest}>
+      <path
+        d="M2 9.5 4 3h8l2 6.5v3a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-3Z"
+        stroke="currentColor"
+        strokeWidth="1.25"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M2 9.5h3l1 1.5h4l1-1.5h3"
+        stroke="currentColor"
+        strokeWidth="1.25"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 /** Horizontal ellipsis — overflow menus */
 export function MoreHorizontalIcon({ className, ...rest }: IconProps) {
   return (

@@ -186,3 +186,29 @@ describe('loginRedirectDest — open redirect hardening (#899)', () => {
     expect(loginRedirectDest('/projects/x/tasks')).toBe('/projects/x/tasks');
   });
 });
+
+describe('loginRedirectDest — defers to the landing path (ADR-0129, #1181)', () => {
+  it('returns the guarded landing path when there is no safe next', () => {
+    expect(loginRedirectDest('', '/me/work')).toBe('/me/work');
+    expect(loginRedirectDest('', '/projects/abc/overview')).toBe('/projects/abc/overview');
+  });
+
+  it('falls back to / when no landing path is given (legacy behavior)', () => {
+    expect(loginRedirectDest('')).toBe('/');
+  });
+
+  it('a safe next deep link still wins over the landing path', () => {
+    expect(loginRedirectDest('/projects/abc/risk', '/me/work')).toBe('/projects/abc/risk');
+  });
+
+  it('an unsafe next falls through to the guarded landing path, not the open redirect', () => {
+    expect(loginRedirectDest('//evil.com', '/me/work')).toBe('/me/work');
+    expect(loginRedirectDest('https://evil.com', '/projects/abc/overview')).toBe(
+      '/projects/abc/overview',
+    );
+  });
+
+  it('an off-allowlist landing path degrades to My Work', () => {
+    expect(loginRedirectDest('', '/portfolio')).toBe('/me/work');
+  });
+});

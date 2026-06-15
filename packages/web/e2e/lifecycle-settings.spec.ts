@@ -209,10 +209,12 @@ test.describe('Project lifecycle settings (#530)', () => {
     await page.getByRole('button', { name: /Delete project permanently/i }).click();
 
     // First archive happens automatically (server requires archive before
-    // force-delete); then DELETE ?force=true; then we land back at root.
+    // force-delete); then DELETE ?force=true; then we navigate to root, whose
+    // RootRedirect resolves the role-based landing (ADR-0129) — for this user
+    // that is My Work, so /me/work is a valid post-delete destination too.
     await expect.poll(() => captures.projectArchive).toBeGreaterThanOrEqual(1);
     await expect.poll(() => captures.projectDelete?.url).toContain('force=true');
-    await expect(page).toHaveURL(/\/$|\/programs|\/projects/);
+    await expect(page).toHaveURL(/\/$|\/programs|\/projects|\/me\/work/);
   });
 });
 

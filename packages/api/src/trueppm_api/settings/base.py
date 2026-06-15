@@ -68,6 +68,7 @@ LOCAL_APPS = [
     "trueppm_api.apps.idempotency",
     "trueppm_api.apps.workspace",
     "trueppm_api.apps.teams",
+    "trueppm_api.apps.profiles",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS

@@ -21,7 +21,9 @@ const { mockClearTokens, mockQueryClientClear, mockSetTheme, mockUserResult } = 
         display_name: 'Sarah Chen',
         initials: 'SC',
         email: 'sarah@example.com',
-      } as { id: string; username: string; display_name: string; initials: string; email: string } | undefined,
+      } as
+        | { id: string; username: string; display_name: string; initials: string; email: string }
+        | undefined,
       isLoading: false,
     },
   };
@@ -110,9 +112,7 @@ describe('UserMenu', () => {
     // Verify content is visible (both desktop + mobile render in JSDOM).
     expect(screen.getAllByText('Sarah Chen').length).toBeGreaterThan(0);
     // Click the mobile backdrop (fixed inset-0 z-40 aria-hidden div).
-    const backdrop = document.querySelector(
-      '.fixed.inset-0.z-40[aria-hidden="true"]',
-    );
+    const backdrop = document.querySelector('.fixed.inset-0.z-40[aria-hidden="true"]');
     expect(backdrop).not.toBeNull();
     fireEvent.click(backdrop!);
     // After close, no "Sarah Chen" text should remain in the DOM.
@@ -134,6 +134,15 @@ describe('UserMenu', () => {
     const items = screen.getAllByRole('menuitem', { name: /my work/i });
     expect(items.length).toBeGreaterThan(0);
     expect(items[0].getAttribute('href')).toBe('/me/work');
+  });
+
+  it('renders the "General" menu item linking to /me/settings/general (ADR-0129, #1181)', () => {
+    renderWithRouter(<UserMenu />);
+    openMenu();
+    // Both desktop + mobile variants render in JSDOM.
+    const items = screen.getAllByRole('menuitem', { name: /^General$/i });
+    expect(items.length).toBeGreaterThan(0);
+    expect(items[0].getAttribute('href')).toBe('/me/settings/general');
   });
 
   it('click "Sign out" → calls clearTokens() and queryClient.clear()', () => {

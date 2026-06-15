@@ -1,51 +1,115 @@
 /**
- * Empty states for /me/work (issue #499).
+ * Empty states for /me/work (v2 warm refresh, ADR-0129).
  *
- * Two distinct flavors:
- *   - Flavor A — user has no project memberships at all. Surface a docs link
- *     plus a "Load demo data" CTA so a brand-new user has something to do.
- *   - Flavor B — user has projects but no assignments. Docs link only; no
- *     demo CTA (they're not new, just unassigned).
+ * Three flavors, all `role="status"`:
+ *   - Flavor A — user has no project memberships at all (brand-new). Warm
+ *     welcome + an "Explore a demo project" primary CTA (load-sample, reused
+ *     across the app) plus a "Learn more" docs link, so a first-time user has an
+ *     obvious next step.
+ *   - Flavor B — user has projects but no assignments. Same typographic refresh,
+ *     no demo CTA (they're not new, just unassigned).
+ *   - Offline — when the browser is offline we can't know whether the user has
+ *     projects, so we don't claim "you have no projects": calm "you're offline"
+ *     copy with the demo CTA disabled.
  *
- * The "external sync coming" message Priya needs (Gap 3 / #500 is not yet
- * shipped) lives in `docs/features/my-work.md` rather than this empty state
- * so the page stays calm; the docs link surfaces it on demand.
+ * v2 design (ADR-0126): a line icon (navy stroke, aria-hidden) replaces the
+ * emoji; borders over shadows; color is signal-only.
  */
+import { useState } from 'react';
+import { useNavigate } from 'react-router';
+import { Button } from '@/components/Button';
+import { InboxIcon } from '@/components/Icons';
 import { docsUrl } from '@/lib/docsUrl';
+import { useLoadSampleProgram } from '@/hooks/useProgramSeedIo';
 
 interface Props {
   hasProjects: boolean;
 }
 
+/** Shared "Learn more" docs link, refreshed (no emoji). */
+function LearnMoreLink() {
+  return (
+    <a
+      href={docsUrl('features/my-work')}
+      className="inline-flex items-center gap-1 text-sm text-brand-primary hover:underline
+        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
+        focus-visible:ring-offset-1 rounded"
+    >
+      Learn more →
+    </a>
+  );
+}
+
+/** "Explore a demo project" CTA — loads the bundled sample, then navigates to it. */
+function ExploreDemoButton({ disabled }: { disabled?: boolean }) {
+  const navigate = useNavigate();
+  const loadSample = useLoadSampleProgram();
+  const [failed, setFailed] = useState(false);
+
+  function explore() {
+    setFailed(false);
+    loadSample.mutate(undefined, {
+      onSuccess: (program) => void navigate(`/programs/${program.id}/overview`),
+      onError: () => setFailed(true),
+    });
+  }
+
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <Button
+        variant="primary"
+        size="lg"
+        onClick={explore}
+        disabled={disabled === true || loadSample.isPending}
+        title={disabled === true ? "You're offline — reconnect to load the demo" : undefined}
+      >
+        {loadSample.isPending ? 'Loading demo…' : 'Explore a demo project'}
+      </Button>
+      {failed && (
+        <p role="alert" className="text-xs text-semantic-critical">
+          Couldn&rsquo;t load the demo — please try again.
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function MyWorkEmptyState({ hasProjects }: Props) {
+  const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+
+  if (offline) {
+    return (
+      <div
+        role="status"
+        className="flex flex-col items-center justify-center gap-4 py-16 px-6 text-center"
+      >
+        <InboxIcon aria-hidden="true" className="h-10 w-10 text-navy-700 dark:text-reversed" />
+        <h2 className="text-base font-medium text-neutral-text-primary">You&rsquo;re offline</h2>
+        <p className="max-w-md text-sm text-neutral-text-secondary">
+          You&rsquo;re offline. Your work will appear here once you reconnect.
+        </p>
+        <ExploreDemoButton disabled />
+        <LearnMoreLink />
+      </div>
+    );
+  }
+
   if (!hasProjects) {
     return (
       <div
         role="status"
         className="flex flex-col items-center justify-center gap-4 py-16 px-6 text-center"
       >
-        <span aria-hidden="true" className="text-3xl">
-          📥
-        </span>
+        <InboxIcon aria-hidden="true" className="h-10 w-10 text-navy-700 dark:text-reversed" />
         <h2 className="text-base font-medium text-neutral-text-primary">
-          Nothing assigned to you yet
+          Welcome to TruePPM — let&rsquo;s get you started
         </h2>
-        <div className="text-sm text-neutral-text-secondary max-w-md space-y-2">
-          <p>Tasks will appear here when:</p>
-          <ul className="text-left list-disc list-inside space-y-1">
-            <li>A project manager assigns you to a task</li>
-            <li>You create a task in a project</li>
-            <li>External sync from Jira, Linear, or GitHub lands tasks here (coming soon)</li>
-          </ul>
-        </div>
-        <a
-          href={docsUrl('features/my-work')}
-          className="inline-flex items-center gap-1 text-sm text-brand-primary hover:underline
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-            focus-visible:ring-offset-1 rounded"
-        >
-          <span aria-hidden="true">📖</span> Learn about the contributor view
-        </a>
+        <p className="max-w-md text-sm text-neutral-text-secondary">
+          This is My Work — your home for everything assigned to you across projects. There&rsquo;s
+          nothing here yet. Spin up a demo project to see how it all fits together.
+        </p>
+        <ExploreDemoButton />
+        <LearnMoreLink />
       </div>
     );
   }
@@ -55,23 +119,15 @@ export function MyWorkEmptyState({ hasProjects }: Props) {
       role="status"
       className="flex flex-col items-center justify-center gap-4 py-16 px-6 text-center"
     >
-      <span aria-hidden="true" className="text-3xl">
-        👋
-      </span>
+      <InboxIcon aria-hidden="true" className="h-10 w-10 text-navy-700 dark:text-reversed" />
       <h2 className="text-base font-medium text-neutral-text-primary">
-        You&rsquo;re not assigned to any active work right now.
+        You&rsquo;re all caught up
       </h2>
-      <p className="text-sm text-neutral-text-secondary max-w-md">
-        When a PM assigns you a task or you create one, you&rsquo;ll see it here.
+      <p className="max-w-md text-sm text-neutral-text-secondary">
+        Nothing is assigned to you right now. When a teammate assigns you a task — or you create one
+        — it&rsquo;ll show up here.
       </p>
-      <a
-        href={docsUrl('features/my-work')}
-        className="inline-flex items-center gap-1 text-sm text-brand-primary hover:underline
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-          focus-visible:ring-offset-1 rounded"
-      >
-        <span aria-hidden="true">📖</span> Learn about the contributor view
-      </a>
+      <LearnMoreLink />
     </div>
   );
 }

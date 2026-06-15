@@ -33,6 +33,8 @@ describe('useMyTasksFilter', () => {
         max_project_role: 100,
         workspace_role: null,
         can_access_admin_settings: false,
+        default_landing: 'auto',
+        landing: { intent: 'my_work', path: '/me/work', resolved_by: 'fallback' },
       },
       isLoading: false,
     });
@@ -53,6 +55,8 @@ describe('useMyTasksFilter', () => {
         max_project_role: 300,
         workspace_role: null,
         can_access_admin_settings: true,
+        default_landing: 'auto',
+        landing: { intent: 'my_work', path: '/me/work', resolved_by: 'fallback' },
       },
       isLoading: false,
     });
@@ -74,6 +78,8 @@ describe('useMyTasksFilter', () => {
         max_project_role: 100,
         workspace_role: null,
         can_access_admin_settings: false,
+        default_landing: 'auto',
+        landing: { intent: 'my_work', path: '/me/work', resolved_by: 'fallback' },
       },
       isLoading: false,
     });
@@ -95,6 +101,8 @@ describe('useMyTasksFilter', () => {
         max_project_role: 200,
         workspace_role: null,
         can_access_admin_settings: false,
+        default_landing: 'auto',
+        landing: { intent: 'my_work', path: '/me/work', resolved_by: 'fallback' },
       },
       isLoading: false,
     });

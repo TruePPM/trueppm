@@ -558,6 +558,81 @@
                 }
             }
         },
+        "/api/v1/auth/me/profile/": {
+            "get": {
+                "operationId": "v1_auth_me_profile_retrieve",
+                "description": "GET/PATCH ``/api/v1/auth/me/profile/`` — the caller's own app preferences.\n\nThe profile row is created lazily, so a user who has never set a preference\nreads the default (``default_landing=\"auto\"``) without a backfill.",
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/UserProfile"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "v1_auth_me_profile_partial_update",
+                "description": "GET/PATCH ``/api/v1/auth/me/profile/`` — the caller's own app preferences.\n\nThe profile row is created lazily, so a user who has never set a preference\nreads the default (``default_landing=\"auto\"``) without a backfill.",
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedUserProfileRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedUserProfileRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedUserProfileRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/UserProfile"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/auth/token/": {
             "post": {
                 "operationId": "v1_auth_token_create",
@@ -20586,6 +20661,16 @@
                     "reason"
                 ]
             },
+            "DefaultLandingEnum": {
+                "enum": [
+                    "auto",
+                    "my_work",
+                    "project_overview",
+                    "portfolio"
+                ],
+                "type": "string",
+                "description": "* `auto` - Automatic (based on your role)\n* `my_work` - My Work\n* `project_overview` - Project Overview\n* `portfolio` - Portfolio"
+            },
             "DefaultViewEnum": {
                 "enum": [
                     "SCHEDULE",
@@ -21207,6 +21292,25 @@
                 "type": "string",
                 "description": "* `HISTORY_RETENTION_DAYS` - HISTORY_RETENTION_DAYS\n* `TASK_RUN_RETENTION_DAYS` - TASK_RUN_RETENTION_DAYS\n* `TRUEPPM_WEBHOOK_RETENTION_DAYS` - TRUEPPM_WEBHOOK_RETENTION_DAYS\n* `TRUEPPM_IMPORT_RETENTION_DAYS` - TRUEPPM_IMPORT_RETENTION_DAYS\n* `TRUEPPM_SYNC_BATCH_RETENTION_HOURS` - TRUEPPM_SYNC_BATCH_RETENTION_HOURS"
             },
+            "Landing": {
+                "type": "object",
+                "properties": {
+                    "intent": {
+                        "type": "string"
+                    },
+                    "path": {
+                        "type": "string"
+                    },
+                    "resolved_by": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "intent",
+                    "path",
+                    "resolved_by"
+                ]
+            },
             "Me": {
                 "type": "object",
                 "description": "Read-only serializer for GET /api/v1/auth/me/.",
@@ -21243,14 +21347,28 @@
                     "can_access_admin_settings": {
                         "type": "boolean",
                         "readOnly": true
+                    },
+                    "default_landing": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "landing": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/Landing"
+                            }
+                        ],
+                        "readOnly": true
                     }
                 },
                 "required": [
                     "can_access_admin_settings",
+                    "default_landing",
                     "display_name",
                     "email",
                     "id",
                     "initials",
+                    "landing",
                     "max_project_role",
                     "username",
                     "workspace_role"
@@ -23966,6 +24084,20 @@
                     },
                     "is_product_owner": {
                         "type": "boolean"
+                    }
+                }
+            },
+            "PatchedUserProfileRequest": {
+                "type": "object",
+                "description": "Read/write the caller's own app preferences.\n\nOnly ``default_landing`` is writable. Choice validation is enforced by the\nmodel field's ``choices`` (DRF rejects an out-of-range value with 400).",
+                "properties": {
+                    "default_landing": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/DefaultLandingEnum"
+                            }
+                        ],
+                        "description": "Which screen the app opens on. 'auto' uses the role-based policy.\n\n* `auto` - Automatic (based on your role)\n* `my_work` - My Work\n* `project_overview` - Project Overview\n* `portfolio` - Portfolio"
                     }
                 }
             },
@@ -28838,6 +28970,20 @@
                 ],
                 "type": "string",
                 "description": "* `days` - days\n* `hours` - hours"
+            },
+            "UserProfile": {
+                "type": "object",
+                "description": "Read/write the caller's own app preferences.\n\nOnly ``default_landing`` is writable. Choice validation is enforced by the\nmodel field's ``choices`` (DRF rejects an out-of-range value with 400).",
+                "properties": {
+                    "default_landing": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/DefaultLandingEnum"
+                            }
+                        ],
+                        "description": "Which screen the app opens on. 'auto' uses the role-based policy.\n\n* `auto` - Automatic (based on your role)\n* `my_work` - My Work\n* `project_overview` - Project Overview\n* `portfolio` - Portfolio"
+                    }
+                }
             },
             "UserSearchResult": {
                 "type": "object",
