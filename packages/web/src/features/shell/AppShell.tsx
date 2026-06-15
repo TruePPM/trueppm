@@ -120,7 +120,7 @@ export function AppShell() {
       {/* ⌘K command palette (v2 design system) — portaled overlay; renders only when open */}
       <CommandPalette />
 
-      {/* Create-intent dispatcher (ADR-0130, 1179) — renders the modal create flow
+      {/* Create-intent dispatcher (ADR-0131, 1179) — renders the modal create flow
           for the active "+ New" intent; null when none is open. */}
       <CreateDispatcher />
 

@@ -295,7 +295,7 @@ export function ProductBacklogPage() {
   const quickAdd = useQuickAddStory(projectId);
   const canManageBacklog = useCanManageBacklog(projectId);
 
-  // Context-aware "+ New" (ADR-0130, 1179): a `story` create intent for this project
+  // Context-aware "+ New" (ADR-0131, 1179): a `story` create intent for this project
   // focuses the inline quick-add (the create flow native to the backlog), then clears.
   const quickAddRef = useRef<HTMLInputElement>(null);
   const createIntent = useCreateIntentStore((s) => s.intent);

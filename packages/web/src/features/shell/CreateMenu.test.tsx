@@ -40,7 +40,7 @@ beforeEach(() => {
   myRole.current = 300;
 });
 
-describe('CreateMenu (ADR-0130, #1179)', () => {
+describe('CreateMenu (ADR-0131, #1179)', () => {
   it('board → a single "New task" button for a Member', () => {
     render(`/projects/${PID}/board`);
     expect(screen.getByRole('button', { name: 'New task' })).toBeInTheDocument();

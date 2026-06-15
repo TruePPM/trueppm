@@ -8,7 +8,7 @@ function kinds(pathname: string) {
   return resolveCreateTargets(pathname).map((t) => t.kind);
 }
 
-describe('resolveCreateTargets (ADR-0130)', () => {
+describe('resolveCreateTargets (ADR-0131)', () => {
   it('board / grid / sprints → Task', () => {
     expect(kinds(`/projects/${PID}/board`)).toEqual(['task']);
     expect(kinds(`/projects/${PID}/grid`)).toEqual(['task']);

@@ -1,4 +1,4 @@
-# ADR-0130: Context-Aware, Role-Aware "+ New" Affordance + Create-Intent Dispatch
+# ADR-0131: Context-Aware, Role-Aware "+ New" Affordance + Create-Intent Dispatch
 
 ## Status
 Accepted (2026-06-15)

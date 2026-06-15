@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * #1179 — context-aware "+ New" in the v2 context bar (ADR-0130). Golden path:
+ * #1179 — context-aware "+ New" in the v2 context bar (ADR-0131). Golden path:
  * create from two distinct contexts — the menu context (Schedule → New ▾ → Milestone,
  * opening the task/milestone modal) and a single-button context on a different create
  * flow (Program → New project, opening the project modal). The per-route Task/Story
