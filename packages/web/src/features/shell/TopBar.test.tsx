@@ -24,10 +24,6 @@ vi.mock('./HealthCluster', () => ({
   HealthCluster: () => <div data-testid="health-cluster" />,
 }));
 
-vi.mock('@/hooks/useProjectPresence', () => ({
-  useProjectPresence: () => [],
-}));
-
 vi.mock('@/hooks/useNotifications', () => ({
   useUnreadNotificationCount: () => ({ count: 0, isLoading: false }),
 }));

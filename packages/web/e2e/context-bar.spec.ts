@@ -63,6 +63,40 @@ test.describe('v2 context bar (#1177)', () => {
     await expect(rail).toBeVisible();
   });
 
+  test('presence avatars render in the context row on a project route, excluding self (#1180)', async ({
+    page,
+  }) => {
+    await setup(page);
+    // Override the default empty presence with collaborators. Self (e2e-user) is
+    // included to prove the stack filters the current user out (#1180). Registered
+    // before goto so the on-mount presence fetch resolves to this payload.
+    await page.route('**/api/v1/projects/*/presence/', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([
+          { user_id: 'e2e-user', display_name: 'E2E User' },
+          { user_id: 'collab-alice', display_name: 'Alice Adams' },
+          { user_id: 'collab-bob', display_name: 'Bob Brown' },
+        ]),
+      }),
+    );
+    await page.goto(`/projects/${PROJECT_ID}/overview`);
+
+    await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toBeVisible({
+      timeout: 10_000,
+    });
+
+    // The avatar stack is a single role="status" named by the online collaborators
+    // ("Alice Adams, Bob Brown online"). Scope by a collaborator name so the
+    // StatusBar's "N online" count region can't collide with it.
+    const presence = page.getByRole('status', { name: /Alice Adams/ });
+    await expect(presence).toBeVisible();
+    await expect(presence).toHaveAccessibleName(/Bob Brown/);
+    // Self is filtered out — never shown as a collaborator.
+    await expect(presence).not.toHaveAccessibleName(/E2E User/);
+  });
+
   test('a hidden rail stays hidden across reload (ADR-0127 persistence)', async ({ page }) => {
     await setup(page);
     await page.goto(`/projects/${PROJECT_ID}/overview`);

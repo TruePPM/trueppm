@@ -11,11 +11,19 @@ let projectId: string | undefined;
 let programId: string | undefined;
 let projectData: unknown;
 let programData: unknown;
+let presenceUsers: { user_id: string; display_name: string }[];
+let currentUser: { id: string } | null;
 
 vi.mock('@/hooks/useProjectId', () => ({ useProjectId: () => projectId }));
 vi.mock('@/hooks/useProgramId', () => ({ useProgramId: () => programId }));
 vi.mock('@/hooks/useProject', () => ({ useProject: () => ({ data: projectData }) }));
 vi.mock('@/hooks/useProgram', () => ({ useProgram: () => ({ data: programData }) }));
+// Presence is project-scoped: the real hook is disabled (returns []) with no
+// projectId, so the mock mirrors that — off-project routes get no presence.
+vi.mock('@/hooks/useProjectPresence', () => ({
+  useProjectPresence: (id: string | undefined) => (id ? presenceUsers : []),
+}));
+vi.mock('@/hooks/useCurrentUser', () => ({ useCurrentUser: () => ({ user: currentUser }) }));
 vi.mock('@/features/programs/ProgramIdentitySquare', () => ({
   ProgramIdentitySquare: () => <span data-testid="identity-square" aria-hidden="true" />,
 }));
@@ -36,6 +44,8 @@ beforeEach(() => {
   programId = undefined;
   projectData = undefined;
   programData = undefined;
+  presenceUsers = [];
+  currentUser = null;
   useShellStore.setState({ sidebarCollapsed: false, sidebarUserControlled: false });
 });
 
@@ -69,6 +79,34 @@ describe('ContextBar', () => {
     const items = screen.getByRole('navigation', { name: 'Breadcrumb' });
     expect(items).toHaveTextContent('Workspace');
     expect(items).not.toHaveTextContent('›');
+  });
+
+  it('shows presence avatars on a project route, excluding self', () => {
+    projectId = 'proj-1';
+    projectData = { id: 'proj-1', name: 'Launch Site' };
+    currentUser = { id: 'me' };
+    presenceUsers = [
+      { user_id: 'me', display_name: 'Me Myself' },
+      { user_id: 'u-alice', display_name: 'Alice Smith' },
+      { user_id: 'u-bob', display_name: 'Bob Jones' },
+    ];
+    renderBar();
+
+    // PresenceAvatarStack exposes a single role="status" with the online names.
+    const presence = screen.getByRole('status');
+    expect(presence).toHaveAccessibleName(/Alice Smith/);
+    expect(presence).toHaveAccessibleName(/Bob Jones/);
+    // Self is filtered out of the collaborator list.
+    expect(presence).not.toHaveAccessibleName(/Me Myself/);
+  });
+
+  it('renders no presence off-project', () => {
+    // Unscoped route: the hook is disabled and the stack renders nothing.
+    presenceUsers = [{ user_id: 'u-alice', display_name: 'Alice Smith' }];
+    currentUser = { id: 'me' };
+    renderBar();
+
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
   it('toggles the rail and reflects state via aria-expanded', () => {

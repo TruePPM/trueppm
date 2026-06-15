@@ -3,18 +3,28 @@ import { useProjectId } from '@/hooks/useProjectId';
 import { useProgramId } from '@/hooks/useProgramId';
 import { useProject } from '@/hooks/useProject';
 import { useProgram } from '@/hooks/useProgram';
+import { useProjectPresence } from '@/hooks/useProjectPresence';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { modifierKeyLabel } from '@/lib/platform';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { Breadcrumb, type BreadcrumbItem } from '@/components/Breadcrumb';
 import { ProgramIdentitySquare } from '@/features/programs/ProgramIdentitySquare';
 import { CreateMenu } from './CreateMenu';
+import { PresenceAvatarStack } from './PresenceAvatarStack';
 
 /**
  * v2 context bar (shell slice 2, ADR-0127) — a compact persistent row above the
  * content carrying wayfinding (Workspace › Program › Project), the program identity
- * square, the rail re-open ≡ toggle, and the theme toggle. The ≡ is the only
- * affordance that re-opens the rail once it is hidden (collapse = 0px), so it must
- * always be visible on desktop; ⌘K remains the jump-to power-nav.
+ * square, the rail re-open ≡ toggle, the presence avatars, and the theme toggle. The
+ * ≡ is the only affordance that re-opens the rail once it is hidden (collapse = 0px),
+ * so it must always be visible on desktop; ⌘K remains the jump-to power-nav.
+ *
+ * Presence (ADR-0127) lives here rather than the view bar because presence is
+ * a property of the *context* (who else is in this project), not the active view.
+ * It is ephemeral wayfinding only — who is online right now — never aggregated and
+ * never reported (Morgan's surveillance line). It self-suppresses off-project:
+ * {@link useProjectPresence} is disabled when there is no projectId and the stack
+ * renders nothing when empty, so it never appears on workspace/program routes.
  */
 export function ContextBar() {
   const sidebarCollapsed = useShellStore((s) => s.sidebarCollapsed);
@@ -28,6 +38,13 @@ export function ContextBar() {
   // the hook call unconditional (disabled when falsy).
   const effectiveProgramId = project?.program_detail?.id ?? programId;
   const { data: program } = useProgram(effectiveProgramId);
+
+  // Ephemeral presence: collaborators currently viewing this project, minus self.
+  // Empty off-project (hook disabled when projectId is undefined).
+  const { user: currentUser } = useCurrentUser();
+  const onlineUsers = useProjectPresence(projectId).filter(
+    (u) => u.user_id !== currentUser?.id,
+  );
 
   const items: BreadcrumbItem[] = [{ label: 'Workspace', to: '/' }];
   if (project) {
@@ -73,6 +90,10 @@ export function ContextBar() {
 
       {/* Context-aware "+ New" (ADR-0131, 1179) — self-gates by route + RBAC. */}
       <CreateMenu />
+
+      {/* Online collaborators — desktop only (hidden md:flex inside the
+          component); renders nothing off-project or when no one else is online. */}
+      <PresenceAvatarStack users={onlineUsers} />
 
       <ThemeToggle className="hidden md:flex shrink-0" />
     </div>
