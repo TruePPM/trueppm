@@ -445,36 +445,53 @@ ci:build-scheduler-image:
     - docker push "$IMAGE"
 
 ci:mirror-playwright-base:
-  # Mirror the upstream Playwright base image into our own GitLab Container
-  # Registry so the rest of CI never pulls it anonymously from mcr.microsoft.com.
-  # Microsoft throttles cold anonymous pulls from CI runner IPs (401/429 on its
-  # oauth2/token endpoint); an isolated dind daemon hits that on every build. Our
-  # registry has no such limit and dind authenticates to it via CI_REGISTRY creds.
+  # Ensure the upstream Playwright base image is mirrored into our own GitLab
+  # Container Registry so the rest of CI never pulls it anonymously from
+  # mcr.microsoft.com. Microsoft throttles cold anonymous pulls from CI runner
+  # IPs (401/429 on its oauth2/token endpoint); an isolated dind daemon hits that
+  # on every build. Our registry has no such limit and dind authenticates to it
+  # via CI_REGISTRY creds.
   #
-  # This is the ONLY job that pulls from MCR, so the throttle is taken off the MR
-  # critical path: it runs manually (on a Playwright bump) and weekly via schedule
-  # as a freshness/safety net. The cold pull is wrapped in an exponential-backoff
-  # retry because that one pull may still hit the throttle window; once pushed,
-  # the mirror tag persists until the next bump.
+  # This is the ONLY job that pulls from MCR. It is an idempotent gate that
+  # ci:build-integration-image `needs:`, sharing the build's rules so the two are
+  # always co-present — guaranteeing the mirror exists before the build resolves
+  # its FROM (no manual ordering, no race). It is a fast no-op when the tag is
+  # already mirrored (`docker manifest inspect` short-circuits before any MCR
+  # traffic); it only pulls from MCR when the tag is genuinely missing — a fresh
+  # mirror or a Playwright bump — and the weekly schedule refreshes it. The cold
+  # pull is wrapped in exponential-backoff retry since that one pull may still
+  # hit the throttle window; once pushed, the mirror tag persists until the bump.
   stage: lint
   image: docker:27
   services:
     - docker:27-dind
   variables:
     DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_CLI_EXPERIMENTAL: "enabled"
     SRC: "mcr.microsoft.com/playwright:$PLAYWRIGHT_BASE_TAG"
     DEST: "$CI_REGISTRY_IMAGE/playwright-base:$PLAYWRIGHT_BASE_TAG"
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
     - if: '$CI_COMMIT_BRANCH == "main"'
-      when: manual
-      allow_failure: true
+      changes:
+        - packages/scheduler/pyproject.toml
+        - packages/api/pyproject.toml
+        - .gitlab/ci-images/integration.Dockerfile
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-      when: manual
-      allow_failure: true
+      changes:
+        - packages/scheduler/pyproject.toml
+        - packages/api/pyproject.toml
+        - .gitlab/ci-images/integration.Dockerfile
   before_script:
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
   script:
+    # Already mirrored (steady state) — skip without touching MCR. The schedule
+    # run forces a refresh by ignoring this short-circuit.
+    - |
+      if [ "$CI_PIPELINE_SOURCE" != "schedule" ] && docker manifest inspect "$DEST" >/dev/null 2>&1; then
+        echo "$DEST already present — skipping MCR mirror."
+        exit 0
+      fi
     - |
       attempt=1
       max_attempts=5
@@ -503,14 +520,18 @@ ci:build-integration-image:
   # files change so a broken Dockerfile is caught before merge; web:integration
   # itself is main-only and pulls the existing registry tag in steady state.
   #
-  # Builds FROM our registry mirror of the Playwright base (built by
-  # ci:mirror-playwright-base) via the PLAYWRIGHT_BASE build-arg, so this job —
-  # which runs on every qualifying MR — never pulls from the throttled MCR
-  # endpoint. On a Playwright bump, run ci:mirror-playwright-base first.
+  # Builds FROM our registry mirror of the Playwright base via the
+  # PLAYWRIGHT_BASE build-arg, so this job — which runs on every qualifying MR —
+  # never pulls from the throttled MCR endpoint. `needs: ci:mirror-playwright-base`
+  # guarantees the mirror tag exists before the FROM is resolved; that gate is a
+  # no-op in steady state, so the dependency costs nothing once mirrored.
   stage: lint
   image: docker:27
   services:
     - docker:27-dind
+  needs:
+    - job: ci:mirror-playwright-base
+      artifacts: false
   variables:
     DOCKER_TLS_CERTDIR: "/certs"
     IMAGE: "$CI_REGISTRY_IMAGE/ci-integration:noble"
