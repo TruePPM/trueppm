@@ -14,7 +14,7 @@ const TRIGGER =
   'hidden md:inline-flex shrink-0 items-center gap-1 h-8 px-2.5 rounded-control border border-chrome-border/15 text-sm font-medium text-chrome-text-primary hover:bg-neutral-text-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface';
 
 /**
- * Context-aware, role-aware "+ New" affordance for the v2 ContextBar (ADR-0131,
+ * Context-aware, role-aware "+ New" affordance for the v2 unified shell bar (ADR-0131,
  * 1179). Resolves the create target(s) from the current route, hides itself when
  * the user can't create (RBAC) or no target resolves, and publishes a `CreateIntent`
  * the dispatcher / backlog page consumes. Never pre-assigns a sprint (sprint-safe).

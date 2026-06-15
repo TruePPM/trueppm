@@ -62,7 +62,9 @@ export function ProgramTabs() {
             replace
             className={[
               'flex items-center gap-1.5 px-3 text-sm font-medium border-b-2 transition-colors',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+              // Inset ring (rule 174): tabs render inside the ShellNavScroller's
+              // overflow-x-auto region, which clips an offset ring top/bottom.
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary',
               isActive
                 ? 'border-brand-primary text-brand-primary'
                 : 'border-transparent text-neutral-text-secondary hover:text-neutral-text-primary',

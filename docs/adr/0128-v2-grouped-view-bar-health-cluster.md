@@ -3,6 +3,14 @@
 ## Status
 Accepted (2026-06-14)
 
+> **Superseded in part by [ADR-0134](0134-v2-unified-shell-bar.md) (2026-06-15).** The
+> **two-row premise** (this "view row" being a distinct row hosted by an interim `TopBar`) is
+> superseded: the grouped `ViewTabs`/`ProgramTabs` and the single health cluster now live in
+> one unified shell bar, with the tab strip inside a horizontal scroll region (`ShellNavScroller`).
+> Everything else in this ADR — the PLAN/TRACK/PEOPLE grouping, the methodology-adaptive
+> health-cluster semantics, the ADR-0104 velocity privacy gate, route suppression, and the
+> `Health ▾` collapse below `lg` — is unchanged.
+
 ## Context
 
 Epic #1163 (the v2 golden-standard redesign, ADR-0126) replaces the project
