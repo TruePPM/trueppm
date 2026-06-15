@@ -1470,6 +1470,93 @@ security:pip-audit:
     # not apply. Remove once pyjwt either rescinds the advisory or ships a hardened release.
     - pip-audit --progress-spinner=off --desc on --ignore-vuln CVE-2026-4539 --ignore-vuln CVE-2026-3219 --ignore-vuln PYSEC-2025-183
 
+security:pip-audit:scheduler:
+  # Standalone CVE scan for the PUBLISHED library's dependency set only (#935).
+  #
+  # trueppm-scheduler ships to PyPI (Apache 2.0) with a tiny runtime surface
+  # (networkx + numpy). The combined security:pip-audit: above installs the api
+  # alongside it and audits both against one shared ignore-list, so an api-only
+  # suppression silences the same CVE for the scheduler too. This job gives
+  # external consumers and our release gate a clean, uncontaminated answer to
+  # "is the published library's dependency set clean?" with its OWN ignore-list.
+  # The combined job is kept as-is so api+scheduler coverage isn't lost.
+  extends: .scheduler
+  stage: security
+  <<: *rules-scheduler
+  cache:
+    <<: *scheduler-cache
+    policy: pull
+  before_script:
+    # Upgrade pip/wheel so the audit doesn't flag the base-image build tools,
+    # then add pip-audit. We override .scheduler's before_script, so re-link
+    # the resident scheduler[dev] wheels here too.
+    - pip install --upgrade pip wheel --quiet
+    - pip install pip-audit --quiet
+    - pip install -e "packages/scheduler[dev]" --quiet
+  script:
+    # Scheduler-scoped ignore-list — INDEPENDENT of the api's. Only CVEs whose
+    # package is actually present in the scheduler[dev] environment belong here;
+    # every entry must cite the CVE and why it can't be remediated.
+    #
+    # CVE-2026-3219: pip itself mishandles concatenated tar+ZIP archives as ZIP.
+    # Environmental (present in every Python env), install-time only, no fix
+    # release as of 2026-04-25. Remove once pip ships a patched release.
+    #
+    # CVE-2026-4539: local-access-only ReDoS in pygments' AdlLexer. Pulled in as
+    # DEV tooling only (diff-cover → pygments), not a runtime dependency of the
+    # published wheel. No fix as of 2026-03-25. Remove when pygments patches.
+    #
+    # NOTE: the api's PYSEC-2025-183 (pyjwt, via djangorestframework-simplejwt)
+    # is deliberately NOT inherited — pyjwt is not in the scheduler environment.
+    # That uninherited suppression is exactly the bleed this split removes.
+    - pip-audit --progress-spinner=off --desc on --ignore-vuln CVE-2026-3219 --ignore-vuln CVE-2026-4539
+
+scheduler:sbom:
+  # Generate + validate a CycloneDX SBOM for the PUBLISHED trueppm-scheduler
+  # dependency set so PyPI consumers can verify transparent sources (#936).
+  #
+  # allow_failure during the 0.3 shake-out: this job bakes the path on MRs/main
+  # without ever blocking, then the blocking copy in scheduler:publish: takes
+  # over before scheduler-v0.3.0b1 is cut.
+  #
+  # cyclonedx-bom is pinned + resident in the ci-scheduler image
+  # (.gitlab/ci-images/scheduler.Dockerfile), but the image is published under
+  # the mutable :py3.11 tag and our runners only permit the if-not-present pull
+  # policy, so a runner holding a pre-rebuild :py3.11 runs without cyclonedx-py
+  # ("command not found") on the pipeline that first adds the tool. The
+  # before_script install (mirroring scheduler:publish, which runs on a vanilla
+  # base) is a fast no-op when the resident copy is present and supplies the
+  # tool when the cached image is stale — making the job robust to image churn.
+  #
+  # The SBOM describes the RUNTIME closure only (networkx + numpy), not dev
+  # tooling, so it is generated from a fresh runtime-only venv rather than the
+  # image's scheduler[dev] environment. cyclonedx-py points at that venv's
+  # interpreter, keeping the tool's own deps out of the SBOM. Switch to locked
+  # generation once the scheduler ships a committed uv.lock (TODO(#1153)).
+  extends: .scheduler
+  stage: security
+  <<: *rules-scheduler
+  allow_failure: true
+  cache:
+    <<: *scheduler-cache
+    policy: pull
+  before_script:
+    - pip install --quiet cyclonedx-bom==7.3.0
+  script:
+    - python -m venv /tmp/sbom-venv
+    - /tmp/sbom-venv/bin/pip install --quiet ./packages/scheduler
+    - cyclonedx-py environment /tmp/sbom-venv/bin/python
+        --validate
+        --output-format JSON
+        --output-reproducible
+        --sv 1.6
+        -o packages/scheduler/sbom.cdx.json
+    - echo "SBOM generated + validated:" && head -c 400 packages/scheduler/sbom.cdx.json
+  artifacts:
+    paths:
+      - packages/scheduler/sbom.cdx.json
+    expire_in: 30 days
+
 security:osv:
   # Unified SCA across the committed lockfiles using the OSV database:
   #   - npm:  packages/web, packages/website
@@ -1721,12 +1808,29 @@ wasm:license-check:
 # explicit needs: here because publish jobs run on tag events, not MR events,
 # and the security stage will not have run on the tag itself.
 #
+# Status (#937): the PyPI project name is NOT pending reservation — it is LIVE.
+# `trueppm-scheduler` already has two manually-uploaded alpha releases (0.1.0a1
+# on 2026-05-15, 0.2.0a1 on 2026-05-31). The 0.3 promotion (#914) should publish
+# via THIS tagged CI path, not a laptop, so the release is reproducible.
+#
 # Required CI/CD variable (Settings → CI/CD → Variables):
 #   PYPI_TOKEN — PyPI API token with upload scope for the trueppm-scheduler project.
 #                Mark as "Masked" and "Protected" (tags are protected refs).
 #
+# PyPI account/ownership: the project is owned by the maintainer PyPI account
+# that performed the manual 0.1/0.2 uploads (Kelly Hair); PYPI_TOKEN is a
+# project-scoped token stored in the GitLab CI/CD Variables for this repo.
+#
+# Provenance roadmap (#937/#938): replace the static PYPI_TOKEN with GitLab
+# OIDC against a PyPI Trusted Publisher and emit PEP 740 attestations so PyPI
+# renders a verified "built by this CI, unmodified" badge. That swap changes the
+# publish AUTH model, so it is deliberately NOT wired on this live tag path yet
+# (default 0.4). The PyPI-side Trusted Publisher must be configured in the PyPI
+# dashboard first (manual, #937); see the commented scaffold on the job below.
+#
 # The job builds an sdist + wheel using `python -m build` (PEP 517 standard),
-# then uploads with `twine`. hatchling is the build backend (pyproject.toml).
+# generates + validates a CycloneDX SBOM (#936), then uploads with `twine`.
+# hatchling is the build backend (pyproject.toml).
 # ---------------------------------------------------------------------------
 
 scheduler:publish:
@@ -1745,8 +1849,20 @@ scheduler:publish:
     TWINE_PASSWORD: $PYPI_TOKEN
     # Suppress the keyring warning that fires in non-interactive environments.
     PYTHON_KEYRING_BACKEND: keyring.backends.null.Keyring
+  # ── Trusted Publishing scaffold (#938) — DO NOT enable on the live tag path
+  # until the PyPI Trusted Publisher is configured (#937) and validated against
+  # TestPyPI's OIDC. To migrate: add `id_tokens` for GitLab OIDC, drop the
+  # TWINE_* vars above, and publish with `twine upload --attestations` (PEP 740)
+  # or `gh-action-pypi-publish`-equivalent. Default 0.4 (touches auth, not just
+  # artifacts), so it is left commented:
+  #   id_tokens:
+  #     PYPI_ID_TOKEN:
+  #       aud: pypi
   before_script:
-    - pip install build twine --quiet
+    # cyclonedx-bom pinned to match the resident version in the ci-scheduler
+    # image (.gitlab/ci-images/scheduler.Dockerfile); this job runs on the
+    # python:3.11-slim base, so it installs the tool here.
+    - pip install build twine cyclonedx-bom==7.3.0 --quiet
   script:
     # Verify the tag version matches the version declared in pyproject.toml.
     # Mismatches (e.g. forgot to bump the version) fail fast before uploading.
@@ -1766,17 +1882,28 @@ scheduler:publish:
       echo "Version check passed: $PKG_VERSION"
     - cd packages/scheduler
     - python -m build
-    - twine upload dist/* --non-interactive --verbose
+    # Generate + validate the CycloneDX SBOM from the built runtime closure
+    # BEFORE uploading (#936). Ordering matters: never let twine succeed (the
+    # release goes live) and then fail the job on a malformed SBOM. A fresh
+    # runtime-only venv keeps build/dev tooling out of the published SBOM.
+    - python -m venv /tmp/sbom-venv
+    - /tmp/sbom-venv/bin/pip install --quiet .
+    - cyclonedx-py environment /tmp/sbom-venv/bin/python --validate --output-format JSON --output-reproducible --sv 1.6 -o dist/sbom.cdx.json
+    # Upload only the wheel + sdist — NOT the SBOM (it ships as a CI artifact /
+    # GitLab Release asset, not a PyPI distribution file).
+    - twine upload dist/*.tar.gz dist/*.whl --non-interactive --verbose
   artifacts:
-    # Keep the built wheel as a CI artifact for traceability (7-day expiry).
+    # Keep the built wheel + SBOM as a CI artifact for traceability.
+    # TODO(#936): also attach dist/sbom.cdx.json to the GitLab Release for the
+    # tag once a scheduler-release job (release-cli) exists.
     paths:
       - packages/scheduler/dist/
-    expire_in: 7 days
+    expire_in: 30 days
 
-# scheduler:publish:test (TestPyPI on every main merge) removed — deferred to
-# milestone 0.3 pending PyPI project-name reservation. Tag-triggered
-# scheduler:publish above is also dormant until then (no scheduler-v* tag
-# should be pushed before the reservation lands).
+# scheduler:publish:test (TestPyPI on every main merge) was removed earlier.
+# The tag-triggered scheduler:publish above is LIVE, not dormant: the PyPI name
+# is reserved and two alphas are published (#937). Push a `scheduler-vX.Y.Z`
+# tag (after a green main pipeline) to release.
 
 # ---------------------------------------------------------------------------
 # PUBLISH — Docker images and Helm chart.
