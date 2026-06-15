@@ -7,6 +7,7 @@ import { modifierKeyLabel } from '@/lib/platform';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { Breadcrumb, type BreadcrumbItem } from '@/components/Breadcrumb';
 import { ProgramIdentitySquare } from '@/features/programs/ProgramIdentitySquare';
+import { CreateMenu } from './CreateMenu';
 
 /**
  * v2 context bar (shell slice 2, ADR-0127) — a compact persistent row above the
@@ -69,6 +70,9 @@ export function ContextBar() {
       </button>
 
       <Breadcrumb items={items} className="flex-1" />
+
+      {/* Context-aware "+ New" (ADR-0131, 1179) — self-gates by route + RBAC. */}
+      <CreateMenu />
 
       <ThemeToggle className="hidden md:flex shrink-0" />
     </div>

@@ -19,6 +19,9 @@ vi.mock('@/hooks/useProgram', () => ({ useProgram: () => ({ data: programData })
 vi.mock('@/features/programs/ProgramIdentitySquare', () => ({
   ProgramIdentitySquare: () => <span data-testid="identity-square" aria-hidden="true" />,
 }));
+// The "+ New" affordance owns its own data hooks (role / backlog / program) and is
+// covered by CreateMenu.test.tsx; stub it here so ContextBar tests don't fire its XHRs.
+vi.mock('./CreateMenu', () => ({ CreateMenu: () => null }));
 
 function renderBar() {
   return render(
