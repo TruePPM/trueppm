@@ -130,6 +130,23 @@ PostgreSQL is the only stateful service. Back up the `trueppm` database on your 
 
 Valkey is a broker and cache — it does not store persistent data. Losing Valkey state means in-flight Celery tasks are lost (they'll be re-triggered by the next write) and WebSocket connections will drop and reconnect.
 
+## Database migrations & rollback
+
+Schema migrations run automatically on container start (`manage.py migrate`). The
+migration graph is linear and every schema change is reversible **except two
+intentional one-way data migrations** — reverting past them is a no-op, not a
+restore:
+
+- `notifications.0004_clean_unknown_matrix_keys` — strips invalid keys from
+  notification-preference matrices. The dropped keys carried no meaning, so there
+  is nothing to restore on reverse.
+- `projects.0019_backfill_wbs_paths` — backfills WBS `ltree` paths. The
+  pre-backfill state was empty paths; reverse accepts that data loss.
+
+To roll back across either of these, restore the PostgreSQL backup taken before
+the upgrade rather than relying on `migrate <app> <prior>`. All other migrations
+reverse cleanly.
+
 ## Monitoring
 
 ### Auto-scheduling health
