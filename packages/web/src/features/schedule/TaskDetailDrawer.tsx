@@ -83,7 +83,7 @@ export function TaskDetailDrawer({
 
   const { tasks: allTasks } = useScheduleTasks();
   const { mutate: updateTask, isPending: isSaving } = useUpdateTask();
-  // #1046: thread the viewer's project role into the sections so write controls
+  // 1046: thread the viewer's project role into the sections so write controls
   // (add link, add attachment, edit description) are hidden from Viewers instead
   // of surfacing affordances that 403 on submit. `role` is null while it loads.
   const { role: userRole } = useCurrentUserRole(projectId);
@@ -406,7 +406,7 @@ function DrawerContent({
     tabRefs.current[nextId]?.focus();
   };
 
-  // Effective edit/delete capability for this drawer (ADR-0133, #1144). Prefer
+  // Effective edit/delete capability for this drawer (ADR-0133, 1144). Prefer
   // the server-derived per-task verdict; fall back to the client role rule only
   // when the field is absent (pre-field synced rows / optimistic local creates),
   // so a Viewer never sees a flash of editable controls and Scheduler /
@@ -432,7 +432,7 @@ function DrawerContent({
               CP
             </span>
           )}
-          {/* "View only" indicator (ADR-0133, #1143). A muted, neutral read-state
+          {/* "View only" indicator (ADR-0133, 1143). A muted, neutral read-state
               chip — not a warning — present whenever the drawer is non-editable,
               so the absence of write controls is never ambiguous ("is it a bug or
               am I not allowed?"). The lock glyph is decorative; the accessible
@@ -501,7 +501,7 @@ function DrawerContent({
           onKeyDown={(e) => {
             if (e.key === 'Enter') e.currentTarget.blur();
           }}
-          // ADR-0133/#1142: the title is read-only for non-editors. A readOnly
+          // ADR-0133/1142: the title is read-only for non-editors. A readOnly
           // input renders as plain text (bg-transparent, no border) and drops the
           // edit focus ring + caret so it never invites an edit that would 403.
           readOnly={!canEdit}
@@ -681,7 +681,7 @@ function DescriptionField({
   onChange: (value: string) => void;
   onBlur: () => void;
   changedElsewhere: boolean;
-  /** #1046: Viewers see the description read-only rather than an editable field
+  /** 1046: Viewers see the description read-only rather than an editable field
    *  whose PATCH 403s on blur. */
   readOnly?: boolean;
 }) {

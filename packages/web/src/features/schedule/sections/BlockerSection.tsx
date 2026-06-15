@@ -36,7 +36,7 @@ export function BlockerSection({ taskId, projectId, userRole, canEdit }: DrawerS
   const task = tasks?.find((t) => t.id === taskId);
   const { mutate: updateTask, isPending } = useUpdateTask();
 
-  // ADR-0133/#1142: gate write controls off the server-derived verdict; fall back to the client role rule only when absent.
+  // ADR-0133/1142: gate write controls off the server-derived verdict; fall back to the client role rule only when absent.
   const editable = canEdit ?? canEditTask(userRole);
 
   const [formOpen, setFormOpen] = useState(false);

@@ -131,7 +131,7 @@ interface CommentRowProps {
   /** Indent depth — 0 for top-level, 1 for reply. (One-level nesting only.) */
   depth: number;
   /**
-   * Whether the viewer may post/reply/react/ack (ADR-0133/#1142). When false,
+   * Whether the viewer may post/reply/react/ack (ADR-0133/1142). When false,
    * the comment body still renders but every write affordance is hidden.
    */
   editable: boolean;
@@ -273,7 +273,7 @@ export function CommentSection({ taskId, projectId, userRole, canEdit }: DrawerS
   const { attachments } = useTaskAttachments(projectId, taskId);
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
 
-  // ADR-0133/#1142: gate write controls off the server-derived verdict; fall back to the client role rule only when absent.
+  // ADR-0133/1142: gate write controls off the server-derived verdict; fall back to the client role rule only when absent.
   const editable = canEdit ?? canEditTask(userRole);
 
   // Lookup table for [[attachment:uuid]] rendering. Soft-deleted attachments

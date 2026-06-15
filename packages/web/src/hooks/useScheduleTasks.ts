@@ -39,7 +39,7 @@ export interface ApiTask {
   is_milestone: boolean;
   is_summary: boolean;
   parent_id: string | null;
-  // Server-derived edit capabilities (ADR-0133, #1144). Optional: absent on
+  // Server-derived edit capabilities (ADR-0133, 1144). Optional: absent on
   // pre-field WebSocket deltas and on nested serializations without a request.
   can_edit?: boolean;
   can_delete?: boolean;

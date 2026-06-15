@@ -110,7 +110,7 @@ export interface DrawerSectionProps {
   projectId: string;
   /**
    * The viewer's project role ordinal (ROLE_VIEWER..ROLE_OWNER from
-   * `@/lib/roles`), or `null` while it resolves (#1046). OPTIONAL and
+   * `@/lib/roles`), or `null` while it resolves (1046). OPTIONAL and
    * backward-compatible: existing OSS and Enterprise section registrations that
    * don't read it are unaffected. Sections that render write controls use it to
    * hide those controls from Viewers instead of surfacing a button that 403s on
@@ -120,7 +120,7 @@ export interface DrawerSectionProps {
   userRole?: number | null;
   /**
    * Server-derived effective edit/delete capability for THIS task (ADR-0133,
-   * #1144), computed once by the drawer as `task.canEdit ?? canEditTask(userRole)`
+   * 1144), computed once by the drawer as `task.canEdit ?? canEditTask(userRole)`
    * and threaded down so every section gates off the same authoritative verdict
    * instead of re-deriving `canEditTask(userRole)` (which is wrong for Scheduler,
    * Member-on-others-tasks, and Product-Owner cases). Optional + backward-compatible:

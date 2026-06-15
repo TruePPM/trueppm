@@ -532,7 +532,7 @@ function AddLinkInput({ projectId, taskId }: AddLinkInputProps) {
 
 /**
  * Drawer section body. `canEdit` follows task-edit permission — Viewers can see
- * and refresh links but not add or delete them (#1046). The role is threaded
+ * and refresh links but not add or delete them (1046). The role is threaded
  * through `DrawerSectionProps.userRole`; `canEditTask` returns false while it
  * loads, so the add/delete affordances never flash before the role resolves.
  * The server still 403s a Viewer's write — this is the trust-preserving UX gate.

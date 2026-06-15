@@ -641,7 +641,7 @@ export function RecurrenceSection({ taskId, projectId, userRole, canEdit }: Draw
   const { role, isLoading: roleLoading } = useCurrentUserRole(projectId);
   const [editing, setEditing] = useState(false);
 
-  // ADR-0133/#1142: gate write controls off the server-derived verdict; fall back to the client role rule only when absent.
+  // ADR-0133/1142: gate write controls off the server-derived verdict; fall back to the client role rule only when absent.
   const verdict = canEdit ?? canEditTask(userRole);
 
   // Recurrence writes require Scheduler+ (ADR-0090) AND the effective edit

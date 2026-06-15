@@ -7,7 +7,7 @@ export interface AssignmentRowProps {
   onRemove: () => void;
   isUpdating: boolean;
   isRemoving: boolean;
-  /** ADR-0133/#1142: non-editors see the assignment read-only — the allocation
+  /** ADR-0133/1142: non-editors see the assignment read-only — the allocation
    *  as static text and no remove control — instead of inputs that 403 on blur. */
   readOnly?: boolean;
 }

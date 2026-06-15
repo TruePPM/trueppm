@@ -43,7 +43,7 @@ export function OverviewSection({ taskId, projectId, userRole, canEdit }: Drawer
   const task = tasks?.find((t) => t.id === taskId);
   const { mutate: updateTask, isPending } = useUpdateTask();
 
-  // ADR-0133/#1142: gate every write control off the server-derived verdict the
+  // ADR-0133/1142: gate every write control off the server-derived verdict the
   // drawer threads down; fall back to the client role rule only when it is absent.
   const editable = canEdit ?? canEditTask(userRole);
 
