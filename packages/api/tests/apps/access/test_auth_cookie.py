@@ -16,6 +16,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from rest_framework.test import APIClient
+from rest_framework.throttling import ScopedRateThrottle
 
 User = get_user_model()
 
@@ -105,6 +106,43 @@ def test_refresh_ignores_token_in_body(user) -> None:
     fresh = APIClient()
     resp = fresh.post(_REFRESH_URL, {"refresh": body_token}, format="json")
     assert resp.status_code == 401
+
+
+@pytest.mark.django_db
+def test_refresh_is_scope_throttled_past_the_cap(user, monkeypatch) -> None:
+    """The refresh endpoint enforces the scoped ``refresh`` throttle (#814).
+
+    With the rate tightened to 2/min, a third exchange inside the window is
+    rejected with 429 rather than minting another access token — this bounds
+    how fast a leaked refresh cookie can be traded for access tokens. The
+    existing flow tests deliberately clear the throttle cache, so this is the
+    only assertion that the limiter actually fires.
+
+    The rate is patched on the throttle class rather than via
+    ``override_settings``: DRF binds ``THROTTLE_RATES`` to a class attribute at
+    import, so a settings override never reaches the already-bound throttle.
+    """
+    monkeypatch.setattr(
+        ScopedRateThrottle,
+        "THROTTLE_RATES",
+        {**ScopedRateThrottle.THROTTLE_RATES, "refresh": "2/min"},
+    )
+    client = APIClient()
+    login = client.post(
+        _LOGIN_URL,
+        {"username": "cookie_user", "password": "correct-horse-battery"},
+        format="json",
+    )
+    assert login.status_code == 200
+
+    # Two exchanges inside the window succeed; the token rotates each time and
+    # the APIClient carries the freshest cookie forward.
+    for _ in range(2):
+        ok = client.post(_REFRESH_URL, format="json")
+        assert ok.status_code == 200, ok.data
+
+    throttled = client.post(_REFRESH_URL, format="json")
+    assert throttled.status_code == 429
 
 
 @pytest.mark.django_db

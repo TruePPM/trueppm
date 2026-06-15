@@ -727,6 +727,8 @@ describe('drawDependencyArrows — summary tasks are anchorable without plannedS
     expect(calls.filter((c) => c.name === 'lineTo').length).toBe(5);
   });
 
+  // TODO(#1184): findSafeDropColumn does not yet treat milestone diamonds as
+  // obstacles; un-skip and implement when #1184 lands.
   it.skip('milestones are obstacles — right-sweep diverts the V drop around a diamond in the drop column', () => {
     // src finishes Apr 10, target starts Apr 14 → ideal drop column ≈ targetX − APPROACH_STUB.
     // A committed milestone sits in row 1 at Apr 14 — i.e. directly on the ideal drop X.
