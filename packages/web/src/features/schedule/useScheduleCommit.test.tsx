@@ -76,6 +76,19 @@ const TASK_SPRINT: Task = {
   sprintId: 'sp1',
 };
 
+// Calendar-consistent weekend fixture for resize math (#951). A 2-working-day
+// task spanning a weekend: start Fri 2026-01-09, finish Mon 2026-01-12 (Sat/Sun
+// are non-working) → duration 2. In the 1px/day MOCK_SCALES its bar's exclusive
+// right edge (dateToRight) sits at day-12 px: 2026-01-12 is day 11, +1 day.
+const TASK_WEEKEND: Task = {
+  ...TASK_A,
+  id: 'tw',
+  name: 'Weekend Task',
+  start: '2026-01-09',
+  finish: '2026-01-12',
+  duration: 2,
+};
+
 const SPRINT_ACTIVE: ApiSprint = {
   id: 'sp1',
   server_version: 1,
@@ -208,19 +221,34 @@ describe('useScheduleCommit', () => {
     expect(typeof engine.updateTaskCalls[0]?.patch.finish).toBe('string');
   });
 
-  it('opens the popover on resize with new duration computed from right edge', () => {
+  it('opens the popover on resize with a WORKING-day duration from the dropped finish (#951)', () => {
     const engine = new ControllableEngine();
-    const { result } = renderCommit(engine);
-    // TASK_A.start = day 9, duration 5 → right edge currently at day 14.
-    // Move right edge to day 19 → new duration = 10.
-    act(() => engine.emit('resize-task-end', { id: 't1', right: 19, cancelled: false }));
+    const { result } = renderCommit(engine, { tasks: [TASK_WEEKEND] });
+    // Drop the exclusive right edge at day-15 px → inclusive finish 2026-01-15
+    // (Thu). The bar extends Mon 01-12 → Thu 01-15 = +3 working days, so the
+    // 2-working-day task becomes 5 — NOT the 6 raw calendar days the old
+    // (right − start) math would have committed.
+    act(() => engine.emit('resize-task-end', { id: 'tw', right: 15, cancelled: false }));
     expect(result.current.state).not.toBeNull();
     expect(result.current.state!.action).toMatchObject({
       kind: 'resize',
-      oldDurationDays: 5,
-      newDurationDays: 10,
+      oldDurationDays: 2,
+      newDurationDays: 5,
     });
-    expect(result.current.state!.newDuration).toBe(10);
+    expect(result.current.state!.newDuration).toBe(5);
+    expect(result.current.state!.newFinish).toBe('2026-01-15');
+  });
+
+  it('does NOT open the popover on a no-op resize grab across a weekend (#951)', () => {
+    const engine = new ControllableEngine();
+    const { result } = renderCommit(engine, { tasks: [TASK_WEEKEND] });
+    // A no-op grab releases the handle exactly where the bar already ends:
+    // TASK_WEEKEND finishes Mon 2026-01-12, whose exclusive right edge is day-12
+    // px. The old calendar-day math read this back as a 4-day span vs the stored
+    // working-day duration 2 and falsely opened the resize popover.
+    act(() => engine.emit('resize-task-end', { id: 'tw', right: 12, cancelled: false }));
+    expect(result.current.state).toBeNull();
+    expect(engine.updateTaskCalls).toHaveLength(0);
   });
 
   it('surfaces the ACTIVE sprint name on the popover state', () => {
@@ -255,14 +283,16 @@ describe('useScheduleCommit', () => {
     expect(result.current.state).toBeNull();
   });
 
-  it('Confirm on resize PATCHes duration', async () => {
+  it('Confirm on resize PATCHes planned_finish, not duration (#951)', async () => {
     const engine = new ControllableEngine();
     const onCommitSuccess = vi.fn();
-    const { result } = renderCommit(engine, { onCommitSuccess });
-    act(() => engine.emit('resize-task-end', { id: 't1', right: 19, cancelled: false }));
+    const { result } = renderCommit(engine, { tasks: [TASK_WEEKEND], onCommitSuccess });
+    act(() => engine.emit('resize-task-end', { id: 'tw', right: 15, cancelled: false }));
     act(() => result.current.handleConfirm());
     await waitFor(() => expect(onCommitSuccess).toHaveBeenCalled());
-    expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', { duration: 10 });
+    // Server-authoritative: the client sends the dropped finish DATE; the API
+    // derives the working-day duration from the project calendar (#951).
+    expect(patchMock).toHaveBeenCalledWith('/tasks/tw/', { planned_finish: '2026-01-15' });
   });
 
   it('Cancel reverts the engine and clears state without firing PATCH', () => {

@@ -200,6 +200,11 @@ export interface RescheduleTaskPayload {
   projectId: string;
   planned_start?: string | null;
   duration?: number;
+  /** Target finish date (#951) — the server derives the working-day `duration`
+   *  from the project calendar. Sent by the Gantt resize commit in place of
+   *  `duration` so a bar dragged across a weekend commits the correct
+   *  working-day span, not the inflated calendar span. */
+  planned_finish?: string | null;
   /** Partial Task values applied to the cache immediately (optimistic UI). */
   optimistic: Partial<Task>;
 }
