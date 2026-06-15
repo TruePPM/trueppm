@@ -96,6 +96,28 @@ MAX_PROJECT_SPAN_DAYS = 366 * 1000
 # actionable error rather than allowed to spin. The cost is checked from leaf
 # *counts* before any cross product is materialised, so the guard itself is cheap.
 MAX_EXPANDED_EDGES = 100_000
+# Ceiling on the Monte Carlo lag-delta precompute: (distinct dependency
+# type/lag combinations) x (working-day index span) cells (#1201). The vectorised
+# MC forward pass builds one delta array of length ``index_size`` per *distinct*
+# ``(dep_type, lag)`` key; this product is the cost the span guard does NOT bound.
+# ``MAX_PROJECT_SPAN_DAYS`` caps Σlag and the total span, but an SF dependency with
+# zero lag contributes 0 to Σlag while still needing a full delta array, so a wide
+# fan-out of such edges slips the span guard entirely. 50M cells is ~400 MB of
+# float64 — generous for any real network (a handful of distinct lags over a span
+# of tens of thousands of days) and far below the multi-GB blowup a hostile graph
+# would otherwise force. Checked incrementally as keys are discovered, before the
+# offending array is materialised.
+MAX_LAG_DELTA_CELLS = 50_000_000
+# Ceiling on the per-run sprint horizon of the velocity sampler (#1202). The
+# bootstrap draw matrix is ``runs x max_sprints`` floats, and ``max_sprints`` scales
+# with ``story_points / mean_velocity`` — unbounded by ``MAX_PROJECT_SPAN_DAYS``,
+# which only caps ``max_sprints x sprint_length_days``. With ``sprint_length_days=1``
+# the span guard permits a ~360k sprint horizon, so a single scrum task could demand
+# ``runs x 360k`` floats (multi-GB). 10,000 sprints is ~380 years of fortnightly
+# cadence — no real task approaches it — and bounds the matrix to ``runs x 10k``
+# regardless of ``sprint_length_days``. A run past this horizon clamps to it (the
+# same deep-tail truncation the sampler already documents).
+MAX_VELOCITY_SPRINTS = 10_000
 
 
 # ---------------------------------------------------------------------------
@@ -851,6 +873,15 @@ def _velocity_worst_case_days(task: Task, project: Project) -> int:
     if not positive:
         return 0
     mean = sum(positive) / len(positive)
+    # Deliberately the *uncapped* horizon — not clamped to MAX_VELOCITY_SPRINTS like
+    # the sampler (#1202). This term must remain a safe upper bound for its two
+    # callers: it sizes the MC working-day index (an under-estimate would undersize
+    # the index and silently clamp a sampled completion, #1067) and it counts the
+    # task against MAX_PROJECT_SPAN_DAYS (the eager span-guard rejection of a hostile
+    # ``story_points`` depends on this staying unclamped — clamp it and a 1e12-point
+    # task slips the guard and is silently mis-forecast instead of rejected). The
+    # sampler's absolute cap only ever makes the real horizon *smaller* than this,
+    # so it stays an upper bound; it is exact whenever the cap does not bind.
     max_sprints = math.ceil(task.story_points / mean) * 4 + 10
     return int(max_sprints) * project.sprint_length_days
 
@@ -1174,7 +1205,12 @@ def _sample_velocity_durations(
     # Bound the per-run sprint horizon so a pathologically slow bootstrap path can't
     # spin: 4x the mean-pace sprint count plus a floor. Runs that still haven't burned
     # down by then clamp to the cap (a deep-tail outlier), keeping the sim finite.
-    max_sprints = int(np.ceil(story_points / mean)) * 4 + 10
+    # The absolute MAX_VELOCITY_SPRINTS ceiling bounds the draw matrix (``n x
+    # max_sprints`` floats) independently of ``sprint_length_days`` (#1202): without
+    # it, ``sprint_length_days=1`` lets the span guard pass a ~360k horizon and a
+    # single scrum task allocates multi-GB. _velocity_worst_case_days applies the
+    # identical clamp so the MC index stays correctly sized (#1067).
+    max_sprints = min(int(np.ceil(story_points / mean)) * 4 + 10, MAX_VELOCITY_SPRINTS)
     draws = rng.choice(positive, size=(n, max_sprints), replace=True)
     cumulative = np.cumsum(draws, axis=1)
     reached = cumulative >= story_points
@@ -1409,25 +1445,27 @@ def monte_carlo(
         # a date past the end is clamped to the last representable offset.
         return 0 if target < wd_index[0] else len(wd_index) - 1
 
-    # Per-edge lag delta arrays. ``edge_lag_delta[(u, v)]`` is indexed by the
-    # rounded working-day offset of the predecessor's anchor (exclusive EF for
-    # FS/FF, ES for SS/SF) and holds the *extra* working-day offset the constraint
-    # adds relative to a plain offset add at that anchor. ``None`` means "no
-    # adjustment" (a plain offset add) — used for lag-free FS/SS/FF, which are then
-    # byte-for-byte identical to the previous behaviour. SF is the exception: it
-    # imposes an *exclusive* EF constraint anchored on the predecessor's
-    # *inclusive* start, so it needs a +1 interval conversion even at zero lag and
-    # therefore always carries a delta array (issue #824 — SF previously dropped
-    # that +1 and finished one working day early).
+    # Lag delta arrays, indexed by the rounded working-day offset of the
+    # predecessor's anchor (exclusive EF for FS/FF, ES for SS/SF); each holds the
+    # *extra* working-day offset the constraint adds relative to a plain offset add
+    # at that anchor. ``None`` means "no adjustment" (a plain offset add) — used for
+    # lag-free FS/SS/FF, byte-for-byte identical to a plain add. SF is the
+    # exception: it imposes an *exclusive* EF constraint anchored on the
+    # predecessor's *inclusive* start, so it needs a +1 interval conversion even at
+    # zero lag and therefore always carries a delta array (issue #824 — SF
+    # previously dropped that +1 and finished one working day early).
+    #
+    # The array content depends ONLY on ``(dep_type, lag)`` — ``wd_index`` and the
+    # calendar are fixed for the whole simulation — so build one array per *distinct*
+    # ``(dep_type, lag)`` key and share it across every edge carrying that key,
+    # rather than one array per edge (#1201). N identical SF/lag-0 edges (or any
+    # repeated key) now cost a single array, not N. The remaining cost — distinct
+    # keys x ``index_size`` — is capped explicitly: ``MAX_PROJECT_SPAN_DAYS`` bounds
+    # Σlag but not this product, and an SF/lag-0 edge contributes 0 to Σlag, so
+    # without the cap a wide fan-out of such edges slips the span guard entirely.
     one_day = timedelta(days=1)
-    edge_lag_delta: dict[tuple[str, str], np.ndarray | None] = {}
-    for u, v, data in g.edges(data=True):
-        d = data["dep"]
-        lag = d.lag
-        dt = d.dep_type
-        if lag == timedelta(0) and dt != DependencyType.SF:
-            edge_lag_delta[(u, v)] = None
-            continue
+
+    def _build_delta(dt: DependencyType, lag: timedelta) -> np.ndarray:
         arr = np.zeros(index_size, dtype=np.float64)
         for k in range(index_size):
             if dt == DependencyType.FS:
@@ -1452,7 +1490,33 @@ def monte_carlo(
                 # +1 for free via its exclusive-EF anchor; SF does not, and dropping
                 # it finished SF successors one working day early (#824).
                 arr[k] = _offset_after(wd_index[k], lag) + 1 - k
-        edge_lag_delta[(u, v)] = arr
+        return arr
+
+    delta_by_key: dict[tuple[DependencyType, timedelta], np.ndarray | None] = {}
+    for _u, _v, data in g.edges(data=True):
+        d = data["dep"]
+        key = (d.dep_type, d.lag)
+        if key in delta_by_key:
+            continue
+        if d.lag == timedelta(0) and d.dep_type != DependencyType.SF:
+            delta_by_key[key] = None
+            continue
+        # Reject before materialising the offending array: distinct keys x
+        # index_size cells is the cost the span guard does not bound (#1201).
+        non_null = sum(1 for arr in delta_by_key.values() if arr is not None) + 1
+        if non_null * index_size > MAX_LAG_DELTA_CELLS:
+            raise InvalidScheduleInput(
+                f"Monte Carlo lag-delta table would exceed {MAX_LAG_DELTA_CELLS:,} "
+                "cells (distinct dependency type/lag combinations x schedule span). "
+                "The dependency network has too many distinct lag values for the "
+                "span involved — reduce the variety of lags or split the project."
+            )
+        delta_by_key[key] = _build_delta(d.dep_type, d.lag)
+
+    edge_lag_delta: dict[tuple[str, str], np.ndarray | None] = {
+        (u, v): delta_by_key[(data["dep"].dep_type, data["dep"].lag)]
+        for u, v, data in g.edges(data=True)
+    }
 
     def _lag_term(delta_arr: np.ndarray | None, anchor: np.ndarray) -> np.ndarray:
         """Per-run lag delta gathered at each run's (rounded) anchor offset.

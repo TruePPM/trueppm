@@ -335,3 +335,38 @@ def test_non_finite_velocity_sample_rejected(bad_sample: float) -> None:
     )
     with pytest.raises(InvalidScheduleInput, match="velocity_samples"):
         monte_carlo(proj, runs=10, seed=0)
+
+
+def test_velocity_sprint_horizon_capped_bounds_draw_matrix() -> None:
+    """sprint_length_days=1 + large (span-passing) story_points must not allocate
+    a ``runs x ~80k`` draw matrix (#1202).
+
+    The span guard bounds ``max_sprints x sprint_length_days``, so a 1-day sprint
+    length lets ``story_points`` push the *uncapped* horizon to tens of thousands
+    of sprints while the project still clears the guard — pre-fix the sampler then
+    allocated ``runs x max_sprints`` floats off that uncapped horizon. The absolute
+    MAX_VELOCITY_SPRINTS cap clamps the sampler matrix regardless of sprint length.
+
+    With a constant velocity of 1 pt/sprint, 20,000 points needs 20,000 sprints —
+    above the 10,000 cap — so every run clamps to exactly 10,000 sprints (= 10,000
+    working days at sprint_length_days=1). Asserting that clamped finish proves the
+    cap bound the horizon at 10,000: without it the task would finish on the
+    20,000th working day instead.
+    """
+    from trueppm_scheduler.engine import MAX_VELOCITY_SPRINTS
+
+    proj = _project(
+        [_scrum_task("S", story_points=20_000, duration_days=1)],
+        velocity_samples=[1.0],
+        sprint_length_days=1,
+    )
+    r = monte_carlo(proj, runs=50, seed=0)
+
+    # The MAX_VELOCITY_SPRINTS-th working day from Mon 2026-03-02.
+    expected = date(2026, 3, 2)
+    n = 1
+    while n < MAX_VELOCITY_SPRINTS:
+        expected += timedelta(days=1)
+        if expected.weekday() < 5:
+            n += 1
+    assert r.p50 == r.p80 == r.p95 == expected
