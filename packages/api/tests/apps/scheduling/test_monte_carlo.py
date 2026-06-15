@@ -256,3 +256,41 @@ class TestMonteCarloEndpoint:
             format="json",
         )
         assert r.status_code == 400
+
+    def test_simulation_honors_planned_start_floor(
+        self,
+        member_client: APIClient,
+        project: Project,
+    ) -> None:
+        """#1185: MC must honor planned_start as a start-no-earlier-than floor,
+        matching the deterministic CPM pass.
+
+        The project starts 2026-01-05 but the only task is planned to start a
+        month later (2026-02-02). With no dependency holding it, the simulated
+        task must still not begin before its planned start — otherwise the
+        forecast finishes before the deterministic CPM date, which is impossible.
+        Before the fix, the MC input dropped planned_start and the task floated
+        back to project.start_date, finishing in early January.
+        """
+        floor = date(2026, 2, 2)  # Monday, ~4 weeks after project start
+        Task.objects.create(
+            project=project,
+            name="Floored",
+            duration=5,
+            planned_start=floor,
+        )
+
+        r = member_client.post(
+            f"/api/v1/projects/{project.pk}/monte-carlo/",
+            {"n_simulations": 100},
+            format="json",
+        )
+        assert r.status_code == 200
+
+        # Deterministic network (no PERT/velocity) → every run is identical.
+        assert r.data["p50"] == r.data["p80"] == r.data["p95"]
+        # The finish cannot precede the planned-start floor.
+        assert date.fromisoformat(r.data["p50"]) >= floor
+        # And the forecast must not beat the deterministic CPM spine.
+        if r.data.get("cpm_finish"):
+            assert date.fromisoformat(r.data["p50"]) >= date.fromisoformat(r.data["cpm_finish"])
