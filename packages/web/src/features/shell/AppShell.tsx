@@ -33,7 +33,7 @@ export function AppShell() {
   // the tokens were cleared. The actual UI surface (banner + Sign-in CTA)
   // is rendered by `<SessionExpiredBanner>`; we deliberately do NOT
   // auto-navigate to `/login` because that drops the user into a screen
-  // with no explanation of why they were logged out (#352).
+  // with no explanation of why they were logged out (352).
   useEffect(() => {
     const handler = () => {
       void queryClient.cancelQueries();
@@ -120,7 +120,7 @@ export function AppShell() {
       {/* ⌘K command palette (v2 design system) — portaled overlay; renders only when open */}
       <CommandPalette />
 
-      {/* Create-intent dispatcher (ADR-0130, #1179) — renders the modal create flow
+      {/* Create-intent dispatcher (ADR-0130, 1179) — renders the modal create flow
           for the active "+ New" intent; null when none is open. */}
       <CreateDispatcher />
 

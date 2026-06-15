@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 
 /**
- * Create-intent dispatch (ADR-0130, #1179). A single chrome-level "+ New" affordance
+ * Create-intent dispatch (ADR-0130, 1179). A single chrome-level "+ New" affordance
  * (and, later, the ⌘K palette) opens a create flow by publishing a `CreateIntent`;
  * `<CreateDispatcher>` (mounted once in AppShell) renders the self-contained modal
  * targets (task / milestone / project), while the inline backlog quick-add target

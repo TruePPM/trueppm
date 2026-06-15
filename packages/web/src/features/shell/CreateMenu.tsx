@@ -15,7 +15,7 @@ const TRIGGER =
 
 /**
  * Context-aware, role-aware "+ New" affordance for the v2 ContextBar (ADR-0130,
- * #1179). Resolves the create target(s) from the current route, hides itself when
+ * 1179). Resolves the create target(s) from the current route, hides itself when
  * the user can't create (RBAC) or no target resolves, and publishes a `CreateIntent`
  * the dispatcher / backlog page consumes. Never pre-assigns a sprint (sprint-safe).
  */

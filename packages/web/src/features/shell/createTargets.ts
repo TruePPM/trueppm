@@ -1,6 +1,6 @@
 /**
  * Route → create-target resolver for the context-aware "+ New" affordance
- * (ADR-0130 §B, #1179). Pure (pathname in, targets out) so it is trivially
+ * (ADR-0130 §B, 1179). Pure (pathname in, targets out) so it is trivially
  * unit-tested; the RBAC gate and the id wiring live in `CreateMenu`.
  *
  * Grouping is contextual: each route resolves to the create flow(s) that make

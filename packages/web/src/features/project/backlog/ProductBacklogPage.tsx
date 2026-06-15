@@ -1,5 +1,5 @@
 /**
- * Product backlog / grooming view (ADR-0105 + ADR-0110, #494/#921/#922).
+ * Product backlog / grooming view (ADR-0105 + ADR-0110, 494/921/922).
  *
  * The PO's priority-ordered backlog: stories grouped under epics, each carrying a
  * Definition-of-Ready chip, an acceptance-criteria meter, the active model's score, and
@@ -11,9 +11,9 @@
  *   group (and within the ungrouped section) — rank-only, never reparenting — and the full
  *   global order is persisted on drop. A concurrent change by another PO returns 409: we snap
  *   back to the server order and show a reload notice.
- * - The score column renders the active prioritization model's computed score (#922); it is
+ * - The score column renders the active prioritization model's computed score (922); it is
  *   hidden when the project has no model. Auto-rank sorts by score; a manual drag then wins.
- * - The bottom input quick-adds a title-only story (#921): Enter commits and keeps focus, Esc
+ * - The bottom input quick-adds a title-only story (921): Enter commits and keeps focus, Esc
  *   clears. New stories land at the bottom of the backlog.
  * - Clicking a DoR chip toggles ready/refine (the server enforces the readiness gate).
  *
@@ -295,7 +295,7 @@ export function ProductBacklogPage() {
   const quickAdd = useQuickAddStory(projectId);
   const canManageBacklog = useCanManageBacklog(projectId);
 
-  // Context-aware "+ New" (ADR-0130, #1179): a `story` create intent for this project
+  // Context-aware "+ New" (ADR-0130, 1179): a `story` create intent for this project
   // focuses the inline quick-add (the create flow native to the backlog), then clears.
   const quickAddRef = useRef<HTMLInputElement>(null);
   const createIntent = useCreateIntentStore((s) => s.intent);
@@ -504,7 +504,7 @@ export function ProductBacklogPage() {
           </div>
         )}
 
-        {/* Quick-add (#921): persistent title-only create pinned at the bottom. */}
+        {/* Quick-add (921): persistent title-only create pinned at the bottom. */}
         <div className="flex items-center gap-2.5 rounded border-t border-neutral-border px-2 py-2.5 focus-within:ring-2 focus-within:ring-brand-primary">
           <span className="flex w-[44px] justify-center text-neutral-text-secondary" aria-hidden>
             +

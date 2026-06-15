@@ -4,7 +4,7 @@ import { NewProjectModal } from './NewProjectModal';
 import { TaskFormModal } from '@/features/board/TaskFormModal';
 
 /**
- * Mounted once in AppShell (ADR-0130, #1179). Renders the self-contained create
+ * Mounted once in AppShell (ADR-0130, 1179). Renders the self-contained create
  * modals for the active `CreateIntent` published by the "+ New" affordance (or, later,
  * the ⌘K palette). The inline backlog `story` target is consumed by `ProductBacklogPage`,
  * not here — this dispatcher only owns the modal targets (task / milestone / project).

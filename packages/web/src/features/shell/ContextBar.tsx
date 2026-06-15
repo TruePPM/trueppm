@@ -71,7 +71,7 @@ export function ContextBar() {
 
       <Breadcrumb items={items} className="flex-1" />
 
-      {/* Context-aware "+ New" (ADR-0130, #1179) — self-gates by route + RBAC. */}
+      {/* Context-aware "+ New" (ADR-0130, 1179) — self-gates by route + RBAC. */}
       <CreateMenu />
 
       <ThemeToggle className="hidden md:flex shrink-0" />
