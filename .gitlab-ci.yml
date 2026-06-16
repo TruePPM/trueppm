@@ -23,6 +23,18 @@ default:
 
 variables:
   PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  # Dependency-fetch durability (#1212). Public-registry blips (ECONNRESET,
+  # timeouts) used to fail a whole job on first occurrence — `default.retry`
+  # excludes `script_failure`, so a flaky `npm ci`/`pip install` got zero
+  # retries. These make the package managers self-heal with backoff, and
+  # `NPM_CONFIG_CACHE` points npm's content cache at a path the web jobs cache
+  # so `npm ci --prefer-offline` hits zero network for already-seen packages.
+  PIP_RETRIES: "5"
+  PIP_DEFAULT_TIMEOUT: "60"
+  NPM_CONFIG_CACHE: "$CI_PROJECT_DIR/.cache/npm"
+  NPM_CONFIG_FETCH_RETRIES: "5"
+  NPM_CONFIG_FETCH_RETRY_MINTIMEOUT: "20000"
+  NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT: "120000"
   POSTGRES_DB: trueppm_test
   POSTGRES_USER: trueppm
   POSTGRES_PASSWORD: trueppm
@@ -31,6 +43,31 @@ variables:
   # pipelines never pull anonymously from mcr.microsoft.com (which throttles CI
   # runner IPs). Bump alongside the Dockerfile ARG default and packages/web.
   PLAYWRIGHT_BASE_TAG: "v1.58.2-noble"
+
+# ---------------------------------------------------------------------------
+# retry() — surgical command-level retry for flaky network steps (#1212).
+# GitLab job-level `retry` can only rerun the WHOLE job, and would have to
+# include `script_failure` to catch a network blip — which would also rerun
+# genuine test failures twice (slow red signal, wasted minutes). Wrapping just
+# the network commands (`npm ci`, `pip install`, the health-check `curl`) in a
+# `before_script` retries the command, not the job: real test failures in
+# `script:` still fail fast. Source via `- *retry-fn` at the top of a
+# before_script, then prefix the flaky command with `retry`.
+# ---------------------------------------------------------------------------
+.retry-fn: &retry-fn |
+  retry() {
+    n=0; max=4; delay=10
+    until "$@"; do
+      n=$((n + 1))
+      if [ "$n" -ge "$max" ]; then
+        echo "retry: '$*' still failing after $max attempts — giving up" >&2
+        return 1
+      fi
+      echo "retry: '$*' failed (attempt $n/$max); sleeping ${delay}s…" >&2
+      sleep "$delay"
+      delay=$((delay * 2))
+    done
+  }
 
 # ---------------------------------------------------------------------------
 # Prevent duplicate pipelines.
@@ -220,16 +257,21 @@ workflow:
 
 .web:
   image: node:20-alpine
+  # Cache npm's content cache (NPM_CONFIG_CACHE), not node_modules: `npm ci`
+  # deletes node_modules and reinstalls every run, so a node_modules cache buys
+  # nothing — but a warm content cache lets `npm ci --prefer-offline` rebuild it
+  # with zero network for already-seen packages (#1212).
   cache: &web-cache
     key:
       files:
         - packages/web/package-lock.json
-      prefix: web-npm
+      prefix: web-npm-cacache
     paths:
-      - packages/web/node_modules/
+      - .cache/npm/
   before_script:
+    - *retry-fn
     - cd packages/web
-    - npm ci --prefer-offline --quiet
+    - retry npm ci --prefer-offline --quiet
 
 .website:
   # node:22 — Astro 6 requires Node >=22.12 (dropped Node 20 support).
@@ -238,12 +280,13 @@ workflow:
     key:
       files:
         - packages/website/package-lock.json
-      prefix: website-npm
+      prefix: website-npm-cacache
     paths:
-      - packages/website/node_modules/
+      - .cache/npm/
   before_script:
+    - *retry-fn
     - cd packages/website
-    - npm ci --prefer-offline --quiet
+    - retry npm ci --prefer-offline --quiet
 
 .wasm:
   image: rust:1.85-slim
@@ -1311,8 +1354,9 @@ web:e2e:
     <<: *web-cache
     policy: pull
   before_script:
+    - *retry-fn
     - cd packages/web
-    - npm ci --prefer-offline --quiet
+    - retry npm ci --prefer-offline --quiet
   script:
     - npx playwright test --shard="$CI_NODE_INDEX/$CI_NODE_TOTAL" --reporter=blob
   artifacts:
@@ -1340,8 +1384,9 @@ web:e2e:report:
     <<: *web-cache
     policy: pull
   before_script:
+    - *retry-fn
     - cd packages/web
-    - npm ci --prefer-offline --quiet
+    - retry npm ci --prefer-offline --quiet
   script:
     - npx playwright merge-reports --reporter=html ./blob-report
   artifacts:
@@ -1408,12 +1453,14 @@ web:integration:
         - packages/api/src/trueppm_api/apps/sync/consumers.py
         - packages/api/src/trueppm_api/apps/workshops/consumers.py
   cache:
+    # npm content cache (not node_modules — `npm ci` wipes it), so the runtime
+    # `npm ci --prefer-offline` rebuilds with zero network on a warm cache (#1212).
     - key:
         files:
           - packages/web/package-lock.json
-        prefix: web-npm
+        prefix: web-npm-cacache
       paths:
-        - packages/web/node_modules/
+        - .cache/npm/
     - key:
         files:
           - packages/api/pyproject.toml
@@ -1422,11 +1469,14 @@ web:integration:
         - .cache/pip/
       policy: pull
   before_script:
+    - *retry-fn
     # Image has Python 3 + uvicorn + scheduler[dev] + api[dev] dev-deps resident
     # under /opt/api-venv (on PATH). These installs are fast editable re-links
-    # against the checked-out source.
-    - pip install -e "packages/scheduler[dev]" --quiet
-    - pip install -e "packages/api[dev]" --quiet
+    # against the checked-out source. `retry` guards the rare case where pip
+    # still reaches the index (PIP_RETRIES also applies); the editable re-link
+    # itself is offline.
+    - retry pip install -e "packages/scheduler[dev]" --quiet
+    - retry pip install -e "packages/api[dev]" --quiet
     # Migrate and seed integration fixtures.
     - cd packages/api
     - python manage.py migrate --noinput
@@ -1441,8 +1491,8 @@ web:integration:
       timeout 30 sh -c
       'until curl -sf http://127.0.0.1:8000/api/v1/health/ > /dev/null;
        do sleep 1; done'
-    # Install web dependencies.
-    - cd packages/web && npm ci --prefer-offline --quiet && cd ../..
+    # Install web dependencies — the step that ECONNRESET-failed in #1212.
+    - cd packages/web && retry npm ci --prefer-offline --quiet && cd ../..
   script:
     - cd packages/web
     - npx playwright test e2e/integration/ --config playwright.integration.config.ts --reporter=line
@@ -1850,13 +1900,14 @@ license:check:web:
         - packages/web/package-lock.json
         - .gitlab-ci.yml
   before_script:
+    - *retry-fn
     - cd packages/web
     # npm ci is deterministic against the lockfile and faster than npm install.
     # --omit=dev installs only the production dependency subset: a license audit
     # of `--production` deps never needs the ~600 dev-tool packages, so skipping
     # them shrinks both the install and the tree license-checker has to walk.
     # --prefer-offline resolves from the pulled web-npm cache.
-    - npm ci --omit=dev --prefer-offline --quiet
+    - retry npm ci --omit=dev --prefer-offline --quiet
   script:
     # --onlyAllow covers --failOn implicitly: any license not in the list fails.
     # @trueppm/web declares license "Apache-2.0" in package.json and is audited
@@ -2186,13 +2237,14 @@ web:publish:npm:
     <<: *web-cache
     policy: pull
   script:
+    - *retry-fn
     - |
       if [ -z "${NPM_TOKEN}" ]; then
         echo "INFO: NPM_TOKEN not set — skipping npm publish of @trueppm/web"
         exit 0
       fi
     - cd packages/web
-    - npm ci --prefer-offline --quiet
+    - retry npm ci --prefer-offline --quiet
     # Verify the tag version matches package.json before publishing.
     - |
       PKG_VERSION=$(node -p "require('./package.json').version")
