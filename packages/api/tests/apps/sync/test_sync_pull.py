@@ -86,7 +86,7 @@ def test_sync_response_shape(
 ) -> None:
     with patch.object(
         __import__("trueppm_api.apps.sync.views", fromlist=["ProjectSyncView"]).ProjectSyncView,
-        "_snapshot_max_version",
+        "_watermark",
         return_value=99,
     ):
         resp = authed_client.get(_url(project), {"since": "0"})
@@ -109,7 +109,7 @@ def test_sync_since_zero_returns_all_live_rows(
     task = Task.objects.create(project=project, name="T1", duration=2)
     with patch.object(
         __import__("trueppm_api.apps.sync.views", fromlist=["ProjectSyncView"]).ProjectSyncView,
-        "_snapshot_max_version",
+        "_watermark",
         return_value=10,
     ):
         resp = authed_client.get(_url(project), {"since": "0"})
@@ -128,7 +128,7 @@ def test_sync_soft_deleted_task_appears_in_deleted_list(
     task.soft_delete()
     with patch.object(
         __import__("trueppm_api.apps.sync.views", fromlist=["ProjectSyncView"]).ProjectSyncView,
-        "_snapshot_max_version",
+        "_watermark",
         return_value=99,
     ):
         resp = authed_client.get(_url(project), {"since": "0"})
@@ -165,7 +165,7 @@ def test_sync_delta_respects_since(
     # but not task_b (still at v=1, unchanged since the checkpoint).
     with patch.object(
         __import__("trueppm_api.apps.sync.views", fromlist=["ProjectSyncView"]).ProjectSyncView,
-        "_snapshot_max_version",
+        "_watermark",
         return_value=99,
     ):
         resp = authed_client.get(_url(project), {"since": "1"})
@@ -185,7 +185,7 @@ def test_sync_includes_risks_bucket(
 ) -> None:
     with patch.object(
         __import__("trueppm_api.apps.sync.views", fromlist=["ProjectSyncView"]).ProjectSyncView,
-        "_snapshot_max_version",
+        "_watermark",
         return_value=99,
     ):
         resp = authed_client.get(_url(project), {"since": "0"})
@@ -205,7 +205,7 @@ def test_sync_returns_live_risks(
     risk = Risk.objects.create(project=project, title="Budget overrun", probability=3, impact=4)
     with patch.object(
         __import__("trueppm_api.apps.sync.views", fromlist=["ProjectSyncView"]).ProjectSyncView,
-        "_snapshot_max_version",
+        "_watermark",
         return_value=99,
     ):
         resp = authed_client.get(_url(project), {"since": "0"})
@@ -222,7 +222,7 @@ def test_sync_risk_payload_includes_task_ids(
     risk.tasks.set([task])
     with patch.object(
         __import__("trueppm_api.apps.sync.views", fromlist=["ProjectSyncView"]).ProjectSyncView,
-        "_snapshot_max_version",
+        "_watermark",
         return_value=99,
     ):
         resp = authed_client.get(_url(project), {"since": "0"})
@@ -253,7 +253,7 @@ def test_sync_task_payload_includes_actual_and_milestone_fields(
     )
     with patch.object(
         __import__("trueppm_api.apps.sync.views", fromlist=["ProjectSyncView"]).ProjectSyncView,
-        "_snapshot_max_version",
+        "_watermark",
         return_value=99,
     ):
         resp = authed_client.get(_url(project), {"since": "0"})
@@ -291,7 +291,7 @@ def test_sync_soft_deleted_risk_appears_in_deleted_list(
     risk.soft_delete()
     with patch.object(
         __import__("trueppm_api.apps.sync.views", fromlist=["ProjectSyncView"]).ProjectSyncView,
-        "_snapshot_max_version",
+        "_watermark",
         return_value=99,
     ):
         resp = authed_client.get(_url(project), {"since": "0"})

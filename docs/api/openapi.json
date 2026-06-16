@@ -19776,6 +19776,36 @@
                     }
                 }
             }
+        },
+        "/api/v1/ws/ticket/": {
+            "post": {
+                "operationId": "v1_ws_ticket_create",
+                "description": "Issue a single-use WebSocket connection ticket (ADR-0141).",
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
         }
     },
     "components": {

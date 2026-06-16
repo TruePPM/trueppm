@@ -394,6 +394,58 @@ def _working_days_between(start: date, end: date, calendar: Calendar) -> int:
     return count
 
 
+class _WorkingDayCounter:
+    """O(log n) working-day span counts over a schedule's fixed date range (#822).
+
+    :func:`_working_days_between` is an O(span) day loop, and ``_compute_floats``
+    calls it twice per successor link, so float computation was O(tasks · span).
+    This precomputes the sorted ordinals of every working day in
+    ``[lo, hi]`` once per :func:`schedule` call (the CPM counterpart to
+    monte_carlo's :func:`_build_working_day_index`); :meth:`between` then counts a
+    span with two binary searches.
+
+    ``between(start, end)`` reproduces :func:`_working_days_between` *exactly* —
+    working days in ``[start, end)`` — as
+    ``searchsorted(end) - searchsorted(start)`` (the array holds exactly the
+    working days, so ``side="left"`` on ``end`` excludes it and on ``start``
+    includes it). The scalar function remains the conformance reference; a span
+    that falls outside the built range falls back to it, so a miscovered range can
+    never silently miscount.
+    """
+
+    def __init__(self, ordinals: np.ndarray, lo: date, hi: date, calendar: Calendar) -> None:
+        self._ords = ordinals
+        self._lo_ord = lo.toordinal()
+        self._hi_ord = hi.toordinal()
+        self._calendar = calendar
+
+    @classmethod
+    def build(cls, lo: date, hi: date, calendar: Calendar) -> _WorkingDayCounter:
+        """Build a counter covering working days in the inclusive range ``[lo, hi]``."""
+        ords: list[int] = []
+        if hi >= lo:
+            current = lo
+            while current <= hi:
+                if calendar.is_working_day(current):
+                    ords.append(current.toordinal())
+                current += timedelta(days=1)
+        return cls(np.fromiter(ords, dtype=np.int64, count=len(ords)), lo, hi, calendar)
+
+    def between(self, start: date, end: date) -> int:
+        if end <= start:
+            return 0
+        s_ord = start.toordinal()
+        e_ord = end.toordinal()
+        # ``[start, end)`` counts working days up to ``end - 1``; valid only when
+        # the whole span lies inside the built range. Otherwise fall back to the
+        # scalar reference (defensive — callers stay within the schedule span).
+        if s_ord < self._lo_ord or e_ord - 1 > self._hi_ord:
+            return _working_days_between(start, end, self._calendar)
+        lo = int(np.searchsorted(self._ords, s_ord, side="left"))
+        hi = int(np.searchsorted(self._ords, e_ord, side="left"))
+        return hi - lo
+
+
 def _advance_calendar_days(d: date, lag: timedelta, calendar: Calendar) -> date:
     """Advance d by lag calendar days and snap to the next working day."""
     return _next_working_day(_safe_offset(d, lag), calendar)
@@ -770,6 +822,7 @@ def _compute_floats(
     topo_order: list[str],
     g: nx.DiGraph[str],
     calendar: Calendar,
+    wd_counter: _WorkingDayCounter | None = None,
 ) -> None:
     """Compute total_float, free_float, and is_critical for every task (in-place).
 
@@ -788,6 +841,14 @@ def _compute_floats(
     successors only and let SS/FF/SF tasks report ``free_float == total_float``;
     that FS-only caveat is now removed — see issue #825.)
     """
+
+    # O(log n) span counts when a counter is supplied (the schedule() hot path,
+    # #822); the scalar O(span) reference otherwise. Both return identical counts.
+    def _wdb(start: date, end: date) -> int:
+        if wd_counter is not None:
+            return wd_counter.between(start, end)
+        return _working_days_between(start, end, calendar)
+
     for node_id in topo_order:
         task = task_map[node_id]
 
@@ -796,7 +857,7 @@ def _compute_floats(
         # All passes have run by now, so these fields are always set.
         assert task.early_start is not None and task.late_start is not None
         assert task.early_finish is not None
-        tf_days = _working_days_between(task.early_start, task.late_start, calendar)
+        tf_days = _wdb(task.early_start, task.late_start)
         task.total_float = timedelta(days=tf_days)
         task.is_critical = tf_days == 0
 
@@ -827,7 +888,7 @@ def _compute_floats(
             else:  # SF: successor finish is bounded by this task's start + lag
                 imposed = _advance_calendar_days(task.early_start, lag, calendar)
                 succ_date = succ.early_finish
-            slack = _working_days_between(imposed, succ_date, calendar)
+            slack = _wdb(imposed, succ_date)
             ff_days = min(ff_days, max(0, slack))
 
         task.free_float = timedelta(days=max(0, ff_days))
@@ -1347,7 +1408,11 @@ def schedule(project: Project) -> ScheduleResult:
     project_finish: date = max(t.early_finish for t in tasks if t.early_finish is not None)
 
     _backward_pass(task_map, topo_order, g, project_finish, project.calendar)
-    _compute_floats(task_map, topo_order, g, project.calendar)
+    # Precompute a working-day index over the schedule's span so float
+    # computation is O(log n) per span instead of O(span) (#822, ADR-0142). Every
+    # date _compute_floats measures lies within [start_date, project_finish].
+    wd_counter = _WorkingDayCounter.build(project.start_date, project_finish, project.calendar)
+    _compute_floats(task_map, topo_order, g, project.calendar, wd_counter)
 
     # Order the critical path deterministically AND topologically. Filtering a
     # topological order keeps every predecessor ahead of its successor; the catch

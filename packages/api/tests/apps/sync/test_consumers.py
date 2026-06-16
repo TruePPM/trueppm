@@ -11,6 +11,7 @@ from django.contrib.auth import get_user_model
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import Calendar, Project
+from trueppm_api.apps.sync.ws_auth import WsAuthResult
 
 User = get_user_model()
 
@@ -154,7 +155,10 @@ async def test_connect_viewer_rejected(user: object, project: Project) -> None:
 
     # Patch _authenticate to return the user, _get_role to return VIEWER.
     with (
-        patch.object(consumer, "_authenticate", new=AsyncMock(return_value=user)),
+        patch(
+            "trueppm_api.apps.sync.consumers.authenticate_scope",
+            new=AsyncMock(return_value=WsAuthResult(user=user, via="ticket")),
+        ),
         patch.object(consumer, "_get_role", new=AsyncMock(return_value=Role.VIEWER)),
     ):
         await consumer.websocket_connect({"type": "websocket.connect"})
@@ -178,7 +182,10 @@ async def test_connect_non_member_rejected(user: object, project: Project) -> No
     consumer.close = close_mock
 
     with (
-        patch.object(consumer, "_authenticate", new=AsyncMock(return_value=user)),
+        patch(
+            "trueppm_api.apps.sync.consumers.authenticate_scope",
+            new=AsyncMock(return_value=WsAuthResult(user=user, via="ticket")),
+        ),
         patch.object(consumer, "_get_role", new=AsyncMock(return_value=None)),
     ):
         await consumer.websocket_connect({"type": "websocket.connect"})
@@ -213,7 +220,10 @@ async def test_connect_member_accepted(user: object, project: Project) -> None:
     mock_redis.expire = AsyncMock()
 
     with (
-        patch.object(consumer, "_authenticate", new=AsyncMock(return_value=user)),
+        patch(
+            "trueppm_api.apps.sync.consumers.authenticate_scope",
+            new=AsyncMock(return_value=WsAuthResult(user=user, via="ticket")),
+        ),
         patch.object(consumer, "_get_role", new=AsyncMock(return_value=Role.MEMBER)),
         patch(
             "channels.generic.websocket.AsyncJsonWebsocketConsumer.websocket_connect",
@@ -412,7 +422,10 @@ async def test_presence_join_broadcast_on_connect(user: object, project: Project
     mock_redis.expire = AsyncMock()
 
     with (
-        patch.object(consumer, "_authenticate", new=AsyncMock(return_value=user)),
+        patch(
+            "trueppm_api.apps.sync.consumers.authenticate_scope",
+            new=AsyncMock(return_value=WsAuthResult(user=user, via="ticket")),
+        ),
         patch.object(consumer, "_get_role", new=AsyncMock(return_value=Role.MEMBER)),
         patch(
             "channels.generic.websocket.AsyncJsonWebsocketConsumer.websocket_connect",

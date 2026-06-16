@@ -14,7 +14,7 @@ from rest_framework.exceptions import NotFound, PermissionDenied, ValidationErro
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.throttling import BaseThrottle
+from rest_framework.throttling import BaseThrottle, ScopedRateThrottle
 from rest_framework.views import APIView
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
@@ -49,6 +49,37 @@ from trueppm_api.apps.sync.serializers import (
     SyncTaskSuggestedAssigneeSerializer,
     SyncUploadRequestSerializer,
 )
+from trueppm_api.apps.sync.ws_auth import TICKET_TTL_SECONDS, issue_ticket
+
+
+class WebSocketTicketView(IdempotencyMixin, APIView):
+    """Mint a short-lived, single-use ticket for the WebSocket handshake (ADR-0141).
+
+    Browsers cannot set an ``Authorization`` header on a WebSocket upgrade, so the
+    credential must ride in the URL. A raw JWT there leaks into every access log
+    (#818); a ticket that is single-use and expires in
+    :data:`~trueppm_api.apps.sync.ws_auth.TICKET_TTL_SECONDS` seconds is useless
+    once logged. The client POSTs here, then opens the socket with ``?ticket=``.
+
+    Authentication only — authorization (project membership/role) is enforced by
+    the consumer on connect. No project scope is required to mint a ticket.
+    """
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "ws_ticket"
+    # Stateless mint — the generic Idempotency-Key path adds nothing.
+    idempotency_exempt = True
+
+    @extend_schema(
+        responses={
+            200: OpenApiTypes.OBJECT,
+        },
+        description="Issue a single-use WebSocket connection ticket (ADR-0141).",
+    )
+    def post(self, request: Request) -> Response:
+        ticket = issue_ticket(str(request.user.pk))
+        return Response({"ticket": ticket, "expires_in": TICKET_TTL_SECONDS})
 
 
 class ProjectSyncView(IdempotencyMixin, APIView):
@@ -97,7 +128,7 @@ class ProjectSyncView(IdempotencyMixin, APIView):
 
         # Snapshot the high-water mark before running delta queries.
         # Using REPEATABLE READ ensures we don't miss rows written concurrently.
-        timestamp = self._snapshot_max_version(project)
+        timestamp = self._watermark(project)
 
         # Retros are visibility-gated per ADR-0071 §3. A VIEWER on a TEAM_ONLY
         # retro does not receive the retro's raw notes — the sync filters them
@@ -362,6 +393,21 @@ class ProjectSyncView(IdempotencyMixin, APIView):
             "updated": serializer_class(live, many=True).data,
             "deleted": deleted_ids,
         }
+
+    @classmethod
+    def _watermark(cls, project: Project) -> int:
+        """Return the sync high-water mark for ``project`` (ADR-0142, #822).
+
+        Reads the denormalized ``Project.last_sync_version`` column, maintained by
+        the watermark receivers (``apps/sync/receivers.py``) to equal
+        :meth:`_snapshot_max_version`. The 12-table union is kept as a one-release
+        fallback behind ``settings.SYNC_WATERMARK_USE_COLUMN`` (default ``True``)
+        in case a drift bug is found in production; a conformance test asserts the
+        two agree.
+        """
+        if settings.SYNC_WATERMARK_USE_COLUMN:
+            return int(project.last_sync_version)
+        return cls._snapshot_max_version(project)
 
     @staticmethod
     def _snapshot_max_version(project: Project) -> int:

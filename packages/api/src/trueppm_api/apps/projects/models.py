@@ -809,7 +809,18 @@ class Project(VersionedModel):
     # (excluded from history); updated via bulk .update() to avoid a sync bump.
     recalculated_at = models.DateTimeField(null=True, blank=True)
 
-    history = HistoricalRecords(excluded_fields=[*_HISTORY_EXCLUDED_BASE, "recalculated_at"])
+    # Denormalized sync watermark (ADR-0142, #822): caches MAX(server_version)
+    # across this project's synced rows — the value the sync pull returns as its
+    # `timestamp`. Maintained by post_save receivers (apps/sync/receivers.py),
+    # never written through save() (which would bump the project's own
+    # server_version and recurse). Server-internal: editable=False, excluded from
+    # history and from the sync serializer. Replaces the 12-table UNION ALL in
+    # ProjectSyncView (kept as a fallback behind SYNC_WATERMARK_USE_COLUMN).
+    last_sync_version = models.BigIntegerField(default=0, editable=False)
+
+    history = HistoricalRecords(
+        excluded_fields=[*_HISTORY_EXCLUDED_BASE, "recalculated_at", "last_sync_version"]
+    )
 
     class Meta:
         db_table = "projects_project"

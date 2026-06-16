@@ -545,8 +545,19 @@ REST_FRAMEWORK = {
         # account cannot bulk-scrape the workspace user list, loose enough that
         # interactive typeahead (debounced, >=2 chars) never trips it.
         "user_search": "60/min",
+        # WebSocket connection tickets (#818, ADR-0141). One ticket is minted per
+        # socket open (and per reconnect, since tickets are single-use); 120/min
+        # covers aggressive reconnect storms without letting one account flood
+        # Redis with 30-second ticket keys.
+        "ws_ticket": "120/min",
     },
 }
+
+# Sync watermark source (#822, ADR-0142). When True the sync pull reads the
+# denormalized Project.last_sync_version column; set False to fall back to the
+# 12-table UNION ALL (_snapshot_max_version) for one release if a drift bug is
+# found in production. The conformance test asserts the two agree.
+SYNC_WATERMARK_USE_COLUMN = env.bool("SYNC_WATERMARK_USE_COLUMN", default=True)
 
 # ---------------------------------------------------------------------------
 # django-allauth

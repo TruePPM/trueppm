@@ -82,6 +82,10 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
   await page.route('**/api/v1/dependencies/**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
   );
+  // The socket mints a single-use ticket first (ADR-0141, #818).
+  await page.route('**/api/v1/ws/ticket/', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ticket: 'e2e-ticket', expires_in: 30 }) }),
+  );
   await page.routeWebSocket('**/ws/v1/projects/**', () => {
     /* accept and hold open */
   });
