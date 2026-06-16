@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams } from 'react-router';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
 import { MemberPicker } from '../components/MemberPicker';
+import { StubFieldset } from '../components/StubFieldset';
 import { DangerZoneLink } from '../components/DangerZoneLink';
 import { useDirtyForm } from '../hooks/useDirtyForm';
 import { useProgram } from '@/hooks/useProgram';
@@ -261,9 +262,12 @@ export function ProgramGeneralPage() {
     apiReady: !!program,
   });
 
-  // Sharing overrides are Admin+ (ADR-0135); lower roles see a read-only indicator.
-  // The server enforces this too — this only gates the affordance.
-  const canEditSharing = program?.my_role != null && program.my_role >= ROLE_ADMIN;
+  // The whole General page is editable only at Admin+ (#1084). Reads are open;
+  // writes are gated server-side, so this render-gate only spares a sub-Admin the
+  // arm-save-bar → 400 round-trip. `my_role` is undefined until the program loads,
+  // so we gate pessimistically (read-only until proven Admin). The ADR-0135 sharing
+  // toggles already used this exact gate; it now governs every field.
+  const canEdit = program?.my_role != null && program.my_role >= ROLE_ADMIN;
 
   return (
     <div>
@@ -272,256 +276,261 @@ export function ProgramGeneralPage() {
         subtitle="Program identity and delivery model. Settings here affect all projects within this program."
       />
 
-      <div className="px-6 pb-8 max-w-[720px]">
-        <FieldRow label="Program name">
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            aria-label="Program name"
-            className="w-full max-w-[420px] h-8 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-          />
-        </FieldRow>
+      {/* Below Admin the whole form is read-only (#1084): StubFieldset disables
+          every native control with the rule-122 recipe, and the custom pickers /
+          toggles get canEdit={canEdit} so they render their own read-only view. */}
+      <StubFieldset disabled={!canEdit}>
+        <div className="px-6 pb-8 max-w-[720px]">
+          <FieldRow label="Program name">
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              aria-label="Program name"
+              className="w-full max-w-[420px] h-8 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+            />
+          </FieldRow>
 
-        <FieldRow label="Program code" hint="Used as a prefix for task IDs and exports.">
-          <input
-            type="text"
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-            aria-label="Program code"
-            maxLength={40}
-            className="w-[140px] h-8 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] tppm-mono text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-          />
-        </FieldRow>
+          <FieldRow label="Program code" hint="Used as a prefix for task IDs and exports.">
+            <input
+              type="text"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              aria-label="Program code"
+              maxLength={40}
+              className="w-[140px] h-8 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] tppm-mono text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+            />
+          </FieldRow>
 
-        <FieldRow
-          label="Accent color"
-          hint="Tints this program's identity square in lists and its rollup-chart accents. Optional."
-        >
-          <div className="flex items-center gap-2">
-            {PROGRAM_ACCENT_SWATCHES.map((swatch) => {
-              const selected = color === swatch;
-              return (
+          <FieldRow
+            label="Accent color"
+            hint="Tints this program's identity square in lists and its rollup-chart accents. Optional."
+          >
+            <div className="flex items-center gap-2">
+              {PROGRAM_ACCENT_SWATCHES.map((swatch) => {
+                const selected = color === swatch;
+                return (
+                  <button
+                    key={swatch}
+                    type="button"
+                    // Clicking the active swatch clears the accent (back to null).
+                    onClick={() => setColor(selected ? null : swatch)}
+                    aria-pressed={selected}
+                    aria-label={`Accent color ${swatch}${selected ? ', selected — activate to clear' : ''}`}
+                    title={selected ? `${swatch} — click to clear` : swatch}
+                    style={{ backgroundColor: swatch }}
+                    className={[
+                      'w-7 h-7 rounded-full inline-flex items-center justify-center transition-transform',
+                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-2',
+                      selected ? 'ring-2 ring-brand-primary ring-offset-2' : 'hover:scale-110',
+                    ].join(' ')}
+                  >
+                    {selected && (
+                      <svg
+                        viewBox="0 0 16 16"
+                        className="w-3.5 h-3.5"
+                        aria-hidden="true"
+                        style={{ color: contrastText(swatch) }}
+                      >
+                        <path fill="currentColor" d="M6.4 11.3 3.5 8.4l1-1 1.9 1.9 4.1-4.1 1 1z" />
+                      </svg>
+                    )}
+                  </button>
+                );
+              })}
+              {color && (
                 <button
-                  key={swatch}
                   type="button"
-                  // Clicking the active swatch clears the accent (back to null).
-                  onClick={() => setColor(selected ? null : swatch)}
-                  aria-pressed={selected}
-                  aria-label={`Accent color ${swatch}${selected ? ', selected — activate to clear' : ''}`}
-                  title={selected ? `${swatch} — click to clear` : swatch}
-                  style={{ backgroundColor: swatch }}
-                  className={[
-                    'w-7 h-7 rounded-full inline-flex items-center justify-center transition-transform',
-                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-2',
-                    selected ? 'ring-2 ring-brand-primary ring-offset-2' : 'hover:scale-110',
-                  ].join(' ')}
+                  onClick={() => setColor(null)}
+                  className="ml-1 text-[12px] text-brand-primary font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded"
                 >
-                  {selected && (
-                    <svg
-                      viewBox="0 0 16 16"
-                      className="w-3.5 h-3.5"
-                      aria-hidden="true"
-                      style={{ color: contrastText(swatch) }}
-                    >
-                      <path fill="currentColor" d="M6.4 11.3 3.5 8.4l1-1 1.9 1.9 4.1-4.1 1 1z" />
-                    </svg>
-                  )}
+                  Clear
                 </button>
-              );
-            })}
-            {color && (
-              <button
-                type="button"
-                onClick={() => setColor(null)}
-                className="ml-1 text-[12px] text-brand-primary font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded"
-              >
-                Clear
-              </button>
-            )}
-          </div>
-        </FieldRow>
+              )}
+            </div>
+          </FieldRow>
 
-        <FieldRow
-          label="Description"
-          hint="Shown on the program overview and in rollup dashboards."
-        >
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={3}
-            aria-label="Description"
-            className="w-full max-w-[540px] px-2.5 py-2 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary leading-relaxed resize-y focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-          />
-        </FieldRow>
+          <FieldRow
+            label="Description"
+            hint="Shown on the program overview and in rollup dashboards."
+          >
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={3}
+              aria-label="Description"
+              className="w-full max-w-[540px] px-2.5 py-2 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary leading-relaxed resize-y focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+            />
+          </FieldRow>
 
-        <FieldRow label="Program manager">
-          {/* Real manager from the program record (Unassigned when null), set
+          <FieldRow label="Program manager">
+            {/* Real manager from the program record (Unassigned when null), set
               via the member picker (#966). Selection updates page state → the
               save bar commits; the server enforces Admin + member-of-scope. */}
-          <MemberPicker
-            scope="program"
-            scopeId={programId}
-            value={lead}
-            onChange={setLead}
-            label="program manager"
-            canEdit
-            selectedDetail={program?.lead_detail ?? null}
-          />
-        </FieldRow>
+            <MemberPicker
+              scope="program"
+              scopeId={programId}
+              value={lead}
+              onChange={setLead}
+              label="program manager"
+              canEdit={canEdit}
+              selectedDetail={program?.lead_detail ?? null}
+            />
+          </FieldRow>
 
-        <FieldRow
-          label="Health"
-          hint="Drives the health dot in program lists and portfolio rollups."
-        >
-          <div className="flex gap-2">
-            {HEALTH_OPTIONS.map((opt) => (
-              <button
-                key={opt.id}
-                type="button"
-                onClick={() => setHealth(opt.id)}
-                aria-pressed={health === opt.id}
-                className={[
-                  'px-3 py-1 rounded border text-[12px] font-medium transition-colors',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-                  health === opt.id
-                    ? HEALTH_ACTIVE[opt.id]
-                    : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-sunken',
-                ].join(' ')}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        </FieldRow>
-
-        <FieldRow
-          label="Methodology"
-          hint="Default delivery model for new projects added to this program."
-        >
-          <div className="flex gap-2">
-            {METHODOLOGY_OPTIONS.map((opt) => (
-              <button
-                key={opt.id}
-                type="button"
-                onClick={() => setMethodology(opt.id)}
-                aria-pressed={methodology === opt.id}
-                className={[
-                  'px-3 py-1 rounded border text-[12px] font-medium transition-colors',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-                  methodology === opt.id
-                    ? 'bg-brand-primary-light text-brand-primary border-brand-primary/40'
-                    : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-sunken',
-                ].join(' ')}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        </FieldRow>
-
-        <FieldRow
-          label="Iteration terminology"
-          hint="The word projects in this program use for their iteration container — unless a project sets its own."
-        >
-          <InheritableIterationLabelField
-            value={iterationLabel}
-            onChange={setIterationLabel}
-            inheritedLabel={program?.inherited_iteration_label ?? DEFAULT_ITERATION_LABEL}
-            inheritFromLabel="the workspace default"
-          />
-        </FieldRow>
-
-        <FieldRow
-          label="Allow guests"
-          hint="Guests are external collaborators (vendors, auditors), limited to what they're invited to. Inherits the workspace setting unless you override it here."
-        >
-          <InheritableToggleField
-            value={allowGuests}
-            onChange={setAllowGuests}
-            inherited={program?.inherited_allow_guests ?? false}
-            inheritFromLabel="the workspace default"
-            scopeNoun="program"
-            onLabel="On"
-            offLabel="Off"
-            ariaLabel="Allow guest access"
-            canEdit={canEditSharing}
-          />
-        </FieldRow>
-
-        <FieldRow
-          label="Public sharing"
-          hint="Anyone with the link can view selected reports — no sign-in required. Inherits the workspace setting unless you override it here."
-        >
-          <InheritableToggleField
-            value={publicSharing}
-            onChange={setPublicSharing}
-            inherited={program?.inherited_public_sharing ?? false}
-            inheritFromLabel="the workspace default"
-            scopeNoun="program"
-            onLabel="On"
-            offLabel="Off"
-            ariaLabel="Allow public link sharing"
-            canEdit={canEditSharing}
-          />
-        </FieldRow>
-
-        <FieldRow label="Visibility" hint="Who can see this program and its rollup KPIs.">
-          <div className="flex flex-col gap-3">
-            {VISIBILITY_OPTIONS.map((opt) => (
-              <label key={opt.id} className="flex items-center gap-3 cursor-pointer">
-                <span
+          <FieldRow
+            label="Health"
+            hint="Drives the health dot in program lists and portfolio rollups."
+          >
+            <div className="flex gap-2">
+              {HEALTH_OPTIONS.map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setHealth(opt.id)}
+                  aria-pressed={health === opt.id}
                   className={[
-                    'w-4 h-4 rounded-full border-2 shrink-0 transition-colors',
-                    visibility === opt.id
-                      ? 'border-brand-primary bg-brand-primary'
-                      : 'border-neutral-border',
+                    'px-3 py-1 rounded border text-[12px] font-medium transition-colors',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+                    health === opt.id
+                      ? HEALTH_ACTIVE[opt.id]
+                      : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-sunken',
                   ].join(' ')}
-                  aria-hidden="true"
                 >
-                  {visibility === opt.id && (
-                    <span className="block w-full h-full rounded-full scale-[0.4] bg-white" />
-                  )}
-                </span>
-                <input
-                  type="radio"
-                  name="program-visibility"
-                  value={opt.id}
-                  checked={visibility === opt.id}
-                  onChange={() => setVisibility(opt.id)}
-                  className="sr-only"
-                />
-                <span className="text-[13px] font-medium text-neutral-text-primary">
                   {opt.label}
-                </span>
-                <span className="text-[12px] text-neutral-text-secondary">· {opt.hint}</span>
-              </label>
-            ))}
-          </div>
-        </FieldRow>
+                </button>
+              ))}
+            </div>
+          </FieldRow>
 
-        <FieldRow
-          label="Export"
-          hint="Download this program as a canonical JSON seed file. Re-importing it reproduces the program."
-        >
-          <button
-            type="button"
-            onClick={() => programId && exportSeed.mutate({ programId, code: program?.code })}
-            disabled={!programId || exportSeed.isPending}
-            className="h-9 rounded border border-neutral-border px-4 text-[13px] font-medium text-neutral-text-primary
+          <FieldRow
+            label="Methodology"
+            hint="Default delivery model for new projects added to this program."
+          >
+            <div className="flex gap-2">
+              {METHODOLOGY_OPTIONS.map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setMethodology(opt.id)}
+                  aria-pressed={methodology === opt.id}
+                  className={[
+                    'px-3 py-1 rounded border text-[12px] font-medium transition-colors',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+                    methodology === opt.id
+                      ? 'bg-brand-primary-light text-brand-primary border-brand-primary/40'
+                      : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-sunken',
+                  ].join(' ')}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </FieldRow>
+
+          <FieldRow
+            label="Iteration terminology"
+            hint="The word projects in this program use for their iteration container — unless a project sets its own."
+          >
+            <InheritableIterationLabelField
+              value={iterationLabel}
+              onChange={setIterationLabel}
+              inheritedLabel={program?.inherited_iteration_label ?? DEFAULT_ITERATION_LABEL}
+              inheritFromLabel="the workspace default"
+            />
+          </FieldRow>
+
+          <FieldRow
+            label="Allow guests"
+            hint="Guests are external collaborators (vendors, auditors), limited to what they're invited to. Inherits the workspace setting unless you override it here."
+          >
+            <InheritableToggleField
+              value={allowGuests}
+              onChange={setAllowGuests}
+              inherited={program?.inherited_allow_guests ?? false}
+              inheritFromLabel="the workspace default"
+              scopeNoun="program"
+              onLabel="On"
+              offLabel="Off"
+              ariaLabel="Allow guest access"
+              canEdit={canEdit}
+            />
+          </FieldRow>
+
+          <FieldRow
+            label="Public sharing"
+            hint="Anyone with the link can view selected reports — no sign-in required. Inherits the workspace setting unless you override it here."
+          >
+            <InheritableToggleField
+              value={publicSharing}
+              onChange={setPublicSharing}
+              inherited={program?.inherited_public_sharing ?? false}
+              inheritFromLabel="the workspace default"
+              scopeNoun="program"
+              onLabel="On"
+              offLabel="Off"
+              ariaLabel="Allow public link sharing"
+              canEdit={canEdit}
+            />
+          </FieldRow>
+
+          <FieldRow label="Visibility" hint="Who can see this program and its rollup KPIs.">
+            <div className="flex flex-col gap-3">
+              {VISIBILITY_OPTIONS.map((opt) => (
+                <label key={opt.id} className="flex items-center gap-3 cursor-pointer">
+                  <span
+                    className={[
+                      'w-4 h-4 rounded-full border-2 shrink-0 transition-colors',
+                      visibility === opt.id
+                        ? 'border-brand-primary bg-brand-primary'
+                        : 'border-neutral-border',
+                    ].join(' ')}
+                    aria-hidden="true"
+                  >
+                    {visibility === opt.id && (
+                      <span className="block w-full h-full rounded-full scale-[0.4] bg-white" />
+                    )}
+                  </span>
+                  <input
+                    type="radio"
+                    name="program-visibility"
+                    value={opt.id}
+                    checked={visibility === opt.id}
+                    onChange={() => setVisibility(opt.id)}
+                    className="sr-only"
+                  />
+                  <span className="text-[13px] font-medium text-neutral-text-primary">
+                    {opt.label}
+                  </span>
+                  <span className="text-[12px] text-neutral-text-secondary">· {opt.hint}</span>
+                </label>
+              ))}
+            </div>
+          </FieldRow>
+
+          <FieldRow
+            label="Export"
+            hint="Download this program as a canonical JSON seed file. Re-importing it reproduces the program."
+          >
+            <button
+              type="button"
+              onClick={() => programId && exportSeed.mutate({ programId, code: program?.code })}
+              disabled={!programId || exportSeed.isPending}
+              className="h-9 rounded border border-neutral-border px-4 text-[13px] font-medium text-neutral-text-primary
               hover:bg-neutral-surface-raised
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
               disabled:opacity-60"
-          >
-            {exportSeed.isPending ? 'Exporting…' : 'Export to JSON'}
-          </button>
-          {exportSeed.isError && (
-            <p role="alert" className="mt-2 text-[12px] text-semantic-critical">
-              Export failed — please try again.
-            </p>
-          )}
-        </FieldRow>
-      </div>
+            >
+              {exportSeed.isPending ? 'Exporting…' : 'Export to JSON'}
+            </button>
+            {exportSeed.isError && (
+              <p role="alert" className="mt-2 text-[12px] text-semantic-critical">
+                Export failed — please try again.
+              </p>
+            )}
+          </FieldRow>
+        </div>
+      </StubFieldset>
 
       {/* Destructive actions live on the Archive / Delete page (#977). */}
       <DangerZoneLink to="../lifecycle" />

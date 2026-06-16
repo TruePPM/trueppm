@@ -159,7 +159,10 @@ export function OverviewSection({ taskId, projectId, userRole, canEdit }: Drawer
                   ? 'Progress (rolled up)'
                   : 'Progress'}
             </span>
-            {!milestoneRollupActive && !task.isSummary && (
+            {/* Editable leaf tasks carry the value in the numeric input next to
+                the slider; the header readout would just duplicate it. Read-only
+                callers (summary/viewer) have no input, so keep the readout. */}
+            {!milestoneRollupActive && !task.isSummary && !editable && (
               <span className="tppm-mono font-bold normal-case tracking-normal text-brand-primary">
                 {progressDisplay}%
               </span>
@@ -172,13 +175,13 @@ export function OverviewSection({ taskId, projectId, userRole, canEdit }: Drawer
               {Math.round(task.progress)}%
             </p>
           ) : (
-            <div className="flex h-9 items-center">
+            <div className="flex h-9 items-center gap-3">
               <input
                 type="range"
                 aria-label="Task progress percentage"
                 min={0}
                 max={100}
-                step={5}
+                step={1}
                 value={Number(progressDisplay)}
                 disabled={task.status === 'COMPLETE' || isPending}
                 onChange={(e) => setLocalProgress(e.target.value)}
@@ -192,6 +195,35 @@ export function OverviewSection({ taskId, projectId, userRole, canEdit }: Drawer
                   'disabled:opacity-50 disabled:cursor-not-allowed',
                 ].join(' ')}
               />
+              {/* Exact-value entry alongside the slider (#1047): the slider is
+                  coarse for fine values like 83%; the numeric input sets any
+                  integer 0–100. Both bind to the same localProgress, so they
+                  stay in sync. handleProgressBlur clamps + commits the PATCH. */}
+              <div className="flex shrink-0 items-center gap-1">
+                <input
+                  type="number"
+                  aria-label="Task progress percent"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={progressDisplay}
+                  disabled={task.status === 'COMPLETE' || isPending}
+                  onChange={(e) => setLocalProgress(e.target.value)}
+                  onBlur={handleProgressBlur}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                  }}
+                  className={[
+                    'w-14 h-8 rounded border border-neutral-border bg-neutral-surface px-2',
+                    'text-sm tppm-mono text-right text-neutral-text-primary',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+                    'disabled:opacity-50 disabled:cursor-not-allowed',
+                  ].join(' ')}
+                />
+                <span className="text-sm text-neutral-text-secondary" aria-hidden="true">
+                  %
+                </span>
+              </div>
             </div>
           )}
           {task.status === 'COMPLETE' && !task.isSummary && !milestoneRollupActive && (
@@ -256,7 +288,9 @@ function MilestoneRollupReadOnly({
                 : 'text-semantic-critical',
           ].join(' ')}
         >
-          {variance < 0 ? `${itl.singular} plan: ${variance}d ahead` : `${itl.singular} plan: +${variance}d slip`}
+          {variance < 0
+            ? `${itl.singular} plan: ${variance}d ahead`
+            : `${itl.singular} plan: +${variance}d slip`}
         </p>
       )}
     </div>

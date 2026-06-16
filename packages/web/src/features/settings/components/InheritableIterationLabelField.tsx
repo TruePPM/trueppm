@@ -20,6 +20,11 @@ const chipClass = (selected: boolean) =>
     selected
       ? 'border-2 border-brand-primary bg-brand-primary-light text-brand-primary'
       : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-sunken',
+    // When an ancestor `<fieldset disabled>` role-gates the page (#1084), the
+    // sr-only radio goes disabled — recolor the visible chip to the rule-122
+    // read-only recipe instead of leaving it falsely interactive.
+    'has-[:disabled]:cursor-not-allowed has-[:disabled]:border-neutral-border/55',
+    'has-[:disabled]:bg-neutral-surface-sunken has-[:disabled]:text-neutral-text-secondary',
   ].join(' ');
 
 /**

@@ -8,9 +8,14 @@ import { useSettingsSaveStore } from '../hooks/useSettingsSaveStore';
 const useProjectId = vi.fn();
 const useProject = vi.fn();
 const useUpdateProject = vi.fn();
+const useCurrentUserRole = vi.fn();
 
 vi.mock('@/hooks/useProjectId', () => ({
   useProjectId: () => useProjectId() as string | undefined,
+}));
+
+vi.mock('@/hooks/useCurrentUserRole', () => ({
+  useCurrentUserRole: () => useCurrentUserRole() as { role: number | null; isLoading: boolean },
 }));
 
 vi.mock('@/hooks/useProject', () => ({
@@ -67,6 +72,9 @@ beforeEach(() => {
   useProject.mockReturnValue({ data: SEED_PROJECT });
   mutateAsync = vi.fn().mockResolvedValue(undefined);
   useUpdateProject.mockReturnValue({ mutateAsync });
+  // Default to Admin so the existing editable-field expectations hold; the
+  // read-only tests override this with a sub-Admin role (#1084).
+  useCurrentUserRole.mockReturnValue({ role: 300, isLoading: false });
 });
 
 describe('ProjectGeneralPage', () => {
@@ -212,5 +220,35 @@ describe('ProjectGeneralPage', () => {
   it('resets the save store between renders so the next page mounts clean', () => {
     useSettingsSaveStore.getState().reset();
     expect(useSettingsSaveStore.getState().dirty).toBe(false);
+  });
+
+  // ----- Role gating (#1084) -------------------------------------------------
+
+  it('renders every field read-only for a sub-Admin (Member) role', () => {
+    useCurrentUserRole.mockReturnValue({ role: 100, isLoading: false });
+    renderPage();
+
+    expect(screen.getByRole('textbox', { name: /project name/i })).toBeDisabled();
+    expect(screen.getByRole('textbox', { name: /project code/i })).toBeDisabled();
+    expect(screen.getByRole('textbox', { name: /description/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /at risk/i })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: /timezone/i })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: /default view/i })).toBeDisabled();
+    // The lead picker drops its trigger entirely (rule 156 read-only render).
+    expect(screen.queryByRole('button', { name: 'Assign' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the form editable for an Admin role', () => {
+    useCurrentUserRole.mockReturnValue({ role: 300, isLoading: false });
+    renderPage();
+
+    expect(screen.getByRole('textbox', { name: /project name/i })).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Assign' })).toBeEnabled();
+  });
+
+  it('gates pessimistically (read-only) while the role query is still loading', () => {
+    useCurrentUserRole.mockReturnValue({ role: null, isLoading: true });
+    renderPage();
+    expect(screen.getByRole('textbox', { name: /project name/i })).toBeDisabled();
   });
 });
