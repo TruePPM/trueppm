@@ -87,8 +87,11 @@ async function setup(page: Page) {
       status: 200,
       contentType: 'application/json',
       body: pj({
-        task_count: 0, critical_path_count: 0, monte_carlo_p80: null,
-        at_risk_count: 0, critical_count: 0,
+        task_count: 0,
+        critical_path_count: 0,
+        monte_carlo_p80: null,
+        at_risk_count: 0,
+        critical_count: 0,
       }),
     }),
   );
@@ -98,9 +101,25 @@ async function setup(page: Page) {
   await page.route('**/api/v1/projects/*/my-tasks/', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj([]) }),
   );
-  // Members endpoint is hit by the Access page after a discard navigation.
+  // Members endpoint is hit by the Access page after a discard navigation; keep it
+  // an empty roster (the Access page expects a richer member shape than we need here).
   await page.route(`**/api/v1/projects/${PROJECT_ID}/members/**`, (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj([]) }),
+  );
+  // useCurrentUserRole reads only the first row's `role` from `?self=true`. Resolve
+  // it to Admin (400) so the General page stays editable under the #1084 role gate,
+  // without polluting the roster above. Registered last → wins Playwright's LIFO
+  // match for the self-scoped request.
+  await page.route(
+    (url) =>
+      url.pathname.endsWith(`/projects/${PROJECT_ID}/members/`) &&
+      url.searchParams.get('self') === 'true',
+    (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj([{ id: 'self', role: 400 }]),
+      }),
   );
   // NotificationBell polls /me/notifications/; unmocked the static preview
   // server returns the SPA index.html and axios rejects the response with a
@@ -179,10 +198,12 @@ test.describe('Settings save contract (#536)', () => {
     // beyond name + description; use `toMatchObject` so additional fields
     // (code, health, visibility, timezone, default_view, calendar) on the
     // request don't make this contract brittle as the schema grows.
-    await expect.poll(() => patchBody).toMatchObject({
-      name: EDITED_NAME,
-      description: FIXTURE_PROJECT.description,
-    });
+    await expect
+      .poll(() => patchBody)
+      .toMatchObject({
+        name: EDITED_NAME,
+        description: FIXTURE_PROJECT.description,
+      });
     await expect(page.getByText('You have unsaved changes')).toBeHidden();
   });
 

@@ -57,6 +57,11 @@ class UserProfile(models.Model):
         default=DefaultLanding.AUTO,
         help_text="Which screen the app opens on. 'auto' uses the role-based policy.",
     )
+    # Per-user view visibility (ADR-0139). Canonical view keys this user has
+    # hidden from their own project nav — applied globally across every project,
+    # layered on top of the per-project methodology preset (ADR-0041). Empty =
+    # methodology default only; 'overview' is never hideable.
+    hidden_views = models.JSONField(default=list, blank=True, help_text="Hidden nav view keys.")
 
     class Meta:
         verbose_name = "user profile"

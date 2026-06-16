@@ -73,7 +73,10 @@ async function setup(
   await page.route('**/api/v1/edition/', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj({ edition: 'community' }) }),
   );
-  await page.route(`**/api/v1/projects/${PROJECT_ID}/members/`, (r) =>
+  // `members/**` (not `members/`) so this also serves the `?self=true` request
+  // useCurrentUserRole makes — its first row (anika, role 400) resolves the page
+  // to Admin, keeping the lead picker editable under the #1084 role gate.
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/members/**`, (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj(MEMBERS) }),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/`, async (route) => {

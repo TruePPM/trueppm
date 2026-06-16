@@ -290,4 +290,28 @@ describe('ProgramGeneralPage (settings)', () => {
     expect(nameInput).toHaveValue('Phase 2 Modernization');
     expect(screen.getByRole('button', { name: 'Auto', pressed: true })).toBeInTheDocument();
   });
+
+  // ----- Role gating (#1084) -------------------------------------------------
+
+  it('renders every field read-only for a sub-Admin (Member) my_role', () => {
+    useProgram.mockReturnValue({ data: makeProgram({ my_role: 100 }) });
+    renderPage();
+
+    expect(screen.getByLabelText('Program name')).toBeDisabled();
+    expect(screen.getByLabelText('Program code')).toBeDisabled();
+    expect(screen.getByLabelText('Description')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Auto' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Hybrid' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Export to JSON/i })).toBeDisabled();
+    // The manager picker drops its trigger entirely (rule 156 read-only render).
+    expect(screen.queryByRole('button', { name: 'Change' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the form editable for an Admin my_role', () => {
+    useProgram.mockReturnValue({ data: makeProgram({ my_role: 300 }) });
+    renderPage();
+
+    expect(screen.getByLabelText('Program name')).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Change' })).toBeEnabled();
+  });
 });

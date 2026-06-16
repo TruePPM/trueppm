@@ -228,6 +228,57 @@ describe('OverviewSection — progress field', () => {
     fireEvent.blur(input);
     expect(updateMock).not.toHaveBeenCalled();
   });
+
+  // ----- Numeric exact-value input alongside the slider (#1047) -------------
+
+  it('renders a numeric progress input alongside the slider, pre-filled', () => {
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
+    const numeric = screen.getByRole('spinbutton', { name: /Task progress/i });
+    expect(numeric).toHaveValue(40);
+  });
+
+  it('typing an exact value in the numeric input commits it on blur', () => {
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
+    const numeric = screen.getByRole('spinbutton', { name: /Task progress/i });
+    fireEvent.change(numeric, { target: { value: '83' } });
+    fireEvent.blur(numeric);
+    expect(updateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 't1', percent_complete: 83 }),
+      expect.any(Object),
+    );
+  });
+
+  it('keeps the slider in sync with the numeric input before commit', () => {
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
+    const numeric = screen.getByRole('spinbutton', { name: /Task progress/i });
+    fireEvent.change(numeric, { target: { value: '83' } });
+    // Both controls read the same localProgress, so the slider tracks the typed value.
+    expect(screen.getByRole('slider', { name: /Task progress/i })).toHaveValue('83');
+  });
+
+  it('clamps out-of-range numeric input to 0–100 on commit', () => {
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
+    const numeric = screen.getByRole('spinbutton', { name: /Task progress/i });
+    fireEvent.change(numeric, { target: { value: '150' } });
+    fireEvent.blur(numeric);
+    expect(updateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ percent_complete: 100 }),
+      expect.any(Object),
+    );
+  });
+
+  it('disables the numeric input when status is COMPLETE', () => {
+    mockTasks.splice(0, mockTasks.length, { ...baseTask, status: 'COMPLETE', progress: 100 });
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
+    expect(screen.getByRole('spinbutton', { name: /Task progress/i })).toBeDisabled();
+  });
+
+  it('renders no numeric input for read-only (non-editable) callers', () => {
+    renderWithProviders(
+      <OverviewSection taskId="t1" projectId="p1" userRole={0} canEdit={false} />,
+    );
+    expect(screen.queryByRole('spinbutton', { name: /Task progress/i })).not.toBeInTheDocument();
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -35,6 +35,7 @@ describe('useMyTasksFilter', () => {
         can_access_admin_settings: false,
         default_landing: 'auto',
         landing: { intent: 'my_work', path: '/me/work', resolved_by: 'fallback' },
+        hidden_views: [],
       },
       isLoading: false,
     });
@@ -57,6 +58,7 @@ describe('useMyTasksFilter', () => {
         can_access_admin_settings: true,
         default_landing: 'auto',
         landing: { intent: 'my_work', path: '/me/work', resolved_by: 'fallback' },
+        hidden_views: [],
       },
       isLoading: false,
     });
@@ -80,6 +82,7 @@ describe('useMyTasksFilter', () => {
         can_access_admin_settings: false,
         default_landing: 'auto',
         landing: { intent: 'my_work', path: '/me/work', resolved_by: 'fallback' },
+        hidden_views: [],
       },
       isLoading: false,
     });
@@ -103,6 +106,7 @@ describe('useMyTasksFilter', () => {
         can_access_admin_settings: false,
         default_landing: 'auto',
         landing: { intent: 'my_work', path: '/me/work', resolved_by: 'fallback' },
+        hidden_views: [],
       },
       isLoading: false,
     });

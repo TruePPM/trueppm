@@ -73,8 +73,11 @@ async function setup(page: Page) {
       status: 200,
       contentType: 'application/json',
       body: pj({
-        task_count: 0, critical_path_count: 0, monte_carlo_p80: null,
-        at_risk_count: 0, critical_count: 0,
+        task_count: 0,
+        critical_path_count: 0,
+        monte_carlo_p80: null,
+        at_risk_count: 0,
+        critical_count: 0,
       }),
     }),
   );
@@ -86,6 +89,20 @@ async function setup(page: Page) {
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/members/**`, (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj([]) }),
+  );
+  // useCurrentUserRole's `?self=true` read resolves the Project General page to
+  // Admin (role 400) so its fields stay editable under the #1084 role gate.
+  // Registered after the roster route → wins Playwright's LIFO match for self.
+  await page.route(
+    (url) =>
+      url.pathname.endsWith(`/projects/${PROJECT_ID}/members/`) &&
+      url.searchParams.get('self') === 'true',
+    (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj([{ id: 'self', role: 400 }]),
+      }),
   );
   await page.route('**/api/v1/me/notifications/**', (r) =>
     r.fulfill({
@@ -150,17 +167,30 @@ test.describe('Settings shell — scrollbar-gutter layout shift (#776)', () => {
 
   // #776: from a project, the Program scope lands on the project's OWN parent
   // program — not an arbitrary first program, and never a blank page.
-  test('Program scope navigates to the project\'s parent program settings', async ({ page }) => {
+  test("Program scope navigates to the project's parent program settings", async ({ page }) => {
     await setup(page);
     const PARENT = 'e2e-parent-prog-0000-0000-0000-000000000776';
     const pj = (d: unknown) => JSON.stringify(d);
     // This project belongs to PARENT (program FK set on the list payload).
     await page.route('**/api/v1/projects/', (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: pj([{ ...FIXTURE_PROJECT, program: PARENT }]) }),
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj([{ ...FIXTURE_PROJECT, program: PARENT }]),
+      }),
     );
-    const FIXTURE_PARENT = { id: PARENT, server_version: 1, name: 'Parent Program', health: 'AUTO' };
+    const FIXTURE_PARENT = {
+      id: PARENT,
+      server_version: 1,
+      name: 'Parent Program',
+      health: 'AUTO',
+    };
     await page.route('**/api/v1/programs/', (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: pj({ results: [FIXTURE_PARENT], count: 1, next: null, previous: null }) }),
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({ results: [FIXTURE_PARENT], count: 1, next: null, previous: null }),
+      }),
     );
     await page.route(`**/api/v1/programs/${PARENT}/`, (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_PARENT) }),

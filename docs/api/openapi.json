@@ -21498,6 +21498,13 @@
                             }
                         ],
                         "readOnly": true
+                    },
+                    "hidden_views": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "readOnly": true
                     }
                 },
                 "required": [
@@ -21505,6 +21512,7 @@
                     "default_landing",
                     "display_name",
                     "email",
+                    "hidden_views",
                     "id",
                     "initials",
                     "landing",
@@ -24255,7 +24263,7 @@
             },
             "PatchedUserProfileRequest": {
                 "type": "object",
-                "description": "Read/write the caller's own app preferences.\n\nOnly ``default_landing`` is writable. Choice validation is enforced by the\nmodel field's ``choices`` (DRF rejects an out-of-range value with 400).",
+                "description": "Read/write the caller's own app preferences.\n\n``default_landing`` choice validation is enforced by the model field's\n``choices`` (DRF rejects an out-of-range value with 400). ``hidden_views`` is\na bounded list of canonical view keys (ADR-0139); ``validate_hidden_views``\nrejects unknown keys and de-duplicates.",
                 "properties": {
                     "default_landing": {
                         "allOf": [
@@ -24264,6 +24272,15 @@
                             }
                         ],
                         "description": "Which screen the app opens on. 'auto' uses the role-based policy.\n\n* `auto` - Automatic (based on your role)\n* `my_work` - My Work\n* `project_overview` - Project Overview\n* `portfolio` - Portfolio"
+                    },
+                    "hidden_views": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 32
+                        },
+                        "maxItems": 32
                     }
                 }
             },
@@ -29292,7 +29309,7 @@
             },
             "UserProfile": {
                 "type": "object",
-                "description": "Read/write the caller's own app preferences.\n\nOnly ``default_landing`` is writable. Choice validation is enforced by the\nmodel field's ``choices`` (DRF rejects an out-of-range value with 400).",
+                "description": "Read/write the caller's own app preferences.\n\n``default_landing`` choice validation is enforced by the model field's\n``choices`` (DRF rejects an out-of-range value with 400). ``hidden_views`` is\na bounded list of canonical view keys (ADR-0139); ``validate_hidden_views``\nrejects unknown keys and de-duplicates.",
                 "properties": {
                     "default_landing": {
                         "allOf": [
@@ -29301,6 +29318,14 @@
                             }
                         ],
                         "description": "Which screen the app opens on. 'auto' uses the role-based policy.\n\n* `auto` - Automatic (based on your role)\n* `my_work` - My Work\n* `project_overview` - Project Overview\n* `portfolio` - Portfolio"
+                    },
+                    "hidden_views": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "maxLength": 32
+                        },
+                        "maxItems": 32
                     }
                 }
             },
