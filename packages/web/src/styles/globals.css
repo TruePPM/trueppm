@@ -278,6 +278,18 @@
     animation: cmdk-in 120ms cubic-bezier(.2, .7, .2, 1);
   }
 
+  /* Empty / first-run state entrance (issue 1171) — a single subtle fade + lift
+     when a warm empty state mounts. Applied under `motion-safe:` at the class
+     layer (the v2 motion contract honors prefers-reduced-motion), so no @media
+     guard is needed here. v2 timing: 160ms on the brand ease (ADR-0126). */
+  @keyframes empty-state-in {
+    0%   { opacity: 0; transform: translateY(6px) scale(0.98); }
+    100% { opacity: 1; transform: translateY(0) scale(1);      }
+  }
+  .animate-empty-state-in {
+    animation: empty-state-in 160ms cubic-bezier(.2, .7, .2, 1);
+  }
+
   /* Disabled-form-control styling for settings pages whose API hasn't shipped
      yet (`apiReady=false`). Wrap the page body in `<StubFieldset>` and every
      descendant input / select / textarea / button is forced into the same
