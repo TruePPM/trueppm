@@ -291,13 +291,37 @@ export async function setupApiMocks(page: Page, opts: ApiMockOptions = {}): Prom
       jsonResponse({
         status: 'warming_up',
         remaining_points: 0,
+        remaining_count: null,
         sample_count: 0,
         p50_sprints: null,
         p80_sprints: null,
         p50_date: null,
         p80_date: null,
+        p95_date: null,
         basis: 'monte_carlo',
+        forecast_basis: 'velocity',
         velocity_suppressed: false,
+      }),
+    ),
+  );
+  // Flow analytics (ADR-0130 D1) — default to suppressed so the board's
+  // collapsed-by-default panel never trips the 401-guard catch-all if expanded.
+  await page.route(`**/api/v1/projects/${projectId}/flow-metrics/**`, (route) =>
+    route.fulfill(
+      jsonResponse({
+        window_days: 90,
+        since: '2026-05-01',
+        until: '2026-07-30',
+        cycle_time: { p50: null, p80: null, p95: null },
+        lead_time: { p50: null, p80: null, p95: null },
+        cfd: [],
+        throughput: [],
+        data_integrity: {
+          bulk_moved_count: 0,
+          backdated_count: 0,
+          missing_transition_count: 0,
+        },
+        flow_metrics_suppressed: false,
       }),
     ),
   );

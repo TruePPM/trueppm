@@ -541,19 +541,32 @@ export function useProjectForecast(
  * GET /api/v1/projects/{id}/sprint-forecast/ — backlog delivery forecast (#487).
  *
  * Velocity Monte Carlo: P50/P80 sprint counts + calendar dates to clear the
- * remaining committed backlog. `status` is `"warming_up"` (forecast fields null)
- * until there are >=2 closed sprints and a backlog. `basis` is always
- * `"monte_carlo"`, so percentile vocabulary is honest here (web-rule 166).
+ * remaining committed backlog.
+ *
+ * ADR-0130 D3: the forecast has two bases. The discriminator is `forecast_basis`,
+ * NOT the legacy `basis` (which is frozen at `"monte_carlo"` for back-compat —
+ * never branch on it; web-rule 176). The `velocity` path forecasts in sprints +
+ * points (`p50_sprints`/`remaining_points`); the `throughput` path is a continuous-
+ * flow team and forecasts in item counts + dates (`remaining_count`, sprint counts
+ * null) and can report `"insufficient_flow_history"`. Both are real Monte Carlo, so
+ * P50/P80/P95 vocabulary is honest for either (web-rule 166) — only the units and
+ * language differ.
  */
 export interface SprintForecast {
-  status: 'ready' | 'warming_up';
+  status: 'ready' | 'warming_up' | 'insufficient_flow_history';
   remaining_points: number | null;
+  /** Throughput-path equivalent of `remaining_points`; null on the velocity path. */
+  remaining_count: number | null;
   sample_count: number;
   p50_sprints: number | null;
   p80_sprints: number | null;
   p50_date: string | null;
   p80_date: string | null;
+  p95_date: string | null;
+  /** Legacy constant — kept for back-compat; do NOT branch on it (web-rule 176). */
   basis: 'monte_carlo';
+  /** ADR-0130 D3 discriminator — branch on THIS. */
+  forecast_basis: 'velocity' | 'throughput';
   velocity_suppressed: boolean;
 }
 
@@ -567,6 +580,67 @@ export function useSprintForecast(
     queryFn: async () => {
       const res = await apiClient.get<SprintForecast>(
         `/projects/${projectId}/sprint-forecast/`,
+      );
+      return res.data;
+    },
+    enabled: !!projectId && enabled,
+  });
+}
+
+/** The five canonical board statuses a CFD row counts, in board order (ADR-0130 D1). */
+export interface CfdCounts {
+  BACKLOG: number;
+  NOT_STARTED: number;
+  IN_PROGRESS: number;
+  REVIEW: number;
+  COMPLETE: number;
+}
+
+/** P50/P80/P95 day-count percentiles; all null when nothing completed in the window. */
+export interface FlowPercentiles {
+  p50: number | null;
+  p80: number | null;
+  p95: number | null;
+}
+
+/**
+ * Methodology-neutral flow analytics (ADR-0130 D1): cycle/lead-time percentiles, a
+ * daily cumulative-flow diagram, and a weekly throughput series — computed-on-read.
+ *
+ * The historical distributions (`cycle_time`/`lead_time`/`cfd`/`throughput`) are
+ * team-private (ADR-0104 `flow_metrics` signal, TEAM/TEAM). For a below-audience
+ * reader the server empties them and sets `flow_metrics_suppressed=true`; the web
+ * surface then renders a content-free wall (web-rule 165/176). `data_integrity` is
+ * aggregate-only — never per-person — and is zeroed under suppression.
+ */
+export interface FlowMetrics {
+  window_days: number;
+  since: string;
+  until: string;
+  cycle_time: FlowPercentiles;
+  lead_time: FlowPercentiles;
+  cfd: { date: string; counts: CfdCounts }[];
+  throughput: { week_start: string; completed_count: number }[];
+  data_integrity: {
+    bulk_moved_count: number;
+    backdated_count: number;
+    missing_transition_count: number;
+  };
+  flow_metrics_suppressed: boolean;
+}
+
+/** GET /api/v1/projects/{id}/flow-metrics/?window= — flow analytics (ADR-0130 D1). */
+export function useFlowMetrics(
+  projectId: string | null | undefined,
+  options: { window?: number; enabled?: boolean } = {},
+) {
+  const { window, enabled = true } = options;
+  return useQuery({
+    queryKey: ['project', projectId, 'flow-metrics', window ?? 'default'],
+    queryFn: async () => {
+      const res = await apiClient.get<FlowMetrics>(
+        `/projects/${projectId}/flow-metrics/`,
+        window ? { params: { window } } : undefined,
       );
       return res.data;
     },

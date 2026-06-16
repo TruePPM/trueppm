@@ -51,6 +51,7 @@ import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { isTaskScheduled } from '@/lib/task';
 import { useUpdateTaskStatus } from '@/hooks/useBoardTasks';
 import { useBoardConfig } from '@/hooks/useBoardConfig';
+import { FlowAnalyticsPanel } from './FlowAnalyticsPanel';
 import { useMyTasksFilter } from '@/hooks/useMyTasksFilter';
 import { useCurrentUserResourceId } from '@/hooks/useCurrentUserResourceId';
 import { useBoardKeyboard } from '@/hooks/useBoardKeyboard';
@@ -270,6 +271,34 @@ function WipBadge({ count, limit }: WipBadgeProps) {
       aria-label={`${count} of ${limit} WIP limit`}
     >
       {count}/{limit}
+    </span>
+  );
+}
+
+/**
+ * Always-on WIP breach chip for a column header (issue 1188 / ADR-0130 D2).
+ *
+ * Unlike WipBadge (which shows the numeric N/limit only under the "Show WIP
+ * limits" toggle), this renders whenever a limit is at/over breach — a breach is
+ * a signal Alex needs to catch before the retro, not an opt-in detail. Color is
+ * never the sole cue: the ⚠ glyph + text carry the meaning. The chip itself is
+ * aria-hidden because the column's <h2> accessible name already announces the
+ * breach, so a screen reader hears it once, not twice.
+ */
+function WipBreachChip({ state }: { state: 'at' | 'over' }) {
+  const cls =
+    state === 'over'
+      ? 'bg-semantic-critical-bg text-semantic-critical'
+      : 'bg-semantic-at-risk-bg text-semantic-at-risk';
+  return (
+    <span
+      aria-hidden="true"
+      data-testid="wip-breach-chip"
+      data-breach={state}
+      className={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-xs font-semibold ${cls}`}
+    >
+      <span aria-hidden="true">⚠</span>
+      {state === 'over' ? 'Over limit' : 'At limit'}
     </span>
   );
 }
@@ -1891,6 +1920,9 @@ export function BoardView() {
                 {projectId && (
                   <SprintPanel projectId={projectId} methodology={projectDetail?.methodology} />
                 )}
+                {/* Flow analytics (ADR-0137, issue 1188) — collapsed by default;
+                team-private behind the ADR-0104 flow_metrics signal. */}
+                {projectId && <FlowAnalyticsPanel projectId={projectId} />}
                 {/* Sticky column headers */}
                 <div
                   className="grid gap-2 px-2 py-1.5 border-b-2 border-neutral-border/60 bg-neutral-surface sticky top-0 z-10"
@@ -1902,6 +1934,14 @@ export function BoardView() {
                   {COLUMNS.map((col) => {
                     const count = totalByStatus[col.status];
                     const state = showWip ? wipState(count, col.wipLimit) : 'none';
+                    // A WIP breach is a signal, not an opt-in detail (issue 1188 /
+                    // ADR-0130 D2 / VoC Alex): the breach chip + the column's accessible name
+                    // announce it independent of the "Show WIP limits" toggle, which
+                    // continues to gate only the numeric N/limit badge. Computed from
+                    // the live column count (same source as the tint), so it equals the
+                    // server breach verdict without a staler redundant read.
+                    const breach = wipState(count, col.wipLimit);
+                    const breached = breach === 'at' || breach === 'over';
                     // WIP-state band tint kept on at/over states (issue #232) but
                     // dropped on `none` — epic #361 child E (#385) introduced the
                     // status-dot prefix as the resting signal, so a tint at rest
@@ -1929,9 +1969,9 @@ export function BoardView() {
                           // header's accessible name must carry it too so a screen
                           // reader hears "at/over limit" on the column itself (#1033).
                           aria-label={
-                            state === 'over'
+                            breach === 'over'
                               ? `${col.label}, ${count} task${count !== 1 ? 's' : ''}, over limit`
-                              : state === 'at'
+                              : breach === 'at'
                                 ? `${col.label}, ${count} task${count !== 1 ? 's' : ''}, at limit`
                                 : `${col.label}, ${count} task${count !== 1 ? 's' : ''}`
                           }
@@ -1941,11 +1981,12 @@ export function BoardView() {
                         <span className="text-xs text-neutral-text-disabled tppm-mono">
                           {count}
                         </span>
-                        {showWip && col.wipLimit != null && (
-                          <span className="ml-auto">
+                        <span className="ml-auto flex items-center gap-1.5">
+                          {breached && <WipBreachChip state={breach} />}
+                          {showWip && col.wipLimit != null && (
                             <WipBadge count={count} limit={col.wipLimit} />
-                          </span>
-                        )}
+                          )}
+                        </span>
                       </div>
                     );
                   })}
