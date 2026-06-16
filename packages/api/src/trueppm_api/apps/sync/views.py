@@ -52,7 +52,7 @@ from trueppm_api.apps.sync.serializers import (
 from trueppm_api.apps.sync.ws_auth import TICKET_TTL_SECONDS, issue_ticket
 
 
-class WebSocketTicketView(APIView):
+class WebSocketTicketView(IdempotencyMixin, APIView):
     """Mint a short-lived, single-use ticket for the WebSocket handshake (ADR-0141).
 
     Browsers cannot set an ``Authorization`` header on a WebSocket upgrade, so the
