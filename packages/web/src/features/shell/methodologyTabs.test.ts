@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   isTabVisibleForMethodology,
   groupedVisibleViews,
+  groupedVisibleViewsForUser,
+  HIDEABLE_VIEW_KEYS,
   VIEW_GROUPS,
   STANDALONE_LEADING,
   STANDALONE_TRAILING,
@@ -81,7 +83,13 @@ describe('groupedVisibleViews (ADR-0128)', () => {
   it('HYBRID keeps every group fully populated', () => {
     const groups = groupedVisibleViews('HYBRID');
     expect(groups.map((g) => g.id)).toEqual(['PLAN', 'TRACK', 'PEOPLE']);
-    expect(groups[0].visibleViews).toEqual(['product-backlog', 'sprints', 'schedule', 'grid', 'calendar']);
+    expect(groups[0].visibleViews).toEqual([
+      'product-backlog',
+      'sprints',
+      'schedule',
+      'grid',
+      'calendar',
+    ]);
   });
 
   it('AGILE drops Schedule + Calendar from PLAN (ADR-0041 filter composes within the group)', () => {
@@ -100,5 +108,49 @@ describe('groupedVisibleViews (ADR-0128)', () => {
         expect(g.visibleViews.length).toBeGreaterThan(0);
       }
     }
+  });
+});
+
+describe('HIDEABLE_VIEW_KEYS (ADR-0139)', () => {
+  it('is every grouped view — and never the standalones', () => {
+    const grouped = VIEW_GROUPS.flatMap((g) => g.views);
+    expect([...HIDEABLE_VIEW_KEYS].sort()).toEqual([...grouped].sort());
+    // overview (always-on landing) and settings (admin) are NOT hideable.
+    expect(HIDEABLE_VIEW_KEYS.has(STANDALONE_LEADING)).toBe(false);
+    expect(HIDEABLE_VIEW_KEYS.has(STANDALONE_TRAILING)).toBe(false);
+  });
+});
+
+describe('groupedVisibleViewsForUser (ADR-0139)', () => {
+  it('with no hidden views equals the plain methodology grouping', () => {
+    for (const m of ['WATERFALL', 'AGILE', 'HYBRID'] as const) {
+      expect(groupedVisibleViewsForUser(m, new Set())).toEqual(groupedVisibleViews(m));
+    }
+  });
+
+  it('removes a personally-hidden view from its group', () => {
+    const groups = groupedVisibleViewsForUser('HYBRID', new Set(['schedule', 'calendar']));
+    const plan = groups.find((g) => g.id === 'PLAN');
+    expect(plan?.visibleViews).toEqual(['product-backlog', 'sprints', 'grid']);
+  });
+
+  it('drops a group whose only views the user hid', () => {
+    // PEOPLE has just `resources`; hiding it removes the whole group.
+    const groups = groupedVisibleViewsForUser('HYBRID', new Set(['resources']));
+    expect(groups.map((g) => g.id)).toEqual(['PLAN', 'TRACK']);
+  });
+
+  it('composes on top of the methodology filter — hiding an already-methodology-hidden view is a no-op', () => {
+    // AGILE already hides schedule/calendar; the personal set cannot re-show them
+    // and listing them changes nothing.
+    const agile = groupedVisibleViewsForUser('AGILE', new Set(['schedule']));
+    expect(agile).toEqual(groupedVisibleViews('AGILE'));
+  });
+
+  it('a hidden set covering every hideable view still never empties the bar (overview is standalone)', () => {
+    // The function returns no groups, but overview is rendered outside groups by
+    // ViewTabs, so the nav is never empty — this asserts the grouping contract.
+    const groups = groupedVisibleViewsForUser('HYBRID', HIDEABLE_VIEW_KEYS);
+    expect(groups).toEqual([]);
   });
 });

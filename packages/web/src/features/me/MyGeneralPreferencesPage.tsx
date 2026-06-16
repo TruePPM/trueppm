@@ -22,6 +22,7 @@ import {
   LandingChoiceRadioGroup,
   type LandingChoiceOption,
 } from '@/features/me/LandingChoiceRadioGroup';
+import { ViewVisibilitySection } from '@/features/me/ViewVisibilitySection';
 
 const SAVED_TOAST_MS = 3000;
 
@@ -146,6 +147,8 @@ export function MyGeneralPreferencesPage() {
             ? 'Saved.'
             : 'Changes save automatically.'}
       </p>
+
+      <ViewVisibilitySection />
     </main>
   );
 }

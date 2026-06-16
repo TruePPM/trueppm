@@ -65,7 +65,11 @@ export const STANDALONE_TRAILING = 'settings';
  * silently never render.
  */
 export const VIEW_GROUPS: readonly ViewGroupDef[] = [
-  { id: 'PLAN', label: 'Plan', views: ['product-backlog', 'sprints', 'schedule', 'grid', 'calendar'] },
+  {
+    id: 'PLAN',
+    label: 'Plan',
+    views: ['product-backlog', 'sprints', 'schedule', 'grid', 'calendar'],
+  },
   { id: 'TRACK', label: 'Track', views: ['board', 'risk', 'reports'] },
   { id: 'PEOPLE', label: 'People', views: ['resources'] },
 ] as const;
@@ -86,4 +90,31 @@ export function groupedVisibleViews(methodology: Methodology): VisibleViewGroup[
     ...g,
     visibleViews: g.views.filter((v) => isTabVisibleForMethodology(v, methodology)),
   })).filter((g) => g.visibleViews.length > 0);
+}
+
+/**
+ * The set of view keys a user is permitted to hide (ADR-0139). Mirrors the
+ * server-side `HIDEABLE_VIEW_KEYS` (profiles/constants.py) — keep the two in
+ * sync. `overview` (`STANDALONE_LEADING`) and `settings` (`STANDALONE_TRAILING`)
+ * are intentionally absent: Overview is the always-on landing (the structural
+ * guarantee the nav can never be emptied) and Settings is an admin surface.
+ */
+export const HIDEABLE_VIEW_KEYS: ReadonlySet<string> = new Set(VIEW_GROUPS.flatMap((g) => g.views));
+
+/**
+ * Compose the per-user hidden-views preference (ADR-0139) on top of the
+ * methodology filter. Layering order: methodology preset (here, via
+ * `groupedVisibleViews`) → personal hidden-set → role gate (in `ViewTabs`).
+ * A view the methodology already hides never reaches this filter, so a user can
+ * only hide views that are visible for the current methodology. Groups left
+ * empty by the personal filter are dropped (same as the methodology pass) so the
+ * bar never renders an empty group label. Pure → unit-testable.
+ */
+export function groupedVisibleViewsForUser(
+  methodology: Methodology,
+  hiddenViews: ReadonlySet<string>,
+): VisibleViewGroup[] {
+  return groupedVisibleViews(methodology)
+    .map((g) => ({ ...g, visibleViews: g.visibleViews.filter((v) => !hiddenViews.has(v)) }))
+    .filter((g) => g.visibleViews.length > 0);
 }

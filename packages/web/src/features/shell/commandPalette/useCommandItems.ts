@@ -7,10 +7,15 @@ import { useProjectId } from '@/hooks/useProjectId';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useActiveSprint } from '@/hooks/useSprints';
 import { useCanManageBacklog } from '@/hooks/useMyFacets';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useShellStore } from '@/stores/shellStore';
 import { useThemeStore, type Theme } from '@/stores/themeStore';
 import { useCommandPaletteStore } from '@/stores/commandPaletteStore';
 import { useTaskDrawerStore } from '@/stores/taskDrawerStore';
+import { isTabVisibleForMethodology } from '@/features/shell/methodologyTabs';
+import { VIEW_TAB_META } from '@/features/shell/viewMeta';
+import type { Methodology } from '@/types';
 import type { CommandItem } from './commandItems';
 
 const THEME_CYCLE: Record<Theme, Theme> = { light: 'dark', dark: 'auto', auto: 'light' };
@@ -56,6 +61,8 @@ export function useCommandItems(enabled = true): CommandItem[] {
   const { tasks } = useScheduleTasks(tier2Id);
   const { sprint: activeSprint } = useActiveSprint(tier2Id);
   const canManageBacklog = useCanManageBacklog(tier2Id);
+  const { user } = useCurrentUser();
+  const iteration = useIterationLabel(tier2Id ?? null);
 
   const currentProject = useMemo(
     () => projects?.find((p) => p.id === currentProjectId) ?? null,
@@ -131,6 +138,27 @@ export function useCommandItems(enabled = true): CommandItem[] {
           keywords: 'product backlog grooming prioritize',
           run: go(`/projects/${tier2Id}/product-backlog`),
         });
+      }
+      // Hidden views stay reachable via ⌘K (ADR-0139). Surface a "Go to {label}"
+      // jump for each view the user has personally hidden that *would* be visible
+      // for this project's methodology — methodology-hidden views are excluded
+      // (the user can't hide those, and they communicate "not how we work here").
+      const hiddenViews = new Set(user?.hidden_views ?? []);
+      if (hiddenViews.size > 0) {
+        const methodology: Methodology = currentProject?.methodology ?? 'HYBRID';
+        for (const view of hiddenViews) {
+          if (!isTabVisibleForMethodology(view, methodology)) continue;
+          const label = view === 'sprints' ? iteration.plural : VIEW_TAB_META[view]?.label;
+          if (!label) continue;
+          currentItems.push({
+            id: `current:hidden-view:${tier2Id}:${view}`,
+            label: `Go to ${label}`,
+            group: 'current',
+            tag: 'View',
+            keywords: `view hidden ${view}`,
+            run: go(`/projects/${tier2Id}/${view}`),
+          });
+        }
       }
     }
 
@@ -231,5 +259,7 @@ export function useCommandItems(enabled = true): CommandItem[] {
     tasks,
     activeSprint,
     canManageBacklog,
+    user,
+    iteration,
   ]);
 }
