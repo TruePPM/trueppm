@@ -77,7 +77,7 @@ Finish-to-Start dependencies render as collision-avoiding Manhattan-routed arrow
 | FF | Finish-to-Finish | Successor finishes after predecessor finishes |
 | SF | Start-to-Finish | Successor finishes after predecessor starts |
 
-All dependency arrows are drawn in charcoal (`COLOR.arrowNormal`) — critical-path state is conveyed by the bar color, not the arrow.
+All dependency arrows are drawn in charcoal (`COLOR.arrowNormal`) — critical-path state is conveyed by the bar color, not the arrow. Arrows route orthogonally and divert around intervening task bars and milestone diamonds, so a line never visually pierces another row's object on its way to the successor.
 
 ## Zoom
 
