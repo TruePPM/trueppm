@@ -7,11 +7,14 @@ TruePPM uses Django Channels 4 to push project changes to connected clients over
 
 ## Connecting
 
+Mint a single-use ticket (`POST /api/v1/ws/ticket/`, 30-second TTL), then connect:
+
 ```
-ws://localhost:8000/ws/v1/projects/{project_id}/?token=<jwt>
+ws://localhost:8000/ws/v1/projects/{project_id}/?ticket=<ticket>
 ```
 
-Authentication via `?token=` JWT. Requires at least the Member role on the project. Viewers are rejected with close code 4003. If a connected user's membership is revoked or demoted below Member mid-session, the server evicts the live socket immediately with close code 4003 — revocation does not wait for the client to disconnect.
+Authentication uses a short-lived, single-use ticket so no JWT ever appears in a
+WebSocket URL or access log (RFC 6750 §2.3) — see the [WebSocket API reference](/api/websockets/) for the handshake. The deprecated `?token=<jwt>` parameter still works for one release. Requires at least the Member role on the project. Viewers are rejected with close code 4003. If a connected user's membership is revoked or demoted below Member mid-session, the server evicts the live socket immediately with close code 4003 — revocation does not wait for the client to disconnect.
 
 ## Event format
 
@@ -93,8 +96,14 @@ Uses [Valkey](https://valkey.io) (the BSD-licensed Linux Foundation fork of Redi
 ## JavaScript example
 
 ```typescript
+// Mint a single-use ticket, then connect — keeps the JWT out of the URL.
+const { ticket } = await fetch('/api/v1/ws/ticket/', {
+  method: 'POST',
+  headers: { Authorization: `Bearer ${jwt}` },
+}).then((r) => r.json());
+
 const ws = new WebSocket(
-  `ws://localhost:8000/ws/v1/projects/${projectId}/?token=${jwt}`
+  `ws://localhost:8000/ws/v1/projects/${projectId}/?ticket=${ticket}`
 );
 
 ws.onmessage = (event) => {

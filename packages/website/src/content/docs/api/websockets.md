@@ -25,14 +25,36 @@ There are two endpoints, both scoped to a single project by its UUID.
 
 ## Authentication
 
-The JWT **access token** is supplied as a `token` query parameter on the connect
-URL (WebSocket handshakes cannot carry an `Authorization` header):
+WebSocket handshakes cannot carry an `Authorization` header, so the credential
+must travel in the URL. To keep the long-lived JWT out of access logs, load
+balancer logs, and browser history, the handshake uses a **short-lived,
+single-use ticket** (RFC 6750 §2.3) rather than the access token itself.
+
+First mint a ticket with an authenticated REST call:
 
 ```
-wss://trueppm.example.com/ws/v1/projects/3f9a…/?token=<access_token>
+POST /api/v1/ws/ticket/
+Authorization: Bearer <access_token>
+
+→ 200 { "ticket": "<opaque>", "expires_in": 30 }
 ```
 
-The connection is authenticated and authorized before the server accepts it.
+Then open the socket with the ticket as the `ticket` query parameter:
+
+```
+wss://trueppm.example.com/ws/v1/projects/3f9a…/?ticket=<ticket>
+```
+
+The ticket is valid for 30 seconds and is consumed on first use — request a fresh
+one before every connection, including each reconnect. It carries authentication
+only; the server still enforces project membership and role before accepting.
+
+:::caution[Deprecated: `?token=<access_token>`]
+Passing the raw access token as `?token=` still works for one release as a
+deprecated fallback (the server logs a deprecation warning for each such
+connection) and will be removed in a future release. Migrate clients to the
+ticket flow above.
+:::
 
 ## Close codes
 
@@ -41,12 +63,13 @@ close codes (rather than accepting and then dropping):
 
 | Code | Meaning |
 |------|---------|
-| `4001` | Missing, invalid, or expired token |
+| `4001` | Missing, invalid, expired, or already-consumed ticket (or, on the deprecated path, an invalid token) |
 | `4003` | Authenticated but lacks the required role on the project (Member+ to subscribe) |
 | `4004` | (workshop endpoint only) no active `WorkshopSession` for the project |
 
-A client that receives `4001` should refresh its access token and reconnect; a
-persistent `4001` means the session has expired and the user must re-authenticate.
+A client that receives `4001` should mint a fresh ticket (refreshing the access
+token first if needed) and reconnect; a persistent `4001` means the session has
+expired and the user must re-authenticate.
 Retryable transport drops (network loss, server restart) use the standard
 `1006`/`1001` codes and should be reconnected with backoff.
 
