@@ -247,6 +247,8 @@ export interface CalmToolbarProps {
   onMyTasksToggle: () => void;
   riskLinkedOnly: boolean;
   onRiskLinkedToggle: () => void;
+  debtOnly: boolean;
+  onDebtOnlyToggle: () => void;
   showCost: boolean;
   onShowCostToggle: () => void;
   // More⋯ controls
@@ -474,6 +476,15 @@ export function CalmToolbar(props: CalmToolbarProps) {
             hideLabel={hideQuietToggleLabels}
           />
           <ToolbarToggle
+            icon="⚒"
+            label="Tech debt"
+            ariaLabel="Tech-debt only"
+            pressed={props.debtOnly}
+            onToggle={props.onDebtOnlyToggle}
+            title="Only show tech-debt tasks"
+            hideLabel={hideQuietToggleLabels}
+          />
+          <ToolbarToggle
             icon="$"
             label="Cost"
             ariaLabel="Show cost"
@@ -509,6 +520,14 @@ export function CalmToolbar(props: CalmToolbarProps) {
                 checked: props.riskLinkedOnly,
                 onChange: props.onRiskLinkedToggle,
                 icon: '⚠',
+              },
+              {
+                kind: 'checkbox',
+                id: 'tech-debt',
+                label: 'Tech-debt only',
+                checked: props.debtOnly,
+                onChange: props.onDebtOnlyToggle,
+                icon: '⚒',
               },
               {
                 kind: 'checkbox',

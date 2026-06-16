@@ -18,6 +18,7 @@ const LABEL: Record<TaskType, string> = {
   task: 'Task',
   bug: 'Bug',
   spike: 'Spike',
+  tech_debt: 'Tech Debt',
 };
 
 export function TypeBadge({ type }: { type?: TaskType }) {

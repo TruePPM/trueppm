@@ -927,6 +927,13 @@ class TaskType(models.TextChoices):
     aggregate (see ``CommittedTaskManager`` and ``scheduling/tasks.py::_run_schedule``),
     exactly as ``is_recurring`` templates are. The epic→story link is the ``Task.epic``
     self-FK, deliberately parallel to (and independent of) the WBS ``wbs_path`` (#364).
+
+    TECH_DEBT (ADR-0135, #1076) is the inverse of EPIC: it *is* schedulable work that
+    consumes sprint capacity, so it deliberately is NOT added to the EPIC aggregate
+    exclusion — debt counts toward velocity and committed-delivery aggregates like a
+    STORY/TASK. Its only distinct treatment is reporting: it is filterable via the
+    ``?type=`` task-list param and surfaced with its own board badge/toggle, which is
+    what lets a team see "how much capacity went to debt" without hiding that capacity.
     """
 
     EPIC = "epic", "Epic"
@@ -934,6 +941,7 @@ class TaskType(models.TextChoices):
     TASK = "task", "Task"
     BUG = "bug", "Bug"
     SPIKE = "spike", "Spike"
+    TECH_DEBT = "tech_debt", "Tech Debt"
 
 
 class DorState(models.TextChoices):
@@ -1270,7 +1278,7 @@ class Task(VersionedModel):
     # semantics. EPIC is excluded from CPM/capacity (see CommittedTaskManager).
     # Field name ``type`` matches ADR-0088's committed shape.
     type = models.CharField(
-        max_length=8,
+        max_length=16,
         choices=TaskType.choices,
         default=TaskType.TASK,
         db_index=True,

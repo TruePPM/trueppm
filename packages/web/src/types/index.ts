@@ -12,8 +12,8 @@ export type ZoomLevel = 'day' | 'week' | 'month' | 'quarter' | 'year';
 
 export type TaskReadiness = 'idea' | 'estimated' | 'ready' | 'baselined';
 
-/** Work-item taxonomy (ADR-0105 / #363). */
-export type TaskType = 'epic' | 'story' | 'task' | 'bug' | 'spike';
+/** Work-item taxonomy (ADR-0105 / #363; tech_debt added ADR-0135 / #1076). */
+export type TaskType = 'epic' | 'story' | 'task' | 'bug' | 'spike' | 'tech_debt';
 
 /** Which governance overlay applies to a task's subtree (ADR-0036 / #407).
  *  Distinct from `deliveryMode`: this selects *which* overlay governs (agile

@@ -2015,6 +2015,16 @@ def _attach_target_milestone_rollups(sprints: list[Sprint]) -> None:
                 description="Filter by task status value.",
             ),
             OpenApiParameter(
+                name="type",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Filter by task type value (epic/story/task/bug/spike/tech_debt). "
+                    "Backs the board tech-debt filter (ADR-0135, #1076)."
+                ),
+            ),
+            OpenApiParameter(
                 name="mine",
                 type=OpenApiTypes.BOOL,
                 location=OpenApiParameter.QUERY,
@@ -2137,6 +2147,12 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         status = self.request.query_params.get("status")
         if status:
             qs = qs.filter(status=status)
+        # Task-type filter (ADR-0135, #1076) — backs the board tech-debt toggle
+        # and lets any client chart debt distinctly via ?type=tech_debt. An
+        # unrecognized value simply matches nothing (consistent with ?status=).
+        task_type = self.request.query_params.get("type")
+        if task_type:
+            qs = qs.filter(type=task_type)
 
         # "My tasks" filter (issue #198): tasks the requesting user is
         # assigned to via Resource.user. Falls back to email match for

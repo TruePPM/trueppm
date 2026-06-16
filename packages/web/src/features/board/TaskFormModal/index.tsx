@@ -92,6 +92,7 @@ const TYPE_OPTIONS: Array<TaxonomyOption<TaskType>> = [
   { value: 'story', label: 'Story', desc: 'User-facing increment, estimated in story points.' },
   { value: 'bug', label: 'Bug', desc: 'A defect against accepted scope.' },
   { value: 'spike', label: 'Spike', desc: 'Time-boxed research; ships no deliverable.' },
+  { value: 'tech_debt', label: 'Tech Debt', desc: 'Refactoring or remediation. Scheduled like a task and counts toward velocity; reported separately.' },
   { value: 'epic', label: 'Epic', desc: 'Structural parent — groups child work and rolls up. Excluded from scheduling.' },
 ];
 
