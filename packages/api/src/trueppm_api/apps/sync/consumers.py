@@ -9,6 +9,7 @@ from typing import Any
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 
 from trueppm_api.apps.access.models import Role
+from trueppm_api.apps.sync.ws_auth import authenticate_scope, warn_if_legacy
 
 logger = logging.getLogger(__name__)
 
@@ -22,9 +23,11 @@ def _presence_key(project_pk: str) -> str:
 class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
     """Pushes project board events to subscribed clients.
 
-    Authentication:  JWT access token supplied as `?token=<token>` query param.
-                     Token is validated on connect; connection is rejected if
-                     the token is missing, invalid, or expired.
+    Authentication:  A single-use ticket supplied as `?ticket=<id>` (ADR-0141),
+                     issued by `POST /api/v1/ws/ticket/` and consumed from Redis
+                     on connect. The legacy `?token=<jwt>` query param still works
+                     for one release (logged as deprecated). Connection is
+                     rejected (4001) if no valid credential is present.
 
     Authorization:   The user must hold at least the Member role (ordinal ≥ 1)
                      on the requested project. Viewers (role == Role.VIEWER) are rejected.
@@ -42,25 +45,19 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
 
     async def websocket_connect(self, message: dict[str, Any]) -> None:
         """Override to run sync DB queries before accepting the socket."""
-        # Parse token and project_pk before calling super() which sends ACCEPT.
+        # Authenticate the handshake before calling super() which sends ACCEPT.
+        # Prefers the single-use ?ticket= (ADR-0141); ?token=<jwt> still works for
+        # one release as a logged, deprecated fallback.
         scope = self.scope
-        query_string: bytes = scope.get("query_string", b"")
-        params = dict(pair.split(b"=", 1) for pair in query_string.split(b"&") if b"=" in pair)
-        token_bytes = params.get(b"token")
-        if not token_bytes:
+        auth = await authenticate_scope(scope)
+        if auth.user is None:
             await self.close(code=4001)
             return
-
-        token = token_bytes.decode("utf-8")
-
-        # Validate JWT and resolve user.
-        user = await self._authenticate(token)
-        if user is None:
-            await self.close(code=4001)
-            return
+        user = auth.user
 
         # Resolve project PK from URL route kwargs.
         project_pk = str(scope["url_route"]["kwargs"]["pk"])
+        warn_if_legacy(auth, consumer="ProjectConsumer", project_pk=project_pk)
 
         # Check membership ≥ Member (Viewers cannot connect). Symbolic comparison
         # so the gate stays correct under ADR-0072 role-ordinal re-spacing.
@@ -189,31 +186,6 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
     # ------------------------------------------------------------------
     # Private helpers (run in thread pool via sync_to_async internally)
     # ------------------------------------------------------------------
-
-    async def _authenticate(self, token: str) -> Any:
-        """Validate a JWT access token and return the user, or None on failure."""
-        from channels.db import database_sync_to_async
-
-        @database_sync_to_async  # type: ignore[untyped-decorator]
-        def _validate(tok: str) -> Any:
-            from django.contrib.auth import get_user_model
-            from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
-            from rest_framework_simplejwt.tokens import AccessToken
-
-            User = get_user_model()
-            try:
-                access = AccessToken(tok)  # type: ignore[arg-type]
-                user_id = access["user_id"]
-                # is_active filter (#888): a deactivated user may still hold a
-                # JWT that has not yet expired. Without this, a disabled account
-                # keeps receiving real-time board events until its token lifetime
-                # runs out. Treat an inactive user as a failed resolve (4001),
-                # mirroring DRF's JWTAuthentication, which rejects inactive users.
-                return User.objects.get(pk=user_id, is_active=True)
-            except (TokenError, InvalidToken, User.DoesNotExist):
-                return None
-
-        return await _validate(token)
 
     async def _get_role(self, user: Any, project_pk: str) -> int | None:
         """Return the user's role ordinal on the project, or None if not a member."""

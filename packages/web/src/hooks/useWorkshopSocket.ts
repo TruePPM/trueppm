@@ -11,6 +11,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { useAuthStore } from '@/stores/authStore';
+import { fetchWsTicket } from '@/api/wsTicket';
 
 export interface WorkshopEvent {
   type: string;
@@ -57,9 +58,32 @@ export function useWorkshopSocket(
     let backoffMs = 1_000;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
+    function scheduleReconnect() {
+      retryTimer = setTimeout(() => {
+        backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
+        connect();
+      }, backoffMs);
+    }
+
     function connect() {
       if (!mountedRef.current) return;
-      const url = `${WS_BASE}/ws/v1/projects/${projectId}/workshop/?token=${encodeURIComponent(accessToken ?? '')}`;
+      // Mint a single-use ticket then connect with ?ticket= (ADR-0141, #818) —
+      // no JWT in the WebSocket URL. Single-use, so re-minted on each reconnect.
+      void fetchWsTicket()
+        .then((ticket) => {
+          if (!mountedRef.current || !enabled) return;
+          openSocket(ticket);
+        })
+        .catch(() => {
+          if (!mountedRef.current || !enabled) return;
+          // Don't retry into an expired session; otherwise back off and retry.
+          if (useAuthStore.getState().sessionExpired) return;
+          scheduleReconnect();
+        });
+    }
+
+    function openSocket(ticket: string) {
+      const url = `${WS_BASE}/ws/v1/projects/${projectId}/workshop/?ticket=${encodeURIComponent(ticket)}`;
       const ws = new WebSocket(url);
       wsRef.current = ws;
 
@@ -79,10 +103,7 @@ export function useWorkshopSocket(
       ws.addEventListener('close', () => {
         wsRef.current = null;
         if (!mountedRef.current || !enabled) return;
-        retryTimer = setTimeout(() => {
-          backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
-          connect();
-        }, backoffMs);
+        scheduleReconnect();
       });
     }
 

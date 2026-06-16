@@ -11,6 +11,7 @@ from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from django.conf import settings
 
 from trueppm_api.apps.access.models import Role
+from trueppm_api.apps.sync.ws_auth import authenticate_scope, warn_if_legacy
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +74,8 @@ ALLOWED_EVENT_TYPES = frozenset(
 class WorkshopConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
     """Relays workshop cursor and edit events to all session participants.
 
-    Authentication:  JWT access token supplied as `?token=<token>` query param.
+    Authentication:  Single-use `?ticket=<id>` (ADR-0141); deprecated `?token=`
+                     fallback for one release. See `sync.ws_auth`.
     Authorization:   User must hold at least Member role on the project AND an
                      active WorkshopSession must exist.  Rejects with 4004 if
                      no session is active (prevents ghost connections lingering
@@ -95,20 +97,15 @@ class WorkshopConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
 
     async def websocket_connect(self, message: dict[str, Any]) -> None:
         scope = self.scope
-        query_string: bytes = scope.get("query_string", b"")
-        params = dict(pair.split(b"=", 1) for pair in query_string.split(b"&") if b"=" in pair)
-        token_bytes = params.get(b"token")
-        if not token_bytes:
+        # Single-use ?ticket= (ADR-0141), with the deprecated ?token= fallback.
+        auth = await authenticate_scope(scope)
+        if auth.user is None:
             await self.close(code=4001)
             return
-
-        token = token_bytes.decode("utf-8")
-        user = await self._authenticate(token)
-        if user is None:
-            await self.close(code=4001)
-            return
+        user = auth.user
 
         project_pk = str(scope["url_route"]["kwargs"]["pk"])
+        warn_if_legacy(auth, consumer="WorkshopConsumer", project_pk=project_pk)
         # Symbolic comparison so the gate stays correct under ADR-0072 role-ordinal re-spacing.
         role = await self._get_role(user, project_pk)
         if role is None or role < Role.MEMBER:
@@ -315,32 +312,8 @@ class WorkshopConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
         await _mark_left()
 
     # ------------------------------------------------------------------
-    # Auth helpers (mirrors ProjectConsumer)
+    # Auth helpers (mirrors ProjectConsumer; ticket/token auth in ws_auth.py)
     # ------------------------------------------------------------------
-
-    async def _authenticate(self, token: str) -> Any:
-        from channels.db import database_sync_to_async
-
-        @database_sync_to_async  # type: ignore[untyped-decorator]
-        def _validate(tok: str) -> Any:
-            from django.contrib.auth import get_user_model
-            from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
-            from rest_framework_simplejwt.tokens import AccessToken
-
-            User = get_user_model()
-            try:
-                access = AccessToken(tok)  # type: ignore[arg-type]
-                user_id = access["user_id"]
-                # is_active filter (#888): a deactivated user may still hold a
-                # JWT that has not yet expired. Without this, a disabled account
-                # keeps receiving workshop edit/cursor events until its token
-                # expires. Treat an inactive user as a failed resolve (4001),
-                # mirroring DRF's JWTAuthentication, which rejects inactive users.
-                return User.objects.get(pk=user_id, is_active=True)
-            except (TokenError, InvalidToken, User.DoesNotExist):
-                return None
-
-        return await _validate(token)
 
     async def _get_role(self, user: Any, project_pk: str) -> int | None:
         from channels.db import database_sync_to_async

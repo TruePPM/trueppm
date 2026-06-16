@@ -39,6 +39,7 @@ import { useSchedulerStore } from '@/stores/schedulerStore';
 import { useTaskRunStore } from '@/stores/taskRunStore';
 import { useWsConnectionStore } from '@/stores/wsConnectionStore';
 import { applyTaskDatesDelta, type TaskDatesDelta } from '@/hooks/useScheduleTasks';
+import { fetchWsTicket } from '@/api/wsTicket';
 import type { Task } from '@/types';
 import type { CpmError } from '@/stores/schedulerStore';
 
@@ -562,6 +563,13 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
       }
     }
 
+    function scheduleReconnect() {
+      retryTimer = setTimeout(() => {
+        backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
+        connect();
+      }, backoffMs);
+    }
+
     function connect() {
       if (!mountedRef.current) return;
 
@@ -569,7 +577,32 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
       const token = tokenRef.current;
       if (!pid || !token) return;
 
-      const url = `${WS_BASE}/ws/v1/projects/${pid}/?token=${encodeURIComponent(token)}`;
+      // Mint a single-use ticket, then open the socket with ?ticket= (ADR-0141,
+      // #818) so no JWT ever appears in a WebSocket URL / access log. Tickets are
+      // single-use, so this runs on every (re)connect.
+      void fetchWsTicket()
+        .then((ticket) => {
+          // The component may have unmounted, or projectId changed, during the
+          // ticket round-trip — bail rather than open a stale socket.
+          if (!mountedRef.current || projectIdRef.current !== pid) return;
+          openSocket(pid, ticket);
+        })
+        .catch(() => {
+          if (!mountedRef.current) return;
+          // A failed mint usually means the session expired (apiClient already
+          // ran refresh-and-retry). Treat it like the 4001 auth-reject close so
+          // we don't retry into a void; otherwise back off and try again.
+          if (useAuthStore.getState().sessionExpired) {
+            useWsConnectionStore.getState().markFailed();
+            return;
+          }
+          useWsConnectionStore.getState().markDisconnected();
+          scheduleReconnect();
+        });
+    }
+
+    function openSocket(pid: string, ticket: string) {
+      const url = `${WS_BASE}/ws/v1/projects/${pid}/?ticket=${encodeURIComponent(ticket)}`;
       ws = new WebSocket(url);
 
       ws.addEventListener('message', handleMessage);
@@ -590,10 +623,7 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         // escalate the connection state (reconnecting → stale after a few
         // attempts) and schedule an exponential-backoff reconnect.
         useWsConnectionStore.getState().markDisconnected();
-        retryTimer = setTimeout(() => {
-          backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
-          connect();
-        }, backoffMs);
+        scheduleReconnect();
       });
 
       ws.addEventListener('open', () => {
