@@ -60,7 +60,7 @@ export const FIXTURE_MC_RESULT: MonteCarloResult = {
     { date: '2026-12-21', pct: 99.8 },
     { date: '2026-12-28', pct: 100 },
   ],
-  // Duration-sensitivity tornado (ADR-0139): the tasks whose duration most moves
+  // Duration-sensitivity tornado (ADR-0140): the tasks whose duration most moves
   // the finish, by rank correlation. Critical-chain tasks (t3/t5/t4) dominate;
   // the off-path doc task (t7) barely registers. Joined to names in the UI.
   sensitivity: [

@@ -129,7 +129,7 @@ MAX_LAG_DELTA_CELLS = 50_000_000
 MAX_VELOCITY_SPRINTS = 10_000
 
 # Default ceiling on the number of tasks returned in a Monte Carlo sensitivity
-# tornado (ADR-0139). The ranking is "the tasks that move the finish most", so a
+# tornado (ADR-0140). The ranking is "the tasks that move the finish most", so a
 # top-N is the point — and it bounds the response payload regardless of project
 # size. Callers can override via the ``sensitivity_cap`` parameter of
 # :func:`monte_carlo`.
@@ -177,7 +177,7 @@ class ScheduleResult:
 
 @dataclass
 class TaskSensitivity:
-    """How strongly one task's duration drives the project finish (ADR-0139).
+    """How strongly one task's duration drives the project finish (ADR-0140).
 
     ``index`` is the absolute Spearman rank correlation between the task's
     per-run sampled duration and the project's per-run completion offset, in
@@ -205,7 +205,7 @@ class MonteCarloResult:
     # Full sorted distribution of simulated completion dates.
     # Useful for rendering histogram tooltips in the UI.
     distribution: list[date] = field(default_factory=list)
-    # Per-task duration-sensitivity tornado (ADR-0139), sorted by ``index``
+    # Per-task duration-sensitivity tornado (ADR-0140), sorted by ``index``
     # descending and capped to the top entries. Empty for a fully deterministic
     # project (no sampled variance to correlate against the finish).
     sensitivity: list[TaskSensitivity] = field(default_factory=list)
@@ -1529,7 +1529,7 @@ def _duration_sensitivity(
     """Rank tasks by how strongly their sampled duration moves the project finish.
 
     The sensitivity index of a task is ``|spearman(duration, finish)|`` across all
-    runs — the @RISK-style duration tornado (ADR-0139). Returns the top ``cap``
+    runs — the @RISK-style duration tornado (ADR-0140). Returns the top ``cap``
     tasks by index, descending. Tasks whose sampled duration has zero variance
     (deterministic, completed, or milestone) cannot move the finish and are
     omitted; if the finish itself has zero variance (fully deterministic project)
@@ -1629,7 +1629,7 @@ def monte_carlo(
         max_tasks: Maximum number of tasks allowed. Pass ``None`` to disable
                    the cap. Default 500.
         sensitivity_cap: Maximum number of tasks returned in the duration
-                   sensitivity tornado (ADR-0139). Default ``MC_SENSITIVITY_CAP``.
+                   sensitivity tornado (ADR-0140). Default ``MC_SENSITIVITY_CAP``.
 
     Returns:
         MonteCarloResult with P50, P80, P95 completion dates, the full sorted
@@ -2008,7 +2008,7 @@ def monte_carlo(
     p80 = _offset_to_date(float(pct_offsets[1]))
     p95 = _offset_to_date(float(pct_offsets[2]))
 
-    # Duration-sensitivity tornado (ADR-0139) — which tasks' sampled durations
+    # Duration-sensitivity tornado (ADR-0140) — which tasks' sampled durations
     # most move the finish, from the same sampled matrix (no second pass).
     sensitivity = _duration_sensitivity(dur_matrix, completion_offsets, topo_order, sensitivity_cap)
 

@@ -147,7 +147,7 @@ describe('MonteCarloDetailPanel', () => {
     expect(within(desktopPanel).getByText('+29d vs CPM')).toBeInTheDocument();
   });
 
-  it('renders the sensitivity tornado joined to task names (ADR-0139)', () => {
+  it('renders the sensitivity tornado joined to task names (ADR-0140)', () => {
     const result = {
       ...FIXTURE_MC_RESULT,
       sensitivity: [

@@ -95,7 +95,7 @@ const FIXTURE_MC_RESULT = {
     { date: '2026-12-07', pct: 98.6 },
     { date: '2026-12-14', pct: 100 },
   ],
-  // Duration-sensitivity tornado (ADR-0139) — Backend API drives the finish.
+  // Duration-sensitivity tornado (ADR-0140) — Backend API drives the finish.
   sensitivity: [{ task_id: 'mc-t2', index: 0.88 }],
 };
 

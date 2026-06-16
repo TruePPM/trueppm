@@ -514,7 +514,7 @@ export interface McConfidencePoint {
 }
 
 /**
- * One entry in the duration-sensitivity tornado (ADR-0139): how strongly a
+ * One entry in the duration-sensitivity tornado (ADR-0140): how strongly a
  * task's duration drives the project finish. `index` is the absolute Spearman
  * rank correlation in [0, 1] between the task's sampled duration and the
  * completion date across runs — "the tasks that move the finish most". Task
@@ -559,7 +559,7 @@ export interface MonteCarloResult {
    */
   confidenceCurve: McConfidencePoint[];
   /**
-   * Duration-sensitivity tornado (ADR-0139), sorted by `index` descending and
+   * Duration-sensitivity tornado (ADR-0140), sorted by `index` descending and
    * capped server-side. Empty when no simulation has run or when served from
    * persisted history past the 24h cache TTL (the raw sampled matrix is not
    * persisted) — consumers degrade gracefully, same as `confidenceCurve`.

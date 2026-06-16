@@ -171,7 +171,7 @@ export function MonteCarloDetailPanel({ result, cpmFinish, tasks, isOpen, onClos
           </section>
         )}
 
-        {/* What's holding the date — duration-sensitivity tornado (ADR-0139).
+        {/* What's holding the date — duration-sensitivity tornado (ADR-0140).
             Replaces the former PERT-spread "top drivers", which ignored network
             position and so misranked high-variance off-critical-path tasks. */}
         <section>

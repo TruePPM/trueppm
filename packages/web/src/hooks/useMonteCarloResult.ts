@@ -36,7 +36,7 @@ interface MonteCarloLatestResponse {
     p95: number | null;
   } | null;
   confidence_curve?: { date: string; pct: number }[];
-  // Duration-sensitivity tornado (ADR-0139). Optional for resilience against
+  // Duration-sensitivity tornado (ADR-0140). Optional for resilience against
   // older cached payloads; empty on the from-history path (not persisted).
   sensitivity?: { task_id: string; index: number }[];
 }

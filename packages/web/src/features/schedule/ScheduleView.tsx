@@ -1431,7 +1431,7 @@ export function ScheduleView() {
             mutationVersion={mcMutationVersion}
             tasks={allTasks}
           />
-          {/* Forecast & sensitivity insights bar (issue 1222, ADR-0139) — collapsible
+          {/* Forecast & sensitivity insights bar (issue 1222, ADR-0140) — collapsible
               two-column forecast + duration-sensitivity tornado below the chips. */}
           <ScheduleInsightsBar projectId={projectId ?? undefined} tasks={allTasks} />
         </>

@@ -95,7 +95,7 @@ class TestMonteCarloEndpoint:
         pert_task: Task,
     ) -> None:
         """The run response carries the per-task duration-sensitivity tornado
-        (ADR-0139). With a single PERT task driving the finish, that task ranks
+        (ADR-0140). With a single PERT task driving the finish, that task ranks
         at index ~1.0."""
         r = member_client.post(
             f"/api/v1/projects/{project.pk}/monte-carlo/",

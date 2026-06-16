@@ -1,4 +1,4 @@
-"""Duration-sensitivity tornado for Monte Carlo (ADR-0139).
+"""Duration-sensitivity tornado for Monte Carlo (ADR-0140).
 
 The sensitivity index of a task is the absolute Spearman rank correlation between
 its sampled duration and the project completion offset across runs — "the tasks

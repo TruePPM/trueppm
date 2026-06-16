@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import type { McSensitivity, Task } from '@/types';
 
 interface Props {
-  /** Duration-sensitivity tornado from the Monte Carlo result (ADR-0139). */
+  /** Duration-sensitivity tornado from the Monte Carlo result (ADR-0140). */
   sensitivity: McSensitivity[];
   /** Loaded tasks — joined by id for the task name and critical-path flag. */
   tasks: Task[];
@@ -12,7 +12,7 @@ interface Props {
 
 /**
  * "What's holding the date" — the duration-sensitivity tornado as labeled
- * percent bars (ADR-0139, redesign `cpmSide`). Each task's bar is filled to its
+ * percent bars (ADR-0140, redesign `cpmSide`). Each task's bar is filled to its
  * sensitivity index (|rank correlation| with the project finish, 0–1 → %); a
  * critical-path task is drawn in `semantic-critical`, everything else in
  * `brand-primary`. Rows whose task is no longer in the list (deleted between

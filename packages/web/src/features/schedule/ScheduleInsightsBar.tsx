@@ -28,7 +28,7 @@ function fmtDate(iso: string): string {
 
 /**
  * "Forecast & sensitivity" — the docked, collapsible Monte Carlo insights bar at
- * the bottom of the Schedule view (ADR-0139, v2 redesign `S.schedule`).
+ * the bottom of the Schedule view (ADR-0140, v2 redesign `S.schedule`).
  *
  * Collapsed (the default): a single header row with the one-line summary
  * (P50 · P80 · P95 · top driver). Expanded: two columns — the finish-date
