@@ -262,7 +262,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               My Work / Inbox); Portfolio rollup is cross-program (Enterprise,
               post-1.0): under the enterprise edition it routes to the real
               slot-registered view, under community it routes to an EE-gated
-              upsell (#1173, rule 177) rather than vanishing (rule 15). The group
+              upsell (rule 177) rather than vanishing (rule 15). The group
               heading + Portfolio are expanded-only. */}
           {showFull && <h2 className={GROUP_LABEL}>Organization</h2>}
           <NavLink
@@ -290,7 +290,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
           )}
           {/* Community edition: instead of hiding the cross-program Portfolio
               rollup (which reads as broken OSS), surface it as an EE-gated row
-              that routes to a designed in-app upsell (#1173, rule 177). The "EE"
+              that routes to a designed in-app upsell (rule 177). The "EE"
               tag is a non-interactive <span> — the row itself is the NavLink, so
               nesting the focusable EnterpriseBadge anchor inside it would be
               invalid HTML; the composite accessible name lives on aria-label. */}

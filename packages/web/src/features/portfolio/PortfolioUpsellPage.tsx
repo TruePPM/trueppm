@@ -28,10 +28,10 @@ function CapabilityCard({ title, body }: { title: string; body: string }) {
 }
 
 /**
- * Community-edition upsell surface for the Enterprise Portfolio rollup (#1173,
- * web rule 177). The Sidebar "Portfolio rollup" row routes here under the
+ * Community-edition upsell surface for the Enterprise Portfolio rollup
+ * (web rule 177). The Sidebar "Portfolio rollup" row routes here under the
  * community edition instead of being hidden (reads as broken OSS) or being a
- * dead control (#669). Cross-program portfolio aggregation itself lives in the
+ * dead control. Cross-program portfolio aggregation itself lives in the
  * enterprise repo and registers against the `nav.portfolio_section` / `routes`
  * slots (ADR-0029) — this OSS page is static marketing content only and queries
  * no portfolio data, keeping the Apache-2.0 boundary intact.

@@ -637,7 +637,7 @@ export const router = createBrowserRouter([
               </Suspense>
             ),
           },
-          // Community-edition upsell for the Enterprise Portfolio rollup (#1173).
+          // Community-edition upsell for the Enterprise Portfolio rollup.
           // The real `/portfolio` route is registered by the enterprise repo via
           // the `routes` slot (ADR-0029); OSS must NOT define it. This static
           // upsell self-redirects to `/portfolio` under the enterprise edition.
