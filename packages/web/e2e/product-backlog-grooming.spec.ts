@@ -81,6 +81,9 @@ function groomingPayload(empty = false) {
             criteria_met_count: 4,
             criteria_total: 6,
             prioritization_score: 3.5,
+            // Committed to a sprint → "Pulled" chip; assigned → initials avatar.
+            sprint: 'SP1',
+            assignments: [{ resource_id: 'R1', resource_name: 'Lena Bauer', units: 1 }],
           }),
           apiStory({
             id: 'S2',
@@ -200,6 +203,63 @@ test.describe('Product backlog grooming (#494/#921/#922)', () => {
       type: 'story',
       project: FIXTURE_PROJECT_ID,
     });
+  });
+
+  test('shows sprint-commitment chips + legend, and the dynamic subtitle counts (1223)', async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.goto(`${BASE_URL}/product-backlog`);
+
+    await expect(page.getByRole('heading', { name: 'Product backlog' })).toBeVisible({
+      timeout: 10_000,
+    });
+    // Dynamic subtitle reflects the composition: S1 committed, S2 + S3 candidates.
+    await expect(page.getByText(/1 pulled into sprint · 2 proposed/)).toBeVisible();
+    // Legend explains the two chips.
+    await expect(page.getByText('= committed to a sprint')).toBeVisible();
+    await expect(page.getByText('= candidate')).toBeVisible();
+    // The committed story carries the "Pulled" chip; candidates carry "Proposed".
+    await expect(page.getByText('Pulled').first()).toBeVisible();
+    await expect(page.getByText('Proposed').first()).toBeVisible();
+    // The assigned story renders its owner avatar (decorative circle; name on the wrapper).
+    await expect(page.getByLabel('Assigned to Lena Bauer')).toBeVisible();
+  });
+
+  test('the By epic / Ranked toggle switches to a flat list with epic breadcrumbs (1223)', async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.goto(`${BASE_URL}/product-backlog`);
+
+    // Default view is "By epic": the group header carries the uppercase "Epic" label.
+    await expect(page.getByText('Epic', { exact: true })).toBeVisible({ timeout: 10_000 });
+
+    // The radio is sr-only inside its label (web-rule 175 pattern); a user clicks the
+    // visible label text, which natively toggles the wrapped input.
+    await page.getByText('Ranked', { exact: true }).click();
+
+    // Ranked view is a flat list — the epic group header is gone, the stories remain, and
+    // each row carries its parent-epic name as a breadcrumb.
+    await expect(page.getByText('Epic', { exact: true })).toHaveCount(0);
+    await expect(page.getByText('Failover handling')).toBeVisible();
+    await expect(page.getByText('Telemetry').first()).toBeVisible();
+  });
+
+  test('the header CTAs focus the quick-add and route to sprint planning (1223)', async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.goto(`${BASE_URL}/product-backlog`);
+
+    const input = page.getByRole('textbox', { name: 'Add a story' });
+    await expect(input).toBeVisible({ timeout: 10_000 });
+
+    await page.getByRole('button', { name: '+ Add story' }).click();
+    await expect(input).toBeFocused();
+
+    await page.getByRole('button', { name: /Plan sprint/i }).click();
+    await page.waitForURL(/\/sprints$/);
   });
 
   test('renders the empty state with the quick-add affordance', async ({ page }) => {
