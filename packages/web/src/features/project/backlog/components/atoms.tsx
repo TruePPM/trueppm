@@ -5,7 +5,8 @@
  * "refining/partial", neutral-text-secondary for "idea/none".
  */
 
-import type { DorState } from '@/types';
+import type { DorState, Task } from '@/types';
+import { PendingAcceptanceChip } from '@/features/board/PendingAcceptanceChip';
 
 const DOR_STYLE: Record<DorState, { cls: string; label: string }> = {
   ready: { cls: 'bg-semantic-on-track-bg text-semantic-on-track', label: 'Ready' },
@@ -55,6 +56,91 @@ export function AcMeter({ met, total }: { met: number; total: number }) {
       <span className={`font-mono text-[11px] tabular-nums ${color}`}>
         {met}/{total}
       </span>
+    </span>
+  );
+}
+
+/**
+ * Sprint-commitment read-state for a backlog story (1223, web-rule 180).
+ *
+ * Three mutually-exclusive states, by precedence:
+ *  - sprintPending → the shared {@link PendingAcceptanceChip} (ADR-0102, rule 149): a
+ *    task injected into an ACTIVE sprint after activation, not yet accepted. It is the
+ *    more specific state and wins, so the two pills never double up on one row.
+ *  - sprintId set → "Pulled" (committed to a sprint). Brand-accent tint — deliberately
+ *    NOT semantic-on-track, which would collide with the green DoR "Ready" chip in the
+ *    adjacent Readiness column (rule 7/8: two greens on one row read as a single cue).
+ *  - otherwise → "Proposed" (a backlog candidate, not yet committed): a recessive
+ *    dashed-outline neutral pill — it is the common/default state, so it stays quiet.
+ *
+ * The text label is the WCAG 1.4.1 signal — never color alone (rule 7/120).
+ */
+export function SprintCommitmentChip({ story }: { story: Task }) {
+  if (story.sprintPending) return <PendingAcceptanceChip />;
+  if (story.sprintId) {
+    return (
+      <span
+        className="inline-flex items-center whitespace-nowrap rounded bg-brand-primary/10 px-2 py-0.5 text-[11px] font-semibold text-brand-primary"
+        title="Committed to a sprint"
+      >
+        Pulled
+      </span>
+    );
+  }
+  return (
+    <span
+      className="inline-flex items-center whitespace-nowrap rounded border border-dashed border-neutral-border px-2 py-0.5 text-[11px] font-semibold text-neutral-text-secondary"
+      title="A backlog candidate — not yet committed to a sprint"
+    >
+      Proposed
+    </span>
+  );
+}
+
+/** First+last initials, max two chars, uppercased; falls back to "?" for a blank name. */
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+/**
+ * Story assignee avatar (1223). Shows the first assignee's initials; 2+ assignees stack
+ * the first avatar with a "+N" overflow; unassigned renders a dashed placeholder. The
+ * circles are decorative (rule 6) — the accessible name (the assignee list, or
+ * "Unassigned") is carried on the wrapper as aria-label + a hover title.
+ */
+export function AssigneeAvatar({ assignees }: { assignees: Task['assignees'] }) {
+  if (!assignees || assignees.length === 0) {
+    return (
+      <span
+        className="flex h-6 w-6 items-center justify-center rounded-full border border-dashed border-neutral-border text-[11px] text-neutral-text-secondary"
+        aria-label="Unassigned"
+        title="Unassigned"
+      >
+        <span aria-hidden>–</span>
+      </span>
+    );
+  }
+  const names = assignees.map((a) => a.name).join(', ');
+  const extra = assignees.length - 1;
+  return (
+    <span className="flex items-center" aria-label={`Assigned to ${names}`} title={names}>
+      <span
+        aria-hidden
+        className="flex h-6 w-6 items-center justify-center rounded-full bg-brand-primary/10 text-[11px] font-semibold text-brand-primary"
+      >
+        {initials(assignees[0].name)}
+      </span>
+      {extra > 0 && (
+        <span
+          aria-hidden
+          className="-ml-1 flex h-6 min-w-6 items-center justify-center rounded-full border border-neutral-surface bg-neutral-surface-sunken px-1 text-[11px] font-semibold text-neutral-text-secondary"
+        >
+          +{extra}
+        </span>
+      )}
     </span>
   );
 }
