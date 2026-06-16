@@ -110,6 +110,28 @@ describe('BlockerSection — flagged', () => {
     expect(screen.getAllByText('Decision needed').length).toBeGreaterThan(0);
   });
 
+  it('annotates the related task as informational in the read-only view (issue 1156)', () => {
+    // Non-editor (Viewer / non-assignee) read view: the soft link shows as a
+    // plain name, now with the "does not affect the schedule" caveat so it can't
+    // be mistaken for a CPM dependency.
+    TASKS = [
+      {
+        id: 'task-1',
+        name: 'Build login',
+        blockedAgeSeconds: 3600,
+        blockedReason: undefined, // gated — non-assignee read view
+        blockerType: 'dependency',
+        blockingTask: 't9',
+        blockedBy: { id: 'u1', username: 'sam' },
+      },
+      { id: 't9', name: 'Permit approval' },
+    ];
+    renderSection(false);
+    expect(screen.getByText('Related task')).toBeInTheDocument();
+    expect(screen.getByText('Permit approval')).toBeInTheDocument();
+    expect(screen.getByText(/does not affect the schedule/i)).toBeInTheDocument();
+  });
+
   it('unblocks by clearing the reason', () => {
     setTask({
       blockedAgeSeconds: 3600,

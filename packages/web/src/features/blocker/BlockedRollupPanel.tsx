@@ -158,9 +158,14 @@ function BlockedRowItem({ row }: { row: BlockedRow }) {
           <span className="text-xs text-neutral-text-secondary">{row.assignee.username}</span>
         )}
         {row.blocking_task && (
-          <span className="text-xs text-neutral-text-secondary" title={row.blocking_task.title}>
-            <span aria-hidden="true">↳ </span>
-            {row.blocking_task.short_id || 'linked'}
+          // Soft "waiting on" link (issue 1156) — informational, NOT a CPM edge. Frame
+          // it as "waiting on" (no arrow glyph that mimics a dependency) and spell
+          // out the non-scheduling nature in the title so it can't read as a predecessor.
+          <span
+            className="text-xs text-neutral-text-secondary"
+            title={`Waiting on ${row.blocking_task.title} — informational, does not affect the schedule`}
+          >
+            waiting on {row.blocking_task.short_id || 'a task'}
           </span>
         )}
       </span>

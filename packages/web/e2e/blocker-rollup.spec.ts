@@ -55,7 +55,8 @@ test.describe('Blocked roll-up panel (ADR-0124)', () => {
     await expect(panel.getByText('External vendor')).toBeVisible();
     await expect(panel.getByText('6d blocked')).toBeVisible();
     await expect(panel.getByText('priya')).toBeVisible();
-    await expect(panel.getByText('T-9')).toBeVisible();
+    // Soft "waiting on" link (issue 1156) — framed as informational, not a CPM edge.
+    await expect(panel.getByText('waiting on T-9')).toBeVisible();
     // The private reason text is never in the roll-up payload or DOM.
     await expect(panel.getByText(/permit office/i)).toHaveCount(0);
   });
