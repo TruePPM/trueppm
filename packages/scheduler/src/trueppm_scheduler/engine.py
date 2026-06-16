@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import math
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 import networkx as nx
@@ -96,6 +96,15 @@ MAX_PROJECT_SPAN_DAYS = 366 * 1000
 # actionable error rather than allowed to spin. The cost is checked from leaf
 # *counts* before any cross product is materialised, so the guard itself is cheap.
 MAX_EXPANDED_EDGES = 100_000
+# Ceiling on the number of calendar exception ranges (#1206). ``is_working_day`` is
+# called once per day stepped by every calendar walk, and the old linear ``any()``
+# scan over ``exceptions`` made a schedule O(span x E) — a few thousand exceptions on
+# a long span tied up a worker for minutes. The lookup is now O(log E) via a cached
+# merged-interval bisect, but building that index is still O(E log E), and a real
+# calendar has at most a few hundred holidays/closures, so a multi-million-entry list
+# is pathological or hostile. Generous (no real calendar approaches it) and bounds the
+# one-time index build and its memory.
+MAX_CALENDAR_EXCEPTIONS = 100_000
 # Ceiling on the Monte Carlo lag-delta precompute: (distinct dependency
 # type/lag combinations) x (working-day index span) cells (#1201). The vectorised
 # MC forward pass builds one delta array of length ``index_size`` per *distinct*
@@ -188,6 +197,25 @@ class MonteCarloResult:
 # ---------------------------------------------------------------------------
 
 
+def _safe_offset(d: date, delta: timedelta) -> date:
+    """``d + delta``, converting a ``date`` min/max OverflowError into the public type.
+
+    The engine accumulates dates one calendar step (and one lag) at a time; near the
+    representable ceiling a raw ``date + timedelta`` raises a bare ``OverflowError``
+    that escapes the documented exception contract and crashes the CLI / Celery
+    worker (#1207). The eager span/reach guards in :func:`_validate_project` reject
+    the realistic cases up front; this is the last-line backstop so no calendar walk
+    or lag add can leak an ``OverflowError``.
+    """
+    try:
+        return d + delta
+    except OverflowError as err:
+        raise InvalidScheduleInput(
+            "The schedule span pushed a date past the representable range; use an "
+            "earlier project start date or reduce durations/lags."
+        ) from err
+
+
 def _next_working_day(d: date, calendar: Calendar) -> date:
     """Return d if it is a working day, otherwise the next working day.
 
@@ -203,7 +231,7 @@ def _next_working_day(d: date, calendar: Calendar) -> date:
                 f"Calendar has no working day within {MAX_CALENDAR_SCAN_DAYS} days "
                 "of the requested date; check the working_days bitmask and exceptions."
             )
-        d += timedelta(days=1)
+        d = _safe_offset(d, timedelta(days=1))
         scanned += 1
     return d
 
@@ -220,7 +248,7 @@ def _prev_working_day(d: date, calendar: Calendar) -> date:
                 f"Calendar has no working day within {MAX_CALENDAR_SCAN_DAYS} days "
                 "of the requested date; check the working_days bitmask and exceptions."
             )
-        d -= timedelta(days=1)
+        d = _safe_offset(d, timedelta(days=-1))
         scanned += 1
     return d
 
@@ -244,7 +272,7 @@ def _scan_for_working_day(current: date, calendar: Calendar, *, forward: bool) -
     step = timedelta(days=1) if forward else timedelta(days=-1)
     scanned = 0
     while True:
-        current += step
+        current = _safe_offset(current, step)
         scanned += 1
         if calendar.is_working_day(current):
             return current
@@ -324,12 +352,12 @@ def _working_days_between(start: date, end: date, calendar: Calendar) -> int:
 
 def _advance_calendar_days(d: date, lag: timedelta, calendar: Calendar) -> date:
     """Advance d by lag calendar days and snap to the next working day."""
-    return _next_working_day(d + lag, calendar)
+    return _next_working_day(_safe_offset(d, lag), calendar)
 
 
 def _retreat_calendar_days(d: date, lag: timedelta, calendar: Calendar) -> date:
     """Retreat d by lag calendar days and snap to the previous working day."""
-    return _prev_working_day(d - lag, calendar)
+    return _prev_working_day(_safe_offset(d, -lag), calendar)
 
 
 # ---------------------------------------------------------------------------
@@ -404,10 +432,32 @@ def find_cycle(
             :data:`MAX_EXPANDED_EDGES` leaf-level tuples (a pathological cross
             product); the graph is rejected rather than allowed to spin.
     """
+    # Validate the raw input shape up front so a malformed call to this public API
+    # raises the documented InvalidScheduleInput rather than a bare NetworkXError /
+    # TypeError from deep inside networkx or _collect_leaves (#1209).
+    try:
+        edge_list = list(edges)
+    except TypeError as err:
+        raise InvalidScheduleInput(f"edges must be an iterable of pairs (got {edges!r}).") from err
+    for e in edge_list:
+        if not (isinstance(e, tuple) and len(e) == 2):
+            raise InvalidScheduleInput(
+                f"each edge must be a (predecessor_id, successor_id) 2-tuple (got {e!r})."
+            )
+        u, v = e
+        if not isinstance(u, str) or not isinstance(v, str):
+            raise InvalidScheduleInput(f"edge endpoints must be string task ids (got {e!r}).")
+    if children_map is not None:
+        for sid, kids in children_map.items():
+            if not isinstance(kids, list):
+                raise InvalidScheduleInput(
+                    f"children_map[{sid!r}] must be a list of child ids (got {kids!r})."
+                )
+
     if children_map:
-        edges = _expand_edges_for_cycle_check(edges, children_map)
+        edge_list = _expand_edges_for_cycle_check(edge_list, children_map)
     g: nx.DiGraph[str] = nx.DiGraph()
-    g.add_edges_from(edges)
+    g.add_edges_from(edge_list)
     try:
         cycle = nx.find_cycle(g)
     except nx.NetworkXNoCycle:
@@ -543,7 +593,9 @@ def _forward_pass(
                 # Successor cannot start until the day after predecessor finishes + lag.
                 # EF is inclusive, so add 1 day to move past it, then add lag.
                 es_constraints.append(
-                    _next_working_day(pred.early_finish + timedelta(days=1) + lag, calendar)
+                    _next_working_day(
+                        _safe_offset(pred.early_finish, timedelta(days=1) + lag), calendar
+                    )
                 )
             elif dep.dep_type == DependencyType.SS:
                 # Successor cannot start before predecessor starts + lag.
@@ -617,7 +669,9 @@ def _backward_pass(
             if dep.dep_type == DependencyType.FS:
                 # Predecessor must finish the day before successor's late start minus lag.
                 lf_constraints.append(
-                    _prev_working_day(succ.late_start - timedelta(days=1) - lag, calendar)
+                    _prev_working_day(
+                        _safe_offset(succ.late_start, -timedelta(days=1) - lag), calendar
+                    )
                 )
             elif dep.dep_type == DependencyType.SS:
                 # Predecessor must start no later than successor's late start minus lag.
@@ -695,7 +749,9 @@ def _compute_floats(
             lag = dep.lag
             assert succ.early_start is not None and succ.early_finish is not None
             if dep.dep_type == DependencyType.FS:
-                imposed = _next_working_day(task.early_finish + timedelta(days=1) + lag, calendar)
+                imposed = _next_working_day(
+                    _safe_offset(task.early_finish, timedelta(days=1) + lag), calendar
+                )
                 succ_date = succ.early_start
             elif dep.dep_type == DependencyType.SS:
                 imposed = _advance_calendar_days(task.early_start, lag, calendar)
@@ -801,16 +857,44 @@ def expand_summary_dependencies(
     summary_ids = set(children_map.keys())
     leaf_tasks = [t for t in tasks if t.id not in summary_ids]
 
+    # Resolve each endpoint to its leaves once and cache it (#1208): an endpoint id
+    # recurs across many edges and _collect_leaves walks the subtree on each call.
+    # Mirrors the caching the cycle-check twin (_expand_edges_for_cycle_check)
+    # already does — the asymmetry was a missed optimization here.
+    leaves_cache: dict[str, list[str]] = {}
+
+    def _leaves(node_id: str) -> list[str]:
+        if node_id not in summary_ids:
+            return [node_id]
+        cached = leaves_cache.get(node_id)
+        if cached is None:
+            cached = _collect_leaves(node_id, children_map)
+            leaves_cache[node_id] = cached
+        return cached
+
+    # Bound the cross product from leaf *counts* before materialising a single
+    # Dependency (#1208). A summary→summary edge fans out to len(L(pred)) *
+    # len(L(succ)) objects, so without this a wide top-of-WBS edge produces millions
+    # of Dependency objects (and a graph that then chokes schedule()). The
+    # cheap cycle-check path already enforces MAX_EXPANDED_EDGES the same way; the
+    # expensive real-expansion path was the one missing the guard.
+    estimated = 0
+    for dep in deps:
+        estimated += len(_leaves(dep.predecessor_id)) * len(_leaves(dep.successor_id))
+        if estimated > MAX_EXPANDED_EDGES:
+            raise InvalidScheduleInput(
+                f"Expanding summary dependencies to leaf level would exceed "
+                f"{MAX_EXPANDED_EDGES:,} edges. A summary→summary dependency is fanning "
+                "out to the cross product of both summaries' leaves — depend on specific "
+                "leaf tasks, or split the wide summary edge, and retry."
+            )
+
     seen: set[tuple[str, str]] = set()
     expanded: list[Dependency] = []
 
     for dep in deps:
-        pred_id = dep.predecessor_id
-        succ_id = dep.successor_id
-
-        # Resolve to leaves
-        preds = _collect_leaves(pred_id, children_map) if pred_id in summary_ids else [pred_id]
-        succs = _collect_leaves(succ_id, children_map) if succ_id in summary_ids else [succ_id]
+        preds = _leaves(dep.predecessor_id)
+        succs = _leaves(dep.successor_id)
 
         for p in preds:
             for s in succs:
@@ -908,10 +992,31 @@ def _validate_project(project: Project) -> None:
             )
         seen_ids.add(t.id)
 
+    # working_days reaches a bitwise ``&`` below; a non-int mask (a direct-object
+    # caller passing a string/float, not the from_dict path which already validates)
+    # would leak a bare TypeError past the documented contract (#1209).
+    if isinstance(project.calendar.working_days, bool) or not isinstance(
+        project.calendar.working_days, int
+    ):
+        raise InvalidScheduleInput(
+            f"Calendar working_days must be an integer bitmask "
+            f"(got {project.calendar.working_days!r})."
+        )
     if project.calendar.working_days & 0b111_1111 == 0:
         raise InvalidScheduleInput(
             "Calendar has no working weekday set (working_days bitmask is empty); "
             "at least one of Mon-Sun must be a working day."
+        )
+
+    # Bound the exception-range count (#1206): is_working_day is called once per day
+    # stepped by every walk, so an unbounded exceptions list turns a schedule into
+    # O(span x E). The bisect index keeps each lookup O(log E), but a multi-million-
+    # entry list is still pathological — reject it up front.
+    if len(project.calendar.exceptions) > MAX_CALENDAR_EXCEPTIONS:
+        raise InvalidScheduleInput(
+            f"Calendar has {len(project.calendar.exceptions)} exception ranges, exceeding "
+            f"the maximum of {MAX_CALENDAR_EXCEPTIONS:,}; a real calendar has at most a few "
+            "hundred holidays or closures."
         )
 
     # Reachability probe: a working day must exist within MAX_CALENDAR_SCAN_DAYS
@@ -931,12 +1036,32 @@ def _validate_project(project: Project) -> None:
     # with the documented exception type (#1070).
     if project.velocity_samples is not None:
         for s in project.velocity_samples:
-            if s is not None and not math.isfinite(s):
+            if s is None:
+                continue
+            # isinstance gate before math.isfinite (#1209): a string sample would
+            # otherwise raise a bare TypeError from isfinite. bool is an int subclass
+            # but never a meaningful velocity, so reject it explicitly.
+            if isinstance(s, bool) or not isinstance(s, (int, float)) or not math.isfinite(s):
                 raise InvalidScheduleInput(
                     f"velocity_samples must contain only finite numbers (got {s!r})."
                 )
 
     for t in project.tasks:
+        # Type guards for the direct-object API (#1209): the from_dict/from_json path
+        # already coerces these, but a caller building Task objects by hand can pass
+        # the wrong type, which otherwise leaks AttributeError/TypeError from deep in
+        # a pass instead of the documented InvalidScheduleInput. datetime is a date
+        # subclass but mixes badly with date arithmetic, so reject it for planned_start.
+        if not isinstance(t.duration, timedelta):
+            raise InvalidScheduleInput(
+                f"Task {t.id!r} duration must be a timedelta (got {t.duration!r})."
+            )
+        if t.planned_start is not None and (
+            not isinstance(t.planned_start, date) or isinstance(t.planned_start, datetime)
+        ):
+            raise InvalidScheduleInput(
+                f"Task {t.id!r} planned_start must be a date, not {type(t.planned_start).__name__}."
+            )
         _check_duration(t.duration, f"Task {t.id!r} duration")
         for field_name, value in (
             ("optimistic_duration", t.optimistic_duration),
@@ -965,7 +1090,11 @@ def _validate_project(project: Project) -> None:
                     f"optimistic <= most_likely <= pessimistic "
                     f"(got {o} <= {m} <= {pe} days)."
                 )
-        if t.story_points is not None and not math.isfinite(t.story_points):
+        if t.story_points is not None and (
+            isinstance(t.story_points, bool)
+            or not isinstance(t.story_points, (int, float))
+            or not math.isfinite(t.story_points)
+        ):
             raise InvalidScheduleInput(
                 f"Task {t.id!r} story_points must be a finite number (got {t.story_points!r})."
             )
@@ -983,6 +1112,13 @@ def _validate_project(project: Project) -> None:
                 "representable date range."
             )
     for dep in project.dependencies:
+        # Type guard for the direct-object API (#1209): a non-timedelta lag would
+        # otherwise leak AttributeError from ``.days`` here and in both passes.
+        if not isinstance(dep.lag, timedelta):
+            raise InvalidScheduleInput(
+                f"Dependency {dep.predecessor_id!r} → {dep.successor_id!r} lag must be a "
+                f"timedelta (got {dep.lag!r})."
+            )
         if abs(dep.lag.days) > MAX_LAG_DAYS:
             raise InvalidScheduleInput(
                 f"Dependency {dep.predecessor_id!r} → {dep.successor_id!r} lag exceeds "
@@ -1037,6 +1173,24 @@ def _validate_project(project: Project) -> None:
             f"Total project span ({total_span} days across all task durations and lags) "
             f"exceeds the maximum of {MAX_PROJECT_SPAN_DAYS} days; the schedule cannot be "
             "computed within a representable date range."
+        )
+
+    # date.max overflow guard (#1207). The engine walks in *calendar* days; a valid
+    # weekday-only calendar inflates a working-day span by up to 7x, and a single
+    # snap can advance up to MAX_CALENDAR_SCAN_DAYS. A start date close enough to the
+    # representable ceiling that the walk would step past date.max otherwise raised a
+    # bare OverflowError deep in a forward-pass date addition (escaping the CLI and
+    # Celery worker, and the documented contract). Reject it cleanly here. The
+    # estimate is conservative: it can refuse an absurd far-future start with a huge
+    # span, but never a realistically-dated project. (The symmetric date.min
+    # underflow is unreachable — the backward pass never retreats below the forward
+    # pass's earliest date, which is >= start_date.)
+    max_calendar_reach = total_span * 7 + MAX_CALENDAR_SCAN_DAYS
+    if (date.max - project.start_date).days < max_calendar_reach:
+        raise InvalidScheduleInput(
+            f"Project start date {project.start_date.isoformat()} is too close to the "
+            f"maximum representable date for a span of {total_span} working days; the "
+            "schedule would overflow the date range. Use an earlier start date."
         )
 
 
@@ -1435,15 +1589,23 @@ def monte_carlo(
     wd_index = _build_working_day_index(project.start_date, calendar, index_size)
     offset_of = {d: i for i, d in enumerate(wd_index)}
 
-    def _offset_after(anchor_date: date, shift: timedelta) -> int:
-        """Working-day offset of ``next_working_day(anchor_date + shift)``."""
-        target = _next_working_day(anchor_date + shift, calendar)
-        off = offset_of.get(target)
-        if off is not None:
-            return off
-        # Target fell outside the index: a lead before project start floors to 0;
-        # a date past the end is clamped to the last representable offset.
-        return 0 if target < wd_index[0] else len(wd_index) - 1
+    # Working-day ordinals for the whole index, so each per-(dep_type, lag) delta
+    # array is built with a single vectorised searchsorted instead of an
+    # ``index_size``-long pure-Python loop of ``_next_working_day`` snaps (#1205).
+    # ``wd_index`` is sorted ascending and holds exactly the working days, so
+    # ``searchsorted(wd_ord, target, "left")`` reproduces ``_next_working_day``'s
+    # snap — the first working-day offset >= target — including the former clamps
+    # (a target before the index floors to 0; one past the end clamps to the last
+    # offset). Ordinal arithmetic also can't hit the ``date.max`` overflow the
+    # scalar path now guards, because the index was already built within range.
+    wd_ord = np.fromiter((d.toordinal() for d in wd_index), dtype=np.int64, count=len(wd_index))
+    last_off = len(wd_index) - 1
+    k_arange = np.arange(index_size, dtype=np.float64)
+
+    def _snapped_offsets(anchor_ords: np.ndarray, shift_days: int) -> np.ndarray:
+        """Vectorised ``_offset_after``: offsets of next_working_day(anchor + shift)."""
+        off = np.searchsorted(wd_ord, anchor_ords + shift_days, side="left")
+        return np.clip(off, 0, last_off).astype(np.float64)
 
     # Lag delta arrays, indexed by the rounded working-day offset of the
     # predecessor's anchor (exclusive EF for FS/FF, ES for SS/SF); each holds the
@@ -1463,33 +1625,34 @@ def monte_carlo(
     # keys x ``index_size`` — is capped explicitly: ``MAX_PROJECT_SPAN_DAYS`` bounds
     # Σlag but not this product, and an SF/lag-0 edge contributes 0 to Σlag, so
     # without the cap a wide fan-out of such edges slips the span guard entirely.
-    one_day = timedelta(days=1)
-
     def _build_delta(dt: DependencyType, lag: timedelta) -> np.ndarray:
+        # Vectorised equivalent of the former per-cell loop (#1205): for each anchor
+        # offset k the delta is the snapped successor offset minus the plain-add
+        # baseline. FS/FF anchor on the *previous* working day (wd_index[k-1]), so
+        # their k=0 cell stays 0 and the array is filled from index 1; SS/SF anchor
+        # on wd_index[k] over the full range. This reproduces the scalar
+        # ``_offset_after`` arithmetic exactly (asserted byte-for-byte in the tests).
         arr = np.zeros(index_size, dtype=np.float64)
-        for k in range(index_size):
-            if dt == DependencyType.FS:
-                # k = exclusive EF offset; EF date = wd_index[k-1]; baseline = k.
-                if k == 0:
-                    continue
-                arr[k] = _offset_after(wd_index[k - 1], one_day + lag) - k
-            elif dt == DependencyType.FF:
-                # Anchor k is the exclusive EF offset (inclusive last day =
-                # wd_index[k-1]); the inclusive→exclusive +1 is folded into the
-                # -(k-1) baseline, so succ.EF >= snapped(pred.EF + lag).
-                if k == 0:
-                    continue
-                arr[k] = _offset_after(wd_index[k - 1], lag) - (k - 1)
-            elif dt == DependencyType.SS:
-                # Start-anchored ES constraint; both sides are inclusive starts.
-                arr[k] = _offset_after(wd_index[k], lag) - k
-            else:  # SF
-                # Start-anchored EF constraint: succ.EF (exclusive) must clear the
-                # snapped predecessor-start+lag day (inclusive), so +1 converts the
-                # inclusive constraint day to the exclusive EF offset. FF gets this
-                # +1 for free via its exclusive-EF anchor; SF does not, and dropping
-                # it finished SF successors one working day early (#824).
-                arr[k] = _offset_after(wd_index[k], lag) + 1 - k
+        lag_days = lag.days
+        if dt == DependencyType.FS:
+            # k = exclusive EF offset; EF date = wd_index[k-1]; shift = 1 + lag.
+            off = _snapped_offsets(wd_ord[:-1], 1 + lag_days)
+            arr[1:] = off - k_arange[1:]
+        elif dt == DependencyType.FF:
+            # Anchor k is the exclusive EF offset (inclusive last day = wd_index[k-1]);
+            # the inclusive→exclusive +1 is folded into the -(k-1) baseline.
+            off = _snapped_offsets(wd_ord[:-1], lag_days)
+            arr[1:] = off - k_arange[: index_size - 1]
+        elif dt == DependencyType.SS:
+            # Start-anchored ES constraint; both sides are inclusive starts.
+            arr[:] = _snapped_offsets(wd_ord, lag_days) - k_arange
+        else:  # SF
+            # Start-anchored EF constraint: succ.EF (exclusive) must clear the snapped
+            # predecessor-start+lag day (inclusive), so +1 converts the inclusive
+            # constraint day to the exclusive EF offset. FF gets this +1 for free via
+            # its exclusive-EF anchor; SF does not, and dropping it finished SF
+            # successors one working day early (#824).
+            arr[:] = _snapped_offsets(wd_ord, lag_days) + 1.0 - k_arange
         return arr
 
     delta_by_key: dict[tuple[DependencyType, timedelta], np.ndarray | None] = {}
