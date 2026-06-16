@@ -13,24 +13,50 @@ import { test, expect } from '@playwright/test';
 const PROJECT_ID = 'e2e-mc-00000000-0000-0000-0000-000000000099';
 
 const FIXTURE_PROJECTS = [
-  { id: PROJECT_ID, name: 'MC Test Project', description: '', start_date: '2026-09-01', calendar: 'default' },
+  {
+    id: PROJECT_ID,
+    name: 'MC Test Project',
+    description: '',
+    start_date: '2026-09-01',
+    calendar: 'default',
+  },
 ];
 
 const FIXTURE_TASKS = [
   {
-    id: 'mc-t1', wbs_path: '1', name: 'Phase 1',
-    early_start: '2026-09-01', early_finish: '2026-11-30',
+    id: 'mc-t1',
+    wbs_path: '1',
+    name: 'Phase 1',
+    early_start: '2026-09-01',
+    early_finish: '2026-11-30',
     planned_start: '2026-09-01',
-    duration: 60, percent_complete: 0, is_critical: true, is_milestone: false, is_summary: true,
-    optimistic_duration: null, pessimistic_duration: null, most_likely_duration: null, notes: '',
+    duration: 60,
+    percent_complete: 0,
+    is_critical: true,
+    is_milestone: false,
+    is_summary: true,
+    optimistic_duration: null,
+    pessimistic_duration: null,
+    most_likely_duration: null,
+    notes: '',
     server_version: 1,
   },
   {
-    id: 'mc-t2', wbs_path: '1.1', name: 'Backend API',
-    early_start: '2026-09-01', early_finish: '2026-10-20',
+    id: 'mc-t2',
+    wbs_path: '1.1',
+    name: 'Backend API',
+    early_start: '2026-09-01',
+    early_finish: '2026-10-20',
     planned_start: '2026-09-01',
-    duration: 50, percent_complete: 0, is_critical: true, is_milestone: false, is_summary: false,
-    optimistic_duration: 40, pessimistic_duration: 65, most_likely_duration: 50, notes: '',
+    duration: 50,
+    percent_complete: 0,
+    is_critical: true,
+    is_milestone: false,
+    is_summary: false,
+    optimistic_duration: 40,
+    pessimistic_duration: 65,
+    most_likely_duration: 50,
+    notes: '',
     server_version: 1,
   },
 ];
@@ -75,16 +101,28 @@ const FIXTURE_MC_RESULT = {
 const FIXTURE_MC_HISTORY = {
   results: [
     {
-      id: 'run-2', taken_at: '2026-05-09T10:00:00Z',
-      p50: '2026-11-15', p80: '2026-12-10', p95: '2026-12-28', cpm_finish: '2026-11-30',
-      n_simulations: 500, task_count: 2,
-      delta: { p50: 5, p80: 14, p95: 9 }, triggered_by_name: 'P M',
+      id: 'run-2',
+      taken_at: '2026-05-09T10:00:00Z',
+      p50: '2026-11-15',
+      p80: '2026-12-10',
+      p95: '2026-12-28',
+      cpm_finish: '2026-11-30',
+      n_simulations: 500,
+      task_count: 2,
+      delta: { p50: 5, p80: 14, p95: 9 },
+      triggered_by_name: 'P M',
     },
     {
-      id: 'run-1', taken_at: '2026-05-02T10:00:00Z',
-      p50: '2026-11-10', p80: '2026-11-26', p95: '2026-12-19', cpm_finish: '2026-11-30',
-      n_simulations: 500, task_count: 2,
-      delta: null, triggered_by_name: 'P M',
+      id: 'run-1',
+      taken_at: '2026-05-02T10:00:00Z',
+      p50: '2026-11-10',
+      p80: '2026-11-26',
+      p95: '2026-12-19',
+      cpm_finish: '2026-11-30',
+      n_simulations: 500,
+      task_count: 2,
+      delta: null,
+      triggered_by_name: 'P M',
     },
   ],
   cap: 100,
@@ -116,9 +154,15 @@ async function gotoScheduleWithMC(page: import('@playwright/test').Page) {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        task_count: 2, critical_path_count: 2, monte_carlo_p80: '2026-12-10',
-        at_risk_count: 0, critical_count: 0, at_risk_tasks: [], critical_tasks: [],
-        last_saved: null, recalculated_at: null,
+        task_count: 2,
+        critical_path_count: 2,
+        monte_carlo_p80: '2026-12-10',
+        at_risk_count: 0,
+        critical_count: 0,
+        at_risk_tasks: [],
+        critical_tasks: [],
+        last_saved: null,
+        recalculated_at: null,
       }),
     }),
   );
@@ -126,14 +170,33 @@ async function gotoScheduleWithMC(page: import('@playwright/test').Page) {
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ schedule_health: 'unknown', spi: null, tasks_late_count: 0, critical_task_count: 2, total_tasks: 2, complete_tasks: 0, next_milestone: null, team_utilization_pct: null, owner_name: null, start_date: '2026-09-01' }),
+      body: JSON.stringify({
+        schedule_health: 'unknown',
+        spi: null,
+        tasks_late_count: 0,
+        critical_task_count: 2,
+        total_tasks: 2,
+        complete_tasks: 0,
+        next_milestone: null,
+        team_utilization_pct: null,
+        owner_name: null,
+        start_date: '2026-09-01',
+      }),
     }),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/attention/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [] }) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ items: [] }),
+    }),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/my-tasks/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ tasks: [] }) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ tasks: [] }),
+    }),
   );
   await page.route('**/api/v1/tasks/**', (route) =>
     route.fulfill({
@@ -143,7 +206,11 @@ async function gotoScheduleWithMC(page: import('@playwright/test').Page) {
     }),
   );
   await page.route('**/api/v1/dependencies/**', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+    }),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/monte-carlo/latest/`, (route) =>
     route.fulfill({
@@ -178,6 +245,25 @@ async function gotoScheduleWithMC(page: import('@playwright/test').Page) {
   await page.goto(`/projects/${PROJECT_ID}/schedule`);
 }
 
+// Catch-all 401-guard, registered in a top-level beforeEach so it is the EARLIEST
+// route — every specific route added later (per-test handlers and gotoScheduleWithMC)
+// wins over it by Playwright's LIFO precedence. Any endpoint the app-wide shell +
+// ⌘K palette read but these specs do not mock (programs, sprints, velocity, …)
+// would otherwise cascade through 401-recovery into the SessionExpired banner,
+// which then intercepts every click. #647's extra app-wide subscriptions removed
+// the timing slack that previously let these specs pass without the guard. It must
+// NOT live in gotoScheduleWithMC: that runs after the per-test /monte-carlo/ route
+// here, and a late catch-all would shadow it (the recomputing-indicator test).
+test.beforeEach(async ({ page }) => {
+  await page.route('**/api/v1/**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+    }),
+  );
+});
+
 test.describe('Monte Carlo Schedule Integration (#333)', () => {
   test('P50/P80/P95 markers are visible on the Gantt timeline', async ({ page }) => {
     await gotoScheduleWithMC(page);
@@ -197,9 +283,7 @@ test.describe('Monte Carlo Schedule Integration (#333)', () => {
       const scroller = document.querySelector(
         '[data-testid="schedule-canvas-scroll"]',
       ) as HTMLElement | null;
-      const marker = document.querySelector(
-        '[data-testid="mc-marker-p80"]',
-      ) as HTMLElement | null;
+      const marker = document.querySelector('[data-testid="mc-marker-p80"]') as HTMLElement | null;
       if (!scroller || !marker) return;
       const viewportLeft = parseFloat(marker.style.left || '0');
       const canvasOriginX = viewportLeft + scroller.scrollLeft;
@@ -226,7 +310,11 @@ test.describe('Monte Carlo Schedule Integration (#333)', () => {
       runCallCount++;
       // Delay the response so we can observe the pending state
       await new Promise((r) => setTimeout(r, 200));
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true }) });
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true }),
+      });
     });
 
     await gotoScheduleWithMC(page);
@@ -246,7 +334,9 @@ test.describe('Monte Carlo Schedule Integration (#333)', () => {
 
     await expect(page.locator('[data-testid="mc-detail-panel"]')).toBeVisible({ timeout: 5_000 });
     await expect(
-      page.locator('[data-testid="mc-detail-panel"]').getByRole('img', { name: /Monte Carlo distribution/i }),
+      page
+        .locator('[data-testid="mc-detail-panel"]')
+        .getByRole('img', { name: /Monte Carlo distribution/i }),
     ).toBeVisible();
   });
 
@@ -258,7 +348,9 @@ test.describe('Monte Carlo Schedule Integration (#333)', () => {
     await expect(page.locator('[data-testid="mc-detail-panel"]')).toBeVisible();
 
     await page.keyboard.press('Escape');
-    await expect(page.locator('[data-testid="mc-detail-panel"]')).not.toBeVisible({ timeout: 3_000 });
+    await expect(page.locator('[data-testid="mc-detail-panel"]')).not.toBeVisible({
+      timeout: 3_000,
+    });
   });
 });
 

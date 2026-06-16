@@ -23,14 +23,19 @@ vi.mock('@/hooks/usePrograms', () => ({
   usePrograms: () => ({ data: [{ id: 'prog1', name: 'Platform', code: 'PLT' }] }),
 }));
 
-// Tier-2 hooks honour their projectId arg so we can exercise the enabled-gating:
-// when the palette is closed, useCommandItems passes `undefined` and these no-op.
+// Tier-2 hooks. NOTE: the real `useScheduleTasks` falls back to the *route* project
+// when handed `undefined`, so it returns tasks even with the palette closed — the
+// gating happens in useCommandItems, not here. The default mock mirrors the polite
+// arg-honouring shape, but `scheduleTasks` is a spy so a test can simulate the real
+// route-fallback (tasks present regardless of the arg).
+type MockTask = { id: string; name: string; wbs?: string; status?: string; shortId?: string };
+const scheduleTasks = vi.fn((pid?: string): { tasks: MockTask[] | undefined } => ({
+  tasks: pid
+    ? [{ id: 't1', name: 'Wire OAuth', wbs: '1.4.2', status: 'IN_PROGRESS', shortId: 'A1B2' }]
+    : undefined,
+}));
 vi.mock('@/hooks/useScheduleTasks', () => ({
-  useScheduleTasks: (pid?: string) => ({
-    tasks: pid
-      ? [{ id: 't1', name: 'Wire OAuth', wbs: '1.4.2', status: 'IN_PROGRESS', shortId: 'A1B2' }]
-      : undefined,
-  }),
+  useScheduleTasks: (pid?: string) => scheduleTasks(pid),
 }));
 vi.mock('@/hooks/useSprints', () => ({
   useActiveSprint: (pid?: string) => ({
@@ -60,6 +65,11 @@ afterEach(() => {
   currentId = 'p1';
   vi.clearAllMocks();
   canManage.mockImplementation((pid?: string) => !!pid);
+  scheduleTasks.mockImplementation((pid?: string) => ({
+    tasks: pid
+      ? [{ id: 't1', name: 'Wire OAuth', wbs: '1.4.2', status: 'IN_PROGRESS', shortId: 'A1B2' }]
+      : undefined,
+  }));
 });
 
 describe('useCommandItems — tier assembly', () => {
@@ -87,10 +97,7 @@ describe('useCommandItems — tier assembly', () => {
     expect(task?.label).toBe('Open task: Wire OAuth');
     expect(task?.detail).toBe('1.4.2 · In progress');
     task?.run();
-    expect(openTask).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 't1' }),
-      'p1',
-    );
+    expect(openTask).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), 'p1');
     expect(navigate).not.toHaveBeenCalled(); // opens drawer, does not navigate
   });
 
@@ -127,5 +134,28 @@ describe('useCommandItems — tier assembly', () => {
     expect([...items.keys()].some((k) => k.startsWith('task:'))).toBe(false);
     expect([...items.keys()].some((k) => k.startsWith('current:'))).toBe(false);
     expect(items.has('jump:project:p1')).toBe(true);
+  });
+
+  // Regression (#647): the real useScheduleTasks falls back to the route project
+  // when handed `undefined`, so `tasks` is populated even while the palette is
+  // closed. Gating the Tier-2 loop on the raw route id (not the enabled id) built
+  // task items off route data on every project route — and route task payloads can
+  // omit `status`, which crashed the whole app via formatStatus(undefined).
+  it('builds no task items while closed even when the tasks hook returns route tasks', () => {
+    scheduleTasks.mockImplementation(() => ({
+      tasks: [{ id: 't9', name: 'Legacy task', wbs: '2.1' /* route payload, no status */ }],
+    }));
+    const { result } = renderHook(() => useCommandItems(false));
+    const items = byId(result.current);
+    expect([...items.keys()].some((k) => k.startsWith('task:'))).toBe(false);
+  });
+
+  it('tolerates a task with no status — detail line drops the status segment', () => {
+    scheduleTasks.mockImplementation(() => ({
+      tasks: [{ id: 't9', name: 'Legacy task', wbs: '2.1' /* no status */ }],
+    }));
+    const { result } = renderHook(() => useCommandItems(true));
+    const task = byId(result.current).get('task:t9');
+    expect(task?.detail).toBe('2.1');
   });
 });

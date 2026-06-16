@@ -20,7 +20,9 @@ import { test, expect } from '@playwright/test';
  */
 
 test.describe('Dependency cascade refresh (#314)', () => {
-  test('summary finish equals widest leaf finish after CPM (no weekend drift)', async ({ page }) => {
+  test('summary finish equals widest leaf finish after CPM (no weekend drift)', async ({
+    page,
+  }) => {
     const PROJECT = 'e2e-fixture-00000000-0000-0000-0000-000000000314';
 
     await page.addInitScript(() => {
@@ -84,6 +86,38 @@ test.describe('Dependency cascade refresh (#314)', () => {
         parent_id: 'eng',
       },
     ];
+
+    // Catch-all 401-guard, registered FIRST so every specific route below wins
+    // (Playwright matches routes LIFO). Any endpoint the app-wide shell + ⌘K
+    // palette read but this spec does not mock (programs, sprints, …) would
+    // otherwise cascade through 401-recovery into the SessionExpired banner,
+    // which then intercepts every click. #647's extra app-wide subscriptions
+    // removed the timing slack that previously let this spec pass without it.
+    await page.route('**/api/v1/**', (route) => {
+      if (route.request().method() === 'GET') {
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+        });
+        return;
+      }
+      route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+    });
+    // Real current-user so the shell does not treat the session as
+    // unauthenticated (the empty-list catch-all above would otherwise stand in).
+    await page.route('**/api/v1/auth/me/', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: 'u1',
+          email: 'pm@example.com',
+          first_name: 'P',
+          last_name: 'M',
+        }),
+      }),
+    );
 
     await page.route('**/api/v1/projects/', (route) =>
       route.fulfill({

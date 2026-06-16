@@ -63,6 +63,32 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
     );
   });
 
+  // 401-guard safety net. Any endpoint not explicitly mocked below (the app-wide
+  // shell + ⌘K palette fetch programs, sprints, velocity, project detail, me/work,
+  // …) would otherwise 401 → refresh → expire and raise the full-screen
+  // session-expired modal, which then intercepts every click. Registered FIRST so
+  // the specific routes below (added later) take precedence; returns a benign empty
+  // list shape. This previously passed on timing slack that #647's extra app-wide
+  // hook subscriptions removed.
+  await page.route('**/api/v1/**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+    }),
+  );
+
+  // The app fetches the current user on boot; give it a real user object (the
+  // empty-list catch-all above would otherwise stand in and the shell would treat
+  // the session as unauthenticated).
+  await page.route('**/api/v1/auth/me/', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ id: 'u1', email: 'pm@example.com', first_name: 'P', last_name: 'M' }),
+    }),
+  );
+
   await page.route('**/api/v1/projects/', (route) =>
     route.fulfill({
       status: 200,
@@ -97,13 +123,36 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
   );
   // Stub overview endpoints
   await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/overview/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ schedule_health: 'unknown', spi: null, tasks_late_count: 0, critical_task_count: 0, total_tasks: 0, complete_tasks: 0, next_milestone: null, team_utilization_pct: null, owner_name: null, start_date: '2026-01-01' }) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        schedule_health: 'unknown',
+        spi: null,
+        tasks_late_count: 0,
+        critical_task_count: 0,
+        total_tasks: 0,
+        complete_tasks: 0,
+        next_milestone: null,
+        team_utilization_pct: null,
+        owner_name: null,
+        start_date: '2026-01-01',
+      }),
+    }),
   );
   await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/attention/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [] }) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ items: [] }),
+    }),
   );
   await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/my-tasks/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ tasks: [] }) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ tasks: [] }),
+    }),
   );
   // ADR-0133/#1142: the drawer gates write controls off the caller's project role
   // (GET members/?self=true). Without this mock the role never resolves and the
@@ -152,8 +201,28 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
         next: null,
         previous: null,
         results: [
-          { id: 'res-1', name: 'Alice Nguyen', email: '', job_role: '', max_units: '1.00', calendar: null, skills: [], skill_fit: 'missing', missing_skills: [] },
-          { id: 'res-2', name: 'Bob Carter', email: '', job_role: '', max_units: '1.00', calendar: null, skills: [], skill_fit: 'missing', missing_skills: [] },
+          {
+            id: 'res-1',
+            name: 'Alice Nguyen',
+            email: '',
+            job_role: '',
+            max_units: '1.00',
+            calendar: null,
+            skills: [],
+            skill_fit: 'missing',
+            missing_skills: [],
+          },
+          {
+            id: 'res-2',
+            name: 'Bob Carter',
+            email: '',
+            job_role: '',
+            max_units: '1.00',
+            calendar: null,
+            skills: [],
+            skill_fit: 'missing',
+            missing_skills: [],
+          },
         ],
       }),
     }),
@@ -185,10 +254,7 @@ async function openDrawer(page: import('@playwright/test').Page, taskName: strin
  * mockup). Overview is expanded by default per ADR-0050, so no extra clicks
  * are required.
  */
-async function openDrawerWithResources(
-  page: import('@playwright/test').Page,
-  taskName: string,
-) {
+async function openDrawerWithResources(page: import('@playwright/test').Page, taskName: string) {
   return await openDrawer(page, taskName);
 }
 
@@ -395,8 +461,7 @@ test.describe('ResourceAssignmentSection — overallocation warning', () => {
                 code: 'resource_overallocated',
                 resource_id: 'res-1',
                 resource_name: 'Alice Nguyen',
-                detail:
-                  'Alice Nguyen is allocated 150% across active tasks (capacity: 100%).',
+                detail: 'Alice Nguyen is allocated 150% across active tasks (capacity: 100%).',
               },
             ],
           }),
@@ -436,8 +501,7 @@ test.describe('ResourceAssignmentSection — overallocation warning', () => {
                 code: 'resource_overallocated',
                 resource_id: 'res-1',
                 resource_name: 'Alice Nguyen',
-                detail:
-                  'Alice Nguyen is allocated 150% across active tasks (capacity: 100%).',
+                detail: 'Alice Nguyen is allocated 150% across active tasks (capacity: 100%).',
               },
             ],
           }),

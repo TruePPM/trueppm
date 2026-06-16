@@ -15,8 +15,11 @@ import type { CommandItem } from './commandItems';
 
 const THEME_CYCLE: Record<Theme, Theme> = { light: 'dark', dark: 'auto', auto: 'light' };
 
-/** Humanize a TaskStatus enum ("IN_PROGRESS" → "In progress") for the task detail line. */
-function formatStatus(status: string): string {
+/** Humanize a TaskStatus enum ("IN_PROGRESS" → "In progress") for the task detail
+ *  line. Tolerates a missing status — nested/WS-delta task payloads can omit it,
+ *  in which case the detail line just drops the status segment. */
+function formatStatus(status: string | null | undefined): string {
+  if (!status) return '';
   const lower = status.replace(/_/g, ' ').toLowerCase();
   return lower.charAt(0).toUpperCase() + lower.slice(1);
 }
@@ -73,8 +76,13 @@ export function useCommandItems(enabled = true): CommandItem[] {
     // ---- Tier 2: Tasks (current project) -------------------------------------
     // Built for every current-project task; the palette query filters them and
     // caps the visible set. Selecting one opens the app-wide drawer in place.
+    // Gated on `tier2Id` (not `currentProjectId`) so the Tier-2 items are built
+    // only while the palette is open — `useScheduleTasks` falls back to the route
+    // project when handed `undefined`, so gating on the raw route id would build
+    // task items (and read possibly-partial task data) on every project route even
+    // with the palette closed.
     const taskItems: CommandItem[] = [];
-    if (currentProjectId) {
+    if (tier2Id) {
       for (const task of tasks ?? []) {
         const detail = [task.wbs, formatStatus(task.status)].filter(Boolean).join(' · ');
         taskItems.push({
@@ -83,32 +91,32 @@ export function useCommandItems(enabled = true): CommandItem[] {
           group: 'task',
           tag: 'Task',
           detail,
-          keywords: `${task.shortId ?? ''} ${task.wbs ?? ''} ${task.status}`,
-          run: act(() => openTask(task, currentProjectId)),
+          keywords: `${task.shortId ?? ''} ${task.wbs ?? ''} ${task.status ?? ''}`,
+          run: act(() => openTask(task, tier2Id)),
         });
       }
     }
 
     // ---- Tier 2: Current project (sprint + role-gated grooming) ---------------
     const currentItems: CommandItem[] = [];
-    if (currentProjectId) {
+    if (tier2Id) {
       const projectName = currentProject?.name ?? 'this project';
       if (activeSprint) {
         currentItems.push({
-          id: `current:active-sprint:${currentProjectId}`,
+          id: `current:active-sprint:${tier2Id}`,
           label: `Active Sprint — ${activeSprint.name}`,
           group: 'current',
           tag: 'Sprint',
           keywords: 'board active sprint',
-          run: go(`/projects/${currentProjectId}/board`),
+          run: go(`/projects/${tier2Id}/board`),
         });
         currentItems.push({
-          id: `current:retro:${currentProjectId}`,
+          id: `current:retro:${tier2Id}`,
           label: `Open ${activeSprint.name} retro`,
           group: 'current',
           tag: 'Sprint',
           keywords: 'retrospective sprint',
-          run: go(`/projects/${currentProjectId}/sprints`),
+          run: go(`/projects/${tier2Id}/sprints`),
         });
       }
       // Role/facet-gated: backlog grooming is Product-Owner-facet or Admin+ only,
@@ -116,12 +124,12 @@ export function useCommandItems(enabled = true): CommandItem[] {
       // gate reads the server-provided role/facets — never an invented client rule.
       if (canManageBacklog && currentProject?.methodology !== 'WATERFALL') {
         currentItems.push({
-          id: `current:groom:${currentProjectId}`,
+          id: `current:groom:${tier2Id}`,
           label: `Groom backlog — ${projectName}`,
           group: 'current',
           tag: 'Backlog',
           keywords: 'product backlog grooming prioritize',
-          run: go(`/projects/${currentProjectId}/product-backlog`),
+          run: go(`/projects/${tier2Id}/product-backlog`),
         });
       }
     }
@@ -129,7 +137,14 @@ export function useCommandItems(enabled = true): CommandItem[] {
     // ---- Tier 1: Jump to (global) --------------------------------------------
     const jumps: CommandItem[] = [
       { id: 'jump:my-work', label: 'My Work', group: 'jump', tag: 'View', run: go('/me/work') },
-      { id: 'jump:inbox', label: 'Inbox', group: 'jump', tag: 'View', keywords: 'notifications', run: go('/me/notifications') },
+      {
+        id: 'jump:inbox',
+        label: 'Inbox',
+        group: 'jump',
+        tag: 'View',
+        keywords: 'notifications',
+        run: go('/me/notifications'),
+      },
       { id: 'jump:programs', label: 'Programs', group: 'jump', tag: 'View', run: go('/programs') },
     ];
     for (const program of programs ?? []) {
@@ -211,7 +226,7 @@ export function useCommandItems(enabled = true): CommandItem[] {
     toggleSidebar,
     setOpen,
     openTask,
-    currentProjectId,
+    tier2Id,
     currentProject,
     tasks,
     activeSprint,
