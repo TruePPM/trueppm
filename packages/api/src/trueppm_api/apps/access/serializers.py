@@ -220,6 +220,11 @@ class MeSerializer(serializers.Serializer[Any]):
     #   - landing: {intent, path, resolved_by} — the resolved front door.
     default_landing = serializers.SerializerMethodField()
     landing = serializers.SerializerMethodField()
+    # Per-user nav visibility (ADR-0139). The web shell reads this to hide the
+    # view tabs the user opted out of; it is a global per-user list, layered on
+    # top of the per-project methodology preset client-side. API-first: the
+    # hidden set is a server fact, identical for web, mobile, and MCP clients.
+    hidden_views = serializers.SerializerMethodField()
 
     def get_max_project_role(self, obj: Any) -> int | None:
         # Memoized: get_can_access_admin_settings also needs this, so without the
@@ -254,14 +259,18 @@ class MeSerializer(serializers.Serializer[Any]):
             ws is not None and ws >= WorkspaceRole.ADMIN
         )
 
-    def get_default_landing(self, obj: Any) -> str:
-        # Memoized: get_landing also needs the preference, so without the cache
-        # /auth/me would read UserProfile twice per response.
-        if not hasattr(self, "_default_landing"):
-            from trueppm_api.apps.profiles.services import get_default_landing
+    def _prefs(self, obj: Any) -> tuple[str, list[str]]:
+        # Memoized single read of (default_landing, hidden_views): get_landing,
+        # get_default_landing, and get_hidden_views all need a UserProfile column,
+        # so reading both in one .only() query keeps /auth/me at one profile read.
+        if not hasattr(self, "_prefs_cache"):
+            from trueppm_api.apps.profiles.services import get_profile_prefs
 
-            self._default_landing: str = get_default_landing(obj)
-        return self._default_landing
+            self._prefs_cache: tuple[str, list[str]] = get_profile_prefs(obj)
+        return self._prefs_cache
+
+    def get_default_landing(self, obj: Any) -> str:
+        return self._prefs(obj)[0]
 
     @extend_schema_field(
         inline_serializer(
@@ -289,6 +298,10 @@ class MeSerializer(serializers.Serializer[Any]):
             "path": landing.path,
             "resolved_by": landing.resolved_by,
         }
+
+    @extend_schema_field(serializers.ListField(child=serializers.CharField()))
+    def get_hidden_views(self, obj: Any) -> list[str]:
+        return self._prefs(obj)[1]
 
     def get_display_name(self, obj: Any) -> str:
         name = f"{obj.first_name} {obj.last_name}".strip()
