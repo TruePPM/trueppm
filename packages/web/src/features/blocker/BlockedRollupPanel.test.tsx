@@ -55,7 +55,10 @@ describe('BlockedRollupPanel — project scope', () => {
     expect(screen.getByText('External vendor')).toBeInTheDocument();
     expect(screen.getByText('6d blocked')).toBeInTheDocument();
     expect(screen.getByText('priya')).toBeInTheDocument();
-    expect(screen.getByText('T-9')).toBeInTheDocument();
+    // Soft "waiting on" link (issue 1156) — framed as informational, not a CPM edge.
+    const softLink = screen.getByText('waiting on T-9');
+    expect(softLink).toBeInTheDocument();
+    expect(softLink).toHaveAttribute('title', expect.stringMatching(/does not affect the schedule/i));
   });
 
   it('escalation-colors an old blocker red', () => {

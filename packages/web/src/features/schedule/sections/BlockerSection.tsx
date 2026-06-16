@@ -7,6 +7,8 @@ import {
   BLOCKER_TYPE_LABEL,
   blockerTypeLabel,
   formatBlockedAge,
+  SOFT_LINK_CAVEAT,
+  SOFT_LINK_CAVEAT_SHORT,
 } from '@/lib/blocker';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
 import { canEditTask } from '@/lib/roles';
@@ -146,10 +148,7 @@ export function BlockerSection({ taskId, projectId, userRole, canEdit }: DrawerS
             </option>
           ))}
         </select>
-        <p className="mt-1 text-xs text-neutral-text-secondary">
-          A “waiting on” note. It does not move schedule dates — for that, add a dependency in the
-          Dependencies section.
-        </p>
+        <p className="mt-1 text-xs text-neutral-text-secondary">{SOFT_LINK_CAVEAT}</p>
       </div>
     </>
   );
@@ -204,6 +203,7 @@ export function BlockerSection({ taskId, projectId, userRole, canEdit }: DrawerS
               <div>
                 <div className={LABEL_CLASS}>Related task</div>
                 <p className="text-sm text-neutral-text-primary">{blockingTaskName}</p>
+                <p className="mt-1 text-xs text-neutral-text-secondary">{SOFT_LINK_CAVEAT_SHORT}</p>
               </div>
             )}
           </div>

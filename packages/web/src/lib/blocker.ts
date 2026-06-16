@@ -31,6 +31,17 @@ export const BLOCKER_TYPE_LABEL: Record<BlockerType, string> = {
 };
 
 /**
+ * Copy distinguishing the soft `blocking_task` "waiting on" link from a real CPM
+ * dependency edge (issue 1156). The link is informational — it never moves schedule
+ * dates — so every surface that shows it (write picker + read views) renders one
+ * of these from a single source, and a PM cannot mistake it for a predecessor.
+ * The long form is the picker helper; the short form annotates read displays.
+ */
+export const SOFT_LINK_CAVEAT =
+  'A “waiting on” note. It does not move schedule dates — for that, add a dependency in the Dependencies section.';
+export const SOFT_LINK_CAVEAT_SHORT = 'Informational — does not affect the schedule.';
+
+/**
  * Format a blocked age (whole seconds) as a coarse "Xd Yh" / "Xh" / "just now"
  * label for the blocked badge. Coarse by design — the badge signals escalation
  * (how long it has been stuck), not minute-level precision, and a coarse label
