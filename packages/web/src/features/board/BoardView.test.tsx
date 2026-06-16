@@ -220,6 +220,8 @@ vi.mock('@/hooks/useSprints', () => ({
   useSprints: () => ({ sprints: [], isLoading: false }),
   useActiveSprint: () => ({ sprint: null, isLoading: false }),
   useProjectVelocity: () => ({ data: undefined, isLoading: false }),
+  // FlowAnalyticsPanel (collapsed by default) calls this on every render (#1188).
+  useFlowMetrics: () => ({ data: undefined, isLoading: false, isError: false }),
   useSprintMutations: () => ({
     createSprint: { mutate: () => undefined, isPending: false },
     closeSprint: { mutate: () => undefined, isPending: false },

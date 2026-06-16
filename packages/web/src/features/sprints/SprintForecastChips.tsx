@@ -16,6 +16,7 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 
+import { formatShortDate } from '@/features/sprints/sprintMath';
 import { useSprintBurndown, useSprintForecast } from '@/hooks/useSprints';
 
 interface Props {
@@ -28,6 +29,10 @@ export function SprintForecastChips({ projectId, sprintId }: Props) {
   const { data: forecast } = useSprintForecast(projectId);
 
   const finish = sprintFinishChip(burndown);
+  // The release-horizon chip branches on forecast_basis (NOT the legacy `basis`,
+  // web-rule 175): a velocity team reads sprint counts, a throughput (flow) team
+  // reads item counts + dates. Hidden when the velocity signal is team-private or
+  // the forecast is still warming up / lacks flow history.
   const showHorizon = !!forecast && !forecast.velocity_suppressed && forecast.status === 'ready';
 
   if (!finish && !showHorizon) return null;
@@ -40,7 +45,21 @@ export function SprintForecastChips({ projectId, sprintId }: Props) {
           <span aria-hidden="true">{finish.icon}</span> {finish.node}
         </Chip>
       )}
-      {showHorizon && forecast && (
+      {showHorizon && forecast && forecast.forecast_basis === 'throughput' && forecast.p50_date && (
+        <Chip to={to} tone="neutral" label="Release horizon">
+          <span aria-hidden="true">→</span> At current throughput, ~
+          <span className="tppm-mono">{forecast.remaining_count}</span> item
+          {forecast.remaining_count === 1 ? '' : 's'} clear by{' '}
+          <span className="tppm-mono">{formatShortDate(forecast.p50_date)}</span>
+          {forecast.p80_date ? (
+            <>
+              {' (P80 '}
+              <span className="tppm-mono">{formatShortDate(forecast.p80_date)}</span>)
+            </>
+          ) : null}
+        </Chip>
+      )}
+      {showHorizon && forecast && forecast.forecast_basis === 'velocity' && (
         <Chip to={to} tone="neutral" label="Release horizon">
           <span aria-hidden="true">→</span> At this pace, the backlog clears in ~
           <span className="tppm-mono">{forecast.p50_sprints}</span> sprint

@@ -14,12 +14,30 @@ vi.mock('@/hooks/useSprints', () => ({
 const READY_FORECAST = {
   status: 'ready',
   remaining_points: 60,
+  remaining_count: null,
   sample_count: 3,
   p50_sprints: 3,
   p80_sprints: 4,
   p50_date: '2026-08-01',
   p80_date: '2026-08-15',
+  p95_date: '2026-08-29',
   basis: 'monte_carlo',
+  forecast_basis: 'velocity',
+  velocity_suppressed: false,
+};
+
+const THROUGHPUT_FORECAST = {
+  status: 'ready',
+  remaining_points: null,
+  remaining_count: 24,
+  sample_count: 8,
+  p50_sprints: null,
+  p80_sprints: null,
+  p50_date: '2026-08-01',
+  p80_date: '2026-08-15',
+  p95_date: '2026-08-29',
+  basis: 'monte_carlo',
+  forecast_basis: 'throughput',
   velocity_suppressed: false,
 };
 
@@ -41,6 +59,15 @@ describe('SprintForecastChips', () => {
     expect(chipsText()).toContain('clears in ~3 sprints (P80 4)');
     const link = screen.getByRole('link', { name: /Release horizon/ });
     expect(link.getAttribute('href')).toBe('/projects/p1/overview');
+  });
+
+  it('renders a throughput release-horizon chip with item counts + dates, no sprint vocab', () => {
+    forecastMock.mockReturnValue({ data: THROUGHPUT_FORECAST });
+    renderWithRouter(<SprintForecastChips projectId="p1" sprintId="s1" />);
+    const text = chipsText();
+    expect(text).toContain('At current throughput, ~24 items clear by');
+    // web-rule 175: a throughput chip never claims "sprints".
+    expect(text).not.toContain('sprint');
   });
 
   it('renders a "behind" sprint-finish chip from burn pace', () => {
