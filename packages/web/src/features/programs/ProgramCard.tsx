@@ -44,7 +44,8 @@ export function ProgramCard({ program }: Props) {
           program.my_role_label ? `, your role: ${program.my_role_label}` : ''
         }`}
         className="flex h-full flex-col gap-2 rounded-lg border border-neutral-border bg-neutral-surface p-4
-          hover:border-brand-primary/40
+          transition-[transform,border-color] duration-fast ease-brand
+          hover:border-brand-primary/40 motion-safe:hover:-translate-y-px
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
       >
         <div className="flex items-start gap-2.5">

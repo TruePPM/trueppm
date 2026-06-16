@@ -173,6 +173,15 @@ const config: Config = {
       transitionTimingFunction: {
         brand: 'cubic-bezier(.2,.7,.2,1)',
       },
+      // v2 golden motion durations (ADR-0126): name the role, not the ms.
+      // fast/base/slow alias --dur-1/2/3 — named keys so they extend (never
+      // shadow) Tailwind's default numeric duration-* scale. Pair with
+      // `ease-brand` for all transform/overlay transitions.
+      transitionDuration: {
+        fast: '120ms',
+        base: '200ms',
+        slow: '320ms',
+      },
     },
   },
   plugins: [],

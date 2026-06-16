@@ -290,6 +290,54 @@
     animation: empty-state-in 160ms cubic-bezier(.2, .7, .2, 1);
   }
 
+  /* Task-complete spring (v2 fluidity, ADR-0126) — the checkbox "pops" once when
+     a task is marked complete (the signature moment of delight). Uses the spring
+     overshoot ease (NOT the brand ease) for the 1.22 scale bounce. Applied under
+     `motion-safe:` at the class layer (rule 70 motion contract), so no @media
+     guard is needed here. */
+  @keyframes checkpop {
+    0%   { transform: scale(1);    }
+    50%  { transform: scale(1.22); }
+    100% { transform: scale(1);    }
+  }
+  .animate-checkpop {
+    animation: checkpop 220ms cubic-bezier(.34, 1.56, .64, 1);
+  }
+
+  /* Global toast entrance (v2 fluidity, ADR-0126) — the toast rises + fades in
+     from below. v2 timing: 240ms on the brand ease. motion-safe at the class
+     layer (rule 70), so no @media guard is needed here. */
+  @keyframes toast-rise {
+    0%   { opacity: 0; transform: translateY(14px); }
+    100% { opacity: 1; transform: translateY(0);    }
+  }
+  .animate-toast-rise {
+    animation: toast-rise 240ms cubic-bezier(.2, .7, .2, 1);
+  }
+
+  /* Modal / dialog entrance (v2 fluidity, ADR-0126) — the panel scales up from
+     0.97 + fades. v2 timing: 180ms on the brand ease. motion-safe at the class
+     layer (rule 70), so no @media guard is needed here. */
+  @keyframes modal-scale-in {
+    0%   { opacity: 0; transform: scale(.97); }
+    100% { opacity: 1; transform: scale(1);   }
+  }
+  .animate-modal-scale-in {
+    animation: modal-scale-in 180ms cubic-bezier(.2, .7, .2, 1);
+  }
+
+  /* Docked save-bar entrance (v2 fluidity, ADR-0126) — the bar slides up from
+     below its container when a form goes dirty. v2 timing: 220ms on the brand
+     ease. motion-safe at the class layer (rule 70), so no @media guard is
+     needed here. */
+  @keyframes save-bar-slide {
+    0%   { transform: translateY(120%); }
+    100% { transform: translateY(0);    }
+  }
+  .animate-save-bar-slide {
+    animation: save-bar-slide 220ms cubic-bezier(.2, .7, .2, 1);
+  }
+
   /* Disabled-form-control styling for settings pages whose API hasn't shipped
      yet (`apiReady=false`). Wrap the page body in `<StubFieldset>` and every
      descendant input / select / textarea / button is forced into the same

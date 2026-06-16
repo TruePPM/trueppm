@@ -21,6 +21,17 @@ describe('Button', () => {
     );
   });
 
+  it('presses with a motion-safe active-translate on the brand ease (rule 178)', () => {
+    render(<Button>Press</Button>);
+    const btn = screen.getByRole('button', { name: 'Press' });
+    // v2 fluidity: the press transform is motion-safe-gated (no movement for
+    // reduced-motion users) and shares one `transition` with hover colors.
+    expect(btn.className).toContain('motion-safe:active:translate-y-px');
+    expect(btn.className).toContain('ease-brand');
+    // never a drop shadow (rule 1)
+    expect(btn.className).not.toMatch(/(^|\s)shadow-/);
+  });
+
   it('applies the secondary variant without the sage fill', () => {
     render(<Button variant="secondary">Cancel</Button>);
     const btn = screen.getByRole('button', { name: 'Cancel' });
