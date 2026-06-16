@@ -917,4 +917,17 @@ describe('BoardCard', () => {
       expect(scopeActions.onReject).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe('hover-lift (rule 181)', () => {
+    it('lifts via a motion-safe transform and never uses a drop shadow (rule 1)', () => {
+      const { container } = renderCard({});
+      const root = container.firstElementChild as HTMLElement;
+      expect(root.className).toContain('motion-safe:hover:-translate-y-px');
+      expect(root.className).toContain('ease-brand');
+      // the dim/opacity states and the lift share one multi-prop transition
+      expect(root.className).toContain('transition-[opacity,transform]');
+      // no shadow — the card's own border carries the edge (rule 1)
+      expect(root.className).not.toMatch(/(^|\s)shadow-/);
+    });
+  });
 });

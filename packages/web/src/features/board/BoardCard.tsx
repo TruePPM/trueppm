@@ -530,7 +530,10 @@ export function BoardCard({
     'bg-neutral-surface border rounded-md relative group',
     readOnly ? 'cursor-default' : 'cursor-grab active:cursor-grabbing',
     'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-    'transition-opacity duration-150',
+    // v2 fluidity (ADR-0126): subtle hover-lift, no shadow (rule 1) — the card's
+    // own border supplies the edge. Single multi-prop transition so opacity
+    // (dim states) and the lift share one declaration; lift is motion-safe (rule 70).
+    'transition-[opacity,transform] duration-fast ease-brand motion-safe:hover:-translate-y-px',
     showCriticalState
       ? 'border-semantic-critical border-2'
       : isIdea

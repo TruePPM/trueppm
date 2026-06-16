@@ -53,3 +53,36 @@ describe('design-system v2 tokens (ADR-0126)', () => {
     expect(tailwind).toMatch(/boxShadow:/);
   });
 });
+
+describe('v2 motion vocabulary (ADR-0126, rule 181)', () => {
+  it('exposes the brand ease and the named duration tokens through Tailwind', () => {
+    expect(tailwind).toMatch(/brand:\s*'cubic-bezier\(\.2,\.7,\.2,1\)'/);
+    expect(tailwind).toMatch(/transitionDuration:/);
+    expect(tailwind).toMatch(/fast:\s*'120ms'/);
+    expect(tailwind).toMatch(/base:\s*'200ms'/);
+    expect(tailwind).toMatch(/slow:\s*'320ms'/);
+  });
+
+  it('defines the four fluidity keyframes + their animate-* classes', () => {
+    for (const name of ['checkpop', 'toast-rise', 'modal-scale-in', 'save-bar-slide']) {
+      expect(globals).toMatch(new RegExp(`@keyframes ${name}\\b`));
+      expect(globals).toMatch(new RegExp(`\\.animate-${name}\\b`));
+    }
+  });
+
+  it('gives the checkpop spring the overshoot ease (not the brand ease)', () => {
+    expect(globals).toMatch(
+      /animation:\s*checkpop\s+220ms\s+cubic-bezier\(\.34,\s*1\.56,\s*\.64,\s*1\)/,
+    );
+  });
+
+  it('keeps the entrance keyframes on the brand ease (gated at the class layer, no @media)', () => {
+    expect(globals).toMatch(/animation:\s*toast-rise\s+240ms\s+cubic-bezier\(\.2,\s*\.7,\s*\.2,\s*1\)/);
+    expect(globals).toMatch(
+      /animation:\s*modal-scale-in\s+180ms\s+cubic-bezier\(\.2,\s*\.7,\s*\.2,\s*1\)/,
+    );
+    expect(globals).toMatch(
+      /animation:\s*save-bar-slide\s+220ms\s+cubic-bezier\(\.2,\s*\.7,\s*\.2,\s*1\)/,
+    );
+  });
+});

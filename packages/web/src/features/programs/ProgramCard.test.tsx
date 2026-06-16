@@ -59,6 +59,16 @@ describe('ProgramCard identity square (#698)', () => {
     expect(square).toHaveStyle({ color: '#FFFFFF' });
   });
 
+  it('lifts on hover via a motion-safe transform, never a shadow (rule 181/1)', () => {
+    renderCard(makeProgram());
+    const link = screen.getByRole('link');
+    expect(link.className).toContain('motion-safe:hover:-translate-y-px');
+    expect(link.className).toContain('ease-brand');
+    // the depth cue is the border emphasis, not a drop shadow (rule 1)
+    expect(link.className).toContain('hover:border-brand-primary/40');
+    expect(link.className).not.toMatch(/(^|\s)shadow-/);
+  });
+
   it('shows a neutral square (NO health tint) when no code or color is set (#963)', () => {
     // Even a healthy program's unset square stays neutral — identity must never
     // carry a status signal (the deleted HEALTH_SQUARE conflation).
