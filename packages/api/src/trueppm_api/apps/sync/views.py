@@ -128,7 +128,7 @@ class ProjectSyncView(IdempotencyMixin, APIView):
 
         # Snapshot the high-water mark before running delta queries.
         # Using REPEATABLE READ ensures we don't miss rows written concurrently.
-        timestamp = self._snapshot_max_version(project)
+        timestamp = self._watermark(project)
 
         # Retros are visibility-gated per ADR-0071 §3. A VIEWER on a TEAM_ONLY
         # retro does not receive the retro's raw notes — the sync filters them
@@ -393,6 +393,21 @@ class ProjectSyncView(IdempotencyMixin, APIView):
             "updated": serializer_class(live, many=True).data,
             "deleted": deleted_ids,
         }
+
+    @classmethod
+    def _watermark(cls, project: Project) -> int:
+        """Return the sync high-water mark for ``project`` (ADR-0142, #822).
+
+        Reads the denormalized ``Project.last_sync_version`` column, maintained by
+        the watermark receivers (``apps/sync/receivers.py``) to equal
+        :meth:`_snapshot_max_version`. The 12-table union is kept as a one-release
+        fallback behind ``settings.SYNC_WATERMARK_USE_COLUMN`` (default ``True``)
+        in case a drift bug is found in production; a conformance test asserts the
+        two agree.
+        """
+        if settings.SYNC_WATERMARK_USE_COLUMN:
+            return int(project.last_sync_version)
+        return cls._snapshot_max_version(project)
 
     @staticmethod
     def _snapshot_max_version(project: Project) -> int:
