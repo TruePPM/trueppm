@@ -32,19 +32,6 @@ The default for new projects is **Hybrid** — every tab visible. Existing proje
 
 The preset communicates *"this is not how we work here"*, not *"this is not allowed."* Power users who know what they want can always reach a hidden view by direct URL. Mobile or API consumers are unaffected. Hiding lowers cognitive load at onboarding without restricting the system.
 
-## Customize views — your personal layer
-
-The methodology preset is the team-level default; **Customize views** is your personal layer on top of it. Open the **Views** menu in the top bar (or **Settings → General → Views**) and toggle off the tabs you never use — a Product Owner who lives in Backlog and Board can hide Schedule and Calendar; a scheduler can hide the board. Your choice is saved to your account and applies to **every** project you open.
-
-A few rules keep it predictable:
-
-- You can only hide views that the project's methodology already shows — Customize views layers on top of the preset, it never re-shows a methodology-hidden tab.
-- **Overview is always shown** — it is the orientation landing, so your nav can never be emptied.
-- Hidden views are not gone: they stay listed in the Views menu and are reachable from the **⌘K command palette** as "Go to {view}". A hidden view's URL still works — hiding is cosmetic, never a permission change.
-- **Reset to {methodology} default** clears your personal hides for the current project and falls back to the methodology layout.
-
-Customize views is **per-user and cosmetic** — it changes only your own navigation, never what teammates see. (An administrator pinning views for everyone is a separate, governance-level capability reserved for TruePPM Enterprise.)
-
 ## Where to find it
 
 - **Project creation wizard** — step 3 prompts for the methodology with one-line descriptions per choice

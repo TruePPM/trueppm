@@ -152,27 +152,6 @@ def get_default_landing(user: Any) -> str:
     return profile.default_landing if profile is not None else DefaultLanding.AUTO
 
 
-def get_hidden_views(user: Any) -> list[str]:
-    """The user's stored ``hidden_views`` list (``[]`` if no row, ADR-0139)."""
-
-    profile = UserProfile.objects.filter(user=user).only("hidden_views").first()
-    return list(profile.hidden_views) if profile is not None else []
-
-
-def get_profile_prefs(user: Any) -> tuple[str, list[str]]:
-    """Both app preferences in one row read — ``(default_landing, hidden_views)``.
-
-    ``/auth/me/`` surfaces both fields, so reading them together (one ``.only()``
-    query) avoids a second ``UserProfile`` lookup per response. Returns the
-    defaults (``AUTO``, ``[]``) when the user has no profile row yet.
-    """
-
-    profile = UserProfile.objects.filter(user=user).only("default_landing", "hidden_views").first()
-    if profile is None:
-        return DefaultLanding.AUTO, []
-    return profile.default_landing, list(profile.hidden_views)
-
-
 _UNSET: Any = object()
 
 

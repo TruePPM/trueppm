@@ -45,16 +45,6 @@ vi.mock('@/hooks/useSprints', () => ({
 const canManage = vi.fn((pid?: string) => !!pid);
 vi.mock('@/hooks/useMyFacets', () => ({ useCanManageBacklog: (pid?: string) => canManage(pid) }));
 
-// Per-user nav visibility (ADR-0139). Default to nothing hidden; a test mutates
-// `hiddenViews` to assert the "Go to {label}" jumps appear.
-let hiddenViews: string[] = [];
-vi.mock('@/hooks/useCurrentUser', () => ({
-  useCurrentUser: () => ({ user: { hidden_views: hiddenViews }, isLoading: false }),
-}));
-vi.mock('@/hooks/useIterationLabel', () => ({
-  useIterationLabel: () => ({ singular: 'Sprint', plural: 'Sprints' }),
-}));
-
 vi.mock('@/stores/themeStore', () => ({
   useThemeStore: (sel: (s: unknown) => unknown) => sel({ theme: 'dark', setTheme: vi.fn() }),
 }));
@@ -73,7 +63,6 @@ const byId = (items: CommandItem[]) => new Map(items.map((i) => [i.id, i]));
 
 afterEach(() => {
   currentId = 'p1';
-  hiddenViews = [];
   vi.clearAllMocks();
   canManage.mockImplementation((pid?: string) => !!pid);
   scheduleTasks.mockImplementation((pid?: string) => ({
@@ -127,32 +116,6 @@ describe('useCommandItems — tier assembly', () => {
     canManage.mockImplementation(() => false); // contributor
     const plain = renderHook(() => useCommandItems(true));
     expect(byId(plain.result.current).has('current:groom:p1')).toBe(false);
-  });
-
-  // ADR-0139 — hidden views stay reachable via ⌘K
-  it('emits a "Go to {label}" jump for each personally-hidden, methodology-visible view', () => {
-    hiddenViews = ['schedule', 'reports'];
-    const { result } = renderHook(() => useCommandItems(true));
-    const items = byId(result.current);
-    expect(items.get('current:hidden-view:p1:schedule')?.label).toBe('Go to Schedule');
-    expect(items.get('current:hidden-view:p1:reports')?.label).toBe('Go to Reports');
-    expect(items.get('current:hidden-view:p1:schedule')?.tag).toBe('View');
-  });
-
-  it('does not surface a hidden view that the methodology already hides', () => {
-    // p2 (Hoover Dam) is WATERFALL — sprints is methodology-hidden, so even if the
-    // user hid it globally, ⌘K does not offer a jump to it on this project.
-    currentId = 'p2';
-    hiddenViews = ['sprints'];
-    const { result } = renderHook(() => useCommandItems(true));
-    expect(byId(result.current).has('current:hidden-view:p2:sprints')).toBe(false);
-  });
-
-  it('emits no hidden-view jumps when nothing is hidden', () => {
-    const { result } = renderHook(() => useCommandItems(true));
-    expect([...byId(result.current).keys()].some((k) => k.startsWith('current:hidden-view:'))).toBe(
-      false,
-    );
   });
 
   it('emits no Tier-2 items off a project route', () => {

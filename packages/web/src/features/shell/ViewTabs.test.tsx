@@ -24,20 +24,12 @@ vi.mock('@/hooks/useProject', () => ({
   })),
 }));
 
-// Default: no personally-hidden views (ADR-0139). The customize-views tests
-// override `hidden_views` via mockReturnValue.
-vi.mock('@/hooks/useCurrentUser', () => ({
-  useCurrentUser: vi.fn(() => ({ user: { hidden_views: [] }, isLoading: false })),
-}));
-
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
-import { useCurrentUser } from '@/hooks/useCurrentUser';
 const mockUseProjectId = useProjectId as ReturnType<typeof vi.fn>;
 const mockUseProject = useProject as ReturnType<typeof vi.fn>;
 const mockUseRole = useCurrentUserRole as ReturnType<typeof vi.fn>;
-const mockUseCurrentUser = useCurrentUser as ReturnType<typeof vi.fn>;
 
 describe('ViewTabs', () => {
   it('renders null when there is no projectId', () => {
@@ -91,7 +83,10 @@ describe('ViewTabs', () => {
   it('marks the Backlog tab active on the /product-backlog route (#1096)', () => {
     mockUseProjectId.mockReturnValue('proj-1');
     renderWithRouter(<ViewTabs />, { initialEntries: ['/projects/proj-1/product-backlog'] });
-    expect(screen.getByRole('link', { name: /Backlog/i })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('link', { name: /Backlog/i })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
   });
 
   // ADR-0041 — methodology preset filtering
@@ -189,32 +184,6 @@ describe('ViewTabs', () => {
     renderWithRouter(<ViewTabs />, { initialEntries: ['/projects/proj-1/board'] });
     expect(screen.queryByRole('group', { name: 'People views' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Team' })).not.toBeInTheDocument();
-  });
-
-  // ADR-0139 — per-user nav visibility
-  it('hides a personally-hidden view from the bar (ADR-0139)', () => {
-    mockUseProjectId.mockReturnValue('proj-1');
-    mockUseCurrentUser.mockReturnValueOnce({
-      user: { hidden_views: ['schedule', 'calendar'] },
-      isLoading: false,
-    });
-    renderWithRouter(<ViewTabs />, { initialEntries: ['/projects/proj-1/board'] });
-    expect(screen.queryByRole('link', { name: /Schedule/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /Calendar/i })).not.toBeInTheDocument();
-    // Other views and the always-on Overview remain.
-    expect(screen.getByRole('link', { name: /Board/i })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Overview/i })).toBeInTheDocument();
-  });
-
-  it('never hides Overview even if the personal set somehow contains it (ADR-0139)', () => {
-    mockUseProjectId.mockReturnValue('proj-1');
-    mockUseCurrentUser.mockReturnValueOnce({
-      user: { hidden_views: ['overview'] },
-      isLoading: false,
-    });
-    renderWithRouter(<ViewTabs />, { initialEntries: ['/projects/proj-1/board'] });
-    // overview is rendered standalone, outside the personal-hidden filter.
-    expect(screen.getByRole('link', { name: /Overview/i })).toBeInTheDocument();
   });
 
   it('is suppressed on a project settings route (rule 123 / ADR-0128 §C)', () => {
