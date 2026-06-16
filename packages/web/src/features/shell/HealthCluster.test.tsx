@@ -42,9 +42,14 @@ vi.mock('@/hooks/useIterationLabel', () => ({
   }),
 }));
 
+const mcResult = vi.hoisted<{ current: { p50: string; p80: string; p95: string } | undefined }>(
+  () => ({ current: { p50: '2026-10-05', p80: '2026-11-03', p95: '2026-11-30' } }),
+);
 vi.mock('@/hooks/useMonteCarloResult', () => ({
   useMonteCarloResult: () => ({
-    data: { projectId: 'p', runs: 1000, p50: '2026-10-05', p80: '2026-11-03', p95: '2026-11-30', buckets: [] },
+    data: mcResult.current
+      ? { projectId: 'p', runs: 1000, ...mcResult.current, buckets: [] }
+      : undefined,
     isLoading: false,
     error: null,
   }),
@@ -84,6 +89,7 @@ beforeEach(() => {
   stats.current = FIXTURE_SHELL_STATS;
   activeSprint.current = makeSprint({});
   velocity.current = VELOCITY;
+  mcResult.current = { p50: '2026-10-05', p80: '2026-11-03', p95: '2026-11-30' };
   mockNavigate.mockClear();
 });
 
@@ -99,13 +105,27 @@ describe('HealthCluster', () => {
     expect(screen.getByRole('group', { name: 'Project health' })).toBeInTheDocument();
   });
 
-  it('WATERFALL — Forecast (P80) + at-risk + critical segments', () => {
+  it('WATERFALL — Forecast (P50·P80 band) + at-risk + critical segments', () => {
     methodology.current = 'WATERFALL';
     render();
     const cluster = screen.getByRole('group', { name: 'Project health' });
-    expect(within(cluster).getByRole('button', { name: /monte carlo p80/i })).toBeInTheDocument();
+    const forecast = within(cluster).getByRole('button', { name: /monte carlo forecast/i });
+    // Band drill-through (#1197): both percentiles surface inline, not a binary read.
+    expect(forecast).toHaveAccessibleName(/P50 .*P80/i);
+    expect(forecast).toHaveTextContent(/P50/);
+    expect(forecast).toHaveTextContent(/P80/);
     expect(within(cluster).getByRole('button', { name: /2 at-risk tasks/i })).toBeInTheDocument();
     expect(within(cluster).getByRole('button', { name: /1 critical task$/i })).toBeInTheDocument();
+  });
+
+  it('WATERFALL — forecast degrades to P80 alone when no MC distribution is cached', () => {
+    methodology.current = 'WATERFALL';
+    mcResult.current = undefined;
+    render();
+    const cluster = screen.getByRole('group', { name: 'Project health' });
+    const forecast = within(cluster).getByRole('button', { name: /monte carlo p80 completion/i });
+    expect(forecast).toHaveTextContent(/P80/);
+    expect(forecast).not.toHaveTextContent(/P50/);
   });
 
   it('AGILE — Sprint + Points + Velocity segments, no at-risk/critical', () => {
@@ -115,7 +135,9 @@ describe('HealthCluster', () => {
     expect(within(cluster).getByText('Sprint 7')).toBeInTheDocument();
     expect(within(cluster).getByText(/Day \d+\/\d+/)).toBeInTheDocument();
     expect(within(cluster).getByText('32/40')).toBeInTheDocument();
-    expect(within(cluster).getByRole('button', { name: /velocity 24 points per sprint/i })).toBeInTheDocument();
+    const vel = within(cluster).getByRole('button', { name: /velocity 24 points per sprint/i });
+    // Trust boundary (#1197 — Morgan): the in-audience figure names its audience scope.
+    expect(vel).toHaveAccessibleName(/visible to project members only/i);
     expect(within(cluster).queryByRole('button', { name: /at-risk/i })).not.toBeInTheDocument();
   });
 
@@ -144,7 +166,7 @@ describe('HealthCluster', () => {
     render();
     const cluster = screen.getByRole('group', { name: 'Project health' });
     expect(within(cluster).getByText('Sprint 7')).toBeInTheDocument();
-    expect(within(cluster).getByRole('button', { name: /monte carlo p80/i })).toBeInTheDocument();
+    expect(within(cluster).getByRole('button', { name: /monte carlo forecast/i })).toBeInTheDocument();
     expect(within(cluster).getByRole('button', { name: /1 critical task$/i })).toBeInTheDocument();
     expect(within(cluster).queryByRole('button', { name: /at-risk/i })).not.toBeInTheDocument();
   });
@@ -154,7 +176,7 @@ describe('HealthCluster', () => {
     stats.current = { ...FIXTURE_SHELL_STATS, monteCarlop80: null };
     render();
     const cluster = screen.getByRole('group', { name: 'Project health' });
-    expect(within(cluster).queryByRole('button', { name: /monte carlo p80/i })).not.toBeInTheDocument();
+    expect(within(cluster).queryByRole('button', { name: /monte carlo/i })).not.toBeInTheDocument();
     expect(within(cluster).getByText('—')).toBeInTheDocument();
   });
 
@@ -163,7 +185,7 @@ describe('HealthCluster', () => {
     methodology.current = 'WATERFALL';
     render();
     const cluster = screen.getByRole('group', { name: 'Project health' });
-    await user.click(within(cluster).getByRole('button', { name: /monte carlo p80/i }));
+    await user.click(within(cluster).getByRole('button', { name: /monte carlo forecast/i }));
     expect(screen.getByRole('dialog', { name: /monte carlo confidence distribution/i })).toBeInTheDocument();
   });
 

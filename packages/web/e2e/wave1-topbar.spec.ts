@@ -145,15 +145,17 @@ test.describe('Wave 1 — TopBar health cluster (desktop, lg+ viewport)', () => 
     await expect(page.getByTestId('health-cluster')).toBeVisible();
   });
 
-  test('Forecast (P80) segment renders with month-day date when monte_carlo_p80 is set', async ({ page }) => {
-    const p80Btn = page.getByRole('button', { name: /monte carlo p80/i });
-    await expect(p80Btn).toBeVisible();
-    await expect(p80Btn).toContainText('P80');
-    await expect(p80Btn).toContainText('Nov');
+  test('Forecast segment renders the P50·P80 band with month-day dates (#1197)', async ({ page }) => {
+    const forecastBtn = page.getByRole('button', { name: /monte carlo forecast/i });
+    await expect(forecastBtn).toBeVisible();
+    await expect(forecastBtn).toContainText('P50');
+    await expect(forecastBtn).toContainText('Oct'); // P50 = 2026-10-20
+    await expect(forecastBtn).toContainText('P80');
+    await expect(forecastBtn).toContainText('Nov'); // P80 = 2026-11-03
   });
 
   test('clicking Forecast segment opens MC distribution panel', async ({ page }) => {
-    await page.getByRole('button', { name: /monte carlo p80/i }).click();
+    await page.getByRole('button', { name: /monte carlo forecast/i }).click();
     await expect(page.getByRole('dialog', { name: /monte carlo confidence distribution/i })).toBeVisible();
   });
 
@@ -187,7 +189,7 @@ test.describe('Wave 1 — TopBar health cluster (desktop, lg+ viewport)', () => 
     const cluster = page.getByTestId('health-cluster');
     await expect(cluster).toBeVisible();
     await expect(cluster).toContainText('—');
-    await expect(page.getByRole('button', { name: /monte carlo p80/i })).not.toBeVisible();
+    await expect(page.getByRole('button', { name: /monte carlo/i })).not.toBeVisible();
     await expect(page.getByRole('button', { name: /critical task/i })).not.toBeVisible();
   });
 });

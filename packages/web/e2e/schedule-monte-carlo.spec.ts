@@ -265,8 +265,8 @@ test.describe('Monte Carlo Schedule Integration (#333)', () => {
 test.describe('Monte Carlo forecast history (#961, ADR-0109)', () => {
   async function openMcPanel(page: import('@playwright/test').Page) {
     await gotoScheduleWithMC(page);
-    // Open the MC confidence drawer from the TopBar P80 pill.
-    await page.click('[aria-label*="Monte Carlo P80 completion"]', { timeout: 10_000 });
+    // Open the MC confidence drawer from the shell health-cluster forecast band.
+    await page.click('[aria-label^="Monte Carlo forecast"]', { timeout: 10_000 });
     await expect(
       page.getByRole('dialog', { name: /Monte Carlo confidence distribution/i }),
     ).toBeVisible();
@@ -294,7 +294,7 @@ test.describe('Monte Carlo forecast history (#961, ADR-0109)', () => {
         body: JSON.stringify({ results: [], cap: 100 }),
       }),
     );
-    await page.click('[aria-label*="Monte Carlo P80 completion"]', { timeout: 10_000 });
+    await page.click('[aria-label^="Monte Carlo forecast"]', { timeout: 10_000 });
     await expect(
       page.getByRole('dialog', { name: /Monte Carlo confidence distribution/i }),
     ).toBeVisible();

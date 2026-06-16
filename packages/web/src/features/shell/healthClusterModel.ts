@@ -26,8 +26,10 @@ interface BadgeTaskItem {
 }
 
 export type HealthSegment =
-  /** P80 forecast date, or null when the scheduler has not run (renders muted "—"). */
-  | { kind: 'forecast'; p80: string | null }
+  /** Monte Carlo forecast band: P50 + P80 completion dates (issue 1197). `p80` null =
+   *  the scheduler has not run (renders muted "—"); `p50` null = no MC distribution
+   *  is cached yet, so the slot shows P80 alone. */
+  | { kind: 'forecast'; p50: string | null; p80: string | null }
   | { kind: 'atRisk'; count: number; items: BadgeTaskItem[] }
   | { kind: 'critical'; count: number; items: BadgeTaskItem[] }
   /** Active sprint name + inclusive Day n/m. */
@@ -47,6 +49,10 @@ export interface HealthClusterInput {
   stats: ShellStats | undefined;
   activeSprint: ApiSprint | null;
   velocity: ProjectVelocity | undefined;
+  /** Latest Monte Carlo percentiles for the forecast band (issue 1197). P50 is sourced
+   *  here from the cached distribution that already drives the drill-through panel;
+   *  P80 still falls back to the status-summary value when no MC result is cached. */
+  mc: { p50: string | null; p80: string | null } | undefined;
   /** `new Date()` injected by the caller so the selector stays pure/testable. */
   now: Date;
 }
@@ -79,8 +85,14 @@ function sprintSegment(activeSprint: ApiSprint | null, now: Date): HealthSegment
   return { kind: 'sprint', name: activeSprint.name, dayN, dayM };
 }
 
-function forecastSegment(stats: ShellStats | undefined): HealthSegment {
-  return { kind: 'forecast', p80: stats?.monteCarlop80 ?? null };
+function forecastSegment(
+  stats: ShellStats | undefined,
+  mc: { p50: string | null; p80: string | null } | undefined,
+): HealthSegment {
+  // P80 stays sourced from the status-summary (unchanged source of truth — it also
+  // drives the no-run "—" state); P50 is layered in from the cached MC distribution
+  // that already drives the forecast drill-through panel (issue 1197).
+  return { kind: 'forecast', p50: mc?.p50 ?? null, p80: stats?.monteCarlop80 ?? null };
 }
 
 function atRiskSegment(stats: ShellStats | undefined): HealthSegment {
@@ -139,14 +151,14 @@ function velocitySegment(velocity: ProjectVelocity | undefined): HealthSegment {
  * omitted); every other case returns exactly 3.
  */
 export function healthClusterModel(input: HealthClusterInput): HealthSegment[] {
-  const { methodology, stats, activeSprint, velocity, now } = input;
+  const { methodology, stats, activeSprint, velocity, mc, now } = input;
 
   if (methodology === 'WATERFALL') {
-    return [forecastSegment(stats), atRiskSegment(stats), criticalSegment(stats)];
+    return [forecastSegment(stats, mc), atRiskSegment(stats), criticalSegment(stats)];
   }
 
   if (methodology === 'HYBRID') {
-    return [sprintSegment(activeSprint, now), forecastSegment(stats), criticalSegment(stats)];
+    return [sprintSegment(activeSprint, now), forecastSegment(stats, mc), criticalSegment(stats)];
   }
 
   // AGILE
