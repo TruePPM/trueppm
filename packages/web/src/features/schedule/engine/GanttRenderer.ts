@@ -1016,7 +1016,7 @@ export function calculateDependencyPath(
       const vColumn = Math.max(minV, Math.min(midpoint, maxV));
       // `blockerAtExit` only clears the V at `exitX`; the committed drop column
       // is the midpoint, which can land on an obstacle that `exitX` missed —
-      // most visibly a milestone diamond in an intervening row (#1184). Probe
+      // most visibly a milestone diamond in an intervening row (issue 1184). Probe
       // the actual drop column and, if blocked, right-sweep past the obstacle's
       // edge + ROUTING_PADDING so the V skirts the diamond instead of piercing
       // it. If no clear column fits inside the L gap, fall through to the
