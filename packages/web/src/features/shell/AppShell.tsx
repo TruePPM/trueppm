@@ -14,6 +14,7 @@ import { useCommandPaletteHotkey } from './commandPalette/useCommandPaletteHotke
 import { useSidebarCollapseHotkey } from './useSidebarCollapseHotkey';
 import { CreateDispatcher } from './CreateDispatcher';
 import { GlobalTaskDrawer } from './GlobalTaskDrawer';
+import { ToastHost } from '@/components/Toast';
 
 export function AppShell() {
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -128,6 +129,11 @@ export function AppShell() {
       {/* App-wide task drawer (ADR-0138, issue 647) — opened by the ⌘K palette so a
           task can be edited inline from any route; null until a task is set. */}
       <GlobalTaskDrawer />
+
+      {/* Global toast host (ADR-0126, issue 1225) — bottom-center ink-pill stack
+          for app-wide confirmations (create/complete/save/pin/theme). Board-local
+          notices stay in BoardDropNotice (rule 170). */}
+      <ToastHost />
 
       {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} />}
     </QueryClientProvider>
