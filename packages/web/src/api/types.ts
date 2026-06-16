@@ -114,6 +114,15 @@ export interface Program {
   iteration_label: string | null;
   /** Read-only label inherited when the override is null — the workspace default. */
   inherited_iteration_label: string;
+  /** Sharing overrides (ADR-0135). null = inherit the workspace value. */
+  public_sharing: boolean | null;
+  allow_guests: boolean | null;
+  /** Read-only server-resolved effective values (program override ?? workspace). */
+  effective_public_sharing: boolean;
+  effective_allow_guests: boolean;
+  /** Read-only values inherited if the override were cleared (the workspace value). */
+  inherited_public_sharing: boolean;
+  inherited_allow_guests: boolean;
   /** PM health override; AUTO defers to the rollup. */
   health: ProgramHealth;
   /** Workspace or private listing scope. */

@@ -156,6 +156,14 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
     # override ?? workspace default ?? "Sprint"). Drives the settings "Inherit (X)"
     # affordance — read-only (ADR-0116, #1106).
     inherited_iteration_label = serializers.SerializerMethodField()
+    # Server-resolved sharing settings (ADR-0135, #978): project override ?? program
+    # override ?? workspace value. Clients read the ``effective_*`` fields, never the
+    # raw nullable overrides. The ``inherited_*`` fields are what the project would
+    # show if its own override were cleared — they drive the "Inherit (On/Off)" chip.
+    effective_public_sharing = serializers.SerializerMethodField()
+    inherited_public_sharing = serializers.SerializerMethodField()
+    effective_allow_guests = serializers.SerializerMethodField()
+    inherited_allow_guests = serializers.SerializerMethodField()
 
     class Meta:
         model = Project
@@ -190,6 +198,16 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "effective_iteration_label",
             # Read-only label the project would inherit if its override were cleared.
             "inherited_iteration_label",
+            # Sharing overrides (ADR-0135, #978). Nullable: NULL = inherit
+            # program/workspace. Admin+-gated write by the allowlist default (not in
+            # _SCHEDULER_WRITABLE_FIELDS, so the validate() gate below blocks Scheduler).
+            "public_sharing",
+            "allow_guests",
+            # Read-only server-resolved effective values + inherited-if-cleared values.
+            "effective_public_sharing",
+            "inherited_public_sharing",
+            "effective_allow_guests",
+            "inherited_allow_guests",
             "program",
             "member_count",
             "percent_complete",
@@ -204,6 +222,10 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "lead_detail",
             "effective_iteration_label",
             "inherited_iteration_label",
+            "effective_public_sharing",
+            "inherited_public_sharing",
+            "effective_allow_guests",
+            "inherited_allow_guests",
             "is_archived",
             "archived_at",
             "archived_by",
@@ -382,12 +404,37 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         program_label = program.iteration_label if program else None
         return program_label or ws.iteration_label or DEFAULT_ITERATION_LABEL
 
+    def get_effective_public_sharing(self, obj: Project) -> bool:
+        from .sharing_settings import resolve_effective_sharing
+
+        return resolve_effective_sharing(
+            obj, "public_sharing", workspace=self._iteration_workspace()
+        )
+
+    def get_inherited_public_sharing(self, obj: Project) -> bool:
+        from .sharing_settings import resolve_inherited_sharing
+
+        return resolve_inherited_sharing(
+            obj, "public_sharing", workspace=self._iteration_workspace()
+        )
+
+    def get_effective_allow_guests(self, obj: Project) -> bool:
+        from .sharing_settings import resolve_effective_sharing
+
+        return resolve_effective_sharing(obj, "allow_guests", workspace=self._iteration_workspace())
+
+    def get_inherited_allow_guests(self, obj: Project) -> bool:
+        from .sharing_settings import resolve_inherited_sharing
+
+        return resolve_inherited_sharing(obj, "allow_guests", workspace=self._iteration_workspace())
+
     def _iteration_workspace(self) -> Workspace:
         """Load the Workspace singleton once per serializer instance.
 
-        A list of N projects then resolves its effective labels with a single
-        Workspace query, not N (ADR-0116 perf note; ``program`` is select_related
-        in the viewset so the program tier adds no per-row query either).
+        A list of N projects then resolves its effective labels (and sharing
+        settings, ADR-0135) with a single Workspace query, not N (ADR-0116 perf
+        note; ``program`` is select_related in the viewset so the program tier
+        adds no per-row query either).
         """
         ws = getattr(self, "_ws_cache", None)
         if ws is None:
@@ -461,6 +508,13 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
     # Read-only label the program inherits when its own override is cleared — the
     # workspace default (ADR-0116, #1106). Drives the settings "Inherit (X)" copy.
     inherited_iteration_label = serializers.SerializerMethodField()
+    # Server-resolved sharing settings (ADR-0135, #978): program override ?? workspace
+    # value. Clients read ``effective_*``; ``inherited_*`` is the workspace value the
+    # program shows when its own override is cleared (drives the "Inherit (On/Off)" chip).
+    effective_public_sharing = serializers.SerializerMethodField()
+    inherited_public_sharing = serializers.SerializerMethodField()
+    effective_allow_guests = serializers.SerializerMethodField()
+    inherited_allow_guests = serializers.SerializerMethodField()
 
     class Meta:
         model = Program
@@ -475,6 +529,14 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             # Nullable: NULL = inherit the workspace default.
             "iteration_label",
             "inherited_iteration_label",
+            # Sharing overrides (ADR-0135, #978). Nullable: NULL = inherit workspace.
+            # Admin+-gated write (program viewset gates update at ADMIN).
+            "public_sharing",
+            "allow_guests",
+            "effective_public_sharing",
+            "inherited_public_sharing",
+            "effective_allow_guests",
+            "inherited_allow_guests",
             "health",
             "visibility",
             "color",
@@ -504,6 +566,10 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             "my_role_label",
             "project_count",
             "member_count",
+            "effective_public_sharing",
+            "inherited_public_sharing",
+            "effective_allow_guests",
+            "inherited_allow_guests",
             "is_closed",
             "closed_at",
             "closed_by",
@@ -539,15 +605,42 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
 
     def get_inherited_iteration_label(self, obj: Program) -> str:
         """Workspace default — what the program inherits when its override is NULL."""
-        from trueppm_api.apps.workspace.models import Workspace
-
         from .iteration_label import DEFAULT_ITERATION_LABEL
 
+        ws = self._sharing_workspace()
+        return ws.iteration_label or DEFAULT_ITERATION_LABEL
+
+    def _sharing_workspace(self) -> Workspace:
+        """Load the Workspace singleton once per serializer instance so a list of
+        N programs resolves its inherited label + sharing settings (ADR-0135) with
+        a single Workspace query, not N."""
         ws = getattr(self, "_ws_cache", None)
         if ws is None:
+            from trueppm_api.apps.workspace.models import Workspace
+
             ws = Workspace.load()
             self._ws_cache = ws
-        return ws.iteration_label or DEFAULT_ITERATION_LABEL
+        return ws
+
+    def get_effective_public_sharing(self, obj: Program) -> bool:
+        from .sharing_settings import resolve_effective_sharing
+
+        return resolve_effective_sharing(obj, "public_sharing", workspace=self._sharing_workspace())
+
+    def get_inherited_public_sharing(self, obj: Program) -> bool:
+        from .sharing_settings import resolve_inherited_sharing
+
+        return resolve_inherited_sharing(obj, "public_sharing", workspace=self._sharing_workspace())
+
+    def get_effective_allow_guests(self, obj: Program) -> bool:
+        from .sharing_settings import resolve_effective_sharing
+
+        return resolve_effective_sharing(obj, "allow_guests", workspace=self._sharing_workspace())
+
+    def get_inherited_allow_guests(self, obj: Program) -> bool:
+        from .sharing_settings import resolve_inherited_sharing
+
+        return resolve_inherited_sharing(obj, "allow_guests", workspace=self._sharing_workspace())
 
     def validate_lead(self, value: Any) -> Any:
         """Lead must hold an active ProgramMembership on this program.

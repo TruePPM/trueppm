@@ -7,8 +7,10 @@ import { useDirtyForm } from '../hooks/useDirtyForm';
 import { useProgram } from '@/hooks/useProgram';
 import { useUpdateProgram } from '@/hooks/useProgramMutations';
 import { InheritableIterationLabelField } from '../components/InheritableIterationLabelField';
+import { InheritableToggleField } from '../components/InheritableToggleField';
 import { DEFAULT_ITERATION_LABEL } from '@/lib/iterationLabel';
 import { useExportProgramSeed } from '@/hooks/useProgramSeedIo';
+import { ROLE_ADMIN } from '@/lib/roles';
 import type { ProgramHealth, ProgramMethodology, ProgramVisibility } from '@/api/types';
 import { PROGRAM_ACCENT_SWATCHES, contrastText } from '@/features/programs/programColor';
 
@@ -63,6 +65,9 @@ export function ProgramGeneralPage() {
   const [methodology, setMethodology] = useState<ProgramMethodology>('HYBRID');
   // null = inherit the workspace default (ADR-0116, #1106).
   const [iterationLabel, setIterationLabel] = useState<string | null>(null);
+  // null = inherit the workspace value (ADR-0135).
+  const [publicSharing, setPublicSharing] = useState<boolean | null>(null);
+  const [allowGuests, setAllowGuests] = useState<boolean | null>(null);
   const [visibility, setVisibility] = useState<ProgramVisibility>('WORKSPACE');
   // null = no accent chosen (renders as a health-tinted neutral on the card).
   const [color, setColor] = useState<string | null>(null);
@@ -84,6 +89,8 @@ export function ProgramGeneralPage() {
   const [initialHealth, setInitialHealth] = useState<ProgramHealth>('AUTO');
   const [initialMethodology, setInitialMethodology] = useState<ProgramMethodology>('HYBRID');
   const [initialIterationLabel, setInitialIterationLabel] = useState<string | null>(null);
+  const [initialPublicSharing, setInitialPublicSharing] = useState<boolean | null>(null);
+  const [initialAllowGuests, setInitialAllowGuests] = useState<boolean | null>(null);
   const [initialVisibility, setInitialVisibility] = useState<ProgramVisibility>('WORKSPACE');
   const [initialColor, setInitialColor] = useState<string | null>(null);
   const [initialLead, setInitialLead] = useState<string | null>(null);
@@ -97,6 +104,8 @@ export function ProgramGeneralPage() {
     setHealth(program.health);
     setMethodology(program.methodology);
     setIterationLabel(program.iteration_label ?? null);
+    setPublicSharing(program.public_sharing ?? null);
+    setAllowGuests(program.allow_guests ?? null);
     setVisibility(program.visibility);
     setColor(program.color ?? null);
     setLead(program.lead ?? null);
@@ -106,14 +115,40 @@ export function ProgramGeneralPage() {
     setInitialHealth(program.health);
     setInitialMethodology(program.methodology);
     setInitialIterationLabel(program.iteration_label ?? null);
+    setInitialPublicSharing(program.public_sharing ?? null);
+    setInitialAllowGuests(program.allow_guests ?? null);
     setInitialVisibility(program.visibility);
     setInitialColor(program.color ?? null);
     setInitialLead(program.lead ?? null);
   }, [program]);
 
   const values = useMemo(
-    () => ({ name, description, code, health, methodology, iterationLabel, visibility, color, lead }),
-    [name, description, code, health, methodology, iterationLabel, visibility, color, lead],
+    () => ({
+      name,
+      description,
+      code,
+      health,
+      methodology,
+      iterationLabel,
+      publicSharing,
+      allowGuests,
+      visibility,
+      color,
+      lead,
+    }),
+    [
+      name,
+      description,
+      code,
+      health,
+      methodology,
+      iterationLabel,
+      publicSharing,
+      allowGuests,
+      visibility,
+      color,
+      lead,
+    ],
   );
   const initialValues = useMemo(
     () => ({
@@ -123,6 +158,8 @@ export function ProgramGeneralPage() {
       health: initialHealth,
       methodology: initialMethodology,
       iterationLabel: initialIterationLabel,
+      publicSharing: initialPublicSharing,
+      allowGuests: initialAllowGuests,
       visibility: initialVisibility,
       color: initialColor,
       lead: initialLead,
@@ -134,6 +171,8 @@ export function ProgramGeneralPage() {
       initialHealth,
       initialMethodology,
       initialIterationLabel,
+      initialPublicSharing,
+      initialAllowGuests,
       initialVisibility,
       initialColor,
       initialLead,
@@ -152,6 +191,9 @@ export function ProgramGeneralPage() {
         methodology,
         // null clears the override (inherit); blank custom normalizes to null (ADR-0116).
         iteration_label: iterationLabel === null ? null : iterationLabel.trim() || null,
+        // null clears the sharing override so the program inherits the workspace value (ADR-0135).
+        public_sharing: publicSharing,
+        allow_guests: allowGuests,
         visibility,
         color,
         lead,
@@ -164,6 +206,8 @@ export function ProgramGeneralPage() {
     setInitialHealth(health);
     setInitialMethodology(methodology);
     setInitialIterationLabel(iterationLabel);
+    setInitialPublicSharing(publicSharing);
+    setInitialAllowGuests(allowGuests);
     setInitialVisibility(visibility);
     setInitialColor(color);
     setInitialLead(lead);
@@ -176,6 +220,8 @@ export function ProgramGeneralPage() {
     health,
     methodology,
     iterationLabel,
+    publicSharing,
+    allowGuests,
     visibility,
     color,
     lead,
@@ -188,6 +234,8 @@ export function ProgramGeneralPage() {
     setHealth(initialHealth);
     setMethodology(initialMethodology);
     setIterationLabel(initialIterationLabel);
+    setPublicSharing(initialPublicSharing);
+    setAllowGuests(initialAllowGuests);
     setVisibility(initialVisibility);
     setColor(initialColor);
     setLead(initialLead);
@@ -198,6 +246,8 @@ export function ProgramGeneralPage() {
     initialHealth,
     initialMethodology,
     initialIterationLabel,
+    initialPublicSharing,
+    initialAllowGuests,
     initialVisibility,
     initialColor,
     initialLead,
@@ -210,6 +260,10 @@ export function ProgramGeneralPage() {
     onReset: handleReset,
     apiReady: !!program,
   });
+
+  // Sharing overrides are Admin+ (ADR-0135); lower roles see a read-only indicator.
+  // The server enforces this too — this only gates the affordance.
+  const canEditSharing = program?.my_role != null && program.my_role >= ROLE_ADMIN;
 
   return (
     <div>
@@ -375,6 +429,40 @@ export function ProgramGeneralPage() {
             onChange={setIterationLabel}
             inheritedLabel={program?.inherited_iteration_label ?? DEFAULT_ITERATION_LABEL}
             inheritFromLabel="the workspace default"
+          />
+        </FieldRow>
+
+        <FieldRow
+          label="Allow guests"
+          hint="Guests are external collaborators (vendors, auditors), limited to what they're invited to. Inherits the workspace setting unless you override it here."
+        >
+          <InheritableToggleField
+            value={allowGuests}
+            onChange={setAllowGuests}
+            inherited={program?.inherited_allow_guests ?? false}
+            inheritFromLabel="the workspace default"
+            scopeNoun="program"
+            onLabel="On"
+            offLabel="Off"
+            ariaLabel="Allow guest access"
+            canEdit={canEditSharing}
+          />
+        </FieldRow>
+
+        <FieldRow
+          label="Public sharing"
+          hint="Anyone with the link can view selected reports — no sign-in required. Inherits the workspace setting unless you override it here."
+        >
+          <InheritableToggleField
+            value={publicSharing}
+            onChange={setPublicSharing}
+            inherited={program?.inherited_public_sharing ?? false}
+            inheritFromLabel="the workspace default"
+            scopeNoun="program"
+            onLabel="On"
+            offLabel="Off"
+            ariaLabel="Allow public link sharing"
+            canEdit={canEditSharing}
           />
         </FieldRow>
 

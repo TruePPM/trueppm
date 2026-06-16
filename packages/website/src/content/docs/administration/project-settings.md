@@ -18,6 +18,10 @@ The **General** page edits the project's identity:
 - **Name**, **description**, and **code**
 - **Health** indicator and **visibility**
 - **Time zone** and **default view** (which view opens when you enter the project)
+- **Public sharing** and **guest access** — these inherit from the workspace (or the
+  project's program) and an Owner/Admin can override them per project. A control with no
+  override reads **Inherit (On/Off)**, showing the value that would apply from the parent
+  scope. See [Sharing & Access Inheritance](/administration/sharing-and-access/).
 
 Changes are staged and committed with a save bar, so you can review edits before
 applying them. (A calendar picker on this page is planned; calendars are managed
