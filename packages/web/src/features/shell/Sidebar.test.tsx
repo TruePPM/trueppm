@@ -107,22 +107,24 @@ describe('Sidebar (v2 left rail)', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('shows the OSS Resources link and an EE-gated Portfolio rollup upsell row in the community edition (#1173, rule 177)', () => {
+  it('shows the OSS Resources link and a disabled, grayed-out Portfolio rollup row in the community edition (#1173, rule 177)', () => {
     renderRail();
     // Organization group is present for the OSS Resources catalog...
     expect(screen.getByText('Organization')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Resources catalog' })).toBeInTheDocument();
-    // ...and the cross-program Portfolio rollup is no longer hidden (which read
-    // as broken OSS): it routes to the in-app upsell, with the EE gate carried
-    // in the composite accessible name.
-    const upsell = screen.getByRole('link', {
-      name: 'Portfolio rollup — available in TruePPM Enterprise',
+    // ...and the cross-program Portfolio rollup is neither hidden (reads as
+    // broken OSS) nor promoted (it is not purchasable until post-1.0): it is a
+    // disabled, grayed-out row with the gate carried in its accessible name.
+    const gate = screen.getByRole('button', {
+      name: 'Portfolio rollup — available in TruePPM Enterprise (post-1.0)',
     });
-    expect(upsell).toHaveAttribute('href', '/portfolio-upsell');
-    // The "EE" tag is decorative (aria-hidden) — the row's aria-label is the
-    // sole accessible name, so the SR never reads "Portfolio rollup E E".
-    expect(upsell).toHaveTextContent('Portfolio rollup');
-    expect(upsell).toHaveTextContent('EE');
+    expect(gate).toBeDisabled();
+    expect(gate).toHaveAttribute('title', 'Available in TruePPM Enterprise (post-1.0)');
+    expect(gate).toHaveTextContent('Portfolio rollup');
+    // It is not a navigation link — there is no upsell route.
+    expect(
+      screen.queryByRole('link', { name: /Portfolio rollup/i }),
+    ).not.toBeInTheDocument();
   });
 
   it('fully hides the desktop rail when collapsed — inert + out of the a11y tree (ADR-0127, supersedes #1176)', () => {

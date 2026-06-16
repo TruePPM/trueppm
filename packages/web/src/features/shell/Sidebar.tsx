@@ -261,9 +261,10 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               always present (its icon persists in the collapsed rail, parity with
               My Work / Inbox); Portfolio rollup is cross-program (Enterprise,
               post-1.0): under the enterprise edition it routes to the real
-              slot-registered view, under community it routes to an EE-gated
-              upsell (rule 177) rather than vanishing (rule 15). The group
-              heading + Portfolio are expanded-only. */}
+              slot-registered view, under community it is a disabled, grayed-out
+              row with a tooltip (rule 177) rather than vanishing (rule 15) or
+              being promoted before it ships. The group heading + Portfolio are
+              expanded-only. */}
           {showFull && <h2 className={GROUP_LABEL}>Organization</h2>}
           <NavLink
             to="/resources"
@@ -288,30 +289,27 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               <span className="min-w-0 truncate">Portfolio rollup</span>
             </NavLink>
           )}
-          {/* Community edition: instead of hiding the cross-program Portfolio
-              rollup (which reads as broken OSS), surface it as an EE-gated row
-              that routes to a designed in-app upsell (rule 177). The "EE"
-              tag is a non-interactive <span> — the row itself is the NavLink, so
-              nesting the focusable EnterpriseBadge anchor inside it would be
-              invalid HTML; the composite accessible name lives on aria-label. */}
+          {/* Community edition: the cross-program Portfolio rollup is Enterprise
+              and not purchasable until post-1.0, so it is neither hidden (which
+              reads as broken OSS) nor promoted (a prominent badge/marketing page
+              for a feature you can't buy yet is premature). It renders as a
+              disabled, grayed-out row with a tooltip — the rule-122 / HeatmapPage
+              "Level loads" pattern (rule 177). Promote to the rule-121 EE-badge
+              upsell once the feature ships at 1.0. */}
           {showFull && edition === 'community' && (
-            <NavLink
-              to="/portfolio-upsell"
-              aria-label="Portfolio rollup — available in TruePPM Enterprise"
-              onClick={() => isDrawer && onClose?.()}
-              className={({ isActive }) => rowClass(isActive)}
+            <button
+              type="button"
+              disabled
+              aria-disabled="true"
+              aria-label="Portfolio rollup — available in TruePPM Enterprise (post-1.0)"
+              title="Available in TruePPM Enterprise (post-1.0)"
+              className="group flex w-full items-center gap-2 rounded border-l-2 border-transparent py-2 pl-2.5 pr-2 text-sm text-chrome-text-secondary opacity-50 cursor-not-allowed"
             >
               <svg width="16" height="16" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true" className="shrink-0">
                 <path d="M2 2h4v4H2V2zm6 0h4v4H8V2zM2 8h4v4H2V8zm6 0h4v4H8V8z" />
               </svg>
               <span className="min-w-0 truncate">Portfolio rollup</span>
-              <span
-                aria-hidden="true"
-                className="ml-2 inline-flex items-center rounded bg-brand-primary/10 px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-brand-primary"
-              >
-                EE
-              </span>
-            </NavLink>
+            </button>
           )}
 
           {/* Programs — expandable tree */}
