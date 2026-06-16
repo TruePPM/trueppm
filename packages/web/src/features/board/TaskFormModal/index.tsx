@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import type { Task, TaskStatus, TaskType, GovernanceClass, DeliveryMode } from '@/types';
 import { ROLE_VIEWER, ROLE_MEMBER, ROLE_ADMIN } from '@/lib/roles';
+import { toast } from '@/components/Toast';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useSprints } from '@/hooks/useSprints';
 import { useProject } from '@/hooks/useProject';
@@ -542,6 +543,7 @@ export function TaskFormModal({
       }
       if (mode === 'create') {
         onCreated?.(savedTaskId);
+        toast.success(`Created ${form.name.trim()}`);
       }
       onClose();
     } catch (err) {
@@ -1129,7 +1131,7 @@ export function TaskFormModal({
     <>
       <div
         aria-hidden="true"
-        className="hidden md:block fixed inset-0 z-40 bg-black/40 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-150"
+        className="hidden md:block fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px] motion-safe:animate-scrim-fade"
         onPointerDown={() => {
           if (isDirty) {
             setShowDiscardConfirm(true);
@@ -1147,7 +1149,7 @@ export function TaskFormModal({
         <div
           ref={desktopTrapRef}
           tabIndex={-1}
-          className="bg-neutral-surface border border-neutral-border rounded-lg overflow-hidden flex flex-col w-[560px] max-h-[90vh] pointer-events-auto focus:outline-none"
+          className="bg-neutral-surface border border-neutral-border rounded-lg overflow-hidden flex flex-col w-[560px] max-h-[90vh] pointer-events-auto focus:outline-none motion-safe:animate-modal-scale-in"
         >
           {renderHeader()}
           <div className="flex-1 overflow-y-auto">{renderBody()}</div>

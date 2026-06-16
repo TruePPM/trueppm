@@ -106,7 +106,7 @@ export function BottomSheet({
         aria-hidden="true"
         className={[
           visibilityClass,
-          'fixed inset-0 z-40 bg-black/40 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-150',
+          'fixed inset-0 z-40 bg-black/40 motion-safe:animate-scrim-fade',
         ].join(' ')}
         onPointerDown={onClose}
         data-testid="bottom-sheet-scrim"

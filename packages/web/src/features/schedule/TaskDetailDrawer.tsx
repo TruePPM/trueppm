@@ -306,7 +306,8 @@ export function TaskDetailDrawer({
         className={[
           'hidden md:flex fixed inset-y-0 right-0 w-[540px] flex-col',
           'bg-neutral-surface border-l border-neutral-border z-40',
-          'transition-transform duration-200',
+          // v2 fluidity (ADR-0126, rule 185): slide on the brand ease (proto .26s).
+          'transition-transform duration-slow ease-brand',
           isOpen ? 'translate-x-0' : 'translate-x-full',
         ].join(' ')}
       >
@@ -623,7 +624,7 @@ function DrawerContent({
 
       {/* Save bar (dirty) or Esc hint (clean) — mirrors the Settings save contract */}
       {dirty ? (
-        <div className="shrink-0 flex items-center gap-3 px-4 py-2.5 bg-brand-primary border-t border-brand-primary-dark">
+        <div className="shrink-0 flex items-center gap-3 px-4 py-2.5 bg-brand-primary border-t border-brand-primary-dark motion-safe:animate-save-bar-slide">
           <span className="text-[13px] font-medium text-white" role="status">
             You have unsaved changes
           </span>

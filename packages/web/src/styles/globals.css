@@ -338,6 +338,18 @@
     animation: save-bar-slide 220ms cubic-bezier(.2, .7, .2, 1);
   }
 
+  /* Overlay scrim fade (v2 fluidity, ADR-0126) — the backdrop fades in behind a
+     dialog/modal. Replaces the dead `animate-in`/`fade-in` utilities (no
+     tailwindcss-animate). 150ms on the brand ease. motion-safe at the class
+     layer (rule 70), so no @media guard is needed here. */
+  @keyframes scrim-fade {
+    0%   { opacity: 0; }
+    100% { opacity: 1; }
+  }
+  .animate-scrim-fade {
+    animation: scrim-fade 150ms cubic-bezier(.2, .7, .2, 1);
+  }
+
   /* Disabled-form-control styling for settings pages whose API hasn't shipped
      yet (`apiReady=false`). Wrap the page body in `<StubFieldset>` and every
      descendant input / select / textarea / button is forced into the same
