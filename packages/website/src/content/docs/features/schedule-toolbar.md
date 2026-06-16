@@ -11,8 +11,17 @@ The Schedule view's toolbar gives you the at-a-glance project status (rightmost 
 [ + Task ] [ + Milestone ] [ Build mode pill ]
 [ CP only · Focus chain ]   [ Critical path · Milestones ]
                                  ...
-[ {N} tasks · {C} critical · CPM ✓ ]   [ Today ]   [ − {level} + ] [ Fit ]
+[ {N} tasks · {C} critical · CPM ✓ ]   [ Grid | Timeline ]   [ Today ]   [ − {level} + ] [ Fit ]
 ```
+
+## Layout: Grid and Timeline
+
+A `Grid | Timeline` toggle controls how much of the schedule the view devotes to the table versus the bars:
+
+- **Grid** (default) — the WBS task-list table (WBS, Task, Dur, Start, Finish, %, Owner) sits to the left of the timeline, with a draggable splitter between them.
+- **Timeline** — the task-list table is hidden and the timeline canvas spans the full width. Each bar still carries its task name inline, so rows stay identifiable; switch back to Grid whenever you need the tabular detail.
+
+The choice is a per-user view preference saved in your browser, so the Schedule reopens in the layout you last used.
 
 ## Filter groups
 
