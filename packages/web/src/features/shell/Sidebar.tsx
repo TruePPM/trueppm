@@ -8,6 +8,7 @@ import { useMyWork } from '@/hooks/useMyWork';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useEdition } from '@/hooks/useEdition';
 import { useCommandPaletteStore } from '@/stores/commandPaletteStore';
+import { toast } from '@/components/Toast';
 import { modifierKeyLabel } from '@/lib/platform';
 import { LogoMark, SearchIcon, ChevronRightIcon, PlusIcon, SettingsIcon } from '@/components/Icons';
 import { NewProjectModal } from './NewProjectModal';
@@ -518,7 +519,11 @@ function ProjectRow({
       </button>
       <button
         type="button"
-        onClick={onTogglePin}
+        onClick={() => {
+          onTogglePin();
+          // `pinned` is the pre-toggle state, so the message reflects the result.
+          toast.info(pinned ? `Removed ${name} from Shortcuts` : `Pinned ${name} to Shortcuts`);
+        }}
         aria-label={pinned ? `Unpin ${name}` : `Pin ${name} to Shortcuts`}
         aria-pressed={pinned}
         title={pinned ? 'Unpin' : 'Pin to Shortcuts'}
