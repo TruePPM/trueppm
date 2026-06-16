@@ -362,6 +362,14 @@ class Program(VersionedModel):
     iteration_label = models.CharField(  # noqa: DJ001 — null distinguishes "inherit" from ""
         max_length=32, null=True, blank=True
     )
+    # Per-scope sharing overrides (ADR-0135, #978). NULL = inherit the workspace
+    # value; True/False = explicit override for this program. The effective value
+    # is resolved computed-on-read in ``apps.projects.sharing_settings`` and
+    # exposed via the serializer's ``effective_*``/``inherited_*`` fields; clients
+    # never re-implement the precedence. Not in ``_HISTORY_EXCLUDED_BASE``, so
+    # every override write is captured by HistoricalRecords (audit requirement).
+    public_sharing = models.BooleanField(null=True, blank=True)
+    allow_guests = models.BooleanField(null=True, blank=True)
     # PM override for the program health chip. Defaults to AUTO so existing rows
     # render via the (future) rollup rather than implying a manual judgment.
     health = models.CharField(
@@ -752,6 +760,14 @@ class Project(VersionedModel):
         null=True,
         blank=True,
     )
+    # Per-scope sharing overrides (ADR-0135, #978). NULL = inherit from the
+    # program (or workspace, if the program also inherits); True/False = explicit
+    # override for this project. Resolved computed-on-read in
+    # ``apps.projects.sharing_settings`` and surfaced via the serializer's
+    # ``effective_*``/``inherited_*`` fields. Not in ``_HISTORY_EXCLUDED_BASE``,
+    # so every override write is captured by HistoricalRecords (audit).
+    public_sharing = models.BooleanField(null=True, blank=True)
+    allow_guests = models.BooleanField(null=True, blank=True)
     # Optional grouping into a Program (ADR-0070). NULL = standalone project.
     # SET_NULL on program delete so projects survive the cascade as standalone.
     # Program membership is independent of project membership: a project member

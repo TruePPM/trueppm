@@ -545,7 +545,7 @@ export function useProjectForecast(
  *
  * ADR-0130 D3: the forecast has two bases. The discriminator is `forecast_basis`,
  * NOT the legacy `basis` (which is frozen at `"monte_carlo"` for back-compat —
- * never branch on it; web-rule 175). The `velocity` path forecasts in sprints +
+ * never branch on it; web-rule 176). The `velocity` path forecasts in sprints +
  * points (`p50_sprints`/`remaining_points`); the `throughput` path is a continuous-
  * flow team and forecasts in item counts + dates (`remaining_count`, sprint counts
  * null) and can report `"insufficient_flow_history"`. Both are real Monte Carlo, so
@@ -563,7 +563,7 @@ export interface SprintForecast {
   p50_date: string | null;
   p80_date: string | null;
   p95_date: string | null;
-  /** Legacy constant — kept for back-compat; do NOT branch on it (web-rule 175). */
+  /** Legacy constant — kept for back-compat; do NOT branch on it (web-rule 176). */
   basis: 'monte_carlo';
   /** ADR-0130 D3 discriminator — branch on THIS. */
   forecast_basis: 'velocity' | 'throughput';
@@ -610,7 +610,7 @@ export interface FlowPercentiles {
  * The historical distributions (`cycle_time`/`lead_time`/`cfd`/`throughput`) are
  * team-private (ADR-0104 `flow_metrics` signal, TEAM/TEAM). For a below-audience
  * reader the server empties them and sets `flow_metrics_suppressed=true`; the web
- * surface then renders a content-free wall (web-rule 165/175). `data_integrity` is
+ * surface then renders a content-free wall (web-rule 165/176). `data_integrity` is
  * aggregate-only — never per-person — and is zeroed under suppression.
  */
 export interface FlowMetrics {

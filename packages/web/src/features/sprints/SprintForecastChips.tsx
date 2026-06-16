@@ -30,7 +30,7 @@ export function SprintForecastChips({ projectId, sprintId }: Props) {
 
   const finish = sprintFinishChip(burndown);
   // The release-horizon chip branches on forecast_basis (NOT the legacy `basis`,
-  // web-rule 175): a velocity team reads sprint counts, a throughput (flow) team
+  // web-rule 176): a velocity team reads sprint counts, a throughput (flow) team
   // reads item counts + dates. Hidden when the velocity signal is team-private or
   // the forecast is still warming up / lacks flow history.
   const showHorizon = !!forecast && !forecast.velocity_suppressed && forecast.status === 'ready';

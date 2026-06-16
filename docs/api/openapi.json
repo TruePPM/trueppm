@@ -23386,6 +23386,14 @@
                         "nullable": true,
                         "maxLength": 32
                     },
+                    "public_sharing": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "allow_guests": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
                     "health": {
                         "$ref": "#/components/schemas/HealthEnum"
                     },
@@ -23524,6 +23532,14 @@
                         "type": "string",
                         "nullable": true,
                         "maxLength": 32
+                    },
+                    "public_sharing": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "allow_guests": {
+                        "type": "boolean",
+                        "nullable": true
                     },
                     "program": {
                         "type": "string",
@@ -24306,6 +24322,9 @@
                     "public_sharing": {
                         "type": "boolean"
                     },
+                    "public_sharing_override_policy": {
+                        "$ref": "#/components/schemas/TermOverridePolicyEnum"
+                    },
                     "iteration_label": {
                         "type": "string",
                         "minLength": 1,
@@ -24479,6 +24498,30 @@
                         "description": "Workspace default — what the program inherits when its override is NULL.",
                         "readOnly": true
                     },
+                    "public_sharing": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "allow_guests": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "effective_public_sharing": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "inherited_public_sharing": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "effective_allow_guests": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "inherited_allow_guests": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
                     "health": {
                         "$ref": "#/components/schemas/HealthEnum"
                     },
@@ -24563,8 +24606,12 @@
                     "closed_by",
                     "created_at",
                     "created_by",
+                    "effective_allow_guests",
+                    "effective_public_sharing",
                     "id",
+                    "inherited_allow_guests",
                     "inherited_iteration_label",
+                    "inherited_public_sharing",
                     "is_closed",
                     "is_sample",
                     "lead_detail",
@@ -24711,6 +24758,14 @@
                         "type": "string",
                         "nullable": true,
                         "maxLength": 32
+                    },
+                    "public_sharing": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "allow_guests": {
+                        "type": "boolean",
+                        "nullable": true
                     },
                     "health": {
                         "$ref": "#/components/schemas/HealthEnum"
@@ -24861,6 +24916,30 @@
                         "description": "The label shown if this project's override were cleared (ADR-0116).\n\nProgram override ?? workspace default ?? \"Sprint\" — the project's own\noverride is intentionally skipped so the settings UI can show \"Inherit (X)\"\nregardless of the current override.",
                         "readOnly": true
                     },
+                    "public_sharing": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "allow_guests": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "effective_public_sharing": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "inherited_public_sharing": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "effective_allow_guests": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "inherited_allow_guests": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
                     "program": {
                         "type": "string",
                         "format": "uuid",
@@ -24898,9 +24977,13 @@
                 "required": [
                     "archived_at",
                     "archived_by",
+                    "effective_allow_guests",
                     "effective_iteration_label",
+                    "effective_public_sharing",
                     "id",
+                    "inherited_allow_guests",
                     "inherited_iteration_label",
+                    "inherited_public_sharing",
                     "is_archived",
                     "lead_detail",
                     "member_count",
@@ -25155,6 +25238,30 @@
                         "description": "The label shown if this project's override were cleared (ADR-0116).\n\nProgram override ?? workspace default ?? \"Sprint\" — the project's own\noverride is intentionally skipped so the settings UI can show \"Inherit (X)\"\nregardless of the current override.",
                         "readOnly": true
                     },
+                    "public_sharing": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "allow_guests": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "effective_public_sharing": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "inherited_public_sharing": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "effective_allow_guests": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "inherited_allow_guests": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
                     "program": {
                         "type": "string",
                         "format": "uuid",
@@ -25227,9 +25334,13 @@
                 "required": [
                     "archived_at",
                     "archived_by",
+                    "effective_allow_guests",
                     "effective_iteration_label",
+                    "effective_public_sharing",
                     "id",
+                    "inherited_allow_guests",
                     "inherited_iteration_label",
+                    "inherited_public_sharing",
                     "is_archived",
                     "is_sample",
                     "lead_detail",
@@ -25508,6 +25619,14 @@
                         "type": "string",
                         "nullable": true,
                         "maxLength": 32
+                    },
+                    "public_sharing": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "allow_guests": {
+                        "type": "boolean",
+                        "nullable": true
                     },
                     "program": {
                         "type": "string",
@@ -29811,6 +29930,9 @@
                     },
                     "public_sharing": {
                         "type": "boolean"
+                    },
+                    "public_sharing_override_policy": {
+                        "$ref": "#/components/schemas/TermOverridePolicyEnum"
                     },
                     "iteration_label": {
                         "type": "string",

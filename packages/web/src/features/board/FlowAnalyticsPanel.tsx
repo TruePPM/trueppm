@@ -15,7 +15,7 @@
  * Charts use Recharts with CSS-var color tokens (mirroring BurnChart) and
  * `isAnimationActive={false}` (reduced motion + deterministic tests). Each chart
  * carries an sr-only text summary so the data is reachable without seeing the SVG
- * (web-rule 175).
+ * (web-rule 176).
  */
 import { type ReactNode, useCallback, useState } from 'react';
 import {

@@ -44,7 +44,7 @@ function Body({ data }: { data: NonNullable<ReturnType<typeof useSprintForecast>
 
   // ADR-0130 D3: a continuous-flow (kanban) team forecasts from weekly throughput,
   // not sprint velocity. Branch on forecast_basis (NOT the legacy `basis`, web-rule
-  // 175): the throughput path counts items + dates and has no sprint counts.
+  // 176): the throughput path counts items + dates and has no sprint counts.
   if (data.forecast_basis === 'throughput') {
     return <ThroughputBody data={data} />;
   }

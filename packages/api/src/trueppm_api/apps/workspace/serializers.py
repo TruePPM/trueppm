@@ -104,6 +104,10 @@ class WorkspaceSettingsSerializer(serializers.ModelSerializer[Workspace]):
             "default_project_view",
             "allow_guests",
             "public_sharing",
+            # Whether programs/projects may override the sharing settings above
+            # (ADR-0135, #978). SUGGEST (OSS default) = downstream may loosen or
+            # tighten; ENFORCE = Enterprise hard ceiling (no-op in OSS).
+            "public_sharing_override_policy",
             # Workspace-wide iteration-container label default + cascade policy
             # (ADR-0116, #1106). The non-null root of the inheritance chain.
             "iteration_label",

@@ -99,7 +99,7 @@ deliberately no cross-project rollup. A cross-project flow rollup would be Enter
      forecast chip renders regardless of `flow_metrics_suppressed` (only the panel
      series are gated; `velocity_suppressed` independently gates the velocity path).
 
-6. **New web-rule 175** (next free; 174 is the current max) in `packages/web/CLAUDE.md`
+6. **New web-rule 176** (next free; 175 is the current max) in `packages/web/CLAUDE.md`
    codifying: `forecast_basis` is the branch discriminator (never the legacy `basis`);
    throughput forecasts use item/week/date vocabulary, never sprint/points; flow charts
    use Recharts with CSS-var tokens; `flow_metrics_suppressed` renders a content-free
@@ -119,7 +119,7 @@ deliberately no cross-project rollup. A cross-project flow rollup would be Enter
   first-class flow metrics; the latent throughput-renders-as-null bug is fixed.
 - **Harder:** two forecast vocabularies to keep honest; a new Recharts surface to test.
 - **Risks:** (a) `forecast_basis` must be the sole discriminator — a stray `basis`
-  comparison reintroduces the bug (web-rule 175 guards this); (b) Recharts color tokens
+  comparison reintroduces the bug (web-rule 176 guards this); (b) Recharts color tokens
   must come from CSS vars (Tailwind can't reach SVG internals) — follow BurnChart; (c)
   the design-system-v2 hex gate counts `#NNNN` issue refs as hex — comments reference
   ADR-0137, never `#1188`.

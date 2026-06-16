@@ -102,6 +102,7 @@ export default defineConfig({
             { slug: "administration/email" },
             { slug: "administration/msproject-configuration" },
             { slug: "administration/workspace-settings" },
+            { slug: "administration/sharing-and-access" },
           ],
         },
         // --- Feature reference (sub-grouped) ---

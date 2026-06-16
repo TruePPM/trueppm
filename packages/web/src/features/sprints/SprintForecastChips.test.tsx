@@ -66,7 +66,7 @@ describe('SprintForecastChips', () => {
     renderWithRouter(<SprintForecastChips projectId="p1" sprintId="s1" />);
     const text = chipsText();
     expect(text).toContain('At current throughput, ~24 items clear by');
-    // web-rule 175: a throughput chip never claims "sprints".
+    // web-rule 176: a throughput chip never claims "sprints".
     expect(text).not.toContain('sprint');
   });
 

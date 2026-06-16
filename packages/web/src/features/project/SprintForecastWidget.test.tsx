@@ -81,7 +81,7 @@ describe('SprintForecastWidget', () => {
     const text = body.textContent ?? '';
     expect(text).toContain('24');
     expect(text.toLowerCase()).toContain('throughput');
-    // web-rule 175: a throughput forecast never borrows velocity/sprint language.
+    // web-rule 176: a throughput forecast never borrows velocity/sprint language.
     expect(text.toLowerCase()).not.toContain('velocity');
     expect(text.toLowerCase()).not.toContain('sprint');
     // It is a real Monte Carlo, so percentile vocabulary is still honest (rule 166).
