@@ -88,6 +88,29 @@ class TestMonteCarloEndpoint:
         assert "p95" in r.data
         assert r.data["runs"] == 100
 
+    def test_response_includes_sensitivity_tornado(
+        self,
+        member_client: APIClient,
+        project: Project,
+        pert_task: Task,
+    ) -> None:
+        """The run response carries the per-task duration-sensitivity tornado
+        (ADR-0140). With a single PERT task driving the finish, that task ranks
+        at index ~1.0."""
+        r = member_client.post(
+            f"/api/v1/projects/{project.pk}/monte-carlo/",
+            {"n_simulations": 500},
+            format="json",
+        )
+        assert r.status_code == 200
+        sensitivity = r.data["sensitivity"]
+        assert isinstance(sensitivity, list)
+        assert sensitivity, "the one PERT task should drive the finish"
+        top = sensitivity[0]
+        assert top["task_id"] == str(pert_task.pk)
+        assert 0.0 <= top["index"] <= 1.0
+        assert top["index"] > 0.9  # the only variable task → near-perfect correlation
+
     def test_viewer_can_run_simulation(
         self,
         viewer_client: APIClient,

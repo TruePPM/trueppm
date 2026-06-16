@@ -128,6 +128,13 @@ MAX_LAG_DELTA_CELLS = 50_000_000
 # same deep-tail truncation the sampler already documents).
 MAX_VELOCITY_SPRINTS = 10_000
 
+# Default ceiling on the number of tasks returned in a Monte Carlo sensitivity
+# tornado (ADR-0140). The ranking is "the tasks that move the finish most", so a
+# top-N is the point — and it bounds the response payload regardless of project
+# size. Callers can override via the ``sensitivity_cap`` parameter of
+# :func:`monte_carlo`.
+MC_SENSITIVITY_CAP = 20
+
 
 # ---------------------------------------------------------------------------
 # Result types
@@ -169,6 +176,24 @@ class ScheduleResult:
 
 
 @dataclass
+class TaskSensitivity:
+    """How strongly one task's duration drives the project finish (ADR-0140).
+
+    ``index`` is the absolute Spearman rank correlation between the task's
+    per-run sampled duration and the project's per-run completion offset, in
+    [0, 1] — the @RISK-style "sensitivity tornado" measure of *which tasks move
+    the finish most*. Tasks whose duration cannot vary the finish (deterministic,
+    completed, or zero-duration milestones) are omitted rather than reported as 0.
+    """
+
+    task_id: str
+    index: float
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"task_id": self.task_id, "index": self.index}
+
+
+@dataclass
 class MonteCarloResult:
     """Output of a Monte Carlo probabilistic schedule simulation."""
 
@@ -180,6 +205,10 @@ class MonteCarloResult:
     # Full sorted distribution of simulated completion dates.
     # Useful for rendering histogram tooltips in the UI.
     distribution: list[date] = field(default_factory=list)
+    # Per-task duration-sensitivity tornado (ADR-0140), sorted by ``index``
+    # descending and capped to the top entries. Empty for a fully deterministic
+    # project (no sampled variance to correlate against the finish).
+    sensitivity: list[TaskSensitivity] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -189,6 +218,7 @@ class MonteCarloResult:
             "p80": self.p80.isoformat(),
             "p95": self.p95.isoformat(),
             "distribution": [d.isoformat() for d in self.distribution],
+            "sensitivity": [s.to_dict() for s in self.sensitivity],
         }
 
 
@@ -1466,12 +1496,87 @@ def _build_working_day_index(start: date, calendar: Calendar, n_working_days: in
     return result
 
 
+def _average_ranks(a: np.ndarray) -> np.ndarray:
+    """Return the average (tie-corrected) ranks of a 1-D array.
+
+    This is the ranking convention `scipy.stats.rankdata(method="average")` uses,
+    reimplemented with numpy so the scheduler keeps its networkx+numpy-only
+    dependency footprint. Ties share the mean of the ranks they span — required
+    for a correct Spearman correlation when the data has repeated values (common
+    here: completion offsets and sampled durations are discrete working-day
+    counts, so ties are the rule, not the exception).
+    """
+    sorter = np.argsort(a, kind="mergesort")  # stable, so ties order deterministically
+    inv = np.empty(a.shape[0], dtype=np.intp)
+    inv[sorter] = np.arange(a.shape[0])
+    a_sorted = a[sorter]
+    # `obs[i]` marks the start of a new value-group in the sorted array.
+    obs = np.r_[True, a_sorted[1:] != a_sorted[:-1]]
+    dense = obs.cumsum()[inv]  # 1-based dense rank of each element
+    # Cumulative counts at each group boundary; the average rank of a group is the
+    # mean of its first and last 1-based positions.
+    counts = np.r_[np.nonzero(obs)[0], a.shape[0]]
+    ranks: np.ndarray = 0.5 * (counts[dense] + counts[dense - 1] + 1)
+    return ranks
+
+
+def _duration_sensitivity(
+    dur_matrix: np.ndarray,
+    completion_offsets: np.ndarray,
+    topo_order: list[str],
+    cap: int,
+) -> list[TaskSensitivity]:
+    """Rank tasks by how strongly their sampled duration moves the project finish.
+
+    The sensitivity index of a task is ``|spearman(duration, finish)|`` across all
+    runs — the @RISK-style duration tornado (ADR-0140). Returns the top ``cap``
+    tasks by index, descending. Tasks whose sampled duration has zero variance
+    (deterministic, completed, or milestone) cannot move the finish and are
+    omitted; if the finish itself has zero variance (fully deterministic project)
+    the result is empty.
+    """
+    runs = completion_offsets.shape[0]
+    if runs < 2:
+        return []
+    # Rank the finish once; if every run finished on the same offset there is no
+    # variance to attribute and the whole tornado is empty.
+    if np.ptp(completion_offsets) == 0:
+        return []
+    y = _average_ranks(completion_offsets)
+    yc = y - y.mean()
+    y_norm = float(np.sqrt(np.dot(yc, yc)))
+    if y_norm == 0.0:
+        return []
+
+    scored: list[TaskSensitivity] = []
+    for col, tid in enumerate(topo_order):
+        x = dur_matrix[:, col]
+        # Fast-path: a constant-duration column (completed task, deterministic
+        # duration, zero-duration milestone) cannot correlate with the finish.
+        # Skip it before paying for the rank sort.
+        if np.ptp(x) == 0:
+            continue
+        xr = _average_ranks(x)
+        xc = xr - xr.mean()
+        x_norm = float(np.sqrt(np.dot(xc, xc)))
+        if x_norm == 0.0:
+            continue
+        corr = float(np.dot(xc, yc) / (x_norm * y_norm))
+        scored.append(TaskSensitivity(task_id=tid, index=abs(corr)))
+
+    # Sort by index desc; tie-break on task_id so the order is deterministic under
+    # a fixed seed regardless of topological insertion order.
+    scored.sort(key=lambda s: (-s.index, s.task_id))
+    return scored[: max(0, cap)]
+
+
 def monte_carlo(
     project: Project,
     runs: int = 1_000,
     seed: int | None = None,
     max_runs: int | None = 1_000,
     max_tasks: int | None = 500,
+    sensitivity_cap: int = MC_SENSITIVITY_CAP,
 ) -> MonteCarloResult:
     """Run Monte Carlo probabilistic scheduling on a project.
 
@@ -1523,10 +1628,12 @@ def monte_carlo(
                    the cap. Default 1 000.
         max_tasks: Maximum number of tasks allowed. Pass ``None`` to disable
                    the cap. Default 500.
+        sensitivity_cap: Maximum number of tasks returned in the duration
+                   sensitivity tornado (ADR-0140). Default ``MC_SENSITIVITY_CAP``.
 
     Returns:
-        MonteCarloResult with P50, P80, P95 completion dates and the full
-        sorted distribution.
+        MonteCarloResult with P50, P80, P95 completion dates, the full sorted
+        distribution, and the duration-sensitivity tornado (``sensitivity``).
 
     Raises:
         SimulationCapExceeded: If ``runs`` exceeds ``max_runs`` or the project
@@ -1901,6 +2008,10 @@ def monte_carlo(
     p80 = _offset_to_date(float(pct_offsets[1]))
     p95 = _offset_to_date(float(pct_offsets[2]))
 
+    # Duration-sensitivity tornado (ADR-0140) — which tasks' sampled durations
+    # most move the finish, from the same sampled matrix (no second pass).
+    sensitivity = _duration_sensitivity(dur_matrix, completion_offsets, topo_order, sensitivity_cap)
+
     return MonteCarloResult(
         project_id=project.id,
         runs=runs,
@@ -1908,4 +2019,5 @@ def monte_carlo(
         p80=p80,
         p95=p95,
         distribution=all_dates,
+        sensitivity=sensitivity,
     )

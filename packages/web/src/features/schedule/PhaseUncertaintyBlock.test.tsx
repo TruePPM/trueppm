@@ -24,6 +24,7 @@ const MCResult = {
   cpmFinish: null,
   deltaVsCpm: { p50: null, p80: null, p95: null },
   confidenceCurve: [],
+  sensitivity: [],
 };
 
 describe('PhaseUncertaintyBlock', () => {

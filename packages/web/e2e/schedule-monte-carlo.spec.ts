@@ -95,6 +95,8 @@ const FIXTURE_MC_RESULT = {
     { date: '2026-12-07', pct: 98.6 },
     { date: '2026-12-14', pct: 100 },
   ],
+  // Duration-sensitivity tornado (ADR-0140) — Backend API drives the finish.
+  sensitivity: [{ task_id: 'mc-t2', index: 0.88 }],
 };
 
 /** Forecast run history (ADR-0109, #961): newest-first with per-run deltas. */
@@ -351,6 +353,32 @@ test.describe('Monte Carlo Schedule Integration (#333)', () => {
     await expect(page.locator('[data-testid="mc-detail-panel"]')).not.toBeVisible({
       timeout: 3_000,
     });
+  });
+
+  test('Forecast & sensitivity bar expands to show the forecast and the tornado (#1222)', async ({
+    page,
+  }) => {
+    await gotoScheduleWithMC(page);
+
+    // Scope to the insights-bar region — "What's holding the date" also appears
+    // in the (DOM-present but hidden) detail drawer, so an unscoped text query
+    // would be a strict-mode collision.
+    const bar = page.getByRole('region', { name: /Forecast and sensitivity/i });
+    const toggle = bar.getByRole('button', { name: /Forecast & sensitivity/i });
+    await expect(toggle).toBeVisible({ timeout: 10_000 });
+    // Collapsed by default — the two-column body is not shown.
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(bar.getByText('Finish-date forecast')).toHaveCount(0);
+
+    await toggle.click();
+
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(bar.getByText('Finish-date forecast')).toBeVisible();
+    await expect(bar.getByText(/What.s holding the date/i)).toBeVisible();
+    // The sensitivity bar is joined to the driving task's name.
+    await expect(
+      bar.getByRole('img', { name: /Backend API: 88% sensitivity/i }),
+    ).toBeVisible();
   });
 });
 

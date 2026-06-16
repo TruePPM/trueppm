@@ -36,6 +36,9 @@ interface MonteCarloLatestResponse {
     p95: number | null;
   } | null;
   confidence_curve?: { date: string; pct: number }[];
+  // Duration-sensitivity tornado (ADR-0140). Optional for resilience against
+  // older cached payloads; empty on the from-history path (not persisted).
+  sensitivity?: { task_id: string; index: number }[];
 }
 
 function mapResponse(api: MonteCarloLatestResponse): MonteCarloResult {
@@ -72,6 +75,7 @@ function mapResponse(api: MonteCarloLatestResponse): MonteCarloResult {
     cpmFinish: api.cpm_finish ?? null,
     deltaVsCpm,
     confidenceCurve: api.confidence_curve ?? [],
+    sensitivity: (api.sensitivity ?? []).map((s) => ({ taskId: s.task_id, index: s.index })),
   };
 }
 

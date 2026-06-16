@@ -167,6 +167,19 @@ Add `optimistic_duration`, `most_likely_duration`, and `pessimistic_duration` to
 | `p80` | Completion date in 80% of simulations (recommended stakeholder commitment date) |
 | `p95` | Completion date in 95% of simulations (contractual deadline buffer) |
 | `distribution` | Full sorted list of completion dates (one per run) |
+| `sensitivity` | Duration-sensitivity tornado: `[{task_id, index}]`, the tasks whose duration moves the finish most, sorted by `index` (absolute rank correlation, 0–1) descending |
+
+#### Sensitivity (what's holding the date)
+
+`sensitivity` ranks tasks by how strongly their sampled duration drives the project
+finish: the absolute Spearman rank correlation between each task's per-run duration
+and the project completion date. This is the standard duration-sensitivity tornado —
+it answers *"which tasks do I protect to hold the date?"* It accounts for network
+position, so a high-variance task with lots of float ranks low (its slack absorbs the
+variance) while a task on the binding path ranks high. Tasks whose duration cannot
+vary the finish (deterministic durations, completed tasks, zero-duration milestones)
+are omitted; a fully deterministic project returns an empty list. The list is capped
+to the top entries.
 
 ### Usage
 
