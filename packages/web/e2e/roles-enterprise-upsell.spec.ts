@@ -47,7 +47,11 @@ test.describe('Roles matrix — Enterprise upsell (#541)', () => {
 
     await expect(page.getByRole('heading', { name: 'Roles & permissions' })).toBeVisible();
 
-    const badges = page.getByRole('link', { name: /Available in TruePPM Enterprise/i });
+    // Scope to the page content (<main>), not the whole document: the Sidebar
+    // also carries an Enterprise upsell nav row (Portfolio rollup) that matches
+    // this accessible name, and that chrome affordance is asserted in its own
+    // spec. This count is specifically the Enterprise-only rows of the matrix.
+    const badges = page.getByRole('main').getByRole('link', { name: /Available in TruePPM Enterprise/i });
     await expect(badges).toHaveCount(5);
     await expect(badges.first()).toHaveAttribute('href', 'https://trueppm.com/enterprise');
   });

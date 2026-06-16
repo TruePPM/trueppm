@@ -34,7 +34,7 @@ WEB_SRC="packages/web/src"
 SHELL_SRC="packages/web/src/features/shell"
 
 # ── Baselines (ratchet floors). See header. Drive these to zero over time. ──
-BASELINE_HEX=1217
+BASELINE_HEX=1216
 BASELINE_ARBITRARY=6
 BASELINE_SHADOW=3
 

@@ -260,8 +260,11 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
           {/* Organization — org-level destinations. Resources catalog is OSS and
               always present (its icon persists in the collapsed rail, parity with
               My Work / Inbox); Portfolio rollup is cross-program (Enterprise,
-              post-1.0) and only lights up when the edition has it (rule 15). The
-              group heading + Portfolio are expanded-only. */}
+              post-1.0): under the enterprise edition it routes to the real
+              slot-registered view, under community it is a disabled, grayed-out
+              row with a tooltip (rule 177) rather than vanishing (rule 15) or
+              being promoted before it ships. The group heading + Portfolio are
+              expanded-only. */}
           {showFull && <h2 className={GROUP_LABEL}>Organization</h2>}
           <NavLink
             to="/resources"
@@ -285,6 +288,28 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               </svg>
               <span className="min-w-0 truncate">Portfolio rollup</span>
             </NavLink>
+          )}
+          {/* Community edition: the cross-program Portfolio rollup is Enterprise
+              and not purchasable until post-1.0, so it is neither hidden (which
+              reads as broken OSS) nor promoted (a prominent badge/marketing page
+              for a feature you can't buy yet is premature). It renders as a
+              disabled, grayed-out row with a tooltip — the rule-122 / HeatmapPage
+              "Level loads" pattern (rule 177). Promote to the rule-121 EE-badge
+              upsell once the feature ships at 1.0. */}
+          {showFull && edition === 'community' && (
+            <button
+              type="button"
+              disabled
+              aria-disabled="true"
+              aria-label="Portfolio rollup — available in TruePPM Enterprise (post-1.0)"
+              title="Available in TruePPM Enterprise (post-1.0)"
+              className="group flex w-full items-center gap-2 rounded border-l-2 border-transparent py-2 pl-2.5 pr-2 text-sm text-chrome-text-secondary opacity-50 cursor-not-allowed"
+            >
+              <svg width="16" height="16" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true" className="shrink-0">
+                <path d="M2 2h4v4H2V2zm6 0h4v4H8V2zM2 8h4v4H2V8zm6 0h4v4H8V8z" />
+              </svg>
+              <span className="min-w-0 truncate">Portfolio rollup</span>
+            </button>
           )}
 
           {/* Programs — expandable tree */}
