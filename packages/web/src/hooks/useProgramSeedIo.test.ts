@@ -1,10 +1,11 @@
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach, type MockInstance } from 'vitest';
 import type { ReactNode } from 'react';
 import { createElement } from 'react';
 import {
   seedImportErrors,
+  useExportProgramSeed,
   useLoadSampleProgram,
   useImportProgramSeed,
   useRemoveSampleProgram,
@@ -26,9 +27,10 @@ describe('seedImportErrors', () => {
 const postMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue({ data: { id: 'prog-new', name: 'Atlas' } }),
 );
+const getMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/api/client', () => ({
-  apiClient: { post: postMock },
+  apiClient: { post: postMock, get: getMock },
 }));
 
 function makeWrapper(qc: QueryClient) {
@@ -84,5 +86,53 @@ describe('seed-io mutations invalidate the sidebar project list', () => {
     expect(postMock).toHaveBeenCalledWith('/programs/prog-1/remove-sample/');
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['programs'] });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['projects'] });
+  });
+});
+
+describe('useExportProgramSeed download flow', () => {
+  let qc: QueryClient;
+  let clickSpy: MockInstance<() => void>;
+  let createObjectURL: ReturnType<typeof vi.fn>;
+  let revokeObjectURL: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    vi.clearAllMocks();
+    getMock.mockResolvedValue({ data: new Blob(['{}'], { type: 'application/json' }) });
+    // jsdom implements neither object-URL helper, so stub them on the URL global.
+    createObjectURL = vi.fn().mockReturnValue('blob:fake');
+    revokeObjectURL = vi.fn();
+    URL.createObjectURL = createObjectURL as unknown as typeof URL.createObjectURL;
+    URL.revokeObjectURL = revokeObjectURL as unknown as typeof URL.revokeObjectURL;
+    clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+  });
+
+  afterEach(() => clickSpy.mockRestore());
+
+  it('fetches the program as a blob and triggers a download named by code', async () => {
+    const { result } = renderHook(() => useExportProgramSeed(), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({ programId: 'prog-1', code: 'ATLAS' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(getMock).toHaveBeenCalledWith('/programs/prog-1/export/', { responseType: 'blob' });
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:fake');
+  });
+
+  it('falls back to the program id as the filename when code is absent', async () => {
+    const downloads: string[] = [];
+    clickSpy.mockImplementation(function (this: HTMLAnchorElement) {
+      downloads.push(this.download);
+    });
+    const { result } = renderHook(() => useExportProgramSeed(), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({ programId: 'prog-9' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(downloads).toEqual(['prog-9.json']);
   });
 });
