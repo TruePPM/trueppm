@@ -2210,18 +2210,24 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                     validated_data["actual_start"] = today
 
             elif new_status == TaskStatus.REVIEW:
-                # REVIEW means "work is done, awaiting sign-off."  Set
-                # actual_start if missing so capacity reporting reflects when
-                # the work was actually performed; do NOT set actual_finish —
-                # that's reserved for the COMPLETE transition that follows.
-                if "actual_start" not in validated_data and not instance.actual_start:
-                    validated_data["actual_start"] = today
+                # REVIEW means "work is done, awaiting sign-off"; do NOT set
+                # actual_finish — that's reserved for the COMPLETE transition.
+                # We also do NOT invent an actual_start: a card that jumped to
+                # done without ever being IN_PROGRESS never recorded a start, and
+                # stamping "today" would collapse the schedule bar (the scheduler
+                # treats a start == finish == today task as a single day). Leaving
+                # it null lets the progress-aware CPM pass derive the historical
+                # full-duration span instead (ADR-0136). A genuine actual_start
+                # recorded at IN_PROGRESS, or an explicit payload value, is kept.
+                pass
 
             elif new_status == TaskStatus.COMPLETE:
                 if "actual_finish" not in validated_data:
                     validated_data["actual_finish"] = today
-                if "actual_start" not in validated_data and not instance.actual_start:
-                    validated_data["actual_start"] = today
+                # Intentionally do not auto-set actual_start here — see the REVIEW
+                # branch above. When no real start was recorded the engine derives
+                # the full-duration span backward from actual_finish (ADR-0136),
+                # which is more truthful than pinning start to "today".
                 # Zero out remaining effort when work is done.
                 if "remaining_points" not in validated_data:
                     validated_data["remaining_points"] = 0

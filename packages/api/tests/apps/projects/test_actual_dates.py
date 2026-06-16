@@ -92,10 +92,17 @@ def test_actual_start_set_on_in_progress(
 def test_actual_finish_set_on_complete(
     client: APIClient, task: Task, membership: ProjectMembership
 ) -> None:
+    """Completing a task that never started records the finish but NOT a fake start.
+
+    Stamping ``actual_start = today`` on a card that jumped straight to done would
+    pin the scheduler to ``today -> today`` and collapse the bar to a single day.
+    Leaving it null lets the progress-aware CPM pass derive the full-duration span
+    backward from ``actual_finish`` (ADR-0136).
+    """
     r = _patch(client, task, {"status": "COMPLETE"})
     assert r.status_code == 200
     task.refresh_from_db()
-    assert task.actual_start == timezone.localdate()
+    assert task.actual_start is None
     assert task.actual_finish == timezone.localdate()
 
 
