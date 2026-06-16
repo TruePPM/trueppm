@@ -65,7 +65,7 @@ export function ProgramGeneralPage() {
   const [methodology, setMethodology] = useState<ProgramMethodology>('HYBRID');
   // null = inherit the workspace default (ADR-0116, #1106).
   const [iterationLabel, setIterationLabel] = useState<string | null>(null);
-  // null = inherit the workspace value (ADR-0135, #978).
+  // null = inherit the workspace value (ADR-0135).
   const [publicSharing, setPublicSharing] = useState<boolean | null>(null);
   const [allowGuests, setAllowGuests] = useState<boolean | null>(null);
   const [visibility, setVisibility] = useState<ProgramVisibility>('WORKSPACE');

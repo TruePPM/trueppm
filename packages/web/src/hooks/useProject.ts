@@ -54,7 +54,7 @@ export interface ApiProjectDetail {
    * affordance (ADR-0116, #1106).
    */
   inherited_iteration_label: string;
-  /** Sharing overrides (ADR-0135, #978). null = inherit program/workspace value. */
+  /** Sharing overrides (ADR-0135). null = inherit program/workspace value. */
   public_sharing: boolean | null;
   allow_guests: boolean | null;
   /** Read-only server-resolved effective values (project ?? program ?? workspace). */

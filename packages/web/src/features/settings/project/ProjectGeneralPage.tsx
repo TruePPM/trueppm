@@ -87,7 +87,7 @@ export function ProjectGeneralPage() {
   const [lead, setLead] = useState<string | null>(null);
   // null = inherit the program/workspace default (ADR-0116, #1106).
   const [iterationLabel, setIterationLabel] = useState<string | null>(null);
-  // null = inherit the program/workspace value (ADR-0135, #978).
+  // null = inherit the program/workspace value (ADR-0135).
   const [publicSharing, setPublicSharing] = useState<boolean | null>(null);
   const [allowGuests, setAllowGuests] = useState<boolean | null>(null);
 

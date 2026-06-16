@@ -114,7 +114,7 @@ export interface Program {
   iteration_label: string | null;
   /** Read-only label inherited when the override is null — the workspace default. */
   inherited_iteration_label: string;
-  /** Sharing overrides (ADR-0135, #978). null = inherit the workspace value. */
+  /** Sharing overrides (ADR-0135). null = inherit the workspace value. */
   public_sharing: boolean | null;
   allow_guests: boolean | null;
   /** Read-only server-resolved effective values (program override ?? workspace). */

@@ -76,7 +76,7 @@ export interface UpdateProjectPayload {
    * Admin+-only server-side (allowlist default in the serializer).
    */
   iteration_label?: string | null;
-  /** Sharing overrides (ADR-0135, #978). `null` clears the override so the project
+  /** Sharing overrides (ADR-0135). `null` clears the override so the project
    *  inherits the program/workspace value. Admin+-only server-side. */
   public_sharing?: boolean | null;
   allow_guests?: boolean | null;
