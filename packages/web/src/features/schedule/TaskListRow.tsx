@@ -7,6 +7,7 @@ import { ROW_HEIGHT, WBS_INDENT } from './scheduleConstants';
 import { ScopeChangedChip } from '@/features/sprints/ScopeChangedChip';
 import type { ColumnWidths } from '@/hooks/useColumnWidths';
 import { useScheduleStore } from '@/stores/scheduleStore';
+import { toast } from '@/components/Toast';
 import {
   useUpdateTask,
   useReorderTasks,
@@ -369,9 +370,15 @@ function TaskListRowInner({
   // ──────────────────────────────────────────────────────────────────────
   const handleToggleComplete = useCallback(() => {
     if (!projectId || task.isMilestone) return;
+    // Captured before the optimistic flip: only celebrate the transition INTO
+    // complete, never un-completing. Warm toast fires on confirmed success.
+    const becomingComplete = task.status !== 'COMPLETE';
     toggleComplete.mutate(
       { id: task.id, projectId, previousStatus: task.status },
       {
+        onSuccess: () => {
+          if (becomingComplete) toast.warm(`Nice — ${task.name} done.`);
+        },
         onError: (err) => {
           const anchor = parseProgressAnchorError(err);
           setScheduleError(anchor?.detail ?? 'Failed to update task status.');
@@ -381,7 +388,7 @@ function TaskListRowInner({
         },
       },
     );
-  }, [projectId, task.id, task.status, task.isMilestone, toggleComplete, setScheduleError]);
+  }, [projectId, task.id, task.name, task.status, task.isMilestone, toggleComplete, setScheduleError]);
 
   // ──────────────────────────────────────────────────────────────────────
   // Duplicate (#477) — frontend-only via POST /tasks/ with `(copy)` suffix,
