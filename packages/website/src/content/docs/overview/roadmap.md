@@ -52,6 +52,7 @@ From 0.3 onward each release **lands one primary persona** — it ships the feat
 - **Agile depth** — task-type taxonomy, epic/initiative hierarchy, dual backlog, Product Owner role, acceptance criteria, sprint planning / forecast / grooming views
 - **Hybrid foundation** — governance-class / delivery-mode model, parent rollup engine, agile-aware Monte Carlo, Kanban delivery mode
 - **Sample projects + universal JSON import/export** (epic #613) — agile / waterfall / hybrid demo data with the bridge wow preloaded
+- **The v2 interface refresh** (epic #1163) — the navy/sage design system, a single unified app-shell bar (ADR-0134) with a ⌘K command palette, grouped methodology-adaptive view tabs, a context bar with presence and live health drill-through, role-based landing, and a context-aware "+ New". The visual and navigation overhaul shipped alongside the agile-team features rather than as a separate release; it is claimed here so the 0.3 charter matches what landed
 
 ## Planned
 

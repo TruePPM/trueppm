@@ -2,7 +2,7 @@
 # Run `make help` for a list of targets.
 
 .PHONY: help setup doctor lint typecheck test build clean up down logs admin up-prod \
-        migrations-check schema-check web-lint web-typecheck pre-push pre-push-checks \
+        migrations-check migrations-numbering schema-check web-lint web-typecheck pre-push pre-push-checks \
         pre-push-behind-warn pre-push-wasm \
         coverage-diff coverage-diff-scheduler coverage-diff-api coverage-diff-web \
         release-smoke wt-new wt-list wt-remove wt-prune wt-doctor
@@ -113,6 +113,16 @@ migrations-check: ## Verify no missing Django migrations (uses the api container
 	    .venv/bin/python manage.py makemigrations --check --dry-run; \
 	fi
 
+migrations-numbering: ## Detect cross-branch migration-numbering collisions vs origin/main (no DB)
+	@# Closes the gap makemigrations --check misses: it only sees this tree, so two
+	@# parallel branches can each create projects/0080_*.py, both pass, and the second
+	@# merge leaves main with two leaf migrations. This compares the branch against
+	@# origin/main and fails if a new migration reuses a number main already assigns.
+	@# Best-effort fetch (mirrors pre-push-behind-warn); the script skips cleanly if
+	@# origin/main is unavailable offline — the CI job fetches it explicitly.
+	@git fetch origin main --quiet 2>/dev/null || true
+	@python3 scripts/check-migration-numbering.py origin/main
+
 schema-check: ## Verify docs/api/openapi.json matches the live DRF schema
 	bash scripts/export-openapi.sh --check
 
@@ -214,7 +224,7 @@ pre-push-behind-warn: ## Warn (non-blocking) if HEAD is behind origin/main — c
 	  fi; \
 	fi
 
-pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check schema-check pre-push-wasm ## Run pre-push gate subtargets (use via `pre-push`, not directly)
+pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering schema-check pre-push-wasm ## Run pre-push gate subtargets (use via `pre-push`, not directly)
 
 pre-push: pre-push-behind-warn ## Run pre-push CI gates in parallel (lint+typecheck, migrations, schema). Diff-coverage runs in CI only — run `make coverage-diff` to check locally.
 	@# Re-invoke ourselves with -j to fan out the independent lint/typecheck/

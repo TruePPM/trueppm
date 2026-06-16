@@ -749,6 +749,35 @@ api:migration-check:
     - cd packages/api
     - python manage.py makemigrations --check --dry-run
 
+api:migration-numbering:
+  # Cross-branch migration-numbering collision guard. makemigrations --check
+  # (above) only sees THIS branch's tree, so it cannot catch two parallel
+  # branches that each number a migration projects/0080_*.py off the same base:
+  # both pass, the first merges, and the second — still on a stale base — merges
+  # too, leaving main with two 0080 leaf migrations (a conflict that needs a
+  # renumber or a --merge migration, with main red in the meantime).
+  #
+  # This job compares the branch against origin/main and fails if a NEW migration
+  # reuses a number main already assigns to a different migration — the state that
+  # becomes a two-leaf conflict at merge, detectable on the second branch BEFORE
+  # it merges. Pure git + stdlib Python: no DB, no Django, no dependency install,
+  # so before_script (the api[dev] pip install) is skipped. GIT_DEPTH:0 + an
+  # explicit fetch make origin/main available under GitLab's shallow clone.
+  extends: .api-no-db
+  stage: analyze
+  variables:
+    GIT_DEPTH: "0"
+  needs:
+    - job: ci:build-api-image
+      optional: true
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script: []
+  script:
+    - git fetch origin "$CI_DEFAULT_BRANCH" --quiet
+    - python3 scripts/check-migration-numbering.py "origin/$CI_DEFAULT_BRANCH"
+
 api:openapi-check:
   # drf-spectacular schema generation is pure view/serializer introspection;
   # no database queries are made. --validate checks for valid OpenAPI 3;
