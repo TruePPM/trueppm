@@ -6,7 +6,7 @@ interface WsTicketResponse {
 }
 
 /**
- * Mint a single-use WebSocket connection ticket (ADR-0141, #818).
+ * Mint a single-use WebSocket connection ticket (ADR-0141).
  *
  * Browsers cannot set an `Authorization` header on a WebSocket upgrade, so the
  * credential rides in the URL. A raw JWT there leaks into access logs; instead

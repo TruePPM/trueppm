@@ -67,7 +67,7 @@ export function useWorkshopSocket(
 
     function connect() {
       if (!mountedRef.current) return;
-      // Mint a single-use ticket then connect with ?ticket= (ADR-0141, #818) —
+      // Mint a single-use ticket then connect with ?ticket= (ADR-0141) —
       // no JWT in the WebSocket URL. Single-use, so re-minted on each reconnect.
       void fetchWsTicket()
         .then((ticket) => {

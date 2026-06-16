@@ -577,8 +577,8 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
       const token = tokenRef.current;
       if (!pid || !token) return;
 
-      // Mint a single-use ticket, then open the socket with ?ticket= (ADR-0141,
-      // #818) so no JWT ever appears in a WebSocket URL / access log. Tickets are
+      // Mint a single-use ticket, then open the socket with ?ticket= (ADR-0141)
+      // so no JWT ever appears in a WebSocket URL / access log. Tickets are
       // single-use, so this runs on every (re)connect.
       void fetchWsTicket()
         .then((ticket) => {
