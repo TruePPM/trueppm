@@ -87,6 +87,9 @@ const ConnectedAccountsPage = lazy(() =>
 const ProgramListPage = lazy(() =>
   import('@/features/programs/ProgramListPage').then((m) => ({ default: m.ProgramListPage })),
 );
+const PortfolioUpsellPage = lazy(() =>
+  import('@/features/portfolio/PortfolioUpsellPage').then((m) => ({ default: m.PortfolioUpsellPage })),
+);
 const ProgramShell = lazy(() =>
   import('@/features/programs/ProgramShell').then((m) => ({ default: m.ProgramShell })),
 );
@@ -631,6 +634,18 @@ export const router = createBrowserRouter([
             element: (
               <Suspense fallback={<RouteLoadingFallback />}>
                 <ProgramListPage />
+              </Suspense>
+            ),
+          },
+          // Community-edition upsell for the Enterprise Portfolio rollup (#1173).
+          // The real `/portfolio` route is registered by the enterprise repo via
+          // the `routes` slot (ADR-0029); OSS must NOT define it. This static
+          // upsell self-redirects to `/portfolio` under the enterprise edition.
+          {
+            path: 'portfolio-upsell',
+            element: (
+              <Suspense fallback={<RouteLoadingFallback />}>
+                <PortfolioUpsellPage />
               </Suspense>
             ),
           },

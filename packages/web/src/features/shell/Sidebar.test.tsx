@@ -107,13 +107,22 @@ describe('Sidebar (v2 left rail)', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('shows the OSS Resources link but gates Portfolio rollup in the community edition', () => {
+  it('shows the OSS Resources link and an EE-gated Portfolio rollup upsell row in the community edition (#1173, rule 177)', () => {
     renderRail();
     // Organization group is present for the OSS Resources catalog...
     expect(screen.getByText('Organization')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Resources catalog' })).toBeInTheDocument();
-    // ...but the cross-program Portfolio rollup stays Enterprise-only (rule 15).
-    expect(screen.queryByText('Portfolio rollup')).not.toBeInTheDocument();
+    // ...and the cross-program Portfolio rollup is no longer hidden (which read
+    // as broken OSS): it routes to the in-app upsell, with the EE gate carried
+    // in the composite accessible name.
+    const upsell = screen.getByRole('link', {
+      name: 'Portfolio rollup — available in TruePPM Enterprise',
+    });
+    expect(upsell).toHaveAttribute('href', '/portfolio-upsell');
+    // The "EE" tag is decorative (aria-hidden) — the row's aria-label is the
+    // sole accessible name, so the SR never reads "Portfolio rollup E E".
+    expect(upsell).toHaveTextContent('Portfolio rollup');
+    expect(upsell).toHaveTextContent('EE');
   });
 
   it('fully hides the desktop rail when collapsed — inert + out of the a11y tree (ADR-0127, supersedes #1176)', () => {

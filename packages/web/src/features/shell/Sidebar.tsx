@@ -260,8 +260,10 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
           {/* Organization — org-level destinations. Resources catalog is OSS and
               always present (its icon persists in the collapsed rail, parity with
               My Work / Inbox); Portfolio rollup is cross-program (Enterprise,
-              post-1.0) and only lights up when the edition has it (rule 15). The
-              group heading + Portfolio are expanded-only. */}
+              post-1.0): under the enterprise edition it routes to the real
+              slot-registered view, under community it routes to an EE-gated
+              upsell (#1173, rule 177) rather than vanishing (rule 15). The group
+              heading + Portfolio are expanded-only. */}
           {showFull && <h2 className={GROUP_LABEL}>Organization</h2>}
           <NavLink
             to="/resources"
@@ -284,6 +286,31 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
                 <path d="M2 2h4v4H2V2zm6 0h4v4H8V2zM2 8h4v4H2V8zm6 0h4v4H8V8z" />
               </svg>
               <span className="min-w-0 truncate">Portfolio rollup</span>
+            </NavLink>
+          )}
+          {/* Community edition: instead of hiding the cross-program Portfolio
+              rollup (which reads as broken OSS), surface it as an EE-gated row
+              that routes to a designed in-app upsell (#1173, rule 177). The "EE"
+              tag is a non-interactive <span> — the row itself is the NavLink, so
+              nesting the focusable EnterpriseBadge anchor inside it would be
+              invalid HTML; the composite accessible name lives on aria-label. */}
+          {showFull && edition === 'community' && (
+            <NavLink
+              to="/portfolio-upsell"
+              aria-label="Portfolio rollup — available in TruePPM Enterprise"
+              onClick={() => isDrawer && onClose?.()}
+              className={({ isActive }) => rowClass(isActive)}
+            >
+              <svg width="16" height="16" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true" className="shrink-0">
+                <path d="M2 2h4v4H2V2zm6 0h4v4H8V2zM2 8h4v4H2V8zm6 0h4v4H8V8z" />
+              </svg>
+              <span className="min-w-0 truncate">Portfolio rollup</span>
+              <span
+                aria-hidden="true"
+                className="ml-2 inline-flex items-center rounded bg-brand-primary/10 px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-brand-primary"
+              >
+                EE
+              </span>
             </NavLink>
           )}
 
