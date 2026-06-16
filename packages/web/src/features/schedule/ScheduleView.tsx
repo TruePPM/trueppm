@@ -24,6 +24,7 @@ import { TaskListPanel, type TaskDepChips } from './TaskListPanel';
 import { CanvasScheduleTimeline } from './CanvasScheduleTimeline';
 import { ZoomControl } from './ZoomControl';
 import { QuarterModeControl } from './QuarterModeControl';
+import { ScheduleViewModeToggle } from './ScheduleViewModeToggle';
 import { ScheduleToolbarToggle } from './ScheduleToolbarToggle';
 import { useFiscalYearStartMonth } from '@/hooks/useFiscalYearStartMonth';
 import { ScheduleSummaryChip } from './ScheduleSummaryChip';
@@ -405,6 +406,7 @@ export function ScheduleView() {
   const setSelectedTaskId = useScheduleStore((s) => s.setSelectedTaskId);
   const quarterMode = useScheduleStore((s) => s.quarterMode);
   const setQuarterMode = useScheduleStore((s) => s.setQuarterMode);
+  const viewMode = useScheduleStore((s) => s.viewMode);
   const fiscalStartMonth = useFiscalYearStartMonth();
   const selectedTask = selectedTaskId
     ? (allTasks.find((t) => t.id === selectedTaskId) ?? null)
@@ -641,7 +643,9 @@ export function ScheduleView() {
     };
     taskList.addEventListener('scroll', handler, { passive: true });
     return () => taskList.removeEventListener('scroll', handler);
-  }, []);
+    // Re-attach when the task list remounts (Timeline→Grid toggle, issue 1221): the
+    // panel unmounts in Timeline mode, so the listener must bind to the new node.
+  }, [viewMode]);
 
   const handleEngineReady = useCallback((eng: GanttEngine) => {
     setEngine(eng);
@@ -1044,6 +1048,10 @@ export function ScheduleView() {
   }
 
   const totalCanvasWidth = scheduleScales?.totalWidth ?? 0;
+  // Horizontal anchor for canvas overlays (legend, unscheduled gutter, milestone
+  // pulse). In Timeline mode (issue 1221) the task-list panel is hidden, so the canvas
+  // starts at the container's left edge and these overlays must offset by 0.
+  const panelWidth = viewMode === 'timeline' ? 0 : totalWidth;
 
   const mainView = (
     <div className="flex flex-col h-full overflow-hidden">
@@ -1194,6 +1202,9 @@ export function ScheduleView() {
           )}
         </div>
 
+        {/* Grid↔Timeline layout toggle (issue 1221) — primary control: Grid keeps the
+            WBS table beside the timeline, Timeline hides it for a full-width canvas. */}
+        <ScheduleViewModeToggle />
         {/* "Today" button (rule 82) */}
         <button
           type="button"
@@ -1320,25 +1331,32 @@ export function ScheduleView() {
       )}
 
       <div className="relative flex flex-1 overflow-hidden" ref={timelineContainerRef}>
-        <TaskListPanel
-          tasks={visibleTasks}
-          pendingTaskIds={pendingTaskIds}
-          scrollRef={taskListScrollRef}
-          widths={widths}
-          visible={visible}
-          setWidth={setWidth}
-          totalWidth={totalWidth}
-          summaryIds={summaryIds}
-          expandedIds={expandedIds}
-          onToggle={toggleExpand}
-          focusChainIds={focusChainIds}
-          depChipsById={depChipsById}
-          onHoverChange={setHoveredTaskId}
-          onAddDependencyRequest={handleAddDependencyRequest}
-          sprintsById={sprintsById}
-        />
-        {/* Panel splitter — drag to resize task list width */}
-        <PanelSplitter currentTaskWidth={widths.task} setWidth={setWidth} />
+        {/* Grid mode shows the WBS task-list table + resize splitter; Timeline
+            mode (issue 1221) hides both for a full-width canvas (task names render
+            inline on the bars). */}
+        {viewMode === 'grid' && (
+          <>
+            <TaskListPanel
+              tasks={visibleTasks}
+              pendingTaskIds={pendingTaskIds}
+              scrollRef={taskListScrollRef}
+              widths={widths}
+              visible={visible}
+              setWidth={setWidth}
+              totalWidth={totalWidth}
+              summaryIds={summaryIds}
+              expandedIds={expandedIds}
+              onToggle={toggleExpand}
+              focusChainIds={focusChainIds}
+              depChipsById={depChipsById}
+              onHoverChange={setHoveredTaskId}
+              onAddDependencyRequest={handleAddDependencyRequest}
+              sprintsById={sprintsById}
+            />
+            {/* Panel splitter — drag to resize task list width */}
+            <PanelSplitter currentTaskWidth={widths.task} setWidth={setWidth} />
+          </>
+        )}
 
         {visibleTasks.length === 0 ? (
           buildModeActive ? (
@@ -1400,7 +1418,7 @@ export function ScheduleView() {
 
         {/* Floating legend overlay (#474, ADR-0064) — anchored to the bottom-left of
             the canvas viewport. Hidden below `lg` per design rule 12. */}
-        <ScheduleLegend taskListWidth={totalWidth} />
+        <ScheduleLegend taskListWidth={panelWidth} />
       </div>
 
       {/* Unscheduled gutter — tasks with no planned/CPM dates (#213) */}
@@ -1410,7 +1428,7 @@ export function ScheduleView() {
           projectId={projectId}
           scaleData={scheduleScales}
           canvasScrollRef={canvasScrollRef}
-          taskListWidth={totalWidth}
+          taskListWidth={panelWidth}
         />
       )}
 
@@ -1426,7 +1444,7 @@ export function ScheduleView() {
           <MonteCarloRow
             engine={engine}
             projectId={projectId ?? undefined}
-            taskListWidth={totalWidth}
+            taskListWidth={panelWidth}
             cpmFinish={cpmFinish}
             mutationVersion={mcMutationVersion}
             tasks={allTasks}
@@ -1449,7 +1467,7 @@ export function ScheduleView() {
           keep the pulse anchored on the actual diamond when the timeline has
           been scrolled away from origin. */}
       <MilestonePulseOverlay
-        x={pulsingMilestoneAt.x + totalWidth - (canvasScrollRef.current?.scrollLeft ?? 0)}
+        x={pulsingMilestoneAt.x + panelWidth - (canvasScrollRef.current?.scrollLeft ?? 0)}
         y={pulsingMilestoneAt.y + (timelineTop ?? 0)}
         triggerId={pulsingMilestoneId}
       />

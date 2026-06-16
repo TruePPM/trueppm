@@ -4,7 +4,13 @@ import { useScheduleStore } from './scheduleStore';
 describe('useScheduleStore', () => {
   beforeEach(() => {
     localStorage.removeItem('schedule.quarterMode');
-    useScheduleStore.setState({ zoomLevel: 'week', selectedTaskId: null, quarterMode: 'fiscal' });
+    localStorage.removeItem('schedule.viewMode');
+    useScheduleStore.setState({
+      zoomLevel: 'week',
+      selectedTaskId: null,
+      quarterMode: 'fiscal',
+      viewMode: 'grid',
+    });
   });
 
   it('starts with week zoom and no selection', () => {
@@ -49,5 +55,18 @@ describe('useScheduleStore', () => {
     expect(localStorage.getItem('schedule.quarterMode')).toBe('calendar');
     useScheduleStore.getState().setQuarterMode('fiscal');
     expect(localStorage.getItem('schedule.quarterMode')).toBe('fiscal');
+  });
+
+  it('defaults viewMode to grid (#1221)', () => {
+    expect(useScheduleStore.getState().viewMode).toBe('grid');
+  });
+
+  it('setViewMode updates state and persists to localStorage (#1221)', () => {
+    useScheduleStore.getState().setViewMode('timeline');
+    expect(useScheduleStore.getState().viewMode).toBe('timeline');
+    expect(localStorage.getItem('schedule.viewMode')).toBe('timeline');
+    useScheduleStore.getState().setViewMode('grid');
+    expect(useScheduleStore.getState().viewMode).toBe('grid');
+    expect(localStorage.getItem('schedule.viewMode')).toBe('grid');
   });
 });

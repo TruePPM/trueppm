@@ -8,6 +8,17 @@ import {
 } from '@/features/schedule/engine';
 
 const QUARTER_MODE_KEY = 'schedule.quarterMode';
+const VIEW_MODE_KEY = 'schedule.viewMode';
+
+/**
+ * Schedule layout mode (issue 1221, v2 redesign epic 1163).
+ *  - `grid` — the WBS task-list table sits to the left of the timeline (the
+ *    default; matches the prototype's "Grid" / `detailed` mode).
+ *  - `timeline` — the task list is hidden and the canvas spans full width
+ *    ("Timeline" / `simple` mode). Bars stay identifiable because the renderer
+ *    draws each task name inline beside its bar.
+ */
+export type ScheduleViewMode = 'grid' | 'timeline';
 
 /**
  * Read the persisted quarter-tier view preference (#755). Defaults to `fiscal`
@@ -20,6 +31,20 @@ function readQuarterMode(): QuarterMode {
     return localStorage.getItem(QUARTER_MODE_KEY) === 'calendar' ? 'calendar' : 'fiscal';
   } catch {
     return 'fiscal';
+  }
+}
+
+/**
+ * Read the persisted Grid↔Timeline layout preference (issue 1221). Defaults to
+ * `grid` — the WBS table is the more information-dense default and matches the
+ * layout the app shipped before the toggle existed. Guarded for SSR /
+ * private-mode where localStorage may be unavailable.
+ */
+function readViewMode(): ScheduleViewMode {
+  try {
+    return localStorage.getItem(VIEW_MODE_KEY) === 'timeline' ? 'timeline' : 'grid';
+  } catch {
+    return 'grid';
   }
 }
 
@@ -66,6 +91,9 @@ interface GanttState {
   /** Quarter/year header tier mode (#755) — `fiscal` follows the workspace
    *  fiscal-year start; `calendar` uses Jan–Mar = Q1. Persisted to localStorage. */
   quarterMode: QuarterMode;
+  /** Grid↔Timeline layout mode (issue 1221) — `grid` shows the WBS table beside the
+   *  timeline; `timeline` hides it for a full-width canvas. Persisted. */
+  viewMode: ScheduleViewMode;
   /** Set the continuous zoom; clamps and re-derives `zoomLevel` (#351). */
   setPxPerDay: (px: number) => void;
   /**
@@ -78,6 +106,7 @@ interface GanttState {
   setScheduleError: (msg: string | null) => void;
   setScheduleActionToast: (toast: ScheduleActionToast | null) => void;
   setQuarterMode: (mode: QuarterMode) => void;
+  setViewMode: (mode: ScheduleViewMode) => void;
 }
 
 export const useScheduleStore = create<GanttState>()((set) => ({
@@ -90,6 +119,7 @@ export const useScheduleStore = create<GanttState>()((set) => ({
   scheduleError: null,
   scheduleActionToast: null,
   quarterMode: readQuarterMode(),
+  viewMode: readViewMode(),
   setPxPerDay: (px) => {
     const pxPerDay = clampPxPerDay(px);
     set({ pxPerDay, zoomLevel: deriveTier(pxPerDay) });
@@ -107,5 +137,13 @@ export const useScheduleStore = create<GanttState>()((set) => ({
       // Private mode / SSR — the in-memory store value still drives the session.
     }
     set({ quarterMode });
+  },
+  setViewMode: (viewMode) => {
+    try {
+      localStorage.setItem(VIEW_MODE_KEY, viewMode);
+    } catch {
+      // Private mode / SSR — the in-memory store value still drives the session.
+    }
+    set({ viewMode });
   },
 }));
