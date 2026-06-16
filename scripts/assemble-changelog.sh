@@ -46,25 +46,26 @@ fi
 
 echo "Assembling $found fragment(s) into $CHANGELOG..."
 
-# Build the block to insert after [Unreleased]
+# Build the block to insert. Category order matches the Keep a Changelog
+# convention used throughout CHANGELOG.md: Added → Changed → Fixed → Security.
 INSERT=""
-for type in security added changed fixed; do
+for type in added changed fixed security; do
   [[ -z "${ENTRIES[$type]}" ]] && continue
   # Capitalise heading
   heading="${type^}"
   INSERT+=$'\n'"### ${heading}"$'\n'"${ENTRIES[$type]}"
 done
 
-# Insert the block immediately after the ## [Unreleased] line
-# Uses a temp file to avoid in-place sed portability issues (macOS / Linux)
+# Insert the block at the END of the [Unreleased] section — just before the next
+# "## [" release heading (or EOF). This keeps any human-readable summary prose
+# written at the top of [Unreleased] above the generated category lists, so
+# release.sh can lift that prose into the dated section as the release summary.
+# Uses a temp file to avoid in-place sed portability issues (macOS / Linux).
 awk -v block="$INSERT" '
-  /^## \[Unreleased\]/ && !done {
-    print
-    printf "%s", block
-    done=1
-    next
-  }
+  /^## \[Unreleased\]/ { inu=1; print; next }
+  inu && /^## \[/ { printf "%s\n", block; inu=0 }
   { print }
+  END { if (inu) printf "%s\n", block }
 ' "$CHANGELOG" > "${CHANGELOG}.tmp" && mv "${CHANGELOG}.tmp" "$CHANGELOG"
 
 # Delete consumed fragment files (not README.md)
