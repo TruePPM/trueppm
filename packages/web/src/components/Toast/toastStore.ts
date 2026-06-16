@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 
 /**
- * Global toast store (v2 fluidity, ADR-0126; issue #1225). Backs the single
+ * Global toast store (v2 fluidity, ADR-0126; issue 1225). Backs the single
  * `ToastHost` mounted in `AppShell`. Kept pure/synchronous — auto-dismiss timing
  * lives in the host so the store stays trivially testable. Modeled on the
  * `scheduleActionToast` slice shape (`stores/scheduleStore.ts`) and the

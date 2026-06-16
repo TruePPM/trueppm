@@ -3,7 +3,7 @@ import { useToastStore } from './toastStore';
 import type { ToastItem } from './toastStore';
 
 /**
- * Global toast host (v2 fluidity, ADR-0126; issue #1225) — mounted once in
+ * Global toast host (v2 fluidity, ADR-0126; issue 1225) — mounted once in
  * `AppShell`. Renders a bottom-center stack of ink pills (prototype
  * `.toast-wrap`/`.toast`). Each pill rises + fades in via
  * `motion-safe:animate-toast-rise` (rule 180/70) and auto-dismisses after its

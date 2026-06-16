@@ -2,7 +2,7 @@ import { useToastStore } from './toastStore';
 import type { ToastVariant } from './toastStore';
 
 /**
- * Imperative toast API (v2 fluidity, ADR-0126; issue #1225). Callable from
+ * Imperative toast API (v2 fluidity, ADR-0126; issue 1225). Callable from
  * anywhere — mutation `onSuccess` callbacks, event handlers, plain modules —
  * without a React hook, because it reads the store via `getState()`. Backs the
  * global `ToastHost` mounted once in `AppShell`.
