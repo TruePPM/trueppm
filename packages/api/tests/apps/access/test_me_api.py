@@ -63,19 +63,6 @@ def test_me_authenticated_returns_200_with_expected_fields(db: object) -> None:
     assert data["landing"]["intent"] == "my_work"
     assert data["landing"]["path"] == "/me/work"
     assert data["landing"]["resolved_by"] == "fallback"
-    # Per-user nav visibility (ADR-0139): empty by default (no row).
-    assert data["hidden_views"] == []
-
-
-def test_me_surfaces_stored_hidden_views(db: object) -> None:
-    """/auth/me/ reflects the user's stored hidden_views (ADR-0139)."""
-    from trueppm_api.apps.profiles.models import UserProfile
-
-    user = User.objects.create_user(username="hv_me", password="pw")
-    UserProfile.objects.create(user=user, hidden_views=["schedule", "calendar"])
-    resp = _make_client(user).get(URL)
-    assert resp.status_code == 200
-    assert resp.data["hidden_views"] == ["schedule", "calendar"]
 
 
 # ---------------------------------------------------------------------------

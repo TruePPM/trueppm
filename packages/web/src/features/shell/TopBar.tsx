@@ -12,7 +12,6 @@ import { Breadcrumb, type BreadcrumbItem } from '@/components/Breadcrumb';
 import { ProgramIdentitySquare } from '@/features/programs/ProgramIdentitySquare';
 import { Logo } from './Logo';
 import { ViewTabs, MethodWorkspaceLabel } from './ViewTabs';
-import { ViewsMenu } from './ViewsMenu';
 import { ProgramTabs } from './ProgramTabs';
 import { ShellNavScroller } from './ShellNavScroller';
 import { HealthCluster } from './HealthCluster';
@@ -122,15 +121,7 @@ export function TopBar({ onHamburgerClick }: Props) {
         title={`${sidebarCollapsed ? 'Show' : 'Hide'} navigation (${modifierKeyLabel()}B)`}
         className="hidden md:inline-flex shrink-0 w-8 h-8 items-center justify-center rounded text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface"
       >
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 16 16"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.6"
-          aria-hidden="true"
-        >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
           <line x1="2" y1="4" x2="14" y2="4" strokeLinecap="round" />
           <line x1="2" y1="8" x2="14" y2="8" strokeLinecap="round" />
           <line x1="2" y1="12" x2="14" y2="12" strokeLinecap="round" />
@@ -163,10 +154,6 @@ export function TopBar({ onHamburgerClick }: Props) {
 
       {/* Right cluster — pinned, never compresses. */}
       <div className="ml-auto flex shrink-0 items-center gap-3">
-        {/* Customize views (ADR-0139) — per-user show/hide of the view tabs; sits
-            adjacent to the tab strip, self-suppresses off-project/settings. */}
-        <ViewsMenu />
-
         {/* "{METHOD} Workspace" tag — first to drop as width tightens (hidden xl:inline). */}
         <MethodWorkspaceLabel />
 

@@ -122,9 +122,6 @@ const DEFAULT_USER: UserFixture = {
   // `/` to My Work via landing.path. Specs that exercise landing override `user`.
   default_landing: 'my_work',
   landing: { intent: 'my_work', path: '/me/work', resolved_by: 'preference' },
-  // Per-user nav visibility (ADR-0139) — empty so specs see the full methodology
-  // nav by default; the customize-views spec overrides `user` to hide views.
-  hidden_views: [],
 };
 
 const DEFAULT_BOARD_CONFIG = {

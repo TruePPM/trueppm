@@ -1,23 +1,55 @@
 import { NavLink, useLocation, useMatch } from 'react-router';
+import {
+  GanttIcon,
+  BoardIcon,
+  ListIcon,
+  CalendarIcon,
+  ResourcesIcon,
+  RiskIcon,
+  SprintIcon,
+  SettingsIcon,
+  BarChartIcon,
+  WbsIcon,
+} from '@/components/Icons';
+import { OverviewIcon } from '@/components/Icons';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
-import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useProject } from '@/hooks/useProject';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import {
-  groupedVisibleViewsForUser,
+  groupedVisibleViews,
   STANDALONE_LEADING,
   STANDALONE_TRAILING,
 } from '@/features/shell/methodologyTabs';
-import { VIEW_TAB_META, type ViewIconType } from '@/features/shell/viewMeta';
 import { ROLE_SCHEDULER } from '@/lib/roles';
+import type { ComponentType } from 'react';
 import type { Methodology } from '@/types';
 
-type IconType = ViewIconType;
+type IconType = ComponentType<{ className?: string; 'aria-hidden'?: 'true' }>;
 
-// Render metadata (label + icon per view key) is shared via `viewMeta.ts` so the
-// bar, the Customize-views menu (ADR-0139), and the ⌘K palette never drift.
-const TAB_META = VIEW_TAB_META;
+interface TabMeta {
+  label: string;
+  Icon: IconType;
+}
+
+// View key → display label + icon. Grouping order lives in `methodologyTabs.ts`
+// (`VIEW_GROUPS`); this map is render metadata only. `grid` replaced the legacy
+// WBS + Table entries (ADR-0053).
+const TAB_META: Record<string, TabMeta> = {
+  overview: { label: 'Overview', Icon: OverviewIcon },
+  'product-backlog': { label: 'Backlog', Icon: WbsIcon },
+  sprints: { label: 'Sprints', Icon: SprintIcon },
+  schedule: { label: 'Schedule', Icon: GanttIcon },
+  grid: { label: 'Grid', Icon: ListIcon },
+  calendar: { label: 'Calendar', Icon: CalendarIcon },
+  board: { label: 'Board', Icon: BoardIcon },
+  risk: { label: 'Risks', Icon: RiskIcon },
+  reports: { label: 'Reports', Icon: BarChartIcon },
+  resources: { label: 'Team', Icon: ResourcesIcon },
+  // Settings — visible to all members (Viewer+); write controls are OWNER-gated
+  // inside the page.
+  settings: { label: 'Settings', Icon: SettingsIcon },
+};
 
 // Mono group-header + workspace-label token (rule 36/101).
 const GROUP_LABEL =
@@ -76,7 +108,6 @@ export function ViewTabs() {
   const location = useLocation();
   const projectId = useProjectId();
   const { role } = useCurrentUserRole(projectId ?? undefined);
-  const { user } = useCurrentUser();
   const project = useProject(projectId);
   const iteration = useIterationLabel(projectId);
   const onSettingsRoute = useMatch('/projects/:projectId/settings/*');
@@ -101,11 +132,7 @@ export function ViewTabs() {
   const labelFor = (view: string) =>
     view === 'sprints' ? iteration.plural : (TAB_META[view]?.label ?? view);
 
-  // Per-user nav visibility (ADR-0139): the personal hidden-set composes on top
-  // of the methodology filter, then the role gate. `overview` leads standalone
-  // (outside the hidden-set) so the bar can never be emptied.
-  const hiddenViews = new Set(user?.hidden_views ?? []);
-  const groups = groupedVisibleViewsForUser(methodology, hiddenViews)
+  const groups = groupedVisibleViews(methodology)
     .map((g) => ({ ...g, visibleViews: g.visibleViews.filter(roleAllows) }))
     .filter((g) => g.visibleViews.length > 0);
 

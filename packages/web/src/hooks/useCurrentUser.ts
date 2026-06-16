@@ -48,12 +48,6 @@ export interface CurrentUser {
     path: string;
     resolved_by: LandingResolvedBy;
   };
-  /**
-   * Per-user nav visibility (ADR-0139). Canonical view keys the user has hidden
-   * from their own project view bar, applied globally and layered on top of the
-   * per-project methodology preset. Absent/empty = methodology default only.
-   */
-  hidden_views: string[];
 }
 
 /**
