@@ -87,6 +87,11 @@ resources:
 
 env:
   DJANGO_SETTINGS_MODULE: trueppm_api.settings.prod
+  # Public origin the web app is served from, e.g. "https://trueppm.example.com".
+  # Used to build absolute task deep-links in notification emails (ADR-0143, #1158).
+  # Leave empty to omit the link line (emails still carry blocker type/age/actor).
+  # No trailing slash, no path.
+  FRONTEND_BASE_URL: ""
   # DATABASE_URL and REDIS_URL are NOT set here. The chart builds them
   # server-side from the generated credentials and injects them via
   # secretKeyRef against the chart-owned connection Secret, so no password is

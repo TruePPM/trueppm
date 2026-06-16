@@ -1531,6 +1531,30 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
         summary="Blocked tasks on this project (ADR-0124, #1134)",
         responses={200: OpenApiResponse(response=OpenApiTypes.OBJECT)},
     )
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="blocker_type",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Filter to one BlockerType (dependency / resource / vendor / "
+                    "decision / other). Unknown value → 400."
+                ),
+            ),
+            OpenApiParameter(
+                name="min_age_days",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Keep only tasks blocked at least N days. Non-negative integer; "
+                    "negative or non-integer → 400."
+                ),
+            ),
+        ],
+    )
     @action(detail=True, methods=["get"], url_path="blocked")
     def blocked(self, request: Request, pk: str | None = None) -> Response:
         """List flagged-blocked tasks on this project — the PM's impediment roll-up.
@@ -1538,21 +1562,28 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
         Returns every task whose ``blocked_reason`` is non-empty (the flag of
         record), oldest-blocked first (age drives escalation), each row carrying
         ``blocker_type`` + age + actor + assignee + the soft ``blocking_task`` link.
+        Optionally narrowed by ``?blocker_type=`` and ``?min_age_days=`` (#1157) —
+        both filter on the team-shareable structured signal only.
 
         Reason text is **omitted entirely** from every row, for every requester —
         the roll-up is a triage surface, not a place to read contributor voice
         (ADR-0124 §4, the Morgan boundary). The private reason is read only on the
         task drawer, gated to the assignee + @-mentioned. There is no filter, sort,
-        or search param on reason anywhere on this endpoint.
+        or search param on reason anywhere on this endpoint — the filters touch only
+        ``blocker_type`` and ``blocked_since`` (age).
 
         Project membership (Viewer+) is required — enforced by the viewset
         permission classes plus ``check_object_permissions`` on the project.
         """
-        from trueppm_api.apps.projects.blocker_services import project_blocked_rollup
+        from trueppm_api.apps.projects.blocker_services import (
+            parse_blocked_filters,
+            project_blocked_rollup,
+        )
 
         project = self.get_object()
         self.check_object_permissions(request, project)
-        return Response(project_blocked_rollup(project), status=status.HTTP_200_OK)
+        filters = parse_blocked_filters(request.query_params)
+        return Response(project_blocked_rollup(project, **filters), status=status.HTTP_200_OK)
 
     @extend_schema(
         summary="Get the project integrations summary",
@@ -7409,23 +7440,52 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         summary="Blocked tasks in this sprint (ADR-0124, #1134)",
         responses={200: OpenApiResponse(response=OpenApiTypes.OBJECT)},
     )
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="blocker_type",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Filter to one BlockerType (dependency / resource / vendor / "
+                    "decision / other). Unknown value → 400."
+                ),
+            ),
+            OpenApiParameter(
+                name="min_age_days",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Keep only tasks blocked at least N days. Non-negative integer; "
+                    "negative or non-integer → 400."
+                ),
+            ),
+        ],
+    )
     @action(detail=True, methods=["get"], url_path="blocked")
     def blocked(self, request: Request, pk: str | None = None) -> Response:
         """List flagged-blocked tasks in this sprint — the SM's impediment roll-up.
 
         Same reason-free shape as ``GET /projects/{id}/blocked/`` (type + age +
         actor + assignee + soft link, oldest-blocked first), scoped to this
-        sprint's tasks. Reason text is omitted from every row for every requester
+        sprint's tasks, with the same optional ``?blocker_type=`` / ``?min_age_days=``
+        filters (#1157). Reason text is omitted from every row for every requester
         (ADR-0124 §4); no reason filter/sort/search param is exposed. Sprint
         membership (Viewer+) is enforced via ``check_object_permissions``.
         """
-        from trueppm_api.apps.projects.blocker_services import sprint_blocked_rollup
+        from trueppm_api.apps.projects.blocker_services import (
+            parse_blocked_filters,
+            sprint_blocked_rollup,
+        )
 
         sprint = get_object_or_404(
             Sprint.objects.select_related("project"), pk=pk, is_deleted=False
         )
         self.check_object_permissions(request, sprint)
-        return Response(sprint_blocked_rollup(sprint), status=status.HTTP_200_OK)
+        filters = parse_blocked_filters(request.query_params)
+        return Response(sprint_blocked_rollup(sprint, **filters), status=status.HTTP_200_OK)
 
     @extend_schema(
         summary="Reorder the Sprint Review demo list (ADR-0118 amend, #1130)",
