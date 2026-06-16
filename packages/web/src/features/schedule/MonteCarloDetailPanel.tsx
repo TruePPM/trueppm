@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { MonteCarloResult, Task } from '@/types';
 import { MonteCarloHistogram } from './MonteCarloHistogram';
+import { SensitivityList } from './SensitivityList';
 
 interface Props {
   result: MonteCarloResult;
@@ -107,18 +108,6 @@ export function MonteCarloDetailPanel({ result, cpmFinish, tasks, isOpen, onClos
   const p80Delta = cpmFinish ? result.deltaVsCpm.p80 : null;
   const p95Delta = cpmFinish ? result.deltaVsCpm.p95 : null;
 
-  // Top duration drivers: leaf tasks with PERT estimates, sorted by spread descending.
-  // Summary tasks are excluded — their durations roll up from children; setting
-  // PERT on them would double-count risk already modeled by the leaf tasks.
-  const drivers = tasks
-    .filter((t) => !t.isSummary && t.optimisticDuration != null && t.pessimisticDuration != null)
-    .map((t) => ({
-      name: t.name,
-      spread: (t.pessimisticDuration ?? 0) - (t.optimisticDuration ?? 0),
-    }))
-    .sort((a, b) => b.spread - a.spread)
-    .slice(0, 5);
-
   // Confidence-by-date: render the server-computed cumulative S-curve directly
   // (#987) — the cumulative fold lives on the backend now (single source of
   // truth, MCP-reachable). We only handle display sampling here: round the
@@ -182,30 +171,14 @@ export function MonteCarloDetailPanel({ result, cpmFinish, tasks, isOpen, onClos
           </section>
         )}
 
-        {/* Top duration drivers */}
+        {/* What's holding the date — duration-sensitivity tornado (ADR-0139).
+            Replaces the former PERT-spread "top drivers", which ignored network
+            position and so misranked high-variance off-critical-path tasks. */}
         <section>
           <h3 className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-2">
-            Top duration drivers
+            What&apos;s holding the date
           </h3>
-          {drivers.length === 0 ? (
-            <p className="text-xs text-neutral-text-secondary leading-snug">
-              No PERT estimates set. Add optimistic / most-likely / pessimistic durations on tasks to see duration drivers.
-            </p>
-          ) : (
-            <ol className="space-y-1.5">
-              {drivers.map((d, i) => (
-                <li key={d.name} className="flex items-center gap-2 text-sm">
-                  <span className="text-xs tppm-mono text-neutral-text-disabled w-4 shrink-0">
-                    {i + 1}.
-                  </span>
-                  <span className="flex-1 truncate text-neutral-text-primary">{d.name}</span>
-                  <span className="tppm-mono text-xs text-neutral-text-secondary shrink-0">
-                    ±{d.spread}d spread
-                  </span>
-                </li>
-              ))}
-            </ol>
-          )}
+          <SensitivityList sensitivity={result.sensitivity} tasks={tasks} limit={8} />
         </section>
 
         {/* Confidence-by-date */}

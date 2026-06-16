@@ -35,6 +35,7 @@ import { inferNearestSummaryParent } from './inferMilestoneParent';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { ROLE_ADMIN, ROLE_MEMBER } from '@/lib/roles';
 import { MonteCarloRow } from './MonteCarloRow';
+import { ScheduleInsightsBar } from './ScheduleInsightsBar';
 import { MonteCarloGanttMarkers } from './MonteCarloGanttMarkers';
 import { MobileMonteCarloCard } from './MobileMonteCarloCard';
 import { useMonteCarloResult } from '@/hooks/useMonteCarloResult';
@@ -1421,14 +1422,19 @@ export function ScheduleView() {
       )}
 
       {(currentRole === null || currentRole >= ROLE_MEMBER) && (
-        <MonteCarloRow
-          engine={engine}
-          projectId={projectId ?? undefined}
-          taskListWidth={totalWidth}
-          cpmFinish={cpmFinish}
-          mutationVersion={mcMutationVersion}
-          tasks={allTasks}
-        />
+        <>
+          <MonteCarloRow
+            engine={engine}
+            projectId={projectId ?? undefined}
+            taskListWidth={totalWidth}
+            cpmFinish={cpmFinish}
+            mutationVersion={mcMutationVersion}
+            tasks={allTasks}
+          />
+          {/* Forecast & sensitivity insights bar (issue 1222, ADR-0139) — collapsible
+              two-column forecast + duration-sensitivity tornado below the chips. */}
+          <ScheduleInsightsBar projectId={projectId ?? undefined} tasks={allTasks} />
+        </>
       )}
 
       {/* Mobile MC card — md:hidden; desktop uses MonteCarloRow above (issue #33) */}

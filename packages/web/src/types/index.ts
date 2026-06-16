@@ -514,6 +514,20 @@ export interface McConfidencePoint {
 }
 
 /**
+ * One entry in the duration-sensitivity tornado (ADR-0139): how strongly a
+ * task's duration drives the project finish. `index` is the absolute Spearman
+ * rank correlation in [0, 1] between the task's sampled duration and the
+ * completion date across runs — "the tasks that move the finish most". Task
+ * name and critical-path color are joined client-side from the loaded task list.
+ */
+export interface McSensitivity {
+  /** Task ID — join to the loaded task list for name and critical-path flag. */
+  taskId: string;
+  /** Absolute rank correlation with the project finish, 0–1. */
+  index: number;
+}
+
+/**
  * Monte Carlo simulation result. Fixture data uses pre-bucketed distribution
  * to keep file size small; real API returns the same shape.
  */
@@ -544,6 +558,13 @@ export interface MonteCarloResult {
    * persisted) — consumers must degrade gracefully and not re-derive it.
    */
   confidenceCurve: McConfidencePoint[];
+  /**
+   * Duration-sensitivity tornado (ADR-0139), sorted by `index` descending and
+   * capped server-side. Empty when no simulation has run or when served from
+   * persisted history past the 24h cache TTL (the raw sampled matrix is not
+   * persisted) — consumers degrade gracefully, same as `confidenceCurve`.
+   */
+  sensitivity: McSensitivity[];
 }
 
 // ---------------------------------------------------------------------------

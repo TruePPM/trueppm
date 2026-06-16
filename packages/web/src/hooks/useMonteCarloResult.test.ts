@@ -52,6 +52,10 @@ describe('useMonteCarloResult', () => {
           { date: '2026-10-05', pct: 62.7 },
           { date: '2026-11-03', pct: 100 },
         ],
+        sensitivity: [
+          { task_id: 't3', index: 0.91 },
+          { task_id: 't5', index: 0.74 },
+        ],
       },
     });
 
@@ -78,6 +82,11 @@ describe('useMonteCarloResult', () => {
       confidenceCurve: [
         { date: '2026-10-05', pct: 62.7 },
         { date: '2026-11-03', pct: 100 },
+      ],
+      // Wire `task_id`/`index` maps to camelCase `taskId`/`index` (ADR-0139).
+      sensitivity: [
+        { taskId: 't3', index: 0.91 },
+        { taskId: 't5', index: 0.74 },
       ],
     });
     expect(result.current.error).toBeNull();
@@ -321,6 +330,7 @@ describe('useMonteCarloResult', () => {
       cpmFinish: null,
       deltaVsCpm: { p50: null, p80: null, p95: null },
       confidenceCurve: [],
+      sensitivity: [],
     });
     expect(result.current.error).toBeNull();
   });

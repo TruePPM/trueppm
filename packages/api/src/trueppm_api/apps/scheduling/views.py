@@ -147,7 +147,9 @@ def _confidence_curve(histogram: list[dict[str, object]], total: int) -> list[di
                 "cpm_finish (deterministic CPM project finish, ISO 8601 or null), "
                 "delta_vs_cpm ({p50,p80,p95} signed calendar-day premium vs CPM), "
                 "confidence_curve ([{date, pct}] cumulative finish-by-date S-curve), "
-                "histogram_buckets ([{date, count}]) and last_run_at (ISO 8601)."
+                "histogram_buckets ([{date, count}]), sensitivity ([{task_id, index}] "
+                "duration tornado — tasks that move the finish most, index 0..1, "
+                "ADR-0139) and last_run_at (ISO 8601)."
             ),
         ),
         400: OpenApiResponse(
@@ -431,6 +433,10 @@ class MonteCarloLatestView(APIView):
                 "confidence_curve": [],
                 "runs": latest.n_simulations,
                 "histogram_buckets": [],
+                # Sensitivity, like the S-curve and histogram, is not persisted on
+                # the run row (ADR-0139) — it needs the raw sampled matrix. On a
+                # cache miss it degrades to empty; a fresh run repopulates it.
+                "sensitivity": [],
                 "last_run_at": latest.taken_at.isoformat(),
                 "from_history": True,
             }

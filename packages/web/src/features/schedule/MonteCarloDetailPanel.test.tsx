@@ -147,10 +147,18 @@ describe('MonteCarloDetailPanel', () => {
     expect(within(desktopPanel).getByText('+29d vs CPM')).toBeInTheDocument();
   });
 
-  it('lists leaf task PERT drivers but excludes summary tasks', () => {
+  it('renders the sensitivity tornado joined to task names (ADR-0139)', () => {
+    const result = {
+      ...FIXTURE_MC_RESULT,
+      sensitivity: [
+        { taskId: 't1', index: 0.9 },
+        { taskId: 't2', index: 0.4 },
+        { taskId: 'gone', index: 0.99 }, // not in the task list → dropped, not nameless
+      ],
+    };
     render(
       <MonteCarloDetailPanel
-        result={FIXTURE_MC_RESULT}
+        result={result}
         cpmFinish="2026-10-05"
         tasks={FIXTURE_TASKS}
         isOpen
@@ -158,11 +166,18 @@ describe('MonteCarloDetailPanel', () => {
       />,
     );
     const desktopPanel = screen.getByTestId('mc-detail-panel');
-    // Leaf tasks present
-    expect(within(desktopPanel).getByText('Backend API')).toBeInTheDocument();
-    expect(within(desktopPanel).getByText('User testing')).toBeInTheDocument();
-    // Summary task excluded
-    expect(within(desktopPanel).queryByText('Phase 1')).not.toBeInTheDocument();
+    // Scope to the sensitivity section so the assertions don't collide with the
+    // confidence-by-date percentages elsewhere in the panel.
+    const section = within(desktopPanel)
+      .getByText(/What.s holding the date/i)
+      .closest('section')!;
+    expect(within(section).getByText('Backend API')).toBeInTheDocument();
+    expect(within(section).getByText('User testing')).toBeInTheDocument();
+    expect(within(section).getByText('90%')).toBeInTheDocument();
+    expect(within(section).getByText('40%')).toBeInTheDocument();
+    // Exactly two bars render — the entry whose task is no longer present is
+    // dropped rather than shown nameless (the third `gone` entry).
+    expect(within(section).getAllByRole('img')).toHaveLength(2);
   });
 
   it('renders Confidence by date from the server confidenceCurve (no client re-derivation)', () => {
@@ -251,10 +266,11 @@ describe('MonteCarloDetailPanel', () => {
     expect(within(desktopPanel).getByText('+41d vs CPM')).toBeInTheDocument();
   });
 
-  it('shows PERT hint when no leaf tasks have estimates', () => {
+  it('shows the empty-sensitivity hint when the tornado is empty (from-history / deterministic)', () => {
+    const result = { ...FIXTURE_MC_RESULT, sensitivity: [] };
     render(
       <MonteCarloDetailPanel
-        result={FIXTURE_MC_RESULT}
+        result={result}
         cpmFinish={null}
         tasks={[]}
         isOpen
@@ -262,6 +278,8 @@ describe('MonteCarloDetailPanel', () => {
       />,
     );
     const desktopPanel = screen.getByTestId('mc-detail-panel');
-    expect(within(desktopPanel).getByText(/No PERT estimates set/i)).toBeInTheDocument();
+    expect(
+      within(desktopPanel).getByText(/No task moved the finish enough to rank/i),
+    ).toBeInTheDocument();
   });
 });
