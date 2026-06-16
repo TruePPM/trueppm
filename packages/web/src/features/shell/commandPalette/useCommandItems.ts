@@ -25,7 +25,7 @@ function formatStatus(status: string | null | undefined): string {
 }
 
 /**
- * Assembles the live command-palette items (ADR-0136, issue 647) in two tiers:
+ * Assembles the live command-palette items (ADR-0138, issue 647) in two tiers:
  *
  * - **Tier 1** (global): every reachable program/project → overview, plus
  *   methodology-gated Backlog and Board targets. Built from the already-loaded

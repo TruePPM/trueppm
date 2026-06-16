@@ -1,4 +1,4 @@
-# ADR-0136: Command Palette v2 — Role-Scoped Jump Targets + App-Wide Task Drawer
+# ADR-0138: Command Palette v2 — Role-Scoped Jump Targets + App-Wide Task Drawer
 
 ## Status
 Proposed

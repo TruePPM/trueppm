@@ -125,7 +125,7 @@ export function AppShell() {
           for the active "+ New" intent; null when none is open. */}
       <CreateDispatcher />
 
-      {/* App-wide task drawer (ADR-0136, issue 647) — opened by the ⌘K palette so a
+      {/* App-wide task drawer (ADR-0138, issue 647) — opened by the ⌘K palette so a
           task can be edited inline from any route; null until a task is set. */}
       <GlobalTaskDrawer />
 

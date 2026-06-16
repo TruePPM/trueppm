@@ -7,7 +7,7 @@
  */
 
 /**
- * Result sections (ADR-0136, issue 647). `task` and `current` are Tier-2 (current
+ * Result sections (ADR-0138, issue 647). `task` and `current` are Tier-2 (current
  * project only); the rest are Tier-1 (all reachable projects) or global.
  */
 export type CommandGroup = 'task' | 'current' | 'jump' | 'backlog' | 'board' | 'action';

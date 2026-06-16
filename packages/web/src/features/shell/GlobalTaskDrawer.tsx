@@ -2,7 +2,7 @@ import { TaskDetailDrawer } from '@/features/schedule/TaskDetailDrawer';
 import { useTaskDrawerStore } from '@/stores/taskDrawerStore';
 
 /**
- * App-wide host for the task-detail drawer opened from the ⌘K palette (ADR-0136,
+ * App-wide host for the task-detail drawer opened from the ⌘K palette (ADR-0138,
  * issue 647). Mounted once in `AppShell`; renders the existing `TaskDetailDrawer`
  * driven by `taskDrawerStore` so a power user can open a task and edit it inline
  * from any route, without navigating to the Gantt.

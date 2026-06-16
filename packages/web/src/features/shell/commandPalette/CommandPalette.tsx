@@ -27,7 +27,7 @@ const CHIP_CLASS: Record<string, string> = {
 };
 const DEFAULT_CHIP_CLASS = 'bg-neutral-surface-sunken text-neutral-text-secondary';
 
-/** Max task results shown (ADR-0136) — keep the list scannable. */
+/** Max task results shown (ADR-0138) — keep the list scannable. */
 const TASK_RESULT_CAP = 8;
 
 /**

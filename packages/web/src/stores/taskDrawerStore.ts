@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type { Task } from '@/types';
 
 /**
- * App-wide task-detail drawer state (ADR-0136, issue 647).
+ * App-wide task-detail drawer state (ADR-0138, issue 647).
  *
  * The ⌘K palette opens a task for editing from *any* route without navigating
  * to the Gantt — it writes the chosen task here and `<GlobalTaskDrawer>` (mounted
