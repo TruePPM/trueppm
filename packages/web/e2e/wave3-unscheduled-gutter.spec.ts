@@ -25,64 +25,121 @@ const FIXTURE_API_PROJECTS = [
 /** Mix of scheduled and unscheduled tasks. */
 const FIXTURE_API_TASKS = [
   {
-    id: 't1', wbs_path: '1', name: 'Design Sprint',
-    early_start: '2026-04-07', early_finish: '2026-04-21',
-    planned_start: null, duration: 14, percent_complete: 40,
-    is_critical: false, is_milestone: false, is_summary: false,
-    parent_id: null, status: 'IN_PROGRESS',
-    actual_start: null, actual_finish: null, schedule_variance_days: null,
-    baseline_start: null, baseline_finish: null,
-    optimistic_duration: null, most_likely_duration: null, pessimistic_duration: null,
-    estimate_status: null, total_float: 5,
-    assignee_is_overallocated: false, assignments: [],
+    id: 't1',
+    wbs_path: '1',
+    name: 'Design Sprint',
+    early_start: '2026-04-07',
+    early_finish: '2026-04-21',
+    planned_start: null,
+    duration: 14,
+    percent_complete: 40,
+    is_critical: false,
+    is_milestone: false,
+    is_summary: false,
+    parent_id: null,
+    status: 'IN_PROGRESS',
+    actual_start: null,
+    actual_finish: null,
+    schedule_variance_days: null,
+    baseline_start: null,
+    baseline_finish: null,
+    optimistic_duration: null,
+    most_likely_duration: null,
+    pessimistic_duration: null,
+    estimate_status: null,
+    total_float: 5,
+    assignee_is_overallocated: false,
+    assignments: [],
   },
   {
     // Unscheduled — early_start null, BACKLOG → start: '' in mapped Task
-    id: 't2', wbs_path: '2', name: 'Parking Lot Item',
-    early_start: null, early_finish: null,
-    planned_start: null, duration: 5, percent_complete: 0,
-    is_critical: false, is_milestone: false, is_summary: false,
-    parent_id: null, status: 'NOT_STARTED',
-    actual_start: null, actual_finish: null, schedule_variance_days: null,
-    baseline_start: null, baseline_finish: null,
-    optimistic_duration: null, most_likely_duration: null, pessimistic_duration: null,
-    estimate_status: null, total_float: null,
-    assignee_is_overallocated: false, assignments: [],
+    id: 't2',
+    wbs_path: '2',
+    name: 'Parking Lot Item',
+    early_start: null,
+    early_finish: null,
+    planned_start: null,
+    duration: 5,
+    percent_complete: 0,
+    is_critical: false,
+    is_milestone: false,
+    is_summary: false,
+    parent_id: null,
+    status: 'NOT_STARTED',
+    actual_start: null,
+    actual_finish: null,
+    schedule_variance_days: null,
+    baseline_start: null,
+    baseline_finish: null,
+    optimistic_duration: null,
+    most_likely_duration: null,
+    pessimistic_duration: null,
+    estimate_status: null,
+    total_float: null,
+    assignee_is_overallocated: false,
+    assignments: [],
   },
   {
     // Second unscheduled
-    id: 't3', wbs_path: '3', name: 'Future Feature',
-    early_start: null, early_finish: null,
-    planned_start: null, duration: 3, percent_complete: 0,
-    is_critical: false, is_milestone: false, is_summary: false,
-    parent_id: null, status: 'NOT_STARTED',
-    actual_start: null, actual_finish: null, schedule_variance_days: null,
-    baseline_start: null, baseline_finish: null,
-    optimistic_duration: null, most_likely_duration: null, pessimistic_duration: null,
-    estimate_status: null, total_float: null,
-    assignee_is_overallocated: false, assignments: [],
+    id: 't3',
+    wbs_path: '3',
+    name: 'Future Feature',
+    early_start: null,
+    early_finish: null,
+    planned_start: null,
+    duration: 3,
+    percent_complete: 0,
+    is_critical: false,
+    is_milestone: false,
+    is_summary: false,
+    parent_id: null,
+    status: 'NOT_STARTED',
+    actual_start: null,
+    actual_finish: null,
+    schedule_variance_days: null,
+    baseline_start: null,
+    baseline_finish: null,
+    optimistic_duration: null,
+    most_likely_duration: null,
+    pessimistic_duration: null,
+    estimate_status: null,
+    total_float: null,
+    assignee_is_overallocated: false,
+    assignments: [],
   },
 ];
 
 const FIXTURE_API_TASKS_ALL_SCHEDULED = [
   {
-    id: 't1', wbs_path: '1', name: 'Design Sprint',
-    early_start: '2026-04-07', early_finish: '2026-04-21',
-    planned_start: null, duration: 14, percent_complete: 40,
-    is_critical: false, is_milestone: false, is_summary: false,
-    parent_id: null, status: 'IN_PROGRESS',
-    actual_start: null, actual_finish: null, schedule_variance_days: null,
-    baseline_start: null, baseline_finish: null,
-    optimistic_duration: null, most_likely_duration: null, pessimistic_duration: null,
-    estimate_status: null, total_float: 5,
-    assignee_is_overallocated: false, assignments: [],
+    id: 't1',
+    wbs_path: '1',
+    name: 'Design Sprint',
+    early_start: '2026-04-07',
+    early_finish: '2026-04-21',
+    planned_start: null,
+    duration: 14,
+    percent_complete: 40,
+    is_critical: false,
+    is_milestone: false,
+    is_summary: false,
+    parent_id: null,
+    status: 'IN_PROGRESS',
+    actual_start: null,
+    actual_finish: null,
+    schedule_variance_days: null,
+    baseline_start: null,
+    baseline_finish: null,
+    optimistic_duration: null,
+    most_likely_duration: null,
+    pessimistic_duration: null,
+    estimate_status: null,
+    total_float: 5,
+    assignee_is_overallocated: false,
+    assignments: [],
   },
 ];
 
-async function setupRoutes(
-  page: import('@playwright/test').Page,
-  tasks = FIXTURE_API_TASKS,
-) {
+async function setupRoutes(page: import('@playwright/test').Page, tasks = FIXTURE_API_TASKS) {
   await page.addInitScript(() => {
     // Clear any persisted collapsed state so tests start with gutter expanded
     localStorage.removeItem('trueppm.gantt.unscheduledGutter.collapsed');
@@ -97,7 +154,8 @@ async function setupRoutes(
 
   await page.route('**/api/v1/projects/', (route) =>
     route.fulfill({
-      status: 200, contentType: 'application/json',
+      status: 200,
+      contentType: 'application/json',
       body: JSON.stringify({ count: 1, next: null, previous: null, results: FIXTURE_API_PROJECTS }),
     }),
   );
@@ -106,48 +164,99 @@ async function setupRoutes(
   );
   await page.route('**/api/v1/projects/*/status-summary/', (route) =>
     route.fulfill({
-      status: 200, contentType: 'application/json',
+      status: 200,
+      contentType: 'application/json',
       body: JSON.stringify({
-        task_count: tasks.length, critical_path_count: 0, monte_carlo_p80: null,
-        at_risk_count: 0, critical_count: 0, at_risk_tasks: [], critical_tasks: [],
-        last_saved: null, recalculated_at: null,
+        task_count: tasks.length,
+        critical_path_count: 0,
+        monte_carlo_p80: null,
+        at_risk_count: 0,
+        critical_count: 0,
+        at_risk_tasks: [],
+        critical_tasks: [],
+        last_saved: null,
+        recalculated_at: null,
       }),
     }),
   );
   await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/overview/`, (route) =>
     route.fulfill({
-      status: 200, contentType: 'application/json',
-      body: JSON.stringify({ schedule_health: 'unknown', spi: null, tasks_late_count: 0, critical_task_count: 0, total_tasks: tasks.length, complete_tasks: 0, next_milestone: null, team_utilization_pct: null, owner_name: null, start_date: '2026-01-01' }),
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        schedule_health: 'unknown',
+        spi: null,
+        tasks_late_count: 0,
+        critical_task_count: 0,
+        total_tasks: tasks.length,
+        complete_tasks: 0,
+        next_milestone: null,
+        team_utilization_pct: null,
+        owner_name: null,
+        start_date: '2026-01-01',
+      }),
     }),
   );
   await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/attention/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [] }) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ items: [] }),
+    }),
   );
   await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/my-tasks/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ tasks: [] }) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ tasks: [] }),
+    }),
   );
   await page.route('**/api/v1/tasks/**', (route) =>
     route.fulfill({
-      status: 200, contentType: 'application/json',
+      status: 200,
+      contentType: 'application/json',
       body: JSON.stringify({ count: tasks.length, next: null, previous: null, results: tasks }),
     }),
   );
   await page.route('**/api/v1/dependencies/**', (route) =>
     route.fulfill({
-      status: 200, contentType: 'application/json',
+      status: 200,
+      contentType: 'application/json',
       body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
     }),
   );
 }
 
-async function gotoSchedule(
-  page: import('@playwright/test').Page,
-  tasks = FIXTURE_API_TASKS,
-) {
+async function gotoSchedule(page: import('@playwright/test').Page, tasks = FIXTURE_API_TASKS) {
   await setupRoutes(page, tasks);
   await page.goto(`/projects/${FIXTURE_PROJECT_ID}/schedule`);
   await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
 }
+
+// 401-guard safety net, registered once before each test so it is the EARLIEST
+// route and every specific mock (in setupRoutes and per-test overrides) wins over
+// it by Playwright's most-recently-added precedence. Any endpoint not mocked
+// elsewhere (the app-wide shell + ⌘K palette fetch programs, sprints, velocity,
+// project detail, me/work, …) would otherwise 401 → refresh → expire and raise the
+// full-screen session-expired modal, which then intercepts every click. This spec
+// previously passed on timing slack that #647's extra app-wide hook subscriptions
+// removed.
+test.beforeEach(async ({ page }) => {
+  await page.route('**/api/v1/**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+    }),
+  );
+  await page.route('**/api/v1/auth/me/', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ id: 'u1', email: 'pm@example.com', first_name: 'P', last_name: 'M' }),
+    }),
+  );
+});
 
 // ---------------------------------------------------------------------------
 // Gutter header — count and empty state
@@ -162,11 +271,11 @@ test.describe('Unscheduled gutter — header (#213)', () => {
     await expect(page.getByText('(2)', { exact: true })).toBeVisible();
   });
 
-  test('shows "All To Do and Backlog tasks have planned dates" when no unscheduled tasks', async ({ page }) => {
+  test('shows "All To Do and Backlog tasks have planned dates" when no unscheduled tasks', async ({
+    page,
+  }) => {
     await gotoSchedule(page, FIXTURE_API_TASKS_ALL_SCHEDULED);
-    await expect(
-      page.getByText('All To Do and Backlog tasks have planned dates'),
-    ).toBeVisible();
+    await expect(page.getByText('All To Do and Backlog tasks have planned dates')).toBeVisible();
   });
 
   test('shows "Unscheduled" section heading', async ({ page }) => {
@@ -276,12 +385,18 @@ test.describe('Unscheduled gutter — overflow menu promote (#213)', () => {
     let patchBody: Record<string, unknown> | null = null;
     await page.route('**/api/v1/tasks/t2/', async (route) => {
       if (route.request().method() === 'PATCH') {
-        patchBody = await route.request().postDataJSON() as Record<string, unknown>;
+        patchBody = (await route.request().postDataJSON()) as Record<string, unknown>;
         await route.fulfill({
-          status: 200, contentType: 'application/json',
+          status: 200,
+          contentType: 'application/json',
           body: JSON.stringify({
-            id: 't2', name: 'Parking Lot Item', project: FIXTURE_PROJECT_ID,
-            wbs_path: '2', duration: 5, status: 'NOT_STARTED', percent_complete: 0,
+            id: 't2',
+            name: 'Parking Lot Item',
+            project: FIXTURE_PROJECT_ID,
+            wbs_path: '2',
+            duration: 5,
+            status: 'NOT_STARTED',
+            percent_complete: 0,
           }),
         });
       } else {
