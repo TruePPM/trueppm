@@ -13,6 +13,7 @@ import { CommandPalette } from './commandPalette/CommandPalette';
 import { useCommandPaletteHotkey } from './commandPalette/useCommandPaletteHotkey';
 import { useSidebarCollapseHotkey } from './useSidebarCollapseHotkey';
 import { CreateDispatcher } from './CreateDispatcher';
+import { GlobalTaskDrawer } from './GlobalTaskDrawer';
 
 export function AppShell() {
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -123,6 +124,10 @@ export function AppShell() {
       {/* Create-intent dispatcher (ADR-0131, 1179) — renders the modal create flow
           for the active "+ New" intent; null when none is open. */}
       <CreateDispatcher />
+
+      {/* App-wide task drawer (ADR-0136, issue 647) — opened by the ⌘K palette so a
+          task can be edited inline from any route; null until a task is set. */}
+      <GlobalTaskDrawer />
 
       {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} />}
     </QueryClientProvider>

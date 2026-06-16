@@ -6,6 +6,7 @@ const item = (over: Partial<CommandItem>): CommandItem => ({
   label: over.label ?? 'Label',
   group: over.group ?? 'jump',
   tag: over.tag ?? 'View',
+  detail: over.detail,
   keywords: over.keywords,
   gated: over.gated,
   run: over.run ?? vi.fn(),
@@ -32,6 +33,12 @@ describe('filterCommandItems', () => {
     expect(filterCommandItems(items, 'program').map((i) => i.id)).toEqual(['b']);
     expect(filterCommandItems(items, 'apl').map((i) => i.id)).toEqual(['b']);
     expect(filterCommandItems(items, 'dark').map((i) => i.id)).toEqual(['c']);
+  });
+
+  it('matches on the detail line (task short id / status)', () => {
+    const task = item({ id: 't', label: 'Open task: Wire OAuth', group: 'task', tag: 'Task', detail: '1.4.2 · In progress' });
+    expect(filterCommandItems([task], '1.4.2').map((i) => i.id)).toEqual(['t']);
+    expect(filterCommandItems([task], 'in progress').map((i) => i.id)).toEqual(['t']);
   });
 
   it('preserves input order across groups', () => {
