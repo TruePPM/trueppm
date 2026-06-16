@@ -16,9 +16,16 @@
 #
 # Tagged `:noble` — the Playwright base ships Ubuntu 24.04 noble, which provides
 # Python 3.12. Both packages declare `requires-python = ">=3.11"` so 3.12 is in
-# range. The Playwright version is pinned here AND in packages/web/playwright
-# configs; bump both together.
-FROM mcr.microsoft.com/playwright:v1.58.2-noble
+# range. The Playwright version is pinned in the default below AND in
+# packages/web/playwright configs AND in the PLAYWRIGHT_BASE_TAG CI variable;
+# bump all three together.
+#
+# PLAYWRIGHT_BASE is overridable so CI can build FROM our registry mirror of the
+# Playwright image ($CI_REGISTRY_IMAGE/playwright-base) instead of pulling it
+# anonymously from mcr.microsoft.com, which throttles cold pulls from CI runner
+# IPs (401/429). The default keeps local `docker build` working out of the box.
+ARG PLAYWRIGHT_BASE=mcr.microsoft.com/playwright:v1.58.2-noble
+FROM ${PLAYWRIGHT_BASE}
 
 # Python 3 + build deps for psycopg's C extension. curl is used by the
 # integration job to poll the Django health endpoint. Ubuntu 24.04 enforces

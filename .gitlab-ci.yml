@@ -26,6 +26,11 @@ variables:
   POSTGRES_DB: trueppm_test
   POSTGRES_USER: trueppm
   POSTGRES_PASSWORD: trueppm
+  # Playwright base-image tag, mirrored into our registry by
+  # ci:mirror-playwright-base and consumed by ci:build-integration-image so MR
+  # pipelines never pull anonymously from mcr.microsoft.com (which throttles CI
+  # runner IPs). Bump alongside the Dockerfile ARG default and packages/web.
+  PLAYWRIGHT_BASE_TAG: "v1.58.2-noble"
 
 # ---------------------------------------------------------------------------
 # Prevent duplicate pipelines.
@@ -439,6 +444,71 @@ ci:build-scheduler-image:
         .
     - docker push "$IMAGE"
 
+ci:mirror-playwright-base:
+  # Ensure the upstream Playwright base image is mirrored into our own GitLab
+  # Container Registry so the rest of CI never pulls it anonymously from
+  # mcr.microsoft.com. Microsoft throttles cold anonymous pulls from CI runner
+  # IPs (401/429 on its oauth2/token endpoint); an isolated dind daemon hits that
+  # on every build. Our registry has no such limit and dind authenticates to it
+  # via CI_REGISTRY creds.
+  #
+  # This is the ONLY job that pulls from MCR. It is an idempotent gate that
+  # ci:build-integration-image `needs:`, sharing the build's rules so the two are
+  # always co-present — guaranteeing the mirror exists before the build resolves
+  # its FROM (no manual ordering, no race). It is a fast no-op when the tag is
+  # already mirrored (`docker manifest inspect` short-circuits before any MCR
+  # traffic); it only pulls from MCR when the tag is genuinely missing — a fresh
+  # mirror or a Playwright bump — and the weekly schedule refreshes it. The cold
+  # pull is wrapped in exponential-backoff retry since that one pull may still
+  # hit the throttle window; once pushed, the mirror tag persists until the bump.
+  stage: lint
+  image: docker:27
+  services:
+    - docker:27-dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_CLI_EXPERIMENTAL: "enabled"
+    SRC: "mcr.microsoft.com/playwright:$PLAYWRIGHT_BASE_TAG"
+    DEST: "$CI_REGISTRY_IMAGE/playwright-base:$PLAYWRIGHT_BASE_TAG"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - packages/scheduler/pyproject.toml
+        - packages/api/pyproject.toml
+        - .gitlab/ci-images/integration.Dockerfile
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/scheduler/pyproject.toml
+        - packages/api/pyproject.toml
+        - .gitlab/ci-images/integration.Dockerfile
+  before_script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+  script:
+    # Already mirrored (steady state) — skip without touching MCR. The schedule
+    # run forces a refresh by ignoring this short-circuit.
+    - |
+      if [ "$CI_PIPELINE_SOURCE" != "schedule" ] && docker manifest inspect "$DEST" >/dev/null 2>&1; then
+        echo "$DEST already present — skipping MCR mirror."
+        exit 0
+      fi
+    - |
+      attempt=1
+      max_attempts=5
+      delay=30
+      until docker pull "$SRC"; do
+        if [ "$attempt" -ge "$max_attempts" ]; then
+          echo "docker pull $SRC failed after ${max_attempts} attempts" >&2
+          exit 1
+        fi
+        echo "pull attempt ${attempt} failed (MCR throttle?); retrying in ${delay}s..." >&2
+        sleep "$delay"
+        attempt=$((attempt + 1))
+        delay=$((delay * 2))
+      done
+    - docker tag "$SRC" "$DEST"
+    - docker push "$DEST"
+
 ci:build-integration-image:
   # Rebuild and push the custom ci-integration image used by web:integration.
   # Bakes Python 3 + libpq-dev + gcc + uvicorn + scheduler[dev] + api[dev]
@@ -449,13 +519,23 @@ ci:build-integration-image:
   # plus the weekly scheduled run. Validated on MR pipelines when the relevant
   # files change so a broken Dockerfile is caught before merge; web:integration
   # itself is main-only and pulls the existing registry tag in steady state.
+  #
+  # Builds FROM our registry mirror of the Playwright base via the
+  # PLAYWRIGHT_BASE build-arg, so this job — which runs on every qualifying MR —
+  # never pulls from the throttled MCR endpoint. `needs: ci:mirror-playwright-base`
+  # guarantees the mirror tag exists before the FROM is resolved; that gate is a
+  # no-op in steady state, so the dependency costs nothing once mirrored.
   stage: lint
   image: docker:27
   services:
     - docker:27-dind
+  needs:
+    - job: ci:mirror-playwright-base
+      artifacts: false
   variables:
     DOCKER_TLS_CERTDIR: "/certs"
     IMAGE: "$CI_REGISTRY_IMAGE/ci-integration:noble"
+    PLAYWRIGHT_BASE: "$CI_REGISTRY_IMAGE/playwright-base:$PLAYWRIGHT_BASE_TAG"
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
     - if: '$CI_COMMIT_BRANCH == "main"'
@@ -473,6 +553,7 @@ ci:build-integration-image:
   script:
     - docker pull "$IMAGE" || true
     - docker build
+        --build-arg PLAYWRIGHT_BASE="$PLAYWRIGHT_BASE"
         --cache-from "$IMAGE"
         --tag "$IMAGE"
         --file .gitlab/ci-images/integration.Dockerfile
@@ -1786,19 +1867,26 @@ license:check:web:
         --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;CC0-1.0;CC-BY-3.0;CC-BY-4.0;Python-2.0;Unlicense;WTFPL;BlueOak-1.0.0"
 
 wasm:license-check:
-  # Verify no copyleft-licensed Rust dependency has been introduced.
-  # Uses cargo-deny to check crate licenses against an allow-list in deny.toml.
+  # Verify no copyleft-licensed Rust dependency has been introduced, and that no
+  # crate carries an unignored RustSec advisory or has been yanked.
+  # Uses cargo-deny to check crate licenses + advisories against deny.toml.
   extends: .wasm
   stage: security
   needs: [wasm:test]
   <<: *rules-wasm
   before_script:
-    - apt-get update -qq && apt-get install -y -qq curl
-    - curl -sSfL https://github.com/EmbarkStudios/cargo-deny/releases/download/0.18.3/cargo-deny-0.18.3-x86_64-unknown-linux-musl.tar.gz
-        | tar xz -C /usr/local/bin --strip-components=1 cargo-deny-0.18.3-x86_64-unknown-linux-musl/cargo-deny
+    # git is required by the advisories check: cargo-deny clones the RustSec
+    # advisory DB (https://github.com/RustSec/advisory-db) via git on first run.
+    # The licenses-only check never fetched it, which is why curl alone sufficed.
+    - apt-get update -qq && apt-get install -y -qq curl git
+    # cargo-deny 0.19.x is required for the advisories check: 0.18.3 cannot parse
+    # CVSS 4.0 entries in the live RustSec DB and aborts on DB load (the licenses
+    # check alone was unaffected, which is why the older pin sufficed before).
+    - curl -sSfL https://github.com/EmbarkStudios/cargo-deny/releases/download/0.19.9/cargo-deny-0.19.9-x86_64-unknown-linux-musl.tar.gz
+        | tar xz -C /usr/local/bin --strip-components=1 cargo-deny-0.19.9-x86_64-unknown-linux-musl/cargo-deny
     - cd packages/wasm-scheduler
   script:
-    - cargo deny check licenses
+    - cargo deny check licenses advisories
 
 # ---------------------------------------------------------------------------
 # PUBLISH — tag-triggered release jobs.
