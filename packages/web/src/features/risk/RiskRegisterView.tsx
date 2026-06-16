@@ -4,6 +4,9 @@ import { useRisks } from '@/hooks/useRisks';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProjects } from '@/hooks/useProjects';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { EmptyState } from '@/components/EmptyState';
+import { Button } from '@/components/Button';
+import { RiskIcon } from '@/components/Icons';
 import { RiskChip } from './RiskChip';
 import { RiskMatrix, type SelectedCell } from './RiskMatrix';
 import { RiskDrawer } from './RiskDrawer';
@@ -353,18 +356,14 @@ export function RiskRegisterView() {
 
           {/* Empty — no risks at all */}
           {!isLoading && !error && risks.length === 0 && (
-            <div className="flex flex-col items-center justify-center gap-3 py-16">
-              <p className="text-sm text-neutral-text-secondary">No risks recorded yet.</p>
-              <button
-                type="button"
-                onClick={openCreate}
-                className="text-sm text-brand-primary hover:underline
-                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-                  dark:focus-visible:ring-semantic-on-track focus-visible:ring-offset-1 rounded"
-              >
-                + Add your first risk
-              </button>
-            </div>
+            <EmptyState
+              icon={RiskIcon}
+              title="No risks yet"
+              description="Log the things that could derail this project — then track likelihood, impact, and mitigation in one place."
+              action={
+                <Button onClick={openCreate}>+ Add your first risk</Button>
+              }
+            />
           )}
 
           {/* Table */}

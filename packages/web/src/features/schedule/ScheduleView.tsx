@@ -51,6 +51,8 @@ import {
   type ToolbarOverflowItem,
 } from '@/components/toolbar/ToolbarOverflowMenu';
 import { ImportModal } from '@/components/import/ImportModal';
+import { EmptyState } from '@/components/EmptyState';
+import { GanttIcon } from '@/components/Icons';
 import { useExportMsProject } from '@/hooks/useMsProjectImportExport';
 import type { Task } from '@/types';
 import { useFeatureFlag } from '@/lib/featureFlags';
@@ -84,14 +86,12 @@ import {
 
 function ScheduleEmptyState() {
   return (
-    <div
-      role="status"
-      className="flex flex-1 h-full items-center justify-center bg-neutral-surface"
-    >
-      <p className="text-sm text-neutral-text-secondary">
-        No tasks yet. Add a task to get started.
-      </p>
-    </div>
+    <EmptyState
+      className="h-full bg-neutral-surface"
+      icon={GanttIcon}
+      title="No tasks yet"
+      description="Add tasks to lay out your schedule — the timeline, critical path, and forecast appear as soon as there's work to plan."
+    />
   );
 }
 

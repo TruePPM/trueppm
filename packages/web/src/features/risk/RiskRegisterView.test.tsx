@@ -173,7 +173,7 @@ describe('RiskRegisterView', () => {
   it('shows the empty-state CTA when no risks exist', () => {
     useRisksState.risks = [];
     renderWithProviders(<RiskRegisterView />);
-    expect(screen.getByText('No risks recorded yet.')).toBeInTheDocument();
+    expect(screen.getByText('No risks yet')).toBeInTheDocument();
     const cta = screen.getByRole('button', { name: '+ Add your first risk' });
     fireEvent.click(cta);
     // Clicking the CTA opens the drawer in create mode (risk = null).
