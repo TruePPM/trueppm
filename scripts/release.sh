@@ -32,10 +32,15 @@
 #   RELEASE_ASSUME_YES=1) to accept the computed version non-interactively;
 #   without it, a non-TTY run fails closed rather than auto-cutting a tag.
 #
-# Pre-release CHANGELOG behaviour:
-#   alpha/beta/rc: CHANGELOG [Unreleased] is NOT rotated — notes accumulate
-#     until the final stable release.
-#   release: [Unreleased] is rotated to the stable version as normal.
+# CHANGELOG behaviour:
+#   Every release — alpha/beta/rc and stable — rotates [Unreleased] into a dated
+#   section, so the changelog the team ships always has a human-readable entry
+#   for the tag (TruePPM ships its releases as alphas pre-1.0). The dated section
+#   OPENS with a summary (the "main part" of the release): by default the prose
+#   already written under [Unreleased] during the cycle, overridable with
+#   --summary "<text>" or the RELEASE_SUMMARY env var. Pending changelog.d
+#   fragments are assembled into the section first, and a fresh empty
+#   [Unreleased] is left on top for the next cycle.
 #
 # Versioning note (two schemes, one release):
 #   api + web carry the semver form (0.2.0-alpha.1); the scheduler is a PyPI
@@ -141,7 +146,6 @@ confirm_or_override_version() {
       echo "  current : $CURRENT_VERSION"
       echo "  new     : $suggested   <- suggested"
       echo "  tags    : v${suggested}, scheduler-v${pep440}"
-      [[ "$suggested" == *-* ]] && echo "  note    : pre-release — CHANGELOG will not be rotated"
     } >&2
 
     read -r -p "Enter to accept ${suggested}, type an explicit version to override, or 'q' to abort: " reply
@@ -233,10 +237,18 @@ PRE_ARG=""
 # this script must run under macOS bash 3.2.
 ASSUME_YES=false
 [[ "${RELEASE_ASSUME_YES:-0}" == "1" ]] && ASSUME_YES=true
+# Human-readable release summary captured from --summary "<text>" (space-safe:
+# the value is read from the next "$@" element, which preserves embedded spaces,
+# into its own variable rather than the space-joined REST). Env RELEASE_SUMMARY
+# is the non-interactive fallback; the flag wins over it.
+RELEASE_SUMMARY_ARG=""
+EXPECT_SUMMARY=false
 REST=""
 for arg in "$@"; do
+  if $EXPECT_SUMMARY; then RELEASE_SUMMARY_ARG="$arg"; EXPECT_SUMMARY=false; continue; fi
   case "$arg" in
     -y|--yes) ASSUME_YES=true ;;
+    --summary) EXPECT_SUMMARY=true ;;
     *) REST="$REST $arg" ;;
   esac
 done
@@ -306,7 +318,7 @@ IS_PRERELEASE=false
 [[ "$NEW_VERSION" == *-* ]] && IS_PRERELEASE=true
 
 echo "Releasing: $CURRENT_VERSION → $NEW_VERSION"
-$IS_PRERELEASE && echo "  (pre-release — CHANGELOG will not be rotated)"
+$IS_PRERELEASE && echo "  (pre-release)"
 
 TODAY="$(date +%Y-%m-%d)"
 TAG="v${NEW_VERSION}"
@@ -370,33 +382,113 @@ bash scripts/export-openapi.sh
 echo "  Bumped OpenAPI schema version to $SCHEMA_VERSION and regenerated docs/api/openapi.json"
 
 # ---------------------------------------------------------------------------
-# CHANGELOG rotation (stable releases only)
+# CHANGELOG rotation (every release — alpha/beta/rc and stable)
 # ---------------------------------------------------------------------------
+#
+# Rotate [Unreleased] into a dated section that OPENS with a human-readable
+# summary (the "main part" of the release), so the changelog reads as prose, not
+# just a bullet dump. Pending changelog.d fragments are assembled into the
+# section first. The summary defaults to the prose already written under
+# [Unreleased] during the cycle and is overridable with --summary / RELEASE_SUMMARY.
 
 CHANGELOG="CHANGELOG.md"
 
-if ! $IS_PRERELEASE; then
-  # Assemble any pending changelog fragments into [Unreleased] before rotating.
-  bash scripts/assemble-changelog.sh
+# Assemble any pending changelog fragments into [Unreleased] before rotating.
+bash scripts/assemble-changelog.sh
 
-  if ! grep -q "## \[Unreleased\]" "$CHANGELOG"; then
-    die "$CHANGELOG has no [Unreleased] section — add release notes before releasing."
-  fi
-
-  UNRELEASED_CONTENT="$(awk '/^## \[Unreleased\]/{found=1; next} found && /^## \[/{exit} found{print}' "$CHANGELOG")"
-  if [[ -z "$(echo "$UNRELEASED_CONTENT" | tr -d '[:space:]')" ]]; then
-    die "$CHANGELOG [Unreleased] section is empty — add release notes before releasing."
-  fi
-
-  REPLACEMENT="## [Unreleased]\n\n## [${NEW_VERSION}] - ${TODAY}"
-
-  awk -v rep="$REPLACEMENT" '
-    /^## \[Unreleased\]/ && !done { print rep; done=1; next }
-    { print }
-  ' "$CHANGELOG" > "${CHANGELOG}.tmp" && mv "${CHANGELOG}.tmp" "$CHANGELOG"
-
-  echo "  Updated CHANGELOG.md: [Unreleased] → [$NEW_VERSION] - $TODAY"
+if ! grep -q "## \[Unreleased\]" "$CHANGELOG"; then
+  die "$CHANGELOG has no [Unreleased] section — add release notes before releasing."
 fi
+
+UNRELEASED_CONTENT="$(awk '/^## \[Unreleased\]/{found=1; next} found && /^## \[/{exit} found{print}' "$CHANGELOG")"
+if [[ -z "$(echo "$UNRELEASED_CONTENT" | tr -d '[:space:]')" ]]; then
+  die "$CHANGELOG [Unreleased] section is empty — add release notes before releasing."
+fi
+
+# Default summary: the prose written under [Unreleased] (everything before the
+# first ### category heading), trimmed of surrounding blank lines.
+DEFAULT_SUMMARY="$(python3 - "$CHANGELOG" <<'PY'
+import sys
+lines = open(sys.argv[1]).read().split("\n")
+buf, f = [], False
+for l in lines:
+    if l.strip() == "## [Unreleased]":
+        f = True
+        continue
+    if f and (l.startswith("### ") or l.startswith("## [")):
+        break
+    if f:
+        buf.append(l)
+print("\n".join(buf).strip("\n"))
+PY
+)"
+
+# Summary precedence: --summary flag > RELEASE_SUMMARY env > [Unreleased] prose.
+# On a TTY (and not --yes) the default is shown for confirmation; Enter accepts
+# it, or a typed line replaces it.
+RELEASE_SUMMARY="${RELEASE_SUMMARY_ARG:-${RELEASE_SUMMARY:-}}"
+if [[ -z "$RELEASE_SUMMARY" ]]; then
+  RELEASE_SUMMARY="$DEFAULT_SUMMARY"
+  if [[ "$ASSUME_YES" != true && -t 0 && -n "$DEFAULT_SUMMARY" ]]; then
+    {
+      echo ""
+      echo "Release summary (opens the $NEW_VERSION changelog section):"
+      echo "----------------------------------------------------------"
+      echo "$DEFAULT_SUMMARY"
+      echo "----------------------------------------------------------"
+    } >&2
+    read -r -p "Enter to accept this summary, or type a one-line replacement: " reply
+    [[ -n "$reply" ]] && RELEASE_SUMMARY="$reply"
+  fi
+fi
+
+if [[ -z "$(echo "$RELEASE_SUMMARY" | tr -d '[:space:]')" ]]; then
+  die "No release summary. Write a summary paragraph under [Unreleased] in $CHANGELOG, pass --summary \"<text>\", or set RELEASE_SUMMARY."
+fi
+
+# Rotate: replace [Unreleased] and its prose with a fresh empty [Unreleased] and
+# a dated section that opens with the summary; the assembled ### categories follow.
+RELEASE_SUMMARY="$RELEASE_SUMMARY" NEW_VERSION="$NEW_VERSION" TODAY="$TODAY" \
+python3 - "$CHANGELOG" <<'PY'
+import os, sys
+
+path = sys.argv[1]
+version = os.environ["NEW_VERSION"]
+today = os.environ["TODAY"]
+summary = os.environ["RELEASE_SUMMARY"].strip("\n")
+
+lines = open(path).read().split("\n")
+out, i, n = [], 0, len(lines)
+while i < n:
+    if lines[i].strip() == "## [Unreleased]":
+        # Skip the old prose (up to the first ### category or next ## [ heading);
+        # it is being lifted into the dated section as the summary.
+        j = i + 1
+        while j < n and not lines[j].startswith("### ") and not lines[j].startswith("## ["):
+            j += 1
+        out += [
+            "## [Unreleased]", "",
+            "_Nothing yet._", "",
+            f"## [{version}] — {today}", "",
+            *summary.split("\n"), "",
+        ]
+        i = j
+        continue
+    out.append(lines[i])
+    i += 1
+
+# Collapse any 2+ consecutive blank lines to a single blank.
+cleaned, blank = [], False
+for l in out:
+    b = (l.strip() == "")
+    if b and blank:
+        continue
+    cleaned.append(l)
+    blank = b
+open(path, "w").write("\n".join(cleaned).rstrip("\n") + "\n")
+PY
+
+echo "  Updated CHANGELOG.md: [Unreleased] → [$NEW_VERSION] — $TODAY (with summary)"
 
 # ---------------------------------------------------------------------------
 # Commit and tag

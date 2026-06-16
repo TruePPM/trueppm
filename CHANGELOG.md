@@ -5,19 +5,36 @@ All notable changes to TruePPM are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+TruePPM is pre-1.0. The 0.1, 0.2, and upcoming 0.3 milestones are all **alpha**
+releases — `0.1.0-alpha.1`, `0.2.0-alpha.1`, and the in-flight `0.3.0-alpha.1` —
+on the road to the first stable release at 1.0. The release line stays alpha
+through 0.3; 0.4 is planned as the first beta. Each release below opens with its
+**main part** — the headline change — followed by the detailed entries.
+
 ## [Unreleased]
 
-The **0.3** cycle (“the agile team”) is in progress. Its entries accumulate
-as fragment files under [`changelog.d/`](changelog.d/) and are assembled into a
-dated section when 0.3 is tagged. See the [roadmap](packages/website/src/content/docs/overview/roadmap.md)
-for the in-flight scope.
+**The upcoming 0.3 alpha (`0.3.0-alpha.1`, “the agile team”) is in progress.**
+Main part: making sprints and agile delivery first-class on top of the CPM
+schedule. It will ship a real sprint container (goal, capacity, burndown) with
+state-aware planning and closed views, auto-computed velocity with a forecast
+range, sprint sovereignty (audited mid-sprint scope changes; velocity stays a
+team metric, never an auto-exposed management gauge), the sprint-to-milestone
+bridge, agile depth (task-type taxonomy, epic/initiative hierarchy, dual
+backlog, Product Owner role, acceptance criteria), the hybrid
+governance/delivery-mode foundation, universal JSON sample-data import/export,
+and the v2 navy/sage interface refresh (epic #1163).
+
+Entries accumulate as fragment files under [`changelog.d/`](changelog.d/) and are
+assembled into this section, then dated, when `0.3.0-alpha.1` is tagged. See the
+[roadmap](packages/website/src/content/docs/overview/roadmap.md) for the
+in-flight scope.
 
 ## [0.2.0-alpha.1] — 2026-05-31
 
-A broad consolidation release: the settings/administration platform, program
-foundations, board and schedule depth, task collaboration, the hybrid bridge,
-and the first import/export migration path. Published to PyPI as
-`trueppm-scheduler` 0.2.0a1.
+**Main part: the settings & administration platform.** A broad consolidation
+alpha — the settings/administration platform, program foundations, board and
+schedule depth, task collaboration, the hybrid bridge, and the first
+import/export migration path. Published to PyPI as `trueppm-scheduler` 0.2.0a1.
 
 ### Added
 
@@ -629,11 +646,13 @@ this is a recent-activity surface, not a durable audit log. (#799)
 
 ## [0.1.0-alpha.1] — 2026-05-12
 
-The first OSS release — the foundation for self-hosted, scheduling-first PPM:
-the CPM engine, Monte Carlo, the canvas Gantt, board/sprints, the risk register,
-MS Project import/export, 5-role RBAC, real-time sync, and the Helm chart.
+**Main part: the scheduling-first foundation.** The first OSS alpha — the
+foundation for self-hosted, scheduling-first PPM: the CPM engine, Monte Carlo,
+the canvas Gantt, board/sprints, the risk register, MS Project import/export,
+5-role RBAC, real-time sync, and the Helm chart.
 
 ### Added
+
 - **Idempotent task framework** (issue #63): reusable `@idempotent_task` decorator in
   `trueppm_api.core.idempotent` that wraps `@shared_task` with Redis distributed locking.
   Supports three contention strategies (`retry`, `skip`, `queue`), automatic lock extension
@@ -848,32 +867,6 @@ MS Project import/export, 5-role RBAC, real-time sync, and the Helm chart.
   early_finish)` — cuts the utilization window filter from a full project-task scan to
   an index range scan; critical for projects with hundreds of tasks.
 
-### Fixed
-- **Auth 401-retry race on login**: after logging in, TanStack Query retried stale 401 errors before the new token was stored, causing a persistent "Failed to load projects" screen. Fixed by gating renders on Zustand hydration, clearing the query cache on login, suppressing 401 retries at the query level, and redirecting to `/login` on session expiry via a custom event.
-- **Sidebar blank on API failure**: when the projects API returned an error (e.g. 401 while unauthenticated), the sidebar rendered completely blank with no message. Now shows "Failed to load projects" in the error state.
-- **Risk register: add risk fails silently**: `POST /api/v1/projects//risks/` 404 when `projectId` was empty string — `RiskRegisterView` now returns early with a "Select a project" prompt instead of rendering the broken form. API errors (400, 403, 404) are now surfaced in the form as a visible error banner.
-- **Gantt blank rendering on unscheduled tasks**: tasks with null `early_start`/`early_finish`
-  dates produced `Invalid Date` / NaN canvas coordinates, causing both the task list and
-  timeline panels to render as blank boxes. Engine now filters unscheduled tasks from
-  range calculation and rendering; task list shows duration without a start date.
-- Switching view tabs (Gantt / WBS / Table / Calendar / Resources) no longer drops the
-  `?project=` URL search param, which previously caused the active project to be lost on
-  every view switch.
-- Celery worker container failed to start in Docker Compose — `packages/api/Dockerfile`
-  used `ENTRYPOINT` for uvicorn, causing docker-compose `command` overrides to be
-  appended as uvicorn arguments instead of replacing the command. Changed to `CMD`
-  so `docker compose run` and `command:` overrides work correctly for celery, migrations,
-  and any other management commands.
-- **Gantt canvas rendering** (issue #19 follow-up): four visual bugs fixed.
-  Task bars were painted 28 px too high (no `HEADER_HEIGHT` offset), alternating row
-  bands drifted away from their rows on vertical scroll (`drawRowBands` ignored
-  `scrollTop`), dependency arrows disconnected from bars on scroll (`drawDependencyArrows`
-  ignored `scrollTop`), and no date labels were shown on the timeline. A two-row
-  timeline header (major unit / minor unit) is now drawn in the top 28 px of the
-  canvas on every full repaint, matching the task-list header height so rows
-  align correctly.
-
-### Added
 - **Short hex object IDs** (issue #50, ADR-0016): Tasks and Risks now receive a
   human-readable 8-character hex identifier (e.g. `000A3F`) on creation, scoped
   per project. Exposed as read-only `short_id` on `TaskSerializer`,
@@ -910,31 +903,6 @@ MS Project import/export, 5-role RBAC, real-time sync, and the Helm chart.
   `gantt-text-primary/secondary`, and `gantt-semantic-critical/at-risk/on-track` now
   emit real CSS. All prior references were silent no-ops.
 
-### Fixed
-- Badge borders (`at-risk`, `critical`) in TopBar and StatusBar were at 40% opacity
-  (1.92–2.04:1 contrast), failing WCAG 1.4.11. Raised to 80% opacity (~4.25:1+).
-- Hamburger menu touch target increased from 32×32px to 44×44px (WCAG 2.5.5).
-- StatusBar online-user count was gated behind the `2xl` (1440px) breakpoint; changed
-  to `lg` (1024px) per design spec.
-- Gantt task-list column layout: separate Duration and Start columns merged into a single
-  "Dur · Start" column (`{n}d · {MMM D}`, 100px). Mini progress bar removed from the `%`
-  column — text percentage only.
-- Two runnable Jupyter notebooks for `trueppm-scheduler` (issue #38):
-  `01-cpm-quickstart.ipynb` covers project definition, CPM run, float table,
-  custom calendar with holiday, SS dependency with lag, cycle detection, and
-  JSON round-trip; `02-monte-carlo.ipynb` covers PERT three-point tasks, P50/P80/P95
-  output, matplotlib histogram with percentile lines, and scenario comparison.
-  Also corrects the scheduler API reference in `docs/features/scheduler.md` —
-  the previous doc used constructor signatures that do not exist
-  (`Calendar(id=, name=, working_days={set})`, `schedule(project, tasks, deps, cal)`).
-- PyPI publish pipeline for `trueppm-scheduler` (issue #37): pushing a git tag
-  `scheduler-vX.Y.Z` triggers a new `publish` stage that builds an sdist + wheel
-  via `python -m build` and uploads to PyPI via `twine`. A version-consistency
-  guard fails fast if the tag version does not match `pyproject.toml`. Requires
-  a `PYPI_TOKEN` CI/CD variable (masked + protected). Built artifacts are kept
-  as GitLab CI job artifacts for 7 days.
-
-### Added
 - Keyboard rescheduling for the Gantt chart (WCAG 2.1.1 gap, issue #34): selecting a task
   and pressing Enter enters keyboard reschedule mode. Arrow keys nudge by 1 working day;
   Shift+Arrow nudges by 5. 'd' opens a date-input popover for precise entry. Enter confirms
@@ -977,38 +945,6 @@ MS Project import/export, 5-role RBAC, real-time sync, and the Helm chart.
   viewports; `MonteCarloLabel` cell shows persistent P80 chip at `md+`; MC confidence bars
   increased to 8px height (was 6px). Closes #33.
 
-### Fixed
-- Gantt task list expand arrow was pointing backwards — disabled SVAR's built-in task list
-  panel (`columns={false}`) so only our custom panel renders. Closes #47.
-- Gantt task list columns (Task / Dur / Start / %) are now drag-to-resize with widths
-  persisted to localStorage (`useColumnWidths` hook). Closes #48.
-- Gantt bar grid columns were misaligned with the header row — root cause was SVAR rendering
-  a duplicate header; fixed by the same `columns={false}` change. Closes #49.
-- `text-[10px]` and `fontSize={9}` violations in `MonteCarloTimeline` and `MonteCarloHistogram`
-  replaced with `text-xs` / `fontSize={12}` (design rule 50 — 12px floor). Fixes WCAG 1.4.3.
-- `StatusBar` legend items now use semantic Tailwind tokens (`bg-semantic-on-track` etc.)
-  instead of hardcoded hex colors (design rule 8). Legend updated to match rule 44 (Complete /
-  In progress / Critical path / ◆ Milestone). Last-saved format corrected to `"min"` not `"m"`
-  (design rule 45).
-- Rule 39 in `packages/web/CLAUDE.md` corrected: at-risk/critical badge buttons use
-  `aria-haspopup="menu"` not `"listbox"` (listbox implies value-selection; these navigate).
-- Gantt task list panel was rendering with a white background against the dark canvas
-  timeline, creating a jarring split. `TaskListPanel`, `TaskListHeader`, and `TaskListRow`
-  now use `gantt-surface` tokens throughout: `bg-gantt-surface` background,
-  `text-gantt-text-primary/secondary` labels, `text-gantt-semantic-critical` for critical
-  path tasks, `bg-white/10` selection highlight, and `bg-gantt-semantic-critical` progress
-  fill. Also fixes a `fontSize:10px` inline style to `text-xs` (design rule 50).
-
-### Changed
-- Web UI polish: replaced emoji nav icons with inline SVG icon set (`GanttIcon`,
-  `BoardIcon`, `ListIcon`, `CalendarIcon`, `ResourcesIcon`); added geometric logo
-  mark; top bar alert badges use `WarningIcon`/`CriticalDotIcon` instead of raw
-  Unicode; task list rows show a mini progress bar instead of plain percentage text;
-  status bar uses 1px vertical dividers instead of · dots; Monte Carlo histogram
-  tooltip formats ISO dates as "Mon D"; MC confidence bars increased 4px → 6px with
-  even vertical spacing; placeholder views show a blueprint grid SVG.
-
-### Added
 - Gantt task list resizable columns (`useColumnWidths` hook): task/duration/start/progress
   columns can be dragged to resize, widths persisted to localStorage. MC label cell
   tracks task list width so the vertical border stays aligned. Closes #44 (column layout).
@@ -1050,7 +986,6 @@ MS Project import/export, 5-role RBAC, real-time sync, and the Helm chart.
 - `ghost-fill` / `ghost-border` Tailwind tokens (design rules 23–25).
 - Drag preview design rules added to `packages/web/CLAUDE.md` (rules 23–34).
 
-### Added
 - Root `.gitignore` covering Python, pytest, mypy, ruff, Docker override files, and editor
   artifacts. Previously the repo had no root ignore file.
 - CI pipeline restructured to 4 stages (lint → analyze → test → security) with a
@@ -1060,28 +995,6 @@ MS Project import/export, 5-role RBAC, real-time sync, and the Helm chart.
   (npm audit), `website:build`, npm license check in `license:check`.
   `security:bandit` moved from security stage to analyze stage (it is static analysis
   and does not need test results). `changelog:check` moved to lint stage.
-
-### Changed
-- Scheduler moved from repo root (`src/trueppm_scheduler/`, root `pyproject.toml`) into
-  `packages/scheduler/` — all packages now live under `packages/`. Updated everywhere:
-  `packages/api/Dockerfile`, `.gitlab-ci.yml`, `.pre-commit-config.yaml`, `CLAUDE.md`,
-  `README.md`, and `packages/website/docs/architecture/overview.md`.
-- Duplicate `docs/adr/0003-rbac-auto-scheduling-websockets.md` removed — canonical copy
-  is `packages/website/docs/adr/0003-rbac-auto-scheduling-websockets.md`.
-- Design System HTML moved from `docs/design/` to `packages/website/static/design/` so
-  Docusaurus serves it at a stable URL.
-- Mobile references removed from `CLAUDE.md`, `README.md`, and `docs/architecture/overview.md`.
-  Mobile is not yet started; dead references erode doc trust. Will be re-added when
-  `packages/mobile` is scaffolded.
-- `README.md` web section updated to clearly state what is built vs what is not yet built.
-- `docs/architecture/overview.md` system diagram updated to show current client topology
-  (web only; offline-first sync protocol noted as designed for future clients).
-- Gantt view added to Docusaurus sidebar (`features/gantt`).
-
-### Fixed
-- `scheduling/tasks.py` `bulk_update` comment expanded to explain WHY `server_version` is
-  intentionally not incremented for CPM field writes (prevents spurious mobile sync deltas).
-
 
 - Gantt view (`packages/web/src/features/gantt/`): split-pane task list (280px, virtualized
   via @tanstack/react-virtual) + SVAR React Gantt timeline. All 6 bar types (normal/critical/
@@ -1131,24 +1044,6 @@ MS Project import/export, 5-role RBAC, real-time sync, and the Helm chart.
   pyproject.toml file hash per package. `workflow:rules` prevents duplicate
   branch + MR pipelines.
 
-### Fixed
-- `VersionedModel.save()` no longer overwrites the atomically-incremented
-  `server_version` via `super().save()`. The subsequent `UPDATE` now excludes
-  `server_version` via `update_fields`, preserving the F()-expression increment.
-  Without this fix, `server_version` was always 0 on update — breaking the mobile
-  sync protocol entirely.
-- `DependencySerializer` now validates that predecessor and successor belong to the
-  same project. Cross-project edges produced undefined CPM behaviour; they now return
-  HTTP 400.
-- `scheduling` and `sync` app URL modules are now included in the root URL conf.
-  Previously, any endpoint added to either app would silently 404.
-
-### Security
-- Added `IsProjectMember` permission class (Phase 1 stub) to all ViewSets. Every
-  endpoint now requires authentication; object-level project-scoping will be enforced
-  in Phase 2 once the `ProjectMembership` model exists.
-
-### Added
 - CPM scheduling engine (`schedule()`) with forward/backward pass, float calculation,
   and critical-path identification. Supports all four dependency types (FS, SS, FF, SF)
   with calendar-day lag, calendar-aware working-day arithmetic, weekend skipping, and
@@ -1190,7 +1085,6 @@ MS Project import/export, 5-role RBAC, real-time sync, and the Helm chart.
 - GitLab CI jobs for API lint, API tests (with PostgreSQL + Redis service containers),
   and Helm lint.
 
-### Added
 - `Task.assignee` field (nullable FK to the user model) — Team Members can now be
   assigned to tasks via `PATCH /api/v1/tasks/{id}/` with `{ "assignee": "<uuid>" }`.
   The field is included in all task list and retrieve responses.
@@ -1199,6 +1093,31 @@ MS Project import/export, 5-role RBAC, real-time sync, and the Helm chart.
   `role` ordinal. Display-only; not accepted on write.
 
 ### Changed
+
+- Web UI polish: replaced emoji nav icons with inline SVG icon set (`GanttIcon`,
+  `BoardIcon`, `ListIcon`, `CalendarIcon`, `ResourcesIcon`); added geometric logo
+  mark; top bar alert badges use `WarningIcon`/`CriticalDotIcon` instead of raw
+  Unicode; task list rows show a mini progress bar instead of plain percentage text;
+  status bar uses 1px vertical dividers instead of · dots; Monte Carlo histogram
+  tooltip formats ISO dates as "Mon D"; MC confidence bars increased 4px → 6px with
+  even vertical spacing; placeholder views show a blueprint grid SVG.
+
+- Scheduler moved from repo root (`src/trueppm_scheduler/`, root `pyproject.toml`) into
+  `packages/scheduler/` — all packages now live under `packages/`. Updated everywhere:
+  `packages/api/Dockerfile`, `.gitlab-ci.yml`, `.pre-commit-config.yaml`, `CLAUDE.md`,
+  `README.md`, and `packages/website/docs/architecture/overview.md`.
+- Duplicate `docs/adr/0003-rbac-auto-scheduling-websockets.md` removed — canonical copy
+  is `packages/website/docs/adr/0003-rbac-auto-scheduling-websockets.md`.
+- Design System HTML moved from `docs/design/` to `packages/website/static/design/` so
+  Docusaurus serves it at a stable URL.
+- Mobile references removed from `CLAUDE.md`, `README.md`, and `docs/architecture/overview.md`.
+  Mobile is not yet started; dead references erode doc trust. Will be re-added when
+  `packages/mobile` is scaffolded.
+- `README.md` web section updated to clearly state what is built vs what is not yet built.
+- `docs/architecture/overview.md` system diagram updated to show current client topology
+  (web only; offline-first sync protocol noted as designed for future clients).
+- Gantt view added to Docusaurus sidebar (`features/gantt`).
+
 - Role labels updated to PM-standard terminology (integer ordinals are unchanged — no data
   migration required): `"Member"` → `"Team Member"`, `"Scheduler"` → `"Resource Manager"`,
   `"Admin"` → `"Project Manager"`, `"Owner"` → `"Project Admin"`.
@@ -1209,15 +1128,104 @@ MS Project import/export, 5-role RBAC, real-time sync, and the Helm chart.
   any Team Member could modify scheduling dependencies.
 
 ### Fixed
-- Security: non-member users could create tasks in any project by supplying a known project
+
+- **Auth 401-retry race on login**: after logging in, TanStack Query retried stale 401 errors before the new token was stored, causing a persistent "Failed to load projects" screen. Fixed by gating renders on Zustand hydration, clearing the query cache on login, suppressing 401 retries at the query level, and redirecting to `/login` on session expiry via a custom event.
+- **Sidebar blank on API failure**: when the projects API returned an error (e.g. 401 while unauthenticated), the sidebar rendered completely blank with no message. Now shows "Failed to load projects" in the error state.
+- **Risk register: add risk fails silently**: `POST /api/v1/projects//risks/` 404 when `projectId` was empty string — `RiskRegisterView` now returns early with a "Select a project" prompt instead of rendering the broken form. API errors (400, 403, 404) are now surfaced in the form as a visible error banner.
+- **Gantt blank rendering on unscheduled tasks**: tasks with null `early_start`/`early_finish`
+  dates produced `Invalid Date` / NaN canvas coordinates, causing both the task list and
+  timeline panels to render as blank boxes. Engine now filters unscheduled tasks from
+  range calculation and rendering; task list shows duration without a start date.
+- Switching view tabs (Gantt / WBS / Table / Calendar / Resources) no longer drops the
+  `?project=` URL search param, which previously caused the active project to be lost on
+  every view switch.
+- Celery worker container failed to start in Docker Compose — `packages/api/Dockerfile`
+  used `ENTRYPOINT` for uvicorn, causing docker-compose `command` overrides to be
+  appended as uvicorn arguments instead of replacing the command. Changed to `CMD`
+  so `docker compose run` and `command:` overrides work correctly for celery, migrations,
+  and any other management commands.
+- **Gantt canvas rendering** (issue #19 follow-up): four visual bugs fixed.
+  Task bars were painted 28 px too high (no `HEADER_HEIGHT` offset), alternating row
+  bands drifted away from their rows on vertical scroll (`drawRowBands` ignored
+  `scrollTop`), dependency arrows disconnected from bars on scroll (`drawDependencyArrows`
+  ignored `scrollTop`), and no date labels were shown on the timeline. A two-row
+  timeline header (major unit / minor unit) is now drawn in the top 28 px of the
+  canvas on every full repaint, matching the task-list header height so rows
+  align correctly.
+
+- Badge borders (`at-risk`, `critical`) in TopBar and StatusBar were at 40% opacity
+  (1.92–2.04:1 contrast), failing WCAG 1.4.11. Raised to 80% opacity (~4.25:1+).
+- Hamburger menu touch target increased from 32×32px to 44×44px (WCAG 2.5.5).
+- StatusBar online-user count was gated behind the `2xl` (1440px) breakpoint; changed
+  to `lg` (1024px) per design spec.
+- Gantt task-list column layout: separate Duration and Start columns merged into a single
+  "Dur · Start" column (`{n}d · {MMM D}`, 100px). Mini progress bar removed from the `%`
+  column — text percentage only.
+- Two runnable Jupyter notebooks for `trueppm-scheduler` (issue #38):
+  `01-cpm-quickstart.ipynb` covers project definition, CPM run, float table,
+  custom calendar with holiday, SS dependency with lag, cycle detection, and
+  JSON round-trip; `02-monte-carlo.ipynb` covers PERT three-point tasks, P50/P80/P95
+  output, matplotlib histogram with percentile lines, and scenario comparison.
+  Also corrects the scheduler API reference in `docs/features/scheduler.md` —
+  the previous doc used constructor signatures that do not exist
+  (`Calendar(id=, name=, working_days={set})`, `schedule(project, tasks, deps, cal)`).
+- PyPI publish pipeline for `trueppm-scheduler` (issue #37): pushing a git tag
+  `scheduler-vX.Y.Z` triggers a new `publish` stage that builds an sdist + wheel
+  via `python -m build` and uploads to PyPI via `twine`. A version-consistency
+  guard fails fast if the tag version does not match `pyproject.toml`. Requires
+  a `PYPI_TOKEN` CI/CD variable (masked + protected). Built artifacts are kept
+  as GitLab CI job artifacts for 7 days.
+
+- Gantt task list expand arrow was pointing backwards — disabled SVAR's built-in task list
+  panel (`columns={false}`) so only our custom panel renders. Closes #47.
+- Gantt task list columns (Task / Dur / Start / %) are now drag-to-resize with widths
+  persisted to localStorage (`useColumnWidths` hook). Closes #48.
+- Gantt bar grid columns were misaligned with the header row — root cause was SVAR rendering
+  a duplicate header; fixed by the same `columns={false}` change. Closes #49.
+- `text-[10px]` and `fontSize={9}` violations in `MonteCarloTimeline` and `MonteCarloHistogram`
+  replaced with `text-xs` / `fontSize={12}` (design rule 50 — 12px floor). Fixes WCAG 1.4.3.
+- `StatusBar` legend items now use semantic Tailwind tokens (`bg-semantic-on-track` etc.)
+  instead of hardcoded hex colors (design rule 8). Legend updated to match rule 44 (Complete /
+  In progress / Critical path / ◆ Milestone). Last-saved format corrected to `"min"` not `"m"`
+  (design rule 45).
+- Rule 39 in `packages/web/CLAUDE.md` corrected: at-risk/critical badge buttons use
+  `aria-haspopup="menu"` not `"listbox"` (listbox implies value-selection; these navigate).
+- Gantt task list panel was rendering with a white background against the dark canvas
+  timeline, creating a jarring split. `TaskListPanel`, `TaskListHeader`, and `TaskListRow`
+  now use `gantt-surface` tokens throughout: `bg-gantt-surface` background,
+  `text-gantt-text-primary/secondary` labels, `text-gantt-semantic-critical` for critical
+  path tasks, `bg-white/10` selection highlight, and `bg-gantt-semantic-critical` progress
+  fill. Also fixes a `fontSize:10px` inline style to `text-xs` (design rule 50).
+
+- `scheduling/tasks.py` `bulk_update` comment expanded to explain WHY `server_version` is
+  intentionally not incremented for CPM field writes (prevents spurious mobile sync deltas).
+
+- `VersionedModel.save()` no longer overwrites the atomically-incremented
+  `server_version` via `super().save()`. The subsequent `UPDATE` now excludes
+  `server_version` via `update_fields`, preserving the F()-expression increment.
+  Without this fix, `server_version` was always 0 on update — breaking the mobile
+  sync protocol entirely.
+- `DependencySerializer` now validates that predecessor and successor belong to the
+  same project. Cross-project edges produced undefined CPM behaviour; they now return
+  HTTP 400.
+- `scheduling` and `sync` app URL modules are now included in the root URL conf.
+  Previously, any endpoint added to either app would silently 404.
+
+### Security
+
+- Added `IsProjectMember` permission class (Phase 1 stub) to all ViewSets. Every
+  endpoint now requires authentication; object-level project-scoping will be enforced
+  in Phase 2 once the `ProjectMembership` model exists.
+- Non-member users could create tasks in any project by supplying a known project
   UUID — `TaskViewSet.perform_create` now calls `check_object_permissions` before saving
   (DRF does not call it automatically on create actions).
-- Security: non-member users could create dependencies by supplying known task UUIDs —
+- Non-member users could create dependencies by supplying known task UUIDs —
   same `check_object_permissions` guard added to `DependencyViewSet.perform_create`.
-- Security: soft-deleted project memberships were incorrectly treated as active in all
+- Soft-deleted project memberships were incorrectly treated as active in all
   permission checks — `is_deleted=False` filter is now applied consistently to every
   `ProjectMembership` query in the RBAC layer.
-- Security: `partial_update` role-change was vulnerable to a TOCTOU race where a
+- `partial_update` role-change was vulnerable to a TOCTOU race where a
   concurrent demotion of the actor could allow assigning a role equal to or higher than
   the actor's effective role at save time — fixed with `SELECT FOR UPDATE` inside
   `transaction.atomic()`.
+
