@@ -1014,10 +1014,30 @@ export function calculateDependencyPath(
     const midpoint = Math.round((startX + targetX) / 2);
     if (minV <= maxV) {
       const vColumn = Math.max(minV, Math.min(midpoint, maxV));
-      waypoints[waypoints.length - 1] = { x: vColumn, y: startY };
-      waypoints.push({ x: vColumn, y: targetY });
-      waypoints.push({ x: targetX, y: targetY });
-      return waypoints;
+      // `blockerAtExit` only clears the V at `exitX`; the committed drop column
+      // is the midpoint, which can land on an obstacle that `exitX` missed —
+      // most visibly a milestone diamond in an intervening row (#1184). Probe
+      // the actual drop column and, if blocked, right-sweep past the obstacle's
+      // edge + ROUTING_PADDING so the V skirts the diamond instead of piercing
+      // it. If no clear column fits inside the L gap, fall through to the
+      // 5-segment gutter path below, which routes the V through the row gutter.
+      const dropBlocker = findBlockingBar(vColumn, startY, targetY, obstacles, sourceBox, targetBox);
+      let safeColumn: number | null = dropBlocker ? null : vColumn;
+      if (dropBlocker) {
+        const swept = dropBlocker.x + dropBlocker.width + ROUTING_PADDING;
+        if (
+          swept <= maxV &&
+          !findBlockingBar(swept, startY, targetY, obstacles, sourceBox, targetBox)
+        ) {
+          safeColumn = swept;
+        }
+      }
+      if (safeColumn !== null) {
+        waypoints[waypoints.length - 1] = { x: safeColumn, y: startY };
+        waypoints.push({ x: safeColumn, y: targetY });
+        waypoints.push({ x: targetX, y: targetY });
+        return waypoints;
+      }
     }
   }
 

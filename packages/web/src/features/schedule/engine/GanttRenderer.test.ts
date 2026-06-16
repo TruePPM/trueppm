@@ -727,24 +727,32 @@ describe('drawDependencyArrows — summary tasks are anchorable without plannedS
     expect(calls.filter((c) => c.name === 'lineTo').length).toBe(5);
   });
 
-  // TODO(#1184): findSafeDropColumn does not yet treat milestone diamonds as
-  // obstacles; un-skip and implement when #1184 lands.
-  it.skip('milestones are obstacles — right-sweep diverts the V drop around a diamond in the drop column', () => {
-    // src finishes Apr 10, target starts Apr 14 → ideal drop column ≈ targetX − APPROACH_STUB.
-    // A committed milestone sits in row 1 at Apr 14 — i.e. directly on the ideal drop X.
-    // The right-sweep must push safeDropX to the right edge of the milestone + PADDING.
+  // A zero-duration milestone diamond sitting on the V-drop column must be
+  // treated as an obstacle: the SIMPLE-L drop column is right-swept past the
+  // diamond's right edge + ROUTING_PADDING so the V skirts it instead of
+  // piercing it (#1184).
+  //
+  // Geometry note: the drop column is the MIDPOINT between source-right and
+  // the arrowhead base, NOT the target column. The original skipped spec put
+  // the milestone on the target column (Apr 14) where it falls past the drop
+  // range entirely — so it could never collide under midpoint routing. We use
+  // a wide source→target gap and place the milestone on the actual midpoint
+  // (week scale = 12 px/day): src right-edge ≈ x120, arrowhead base ≈ x266,
+  // midpoint ≈ x193; a milestone at Apr 17 (center x192, body [183, 201])
+  // straddles that column while clearing the exit stub at x125.
+  it('milestones are obstacles — right-sweep diverts the V drop around a diamond in the drop column', () => {
     const milestoneTask: Task = {
       id: 'm1', wbs: 'm1', name: 'Mid milestone',
-      start: '2026-04-14', finish: '2026-04-14',
-      plannedStart: '2026-04-14',
+      start: '2026-04-17', finish: '2026-04-17',
+      plannedStart: '2026-04-17',
       duration: 0, progress: 0,
       isSummary: false, isMilestone: true, isCritical: false, parentId: null,
     } as unknown as Task;
 
     const tasks: Task[] = [
       schedLeaf('src', '2026-04-06', '2026-04-10'),  // row 0
-      milestoneTask,                                  // row 1 — obstacle
-      schedLeaf('tgt', '2026-04-14', '2026-04-21'),  // row 2 — target
+      milestoneTask,                                  // row 1 — obstacle on the drop column
+      schedLeaf('tgt', '2026-04-24', '2026-04-30'),  // row 2 — target (wide gap)
     ];
     const links = [
       { id: 'l1', sourceId: 'src', targetId: 'tgt', type: 'FS' as const, lag: 0, isCritical: false },
@@ -769,16 +777,55 @@ describe('drawDependencyArrows — summary tasks are anchorable without plannedS
     const ptsWithout = linePts(withoutMs.calls);
 
     // The drop column (X of the V segment) is the X of the third stroked point.
-    // (moveTo + lineTo exit + lineTo sweepH — sweepH X is the safe drop column.)
+    // (moveTo + lineTo exit + lineTo sweepH — sweepH X is the drop column.)
     const dropX_with    = ptsWith[2].x;
     const dropX_without = ptsWithout[2].x;
 
-    // With the milestone in the corridor, the safe-column search must divert
-    // the drop column away from the obstacle. findSafeDropColumn considers
-    // both sides of every obstacle and picks the closest clear X — direction
-    // is implementation detail; the spec only requires "no segment penetrates
-    // any object body."
-    expect(dropX_with).not.toBe(dropX_without);
+    // Without the milestone the drop column sits at the midpoint; with it, the
+    // right-sweep must push the column RIGHT, past the diamond body, so the
+    // descending V never crosses the milestone.
+    expect(dropX_with).toBeGreaterThan(dropX_without);
+
+    // The swept column must clear the diamond's right edge. Milestone center is
+    // dateToLeft(Apr 17); body extends ±milestoneHalfDiag (9 px). The drop V
+    // must land at or beyond center + 9.
+    const msCenterX = dateToLeft('2026-04-17', scales);
+    expect(dropX_with).toBeGreaterThanOrEqual(msCenterX + 9);
+  });
+
+  it('milestone off the drop column does not perturb the route (divert is targeted)', () => {
+    // Same wide-gap geometry, but the milestone sits on the TARGET column
+    // (Apr 24) — past the drop range, in the arrowhead approach zone. It must
+    // NOT shift the drop column: the right-sweep only fires for obstacles that
+    // actually straddle the chosen V column.
+    const milestoneTask: Task = {
+      id: 'm1', wbs: 'm1', name: 'Approach-zone milestone',
+      start: '2026-04-24', finish: '2026-04-24',
+      plannedStart: '2026-04-24',
+      duration: 0, progress: 0,
+      isSummary: false, isMilestone: true, isCritical: false, parentId: null,
+    } as unknown as Task;
+
+    const tasks: Task[] = [
+      schedLeaf('src', '2026-04-06', '2026-04-10'),  // row 0
+      milestoneTask,                                  // row 1 — off the drop column
+      schedLeaf('tgt', '2026-04-24', '2026-04-30'),  // row 2 — target
+    ];
+    const links = [
+      { id: 'l1', sourceId: 'src', targetId: 'tgt', type: 'FS' as const, lag: 0, isCritical: false },
+    ];
+
+    const withMs = makeArrowCtxSpy();
+    drawDependencyArrows(withMs.ctx, tasks, links, scales, 0, 0);
+    const withoutMs = makeArrowCtxSpy();
+    drawDependencyArrows(withoutMs.ctx, [tasks[0], tasks[2]], links, scales, 0, 0);
+
+    const linePts = (calls: Array<{ name: string; args: unknown[] }>) =>
+      calls
+        .filter((c) => c.name === 'moveTo' || c.name === 'lineTo')
+        .map((c) => ({ x: c.args[0] as number, y: c.args[1] as number }));
+
+    expect(linePts(withMs.calls)[2].x).toBe(linePts(withoutMs.calls)[2].x);
   });
 
   // -------------------------------------------------------------------------
