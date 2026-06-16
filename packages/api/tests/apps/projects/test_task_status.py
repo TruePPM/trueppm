@@ -419,7 +419,10 @@ def test_contributor_progress_100_routes_to_review(
         assignee=member_user,
         planned_start=date(2026, 4, 1),
     )
+    # Simulate a task that was genuinely started (an IN_PROGRESS PATCH records
+    # actual_start; we set it directly here as the precondition).
     task.status = TaskStatus.IN_PROGRESS
+    task.actual_start = date(2026, 4, 1)
     task.save()
     with (
         patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
@@ -432,8 +435,9 @@ def test_contributor_progress_100_routes_to_review(
     task.refresh_from_db()
     assert task.status == TaskStatus.REVIEW
     assert task.percent_complete == 100.0
-    # actual_start was set since work has been performed
-    assert task.actual_start is not None
+    # actual_start was set when the task went IN_PROGRESS above; the REVIEW
+    # transition itself no longer stamps it (ADR-0136).
+    assert task.actual_start == date(2026, 4, 1)
     # actual_finish stays null — sign-off has not happened yet
     assert task.actual_finish is None
 
@@ -572,12 +576,15 @@ def test_reopen_complete_task_clears_actual_finish(
 
 
 @pytest.mark.django_db
-def test_review_transition_sets_actual_start_but_not_actual_finish(
+def test_review_transition_preserves_in_progress_actual_start(
     client: APIClient, project: Project, task: Task, membership: ProjectMembership
 ) -> None:
-    """Transitioning to REVIEW sets actual_start (work performed) but leaves actual_finish null."""
+    """A REVIEW transition keeps the actual_start recorded at IN_PROGRESS, and never
+    sets actual_finish (sign-off has not happened)."""
     task.status = TaskStatus.IN_PROGRESS
+    task.actual_start = date(2026, 4, 1)
     task.save()
+    started = date(2026, 4, 1)
     with (
         patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
         patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay"),
@@ -586,7 +593,28 @@ def test_review_transition_sets_actual_start_but_not_actual_finish(
     assert r.status_code == 200
     task.refresh_from_db()
     assert task.status == TaskStatus.REVIEW
-    assert task.actual_start is not None
+    assert task.actual_start == started
+    assert task.actual_finish is None
+
+
+@pytest.mark.django_db
+def test_review_transition_without_prior_start_leaves_actual_start_null(
+    client: APIClient, project: Project, task: Task, membership: ProjectMembership
+) -> None:
+    """A card taken straight to REVIEW without ever being IN_PROGRESS records no
+    actual_start — stamping "today" would collapse the schedule bar; the engine
+    derives the full-duration span instead (ADR-0136)."""
+    assert task.status != TaskStatus.IN_PROGRESS
+    assert task.actual_start is None
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay"),
+    ):
+        r = client.patch(f"/api/v1/tasks/{task.pk}/", {"status": "REVIEW"}, format="json")
+    assert r.status_code == 200
+    task.refresh_from_db()
+    assert task.status == TaskStatus.REVIEW
+    assert task.actual_start is None
     assert task.actual_finish is None
 
 

@@ -1296,3 +1296,113 @@ class TestProgressAware:
         assert restored.status_date == date(2026, 3, 16)
         assert restored.tasks[0].actual_start == date(2026, 3, 2)
         assert restored.tasks[0].actual_finish == date(2026, 3, 6)
+
+
+# ---------------------------------------------------------------------------
+# Completed tasks retain their full-duration span (ADR-0136)
+# ---------------------------------------------------------------------------
+
+
+class TestCompletedFullDuration:
+    """A task marked 100% complete keeps its full-duration bar instead of
+    collapsing to a single day — regardless of which (if any) actual dates were
+    recorded. Regression cover for the 1-day-bar bug."""
+
+    def test_completed_without_actuals_keeps_full_duration(self) -> None:
+        """percent_complete=100 with no actuals must span the full duration, not
+        collapse to early_start == early_finish (the reported bug)."""
+        p = make_project(
+            [task("A", "A", 5, percent_complete=100.0)],
+            start=date(2026, 3, 2),  # Monday
+        )
+        t = schedule(p).tasks[0]
+        assert t.early_start == date(2026, 3, 2)
+        assert t.early_finish == date(2026, 3, 6)  # Fri — full 5 working days
+        assert t.early_start != t.early_finish
+        assert t.total_float == timedelta(0)  # done => no slack
+        assert t.is_critical
+
+    def test_completed_without_actuals_drives_successor(self) -> None:
+        """A completed-but-undated task still anchors its FS successor from its
+        resolved (full-duration) early finish."""
+        p = make_project(
+            tasks=[
+                task("A", "A", 5, percent_complete=100.0),
+                task("B", "B", 3),
+            ],
+            dependencies=[Dependency("A", "B")],
+            start=date(2026, 3, 2),
+        )
+        by_id = {t.id: t for t in schedule(p).tasks}
+        assert by_id["A"].early_finish == date(2026, 3, 6)  # Fri
+        assert by_id["B"].early_start == date(2026, 3, 9)  # next Mon
+        assert by_id["B"].early_finish == date(2026, 3, 11)  # Wed
+
+    def test_completed_without_actuals_not_floored_at_status_date(self) -> None:
+        """Completed work is historical: it keeps its planned position and is NOT
+        pushed forward to the data date the way not-started work is."""
+        p = make_project(
+            [task("A", "A", 5, percent_complete=100.0)],
+            start=date(2026, 3, 2),
+        )
+        p.status_date = date(2026, 3, 23)  # weeks after the task's planned slot
+        t = schedule(p).tasks[0]
+        assert t.early_start == date(2026, 3, 2)  # unmoved, not floored to 3-23
+        assert t.early_finish == date(2026, 3, 6)
+
+    def test_completed_with_only_actual_finish_derives_start(self) -> None:
+        """When just the finish is known, the start is a full duration back from
+        it (so a successor still keys off the real finish)."""
+        p = make_project(
+            [task("A", "A", 5, actual_finish=date(2026, 3, 20), percent_complete=100.0)],
+            start=date(2026, 3, 2),
+        )
+        t = schedule(p).tasks[0]
+        assert t.early_finish == date(2026, 3, 20)  # Fri (the actual)
+        assert t.early_start == date(2026, 3, 16)  # Mon — 5 working days back
+        assert t.total_float == timedelta(0)
+
+    def test_completed_with_only_actual_start_derives_finish(self) -> None:
+        """A REVIEW task (work done, awaiting sign-off) has an actual_start but no
+        actual_finish; the full duration lays forward from the start."""
+        p = make_project(
+            [task("A", "A", 5, actual_start=date(2026, 3, 16), percent_complete=100.0)],
+            start=date(2026, 3, 2),
+        )
+        t = schedule(p).tasks[0]
+        assert t.early_start == date(2026, 3, 16)  # Mon (the actual)
+        assert t.early_finish == date(2026, 3, 20)  # Fri
+
+    def test_far_future_actual_is_rejected(self) -> None:
+        """A year-9999 actual_finish must be rejected on both engines before any
+        working-day index is built — the same DoS guard that bounds planned_start
+        and status_date (ADR-0136 closes the parity gap)."""
+        p = make_project(
+            [task("A", "A", 5, actual_finish=date(9999, 12, 31), percent_complete=100.0)],
+            start=date(2026, 3, 2),
+        )
+        with pytest.raises(InvalidScheduleInput, match="actual_start/actual_finish"):
+            schedule(p)
+        with pytest.raises(InvalidScheduleInput, match="actual_start/actual_finish"):
+            monte_carlo(p, runs=10, seed=0)
+
+    def test_completed_with_both_actuals_is_truth_even_off_duration(self) -> None:
+        """Both actuals present pin the real span verbatim — even when it differs
+        from the planned duration (actuals are truth, ADR-0132)."""
+        p = make_project(
+            [
+                task(
+                    "A",
+                    "A",
+                    5,  # planned 5d, but it actually ran Tue..Thu (3 days)
+                    actual_start=date(2026, 3, 10),
+                    actual_finish=date(2026, 3, 12),
+                    percent_complete=100.0,
+                )
+            ],
+            start=date(2026, 3, 2),
+        )
+        t = schedule(p).tasks[0]
+        assert t.early_start == date(2026, 3, 10)
+        assert t.early_finish == date(2026, 3, 12)
+        assert t.total_float == timedelta(0)

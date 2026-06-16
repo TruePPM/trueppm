@@ -147,6 +147,42 @@ def test_successful_recalc_stamps_recalculated_at(project: Project, task: Task) 
     assert project.recalculated_at is not None
 
 
+@pytest.mark.django_db
+def test_completed_task_without_actuals_keeps_full_span(project: Project) -> None:
+    """End-to-end (builder -> engine -> bulk_update): a 100%-complete task with no
+    actual dates must keep its full-duration bar, not collapse to early_start ==
+    early_finish (the 1-day-bar bug, ADR-0136)."""
+    from trueppm_api.apps.projects.models import TaskStatus
+    from trueppm_api.apps.scheduling.tasks import recalculate_schedule
+
+    # A 5-working-day task marked complete with no actuals (the seed/contributor
+    # state). Project starts Mon 2026-01-05.
+    done = Task.objects.create(
+        project=project,
+        name="Done",
+        duration=5,
+        status=TaskStatus.COMPLETE,
+        percent_complete=100.0,
+    )
+
+    mock_redis = MagicMock()
+    mock_redis.set.return_value = "OK"  # lock acquired → task body runs
+    with (
+        patch("trueppm_api.core.idempotent.redis_lib") as mock_redis_module,
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
+    ):
+        mock_redis_module.from_url.return_value = mock_redis
+        recalculate_schedule.run(str(project.pk))
+
+    done.refresh_from_db()
+    assert done.early_start is not None and done.early_finish is not None
+    assert done.early_start != done.early_finish  # not collapsed to a single day
+    # Mon 2026-01-05 .. Fri 2026-01-09 is five working days (four calendar days apart).
+    assert done.early_start == date(2026, 1, 5)
+    assert done.early_finish == date(2026, 1, 9)
+
+
 # ---------------------------------------------------------------------------
 # Reason plumbing (#355) — outbox row must record what triggered the recalc
 # so "why did this fire?" debugging doesn't require correlating timestamps.
