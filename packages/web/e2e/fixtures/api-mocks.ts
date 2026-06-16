@@ -221,6 +221,13 @@ export async function setupApiMocks(page: Page, opts: ApiMockOptions = {}): Prom
   );
   await page.route('**/api/v1/auth/me/', (route) => route.fulfill(jsonResponse(user)));
   await page.route('**/api/v1/calendars/', (route) => route.fulfill(jsonResponse(paginated([]))));
+  // WebSocket connection ticket (ADR-0141, #818). The project/workshop sockets
+  // mint a single-use ticket via this POST before opening; without the mock it
+  // 404s through setupCatchAll and the socket never opens (connection pill never
+  // goes Live). The value is irrelevant — page.routeWebSocket matches on path.
+  await page.route('**/api/v1/ws/ticket/', (route) =>
+    route.fulfill(jsonResponse({ ticket: 'e2e-ticket', expires_in: 30 })),
+  );
   // NotificationBell (TopBar, mounted on every project route) polls this every
   // 30s. Default to empty so every spec touching a routed page doesn't fall
   // through setupCatchAll → 404 → TanStack retry, which under high Playwright

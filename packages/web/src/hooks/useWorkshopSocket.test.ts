@@ -10,6 +10,23 @@ import { renderHook, act } from '@testing-library/react';
 import { useWorkshopSocket } from './useWorkshopSocket';
 import { useAuthStore } from '@/stores/authStore';
 
+// The hook mints a single-use ticket (ADR-0141) before opening the socket. These
+// lifecycle tests don't exercise the ticket round-trip, so mock fetchWsTicket
+// with a synchronous thenable: it resolves in-line so the socket is created
+// during connect() and the existing synchronous assertions still hold. The real
+// async flow is covered in wsTicket.test.ts.
+vi.mock('@/api/wsTicket', () => ({
+  fetchWsTicket: () => ({
+    then(onFulfilled: (t: string) => void) {
+      onFulfilled('test-ticket');
+      return this;
+    },
+    catch() {
+      return this;
+    },
+  }),
+}));
+
 class MockWebSocket {
   static OPEN = 1;
   static CLOSED = 3;
@@ -90,11 +107,13 @@ describe('useWorkshopSocket', () => {
     expect(MockWebSocket.instances).toHaveLength(0);
   });
 
-  it('opens a socket with the expected URL when enabled', () => {
+  it('opens a socket with a ticket URL when enabled (ADR-0141)', () => {
     renderHook(() => useWorkshopSocket('proj-1', true, vi.fn()));
     expect(MockWebSocket.instances).toHaveLength(1);
     expect(MockWebSocket.instances[0].url).toContain('/ws/v1/projects/proj-1/workshop/');
-    expect(MockWebSocket.instances[0].url).toContain('token=tok-abc');
+    // No JWT in the URL — the single-use ticket replaces ?token= (#818).
+    expect(MockWebSocket.instances[0].url).toContain('ticket=test-ticket');
+    expect(MockWebSocket.instances[0].url).not.toContain('token=');
   });
 
   it('forwards parsed messages to the onEvent callback', () => {

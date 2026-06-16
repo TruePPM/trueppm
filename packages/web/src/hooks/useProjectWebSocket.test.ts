@@ -15,6 +15,24 @@ import { useProjectWebSocket } from './useProjectWebSocket';
 import { useAuthStore } from '@/stores/authStore';
 import type { Task } from '@/types';
 
+// The hook now mints a single-use ticket (ADR-0141) before opening the socket.
+// These tests exercise event handling, not the ticket round-trip, so mock
+// fetchWsTicket with a *synchronous* thenable: it resolves in-line so the socket
+// is created during connect() and the existing synchronous assertions still hold.
+// The real async ticket flow is covered in wsTicket.test.ts + the ticket-flow
+// test below.
+vi.mock('@/api/wsTicket', () => ({
+  fetchWsTicket: () => ({
+    then(onFulfilled: (t: string) => void) {
+      onFulfilled('test-ticket');
+      return this;
+    },
+    catch() {
+      return this;
+    },
+  }),
+}));
+
 class MockWebSocket {
   static OPEN = 1;
   static CLOSED = 3;

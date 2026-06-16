@@ -106,6 +106,11 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
   await page.route('**/api/v1/dependencies/**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
   );
+  // The socket mints a single-use ticket first (ADR-0141, #818); mock it so the
+  // handshake proceeds instead of 404ing through the catch-all.
+  await page.route('**/api/v1/ws/ticket/', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ticket: 'e2e-ticket', expires_in: 30 }) }),
+  );
   // Accept the project WebSocket so the StatusBar connection pill (#643) reaches
   // "Live" instead of stalling on "Connecting…". Leaving the socket open (never
   // closing it) makes the client fire `open` → markLive(); we send no frames.
