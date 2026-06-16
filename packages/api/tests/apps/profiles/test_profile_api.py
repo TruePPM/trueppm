@@ -69,3 +69,73 @@ def test_user_can_only_touch_own_profile() -> None:
     # Bob's profile is untouched (defaults to auto), Alice's is my_work.
     assert _client(bob).get(URL).data["default_landing"] == DefaultLanding.AUTO
     assert UserProfile.objects.get(user=alice).default_landing == "my_work"
+
+
+# --- hidden_views (ADR-0139) -----------------------------------------------
+
+
+@pytest.mark.django_db
+def test_get_profile_lazily_returns_empty_hidden_views() -> None:
+    user = User.objects.create_user(username="hv_lazy", password="pw")
+    resp = _client(user).get(URL)
+    assert resp.status_code == 200
+    assert resp.data["hidden_views"] == []
+
+
+@pytest.mark.django_db
+def test_patch_sets_hidden_views() -> None:
+    user = User.objects.create_user(username="hv_set", password="pw")
+    resp = _client(user).patch(URL, {"hidden_views": ["schedule", "calendar"]}, format="json")
+    assert resp.status_code == 200
+    assert resp.data["hidden_views"] == ["schedule", "calendar"]
+    assert UserProfile.objects.get(user=user).hidden_views == ["schedule", "calendar"]
+
+
+@pytest.mark.django_db
+def test_patch_hidden_views_does_not_clobber_default_landing() -> None:
+    """A partial PATCH of one preference field leaves the other untouched."""
+    user = User.objects.create_user(username="hv_partial", password="pw")
+    c = _client(user)
+    c.patch(URL, {"default_landing": "my_work"}, format="json")
+    c.patch(URL, {"hidden_views": ["board"]}, format="json")
+    profile = UserProfile.objects.get(user=user)
+    assert profile.default_landing == "my_work"
+    assert profile.hidden_views == ["board"]
+
+
+@pytest.mark.django_db
+def test_reset_clears_hidden_views() -> None:
+    """'Reset to default' is PATCH hidden_views: []."""
+    user = User.objects.create_user(username="hv_reset", password="pw")
+    c = _client(user)
+    c.patch(URL, {"hidden_views": ["schedule", "grid"]}, format="json")
+    resp = c.patch(URL, {"hidden_views": []}, format="json")
+    assert resp.status_code == 200
+    assert resp.data["hidden_views"] == []
+    assert UserProfile.objects.get(user=user).hidden_views == []
+
+
+@pytest.mark.django_db
+def test_patch_rejects_unknown_view_key() -> None:
+    user = User.objects.create_user(username="hv_bad", password="pw")
+    resp = _client(user).patch(URL, {"hidden_views": ["schedule", "bogus"]}, format="json")
+    assert resp.status_code == 400
+    assert "hidden_views" in resp.data
+
+
+@pytest.mark.django_db
+def test_patch_rejects_overview_as_non_hideable() -> None:
+    """overview is the always-on landing — never hideable (ADR-0139)."""
+    user = User.objects.create_user(username="hv_overview", password="pw")
+    resp = _client(user).patch(URL, {"hidden_views": ["overview"]}, format="json")
+    assert resp.status_code == 400
+
+
+@pytest.mark.django_db
+def test_patch_deduplicates_hidden_views() -> None:
+    user = User.objects.create_user(username="hv_dupe", password="pw")
+    resp = _client(user).patch(
+        URL, {"hidden_views": ["schedule", "schedule", "grid"]}, format="json"
+    )
+    assert resp.status_code == 200
+    assert resp.data["hidden_views"] == ["schedule", "grid"]

@@ -65,6 +65,7 @@ describe('LandingPrimaryUsePrompt (ADR-0129, #1181)', () => {
         id: 'u1',
         default_landing: 'my_work',
         landing: { intent: 'my_work', path: '/me/work', resolved_by: 'preference' },
+        hidden_views: [],
       },
       isLoading: false,
     });
