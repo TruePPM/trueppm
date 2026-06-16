@@ -1386,6 +1386,23 @@ class TestCompletedFullDuration:
         with pytest.raises(InvalidScheduleInput, match="actual_start/actual_finish"):
             monte_carlo(p, runs=10, seed=0)
 
+    def test_datetime_actual_is_rejected(self) -> None:
+        """A datetime (a date subclass) passed for an actual via the direct-object
+        API must raise the documented InvalidScheduleInput — not a bare TypeError
+        from mixing date and datetime in the span-guard arithmetic. Parity with the
+        existing planned_start type guard (#1209 / ADR-0136)."""
+        from datetime import datetime
+
+        for field in ("actual_start", "actual_finish"):
+            p = make_project(
+                [task("A", "A", 5, percent_complete=100.0, **{field: datetime(2026, 3, 16, 9)})],
+                start=date(2026, 3, 2),
+            )
+            with pytest.raises(InvalidScheduleInput, match=field):
+                schedule(p)
+            with pytest.raises(InvalidScheduleInput, match=field):
+                monte_carlo(p, runs=10, seed=0)
+
     def test_completed_with_both_actuals_is_truth_even_off_duration(self) -> None:
         """Both actuals present pin the real span verbatim — even when it differs
         from the planned duration (actuals are truth, ADR-0132)."""

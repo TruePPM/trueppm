@@ -1086,7 +1086,8 @@ def _validate_project(project: Project) -> None:
         # already coerces these, but a caller building Task objects by hand can pass
         # the wrong type, which otherwise leaks AttributeError/TypeError from deep in
         # a pass instead of the documented InvalidScheduleInput. datetime is a date
-        # subclass but mixes badly with date arithmetic, so reject it for planned_start.
+        # subclass but mixes badly with date arithmetic, so reject it for the date
+        # pins — planned_start and the recorded actuals — alike.
         if not isinstance(t.duration, timedelta):
             raise InvalidScheduleInput(
                 f"Task {t.id!r} duration must be a timedelta (got {t.duration!r})."
@@ -1097,6 +1098,21 @@ def _validate_project(project: Project) -> None:
             raise InvalidScheduleInput(
                 f"Task {t.id!r} planned_start must be a date, not {type(t.planned_start).__name__}."
             )
+        # actual_start/actual_finish (ADR-0136) feed the same date arithmetic as the
+        # span guard below (_start_from_finish / abs((actual - start).days)); a datetime
+        # there raises a bare TypeError mixing date and datetime, so reject it here for
+        # the documented InvalidScheduleInput contract (#1209).
+        for actual_name, actual_value in (
+            ("actual_start", t.actual_start),
+            ("actual_finish", t.actual_finish),
+        ):
+            if actual_value is not None and (
+                not isinstance(actual_value, date) or isinstance(actual_value, datetime)
+            ):
+                raise InvalidScheduleInput(
+                    f"Task {t.id!r} {actual_name} must be a date, "
+                    f"not {type(actual_value).__name__}."
+                )
         _check_duration(t.duration, f"Task {t.id!r} duration")
         for field_name, value in (
             ("optimistic_duration", t.optimistic_duration),
