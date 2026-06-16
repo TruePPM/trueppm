@@ -206,6 +206,40 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
     expect(req.postDataJSON()).toEqual({ status: 'COMPLETE' });
   });
 
+  test('completing a task via the checkbox fires the warm "done" toast (#1226)', async ({
+    page,
+  }) => {
+    // 401-guard safety net (CLAUDE.md): registered FIRST so the specific mocks
+    // below win (Playwright uses last-registered-wins). Without it, an unmocked
+    // request can 401 during the click-retry window and the session-expired
+    // modal intercepts the click.
+    await page.route('**/api/v1/**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+      }),
+    );
+    await setupWithTasks(page);
+    await page.route(`**/api/v1/tasks/${TASK_ID}/`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ...TASK, status: 'COMPLETE' }),
+      }),
+    );
+
+    await page.goto('/me/work');
+
+    // The one-tap complete checkbox (the contributor's signature action).
+    const checkbox = page.getByRole('button', { name: 'Mark Build the login form complete' });
+    await expect(checkbox).toBeVisible();
+    await checkbox.click();
+
+    // The global toast celebrates the confirmed completion (warm copy).
+    await expect(page.getByText('Nice — Build the login form done.')).toBeVisible();
+  });
+
   test('Sidebar surfaces a "due today" badge when due_today_count > 0', async ({ page }) => {
     await setupWithTasks(page);
     await page.goto('/me/work');

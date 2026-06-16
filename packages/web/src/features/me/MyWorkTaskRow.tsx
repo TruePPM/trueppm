@@ -18,6 +18,7 @@ import { blockerTypeLabel, formatBlockedAge } from '@/lib/blocker';
 import { formatDueLabel } from './dueLabel';
 import { StatusPicker } from './StatusPicker';
 import { PendingAcceptanceChip } from '@/features/board/PendingAcceptanceChip';
+import { toast } from '@/components/Toast';
 
 const STATUS_LABEL: Record<TaskStatus, string> = {
   BACKLOG: 'Backlog',
@@ -45,12 +46,33 @@ interface Props {
 
 export function MyWorkTaskRow({ task }: Props) {
   const [pickerOpen, setPickerOpen] = useState(false);
+  // One-shot flag that plays the checkpop spring on the checkbox when this task
+  // is marked complete (cleared on animationend). v2 fluidity, rule 181/184.
+  const [justCompleted, setJustCompleted] = useState(false);
   const updateStatus = useMyWorkStatusUpdate();
   const due = formatDueLabel(task.due, task.due_source);
+  const isComplete = task.status === 'COMPLETE';
+
+  // Complete via the checkbox (or the picker's Complete entry). The spring fires
+  // immediately for snappy local feedback; the warm toast fires on the actual
+  // success — the mutation is optimistic with rollback, so we only celebrate a
+  // confirmed completion (the signature v2 "moment of delight").
+  function completeTask() {
+    if (isComplete || updateStatus.isPending) return;
+    setJustCompleted(true);
+    updateStatus.mutate(
+      { taskId: task.id, next: 'COMPLETE', previous: task.status },
+      { onSuccess: () => toast.warm(`Nice — ${task.name} done.`) },
+    );
+  }
 
   function handleSelect(next: TaskStatus) {
     setPickerOpen(false);
     if (next === task.status) return;
+    if (next === 'COMPLETE') {
+      completeTask();
+      return;
+    }
     updateStatus.mutate({ taskId: task.id, next, previous: task.status });
   }
 
@@ -71,8 +93,33 @@ export function MyWorkTaskRow({ task }: Props) {
         task.is_blocked ? 'border-l-2 border-l-semantic-critical' : '',
       ].join(' ')}
     >
-      {/* Top line on mobile / leading slot on md+: critical indicator + short_id */}
+      {/* Top line on mobile / leading slot on md+: complete checkbox + critical
+          indicator + short_id. The checkbox is the contributor's one-tap complete
+          (proto's signature) — 44px touch target on mobile, compact on md+. */}
       <div className="flex items-center gap-2 md:w-32 md:shrink-0">
+        <button
+          type="button"
+          onClick={completeTask}
+          disabled={isComplete || updateStatus.isPending}
+          aria-pressed={isComplete}
+          aria-label={isComplete ? `${task.name} is complete` : `Mark ${task.name} complete`}
+          className="grid h-11 w-11 shrink-0 place-items-center rounded md:h-7 md:w-7
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+            disabled:cursor-default"
+        >
+          <span
+            onAnimationEnd={() => setJustCompleted(false)}
+            className={[
+              'grid h-[18px] w-[18px] place-items-center rounded-[5px] border-[1.5px] text-[11px] leading-none',
+              isComplete
+                ? 'border-brand-primary bg-brand-primary text-neutral-text-inverse'
+                : 'border-neutral-border text-transparent',
+              justCompleted ? 'motion-safe:animate-checkpop' : '',
+            ].join(' ')}
+          >
+            <span aria-hidden="true">✓</span>
+          </span>
+        </button>
         {task.is_critical && (
           <span
             className="text-semantic-critical text-sm leading-none"

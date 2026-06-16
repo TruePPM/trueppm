@@ -1,10 +1,24 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ReactNode } from 'react';
 import { MyWorkTaskRow } from './MyWorkTaskRow';
 import type { MyWorkTask } from '@/hooks/useMyWork';
+
+// Spy on the warm toast + stub the optimistic status mutation so the complete
+// flow is deterministic (no network): mutate() invokes its onSuccess synchronously.
+const { warmSpy, mutateSpy } = vi.hoisted(() => ({
+  warmSpy: vi.fn(),
+  mutateSpy: vi.fn((_args: unknown, opts?: { onSuccess?: () => void }) => opts?.onSuccess?.()),
+}));
+vi.mock('@/components/Toast', () => ({
+  toast: { warm: warmSpy, info: vi.fn(), success: vi.fn(), error: vi.fn(), dismiss: vi.fn() },
+}));
+vi.mock('@/hooks/useMyWork', async (importActual) => ({
+  ...(await importActual<typeof import('@/hooks/useMyWork')>()),
+  useMyWorkStatusUpdate: () => ({ mutate: mutateSpy, isPending: false }),
+}));
 
 function wrap(ui: ReactNode) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -80,5 +94,38 @@ describe('MyWorkTaskRow blocker badge (ADR-0124 #1135)', () => {
     expect(screen.getByText('Blocked')).toBeInTheDocument();
     expect(screen.queryByText('External vendor')).not.toBeInTheDocument();
     expect(screen.getByText('1h blocked')).toBeInTheDocument();
+  });
+});
+
+describe('MyWorkTaskRow complete checkbox (#1226)', () => {
+  beforeEach(() => {
+    warmSpy.mockClear();
+    mutateSpy.mockClear();
+  });
+
+  it('renders a "Mark complete" checkbox for an incomplete task', () => {
+    wrap(<MyWorkTaskRow task={BASE} />);
+    expect(screen.getByRole('button', { name: 'Mark Build login complete' })).toBeInTheDocument();
+  });
+
+  it('completing requests COMPLETE, plays the checkpop spring, and fires the warm toast (rule 184)', () => {
+    wrap(<MyWorkTaskRow task={BASE} />);
+    const checkbox = screen.getByRole('button', { name: 'Mark Build login complete' });
+    fireEvent.click(checkbox);
+    expect(mutateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ taskId: 't1', next: 'COMPLETE' }),
+      expect.anything(),
+    );
+    expect(warmSpy).toHaveBeenCalledWith('Nice — Build login done.');
+    // the check box plays the one-shot spring (cleared on animationend)
+    expect(checkbox.querySelector('span')?.className).toContain('motion-safe:animate-checkpop');
+  });
+
+  it('shows a checked, non-interactive checkbox for an already-complete task', () => {
+    wrap(<MyWorkTaskRow task={{ ...BASE, status: 'COMPLETE' }} />);
+    const checkbox = screen.getByRole('button', { name: 'Build login is complete' });
+    expect(checkbox).toBeDisabled();
+    expect(checkbox).toHaveAttribute('aria-pressed', 'true');
+    expect(warmSpy).not.toHaveBeenCalled();
   });
 });
