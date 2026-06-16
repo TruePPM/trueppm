@@ -262,7 +262,7 @@ export function ProgramGeneralPage() {
     apiReady: !!program,
   });
 
-  // The whole General page is editable only at Admin+ (#1084). Reads are open;
+  // The whole General page is editable only at Admin+ (issue 1084). Reads are open;
   // writes are gated server-side, so this render-gate only spares a sub-Admin the
   // arm-save-bar → 400 round-trip. `my_role` is undefined until the program loads,
   // so we gate pessimistically (read-only until proven Admin). The ADR-0135 sharing
@@ -276,7 +276,7 @@ export function ProgramGeneralPage() {
         subtitle="Program identity and delivery model. Settings here affect all projects within this program."
       />
 
-      {/* Below Admin the whole form is read-only (#1084): StubFieldset disables
+      {/* Below Admin the whole form is read-only (issue 1084): StubFieldset disables
           every native control with the rule-122 recipe, and the custom pickers /
           toggles get canEdit={canEdit} so they render their own read-only view. */}
       <StubFieldset disabled={!canEdit}>

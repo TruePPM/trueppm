@@ -290,7 +290,7 @@ export function ProjectGeneralPage() {
   });
 
   const calendarInherited = calendarId === null;
-  // The whole General page is editable only at Admin+ (#1084). Reads are open;
+  // The whole General page is editable only at Admin+ (issue 1084). Reads are open;
   // writes are gated server-side (ProjectSerializer.validate / _SCHEDULER_WRITABLE_FIELDS),
   // so this render-gate only spares a sub-Admin the arm-save-bar → 400 round-trip.
   // `role` is null while the membership query loads, so gate pessimistically
@@ -305,7 +305,7 @@ export function ProjectGeneralPage() {
         subtitle="Identity, defaults, and scheduling rules for this project. These override workspace defaults."
       />
 
-      {/* Below Admin the whole form is read-only (#1084): StubFieldset disables
+      {/* Below Admin the whole form is read-only (issue 1084): StubFieldset disables
           every native control with the rule-122 recipe, and the custom pickers /
           toggles get canEdit={canEdit} so they render their own read-only view. */}
       <StubFieldset disabled={!canEdit}>

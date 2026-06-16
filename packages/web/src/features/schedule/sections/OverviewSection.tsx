@@ -195,7 +195,7 @@ export function OverviewSection({ taskId, projectId, userRole, canEdit }: Drawer
                   'disabled:opacity-50 disabled:cursor-not-allowed',
                 ].join(' ')}
               />
-              {/* Exact-value entry alongside the slider (#1047): the slider is
+              {/* Exact-value entry alongside the slider (issue 1047): the slider is
                   coarse for fine values like 83%; the numeric input sets any
                   integer 0–100. Both bind to the same localProgress, so they
                   stay in sync. handleProgressBlur clamps + commits the PATCH. */}
