@@ -124,7 +124,7 @@ export function BoardSprintSwitcher({
           role="menu"
           aria-label="Board scope"
           className="absolute left-0 top-full z-50 mt-1 max-h-80 w-64 overflow-y-auto rounded-md
-            border border-neutral-border bg-neutral-surface py-1 shadow-lg"
+            border border-neutral-border bg-neutral-surface py-1 shadow-pop"
         >
           <button
             type="button"
