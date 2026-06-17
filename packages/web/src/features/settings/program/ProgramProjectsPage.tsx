@@ -81,7 +81,7 @@ export function ProgramProjectsPage() {
         {!isLoading && !error && projects && projects.length > 0 && (
           <>
             <div
-              className="grid items-center px-4 py-2 bg-neutral-surface-sunken border border-neutral-border rounded-t-lg text-[10px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary mt-4"
+              className="grid items-center px-4 py-2 bg-neutral-surface-sunken border border-neutral-border rounded-t-lg text-[11px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary mt-4"
               style={{ gridTemplateColumns: '1fr 140px' }}
             >
               <span>Project</span>

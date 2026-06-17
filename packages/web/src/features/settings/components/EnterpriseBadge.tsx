@@ -26,7 +26,7 @@ export function EnterpriseBadge() {
       rel="noopener noreferrer"
       title="Available in TruePPM Enterprise"
       aria-label="Available in TruePPM Enterprise — learn more"
-      className="ml-2 inline-flex items-center rounded bg-brand-primary/10 px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-brand-primary hover:bg-brand-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+      className="ml-2 inline-flex items-center rounded bg-brand-primary/10 px-1.5 py-px text-[11px] font-semibold uppercase tracking-wide text-brand-primary hover:bg-brand-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
     >
       EE
     </a>

@@ -94,7 +94,7 @@ function MemberTableRow({ m, last, onRoleChange, onRemove, hasError }: MemberTab
           <span className="font-medium truncate text-neutral-text-primary flex items-center gap-1.5">
             {m.name}
             {m.status === 'guest' && (
-              <span className="text-[10px] px-1 py-px rounded bg-brand-accent-light text-brand-accent-dark font-semibold">
+              <span className="text-[11px] px-1 py-px rounded bg-brand-accent-light text-brand-accent-dark font-semibold">
                 GUEST
               </span>
             )}
@@ -122,13 +122,13 @@ function MemberTableRow({ m, last, onRoleChange, onRemove, hasError }: MemberTab
         {m.groups.slice(0, 2).map((g) => (
           <span
             key={g}
-            className="text-[10px] px-1.5 py-px rounded border border-neutral-border/55 bg-neutral-surface-sunken text-neutral-text-secondary font-medium"
+            className="text-[11px] px-1.5 py-px rounded border border-neutral-border/55 bg-neutral-surface-sunken text-neutral-text-secondary font-medium"
           >
             {g}
           </span>
         ))}
         {m.groups.length > 2 && (
-          <span className="text-[10px] text-neutral-text-disabled">+{m.groups.length - 2}</span>
+          <span className="text-[11px] text-neutral-text-disabled">+{m.groups.length - 2}</span>
         )}
       </span>
       {/* Projects */}
@@ -147,12 +147,12 @@ function MemberTableRow({ m, last, onRoleChange, onRemove, hasError }: MemberTab
       <span className="flex flex-col items-end gap-0.5">
         <span className="flex items-center gap-1 justify-end">
           {m.sso && (
-            <span className="text-[10px] px-1 py-px rounded bg-neutral-surface-sunken text-neutral-text-secondary font-bold">
+            <span className="text-[11px] px-1 py-px rounded bg-neutral-surface-sunken text-neutral-text-secondary font-bold">
               SSO
             </span>
           )}
           {m.twoFa && (
-            <span className="text-[10px] px-1 py-px rounded bg-semantic-on-track-bg text-semantic-on-track font-bold">
+            <span className="text-[11px] px-1 py-px rounded bg-semantic-on-track-bg text-semantic-on-track font-bold">
               2FA
             </span>
           )}
@@ -454,7 +454,7 @@ export function WorkspaceMembersPage() {
         <div className="rounded-lg border border-neutral-border overflow-hidden">
           {/* Header */}
           <div
-            className="grid gap-2.5 px-3.5 py-2.5 bg-neutral-surface-sunken border-b border-neutral-border text-[10px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary"
+            className="grid gap-2.5 px-3.5 py-2.5 bg-neutral-surface-sunken border-b border-neutral-border text-[11px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary"
             style={{ gridTemplateColumns: '32px 1.5fr 100px 1.4fr 60px 110px 100px 72px' }}
           >
             <span
@@ -493,7 +493,7 @@ export function WorkspaceMembersPage() {
           {/* Pending invites section */}
           {pendingInvites.length > 0 && (
             <>
-              <div className="px-3.5 py-2 bg-neutral-surface-sunken border-t border-neutral-border text-[10px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary border-b border-neutral-border/55">
+              <div className="px-3.5 py-2 bg-neutral-surface-sunken border-t border-neutral-border text-[11px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary border-b border-neutral-border/55">
                 Pending invites · {pendingInvites.length}
               </div>
               {pendingInvites.map((p, i) => (

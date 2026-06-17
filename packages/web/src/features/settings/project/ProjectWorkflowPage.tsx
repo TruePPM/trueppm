@@ -671,7 +671,7 @@ function FieldsSection({
             <span className="text-[12px] text-neutral-text-secondary">{f.typeLabel}</span>
             <span>
               {f.required ? (
-                <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-brand-primary-light text-brand-primary">
+                <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-brand-primary-light text-brand-primary">
                   Required
                 </span>
               ) : (
@@ -679,7 +679,7 @@ function FieldsSection({
               )}
             </span>
             <span>
-              <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-neutral-surface-sunken text-neutral-text-secondary border border-neutral-border/55">
+              <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-neutral-surface-sunken text-neutral-text-secondary border border-neutral-border/55">
                 Built-in
               </span>
             </span>
@@ -704,7 +704,7 @@ function FieldsSection({
               </span>
               <span>
                 {f.required ? (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-brand-primary-light text-brand-primary">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-brand-primary-light text-brand-primary">
                     Required
                   </span>
                 ) : (
@@ -712,7 +712,7 @@ function FieldsSection({
                 )}
               </span>
               <span>
-                <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-brand-accent-light text-brand-accent-dark">
+                <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-brand-accent-light text-brand-accent-dark">
                   Custom
                 </span>
               </span>

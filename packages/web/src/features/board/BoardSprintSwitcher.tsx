@@ -170,7 +170,7 @@ export function BoardSprintSwitcher({
                     <span className="truncate font-medium text-neutral-text-primary">{s.name}</span>
                     {chip && (
                       <span
-                        className={`shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${chip.cls}`}
+                        className={`shrink-0 rounded px-1 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${chip.cls}`}
                       >
                         {chip.label}
                       </span>

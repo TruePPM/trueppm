@@ -177,7 +177,7 @@ function FormatPill({ format }: { format: string }) {
   return (
     <span
       className={[
-        'text-[10px] font-medium rounded px-1.5 py-0.5 shrink-0',
+        'text-[11px] font-medium rounded px-1.5 py-0.5 shrink-0',
         isSlack
           ? 'bg-brand-primary/10 text-brand-primary'
           : 'bg-neutral-surface-sunken text-neutral-text-secondary',

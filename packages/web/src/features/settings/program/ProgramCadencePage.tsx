@@ -246,7 +246,7 @@ export function ProgramCadencePage() {
       <div className="px-6 pb-8 max-w-[920px] space-y-4">
         <SettingsCard>
           <div
-            className="grid px-4 py-2.5 bg-neutral-surface-sunken border-b border-neutral-border/55 text-[10px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary"
+            className="grid px-4 py-2.5 bg-neutral-surface-sunken border-b border-neutral-border/55 text-[11px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary"
             style={{ gridTemplateColumns: GRID }}
           >
             <span>Ceremony</span>

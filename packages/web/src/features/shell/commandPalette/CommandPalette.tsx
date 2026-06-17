@@ -148,7 +148,7 @@ export function CommandPalette() {
             }}
             className="w-full bg-transparent py-3 text-sm text-neutral-text-primary placeholder:text-neutral-text-disabled focus:outline-none"
           />
-          <kbd className="tppm-mono shrink-0 rounded-chip border border-neutral-border px-1.5 py-0.5 text-[10px] text-neutral-text-secondary">
+          <kbd className="tppm-mono shrink-0 rounded-chip border border-neutral-border px-1.5 py-0.5 text-[11px] text-neutral-text-secondary">
             Esc
           </kbd>
         </div>
@@ -179,7 +179,7 @@ export function CommandPalette() {
                   aria-label={GROUP_LABEL[group]}
                   data-testid={`cmdk-group-${group}`}
                 >
-                  <p className="tppm-mono px-3 py-1 text-[10px] uppercase tracking-wider text-neutral-text-disabled">
+                  <p className="tppm-mono px-3 py-1 text-[11px] uppercase tracking-wider text-neutral-text-disabled">
                     {GROUP_LABEL[group]}
                   </p>
                   {groupItems.map((item) => {
@@ -207,12 +207,12 @@ export function CommandPalette() {
                         </span>
                         <span className="flex shrink-0 items-center gap-1.5">
                           {item.gated && (
-                            <span className="tppm-mono rounded-chip bg-semantic-at-risk-bg px-1.5 py-0.5 text-[10px] text-semantic-at-risk">
+                            <span className="tppm-mono rounded-chip bg-semantic-at-risk-bg px-1.5 py-0.5 text-[11px] text-semantic-at-risk">
                               EE
                             </span>
                           )}
                           <span
-                            className={`tppm-mono rounded-chip px-1.5 py-0.5 text-[10px] ${
+                            className={`tppm-mono rounded-chip px-1.5 py-0.5 text-[11px] ${
                               CHIP_CLASS[item.tag] ?? DEFAULT_CHIP_CLASS
                             }`}
                           >
