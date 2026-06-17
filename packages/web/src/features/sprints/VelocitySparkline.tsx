@@ -67,6 +67,10 @@ export function VelocitySparkline({ velocity, isLoading = false }: Props) {
   const latest = sprints[sprints.length - 1];
   const latestPoints = latest?.completed_points ?? 0;
   const max = Math.max(...sprints.map((s) => s.completed_points ?? 0), 1);
+  // Count of sprints held out of the velocity average (ADR-0113). The SVG
+  // aria-label already announces this for screen readers; the pill is the
+  // *visible* signal for sighted users that the average is over a reduced set.
+  const excluded = sprints.filter((s) => s.exclude_from_velocity).length;
 
   return (
     <div className="space-y-0.5" data-testid="velocity-sparkline">
@@ -116,6 +120,15 @@ export function VelocitySparkline({ velocity, isLoading = false }: Props) {
         <span className="tppm-mono text-xs font-medium text-neutral-text-primary">
           {latestPoints} pts
         </span>
+        {excluded > 0 && (
+          <span
+            className="text-xs text-neutral-text-secondary"
+            title="Excluded from velocity average"
+            aria-hidden="true"
+          >
+            <span className="tppm-mono">{excluded}</span> excluded
+          </span>
+        )}
       </div>
       <p className="text-xs text-neutral-text-secondary">
         {sprintsCaption(sprints.length, velocity, itl)}

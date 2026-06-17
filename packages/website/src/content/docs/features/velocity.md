@@ -74,7 +74,7 @@ TruePPM is scheduling-first, so it has an opinion about where this work belongs:
 
 ### How an excluded sprint reads
 
-- In the velocity chart the bar is **muted and hatched** (and hollow in the Board sparkline), labeled `excl`, so it is marked rather than silently dropped — you can always see what was excluded and why.
+- In the velocity chart the bar is **muted and hatched** (and hollow in the Board sparkline), labeled `excl`, so it is marked rather than silently dropped — you can always see what was excluded and why. The Board sparkline also carries a small **`N excluded`** pill so the reduced-set average is signaled at a glance.
 - The panel shows an **`⌀ N excluded`** chip and the rolling-average label counts only the sprints that still feed velocity.
 - The flag is **team-owned**: it is set by the team's Scheduler-and-above, with no PMO override, and every change is recorded in the sprint's history audit trail. It can be set **after a sprint closes** — teams usually realize a sprint skewed their numbers only in hindsight.
 
