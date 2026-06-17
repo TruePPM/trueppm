@@ -89,7 +89,9 @@ The selection persists in a `?sprint=` URL parameter, so a sprint-scoped board i
 
 ## Mobile
 
-On viewports below 768px the board switches to a horizontal snap-scroll layout: one column visible at a time (85vw width, `scroll-snap-align: start`). A dot-strip indicator below the board shows which column is visible. The mobile FAB creates a task in the first visible column.
+On viewports below 768px the board reflows into a **horizontal snap-scroll layout**: each status column becomes a full-width page (`scroll-snap-align: start`), and swiping settles cleanly column-to-column. The phase swimlanes collapse on a phone — each column shows a flat list of its cards across every phase, so the narrow screen carries the status axis without nesting.
+
+A **dot-strip** above the board names every column with its task count and a health dot, and acts as the map: the active column's bar fills solid, and tapping any segment jumps to that column. Card anatomy, WIP limits, and the critical / blocked treatment are unchanged from desktop — only the layout reflows. The mobile FAB creates a task in the first visible column.
 
 ## Permissions
 
