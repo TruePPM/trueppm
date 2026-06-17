@@ -12,7 +12,7 @@
  */
 
 import type { ReactElement } from 'react';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
 import { canEditTask, ROLE_ADMIN } from '@/lib/roles';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
@@ -22,6 +22,7 @@ import {
   useTaskNotes,
   useUpdateNote,
 } from '@/hooks/useTaskNotes';
+import { useNotesSearch } from '@/hooks/useNotesSearch';
 import { formatRelative } from '@/lib/formatRelative';
 import type { TaskNote } from '@/types';
 import { NotesComposer } from './NotesComposer';
@@ -247,18 +248,7 @@ export function NotesSection({ taskId, projectId, userRole, canEdit }: DrawerSec
   // Which notes match the active search (body or author name). Empty query ⇒ all
   // match (full opacity, no counter). Matching is computed client-side over the
   // already-fetched list — no server round-trip (ADR-0143 dim-search).
-  const matchIds = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return null;
-    const ids = new Set<string>();
-    for (const n of notes) {
-      const hay = `${n.body} ${n.author?.display_name ?? ''}`.toLowerCase();
-      if (hay.includes(q)) ids.add(n.id);
-    }
-    return ids;
-  }, [query, notes]);
-
-  const matchCount = matchIds?.size ?? notes.length;
+  const { entries, matchCount } = useNotesSearch(notes, query);
 
   function isWithinEditWindow(note: TaskNote): boolean {
     if (!user || note.author?.id !== user.id) return false;
@@ -324,7 +314,7 @@ export function NotesSection({ taskId, projectId, userRole, canEdit }: DrawerSec
         </p>
       ) : (
         <ol aria-label={`Notes — ${notes.length} total`} className="flex flex-col gap-2 list-none p-0">
-          {notes.map((n) => (
+          {entries.map(({ note: n, matches }) => (
             <NoteRow
               key={n.id}
               note={n}
@@ -334,7 +324,7 @@ export function NotesSection({ taskId, projectId, userRole, canEdit }: DrawerSec
               canDelete={editable && (n.author?.id === user?.id || isAdmin)}
               canEditBody={editable && isWithinEditWindow(n)}
               query={query}
-              matches={matchIds == null || matchIds.has(n.id)}
+              matches={matches}
             />
           ))}
         </ol>
