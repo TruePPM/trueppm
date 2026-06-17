@@ -146,8 +146,11 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
     await setupWithTasks(page);
     await page.goto('/me/work');
 
-    // Page title.
-    await expect(page.getByRole('heading', { name: 'My Work' })).toBeVisible();
+    // v2 home (#1228): the page <h1> is now the time-aware greeting, not the
+    // literal "My Work". The greeting names the user from /auth/me/.
+    await expect(
+      page.getByRole('heading', { level: 1, name: /Good (morning|afternoon|evening), Priya\./ }),
+    ).toBeVisible();
 
     // Section header for the server-computed bucket (#484): the task is in the
     // active sprint, so it renders under "This Sprint".
@@ -156,15 +159,18 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
     });
     await expect(groupHeader).toBeVisible();
 
-    // Task row content.
-    await expect(page.getByRole('link', { name: 'Build the login form' })).toBeVisible();
-    await expect(page.getByText('PRJ-01a')).toBeVisible();
-    await expect(page.getByText('Due May 30 (planned)')).toBeVisible();
+    // Task row content. Scope to the "Assigned to me" list region (#1228): a
+    // critical task now also surfaces in the right-column critical-path mini, so
+    // an unscoped link/label would match in two places.
+    const assigned = page.getByRole('region', { name: 'Assigned to me' });
+    await expect(assigned.getByRole('link', { name: 'Build the login form' })).toBeVisible();
+    await expect(assigned.getByText('PRJ-01a')).toBeVisible();
+    await expect(assigned.getByText('Due May 30 (planned)')).toBeVisible();
 
     // Critical-path indicator: icon present with the plain-English aria-label;
     // the literal words "critical path" do NOT appear in the visible row.
-    await expect(page.getByLabel('On the critical path')).toBeVisible();
-    const row = page.locator('li', { hasText: 'Build the login form' });
+    await expect(assigned.getByLabel('On the critical path')).toBeVisible();
+    const row = assigned.locator('li', { hasText: 'Build the login form' });
     // The full visible row text should not say "critical path".
     await expect(row).not.toContainText(/critical path/i);
   });
@@ -172,6 +178,16 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
   test('status chip opens picker and selecting Complete PATCHes with X-Source: my_work', async ({
     page,
   }) => {
+    // 401-guard safety net (CLAUDE.md): registered FIRST so the specific mocks
+    // below win (last-registered-wins). Without it an unmocked request can 401
+    // during the click-retry window and the session-expired modal intercepts.
+    await page.route('**/api/v1/**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+      }),
+    );
     await setupWithTasks(page);
 
     // Capture the PATCH request to verify the body + header.
@@ -321,6 +337,54 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
     // v2 flavor B (has projects, no assignments): refreshed copy, NO demo CTA.
     await expect(page.getByRole('heading', { name: /all caught up/i })).toBeVisible();
     await expect(page.getByRole('button', { name: /Explore a demo project/i })).toHaveCount(0);
+  });
+
+  test('v2 home renders the greeting, focus cards, date chip, and two-column layout (#1228)', async ({
+    page,
+  }) => {
+    // 401-guard safety net (CLAUDE.md): registered FIRST so the specific mocks
+    // below win (last-registered-wins). The focus cards + side column read only
+    // the /me/work/ payload, so no extra object endpoints to mock.
+    await page.route('**/api/v1/**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+      }),
+    );
+    await setupWithTasks(page);
+    await page.goto('/me/work');
+
+    // Greeting <h1> + sub line (the critical task drives "on the critical path").
+    await expect(
+      page.getByRole('heading', { level: 1, name: /Good (morning|afternoon|evening), Priya\./ }),
+    ).toBeVisible();
+    await expect(page.getByText(/1 task needs you today/)).toBeVisible();
+    await expect(page.getByText(/1 on the critical path/)).toBeVisible();
+
+    // The mono date chip is present (today, localized).
+    await expect(page.getByLabel(/^Today is /)).toBeVisible();
+
+    // Focus row — "Needs attention" lead card + the sprint method card + the
+    // load card. Labels are uppercased via CSS; assert on accessible text.
+    // "Needs attention" / "Your load" each appear once (the card labels);
+    // "Sprint 12" appears in several places so assert at least one is visible.
+    await expect(page.getByText('Needs attention')).toBeVisible();
+    await expect(page.getByText('Your load')).toBeVisible();
+    await expect(page.getByText('Sprint 12').first()).toBeVisible();
+
+    // Right column method-adaptive stack: an Active sprints panel and an
+    // On-the-critical-path panel (the critical task is surfaced there too).
+    await expect(page.getByRole('heading', { name: 'Active sprints' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'On the critical path' })).toBeVisible();
+
+    // The assigned-task list is preserved alongside the new chrome. Scope to
+    // the list region — the critical task also surfaces in the side-column mini.
+    await expect(
+      page.getByRole('region', { name: 'Assigned to me' }).getByRole('link', {
+        name: 'Build the login form',
+      }),
+    ).toBeVisible();
   });
 
   test('a blocked task shows the Blocked badge, type chip, age, and reason (#476/#855/#1135)', async ({

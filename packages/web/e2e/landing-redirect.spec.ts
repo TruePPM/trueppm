@@ -200,7 +200,9 @@ test.describe('Role-based landing redirect (#1181, ADR-0129)', () => {
     );
     await page.goto('/');
     await page.waitForURL(/\/me\/work/, { timeout: 10_000 });
-    await expect(page.getByRole('heading', { name: 'My Work' })).toBeVisible();
+    await expect(
+      page.getByRole('heading', { level: 1, name: /Good (morning|afternoon|evening), Casey./ }),
+    ).toBeVisible();
   });
 
   test('PM with project_overview intent lands on the project Overview', async ({ page }) => {
@@ -233,7 +235,9 @@ test.describe('Role-based landing redirect (#1181, ADR-0129)', () => {
     );
     await page.goto('/');
     await page.waitForURL(/\/me\/work/, { timeout: 10_000 });
-    await expect(page.getByRole('heading', { name: 'My Work' })).toBeVisible();
+    await expect(
+      page.getByRole('heading', { level: 1, name: /Good (morning|afternoon|evening), Casey./ }),
+    ).toBeVisible();
   });
 
   test('an off-allowlist landing path degrades to My Work (guard)', async ({ page }) => {
@@ -246,7 +250,9 @@ test.describe('Role-based landing redirect (#1181, ADR-0129)', () => {
     );
     await page.goto('/');
     await page.waitForURL(/\/me\/work/, { timeout: 10_000 });
-    await expect(page.getByRole('heading', { name: 'My Work' })).toBeVisible();
+    await expect(
+      page.getByRole('heading', { level: 1, name: /Good (morning|afternoon|evening), Casey./ }),
+    ).toBeVisible();
   });
 
   test('zero-membership My Work keeps the Explore a demo project CTA', async ({ page }) => {
