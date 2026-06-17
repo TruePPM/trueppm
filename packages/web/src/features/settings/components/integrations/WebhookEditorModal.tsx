@@ -173,7 +173,7 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
                       ].join(' ')}
                     >
                       {f.label}
-                      {!f.available && <span className="ml-1 text-[10px]">Enterprise</span>}
+                      {!f.available && <span className="ml-1 text-[11px]">Enterprise</span>}
                     </button>
                   );
                 })}
@@ -201,7 +201,7 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
               <div className="space-y-3">
                 {WEBHOOK_EVENT_CATALOG.map((group) => (
                   <fieldset key={group.category}>
-                    <legend className="text-[10px] uppercase tracking-wide font-semibold text-neutral-text-secondary mb-1">
+                    <legend className="text-[11px] uppercase tracking-wide font-semibold text-neutral-text-secondary mb-1">
                       {group.category}
                     </legend>
                     <div className="border border-neutral-border rounded overflow-hidden">
@@ -224,7 +224,7 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
                           </span>
                           <span className="text-neutral-text-primary">· {ev.label}</span>
                           {ev.isNew && (
-                            <span className="ml-auto text-[10px] font-semibold text-white bg-brand-primary rounded px-1.5 py-0.5">
+                            <span className="ml-auto text-[11px] font-semibold text-white bg-brand-primary rounded px-1.5 py-0.5">
                               new
                             </span>
                           )}

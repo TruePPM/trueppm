@@ -210,7 +210,7 @@ export function WorkspaceRolesPage() {
                 className="grid gap-2 px-4 py-2.5 bg-neutral-surface-sunken border-b border-neutral-border"
                 style={{ gridTemplateColumns: '2.4fr repeat(5, 1fr)' }}
               >
-                <span className="text-[10px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary">
+                <span className="text-[11px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary">
                   Capability
                 </span>
                 {ROLES.map((r) => (
@@ -227,7 +227,7 @@ export function WorkspaceRolesPage() {
               {SECTIONS.map((sec) => (
                 <div key={sec.label}>
                   {/* Section label */}
-                  <div className="px-4 py-2 text-[10px] font-bold tracking-[.08em] uppercase text-neutral-text-secondary bg-neutral-surface border-b border-neutral-border/55 font-mono">
+                  <div className="px-4 py-2 text-[11px] font-bold tracking-[.08em] uppercase text-neutral-text-secondary bg-neutral-surface border-b border-neutral-border/55 font-mono">
                     {sec.label}
                   </div>
 

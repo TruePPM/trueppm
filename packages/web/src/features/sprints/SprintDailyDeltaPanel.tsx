@@ -166,7 +166,7 @@ export function SprintDailyDeltaPanel({ sprintId }: Props) {
             Nothing changed in this window.
           </p>
           {lastUpdated && (
-            <p className="text-[10px] tppm-mono text-neutral-text-secondary">
+            <p className="text-[11px] tppm-mono text-neutral-text-secondary">
               Last updated {lastUpdated}
             </p>
           )}
@@ -182,7 +182,7 @@ export function SprintDailyDeltaPanel({ sprintId }: Props) {
           {d.task_changes.length > 0 && <MovedRow changes={d.task_changes} />}
           {d.scope_added.length > 0 && <ScopeRow items={d.scope_added} sprintId={sprintId} />}
           {lastUpdated && (
-            <p className="px-3 py-1.5 text-[10px] tppm-mono text-neutral-text-secondary">
+            <p className="px-3 py-1.5 text-[11px] tppm-mono text-neutral-text-secondary">
               Last updated {lastUpdated}
             </p>
           )}
@@ -203,7 +203,7 @@ function PanelHeader({ control, subtitle }: { control: ReactNode; subtitle: stri
           Daily delta
         </h3>
         {subtitle && (
-          <span className="text-[10px] tppm-mono text-neutral-text-secondary">{subtitle}</span>
+          <span className="text-[11px] tppm-mono text-neutral-text-secondary">{subtitle}</span>
         )}
       </div>
       {control}
@@ -330,7 +330,7 @@ function PerActorRow({
       <h4 id="dd-actors" className="text-xs text-neutral-text-secondary font-normal">
         Activity since yesterday
       </h4>
-      <p className="text-[10px] text-neutral-text-secondary italic">
+      <p className="text-[11px] text-neutral-text-secondary italic">
         Status transitions since yesterday — to focus today&apos;s standup, not to compare
         contributors.
       </p>
@@ -487,7 +487,7 @@ function ScopeRow({
           >
             <TaskRef taskId={s.task_id} shortId={s.task_short_id} title={s.task_title} />
             {s.epic && (
-              <span className="rounded-full bg-brand-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-brand-primary shrink-0">
+              <span className="rounded-full bg-brand-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-brand-primary shrink-0">
                 {s.epic.name}
               </span>
             )}

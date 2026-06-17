@@ -58,7 +58,7 @@ function MatrixCell({ probability, impact }: { probability: number; impact: numb
 
   return (
     <div
-      className={`flex items-center justify-center rounded text-[10px] font-bold tppm-mono border ${THRESHOLD_STYLE[threshold]}`}
+      className={`flex items-center justify-center rounded text-[11px] font-bold tppm-mono border ${THRESHOLD_STYLE[threshold]}`}
       style={{ height: 36 }}
       title={`P${probability} × I${impact} = ${score} (${THRESHOLD_LABELS[threshold]})`}
       aria-label={`Probability ${probability}, Impact ${impact}, score ${score}, ${THRESHOLD_LABELS[threshold]}`}
@@ -181,14 +181,14 @@ export function ProgramRiskPolicyPage() {
               {[1, 2, 3, 4, 5].map((i) => (
                 <div
                   key={i}
-                  className="text-center text-[10px] font-semibold text-neutral-text-secondary pb-1"
+                  className="text-center text-[11px] font-semibold text-neutral-text-secondary pb-1"
                 >
                   I{i}
                 </div>
               ))}
               {[5, 4, 3, 2, 1].map((p) => (
                 <Fragment key={p}>
-                  <div className="text-[10px] font-semibold text-neutral-text-secondary flex items-center pr-2">
+                  <div className="text-[11px] font-semibold text-neutral-text-secondary flex items-center pr-2">
                     P{p}
                   </div>
                   {[1, 2, 3, 4, 5].map((impact) => (
@@ -201,7 +201,7 @@ export function ProgramRiskPolicyPage() {
               {(['low', 'medium', 'high', 'critical'] as Threshold[]).map((t) => (
                 <span
                   key={t}
-                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] font-semibold ${THRESHOLD_STYLE[t]}`}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[11px] font-semibold ${THRESHOLD_STYLE[t]}`}
                 >
                   {THRESHOLD_LABELS[t]}
                 </span>

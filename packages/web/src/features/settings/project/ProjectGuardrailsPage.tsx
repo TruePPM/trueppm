@@ -133,7 +133,7 @@ export function ProjectGuardrailsPage() {
             the advisory-only rule shows a fixed Warn pill (no Block path). */}
         <div className="bg-neutral-surface-raised border border-neutral-border rounded-lg overflow-hidden">
           <div className="grid px-4 py-2.5 bg-neutral-surface-sunken border-b border-neutral-border/55
-              text-[10px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary"
+              text-[11px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary"
             style={{ gridTemplateColumns: '2fr 220px' }}>
             <span>Rule</span>
             <span className="text-right">Enforcement</span>

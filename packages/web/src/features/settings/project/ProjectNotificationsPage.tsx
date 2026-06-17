@@ -108,7 +108,7 @@ export function ProjectNotificationsPage() {
           ].join(' ')}
         >
           <div
-            className="grid px-4 py-2.5 bg-neutral-surface-sunken border-b border-neutral-border/55 text-[10px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary"
+            className="grid px-4 py-2.5 bg-neutral-surface-sunken border-b border-neutral-border/55 text-[11px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary"
             style={{ gridTemplateColumns: `2fr repeat(${PROJECT_NOTIFICATION_CHANNELS.length}, 110px)` }}
           >
             <span>Event</span>
