@@ -36,23 +36,31 @@ SHELL_SRC="packages/web/src/features/shell"
 # ── Baselines (ratchet floors). See header. Drive these to zero over time. ──
 BASELINE_HEX=1208
 BASELINE_ARBITRARY=6
-BASELINE_SHADOW=3
+BASELINE_SHADOW=0
 
 EXCLUDE='\.test\.|\.spec\.|\.stories\.'
 
+# grep wrapper for the count pipelines below. grep exits 1 on "no match", which
+# under `set -euo pipefail` would kill the gate the moment a count legitimately
+# reaches zero — exactly the state this gate exists to ratchet toward. Treat
+# exit 1 as a clean empty result, but still propagate a real grep error (>=2) so
+# a broken pattern fails loudly rather than silently counting zero. The
+# over-baseline `fail=1` comparison below is unchanged — enforcement is intact.
+g() { grep "$@" || [ "$?" -eq 1 ]; }
+
 hex_count() {
-  grep -rIE "#[0-9a-fA-F]{3,8}\b" "$WEB_SRC" --include="*.tsx" --include="*.ts" 2>/dev/null \
-    | grep -vE "$EXCLUDE" | wc -l | tr -d ' '
+  g -rIE "#[0-9a-fA-F]{3,8}\b" "$WEB_SRC" --include="*.tsx" --include="*.ts" 2>/dev/null \
+    | g -vE "$EXCLUDE" | wc -l | tr -d ' '
 }
 arbitrary_count() {
-  grep -rIE "(bg|text|border|ring|fill|stroke|from|to|via|divide|outline|decoration|shadow)-\[#" \
-    "$WEB_SRC" --include="*.tsx" --include="*.ts" 2>/dev/null | grep -vE "$EXCLUDE" | wc -l | tr -d ' '
+  g -rIE "(bg|text|border|ring|fill|stroke|from|to|via|divide|outline|decoration|shadow)-\[#" \
+    "$WEB_SRC" --include="*.tsx" --include="*.ts" 2>/dev/null | g -vE "$EXCLUDE" | wc -l | tr -d ' '
 }
 # Named shadow utilities + any arbitrary shadow-[...]. Excludes the reserved
 # `shadow-card` / `shadow-pop` pop-surface tokens (those are the sanctioned form).
 shadow_count() {
-  grep -rIE "\bshadow-(sm|md|lg|xl|2xl|inner)\b|shadow-\[" \
-    "$WEB_SRC" --include="*.tsx" --include="*.ts" 2>/dev/null | grep -vE "$EXCLUDE" | wc -l | tr -d ' '
+  g -rIE "\bshadow-(sm|md|lg|xl|2xl|inner)\b|shadow-\[" \
+    "$WEB_SRC" --include="*.tsx" --include="*.ts" 2>/dev/null | g -vE "$EXCLUDE" | wc -l | tr -d ' '
 }
 # Lines in the shell that apply a raw dark navy SURFACE not gated by `dark:`.
 # (bg-black scrims are intentionally NOT matched — only navy chrome surfaces.)
