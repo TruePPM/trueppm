@@ -1,5 +1,5 @@
 /**
- * NotesSection — task drawer why/decision log (ADR-0143, #740).
+ * NotesSection — task drawer why/decision log (ADR-0143, issue 740).
  *
  * Distinct from {@link CommentSection} (threaded discussion): notes are flat,
  * pinned-first, immutable rows. The author may edit their own note's body within
@@ -8,7 +8,7 @@
  * fetched list — matches stay full opacity, non-matches dim to 0.3 (they remain
  * visible and readable) with a live "N of M" counter.
  *
- * The `decision` field (the #748 seam) is intentionally NOT surfaced here.
+ * The `decision` field (the issue 748 seam) is intentionally NOT surfaced here.
  */
 
 import type { ReactElement } from 'react';

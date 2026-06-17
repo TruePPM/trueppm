@@ -112,7 +112,7 @@ export function registerOssDrawerSections(): void {
     canRender: (ctx) => !(ctx as { task: Task }).task.isSummary,
   });
 
-  // Notes (ADR-0143, #740) — the task's why/decision log. Sits above Comments
+  // Notes (ADR-0143, issue 740) — the task's why/decision log. Sits above Comments
   // on the activity tab: a flat, pinned-first, immutable record distinct from
   // the threaded discussion below it.
   registry.register('task_detail.section', {

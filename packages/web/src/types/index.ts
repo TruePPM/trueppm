@@ -107,7 +107,7 @@ export interface Task {
   baselineStart?: string;
   baselineFinish?: string;
   /**
-   * Freshness signal (ADR-0143, #740): ISO timestamp of the most recent
+   * Freshness signal (ADR-0143, issue 740): ISO timestamp of the most recent
    * non-deleted note on this task, or null when the task has no notes.
    * Surfaced on the board card face and the schedule row. Annotation-backed —
    * `undefined` on payloads that predate the field.
@@ -771,7 +771,7 @@ export interface TaskComment {
 }
 
 /**
- * Task note (ADR-0143, #740) — an immutable, per-author, timestamped entry on a
+ * Task note (ADR-0143, issue 740) — an immutable, per-author, timestamped entry on a
  * task's why/decision log. Distinct from {@link TaskComment} (threaded
  * discussion): notes are flat, pinned-first, and append-with-edit-window.
  *
@@ -786,7 +786,7 @@ export interface TaskNote {
   body: string;
   pinned: boolean;
   /**
-   * #748 seam — flags a note as a decision. Always false in 0.3; the Notes UI
+   * issue 748 seam — flags a note as a decision. Always false in 0.3; the Notes UI
    * does not surface it. Kept on the type so the Decisions fast-follow is purely
    * additive.
    */

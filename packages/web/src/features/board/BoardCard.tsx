@@ -821,7 +821,7 @@ export function BoardCard({
           </div>
         )}
 
-        {/* Notes freshness (ADR-0143, #740): when the task has a note, show how
+        {/* Notes freshness (ADR-0143, issue 740): when the task has a note, show how
             recently the last one landed — a lightweight signal that there's a
             why/decision record worth opening, without crowding compact cards. */}
         {!isCompact && task.latestNoteAt && (

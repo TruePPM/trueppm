@@ -1,5 +1,5 @@
 /**
- * NotesComposer — low-ceremony add-a-note input (ADR-0143, #740).
+ * NotesComposer — low-ceremony add-a-note input (ADR-0143, issue 740).
  *
  * Deliberately minimal (Priya 🟡: the add flow must not feel like PM overhead):
  * one textarea, a char counter, and a single Add action. No @mention, no

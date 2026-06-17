@@ -1,5 +1,5 @@
 /**
- * Hooks for task notes (ADR-0143, #740).
+ * Hooks for task notes (ADR-0143, issue 740).
  *
  * A note is an immutable, per-author, timestamped entry on a task's why/decision
  * log — distinct from the threaded {@link useTaskComments} discussion. The read

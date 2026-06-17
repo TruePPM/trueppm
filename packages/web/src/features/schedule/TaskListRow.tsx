@@ -826,7 +826,7 @@ function TaskListRowInner({
                   ? 'This task is on the critical path — a delay here delays the project end date'
                   : `${task.name} — double-click to rename`) +
                 // The Gantt bar is canvas-rendered (no DOM bar tooltip), so the
-                // notes freshness signal (ADR-0143, #740) rides on the row name.
+                // notes freshness signal (ADR-0143, issue 740) rides on the row name.
                 (task.latestNoteAt
                   ? `  ·  last note ${formatRelative(new Date(task.latestNoteAt))}`
                   : '')
