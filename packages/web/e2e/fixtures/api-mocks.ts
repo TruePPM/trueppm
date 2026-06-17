@@ -450,6 +450,18 @@ export async function setupApiMocks(page: Page, opts: ApiMockOptions = {}): Prom
   await page.route(`**/api/v1/projects/${projectId}/tasks/*/history/**`, (route) =>
     route.fulfill(jsonResponse({ count: 0, next: null, previous: null, results: [] })),
   );
+  // Task notes (#740, ADR-0143). The Notes section is the FIRST section on the
+  // Activity tab (priority 480, ahead of Comments at 500), so it auto-expands and
+  // fires this GET whenever a spec opens that tab. Default to empty so unrelated
+  // Activity-tab specs don't fall through setupCatchAll → 404 → "Couldn't load
+  // notes" alert + TanStack retry storm (the #1190 flake class). Per-spec
+  // page.route(...) overrides still win (last-registered).
+  await page.route('**/api/v1/projects/*/tasks/*/notes/**', (route) => {
+    if (route.request().method() === 'GET') {
+      return route.fulfill(jsonResponse(paginated([])));
+    }
+    return route.continue();
+  });
   // Project resource pool — populates the assignees editor.
   await page.route('**/api/v1/project-resources/**', (route) =>
     route.fulfill(jsonResponse(paginated([]))),

@@ -61,6 +61,7 @@ from trueppm_api.apps.projects.views import (
     TaskCommentViewSet,
     TaskHistoryView,
     TaskIndentView,
+    TaskNoteViewSet,
     TaskOutdentView,
     TaskRecurrenceRuleViewSet,
     TaskReorderView,
@@ -614,6 +615,24 @@ urlpatterns = [
         "projects/<project_pk>/tasks/<task_pk>/comments/<comment_pk>/reactions/<pk>/",
         CommentReactionViewSet.as_view({"delete": "destroy"}),
         name="project-task-comment-reactions-detail",
+    ),
+    # Task notes — per-author why/decision log (ADR-0143, #740)
+    path(
+        "projects/<project_pk>/tasks/<task_pk>/notes/",
+        TaskNoteViewSet.as_view({"get": "list", "post": "create"}),
+        name="project-task-notes-list",
+    ),
+    path(
+        "projects/<project_pk>/tasks/<task_pk>/notes/<pk>/",
+        TaskNoteViewSet.as_view(
+            {"get": "retrieve", "patch": "partial_update", "delete": "destroy"}
+        ),
+        name="project-task-notes-detail",
+    ),
+    path(
+        "projects/<project_pk>/tasks/<task_pk>/notes/<pk>/pin/",
+        TaskNoteViewSet.as_view({"post": "pin"}),
+        name="project-task-notes-pin",
     ),
     # Program ceremony templates + phase-gate config (ADR-0079, #528)
     path(

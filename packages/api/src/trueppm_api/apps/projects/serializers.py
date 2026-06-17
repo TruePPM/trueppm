@@ -61,6 +61,7 @@ from trueppm_api.apps.projects.models import (
     Task,
     TaskAttachment,
     TaskComment,
+    TaskNote,
     TaskRecurrenceRule,
     TaskStatus,
 )
@@ -1274,6 +1275,11 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     baseline_start = serializers.DateField(read_only=True, allow_null=True, default=None)
     baseline_finish = serializers.DateField(read_only=True, allow_null=True, default=None)
 
+    # Freshness signal (ADR-0143, #740): timestamp of the most recent non-deleted
+    # TaskNote. Fed by the `latest_note_at` annotation in annotate_tasks_queryset;
+    # `default=None` keeps it safe on bare-instance serialization paths.
+    latest_note_at = serializers.DateTimeField(read_only=True, allow_null=True, default=None)
+
     # Write-only target finish date (#951). The Gantt resize handler sends the
     # date the user dropped the bar's right edge on instead of a calendar-day
     # duration; ``validate()`` converts it to a working-day ``duration`` via the
@@ -1426,6 +1432,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "estimate_status",
             "baseline_start",
             "baseline_finish",
+            "latest_note_at",
             "schedule_variance_days",
             "spi",
             "spi_band",
@@ -1505,6 +1512,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "is_critical",
             "baseline_start",
             "baseline_finish",
+            "latest_note_at",
             "schedule_variance_days",
             "spi",
             "spi_band",
@@ -4749,6 +4757,10 @@ MAX_COMMENT_BODY_CHARS = 10_000  # constraint #3
 COMMENT_EDIT_WINDOW_SECONDS = 15 * 60  # constraint #11
 ALLOWED_REACTION_EMOJI = frozenset({"👍"})  # 0.2 allow-list; expands in 0.3
 
+# Task notes (ADR-0143, #740) — mirror the comment caps/window.
+MAX_NOTE_BODY_CHARS = 10_000
+NOTE_EDIT_WINDOW_SECONDS = 15 * 60
+
 
 class _MentionAuthorMiniSerializer(serializers.Serializer[Any]):
     """Inline read-only user summary used across attachment + comment serializers."""
@@ -5067,6 +5079,72 @@ class TaskCommentSerializer(serializers.ModelSerializer[TaskComment]):
             raise serializers.ValidationError(
                 {"detail": "Edits are only allowed within 15 minutes of posting."},
                 code="comment_edit_window_closed",
+            )
+        new_body = validated_data.get("body")
+        if new_body is not None and new_body != instance.body:
+            instance.edited_at = timezone.now()
+        return super().update(instance, validated_data)
+
+
+class TaskNoteSerializer(serializers.ModelSerializer[TaskNote]):
+    """Per-author task note (ADR-0143, #740).
+
+    Append-with-edit-window: `body` is required + length-capped; the author may
+    edit only their own note within 15 min of creation (enforced in `update()`).
+    `pinned` and `decision` are server-managed (pin via the dedicated action;
+    `decision` is the read-only #748 seam) so neither is client-writable here —
+    only `body` is.
+    """
+
+    author = _MentionAuthorMiniSerializer(read_only=True)
+    deleted_by = _MentionAuthorMiniSerializer(read_only=True)
+
+    class Meta:
+        model = TaskNote
+        fields = [
+            "id",
+            "task",
+            "author",
+            "body",
+            "pinned",
+            "decision",
+            "edited_at",
+            "created_at",
+            "is_deleted",
+            "deleted_at",
+            "deleted_by",
+        ]
+        read_only_fields = [
+            "id",
+            "task",
+            "author",
+            "pinned",
+            "decision",
+            "edited_at",
+            "created_at",
+            "is_deleted",
+            "deleted_at",
+            "deleted_by",
+        ]
+
+    def validate_body(self, value: str) -> str:
+        if not value or not value.strip():
+            raise serializers.ValidationError("Body cannot be blank.")
+        if len(value) > MAX_NOTE_BODY_CHARS:
+            raise serializers.ValidationError(
+                f"Body exceeds {MAX_NOTE_BODY_CHARS} character limit.",
+                code="note_body_too_long",
+            )
+        return value
+
+    def update(self, instance: TaskNote, validated_data: dict[str, Any]) -> TaskNote:
+        """Enforce the 15-min self-edit window (ADR-0143)."""
+        from datetime import timedelta
+
+        if (timezone.now() - instance.created_at) > timedelta(seconds=NOTE_EDIT_WINDOW_SECONDS):
+            raise serializers.ValidationError(
+                {"detail": "Edits are only allowed within 15 minutes of posting."},
+                code="note_edit_window_closed",
             )
         new_body = validated_data.get("body")
         if new_body is not None and new_body != instance.body:

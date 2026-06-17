@@ -53,6 +53,8 @@ export interface ApiTask {
   dwell_days?: number | null;
   baseline_start: string | null;
   baseline_finish: string | null;
+  /** Freshness signal (ADR-0143, issue 740) — annotated on the list/board queryset. */
+  latest_note_at?: string | null;
   optimistic_duration: number | null;
   most_likely_duration: number | null;
   pessimistic_duration: number | null;
@@ -266,6 +268,7 @@ export function mapTask(t: ApiTask): Task {
     dwellDays: t.dwell_days ?? null,
     baselineStart: t.baseline_start ?? undefined,
     baselineFinish: t.baseline_finish ?? undefined,
+    latestNoteAt: t.latest_note_at ?? null,
     assignees: (t.assignments ?? []).map(
       (a): TaskAssignee => ({
         resourceId: a.resource_id,
