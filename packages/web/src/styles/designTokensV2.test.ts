@@ -63,8 +63,8 @@ describe('v2 motion vocabulary (ADR-0126, rule 181)', () => {
     expect(tailwind).toMatch(/slow:\s*'320ms'/);
   });
 
-  it('defines the four fluidity keyframes + their animate-* classes', () => {
-    for (const name of ['checkpop', 'toast-rise', 'modal-scale-in', 'save-bar-slide']) {
+  it('defines the fluidity keyframes + their animate-* classes', () => {
+    for (const name of ['checkpop', 'toast-rise', 'modal-scale-in', 'save-bar-slide', 'scrim-fade']) {
       expect(globals).toMatch(new RegExp(`@keyframes ${name}\\b`));
       expect(globals).toMatch(new RegExp(`\\.animate-${name}\\b`));
     }
@@ -83,6 +83,9 @@ describe('v2 motion vocabulary (ADR-0126, rule 181)', () => {
     );
     expect(globals).toMatch(
       /animation:\s*save-bar-slide\s+220ms\s+cubic-bezier\(\.2,\s*\.7,\s*\.2,\s*1\)/,
+    );
+    expect(globals).toMatch(
+      /animation:\s*scrim-fade\s+150ms\s+cubic-bezier\(\.2,\s*\.7,\s*\.2,\s*1\)/,
     );
   });
 });

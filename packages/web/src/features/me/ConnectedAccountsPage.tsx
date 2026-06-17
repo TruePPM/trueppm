@@ -314,12 +314,12 @@ function ConnectCredentialDialog({ provider, mode, onDismiss }: ConnectDialogPro
       aria-modal="true"
       aria-labelledby={titleId}
       aria-describedby={descId}
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-150"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 motion-safe:animate-scrim-fade"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget) onDismiss();
       }}
     >
-      <div className="bg-neutral-surface border border-neutral-border rounded-lg w-full max-w-md mx-4 p-5">
+      <div className="bg-neutral-surface border border-neutral-border rounded-lg w-full max-w-md mx-4 p-5 motion-safe:animate-modal-scale-in">
         <h2 id={titleId} className="text-sm font-semibold text-neutral-text-primary mb-2">
           {verb} {provider.name}
         </h2>
@@ -416,12 +416,12 @@ function RevokeCredentialDialog({
       aria-modal="true"
       aria-labelledby={titleId}
       aria-describedby={descId}
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-150"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 motion-safe:animate-scrim-fade"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget) onDismiss();
       }}
     >
-      <div className="bg-neutral-surface border border-neutral-border rounded-lg w-full max-w-sm mx-4 p-5">
+      <div className="bg-neutral-surface border border-neutral-border rounded-lg w-full max-w-sm mx-4 p-5 motion-safe:animate-modal-scale-in">
         <h2 id={titleId} className="text-sm font-semibold text-neutral-text-primary mb-2">
           Revoke {provider.name} credential?
         </h2>

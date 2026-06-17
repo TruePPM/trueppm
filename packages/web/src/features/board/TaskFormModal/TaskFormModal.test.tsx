@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { MemoryRouter } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -23,6 +23,10 @@ const updateMutate = vi.fn().mockResolvedValue({});
 const deleteMutate = vi.fn().mockResolvedValue(undefined);
 const addAssignmentMutate = vi.fn().mockResolvedValue({ assignment: {}, warnings: [] });
 const addDependencyMutate = vi.fn().mockResolvedValue({});
+const toastSuccessSpy = vi.hoisted(() => vi.fn());
+vi.mock('@/components/Toast', () => ({
+  toast: { success: toastSuccessSpy, info: vi.fn(), error: vi.fn(), warm: vi.fn(), dismiss: vi.fn() },
+}));
 
 vi.mock('@/hooks/useScheduleTasks', () => ({
   useScheduleTasks: () => ({
@@ -218,6 +222,19 @@ describe('TaskFormModal (issue #305)', () => {
       duration: 1,
       status: 'NOT_STARTED',
     }));
+  });
+
+  it('fires a "Created" toast on successful create (rule 185)', async () => {
+    renderModal();
+    fireEvent.change(screen.getByLabelText('Task name *'), { target: { value: 'New task' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    await waitFor(() => expect(toastSuccessSpy).toHaveBeenCalledWith('Created New task'));
+  });
+
+  it('scales the desktop modal panel in on open (rule 185)', () => {
+    renderModal();
+    const panel = screen.getByRole('dialog').firstElementChild as HTMLElement;
+    expect(panel.className).toContain('motion-safe:animate-modal-scale-in');
   });
 
   // ----- Classification (task taxonomy editor) -----------------------------

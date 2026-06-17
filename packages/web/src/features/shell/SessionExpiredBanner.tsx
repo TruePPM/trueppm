@@ -48,9 +48,9 @@ export function SessionExpiredBanner() {
       aria-modal="true"
       aria-labelledby="session-expired-title"
       aria-describedby="session-expired-body"
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-150"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 motion-safe:animate-scrim-fade"
     >
-      <div className="bg-neutral-surface border border-neutral-border rounded-lg w-[420px] max-w-[90vw] p-5">
+      <div className="bg-neutral-surface border border-neutral-border rounded-lg w-[420px] max-w-[90vw] p-5 motion-safe:animate-modal-scale-in">
         <h2
           id="session-expired-title"
           className="text-base font-semibold text-neutral-text-primary m-0 mb-2"

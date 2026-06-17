@@ -394,7 +394,7 @@ export function SettingsShell({
 
         {/* Save bar — armed when an apiReady page reports dirty=true. */}
         {dirty && (
-          <div className="shrink-0 flex items-center gap-3 px-6 py-2.5 bg-brand-primary border-t border-brand-primary-dark">
+          <div className="shrink-0 flex items-center gap-3 px-6 py-2.5 bg-brand-primary border-t border-brand-primary-dark motion-safe:animate-save-bar-slide">
             <svg
               width="14"
               height="14"

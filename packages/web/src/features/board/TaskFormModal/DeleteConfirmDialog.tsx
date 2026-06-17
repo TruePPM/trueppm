@@ -45,12 +45,12 @@ export function DeleteConfirmDialog({
       aria-modal="true"
       aria-labelledby="delete-task-confirm-title"
       aria-describedby="delete-task-confirm-body"
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-150"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 motion-safe:animate-scrim-fade"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget) onCancel();
       }}
     >
-      <div className="bg-neutral-surface border border-neutral-border rounded-lg w-full max-w-sm mx-4 p-5">
+      <div className="bg-neutral-surface border border-neutral-border rounded-lg w-full max-w-sm mx-4 p-5 motion-safe:animate-modal-scale-in">
         <h2
           id="delete-task-confirm-title"
           className="text-sm font-semibold text-neutral-text-primary mb-2"
