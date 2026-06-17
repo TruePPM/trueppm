@@ -486,6 +486,7 @@ async function openDrawer(page: Page): Promise<ReturnType<Page['locator']>> {
 const SECTION_TAB: Record<string, string> = {
   Attachments: 'Files',
   'External links': 'Files',
+  Notes: 'Activity',
   Comments: 'Activity',
   Activity: 'Activity',
 };

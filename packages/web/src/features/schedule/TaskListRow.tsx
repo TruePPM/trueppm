@@ -19,6 +19,7 @@ import {
   useDuplicateTask,
   type GuardrailWarning,
 } from '@/hooks/useTaskMutations';
+import { formatRelative } from '@/lib/formatRelative';
 import { GuardrailNotice } from './sections/GuardrailNotice';
 import { GuardrailBlock } from './sections/GuardrailBlock';
 import { useDragStore } from '@/stores/dragStore';
@@ -821,14 +822,29 @@ function TaskListRowInner({
             <span
               className={`min-w-0 shrink truncate ${isCriticalStyle} ${isSummaryStyle}`}
               title={
-                task.isCritical
+                (task.isCritical
                   ? 'This task is on the critical path — a delay here delays the project end date'
-                  : `${task.name} — double-click to rename`
+                  : `${task.name} — double-click to rename`) +
+                // The Gantt bar is canvas-rendered (no DOM bar tooltip), so the
+                // notes freshness signal (ADR-0143, #740) rides on the row name.
+                (task.latestNoteAt
+                  ? `  ·  last note ${formatRelative(new Date(task.latestNoteAt))}`
+                  : '')
               }
-              aria-label={`${task.wbs} ${task.name}${task.isCritical ? ' (critical path)' : ''}${task.assignees.length > 0 ? ` — assigned to ${task.assignees.map((a) => a.name).join(', ')}` : ''}`}
+              aria-label={`${task.wbs} ${task.name}${task.isCritical ? ' (critical path)' : ''}${task.assignees.length > 0 ? ` — assigned to ${task.assignees.map((a) => a.name).join(', ')}` : ''}${task.latestNoteAt ? `, last note ${formatRelative(new Date(task.latestNoteAt))}` : ''}`}
             >
               {task.name}
             </span>
+            {task.latestNoteAt && (
+              <span
+                className="inline-flex shrink-0 items-center text-xs text-neutral-text-secondary"
+                title={`Last note ${formatRelative(new Date(task.latestNoteAt))}`}
+                aria-hidden="true"
+                data-testid="note-freshness-chip"
+              >
+                📝
+              </span>
+            )}
             {hasMissingDatesWarning && (
               <span
                 className="inline-flex shrink-0 items-center gap-0.5 px-1 py-px rounded text-xs font-medium text-semantic-at-risk border border-semantic-at-risk/40"

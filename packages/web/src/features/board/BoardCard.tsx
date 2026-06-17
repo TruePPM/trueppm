@@ -10,6 +10,7 @@ import { useDraggable } from '@dnd-kit/core';
 import type { Task, TaskStatus } from '@/types';
 import { BoardProgressRing } from './BoardProgressRing';
 import { formatShortDate } from '@/features/schedule/scheduleUtils';
+import { formatRelative } from '@/lib/formatRelative';
 import { severityRagBand } from '@/hooks/useTaskDependencies';
 import { isTaskScheduled } from '@/lib/task';
 import { PendingAcceptanceChip } from './PendingAcceptanceChip';
@@ -817,6 +818,20 @@ export function BoardCard({
             ].join(' ')}
           >
             {stampText}
+          </div>
+        )}
+
+        {/* Notes freshness (ADR-0143, #740): when the task has a note, show how
+            recently the last one landed — a lightweight signal that there's a
+            why/decision record worth opening, without crowding compact cards. */}
+        {!isCompact && task.latestNoteAt && (
+          <div
+            className="mt-1 inline-flex items-center gap-0.5 text-xs text-neutral-text-secondary"
+            title={`Last note ${formatRelative(new Date(task.latestNoteAt))}`}
+            aria-label={`Last note ${formatRelative(new Date(task.latestNoteAt))}`}
+          >
+            <span aria-hidden="true">📝</span>
+            <span className="tppm-mono">{formatRelative(new Date(task.latestNoteAt))}</span>
           </div>
         )}
 

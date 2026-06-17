@@ -18,6 +18,7 @@
  *   comment_created → invalidate riskComments (risk comments only — task comments use task_comment_*)
  *   task_comment_created / task_comment_updated / task_comment_deleted / task_comment_reaction_added / task_comment_reaction_removed / task_comment_ack_changed → invalidate task-comments[taskId]
  *   task_attachment_created / task_attachment_deleted → invalidate task-attachments[taskId]
+ *   task_note_created / task_note_updated / task_note_deleted / task_note_pinned → invalidate task-notes[taskId] + tasks (latest_note_at freshness chip)
  *   sprint_created / sprint_updated / sprint_deleted / sprint_activated / sprint_cancelled / sprint_closed → invalidate sprints
  *   retro_item_created / retro_item_updated / retro_item_deleted / retro_item_moved → invalidate retro-board (ADR-0117)
  *   assignment_created / assignment_updated / assignment_deleted / roster_changed → invalidate tasks
@@ -334,6 +335,23 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         if (typeof taskId === 'string') {
           void queryClient.invalidateQueries({ queryKey: ['task-attachments', taskId] });
         }
+      }
+
+      // --- Task note events (ADR-0143, #740) ---
+      // A note create/edit/pin/delete invalidates the per-task notes list AND the
+      // task list/board (the `latest_note_at` freshness chip is annotated on the
+      // task serializer, so peers' cards re-fetch to show the new timestamp).
+      else if (
+        event_type === 'task_note_created' ||
+        event_type === 'task_note_updated' ||
+        event_type === 'task_note_deleted' ||
+        event_type === 'task_note_pinned'
+      ) {
+        const taskId = payload?.task_id;
+        if (typeof taskId === 'string') {
+          void queryClient.invalidateQueries({ queryKey: ['task-notes', taskId] });
+        }
+        void queryClient.invalidateQueries({ queryKey: ['tasks', projectIdRef.current] });
       }
 
       // --- Task external-link events (integrations) ---

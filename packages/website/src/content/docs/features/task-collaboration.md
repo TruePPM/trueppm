@@ -1,25 +1,122 @@
 ---
-title: Task collaboration — attachments, comments, mentions
-description: Per-task attachments, threaded comments, @mention notifications, and a per-user inbox bring the conversation onto the work. Powered by ADR-0075.
+title: Task collaboration — notes, attachments, comments, mentions
+description: A per-author decision log, per-task attachments, threaded comments, @mention notifications, and a per-user inbox bring the reasoning and the conversation onto the work. Powered by ADR-0075 and ADR-0143.
 ---
 
 
 :::note[Added in 0.2 (alpha)]
-This page documents functionality added in **TruePPM 0.2**, available since the `0.2.0-alpha.1` pre-release (May 31, 2026). 0.2 is an alpha release; the first beta is planned for 0.4.
+This page documents functionality added in **TruePPM 0.2**, available since the `0.2.0-alpha.1` pre-release (May 31, 2026). 0.2 is an alpha release; the first beta is planned for 0.4. The **Notes** section below ships separately in 0.3 — see its callout.
 :::
 
-Every task has its own attachment grid and comment thread inside the detail
-drawer. Comments support `@user` and `@group` mentions; mentioned recipients
-get an in-app notification on the TopBar bell within ~30 seconds, with an
-optional email opt-in. Acknowledgements (✅) and reactions (👍) are
-structurally distinct so coaches can read team health without polluting it
-with chatter.
+Every task has its own decision log, attachment grid, and comment thread
+inside the detail drawer. **Notes** capture the *why* behind the work — a
+flat, per-author, append-only log of decisions and reasoning, distinct from
+the back-and-forth of comments. **Comments** support `@user` and `@group`
+mentions; mentioned recipients get an in-app notification on the TopBar bell
+within ~30 seconds, with an optional email opt-in. Acknowledgements (✅) and
+reactions (👍) are structurally distinct so coaches can read team health
+without polluting it with chatter.
 
 This page is the user-facing reference for the cluster shipped under #310
 (attachments) and #311 (comments + mentions). The architecture lives in
 [ADR-0075](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0075-task-comments-attachments-mentions-notifications.md);
 the Enterprise overlays (governance audit trail, SCIM provisioning, portfolio
 Decision rollup) are filed in `trueppm-enterprise`.
+
+## Notes
+
+:::note[Ships in 0.3 (Underway)]
+The notes log is part of the **0.3 "agile team"** milestone, which is still
+underway. This section describes the feature as designed; it is not yet in a
+tagged build — see the [roadmap](/overview/roadmap/).
+:::
+
+Notes are a task's **decision log** — a flat, per-author record of *why* the
+work went the way it did. Where comments are a conversation, a note is a
+durable statement: "Chose option B because the vendor SLA covers the
+quarter," "Descoped the export pane — moved to next sprint," "Confirmed with
+finance that the budget code is correct." The log lives in the task drawer's
+**Notes** section, ahead of comments, so the reasoning is the first thing you
+see when you open a task.
+
+Each note is an **immutable, timestamped row** showing who wrote it. New
+notes do not overwrite old ones — every save is its own entry, so the history
+of decisions on a task is never clobbered by the last person to type.
+
+### Adding a note
+
+Members and above type into the composer at the top of the section and post.
+There is no thread, no reply, no formatting ceremony — one author, one entry,
+one timestamp. The flow is deliberately low-friction: the goal is that
+recording a decision costs less than skipping it.
+
+### The 15-minute edit window
+
+After you post, you can edit **your own** note's body for **15 minutes** to
+fix a typo or finish a thought. After the window closes, the note locks and
+its body is read-only — the immutability guarantee that makes the log
+trustworthy. A note that was edited within the window shows a small
+**"edited"** marker so readers know the text changed after it was first
+posted.
+
+You can only edit your *own* notes, and only within the window. No one — not
+even a project admin — can rewrite another person's note; the only
+administrative action on someone else's note is removal (below).
+
+### Pinning
+
+Any team member (Member role and up) can **pin** or unpin any note, not just
+its author. Pinned notes sort to the top of the log; everything else sorts
+newest-first beneath them. Pin the decision the team keeps coming back to so
+it doesn't scroll away under day-to-day entries. Pinning is separate from the
+edit window — you can pin a note long after it has locked.
+
+### Removing a note
+
+A note's **author**, or a project **Admin or Owner**, can remove a note. The
+removal is a soft delete: the entry leaves the visible log but is not
+hard-erased. Everyone else sees no delete control on notes they didn't write.
+
+### Searching the log
+
+A search box above the log filters the notes already on the card by **text or
+author**. It is a card-scoped filter, not a project-wide search: matching
+notes stay **bright** while non-matches **dim** (they stay readable — dimmed,
+not hidden), and a live **"N of M notes"** count tells you how much the
+filter is catching. Press **Esc** to clear the search and restore the full
+log.
+
+### The freshness signal
+
+So you can tell at a glance when a task last gained a decision, a 📝 marker
+with the **latest note's time** appears on the **board card face** and on the
+**schedule (Gantt) row**. A task that just picked up a note reads as recently
+reasoned-about; a stale one stands out. The marker reflects the most recent
+note only — open the task to read the full log.
+
+### Notes vs. the task description
+
+This collaborative log is **separate** from the task's free-text **notes**
+field. That older field is the task's description / scratch text — it is what
+MS Project import/export round-trips, what the seed schema and inbound sync
+write into, and what the offline sync protocol treats as an editable task
+scalar. It is **unchanged** by this feature. The decision log described here
+is a distinct, authored, per-entry surface; the description field stays a
+single machine-and-human-editable blob. (Naming aside: the design calls the
+log entries `TaskNote` and keeps the description as `Task.notes` —
+[ADR-0143](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0143-task-notes-sub-resource.md)
+has the rationale.)
+
+### Permissions
+
+| Role | Read log | Add | Edit own (≤15 min) | Pin / unpin | Remove |
+|---|---|---|---|---|---|
+| Viewer | ✅ | — | — | — | — |
+| Member, Scheduler | ✅ | ✅ | ✅ | ✅ | own only |
+| Admin, Owner | ✅ | ✅ | ✅ | ✅ | any note |
+
+Viewers see the **full** notes log — every author, every timestamp — but no
+add, edit, pin, or remove controls.
 
 ## Attachments
 
@@ -225,5 +322,6 @@ enforces visibility scope (relevant for the future TEAM_ONLY scope that
 - Portfolio-level Decision rollup, audit-trail immutability, and the
   executive weekly digest — all filed in `trueppm-enterprise` as paid-tier
   overlays (#108–#113)
-- Comment `Decision` toggle + per-author Notes entries — #476, deferred
-  feature that reuses this notification infrastructure
+- A **Decision** flag on a note plus a project/sprint Decisions view — the
+  sprint-bound half of the notes work — is a fast-follow (#748); the notes
+  log above lands first in 0.3 without it

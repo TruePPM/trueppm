@@ -92,6 +92,7 @@ from trueppm_api.apps.projects.models import (
     Task,
     TaskAttachment,
     TaskComment,
+    TaskNote,
     TaskRecurrenceRule,
     TaskStatus,
 )
@@ -139,6 +140,7 @@ from trueppm_api.apps.projects.serializers import (
     TaskAttachmentSerializer,
     TaskBulkSerializer,
     TaskCommentSerializer,
+    TaskNoteSerializer,
     TaskRecurrenceRuleSerializer,
     TaskReorderSerializer,
     TaskScopeRollupSerializer,
@@ -468,14 +470,26 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
         # (the AC meter + nested read), and the ADR-0060 sprint scope-change rows. Without
         # these the serializer N+1s on every story/epic (perf-check 🔴).
         def _backlog_qs() -> Any:
-            return Task.objects.filter(project=project, is_deleted=False).prefetch_related(
-                "assignments__resource",
-                "acceptance_criteria",
-                db_models.Prefetch(
-                    "sprint_scope_changes",
-                    queryset=SprintScopeChange.objects.select_related("added_by"),
-                    to_attr="_prefetched_sprint_scope_changes",
-                ),
+            return (
+                Task.objects.filter(project=project, is_deleted=False)
+                .prefetch_related(
+                    "assignments__resource",
+                    "acceptance_criteria",
+                    db_models.Prefetch(
+                        "sprint_scope_changes",
+                        queryset=SprintScopeChange.objects.select_related("added_by"),
+                        to_attr="_prefetched_sprint_scope_changes",
+                    ),
+                )
+                # Freshness signal (ADR-0143, #740) — this LIST path bypasses
+                # annotate_tasks_queryset, so annotate latest_note_at here too or
+                # the field renders null on the grooming board.
+                .annotate(
+                    latest_note_at=db_models.Max(
+                        "notes_log__created_at",
+                        filter=db_models.Q(notes_log__is_deleted=False),
+                    )
+                )
             )
 
         epics = list(_backlog_qs().filter(type=TaskType.EPIC).order_by("priority_rank", "name"))
@@ -1858,6 +1872,12 @@ def annotate_tasks_queryset(
         linked_risks_max_severity=Max(
             F("risks__probability") * F("risks__impact"),
             filter=active_risk_filter,
+        ),
+        # Freshness signal for the board card / schedule row (ADR-0143, #740):
+        # timestamp of the most recent non-deleted note on the task.
+        latest_note_at=Max(
+            "notes_log__created_at",
+            filter=Q(notes_log__is_deleted=False),
         ),
     )
 
@@ -8785,6 +8805,7 @@ class ProgramApiTokenAuditView(ApiTokenAuditView):
 # Locked constraints from ADR-0075 surfaced via per-task counts.
 MAX_ATTACHMENTS_PER_TASK = 50  # constraint #12
 MAX_COMMENTS_PER_TASK = 1_000  # constraint #13
+MAX_NOTES_PER_TASK = 1_000  # ADR-0143 per-task cap (DoS guard)
 SIGNED_URL_DEFAULT_TTL_SECONDS = 15 * 60  # constraint #6
 SIGNED_URL_MAX_TTL_SECONDS = 60 * 60  # constraint #7 (OSS hard-cap)
 
@@ -9299,3 +9320,164 @@ class CommentReactionViewSet(
                 {"id": reaction_id, "comment_id": comment_id, "task_id": task_pk},
             )
         )
+
+
+class TaskNoteViewSet(
+    ProjectScopedViewSet,
+    mixins.ListModelMixin,
+    mixins.CreateModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet[TaskNote],
+):
+    """Per-author task note — the why/decision log (ADR-0143, #740).
+
+    Routes (relative to /projects/{project_pk}/tasks/{task_pk}/):
+      GET    notes/
+      POST   notes/
+      GET    notes/{pk}/
+      PATCH  notes/{pk}/      (author only, within the 15-min edit window)
+      DELETE notes/{pk}/      (author OR Admin+; soft-delete)
+      POST   notes/{pk}/pin/  (toggle pin — Member+; exempt from the edit window)
+
+    Distinct from TaskCommentViewSet: no @mention fan-out, no replies/reactions/
+    acks. Note CRUD never touches Task scheduling fields, so it never triggers a
+    CPM recalculate.
+    """
+
+    serializer_class = TaskNoteSerializer
+
+    def get_queryset(self) -> QuerySet[TaskNote]:
+        user = self.request.user
+        if not user.is_authenticated:
+            return TaskNote.objects.none()
+        project_pk = self.kwargs["project_pk"]
+        task_pk = self.kwargs["task_pk"]
+        # Membership is enforced by IsProjectMember/IsProjectMemberWrite
+        # (get_permissions) before get_queryset runs. `task` is select_related so
+        # perform_destroy's instance.task.project_id is free. Ordering comes from
+        # Meta (-pinned, -created_at) — pinned-first, then newest.
+        return TaskNote.objects.filter(
+            task__project_id=project_pk,
+            task_id=task_pk,
+            is_deleted=False,
+        ).select_related("author", "deleted_by", "task")
+
+    def get_permissions(self) -> list[BasePermission]:
+        if self.action in ("create", "partial_update", "update", "destroy", "pin"):
+            return [IsAuthenticated(), IsProjectMemberWrite(), IsProjectNotArchived()]
+        return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
+
+    def perform_create(self, serializer: BaseSerializer[TaskNote]) -> None:
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        project_pk = self.kwargs["project_pk"]
+        task_pk = self.kwargs["task_pk"]
+        task = get_object_or_404(Task, pk=task_pk, project_id=project_pk, is_deleted=False)
+        self.check_object_permissions(self.request, task)
+
+        # Per-task count cap (ADR-0143 DoS guard).
+        if TaskNote.objects.filter(task=task, is_deleted=False).count() >= MAX_NOTES_PER_TASK:
+            raise serializers.ValidationError(
+                {"detail": f"This task has the maximum of {MAX_NOTES_PER_TASK} notes."},
+                code="note_count_cap",
+            )
+
+        note = serializer.save(task=task, author=self.request.user)
+        # Snapshot plain values BEFORE the on_commit lambda (broadcast-check H-1).
+        note_id_str = str(note.pk)
+        task_id_str = str(task.pk)
+        project_id_str = str(project_pk)
+        transaction.on_commit(
+            lambda: broadcast_board_event(
+                project_id_str,
+                "task_note_created",
+                {"id": note_id_str, "task_id": task_id_str},
+            )
+        )
+
+    def perform_update(self, serializer: BaseSerializer[TaskNote]) -> None:
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        instance = cast(TaskNote, serializer.instance)
+        # Author-only edit — the serializer enforces the time window; this guards
+        # the actor. (Pin uses a separate action that bypasses both.)
+        if instance.author_id != self.request.user.pk:
+            raise serializers.ValidationError(
+                {"detail": "Only the author can edit a note."},
+                code="note_edit_not_author",
+            )
+        serializer.save()
+        # Snapshot plain values BEFORE the on_commit lambda (broadcast-check H-1).
+        project_id_str = str(instance.task.project_id)
+        task_id_str = str(instance.task_id)
+        note_id_str = str(instance.pk)
+        transaction.on_commit(
+            lambda: broadcast_board_event(
+                project_id_str,
+                "task_note_updated",
+                {"id": note_id_str, "task_id": task_id_str},
+            )
+        )
+
+    def perform_destroy(self, instance: TaskNote) -> None:
+        from trueppm_api.apps.access.permissions import _membership_role
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        user = self.request.user
+        role = _membership_role(self.request, instance.task.project_id)
+        is_author = instance.author_id == user.pk
+        is_admin = role is not None and role >= Role.ADMIN
+        if not (is_author or is_admin):
+            raise serializers.ValidationError(
+                {"detail": "Only the author or a project admin can delete a note."},
+                code="note_delete_forbidden",
+            )
+        instance.soft_delete(actor=user)
+        # Snapshot plain values BEFORE the on_commit lambda (broadcast-check H-1).
+        project_id_str = str(instance.task.project_id)
+        task_id_str = str(instance.task_id)
+        note_id_str = str(instance.pk)
+        transaction.on_commit(
+            lambda: broadcast_board_event(
+                project_id_str,
+                "task_note_deleted",
+                {"id": note_id_str, "task_id": task_id_str},
+            )
+        )
+
+    @extend_schema(
+        summary="Toggle pin on a note",
+        request=None,
+        responses={
+            200: TaskNoteSerializer,
+            401: OpenApiResponse(description="Authentication required."),
+            404: OpenApiResponse(description="Note not found."),
+        },
+    )
+    @action(detail=True, methods=["post"], url_path="pin")
+    def pin(self, request: Request, project_pk: str, task_pk: str, pk: str) -> Response:
+        """Toggle this note's pinned state.
+
+        Curation, not authorship — any project writer (Member+) may pin/unpin any
+        note, and pinning is exempt from the author-only 15-min edit window.
+        """
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        note = self.get_object()
+        note.pinned = not note.pinned
+        note.save(update_fields=["pinned"])
+        # Snapshot plain values BEFORE the on_commit lambda (broadcast-check H-1).
+        project_id_str = str(project_pk)
+        task_id_str = str(task_pk)
+        note_id_str = str(note.pk)
+        pinned_now = note.pinned
+        transaction.on_commit(
+            lambda: broadcast_board_event(
+                project_id_str,
+                "task_note_pinned",
+                {"id": note_id_str, "task_id": task_id_str, "pinned": pinned_now},
+            )
+        )
+        return Response(self.get_serializer(note).data, status=status.HTTP_200_OK)

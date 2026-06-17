@@ -8,9 +8,9 @@
  *
  * Priority allocation (multiples of 100 reserved for OSS):
  *   100 Overview · 200 Dependencies · 300 Subtasks (#308)
- *   400 Attachments (#310) · 450 External links (#637) · 500 Comments (#311)
- *   600 Activity (#307) · 700 Recurring (#312) · 800 Estimates · 900 History
- *   1000 Baseline
+ *   400 Attachments (#310) · 450 External links (#637) · 480 Notes (#740)
+ *   500 Comments (#311) · 600 Activity (#307) · 700 Recurring (#312)
+ *   800 Estimates · 900 History · 1000 Baseline
  *
  * Subtasks / Attachments / Comments / Activity / Recurring are added in
  * their own MRs as each feature ships; their absence in this index leaves
@@ -26,6 +26,7 @@ import { SubtasksSection } from './SubtasksSection';
 import { DependenciesSection } from './DependenciesSection';
 import { AttachmentSection } from './AttachmentSection';
 import { ExternalLinksSection } from './ExternalLinksSection';
+import { NotesSection } from './NotesSection';
 import { CommentSection } from './CommentSection';
 import { ActivitySection } from './ActivitySection';
 import { RecurrenceSection } from './RecurrenceSection';
@@ -109,6 +110,17 @@ export function registerOssDrawerSections(): void {
     priority: 175,
     tab: 'details',
     canRender: (ctx) => !(ctx as { task: Task }).task.isSummary,
+  });
+
+  // Notes (ADR-0143, #740) — the task's why/decision log. Sits above Comments
+  // on the activity tab: a flat, pinned-first, immutable record distinct from
+  // the threaded discussion below it.
+  registry.register('task_detail.section', {
+    id: 'notes',
+    title: 'Notes',
+    component: NotesSection,
+    priority: 480,
+    tab: 'activity',
   });
 
   registry.register('task_detail.section', {

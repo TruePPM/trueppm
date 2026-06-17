@@ -3868,6 +3868,78 @@ class TaskComment(models.Model):
         self.save(update_fields=["is_deleted", "deleted_at", "deleted_by"])
 
 
+class TaskNote(models.Model):
+    """Per-author, append-with-edit-window note on a task (ADR-0143, #740).
+
+    The collaborative *why/decision log* for a task — distinct from the legacy
+    ``Task.notes`` scalar (machine-written description/scratch + MSPDI/seed/sync
+    target, kept as-is) and from ``TaskComment`` (threaded discussion). Modeled
+    on ``TaskComment``: plain Model, immutable after the 15-min self-edit window,
+    soft-deleted. NOT a ``VersionedModel`` and NOT in the sync union — immutable
+    rows make ``server_version`` moot (ADR-0044 reasoning) and there is no mobile
+    consumer yet; clients reconcile via REST refetch + WS broadcast.
+
+    ``related_name="notes_log"`` deliberately avoids the existing ``Task.notes``
+    scalar attribute. ``decision`` is the additive seam for #748 (sprint-bound
+    Decisions) — the column lands now, exposed read-only, so #748 needs no second
+    migration; it is not toggleable in #740.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="notes_log")
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="task_notes",
+    )
+    # Plain text. Length capped in the serializer (MAX_NOTE_BODY_CHARS); HTML is
+    # escaped at render time on the web client (no markdown/@mention in #740).
+    body = models.TextField()
+    # Pin is curation, not authorship — any project writer (Member+) may toggle it
+    # and it is exempt from the edit window. Drives the "-pinned" lead in ordering.
+    pinned = models.BooleanField(default=False)
+    # Seam for #748 — see class docstring. Read-only in the #740 serializer.
+    decision = models.BooleanField(default=False)
+    edited_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    is_deleted = models.BooleanField(default=False)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    deleted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="deleted_task_notes",
+    )
+
+    class Meta:
+        db_table = "projects_tasknote"
+        # Pinned-first, then newest — the list endpoint returns this order directly.
+        ordering = ["-pinned", "-created_at"]
+        indexes = [
+            models.Index(
+                fields=["task", "is_deleted", "-created_at"], name="ix_tasknote_task_recent"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"TaskNote({self.id}, task={self.task_id})"
+
+    @property
+    def project_id(self) -> Any:
+        # See TaskAttachment.project_id — surfaces task.project_id so the RBAC
+        # helpers (`_get_project_id_from_obj`) enforce object-level membership
+        # without bespoke wiring.
+        return self.task.project_id
+
+    def soft_delete(self, *, actor: Any | None = None) -> None:
+        self.is_deleted = True
+        self.deleted_at = timezone.now()
+        self.deleted_by = actor
+        self.save(update_fields=["is_deleted", "deleted_at", "deleted_by"])
+
+
 class CommentAcknowledgement(models.Model):
     """First-class "I saw this / I'm on it" signal (ADR-0075 §A.3).
 

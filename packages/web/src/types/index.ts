@@ -106,6 +106,13 @@ export interface Task {
   scheduleVarianceDays?: number | null;
   baselineStart?: string;
   baselineFinish?: string;
+  /**
+   * Freshness signal (ADR-0143, #740): ISO timestamp of the most recent
+   * non-deleted note on this task, or null when the task has no notes.
+   * Surfaced on the board card face and the schedule row. Annotation-backed —
+   * `undefined` on payloads that predate the field.
+   */
+  latestNoteAt?: string | null;
   /** Resource assignments from TaskResource */
   assignees: TaskAssignee[];
   /**
@@ -761,6 +768,34 @@ export interface TaskComment {
   reaction_count: number;
   /** Whether the requesting user has acknowledged this comment. */
   has_my_acknowledgement: boolean;
+}
+
+/**
+ * Task note (ADR-0143, #740) — an immutable, per-author, timestamped entry on a
+ * task's why/decision log. Distinct from {@link TaskComment} (threaded
+ * discussion): notes are flat, pinned-first, and append-with-edit-window.
+ *
+ * The author may edit their own note's `body` only within 15 minutes of
+ * `created_at` (server-enforced); `edited_at` is set once edited. Pin is open to
+ * any MEMBER+. Soft-deleted by the author or an ADMIN.
+ */
+export interface TaskNote {
+  id: string;
+  task: string;
+  author: CollabUserMini | null;
+  body: string;
+  pinned: boolean;
+  /**
+   * #748 seam — flags a note as a decision. Always false in 0.3; the Notes UI
+   * does not surface it. Kept on the type so the Decisions fast-follow is purely
+   * additive.
+   */
+  decision: boolean;
+  edited_at: string | null;
+  created_at: string;
+  is_deleted: boolean;
+  deleted_at: string | null;
+  deleted_by: CollabUserMini | null;
 }
 
 /** Per-user "I'm on it" ack — never triggers notification (ADR-0075 §A.3, Morgan blocker). */

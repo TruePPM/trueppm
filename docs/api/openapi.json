@@ -12629,6 +12629,394 @@
                 }
             }
         },
+        "/api/v1/projects/{project_pk}/tasks/{task_pk}/notes/": {
+            "get": {
+                "operationId": "v1_projects_tasks_notes_list",
+                "description": "Per-author task note — the why/decision log (ADR-0143, #740).\n\nRoutes (relative to /projects/{project_pk}/tasks/{task_pk}/):\n  GET    notes/\n  POST   notes/\n  GET    notes/{pk}/\n  PATCH  notes/{pk}/      (author only, within the 15-min edit window)\n  DELETE notes/{pk}/      (author OR Admin+; soft-delete)\n  POST   notes/{pk}/pin/  (toggle pin — Member+; exempt from the edit window)\n\nDistinct from TaskCommentViewSet: no @mention fan-out, no replies/reactions/\nacks. Note CRUD never touches Task scheduling fields, so it never triggers a\nCPM recalculate.",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "task_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedTaskNoteList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_projects_tasks_notes_create",
+                "description": "Per-author task note — the why/decision log (ADR-0143, #740).\n\nRoutes (relative to /projects/{project_pk}/tasks/{task_pk}/):\n  GET    notes/\n  POST   notes/\n  GET    notes/{pk}/\n  PATCH  notes/{pk}/      (author only, within the 15-min edit window)\n  DELETE notes/{pk}/      (author OR Admin+; soft-delete)\n  POST   notes/{pk}/pin/  (toggle pin — Member+; exempt from the edit window)\n\nDistinct from TaskCommentViewSet: no @mention fan-out, no replies/reactions/\nacks. Note CRUD never touches Task scheduling fields, so it never triggers a\nCPM recalculate.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "task_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskNoteRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskNoteRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskNoteRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskNote"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{project_pk}/tasks/{task_pk}/notes/{id}/": {
+            "get": {
+                "operationId": "v1_projects_tasks_notes_retrieve",
+                "description": "Per-author task note — the why/decision log (ADR-0143, #740).\n\nRoutes (relative to /projects/{project_pk}/tasks/{task_pk}/):\n  GET    notes/\n  POST   notes/\n  GET    notes/{pk}/\n  PATCH  notes/{pk}/      (author only, within the 15-min edit window)\n  DELETE notes/{pk}/      (author OR Admin+; soft-delete)\n  POST   notes/{pk}/pin/  (toggle pin — Member+; exempt from the edit window)\n\nDistinct from TaskCommentViewSet: no @mention fan-out, no replies/reactions/\nacks. Note CRUD never touches Task scheduling fields, so it never triggers a\nCPM recalculate.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task note.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "task_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskNote"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "v1_projects_tasks_notes_partial_update",
+                "description": "Per-author task note — the why/decision log (ADR-0143, #740).\n\nRoutes (relative to /projects/{project_pk}/tasks/{task_pk}/):\n  GET    notes/\n  POST   notes/\n  GET    notes/{pk}/\n  PATCH  notes/{pk}/      (author only, within the 15-min edit window)\n  DELETE notes/{pk}/      (author OR Admin+; soft-delete)\n  POST   notes/{pk}/pin/  (toggle pin — Member+; exempt from the edit window)\n\nDistinct from TaskCommentViewSet: no @mention fan-out, no replies/reactions/\nacks. Note CRUD never touches Task scheduling fields, so it never triggers a\nCPM recalculate.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task note.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "task_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedTaskNoteRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedTaskNoteRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedTaskNoteRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskNote"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "v1_projects_tasks_notes_destroy",
+                "description": "Per-author task note — the why/decision log (ADR-0143, #740).\n\nRoutes (relative to /projects/{project_pk}/tasks/{task_pk}/):\n  GET    notes/\n  POST   notes/\n  GET    notes/{pk}/\n  PATCH  notes/{pk}/      (author only, within the 15-min edit window)\n  DELETE notes/{pk}/      (author OR Admin+; soft-delete)\n  POST   notes/{pk}/pin/  (toggle pin — Member+; exempt from the edit window)\n\nDistinct from TaskCommentViewSet: no @mention fan-out, no replies/reactions/\nacks. Note CRUD never touches Task scheduling fields, so it never triggers a\nCPM recalculate.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task note.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "task_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{project_pk}/tasks/{task_pk}/notes/{id}/pin/": {
+            "post": {
+                "operationId": "v1_projects_tasks_notes_pin_create",
+                "description": "Toggle this note's pinned state.\n\nCuration, not authorship — any project writer (Member+) may pin/unpin any\nnote, and pinning is exempt from the author-only 15-min edit window.",
+                "summary": "Toggle pin on a note",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task note.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "task_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskNote"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "401": {
+                        "description": "Authentication required."
+                    },
+                    "404": {
+                        "description": "Note not found."
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{project_pk}/teams/": {
             "get": {
                 "operationId": "v1_projects_teams_list",
@@ -22895,6 +23283,37 @@
                     }
                 }
             },
+            "PaginatedTaskNoteList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TaskNote"
+                        }
+                    }
+                }
+            },
             "PaginatedTaskRecurrenceRuleList": {
                 "type": "object",
                 "required": [
@@ -23967,6 +24386,16 @@
                         "type": "integer",
                         "maximum": 2147483647,
                         "minimum": 0
+                    }
+                }
+            },
+            "PatchedTaskNoteRequest": {
+                "type": "object",
+                "description": "Per-author task note (ADR-0143, #740).\n\nAppend-with-edit-window: `body` is required + length-capped; the author may\nedit only their own note within 15 min of creation (enforced in `update()`).\n`pinned` and `decision` are server-managed (pin via the dedicated action;\n`decision` is the read-only #748 seam) so neither is client-writable here —\nonly `body` is.",
+                "properties": {
+                    "body": {
+                        "type": "string",
+                        "minLength": 1
                     }
                 }
             },
@@ -28008,6 +28437,12 @@
                         "readOnly": true,
                         "nullable": true
                     },
+                    "latest_note_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
                     "schedule_variance_days": {
                         "type": "integer",
                         "nullable": true,
@@ -28340,6 +28775,7 @@
                     "is_summary",
                     "late_finish",
                     "late_start",
+                    "latest_note_at",
                     "linked_risks_count",
                     "linked_risks_max_severity",
                     "milestone_rollup",
@@ -28728,6 +29164,96 @@
                 ],
                 "type": "string",
                 "description": "* `open` - open\n* `draft` - draft\n* `merged` - merged\n* `closed` - closed\n* `unknown` - unknown"
+            },
+            "TaskNote": {
+                "type": "object",
+                "description": "Per-author task note (ADR-0143, #740).\n\nAppend-with-edit-window: `body` is required + length-capped; the author may\nedit only their own note within 15 min of creation (enforced in `update()`).\n`pinned` and `decision` are server-managed (pin via the dedicated action;\n`decision` is the read-only #748 seam) so neither is client-writable here —\nonly `body` is.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "task": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "author": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/_MentionAuthorMini"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "body": {
+                        "type": "string"
+                    },
+                    "pinned": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "decision": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "edited_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "is_deleted": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "deleted_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "deleted_by": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/_MentionAuthorMini"
+                            }
+                        ],
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "author",
+                    "body",
+                    "created_at",
+                    "decision",
+                    "deleted_at",
+                    "deleted_by",
+                    "edited_at",
+                    "id",
+                    "is_deleted",
+                    "pinned",
+                    "task"
+                ]
+            },
+            "TaskNoteRequest": {
+                "type": "object",
+                "description": "Per-author task note (ADR-0143, #740).\n\nAppend-with-edit-window: `body` is required + length-capped; the author may\nedit only their own note within 15 min of creation (enforced in `update()`).\n`pinned` and `decision` are server-managed (pin via the dedicated action;\n`decision` is the read-only #748 seam) so neither is client-writable here —\nonly `body` is.",
+                "properties": {
+                    "body": {
+                        "type": "string",
+                        "minLength": 1
+                    }
+                },
+                "required": [
+                    "body"
+                ]
             },
             "TaskRecurrenceRule": {
                 "type": "object",
