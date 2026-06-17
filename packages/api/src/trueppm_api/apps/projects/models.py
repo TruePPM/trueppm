@@ -16,6 +16,7 @@ from django.db.models.functions import Lower
 from django.utils import timezone
 from simple_history.models import HistoricalRecords
 
+from trueppm_api.apps.scheduling.models import MCAttributionAudience
 from trueppm_api.fields import LtreeField
 
 # Engine input bounds — mirror of trueppm_scheduler.engine.MAX_DURATION_DAYS /
@@ -370,6 +371,20 @@ class Program(VersionedModel):
     # every override write is captured by HistoricalRecords (audit requirement).
     public_sharing = models.BooleanField(null=True, blank=True)
     allow_guests = models.BooleanField(null=True, blank=True)
+    # Per-scope Monte Carlo forecast-history overrides (ADR-0144, #1232). NULL =
+    # inherit the workspace value; a non-null value overrides it for every project
+    # in this program whose own override is NULL. Resolved computed-on-read in
+    # ``scheduling.forecast_history_settings`` and surfaced via the serializer's
+    # ``effective_mc_history_*``/``inherited_mc_history_*`` fields. No override_policy
+    # on Program — only the root Workspace defines the policy (matching ADR-0135).
+    mc_history_enabled = models.BooleanField(null=True, blank=True)
+    mc_history_retention_cap = models.PositiveIntegerField(null=True, blank=True)
+    mc_history_attribution_audience = models.CharField(  # noqa: DJ001 — null = inherit
+        max_length=16,
+        choices=MCAttributionAudience.choices,
+        null=True,
+        blank=True,
+    )
     # PM override for the program health chip. Defaults to AUTO so existing rows
     # render via the (future) rollup rather than implying a manual judgment.
     health = models.CharField(
@@ -768,6 +783,20 @@ class Project(VersionedModel):
     # so every override write is captured by HistoricalRecords (audit).
     public_sharing = models.BooleanField(null=True, blank=True)
     allow_guests = models.BooleanField(null=True, blank=True)
+    # Per-scope Monte Carlo forecast-history overrides (ADR-0144, #1232). NULL =
+    # inherit from the program (or workspace, if the program also inherits);
+    # non-null = explicit override for this project. Resolved computed-on-read in
+    # ``scheduling.forecast_history_settings`` and surfaced via the serializer's
+    # ``effective_mc_history_*``/``inherited_mc_history_*`` fields. No override_policy
+    # at the project level — only the root Workspace defines the policy (ADR-0135).
+    mc_history_enabled = models.BooleanField(null=True, blank=True)
+    mc_history_retention_cap = models.PositiveIntegerField(null=True, blank=True)
+    mc_history_attribution_audience = models.CharField(  # noqa: DJ001 — null = inherit
+        max_length=16,
+        choices=MCAttributionAudience.choices,
+        null=True,
+        blank=True,
+    )
     # Optional grouping into a Program (ADR-0070). NULL = standalone project.
     # SET_NULL on program delete so projects survive the cascade as standalone.
     # Program membership is independent of project membership: a project member

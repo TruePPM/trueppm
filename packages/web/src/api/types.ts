@@ -101,6 +101,25 @@ export type ProjectVisibility = ProgramVisibility;
  */
 export type ProjectDefaultView = 'SCHEDULE' | 'BOARD' | 'TABLE' | 'OVERVIEW';
 
+/**
+ * Who may see the per-run attribution (which member triggered a Monte Carlo run)
+ * on the forecast-history list (ADR-0144, issue 1232). `ADMIN_OWNER` preserves the
+ * historical default exactly; `SCHEDULER_PLUS` widens it to Scheduler and above;
+ * `NONE` hides attribution from everyone. Inheritable Workspace → Program → Project.
+ */
+export type MCAttributionAudience = 'ADMIN_OWNER' | 'SCHEDULER_PLUS' | 'NONE';
+
+/**
+ * Workspace policy for downstream forecast-history overrides (ADR-0144). `allow`
+ * lets programs/projects override; `lock` pins the workspace values and is
+ * Enterprise-enforced — OSS stores it but never enforces the lock downstream.
+ */
+export type MCHistoryOverridePolicy = 'allow' | 'lock';
+
+/** Hard ceiling on the retained-run count, enforced server-side (ADR-0144). */
+export const MC_HISTORY_RETENTION_MIN = 1;
+export const MC_HISTORY_RETENTION_MAX = 500;
+
 export interface Program {
   id: string;
   server_version: number;
@@ -123,6 +142,18 @@ export interface Program {
   /** Read-only values inherited if the override were cleared (the workspace value). */
   inherited_public_sharing: boolean;
   inherited_allow_guests: boolean;
+  /** Forecast-history overrides (ADR-0144, issue 1232). null = inherit the workspace value. */
+  mc_history_enabled: boolean | null;
+  mc_history_retention_cap: number | null;
+  mc_history_attribution_audience: MCAttributionAudience | null;
+  /** Read-only server-resolved effective values (program override ?? workspace). */
+  effective_mc_history_enabled: boolean;
+  effective_mc_history_retention_cap: number;
+  effective_mc_history_attribution_audience: MCAttributionAudience;
+  /** Read-only values inherited if the override were cleared (the workspace value). */
+  inherited_mc_history_enabled: boolean;
+  inherited_mc_history_retention_cap: number;
+  inherited_mc_history_attribution_audience: MCAttributionAudience;
   /** PM health override; AUTO defers to the rollup. */
   health: ProgramHealth;
   /** Workspace or private listing scope. */
@@ -293,6 +324,14 @@ export interface WorkspaceSettings {
   /** Cascade policy. `inherit`/`suggest` (OSS) let lower scopes override;
    *  `enforce` locks the term and is an Enterprise capability (no-op in OSS). */
   iterationLabelOverridePolicy: 'inherit' | 'suggest' | 'enforce';
+  /** Forecast-history config (ADR-0144, issue 1232) — the root of the
+   *  Workspace → Program → Project inheritance chain (non-null at this scope). */
+  mcHistoryEnabled: boolean;
+  /** Retained-run cap; clamped server-side to [1, 500]. */
+  mcHistoryRetentionCap: number;
+  mcHistoryAttributionAudience: MCAttributionAudience;
+  /** `allow` lets lower scopes override; `lock` is Enterprise-enforced (no-op in OSS). */
+  mcHistoryOverridePolicy: MCHistoryOverridePolicy;
 }
 
 /**

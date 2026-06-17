@@ -88,6 +88,23 @@ class ScheduleRequest(models.Model):
         return f"ScheduleRequest({self.project_id}, {self.status})"
 
 
+class MCAttributionAudience(models.TextChoices):
+    """Who may see the run-author name on Monte Carlo forecast history (ADR-0144).
+
+    Defined here (not on Workspace) because both the per-workspace config columns
+    and the ``MonteCarloHistoryView`` attribution gate reference it; placing it on
+    the scheduling model keeps a single source and avoids a workspace ``→`` scheduling
+    import cycle (workspace/projects import this enum, never the reverse).
+
+    The default ``ADMIN_OWNER`` preserves the pre-0143 hardcoded Admin/Owner gate
+    exactly, so the three-valued enum is backward-compatible and reversible.
+    """
+
+    ADMIN_OWNER = "admin_owner", "Admins and Owners"
+    SCHEDULER_PLUS = "scheduler_plus", "Schedulers and above"
+    NONE = "none", "No one"
+
+
 class FailedTaskStatus(models.TextChoices):
     """Lifecycle of a dead-lettered Celery task."""
 
@@ -283,6 +300,17 @@ class MonteCarloRun(models.Model):
     # Inputs needed to interpret the run.
     n_simulations = models.PositiveIntegerField()
     task_count = models.PositiveIntegerField(null=True, blank=True)
+    # The full per-run distribution payload — the same
+    # ``{histogram_buckets, confidence_curve, sensitivity}`` shape written to the
+    # ``mc_latest:<pk>`` cache (#1231, ADR-0144). Persisted so the histogram +
+    # tornado survive cache expiry and a past run stays re-viewable.
+    #
+    # Nullable with NO backfill: pre-0143 runs have no stored distribution and the
+    # frontend renders the empty-state prose for them (legacy runs are a tail that
+    # ages out under the retention cap). Capped at MC_DISTRIBUTION_MAX_BYTES with
+    # bucket down-sampling at persist time (the cache copy stays full) so a
+    # pathological high-bucket run cannot bloat the row.
+    distribution = models.JSONField(null=True, blank=True)
 
     class Meta:
         db_table = "scheduling_montecarlorun"

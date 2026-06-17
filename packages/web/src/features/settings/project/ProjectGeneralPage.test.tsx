@@ -1,4 +1,4 @@
-import { act, render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -63,6 +63,17 @@ const SEED_PROJECT = {
   default_view: 'BOARD',
   lead: null,
   lead_detail: null,
+  // Forecast-history overrides start null (inheriting); the server resolves the
+  // inherited_* reads the inherit affordance renders (ADR-0144, #1232).
+  mc_history_enabled: null,
+  mc_history_retention_cap: null,
+  mc_history_attribution_audience: null,
+  effective_mc_history_enabled: true,
+  effective_mc_history_retention_cap: 100,
+  effective_mc_history_attribution_audience: 'ADMIN_OWNER',
+  inherited_mc_history_enabled: true,
+  inherited_mc_history_retention_cap: 100,
+  inherited_mc_history_attribution_audience: 'ADMIN_OWNER',
 };
 
 let mutateAsync: ReturnType<typeof vi.fn>;
@@ -250,5 +261,90 @@ describe('ProjectGeneralPage', () => {
     useCurrentUserRole.mockReturnValue({ role: null, isLoading: true });
     renderPage();
     expect(screen.getByRole('textbox', { name: /project name/i })).toBeDisabled();
+  });
+
+  // ----- Forecast history (ADR-0144, #1232) ----------------------------------
+
+  it('renders the Forecast history group inheriting the resolved workspace values', () => {
+    renderPage();
+
+    expect(
+      screen.getByRole('heading', { name: /forecast history/i, level: 3 }),
+    ).toBeInTheDocument();
+
+    // Each inheritable control starts on "Inherit" and surfaces the inherited value.
+    const enabledGroup = screen.getByRole('radiogroup', {
+      name: /keep monte carlo run history/i,
+    });
+    // Each of the three forecast-history controls renders and starts on "Inherit"
+    // (the project seeds all three overrides null → inheriting the resolved value).
+    const capGroup = screen.getByRole('radiogroup', { name: /run history limit/i });
+    const attrGroup = screen.getByRole('radiogroup', { name: /run attribution visible to/i });
+    for (const group of [enabledGroup, capGroup, attrGroup]) {
+      expect(within(group).getByRole('radio', { name: /inherit/i })).toBeChecked();
+    }
+    // The attribution inherit chip carries the resolved label from the parent scope.
+    expect(within(attrGroup).getByText(/admins & owners/i)).toBeInTheDocument();
+  });
+
+  it('overrides the retention cap and clamps an out-of-range value before persisting', async () => {
+    renderPage();
+
+    // Switch the retention control to Override, then enter a too-large value.
+    const capGroup = screen.getByRole('radiogroup', { name: /run history limit/i });
+    fireEvent.click(within(capGroup).getByText(/^override$/i));
+
+    const capInput = screen.getByRole('spinbutton', { name: /run history limit/i });
+    fireEvent.change(capInput, { target: { value: '9999' } });
+    // The UI clamps to the 500 hard cap immediately.
+    expect(capInput).toHaveValue(500);
+
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+
+    expect(mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ mc_history_retention_cap: 500 }),
+    );
+  });
+
+  it('overrides the attribution audience and persists the chosen enum', async () => {
+    renderPage();
+
+    const attrGroup = screen.getByRole('radiogroup', {
+      name: /run attribution visible to/i,
+    });
+    fireEvent.click(within(attrGroup).getByText(/^override$/i));
+
+    fireEvent.change(screen.getByRole('combobox', { name: /run attribution visible to/i }), {
+      target: { value: 'NONE' },
+    });
+
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+
+    expect(mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ mc_history_attribution_audience: 'NONE' }),
+    );
+  });
+
+  it('keeps a forecast-history override null when left on Inherit', async () => {
+    renderPage();
+
+    // Make some unrelated edit so the save bar arms without touching forecast history.
+    fireEvent.click(screen.getByRole('button', { name: /on track/i }));
+
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+
+    expect(mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mc_history_enabled: null,
+        mc_history_retention_cap: null,
+        mc_history_attribution_audience: null,
+      }),
+    );
   });
 });

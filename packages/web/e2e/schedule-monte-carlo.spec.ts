@@ -1,13 +1,16 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * Monte Carlo strip integration tests for the Schedule view — issue #333.
+ * Monte Carlo integration tests for the Schedule view — issue #333, consolidated
+ * onto the single ScheduleForecastBar by ADR-0144 / #1231 (web rule 189).
  *
  * Covers:
- * - P50/P80/P95 markers visible on Gantt timeline
- * - Footer strip shows P80 delta vs CPM finish
+ * - P50/P80/P95 markers visible on the Gantt timeline
+ * - The consolidated bar shows the P80 chip with its delta vs CPM finish — once
  * - Recomputing indicator appears when Rerun is clicked
- * - Details panel opens on Details button click
+ * - Details panel opens on the Details button
+ * - The bar expands to the histogram + sensitivity tornado
+ * - The percentiles render on exactly one surface (no two-surface double-claim)
  */
 
 const PROJECT_ID = 'e2e-mc-00000000-0000-0000-0000-000000000099';
@@ -297,13 +300,17 @@ test.describe('Monte Carlo Schedule Integration (#333)', () => {
     await expect(page.locator('[data-testid="mc-marker-p95"]')).toBeVisible();
   });
 
-  test('P80 chip shows delta vs CPM finish in footer', async ({ page }) => {
+  test('P80 chip shows delta vs CPM finish on the consolidated bar', async ({ page }) => {
     await gotoScheduleWithMC(page);
 
-    // CPM finish = '2026-11-30', P80 = '2026-12-10' → +10d
-    await expect(
-      page.locator('[aria-label*="Monte Carlo confidence row"]').filter({ hasText: '+10d' }),
-    ).toBeVisible({ timeout: 10_000 });
+    // The single consolidated bar (ADR-0144, rule 189) renders the P80 chip ONCE.
+    // CPM finish = '2026-11-30', P80 = '2026-12-10' → "Dec 10 (+10d)". The date is
+    // formatted in UTC (fmtUtcShort) so it does not drift west of UTC.
+    const bar = page.getByRole('region', { name: 'Schedule forecast' });
+    await expect(bar.getByText('P80: Dec 10 (+10d)')).toBeVisible({ timeout: 10_000 });
+    // Rendered exactly once — the old MonteCarloRow + ScheduleInsightsBar
+    // double-claim of the percentiles is gone.
+    await expect(bar.getByText(/^P80:/)).toHaveCount(1);
   });
 
   test('recomputing indicator appears when Rerun is clicked', async ({ page }) => {
@@ -355,16 +362,16 @@ test.describe('Monte Carlo Schedule Integration (#333)', () => {
     });
   });
 
-  test('Forecast & sensitivity bar expands to show the forecast and the tornado (#1222)', async ({
+  test('consolidated bar expands to show the histogram and the tornado (#1222, ADR-0144)', async ({
     page,
   }) => {
     await gotoScheduleWithMC(page);
 
-    // Scope to the insights-bar region — "What's holding the date" also appears
-    // in the (DOM-present but hidden) detail drawer, so an unscoped text query
-    // would be a strict-mode collision.
-    const bar = page.getByRole('region', { name: /Forecast and sensitivity/i });
-    const toggle = bar.getByRole('button', { name: /Forecast & sensitivity/i });
+    // Scope to the consolidated bar region — "What's holding the date" also
+    // appears in the (DOM-present but hidden) detail drawer, so an unscoped text
+    // query would be a strict-mode collision.
+    const bar = page.getByRole('region', { name: 'Schedule forecast' });
+    const toggle = bar.getByRole('button', { name: /Maximize forecast detail/i });
     await expect(toggle).toBeVisible({ timeout: 10_000 });
     // Collapsed by default — the two-column body is not shown.
     await expect(toggle).toHaveAttribute('aria-expanded', 'false');
@@ -372,13 +379,25 @@ test.describe('Monte Carlo Schedule Integration (#333)', () => {
 
     await toggle.click();
 
-    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(
+      bar.getByRole('button', { name: /Minimize forecast detail/i }),
+    ).toHaveAttribute('aria-expanded', 'true');
     await expect(bar.getByText('Finish-date forecast')).toBeVisible();
     await expect(bar.getByText(/What.s holding the date/i)).toBeVisible();
     // The sensitivity bar is joined to the driving task's name.
     await expect(
       bar.getByRole('img', { name: /Backend API: 88% sensitivity/i }),
     ).toBeVisible();
+  });
+
+  test('the percentiles render on exactly one surface (rule 189)', async ({ page }) => {
+    await gotoScheduleWithMC(page);
+    // The whole point of ADR-0144: no second copy of the percentile chips. The
+    // consolidated bar owns them; the old top MonteCarloRow strip is deleted.
+    const bar = page.getByRole('region', { name: 'Schedule forecast' });
+    await expect(bar.getByText(/^P50:/)).toHaveCount(1);
+    await expect(bar.getByText(/^P80:/)).toHaveCount(1);
+    await expect(bar.getByText(/^P95:/)).toHaveCount(1);
   });
 });
 

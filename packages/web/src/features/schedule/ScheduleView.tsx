@@ -35,8 +35,7 @@ import { useScheduleKeyboard } from './useScheduleKeyboard';
 import { inferNearestSummaryParent } from './inferMilestoneParent';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { ROLE_ADMIN, ROLE_MEMBER } from '@/lib/roles';
-import { MonteCarloRow } from './MonteCarloRow';
-import { ScheduleInsightsBar } from './ScheduleInsightsBar';
+import { ScheduleForecastBar } from './ScheduleForecastBar';
 import { MonteCarloGanttMarkers } from './MonteCarloGanttMarkers';
 import { MobileMonteCarloCard } from './MobileMonteCarloCard';
 import { useMonteCarloResult } from '@/hooks/useMonteCarloResult';
@@ -600,7 +599,7 @@ export function ScheduleView() {
   // Task shown in the date input popover (null = popover closed)
   const [datePopoverTask, setDatePopoverTask] = useState<Task | null>(null);
 
-  // Increments on any successful task reschedule/resize — signals MonteCarloRow to show stale state.
+  // Increments on any successful task reschedule/resize — signals ScheduleForecastBar to show stale state.
   const [mcMutationVersion, setMcMutationVersion] = useState(0);
 
   // CPM finish for Monte Carlo delta. The server owns this value and returns it
@@ -1439,23 +1438,21 @@ export function ScheduleView() {
         />
       )}
 
+      {/* Single consolidated forecast surface (ADR-0144, web rule 189) — one
+          docked bottom bar owns the percentiles (rendered once), the histogram,
+          the sensitivity tornado, and the run-history disclosure. Replaces the
+          former MonteCarloRow + ScheduleInsightsBar two-surface split that
+          rendered the percentiles up to three times and disagreed on the day. */}
       {(currentRole === null || currentRole >= ROLE_MEMBER) && (
-        <>
-          <MonteCarloRow
-            engine={engine}
-            projectId={projectId ?? undefined}
-            taskListWidth={panelWidth}
-            cpmFinish={cpmFinish}
-            mutationVersion={mcMutationVersion}
-            tasks={allTasks}
-          />
-          {/* Forecast & sensitivity insights bar (issue 1222, ADR-0140) — collapsible
-              two-column forecast + duration-sensitivity tornado below the chips. */}
-          <ScheduleInsightsBar projectId={projectId ?? undefined} tasks={allTasks} />
-        </>
+        <ScheduleForecastBar
+          projectId={projectId ?? undefined}
+          cpmFinish={cpmFinish}
+          mutationVersion={mcMutationVersion}
+          tasks={allTasks}
+        />
       )}
 
-      {/* Mobile MC card — md:hidden; desktop uses MonteCarloRow above (issue #33) */}
+      {/* Mobile MC card — md:hidden; desktop uses ScheduleForecastBar above (issue #33) */}
       <MobileMonteCarloCard projectId={projectId ?? undefined} />
 
       {/* Milestone delta tooltip — at ScheduleView level to escape overflow:hidden (rule 31) */}

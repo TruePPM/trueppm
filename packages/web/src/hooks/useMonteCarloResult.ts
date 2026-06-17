@@ -23,7 +23,7 @@ interface MonteCarloLatestResponse {
   // resilience against older cached payloads written before the field existed.
   last_run_at?: string;
   // Server-computed CPM finish + per-percentile risk deltas + cumulative
-  // S-curve (#987). The server owns these derivations so the UI renders them
+  // S-curve (issue 987). The server owns these derivations so the UI renders them
   // instead of recomputing in the browser. Optional for resilience against
   // older cached payloads written before the fields existed. On the `/latest/`
   // from-history path (cache TTL expired) `confidence_curve` and
@@ -41,6 +41,14 @@ interface MonteCarloLatestResponse {
   sensitivity?: { task_id: string; index: number }[];
 }
 
+// issue 1231: the `/latest/` from-history fallback now returns the persisted
+// `histogram_buckets`/`confidence_curve`/`sensitivity` (populated, not empty)
+// when the run stored a distribution, so the histogram + tornado survive cache
+// expiry. No client change is needed — `mapResponse` already maps populated
+// arrays the same as the live-cache path (it dedupes/sorts buckets and maps
+// sensitivity), so a from-history result yields a real chart instead of the
+// empty-state prose. Legacy runs (no persisted distribution) still return empty
+// arrays and fall through to the prompt.
 function mapResponse(api: MonteCarloLatestResponse): MonteCarloResult {
   // Dedupe and sort histogram buckets by date. The API occasionally returns
   // multiple bucket entries for the same week (e.g. when the simulator emits
@@ -55,7 +63,7 @@ function mapResponse(api: MonteCarloLatestResponse): MonteCarloResult {
   const buckets = Array.from(merged.entries())
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([weekStart, count]) => ({ weekStart, count }));
-  // Server-owned risk derivations (#987). Default defensively so a legacy cached
+  // Server-owned risk derivations (issue 987). Default defensively so a legacy cached
   // payload that predates these fields still maps to a well-formed result rather
   // than `undefined` deltas: cpmFinish → null, deltas → null, curve → []. An
   // empty curve is also the legitimate from-history state past the cache TTL.

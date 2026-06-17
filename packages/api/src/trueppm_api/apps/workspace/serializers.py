@@ -112,6 +112,14 @@ class WorkspaceSettingsSerializer(serializers.ModelSerializer[Workspace]):
             # (ADR-0116, #1106). The non-null root of the inheritance chain.
             "iteration_label",
             "iteration_label_override_policy",
+            # Per-workspace Monte Carlo forecast-history config (ADR-0144, #1232) —
+            # the non-null root of the Workspace → Program → Project inheritance
+            # chain. mc_history_override_policy gates whether programs/projects may
+            # override (SUGGEST = yes in OSS; ENFORCE = Enterprise lock, no-op in OSS).
+            "mc_history_enabled",
+            "mc_history_retention_cap",
+            "mc_history_attribution_audience",
+            "mc_history_override_policy",
         ]
         read_only_fields = ["subdomain", "fiscal_year_start_display"]
 

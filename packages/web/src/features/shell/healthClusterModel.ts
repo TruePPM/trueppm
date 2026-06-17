@@ -89,10 +89,17 @@ function forecastSegment(
   stats: ShellStats | undefined,
   mc: { p50: string | null; p80: string | null } | undefined,
 ): HealthSegment {
-  // P80 stays sourced from the status-summary (unchanged source of truth — it also
-  // drives the no-run "—" state); P50 is layered in from the cached MC distribution
-  // that already drives the forecast drill-through panel (issue 1197).
-  return { kind: 'forecast', p50: mc?.p50 ?? null, p80: stats?.monteCarlop80 ?? null };
+  // P50 comes from the cached MC distribution that drives the forecast
+  // drill-through panel (issue 1197). P80 prefers the status-summary value, but
+  // falls back to the live MC result's p80 when the summary omits it (ADR-0144,
+  // issue 1231): the status summary hardcodes monte_carlo_p80 = None, which rendered
+  // the header as "P80 —" even when a real MC p80 existed. The fallback closes
+  // that gap so the header shows the date whenever any source has it.
+  return {
+    kind: 'forecast',
+    p50: mc?.p50 ?? null,
+    p80: stats?.monteCarlop80 ?? mc?.p80 ?? null,
+  };
 }
 
 function atRiskSegment(stats: ShellStats | undefined): HealthSegment {

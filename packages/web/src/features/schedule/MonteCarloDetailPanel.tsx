@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import type { MonteCarloResult, Task } from '@/types';
 import { MonteCarloHistogram } from './MonteCarloHistogram';
 import { SensitivityList } from './SensitivityList';
+import { fmtUtcShort, fmtUtcLong } from '@/lib/formatUtcDate';
 
 interface Props {
   result: MonteCarloResult;
@@ -11,20 +12,6 @@ interface Props {
   tasks: Task[];
   isOpen: boolean;
   onClose: () => void;
-}
-
-function fmtLong(iso: string): string {
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-  }).format(new Date(iso));
-}
-
-function fmtRelDate(iso: string): string {
-  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(
-    new Date(iso),
-  );
 }
 
 function DeltaRow({ label, delta }: { label: string; delta: number }) {
@@ -49,7 +36,7 @@ function DeltaRow({ label, delta }: { label: string; delta: number }) {
  * Slide-in drawer showing full Monte Carlo distribution detail.
  *
  * Desktop: 480px right-side panel. Mobile: 85vh bottom sheet.
- * Opens from the "Details" button in MonteCarloRow.
+ * Opens from the "Details" button in ScheduleForecastBar.
  * Reuses MonteCarloHistogram at a larger display size.
  */
 export function MonteCarloDetailPanel({ result, cpmFinish, tasks, isOpen, onClose }: Props) {
@@ -101,7 +88,7 @@ export function MonteCarloDetailPanel({ result, cpmFinish, tasks, isOpen, onClos
     return () => document.removeEventListener('keydown', trapFocus);
   }, [isOpen]);
 
-  // Server-computed risk premium vs the deterministic CPM finish (#987). The
+  // Server-computed risk premium vs the deterministic CPM finish (issue 987). The
   // section is gated on cpmFinish so it only shows when the deterministic spine
   // exists; the per-percentile values themselves come straight from the server.
   const p50Delta = cpmFinish ? result.deltaVsCpm.p50 : null;
@@ -109,7 +96,7 @@ export function MonteCarloDetailPanel({ result, cpmFinish, tasks, isOpen, onClos
   const p95Delta = cpmFinish ? result.deltaVsCpm.p95 : null;
 
   // Confidence-by-date: render the server-computed cumulative S-curve directly
-  // (#987) — the cumulative fold lives on the backend now (single source of
+  // (issue 987) — the cumulative fold lives on the backend now (single source of
   // truth, MCP-reachable). We only handle display sampling here: round the
   // server pct, sample every other point plus the last, and drop the extremes
   // that crowd the chart. When the curve is empty — the from-history path past
@@ -132,7 +119,7 @@ export function MonteCarloDetailPanel({ result, cpmFinish, tasks, isOpen, onClos
           <h2 className="text-sm font-semibold text-neutral-text-primary">Monte Carlo forecast</h2>
           {cpmFinish && (
             <p className="text-xs text-neutral-text-secondary mt-0.5">
-              CPM finish: {fmtLong(cpmFinish)}
+              CPM finish: {fmtUtcLong(cpmFinish)}
             </p>
           )}
         </div>
@@ -194,7 +181,7 @@ export function MonteCarloDetailPanel({ result, cpmFinish, tasks, isOpen, onClos
                   className={`flex items-center gap-3 text-xs py-1 ${r.isP80 ? 'font-medium' : ''}`}
                 >
                   <span className="tppm-mono text-neutral-text-secondary w-16 shrink-0">
-                    {fmtRelDate(r.date)}
+                    {fmtUtcShort(r.date)}
                   </span>
                   <div className="flex-1 bg-neutral-surface-raised rounded-full h-1.5 overflow-hidden">
                     <div

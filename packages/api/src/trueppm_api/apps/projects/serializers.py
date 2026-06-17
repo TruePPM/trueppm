@@ -164,6 +164,16 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
     inherited_public_sharing = serializers.SerializerMethodField()
     effective_allow_guests = serializers.SerializerMethodField()
     inherited_allow_guests = serializers.SerializerMethodField()
+    # Server-resolved Monte Carlo forecast-history config (ADR-0144, #1232): project
+    # override ?? program override ?? workspace value. Clients read the
+    # ``effective_mc_history_*`` fields; ``inherited_mc_history_*`` is what the project
+    # would show if its own override were cleared (drives the "Inherit (…)" affordance).
+    effective_mc_history_enabled = serializers.SerializerMethodField()
+    inherited_mc_history_enabled = serializers.SerializerMethodField()
+    effective_mc_history_retention_cap = serializers.SerializerMethodField()
+    inherited_mc_history_retention_cap = serializers.SerializerMethodField()
+    effective_mc_history_attribution_audience = serializers.SerializerMethodField()
+    inherited_mc_history_attribution_audience = serializers.SerializerMethodField()
 
     class Meta:
         model = Project
@@ -208,6 +218,18 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "inherited_public_sharing",
             "effective_allow_guests",
             "inherited_allow_guests",
+            # MC forecast-history overrides (ADR-0144, #1232). Nullable: NULL =
+            # inherit program/workspace. Admin+-gated write by the allowlist default
+            # (not in _SCHEDULER_WRITABLE_FIELDS, so the validate() gate blocks Scheduler).
+            "mc_history_enabled",
+            "mc_history_retention_cap",
+            "mc_history_attribution_audience",
+            "effective_mc_history_enabled",
+            "inherited_mc_history_enabled",
+            "effective_mc_history_retention_cap",
+            "inherited_mc_history_retention_cap",
+            "effective_mc_history_attribution_audience",
+            "inherited_mc_history_attribution_audience",
             "program",
             "member_count",
             "percent_complete",
@@ -226,10 +248,21 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "inherited_public_sharing",
             "effective_allow_guests",
             "inherited_allow_guests",
+            "effective_mc_history_enabled",
+            "inherited_mc_history_enabled",
+            "effective_mc_history_retention_cap",
+            "inherited_mc_history_retention_cap",
+            "effective_mc_history_attribution_audience",
+            "inherited_mc_history_attribution_audience",
             "is_archived",
             "archived_at",
             "archived_by",
         ]
+        # The audience override is null=True (= inherit) but must not accept an
+        # empty string: a blank value matches no enum member and would silently
+        # fall through to the most-restrictive ADMIN_OWNER. Reject "" with a 400
+        # so the only ways to clear an override are null (inherit) or a real enum.
+        extra_kwargs = {"mc_history_attribution_audience": {"allow_blank": False}}
 
     def get_member_count(self, obj: Project) -> int | None:
         """Active membership count — only annotated on the ungrouped list
@@ -428,6 +461,80 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
 
         return resolve_inherited_sharing(obj, "allow_guests", workspace=self._iteration_workspace())
 
+    def get_effective_mc_history_enabled(self, obj: Project) -> bool:
+        from trueppm_api.apps.scheduling.forecast_history_settings import (
+            resolve_effective_mc_history,
+        )
+
+        # The resolver is key-agnostic (returns bool/int/str by key), so it is typed
+        # Any; cast to the concrete type this field declares.
+        return cast(
+            bool,
+            resolve_effective_mc_history(
+                obj, "mc_history_enabled", workspace=self._iteration_workspace()
+            ),
+        )
+
+    def get_inherited_mc_history_enabled(self, obj: Project) -> bool:
+        from trueppm_api.apps.scheduling.forecast_history_settings import (
+            resolve_inherited_mc_history,
+        )
+
+        return cast(
+            bool,
+            resolve_inherited_mc_history(
+                obj, "mc_history_enabled", workspace=self._iteration_workspace()
+            ),
+        )
+
+    def get_effective_mc_history_retention_cap(self, obj: Project) -> int:
+        from trueppm_api.apps.scheduling.forecast_history_settings import (
+            resolve_effective_mc_history,
+        )
+
+        return cast(
+            int,
+            resolve_effective_mc_history(
+                obj, "mc_history_retention_cap", workspace=self._iteration_workspace()
+            ),
+        )
+
+    def get_inherited_mc_history_retention_cap(self, obj: Project) -> int:
+        from trueppm_api.apps.scheduling.forecast_history_settings import (
+            resolve_inherited_mc_history,
+        )
+
+        return cast(
+            int,
+            resolve_inherited_mc_history(
+                obj, "mc_history_retention_cap", workspace=self._iteration_workspace()
+            ),
+        )
+
+    def get_effective_mc_history_attribution_audience(self, obj: Project) -> str:
+        from trueppm_api.apps.scheduling.forecast_history_settings import (
+            resolve_effective_mc_history,
+        )
+
+        return cast(
+            str,
+            resolve_effective_mc_history(
+                obj, "mc_history_attribution_audience", workspace=self._iteration_workspace()
+            ),
+        )
+
+    def get_inherited_mc_history_attribution_audience(self, obj: Project) -> str:
+        from trueppm_api.apps.scheduling.forecast_history_settings import (
+            resolve_inherited_mc_history,
+        )
+
+        return cast(
+            str,
+            resolve_inherited_mc_history(
+                obj, "mc_history_attribution_audience", workspace=self._iteration_workspace()
+            ),
+        )
+
     def _iteration_workspace(self) -> Workspace:
         """Load the Workspace singleton once per serializer instance.
 
@@ -515,6 +622,16 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
     inherited_public_sharing = serializers.SerializerMethodField()
     effective_allow_guests = serializers.SerializerMethodField()
     inherited_allow_guests = serializers.SerializerMethodField()
+    # Server-resolved Monte Carlo forecast-history config (ADR-0144, #1232): program
+    # override ?? workspace value. Clients read the ``effective_mc_history_*`` fields;
+    # ``inherited_mc_history_*`` is the workspace value the program shows when its own
+    # override is cleared (drives the "Inherit (…)" affordance).
+    effective_mc_history_enabled = serializers.SerializerMethodField()
+    inherited_mc_history_enabled = serializers.SerializerMethodField()
+    effective_mc_history_retention_cap = serializers.SerializerMethodField()
+    inherited_mc_history_retention_cap = serializers.SerializerMethodField()
+    effective_mc_history_attribution_audience = serializers.SerializerMethodField()
+    inherited_mc_history_attribution_audience = serializers.SerializerMethodField()
 
     class Meta:
         model = Program
@@ -537,6 +654,17 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             "inherited_public_sharing",
             "effective_allow_guests",
             "inherited_allow_guests",
+            # MC forecast-history overrides (ADR-0144, #1232). Nullable: NULL =
+            # inherit workspace. Admin+-gated write (program viewset gates at ADMIN).
+            "mc_history_enabled",
+            "mc_history_retention_cap",
+            "mc_history_attribution_audience",
+            "effective_mc_history_enabled",
+            "inherited_mc_history_enabled",
+            "effective_mc_history_retention_cap",
+            "inherited_mc_history_retention_cap",
+            "effective_mc_history_attribution_audience",
+            "inherited_mc_history_attribution_audience",
             "health",
             "visibility",
             "color",
@@ -570,10 +698,19 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             "inherited_public_sharing",
             "effective_allow_guests",
             "inherited_allow_guests",
+            "effective_mc_history_enabled",
+            "inherited_mc_history_enabled",
+            "effective_mc_history_retention_cap",
+            "inherited_mc_history_retention_cap",
+            "effective_mc_history_attribution_audience",
+            "inherited_mc_history_attribution_audience",
             "is_closed",
             "closed_at",
             "closed_by",
         ]
+        # See ProjectSerializer: the audience override is null=True (= inherit)
+        # but "" must 400 rather than fall through to the restrictive default.
+        extra_kwargs = {"mc_history_attribution_audience": {"allow_blank": False}}
 
     def get_my_role(self, obj: Program) -> int | None:
         # The viewset attaches ``_my_role`` to each instance (annotated on the
@@ -641,6 +778,80 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
         from .sharing_settings import resolve_inherited_sharing
 
         return resolve_inherited_sharing(obj, "allow_guests", workspace=self._sharing_workspace())
+
+    def get_effective_mc_history_enabled(self, obj: Program) -> bool:
+        from trueppm_api.apps.scheduling.forecast_history_settings import (
+            resolve_effective_mc_history,
+        )
+
+        # The resolver is key-agnostic (returns bool/int/str by key), so it is typed
+        # Any; cast to the concrete type this field declares.
+        return cast(
+            bool,
+            resolve_effective_mc_history(
+                obj, "mc_history_enabled", workspace=self._sharing_workspace()
+            ),
+        )
+
+    def get_inherited_mc_history_enabled(self, obj: Program) -> bool:
+        from trueppm_api.apps.scheduling.forecast_history_settings import (
+            resolve_inherited_mc_history,
+        )
+
+        return cast(
+            bool,
+            resolve_inherited_mc_history(
+                obj, "mc_history_enabled", workspace=self._sharing_workspace()
+            ),
+        )
+
+    def get_effective_mc_history_retention_cap(self, obj: Program) -> int:
+        from trueppm_api.apps.scheduling.forecast_history_settings import (
+            resolve_effective_mc_history,
+        )
+
+        return cast(
+            int,
+            resolve_effective_mc_history(
+                obj, "mc_history_retention_cap", workspace=self._sharing_workspace()
+            ),
+        )
+
+    def get_inherited_mc_history_retention_cap(self, obj: Program) -> int:
+        from trueppm_api.apps.scheduling.forecast_history_settings import (
+            resolve_inherited_mc_history,
+        )
+
+        return cast(
+            int,
+            resolve_inherited_mc_history(
+                obj, "mc_history_retention_cap", workspace=self._sharing_workspace()
+            ),
+        )
+
+    def get_effective_mc_history_attribution_audience(self, obj: Program) -> str:
+        from trueppm_api.apps.scheduling.forecast_history_settings import (
+            resolve_effective_mc_history,
+        )
+
+        return cast(
+            str,
+            resolve_effective_mc_history(
+                obj, "mc_history_attribution_audience", workspace=self._sharing_workspace()
+            ),
+        )
+
+    def get_inherited_mc_history_attribution_audience(self, obj: Program) -> str:
+        from trueppm_api.apps.scheduling.forecast_history_settings import (
+            resolve_inherited_mc_history,
+        )
+
+        return cast(
+            str,
+            resolve_inherited_mc_history(
+                obj, "mc_history_attribution_audience", workspace=self._sharing_workspace()
+            ),
+        )
 
     def validate_lead(self, value: Any) -> Any:
         """Lead must hold an active ProgramMembership on this program.

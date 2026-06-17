@@ -1,5 +1,5 @@
 /**
- * Formatting for Monte Carlo forecast-drift deltas (ADR-0109, #961).
+ * Formatting for Monte Carlo forecast-drift deltas (ADR-0109, issue 961).
  *
  * A delta is the change in a percentile finish date versus the immediately
  * previous (older) run, in days. Positive = the forecast slipped later (worse);
@@ -60,12 +60,19 @@ export function deltaToneClass(tone: DeltaTone): string {
   }
 }
 
-/** Format an ISO date string as e.g. "Aug 28, 2026", or "—" when null. */
+/**
+ * Format an ISO date string as e.g. "Aug 28, 2026", or "—" when null.
+ *
+ * Pinned to `timeZone: 'UTC'`: the server's forecast dates are UTC calendar
+ * dates with no offset, so a local-zone format drifts a day west of UTC
+ * (ADR-0144 — the same root cause `lib/formatUtcDate` fixes elsewhere).
+ */
 export function fmtForecastDate(iso: string | null | undefined): string {
   if (!iso) return '—';
   return new Date(iso).toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
+    timeZone: 'UTC',
   });
 }

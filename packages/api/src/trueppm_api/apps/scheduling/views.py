@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from datetime import date as _date
 from datetime import timedelta
-from typing import cast
+from typing import Any, cast
 
 from celery import current_app
 from django.conf import settings
@@ -134,6 +135,47 @@ def _confidence_curve(histogram: list[dict[str, object]], total: int) -> list[di
         cumulative += cast(int, bucket["count"])
         curve.append({"date": bucket["date"], "pct": round(cumulative / total * 100, 1)})
     return curve
+
+
+def _distribution_for_persist(payload: dict[str, Any]) -> dict[str, Any]:
+    """Shrink the distribution payload to fit MC_DISTRIBUTION_MAX_BYTES for storage (#1231).
+
+    Takes the ``{histogram_buckets, confidence_curve, sensitivity}`` slice of the
+    full result and, if its serialized size exceeds the cap, down-samples the
+    histogram (keeps every Nth bucket, always retaining the first and last so the
+    spread endpoints survive) until it fits. The confidence curve is recomputed
+    from the thinned buckets so the two stay consistent; sensitivity is left intact
+    (it is bounded by the task count, not the bucket count).
+
+    Returns a NEW dict — the caller's full ``result_dict`` (and the cache copy it
+    feeds) is never mutated, so the live view still serves the full-resolution
+    histogram while the persisted row is bounded against a pathological run.
+    """
+    dist = {
+        "histogram_buckets": payload.get("histogram_buckets", []),
+        "confidence_curve": payload.get("confidence_curve", []),
+        "sensitivity": payload.get("sensitivity", []),
+    }
+    cap = settings.MC_DISTRIBUTION_MAX_BYTES
+    if len(json.dumps(dist).encode()) <= cap:
+        return dist
+
+    buckets: list[dict[str, object]] = list(dist["histogram_buckets"])
+    total = sum(cast(int, b.get("count", 0)) for b in buckets)
+    # Increase the stride until the serialized payload fits. Always keep the first
+    # and last bucket so the distribution's min/max dates are preserved.
+    stride = 2
+    while len(json.dumps(dist).encode()) > cap and stride <= max(len(buckets), 2):
+        thinned = [b for i, b in enumerate(buckets) if i % stride == 0]
+        if buckets and buckets[-1] not in thinned:
+            thinned.append(buckets[-1])
+        dist = {
+            "histogram_buckets": thinned,
+            "confidence_curve": _confidence_curve(thinned, total),
+            "sensitivity": dist["sensitivity"],
+        }
+        stride += 1
+    return dist
 
 
 @extend_schema(
@@ -366,6 +408,11 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     # a write failure inside the service is logged and swallowed so the simulation
     # result is still returned; the response carries the run id when persistence
     # succeeded.
+    # Persist the same distribution slice the cache holds, but bounded to
+    # MC_DISTRIBUTION_MAX_BYTES via down-sampling (#1231) — the cache copy above is
+    # full-resolution and untouched. Stored so the histogram + tornado survive
+    # cache expiry and a past run stays re-viewable.
+    distribution = _distribution_for_persist(result_dict)
     run = record_monte_carlo_run(
         str(project.pk),
         p50=mc_result.p50,
@@ -375,6 +422,7 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
         cpm_finish=cpm_finish,
         task_count=len(db_tasks),
         user=request.user,
+        distribution=distribution,
     )
     if run is not None:
         result_dict["run_id"] = str(run.id)
@@ -397,10 +445,11 @@ class MonteCarloLatestView(APIView):
 
         Falls back to the most recent persisted ``MonteCarloRun`` when the 24-hour
         cache has expired (ADR-0109): the latest forecast now survives past the
-        TTL. The fallback carries the percentiles but an empty histogram — the raw
-        simulation distribution is intentionally not persisted (only the
-        percentile band is), so the chips render from history while the histogram
-        needs a fresh run.
+        TTL. As of #1231 the run also persists its distribution, so when present the
+        fallback returns the real ``histogram_buckets``/``confidence_curve``/
+        ``sensitivity`` instead of empty arrays — the histogram survives cache
+        expiry. Legacy runs (no persisted distribution) still fall back to empty,
+        and the frontend renders the empty-state prose for them.
         """
         project = get_object_or_404(Project, pk=pk, is_deleted=False)
         self.check_object_permissions(request, project)
@@ -414,11 +463,12 @@ class MonteCarloLatestView(APIView):
                 {"detail": "No simulation result available."},
                 status=status.HTTP_404_NOT_FOUND,
             )
-        # cpm_finish + delta_vs_cpm survive the TTL because both are persisted on
-        # the run (ADR-0109); the confidence_curve does not — it needs the raw
-        # distribution, which is intentionally not persisted — so it falls back to
-        # empty, mirroring histogram_buckets. The chips render from history; the
-        # S-curve needs a fresh run (#987).
+        # cpm_finish + delta_vs_cpm survive the TTL because both are persisted on the
+        # run (ADR-0109). The distribution (#1231) now survives too when persisted:
+        # use the stored buckets/curve/sensitivity, falling back to empty arrays for
+        # legacy runs that pre-date persistence (the frontend shows the empty-state
+        # prose then). Response shape is unchanged (snake_case keys).
+        dist = latest.distribution or {}
         return Response(
             {
                 "p50": latest.p50.isoformat() if latest.p50 else None,
@@ -430,13 +480,10 @@ class MonteCarloLatestView(APIView):
                     "p80": _delta_vs_cpm_days(latest.p80, latest.cpm_finish),
                     "p95": _delta_vs_cpm_days(latest.p95, latest.cpm_finish),
                 },
-                "confidence_curve": [],
+                "confidence_curve": dist.get("confidence_curve", []),
                 "runs": latest.n_simulations,
-                "histogram_buckets": [],
-                # Sensitivity, like the S-curve and histogram, is not persisted on
-                # the run row (ADR-0140) — it needs the raw sampled matrix. On a
-                # cache miss it degrades to empty; a fresh run repopulates it.
-                "sensitivity": [],
+                "histogram_buckets": dist.get("histogram_buckets", []),
+                "sensitivity": dist.get("sensitivity", []),
                 "last_run_at": latest.taken_at.isoformat(),
                 "from_history": True,
             }
@@ -451,15 +498,29 @@ MC_HISTORY_RESPONSE_MAX = 500
 
 
 @extend_schema(
+    parameters=[
+        OpenApiParameter(
+            "expand",
+            str,
+            description=(
+                "Set to 'distribution' to include each run's persisted distribution "
+                "({histogram_buckets, confidence_curve, sensitivity}) payload (#1231). "
+                "Omitted by default to keep the list lightweight; distribution is null "
+                "unless expanded or for legacy runs with no stored distribution."
+            ),
+        ),
+    ],
     responses={
         200: OpenApiResponse(
             response=OpenApiTypes.OBJECT,
             description=(
-                "Project Monte Carlo run history (ADR-0109). "
-                "{results: [MonteCarloRun], cap: int|null}. Each run carries P50/P80/P95, "
-                "cpm_finish, n_simulations, task_count, a per-percentile delta vs the "
-                "previous run (null on the oldest row), and triggered_by_name "
-                "(non-null only for Admin/Owner)."
+                "Project Monte Carlo run history (ADR-0109/0143). "
+                "{results: [MonteCarloRun], cap: int|null, enabled: bool}. When the "
+                "per-workspace config disables history, enabled is false and results is "
+                "empty. Each run carries P50/P80/P95, cpm_finish, n_simulations, "
+                "task_count, a per-percentile delta vs the previous run (null on the "
+                "oldest row), triggered_by_name (non-null only for the resolved "
+                "attribution audience), and distribution (only when ?expand=distribution)."
             ),
         ),
         404: OpenApiResponse(
@@ -487,21 +548,42 @@ class MonteCarloHistoryView(APIView):
         """Return the capped, newest-first run history with per-run deltas."""
         from trueppm_api.apps.access.models import Role
         from trueppm_api.apps.access.permissions import _membership_role
+        from trueppm_api.apps.scheduling.forecast_history_settings import (
+            resolve_effective_mc_history,
+        )
+        from trueppm_api.apps.scheduling.models import MCAttributionAudience
 
         project = get_object_or_404(Project, pk=pk, is_deleted=False)
         self.check_object_permissions(request, project)
 
-        cap: int | None = settings.MC_HISTORY_CAP
-        # Hard response ceiling: even when MC_HISTORY_CAP is None (Enterprise
-        # unlimited *retention*), a single API response must stay bounded — keep
-        # the newest MC_HISTORY_RESPONSE_MAX rows. select_related avoids an N+1 on
-        # triggered_by when attribution is serialized for an Admin/Owner.
+        # Per-workspace forecast-history config (ADR-0144, #1232), inheritable
+        # Workspace → Program → Project. When the effective config disables history,
+        # return 200 with an empty list + enabled:false rather than 403/404 — the
+        # feature is off, not access-denied, so the FE renders a "history off" state.
+        if not resolve_effective_mc_history(project, "mc_history_enabled"):
+            return Response({"results": [], "cap": None, "enabled": False})
+
+        # The retention cap is now per-workspace-effective (clamped to
+        # MC_HISTORY_HARD_CAP in the resolver) rather than the global constant.
+        cap: int | None = resolve_effective_mc_history(project, "mc_history_retention_cap")
+        # Hard response ceiling: even when the cap is None (Enterprise unlimited
+        # *retention*), a single API response must stay bounded — keep the newest
+        # MC_HISTORY_RESPONSE_MAX rows. select_related avoids an N+1 on triggered_by
+        # when attribution is serialized.
         limit = cap if cap is not None else MC_HISTORY_RESPONSE_MAX
+        # ?expand=distribution opts a single detail fetch into the heavier per-run
+        # distribution payload (#1231); the default list stays lightweight.
+        expand_distribution = request.query_params.get("expand") == "distribution"
         qs = (
             MonteCarloRun.objects.filter(project_id=pk)
             .select_related("triggered_by")
             .order_by("-taken_at")
         )
+        # The distribution column is up to MC_DISTRIBUTION_MAX_BYTES per row; the
+        # serializer never reads it on the default list path, so defer it there to
+        # avoid fetching + JSON-parsing ~limit×32KB only to discard it.
+        if not expand_distribution:
+            qs = qs.defer("distribution")
         runs = list(qs[:limit])
 
         # Computed-on-read delta (ADR-0108): each run vs the next-older run.
@@ -523,14 +605,30 @@ class MonteCarloHistoryView(APIView):
                     "p95": _diff(run.p95, older.p95),
                 }
 
+        # Attribution audience is now resolved per-workspace (ADR-0144) instead of a
+        # hardcoded Admin/Owner gate: ADMIN_OWNER → role ≥ ADMIN; SCHEDULER_PLUS →
+        # role ≥ SCHEDULER; NONE → never. Default ADMIN_OWNER reproduces the prior
+        # behavior exactly. Drift must not become a named-individual signal below
+        # the configured audience (VoC Morgan).
         role = _membership_role(request, pk)
-        can_see_attribution = role is not None and role >= Role.ADMIN
+        audience = resolve_effective_mc_history(project, "mc_history_attribution_audience")
+        if audience == MCAttributionAudience.NONE:
+            can_see_attribution = False
+        elif audience == MCAttributionAudience.SCHEDULER_PLUS:
+            can_see_attribution = role is not None and role >= Role.SCHEDULER
+        else:  # ADMIN_OWNER (default)
+            can_see_attribution = role is not None and role >= Role.ADMIN
+
         data = MonteCarloRunSerializer(
             runs,
             many=True,
-            context={"request": request, "can_see_attribution": can_see_attribution},
+            context={
+                "request": request,
+                "can_see_attribution": can_see_attribution,
+                "expand_distribution": expand_distribution,
+            },
         ).data
-        return Response({"results": data, "cap": cap})
+        return Response({"results": data, "cap": cap, "enabled": True})
 
 
 @extend_schema_view(

@@ -173,11 +173,28 @@ describe('HealthCluster', () => {
 
   it('forecast "—" when the scheduler has not run', () => {
     methodology.current = 'WATERFALL';
+    // Genuine empty state: neither the status summary nor a live MC result
+    // carries a P80. The summary alone being null is no longer enough — the
+    // segment now falls back to the live MC result's p80 (ADR-0144 fix for the
+    // "P80 —" bug), so the MC result must be absent for the em-dash to show.
     stats.current = { ...FIXTURE_SHELL_STATS, monteCarlop80: null };
+    mcResult.current = undefined;
     render();
     const cluster = screen.getByRole('group', { name: 'Project health' });
     expect(within(cluster).queryByRole('button', { name: /monte carlo/i })).not.toBeInTheDocument();
     expect(within(cluster).getByText('—')).toBeInTheDocument();
+  });
+
+  it('forecast falls back to the live MC P80 when the status summary omits it', () => {
+    methodology.current = 'WATERFALL';
+    // The status summary hardcodes monte_carlo_p80 = null (projects/views.py),
+    // but a fresh MC run is cached. The header must show that p80, not "—".
+    stats.current = { ...FIXTURE_SHELL_STATS, monteCarlop80: null };
+    mcResult.current = { p50: '2026-10-05', p80: '2026-11-03', p95: '2026-11-30' };
+    render();
+    const cluster = screen.getByRole('group', { name: 'Project health' });
+    expect(within(cluster).getByRole('button', { name: /monte carlo/i })).toBeInTheDocument();
+    expect(within(cluster).queryByText('—')).not.toBeInTheDocument();
   });
 
   it('clicking the Forecast segment opens the MC distribution panel', async () => {

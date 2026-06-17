@@ -18,7 +18,7 @@ interface Props {
 
 /**
  * Compact MC confidence card shown only below md (rule 22 — desktop renders
- * the full MonteCarloRow instead). Surfaces P50/P80/P95 chips and opens a
+ * the full ScheduleForecastBar instead). Surfaces P50/P80/P95 chips and opens a
  * full-screen histogram sheet on tap. Addresses issue #33.
  *
  * When no simulation has been cached for the project, renders an inline

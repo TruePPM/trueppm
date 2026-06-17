@@ -16,6 +16,10 @@ function wireHistory(results: unknown[], cap: number | null = 100) {
   mockGet.mockResolvedValue({ data: { results, cap } } as never);
 }
 
+function wireHistoryEnvelope(envelope: Record<string, unknown>) {
+  mockGet.mockResolvedValue({ data: envelope } as never);
+}
+
 const RUN_NEWEST = {
   id: 'r2',
   taken_at: '2026-06-06T14:14:00Z',
@@ -112,5 +116,48 @@ describe('ForecastHistorySection', () => {
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
     await user.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('shows the "history turned off" note when the workspace disabled it (#1232)', async () => {
+    // Envelope variant: enabled:false with an empty list — a quiet note, not a
+    // broken empty shell.
+    wireHistoryEnvelope({ results: [], cap: 100, enabled: false });
+    renderWithProviders(<ForecastHistorySection projectId="p1" />);
+    expect(
+      await screen.findByText(/Run history is turned off for this workspace/i),
+    ).toBeInTheDocument();
+  });
+
+  it('expands a past run to render its persisted distribution histogram (#1231)', async () => {
+    // The first GET (no expand) lists runs; the row's "View distribution" GET
+    // (?expand=distribution) returns the same run carrying a populated
+    // distribution. Both go through the same mocked apiClient.get.
+    const runWithDist = {
+      ...RUN_NEWEST,
+      distribution: {
+        histogram_buckets: [
+          { date: '2026-08-24', count: 200 },
+          { date: '2026-08-31', count: 600 },
+          { date: '2026-09-07', count: 200 },
+        ],
+        confidence_curve: [
+          { date: '2026-08-24', pct: 0.2 },
+          { date: '2026-09-07', pct: 1 },
+        ],
+        sensitivity: [{ task_id: 't1', index: 0.8 }],
+      },
+    };
+    wireHistory([runWithDist, RUN_OLDEST]);
+    const user = userEvent.setup();
+    renderWithProviders(<ForecastHistorySection projectId="p1" />);
+    const viewBtn = (await screen.findAllByRole('button', { name: /view distribution/i }))[0];
+    await user.click(viewBtn);
+    // The persisted distribution drives a real histogram (role="img" SVG with
+    // the percentile label), not the cold-state prompt.
+    await waitFor(() =>
+      expect(
+        screen.getByRole('img', { name: /Monte Carlo distribution\. P50/i }),
+      ).toBeInTheDocument(),
+    );
   });
 });

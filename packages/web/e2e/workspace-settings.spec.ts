@@ -28,6 +28,12 @@ const WORKSPACE = {
   // carries these; without them IterationLabelField crashes on `value.trim()`.
   iteration_label: 'Sprint',
   iteration_label_override_policy: 'suggest',
+  // Forecast-history config (ADR-0144, issue 1232) — the workspace root is non-null,
+  // so the General page renders plain (non-inheritable) controls seeded from these.
+  mc_history_enabled: true,
+  mc_history_retention_cap: 100,
+  mc_history_attribution_audience: 'ADMIN_OWNER',
+  mc_history_override_policy: 'allow',
 };
 
 const MEMBER = {
@@ -147,6 +153,45 @@ test.describe('Workspace General page', () => {
       'aria-pressed',
       'false',
     );
+  });
+
+  test('forecast history — group renders seeded controls and the toggle flips (ADR-0144)', async ({
+    page,
+  }) => {
+    await setup(page);
+    let patchBody: Record<string, unknown> | undefined;
+    await page.route('**/api/v1/workspace/', (r) => {
+      if (r.request().method() === 'PATCH') {
+        patchBody = r.request().postDataJSON();
+        return r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: pj({ ...WORKSPACE, mc_history_enabled: false }),
+        });
+      }
+      return r.fulfill({ status: 200, contentType: 'application/json', body: pj(WORKSPACE) });
+    });
+
+    await page.goto('/settings/general');
+
+    // The group renders, seeded from the workspace payload.
+    await expect(page.getByRole('heading', { name: 'Forecast history' })).toBeVisible();
+    const keepToggle = page.getByRole('switch', { name: 'Keep Monte Carlo run history' });
+    await expect(keepToggle).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByRole('spinbutton', { name: 'Run history limit' })).toHaveValue('100');
+    await expect(
+      page.getByRole('combobox', { name: 'Run attribution visible to' }),
+    ).toHaveValue('ADMIN_OWNER');
+
+    // The workspace-only override policy renders the Lock option as a disabled
+    // Enterprise affordance; "May override" is the live OSS default.
+    await expect(page.getByRole('radio', { name: /Lock workspace-wide/i })).toBeDisabled();
+
+    // Flipping the toggle arms the save bar and the PATCH carries the new value.
+    await keepToggle.click();
+    await expect(keepToggle).toHaveAttribute('aria-checked', 'false');
+    await page.getByRole('button', { name: /save/i }).click();
+    await expect.poll(() => patchBody).toMatchObject({ mc_history_enabled: false });
   });
 
   test('golden path — PATCH dispatched when Save is triggered via name change', async ({

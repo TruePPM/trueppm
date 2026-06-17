@@ -9,10 +9,19 @@ import { useProgram } from '@/hooks/useProgram';
 import { useUpdateProgram } from '@/hooks/useProgramMutations';
 import { InheritableIterationLabelField } from '../components/InheritableIterationLabelField';
 import { InheritableToggleField } from '../components/InheritableToggleField';
+import { InheritableNumberField } from '../components/InheritableNumberField';
+import { InheritableSelectField } from '../components/InheritableSelectField';
+import { MC_ATTRIBUTION_OPTIONS, MC_ATTRIBUTION_HINT, MC_HISTORY_HINT } from '../forecastHistory';
 import { DEFAULT_ITERATION_LABEL } from '@/lib/iterationLabel';
 import { useExportProgramSeed } from '@/hooks/useProgramSeedIo';
 import { ROLE_ADMIN } from '@/lib/roles';
-import type { ProgramHealth, ProgramMethodology, ProgramVisibility } from '@/api/types';
+import type {
+  MCAttributionAudience,
+  ProgramHealth,
+  ProgramMethodology,
+  ProgramVisibility,
+} from '@/api/types';
+import { MC_HISTORY_RETENTION_MAX, MC_HISTORY_RETENTION_MIN } from '@/api/types';
 import { PROGRAM_ACCENT_SWATCHES, contrastText } from '@/features/programs/programColor';
 
 const HEALTH_OPTIONS: Array<{ id: ProgramHealth; label: string }> = [
@@ -69,6 +78,11 @@ export function ProgramGeneralPage() {
   // null = inherit the workspace value (ADR-0135).
   const [publicSharing, setPublicSharing] = useState<boolean | null>(null);
   const [allowGuests, setAllowGuests] = useState<boolean | null>(null);
+  // null = inherit the workspace value (ADR-0144, issue 1232).
+  const [mcHistoryEnabled, setMcHistoryEnabled] = useState<boolean | null>(null);
+  const [mcHistoryRetentionCap, setMcHistoryRetentionCap] = useState<number | null>(null);
+  const [mcHistoryAttributionAudience, setMcHistoryAttributionAudience] =
+    useState<MCAttributionAudience | null>(null);
   const [visibility, setVisibility] = useState<ProgramVisibility>('WORKSPACE');
   // null = no accent chosen (renders as a health-tinted neutral on the card).
   const [color, setColor] = useState<string | null>(null);
@@ -92,6 +106,12 @@ export function ProgramGeneralPage() {
   const [initialIterationLabel, setInitialIterationLabel] = useState<string | null>(null);
   const [initialPublicSharing, setInitialPublicSharing] = useState<boolean | null>(null);
   const [initialAllowGuests, setInitialAllowGuests] = useState<boolean | null>(null);
+  const [initialMcHistoryEnabled, setInitialMcHistoryEnabled] = useState<boolean | null>(null);
+  const [initialMcHistoryRetentionCap, setInitialMcHistoryRetentionCap] = useState<number | null>(
+    null,
+  );
+  const [initialMcHistoryAttributionAudience, setInitialMcHistoryAttributionAudience] =
+    useState<MCAttributionAudience | null>(null);
   const [initialVisibility, setInitialVisibility] = useState<ProgramVisibility>('WORKSPACE');
   const [initialColor, setInitialColor] = useState<string | null>(null);
   const [initialLead, setInitialLead] = useState<string | null>(null);
@@ -107,6 +127,9 @@ export function ProgramGeneralPage() {
     setIterationLabel(program.iteration_label ?? null);
     setPublicSharing(program.public_sharing ?? null);
     setAllowGuests(program.allow_guests ?? null);
+    setMcHistoryEnabled(program.mc_history_enabled ?? null);
+    setMcHistoryRetentionCap(program.mc_history_retention_cap ?? null);
+    setMcHistoryAttributionAudience(program.mc_history_attribution_audience ?? null);
     setVisibility(program.visibility);
     setColor(program.color ?? null);
     setLead(program.lead ?? null);
@@ -118,6 +141,9 @@ export function ProgramGeneralPage() {
     setInitialIterationLabel(program.iteration_label ?? null);
     setInitialPublicSharing(program.public_sharing ?? null);
     setInitialAllowGuests(program.allow_guests ?? null);
+    setInitialMcHistoryEnabled(program.mc_history_enabled ?? null);
+    setInitialMcHistoryRetentionCap(program.mc_history_retention_cap ?? null);
+    setInitialMcHistoryAttributionAudience(program.mc_history_attribution_audience ?? null);
     setInitialVisibility(program.visibility);
     setInitialColor(program.color ?? null);
     setInitialLead(program.lead ?? null);
@@ -133,6 +159,9 @@ export function ProgramGeneralPage() {
       iterationLabel,
       publicSharing,
       allowGuests,
+      mcHistoryEnabled,
+      mcHistoryRetentionCap,
+      mcHistoryAttributionAudience,
       visibility,
       color,
       lead,
@@ -146,6 +175,9 @@ export function ProgramGeneralPage() {
       iterationLabel,
       publicSharing,
       allowGuests,
+      mcHistoryEnabled,
+      mcHistoryRetentionCap,
+      mcHistoryAttributionAudience,
       visibility,
       color,
       lead,
@@ -161,6 +193,9 @@ export function ProgramGeneralPage() {
       iterationLabel: initialIterationLabel,
       publicSharing: initialPublicSharing,
       allowGuests: initialAllowGuests,
+      mcHistoryEnabled: initialMcHistoryEnabled,
+      mcHistoryRetentionCap: initialMcHistoryRetentionCap,
+      mcHistoryAttributionAudience: initialMcHistoryAttributionAudience,
       visibility: initialVisibility,
       color: initialColor,
       lead: initialLead,
@@ -174,6 +209,9 @@ export function ProgramGeneralPage() {
       initialIterationLabel,
       initialPublicSharing,
       initialAllowGuests,
+      initialMcHistoryEnabled,
+      initialMcHistoryRetentionCap,
+      initialMcHistoryAttributionAudience,
       initialVisibility,
       initialColor,
       initialLead,
@@ -195,6 +233,10 @@ export function ProgramGeneralPage() {
         // null clears the sharing override so the program inherits the workspace value (ADR-0135).
         public_sharing: publicSharing,
         allow_guests: allowGuests,
+        // null clears the forecast-history override so the program inherits the workspace value (ADR-0144).
+        mc_history_enabled: mcHistoryEnabled,
+        mc_history_retention_cap: mcHistoryRetentionCap,
+        mc_history_attribution_audience: mcHistoryAttributionAudience,
         visibility,
         color,
         lead,
@@ -209,6 +251,9 @@ export function ProgramGeneralPage() {
     setInitialIterationLabel(iterationLabel);
     setInitialPublicSharing(publicSharing);
     setInitialAllowGuests(allowGuests);
+    setInitialMcHistoryEnabled(mcHistoryEnabled);
+    setInitialMcHistoryRetentionCap(mcHistoryRetentionCap);
+    setInitialMcHistoryAttributionAudience(mcHistoryAttributionAudience);
     setInitialVisibility(visibility);
     setInitialColor(color);
     setInitialLead(lead);
@@ -223,6 +268,9 @@ export function ProgramGeneralPage() {
     iterationLabel,
     publicSharing,
     allowGuests,
+    mcHistoryEnabled,
+    mcHistoryRetentionCap,
+    mcHistoryAttributionAudience,
     visibility,
     color,
     lead,
@@ -237,6 +285,9 @@ export function ProgramGeneralPage() {
     setIterationLabel(initialIterationLabel);
     setPublicSharing(initialPublicSharing);
     setAllowGuests(initialAllowGuests);
+    setMcHistoryEnabled(initialMcHistoryEnabled);
+    setMcHistoryRetentionCap(initialMcHistoryRetentionCap);
+    setMcHistoryAttributionAudience(initialMcHistoryAttributionAudience);
     setVisibility(initialVisibility);
     setColor(initialColor);
     setLead(initialLead);
@@ -249,6 +300,9 @@ export function ProgramGeneralPage() {
     initialIterationLabel,
     initialPublicSharing,
     initialAllowGuests,
+    initialMcHistoryEnabled,
+    initialMcHistoryRetentionCap,
+    initialMcHistoryAttributionAudience,
     initialVisibility,
     initialColor,
     initialLead,
@@ -470,6 +524,63 @@ export function ProgramGeneralPage() {
               onLabel="On"
               offLabel="Off"
               ariaLabel="Allow public link sharing"
+              canEdit={canEdit}
+            />
+          </FieldRow>
+
+          {/* Forecast history (ADR-0144, issue 1232). Inherits the workspace settings
+              unless this program overrides; projects inherit from here in turn. */}
+          <h3 className="mt-8 mb-1 text-[13px] font-semibold text-neutral-text-primary">
+            Forecast history
+          </h3>
+
+          <FieldRow
+            label="Keep Monte Carlo run history"
+            hint={`${MC_HISTORY_HINT} Inherits the workspace setting unless you override it here.`}
+          >
+            <InheritableToggleField
+              value={mcHistoryEnabled}
+              onChange={setMcHistoryEnabled}
+              inherited={program?.inherited_mc_history_enabled ?? true}
+              inheritFromLabel="the workspace default"
+              scopeNoun="program"
+              onLabel="On"
+              offLabel="Off"
+              ariaLabel="Keep Monte Carlo run history"
+              canEdit={canEdit}
+            />
+          </FieldRow>
+
+          <FieldRow
+            label="Run history limit"
+            hint="The most recent runs kept per project. Older runs are pruned. Inherits the workspace setting unless you override it here."
+          >
+            <InheritableNumberField
+              value={mcHistoryRetentionCap}
+              onChange={setMcHistoryRetentionCap}
+              inherited={program?.inherited_mc_history_retention_cap ?? 100}
+              inheritFromLabel="the workspace default"
+              min={MC_HISTORY_RETENTION_MIN}
+              max={MC_HISTORY_RETENTION_MAX}
+              ariaLabel="Run history limit"
+              overrideHint={`Between ${MC_HISTORY_RETENTION_MIN} and ${MC_HISTORY_RETENTION_MAX} runs.`}
+              scopeNoun="program"
+              canEdit={canEdit}
+            />
+          </FieldRow>
+
+          <FieldRow
+            label="Run attribution visible to"
+            hint={`${MC_ATTRIBUTION_HINT} Inherits the workspace setting unless you override it here.`}
+          >
+            <InheritableSelectField
+              value={mcHistoryAttributionAudience}
+              onChange={setMcHistoryAttributionAudience}
+              inherited={program?.inherited_mc_history_attribution_audience ?? 'ADMIN_OWNER'}
+              options={MC_ATTRIBUTION_OPTIONS}
+              inheritFromLabel="the workspace default"
+              ariaLabel="Run attribution visible to"
+              scopeNoun="program"
               canEdit={canEdit}
             />
           </FieldRow>
