@@ -108,9 +108,10 @@ projects.
 
 Deeper program configuration lives under **/programs/:id/settings**:
 
-- **General** — name, description, code, health, visibility, and the methodology
-  default for new projects. The program lead is shown read-only. Edits are staged
-  and committed through a save bar.
+- **General** — name, description, code, accent color, health, visibility, and the
+  methodology default for new projects. The program lead is shown read-only. Edits
+  are staged and committed through a save bar. See
+  [Program identity square](#program-identity-square) for what the code and color drive.
 - **Access** — manage program membership: invite members, change roles, and remove
   members (the same membership model as the Members tab).
 - **Projects** — the child projects in the program.
@@ -126,6 +127,20 @@ The rollup-KPI and risk-policy settings are backed by
 `GET`/`PATCH /api/v1/programs/{id}/rollup-config/` and `/risk-policy/` respectively;
 lifecycle actions map to `POST /api/v1/programs/{id}/close/`, `/reopen/`, and
 `/transfer-sponsorship/`.
+
+## Program identity square
+
+Each program carries a small colored **identity square** — its accent color with
+the program's short **code** — that marks it in the sidebar Programs tree and
+other program-scoped surfaces, so related programs are recognizable at a glance.
+
+Both are set under **General** settings (`/programs/:id/settings`):
+
+- **Code** — a short label, up to 40 characters (e.g. `MIG` or `P2`). Optional;
+  a program with no code shows a blank square.
+- **Accent color** — chosen from the swatch picker and stored as a `#RRGGBB`
+  hex. Leave it unset to fall back to a neutral square tinted by the program's
+  health.
 
 ## Deleting a program
 

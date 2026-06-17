@@ -91,6 +91,30 @@ the import is processed, then purged on the schedule set by
 `TRUEPPM_IMPORT_RETENTION_DAYS` (default 7 days). See
 [Outbox & Record Retention](/administration/retention/) to tune that window.
 
+## Monte Carlo simulation caps
+
+The Community (OSS) tier bounds [Monte Carlo risk analysis](/features/monte-carlo/)
+with three caps. Like the email settings above, these are **Django settings
+constants, not environment variables** — override them in a Django settings
+module; setting bare env vars of the same name has no effect. The Enterprise
+edition raises or removes them.
+
+| Setting | Default (OSS) | What it bounds |
+|---------|---------------|----------------|
+| `MC_SIMULATION_CAP` | `1000` | Maximum simulation runs (iterations) per request. The Monte Carlo run endpoint rejects an `n_simulations` above this. |
+| `MC_TASK_CAP` | `5000` | Largest project — by task count — Monte Carlo will run on. The vectorized NumPy path handles 5000 tasks × 1000 runs in a few seconds; a larger project is refused rather than run unbounded. |
+| `MC_HISTORY_CAP` | `100` | Forecast-history rows kept per project. The nightly purge trims each project to its newest `MC_HISTORY_CAP` `MonteCarloRun` rows. |
+
+Set any cap to `None` for unlimited — the Enterprise default, where unbounded
+forecast history plus cross-program rollup is part of the portfolio tier.
+Operators on constrained hardware can lower `MC_TASK_CAP` to keep simulations
+cheap.
+
+```python
+# settings override — raise the task ceiling for a large-project deployment.
+MC_TASK_CAP = 10_000
+```
+
 ## Split-origin deploys
 
 A standard deploy serves the web app from the **same origin** as the API
