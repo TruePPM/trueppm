@@ -6689,6 +6689,14 @@
                 "description": "Return the capped, newest-first run history with per-run deltas.",
                 "parameters": [
                     {
+                        "in": "query",
+                        "name": "expand",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Set to 'distribution' to include each run's persisted distribution ({histogram_buckets, confidence_curve, sensitivity}) payload (#1231). Omitted by default to keep the list lightweight; distribution is null unless expanded or for legacy runs with no stored distribution."
+                    },
+                    {
                         "in": "path",
                         "name": "id",
                         "schema": {
@@ -6718,7 +6726,7 @@
                                 }
                             }
                         },
-                        "description": "Project Monte Carlo run history (ADR-0109). {results: [MonteCarloRun], cap: int|null}. Each run carries P50/P80/P95, cpm_finish, n_simulations, task_count, a per-percentile delta vs the previous run (null on the oldest row), and triggered_by_name (non-null only for Admin/Owner)."
+                        "description": "Project Monte Carlo run history (ADR-0109/0143). {results: [MonteCarloRun], cap: int|null, enabled: bool}. When the per-workspace config disables history, enabled is false and results is empty. Each run carries P50/P80/P95, cpm_finish, n_simulations, task_count, a per-percentile delta vs the previous run (null on the oldest row), triggered_by_name (non-null only for the resolved attribution audience), and distribution (only when ?expand=distribution)."
                     },
                     "404": {
                         "content": {
@@ -6737,7 +6745,7 @@
         "/api/v1/projects/{id}/monte-carlo/latest/": {
             "get": {
                 "operationId": "v1_projects_monte_carlo_latest_retrieve",
-                "description": "Return the latest cached Monte Carlo result for the project.\n\nFalls back to the most recent persisted ``MonteCarloRun`` when the 24-hour\ncache has expired (ADR-0109): the latest forecast now survives past the\nTTL. The fallback carries the percentiles but an empty histogram — the raw\nsimulation distribution is intentionally not persisted (only the\npercentile band is), so the chips render from history while the histogram\nneeds a fresh run.",
+                "description": "Return the latest cached Monte Carlo result for the project.\n\nFalls back to the most recent persisted ``MonteCarloRun`` when the 24-hour\ncache has expired (ADR-0109): the latest forecast now survives past the\nTTL. As of #1231 the run also persists its distribution, so when present the\nfallback returns the real ``histogram_buckets``/``confidence_curve``/\n``sensitivity`` instead of empty arrays — the histogram survives cache\nexpiry. Legacy runs (no persisted distribution) still fall back to empty,\nand the frontend renders the empty-state prose for them.",
                 "parameters": [
                     {
                         "in": "path",
@@ -21450,6 +21458,15 @@
                     "resolved_by"
                 ]
             },
+            "McHistoryAttributionAudienceEnum": {
+                "enum": [
+                    "admin_owner",
+                    "scheduler_plus",
+                    "none"
+                ],
+                "type": "string",
+                "description": "* `admin_owner` - Admins and Owners\n* `scheduler_plus` - Schedulers and above\n* `none` - No one"
+            },
             "Me": {
                 "type": "object",
                 "description": "Read-only serializer for GET /api/v1/auth/me/.",
@@ -23432,6 +23449,27 @@
                         "type": "boolean",
                         "nullable": true
                     },
+                    "mc_history_enabled": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "mc_history_retention_cap": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "mc_history_attribution_audience": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/McHistoryAttributionAudienceEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
                     "health": {
                         "$ref": "#/components/schemas/HealthEnum"
                     },
@@ -23578,6 +23616,27 @@
                     "allow_guests": {
                         "type": "boolean",
                         "nullable": true
+                    },
+                    "mc_history_enabled": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "mc_history_retention_cap": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "mc_history_attribution_audience": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/McHistoryAttributionAudienceEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
                     },
                     "program": {
                         "type": "string",
@@ -24379,6 +24438,20 @@
                     },
                     "iteration_label_override_policy": {
                         "$ref": "#/components/schemas/TermOverridePolicyEnum"
+                    },
+                    "mc_history_enabled": {
+                        "type": "boolean"
+                    },
+                    "mc_history_retention_cap": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0
+                    },
+                    "mc_history_attribution_audience": {
+                        "$ref": "#/components/schemas/McHistoryAttributionAudienceEnum"
+                    },
+                    "mc_history_override_policy": {
+                        "$ref": "#/components/schemas/TermOverridePolicyEnum"
                     }
                 }
             },
@@ -24569,6 +24642,51 @@
                         "type": "boolean",
                         "readOnly": true
                     },
+                    "mc_history_enabled": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "mc_history_retention_cap": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "mc_history_attribution_audience": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/McHistoryAttributionAudienceEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "effective_mc_history_enabled": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "inherited_mc_history_enabled": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "effective_mc_history_retention_cap": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "inherited_mc_history_retention_cap": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "effective_mc_history_attribution_audience": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "inherited_mc_history_attribution_audience": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "health": {
                         "$ref": "#/components/schemas/HealthEnum"
                     },
@@ -24654,10 +24772,16 @@
                     "created_at",
                     "created_by",
                     "effective_allow_guests",
+                    "effective_mc_history_attribution_audience",
+                    "effective_mc_history_enabled",
+                    "effective_mc_history_retention_cap",
                     "effective_public_sharing",
                     "id",
                     "inherited_allow_guests",
                     "inherited_iteration_label",
+                    "inherited_mc_history_attribution_audience",
+                    "inherited_mc_history_enabled",
+                    "inherited_mc_history_retention_cap",
                     "inherited_public_sharing",
                     "is_closed",
                     "is_sample",
@@ -24813,6 +24937,27 @@
                     "allow_guests": {
                         "type": "boolean",
                         "nullable": true
+                    },
+                    "mc_history_enabled": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "mc_history_retention_cap": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "mc_history_attribution_audience": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/McHistoryAttributionAudienceEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
                     },
                     "health": {
                         "$ref": "#/components/schemas/HealthEnum"
@@ -24987,6 +25132,51 @@
                         "type": "boolean",
                         "readOnly": true
                     },
+                    "mc_history_enabled": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "mc_history_retention_cap": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "mc_history_attribution_audience": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/McHistoryAttributionAudienceEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "effective_mc_history_enabled": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "inherited_mc_history_enabled": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "effective_mc_history_retention_cap": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "inherited_mc_history_retention_cap": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "effective_mc_history_attribution_audience": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "inherited_mc_history_attribution_audience": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "program": {
                         "type": "string",
                         "format": "uuid",
@@ -25026,10 +25216,16 @@
                     "archived_by",
                     "effective_allow_guests",
                     "effective_iteration_label",
+                    "effective_mc_history_attribution_audience",
+                    "effective_mc_history_enabled",
+                    "effective_mc_history_retention_cap",
                     "effective_public_sharing",
                     "id",
                     "inherited_allow_guests",
                     "inherited_iteration_label",
+                    "inherited_mc_history_attribution_audience",
+                    "inherited_mc_history_enabled",
+                    "inherited_mc_history_retention_cap",
                     "inherited_public_sharing",
                     "is_archived",
                     "lead_detail",
@@ -25309,6 +25505,51 @@
                         "type": "boolean",
                         "readOnly": true
                     },
+                    "mc_history_enabled": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "mc_history_retention_cap": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "mc_history_attribution_audience": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/McHistoryAttributionAudienceEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "effective_mc_history_enabled": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "inherited_mc_history_enabled": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "effective_mc_history_retention_cap": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "inherited_mc_history_retention_cap": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "effective_mc_history_attribution_audience": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "inherited_mc_history_attribution_audience": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "program": {
                         "type": "string",
                         "format": "uuid",
@@ -25383,10 +25624,16 @@
                     "archived_by",
                     "effective_allow_guests",
                     "effective_iteration_label",
+                    "effective_mc_history_attribution_audience",
+                    "effective_mc_history_enabled",
+                    "effective_mc_history_retention_cap",
                     "effective_public_sharing",
                     "id",
                     "inherited_allow_guests",
                     "inherited_iteration_label",
+                    "inherited_mc_history_attribution_audience",
+                    "inherited_mc_history_enabled",
+                    "inherited_mc_history_retention_cap",
                     "inherited_public_sharing",
                     "is_archived",
                     "is_sample",
@@ -25674,6 +25921,27 @@
                     "allow_guests": {
                         "type": "boolean",
                         "nullable": true
+                    },
+                    "mc_history_enabled": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "mc_history_retention_cap": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "mc_history_attribution_audience": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/McHistoryAttributionAudienceEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
                     },
                     "program": {
                         "type": "string",
@@ -29994,6 +30262,20 @@
                         "maxLength": 32
                     },
                     "iteration_label_override_policy": {
+                        "$ref": "#/components/schemas/TermOverridePolicyEnum"
+                    },
+                    "mc_history_enabled": {
+                        "type": "boolean"
+                    },
+                    "mc_history_retention_cap": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0
+                    },
+                    "mc_history_attribution_audience": {
+                        "$ref": "#/components/schemas/McHistoryAttributionAudienceEnum"
+                    },
+                    "mc_history_override_policy": {
                         "$ref": "#/components/schemas/TermOverridePolicyEnum"
                     }
                 },

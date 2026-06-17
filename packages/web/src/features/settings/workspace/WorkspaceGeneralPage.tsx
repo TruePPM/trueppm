@@ -8,9 +8,25 @@ import { FiscalYearStartField } from '../components/FiscalYearStartField';
 import { EnterpriseBadge } from '../components/EnterpriseBadge';
 import { IterationLabelField } from '../project/IterationLabelField';
 import { Toggle } from '../components/Toggle';
+import {
+  MC_ATTRIBUTION_OPTIONS,
+  MC_ATTRIBUTION_HINT,
+  MC_HISTORY_HINT,
+} from '../forecastHistory';
+import type {
+  MCAttributionAudience,
+  MCHistoryOverridePolicy,
+} from '@/api/types';
+import { MC_HISTORY_RETENTION_MAX, MC_HISTORY_RETENTION_MIN } from '@/api/types';
 
 /** Cascade policy for the workspace iteration label (ADR-0116, #1106). */
 type IterationLabelPolicy = 'inherit' | 'suggest' | 'enforce';
+
+/** Clamp the retention cap into the server-enforced [1, 500] range. */
+function clampRetention(n: number): number {
+  if (Number.isNaN(n)) return MC_HISTORY_RETENTION_MIN;
+  return Math.min(MC_HISTORY_RETENTION_MAX, Math.max(MC_HISTORY_RETENTION_MIN, Math.round(n)));
+}
 
 const DAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'] as const;
 const DAY_NAMES = [
@@ -67,6 +83,13 @@ export function WorkspaceGeneralPage() {
   const [publicSharing, setPublicSharing] = useState(false);
   const [iterationLabel, setIterationLabel] = useState('Sprint');
   const [iterationLabelPolicy, setIterationLabelPolicy] = useState<IterationLabelPolicy>('suggest');
+  // Forecast-history config (ADR-0144, issue 1232) — workspace is the non-null root.
+  const [mcHistoryEnabled, setMcHistoryEnabled] = useState(true);
+  const [mcHistoryRetentionCap, setMcHistoryRetentionCap] = useState(100);
+  const [mcHistoryAttributionAudience, setMcHistoryAttributionAudience] =
+    useState<MCAttributionAudience>('ADMIN_OWNER');
+  const [mcHistoryOverridePolicy, setMcHistoryOverridePolicy] =
+    useState<MCHistoryOverridePolicy>('allow');
 
   // Last-saved snapshot — bumped after a successful PATCH so useDirtyForm
   // can detect whether the current local state has diverged again.
@@ -81,6 +104,10 @@ export function WorkspaceGeneralPage() {
     publicSharing: false,
     iterationLabel: 'Sprint',
     iterationLabelPolicy: 'suggest' as IterationLabelPolicy,
+    mcHistoryEnabled: true,
+    mcHistoryRetentionCap: 100,
+    mcHistoryAttributionAudience: 'ADMIN_OWNER' as MCAttributionAudience,
+    mcHistoryOverridePolicy: 'allow' as MCHistoryOverridePolicy,
   });
 
   // Seed local state once the query resolves (or re-resolves after invalidation).
@@ -97,6 +124,10 @@ export function WorkspaceGeneralPage() {
       publicSharing: ws.publicSharing,
       iterationLabel: ws.iterationLabel,
       iterationLabelPolicy: ws.iterationLabelOverridePolicy,
+      mcHistoryEnabled: ws.mcHistoryEnabled,
+      mcHistoryRetentionCap: ws.mcHistoryRetentionCap,
+      mcHistoryAttributionAudience: ws.mcHistoryAttributionAudience,
+      mcHistoryOverridePolicy: ws.mcHistoryOverridePolicy,
     };
     setName(snap.name);
     setTimezone(snap.timezone);
@@ -108,6 +139,10 @@ export function WorkspaceGeneralPage() {
     setPublicSharing(snap.publicSharing);
     setIterationLabel(snap.iterationLabel);
     setIterationLabelPolicy(snap.iterationLabelPolicy);
+    setMcHistoryEnabled(snap.mcHistoryEnabled);
+    setMcHistoryRetentionCap(snap.mcHistoryRetentionCap);
+    setMcHistoryAttributionAudience(snap.mcHistoryAttributionAudience);
+    setMcHistoryOverridePolicy(snap.mcHistoryOverridePolicy);
     setInitial(snap);
   }, [ws]);
 
@@ -122,6 +157,10 @@ export function WorkspaceGeneralPage() {
     publicSharing,
     iterationLabel,
     iterationLabelPolicy,
+    mcHistoryEnabled,
+    mcHistoryRetentionCap,
+    mcHistoryAttributionAudience,
+    mcHistoryOverridePolicy,
   };
 
   const onSave = useCallback(async () => {
@@ -136,6 +175,10 @@ export function WorkspaceGeneralPage() {
       publicSharing,
       iterationLabel,
       iterationLabelOverridePolicy: iterationLabelPolicy,
+      mcHistoryEnabled,
+      mcHistoryRetentionCap: clampRetention(mcHistoryRetentionCap),
+      mcHistoryAttributionAudience,
+      mcHistoryOverridePolicy,
     });
     // Bump the saved snapshot so dirty goes false immediately.
     setInitial({
@@ -149,6 +192,10 @@ export function WorkspaceGeneralPage() {
       publicSharing,
       iterationLabel,
       iterationLabelPolicy,
+      mcHistoryEnabled,
+      mcHistoryRetentionCap: clampRetention(mcHistoryRetentionCap),
+      mcHistoryAttributionAudience,
+      mcHistoryOverridePolicy,
     });
   }, [
     name,
@@ -161,6 +208,10 @@ export function WorkspaceGeneralPage() {
     publicSharing,
     iterationLabel,
     iterationLabelPolicy,
+    mcHistoryEnabled,
+    mcHistoryRetentionCap,
+    mcHistoryAttributionAudience,
+    mcHistoryOverridePolicy,
     updateSettings,
   ]);
 
@@ -175,6 +226,10 @@ export function WorkspaceGeneralPage() {
     setPublicSharing(initial.publicSharing);
     setIterationLabel(initial.iterationLabel);
     setIterationLabelPolicy(initial.iterationLabelPolicy);
+    setMcHistoryEnabled(initial.mcHistoryEnabled);
+    setMcHistoryRetentionCap(initial.mcHistoryRetentionCap);
+    setMcHistoryAttributionAudience(initial.mcHistoryAttributionAudience);
+    setMcHistoryOverridePolicy(initial.mcHistoryOverridePolicy);
   }, [initial]);
 
   useDirtyForm({ values, initialValues: initial, onSave, onReset, apiReady: true });
@@ -413,6 +468,101 @@ export function WorkspaceGeneralPage() {
             onChange={setPublicSharing}
             ariaLabel="Allow public link sharing"
           />
+        </FieldRow>
+
+        {/* Forecast history (ADR-0144, issue 1232). Workspace is the non-null root of the
+            Workspace → Program → Project inheritance chain; programs and projects
+            inherit these unless they override. */}
+        <h3 className="mt-8 mb-1 text-[13px] font-semibold text-neutral-text-primary">
+          Forecast history
+        </h3>
+
+        <FieldRow label="Keep Monte Carlo run history" hint={MC_HISTORY_HINT}>
+          <Toggle
+            on={mcHistoryEnabled}
+            onChange={setMcHistoryEnabled}
+            ariaLabel="Keep Monte Carlo run history"
+            onLabel="On"
+            offLabel="Off"
+          />
+        </FieldRow>
+
+        <FieldRow
+          label="Run history limit"
+          hint="The most recent runs kept per project. Older runs are pruned. Maximum 500."
+        >
+          <div className="flex flex-col gap-1">
+            <input
+              type="number"
+              min={MC_HISTORY_RETENTION_MIN}
+              max={MC_HISTORY_RETENTION_MAX}
+              value={mcHistoryRetentionCap}
+              aria-label="Run history limit"
+              onChange={(e) => setMcHistoryRetentionCap(clampRetention(e.target.valueAsNumber))}
+              className="w-[120px] h-8 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary"
+            />
+            <span className="text-[12px] text-neutral-text-secondary">
+              Between {MC_HISTORY_RETENTION_MIN} and {MC_HISTORY_RETENTION_MAX} runs.
+            </span>
+          </div>
+        </FieldRow>
+
+        <FieldRow label="Run attribution visible to" hint={MC_ATTRIBUTION_HINT}>
+          <label htmlFor={`${defaultViewId}-mc-attr`} className="sr-only">
+            Run attribution visible to
+          </label>
+          <select
+            id={`${defaultViewId}-mc-attr`}
+            value={mcHistoryAttributionAudience}
+            onChange={(e) =>
+              setMcHistoryAttributionAudience(e.target.value as MCAttributionAudience)
+            }
+            className={`${SELECT_CLASS} w-[220px]`}
+            style={SELECT_STYLE}
+          >
+            {MC_ATTRIBUTION_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </FieldRow>
+
+        <FieldRow
+          label="Programs &amp; projects"
+          hint="Whether programs and projects may override these forecast-history settings."
+        >
+          <fieldset className="flex flex-col gap-1.5 border-0 p-0 m-0">
+            <legend className="sr-only">Forecast-history override policy</legend>
+            <label className="flex items-center gap-2 text-[13px] text-neutral-text-primary cursor-pointer">
+              <input
+                type="radio"
+                name="mc-history-policy"
+                checked={mcHistoryOverridePolicy !== 'lock'}
+                onChange={() => setMcHistoryOverridePolicy('allow')}
+                className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              />
+              May override these settings
+            </label>
+            {/* LOCK pins the workspace values so lower scopes cannot override — an
+                Enterprise capability (ADR-0144). Disabled on the OSS surface; the
+                EnterpriseBadge (community-only) is the reachable upsell link. OSS
+                stores the value but never enforces the lock downstream. */}
+            <span className="inline-flex items-center gap-1.5">
+              <label className="flex items-center gap-2 text-[13px] text-neutral-text-disabled cursor-not-allowed">
+                <input
+                  type="radio"
+                  name="mc-history-policy"
+                  checked={mcHistoryOverridePolicy === 'lock'}
+                  disabled
+                  readOnly
+                  className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                />
+                Lock workspace-wide
+              </label>
+              <EnterpriseBadge />
+            </span>
+          </fieldset>
         </FieldRow>
       </div>
 

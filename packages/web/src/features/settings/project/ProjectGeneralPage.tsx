@@ -9,9 +9,18 @@ import { useProject } from '@/hooks/useProject';
 import { useUpdateProject } from '@/hooks/useProjectMutations';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { ROLE_ADMIN } from '@/lib/roles';
-import type { ProjectDefaultView, ProjectHealth, ProjectVisibility } from '@/api/types';
+import type {
+  MCAttributionAudience,
+  ProjectDefaultView,
+  ProjectHealth,
+  ProjectVisibility,
+} from '@/api/types';
+import { MC_HISTORY_RETENTION_MAX, MC_HISTORY_RETENTION_MIN } from '@/api/types';
 import { InheritableIterationLabelField } from '../components/InheritableIterationLabelField';
 import { InheritableToggleField } from '../components/InheritableToggleField';
+import { InheritableNumberField } from '../components/InheritableNumberField';
+import { InheritableSelectField } from '../components/InheritableSelectField';
+import { MC_ATTRIBUTION_OPTIONS, MC_ATTRIBUTION_HINT, MC_HISTORY_HINT } from '../forecastHistory';
 import { DEFAULT_ITERATION_LABEL } from '@/lib/iterationLabel';
 
 const TIMEZONES = [
@@ -91,6 +100,11 @@ export function ProjectGeneralPage() {
   // null = inherit the program/workspace value (ADR-0135).
   const [publicSharing, setPublicSharing] = useState<boolean | null>(null);
   const [allowGuests, setAllowGuests] = useState<boolean | null>(null);
+  // null = inherit the program/workspace value (ADR-0144, issue 1232).
+  const [mcHistoryEnabled, setMcHistoryEnabled] = useState<boolean | null>(null);
+  const [mcHistoryRetentionCap, setMcHistoryRetentionCap] = useState<number | null>(null);
+  const [mcHistoryAttributionAudience, setMcHistoryAttributionAudience] =
+    useState<MCAttributionAudience | null>(null);
 
   // Re-seed whenever the loaded project's identity changes. React Router reuses
   // this component across `:projectId` changes (no `key` → no remount), so a
@@ -113,6 +127,12 @@ export function ProjectGeneralPage() {
   const [initialIterationLabel, setInitialIterationLabel] = useState<string | null>(null);
   const [initialPublicSharing, setInitialPublicSharing] = useState<boolean | null>(null);
   const [initialAllowGuests, setInitialAllowGuests] = useState<boolean | null>(null);
+  const [initialMcHistoryEnabled, setInitialMcHistoryEnabled] = useState<boolean | null>(null);
+  const [initialMcHistoryRetentionCap, setInitialMcHistoryRetentionCap] = useState<number | null>(
+    null,
+  );
+  const [initialMcHistoryAttributionAudience, setInitialMcHistoryAttributionAudience] =
+    useState<MCAttributionAudience | null>(null);
 
   useEffect(() => {
     if (!project || seededProjectIdRef.current === project.id) return;
@@ -129,6 +149,9 @@ export function ProjectGeneralPage() {
     setIterationLabel(project.iteration_label ?? null);
     setPublicSharing(project.public_sharing ?? null);
     setAllowGuests(project.allow_guests ?? null);
+    setMcHistoryEnabled(project.mc_history_enabled ?? null);
+    setMcHistoryRetentionCap(project.mc_history_retention_cap ?? null);
+    setMcHistoryAttributionAudience(project.mc_history_attribution_audience ?? null);
     setInitialName(project.name);
     setInitialDescription(project.description ?? '');
     setInitialCode(project.code);
@@ -141,6 +164,9 @@ export function ProjectGeneralPage() {
     setInitialIterationLabel(project.iteration_label ?? null);
     setInitialPublicSharing(project.public_sharing ?? null);
     setInitialAllowGuests(project.allow_guests ?? null);
+    setInitialMcHistoryEnabled(project.mc_history_enabled ?? null);
+    setInitialMcHistoryRetentionCap(project.mc_history_retention_cap ?? null);
+    setInitialMcHistoryAttributionAudience(project.mc_history_attribution_audience ?? null);
   }, [project]);
 
   const values = useMemo(
@@ -157,6 +183,9 @@ export function ProjectGeneralPage() {
       iteration_label: iterationLabel,
       public_sharing: publicSharing,
       allow_guests: allowGuests,
+      mc_history_enabled: mcHistoryEnabled,
+      mc_history_retention_cap: mcHistoryRetentionCap,
+      mc_history_attribution_audience: mcHistoryAttributionAudience,
     }),
     [
       name,
@@ -171,6 +200,9 @@ export function ProjectGeneralPage() {
       iterationLabel,
       publicSharing,
       allowGuests,
+      mcHistoryEnabled,
+      mcHistoryRetentionCap,
+      mcHistoryAttributionAudience,
     ],
   );
   const initialValues = useMemo(
@@ -187,6 +219,9 @@ export function ProjectGeneralPage() {
       iteration_label: initialIterationLabel,
       public_sharing: initialPublicSharing,
       allow_guests: initialAllowGuests,
+      mc_history_enabled: initialMcHistoryEnabled,
+      mc_history_retention_cap: initialMcHistoryRetentionCap,
+      mc_history_attribution_audience: initialMcHistoryAttributionAudience,
     }),
     [
       initialName,
@@ -201,6 +236,9 @@ export function ProjectGeneralPage() {
       initialIterationLabel,
       initialPublicSharing,
       initialAllowGuests,
+      initialMcHistoryEnabled,
+      initialMcHistoryRetentionCap,
+      initialMcHistoryAttributionAudience,
     ],
   );
 
@@ -222,6 +260,10 @@ export function ProjectGeneralPage() {
       // null clears the sharing override so the project inherits program/workspace (ADR-0135).
       public_sharing: publicSharing,
       allow_guests: allowGuests,
+      // null clears the forecast-history override so the project inherits program/workspace (ADR-0144).
+      mc_history_enabled: mcHistoryEnabled,
+      mc_history_retention_cap: mcHistoryRetentionCap,
+      mc_history_attribution_audience: mcHistoryAttributionAudience,
     });
     const savedIterationLabel = iterationLabel === null ? null : iterationLabel.trim() || null;
     setIterationLabel(savedIterationLabel);
@@ -237,6 +279,9 @@ export function ProjectGeneralPage() {
     setInitialIterationLabel(savedIterationLabel);
     setInitialPublicSharing(publicSharing);
     setInitialAllowGuests(allowGuests);
+    setInitialMcHistoryEnabled(mcHistoryEnabled);
+    setInitialMcHistoryRetentionCap(mcHistoryRetentionCap);
+    setInitialMcHistoryAttributionAudience(mcHistoryAttributionAudience);
   }, [
     updateProject,
     name,
@@ -251,6 +296,9 @@ export function ProjectGeneralPage() {
     iterationLabel,
     publicSharing,
     allowGuests,
+    mcHistoryEnabled,
+    mcHistoryRetentionCap,
+    mcHistoryAttributionAudience,
   ]);
 
   const handleReset = useCallback(() => {
@@ -266,6 +314,9 @@ export function ProjectGeneralPage() {
     setIterationLabel(initialIterationLabel);
     setPublicSharing(initialPublicSharing);
     setAllowGuests(initialAllowGuests);
+    setMcHistoryEnabled(initialMcHistoryEnabled);
+    setMcHistoryRetentionCap(initialMcHistoryRetentionCap);
+    setMcHistoryAttributionAudience(initialMcHistoryAttributionAudience);
   }, [
     initialName,
     initialDescription,
@@ -279,6 +330,9 @@ export function ProjectGeneralPage() {
     initialIterationLabel,
     initialPublicSharing,
     initialAllowGuests,
+    initialMcHistoryEnabled,
+    initialMcHistoryRetentionCap,
+    initialMcHistoryAttributionAudience,
   ]);
 
   useDirtyForm({
@@ -452,6 +506,63 @@ export function ProjectGeneralPage() {
               onLabel="On"
               offLabel="Off"
               ariaLabel="Allow public link sharing"
+              canEdit={canEdit}
+            />
+          </FieldRow>
+
+          {/* Forecast history (ADR-0144, issue 1232). Inherits the program or workspace
+              settings unless this project overrides. */}
+          <h3 className="mt-8 mb-1 text-[13px] font-semibold text-neutral-text-primary">
+            Forecast history
+          </h3>
+
+          <FieldRow
+            label="Keep Monte Carlo run history"
+            hint={`${MC_HISTORY_HINT} Inherits the program or workspace setting unless you override it here.`}
+          >
+            <InheritableToggleField
+              value={mcHistoryEnabled}
+              onChange={setMcHistoryEnabled}
+              inherited={project?.inherited_mc_history_enabled ?? true}
+              inheritFromLabel="the program or workspace default"
+              scopeNoun="project"
+              onLabel="On"
+              offLabel="Off"
+              ariaLabel="Keep Monte Carlo run history"
+              canEdit={canEdit}
+            />
+          </FieldRow>
+
+          <FieldRow
+            label="Run history limit"
+            hint="The most recent runs kept for this project. Older runs are pruned. Inherits the program or workspace setting unless you override it here."
+          >
+            <InheritableNumberField
+              value={mcHistoryRetentionCap}
+              onChange={setMcHistoryRetentionCap}
+              inherited={project?.inherited_mc_history_retention_cap ?? 100}
+              inheritFromLabel="the program or workspace default"
+              min={MC_HISTORY_RETENTION_MIN}
+              max={MC_HISTORY_RETENTION_MAX}
+              ariaLabel="Run history limit"
+              overrideHint={`Between ${MC_HISTORY_RETENTION_MIN} and ${MC_HISTORY_RETENTION_MAX} runs.`}
+              scopeNoun="project"
+              canEdit={canEdit}
+            />
+          </FieldRow>
+
+          <FieldRow
+            label="Run attribution visible to"
+            hint={`${MC_ATTRIBUTION_HINT} Inherits the program or workspace setting unless you override it here.`}
+          >
+            <InheritableSelectField
+              value={mcHistoryAttributionAudience}
+              onChange={setMcHistoryAttributionAudience}
+              inherited={project?.inherited_mc_history_attribution_audience ?? 'ADMIN_OWNER'}
+              options={MC_ATTRIBUTION_OPTIONS}
+              inheritFromLabel="the program or workspace default"
+              ariaLabel="Run attribution visible to"
+              scopeNoun="project"
               canEdit={canEdit}
             />
           </FieldRow>

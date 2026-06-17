@@ -31,6 +31,10 @@ const RAW_SETTINGS = {
   public_sharing: false,
   iteration_label: 'Sprint',
   iteration_label_override_policy: 'suggest',
+  mc_history_enabled: true,
+  mc_history_retention_cap: 100,
+  mc_history_attribution_audience: 'ADMIN_OWNER',
+  mc_history_override_policy: 'allow',
 };
 
 const EXPECTED: WorkspaceSettings = {
@@ -46,6 +50,10 @@ const EXPECTED: WorkspaceSettings = {
   publicSharing: false,
   iterationLabel: 'Sprint',
   iterationLabelOverridePolicy: 'suggest',
+  mcHistoryEnabled: true,
+  mcHistoryRetentionCap: 100,
+  mcHistoryAttributionAudience: 'ADMIN_OWNER',
+  mcHistoryOverridePolicy: 'allow',
 };
 
 function makeWrapper() {

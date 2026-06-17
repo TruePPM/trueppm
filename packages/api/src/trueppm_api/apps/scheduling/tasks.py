@@ -217,11 +217,12 @@ def _do_purge() -> None:
 def purge_old_monte_carlo_runs(self: object) -> None:
     """Trim project Monte Carlo run history to the newest cap per project.
 
-    Runs nightly at 02:20 UTC via Celery Beat. Keeps the most recent
-    ``settings.MC_HISTORY_CAP`` ``MonteCarloRun`` rows per project (ADR-0109,
-    #961) so forecast-drift history stays bounded. No-ops when the cap is
-    ``None`` (Enterprise unlimited). Idempotent: rank-based delete is safe to
-    run repeatedly.
+    Runs nightly at 02:20 UTC via Celery Beat. Keeps the most recent N
+    ``MonteCarloRun`` rows per project, where N is the per-workspace-effective
+    retention cap (ADR-0144, #1232) — no longer the global constant — so
+    forecast-drift history stays bounded. No-ops for a project whose effective cap
+    is ``None`` (Enterprise unlimited). Idempotent: rank-based delete is safe to run
+    repeatedly.
     """
     _do_monte_carlo_run_purge()
 
@@ -229,28 +230,50 @@ def purge_old_monte_carlo_runs(self: object) -> None:
 def _do_monte_carlo_run_purge() -> None:
     """Business logic for purge_old_monte_carlo_runs — extracted for testability.
 
-    For each project that exceeds the cap, delete every run older than its
-    cap-th most recent. Iterates only over projects above the cap so the common
-    case (most projects under 100 runs) does no delete work.
+    Each project's retention cap is resolved per-workspace-effective (ADR-0144,
+    #1232) via ``resolve_effective_mc_history`` rather than the global
+    ``MC_HISTORY_CAP`` constant — a workspace/program/project may raise or lower it
+    (clamped to MC_HISTORY_HARD_CAP in the resolver). For each project exceeding its
+    own cap, delete every run older than its cap-th most recent. The candidate set
+    is the projects whose total run count exceeds the global hard cap floor, so the
+    common case (projects under the cap) does no delete work; the per-project cap is
+    then applied exactly. A project whose effective cap is None (Enterprise
+    unlimited) is skipped.
     """
-    from django.conf import settings
     from django.db.models import Count
 
+    from trueppm_api.apps.scheduling.forecast_history_settings import resolve_effective_mc_history
     from trueppm_api.apps.scheduling.models import MonteCarloRun
 
-    cap: int | None = settings.MC_HISTORY_CAP
-    if cap is None:
-        return  # Enterprise: unlimited history, nothing to purge.
-
-    over_cap = (
+    # Candidate projects: any with more than one run. We can't pre-filter by a single
+    # global cap because each project's effective cap may differ; resolving per
+    # project below is bounded by the (small) set of projects that actually have
+    # history.
+    project_ids = (
         MonteCarloRun.objects.values("project_id")
         .annotate(n=Count("id"))
-        .filter(n__gt=cap)
+        .filter(n__gt=1)
         .values_list("project_id", flat=True)
     )
 
+    from trueppm_api.apps.projects.models import Project
+    from trueppm_api.apps.workspace.models import Workspace
+
+    # Load the workspace singleton once and thread it through every per-project
+    # resolve. Workspace.load() is a get_or_create round-trip (not memoized), so
+    # passing it in avoids a redundant workspace query per candidate project.
+    workspace = Workspace.load()
+
     total_deleted = 0
-    for project_id in list(over_cap):
+    for project_id in list(project_ids):
+        project = Project.objects.filter(pk=project_id).select_related("program").first()
+        if project is None:
+            continue
+        cap: int | None = resolve_effective_mc_history(
+            project, "mc_history_retention_cap", workspace=workspace
+        )
+        if cap is None:
+            continue  # Enterprise unlimited: nothing to purge for this project.
         # Find the taken_at of the cap-th most recent run; everything strictly
         # older is surplus. Ordered by -taken_at so [cap - 1] is the boundary row.
         boundary = list(

@@ -1,6 +1,11 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
-import type { ProjectDefaultView, ProjectHealth, ProjectVisibility } from '@/api/types';
+import type {
+  MCAttributionAudience,
+  ProjectDefaultView,
+  ProjectHealth,
+  ProjectVisibility,
+} from '@/api/types';
 import type { Methodology } from '@/types';
 
 export interface ApiProjectDetail {
@@ -63,6 +68,18 @@ export interface ApiProjectDetail {
   /** Read-only values inherited if the override were cleared (program ?? workspace). */
   inherited_public_sharing: boolean;
   inherited_allow_guests: boolean;
+  /** Forecast-history overrides (ADR-0144, issue 1232). null = inherit program/workspace value. */
+  mc_history_enabled: boolean | null;
+  mc_history_retention_cap: number | null;
+  mc_history_attribution_audience: MCAttributionAudience | null;
+  /** Read-only server-resolved effective values (project ?? program ?? workspace). */
+  effective_mc_history_enabled: boolean;
+  effective_mc_history_retention_cap: number;
+  effective_mc_history_attribution_audience: MCAttributionAudience;
+  /** Read-only values inherited if the override were cleared (program ?? workspace). */
+  inherited_mc_history_enabled: boolean;
+  inherited_mc_history_retention_cap: number;
+  inherited_mc_history_attribution_audience: MCAttributionAudience;
   /** Lifecycle (#530) — archived projects are hard read-only across all writes. */
   is_archived: boolean;
   archived_at: string | null;

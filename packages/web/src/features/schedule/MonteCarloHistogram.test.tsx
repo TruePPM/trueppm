@@ -109,21 +109,50 @@ describe('MonteCarloHistogram', () => {
       expect(screen.getByText(/Every simulation finished on/i)).toBeInTheDocument();
     });
 
-    it('treats an empty buckets array the same as a single bucket', () => {
-      const empty = { ...COLLAPSED, buckets: [] };
-      const { container } = renderWithProviders(
-        <MonteCarloHistogram result={empty} />,
-      );
-      expect(container.querySelector('svg')).toBeNull();
-      expect(screen.getByText(/Every simulation finished on/i)).toBeInTheDocument();
-    });
-
     it('exposes an accessible label on the prose summary', () => {
       renderWithProviders(<MonteCarloHistogram result={COLLAPSED} />);
       const region = screen.getByRole('img');
       expect(region).toHaveAttribute(
         'aria-label',
         expect.stringContaining('every simulation finished on'),
+      );
+    });
+  });
+
+  describe('cold / not-persisted case — empty buckets (#1231)', () => {
+    it('shows a "run a fresh simulation" prompt, NOT the misleading converged-date prose', () => {
+      // Distinct from the genuine zero-spread collapse: here there is no
+      // distribution at all (run served from history past the cache TTL with no
+      // persisted distribution, or never run). The component must not claim a
+      // converged date it never had.
+      const cold = {
+        ...FIXTURE_MC_RESULT,
+        // Non-equal percentiles so the collapse branch does NOT fire — only the
+        // empty-buckets branch should.
+        p50: '2026-10-05',
+        p80: '2026-11-03',
+        p95: '2026-11-30',
+        buckets: [],
+      };
+      const { container } = renderWithProviders(<MonteCarloHistogram result={cold} />);
+      expect(container.querySelector('svg')).toBeNull();
+      expect(screen.getByText(/Run a fresh simulation to see the distribution/i)).toBeInTheDocument();
+      expect(screen.queryByText(/Every simulation finished on/i)).not.toBeInTheDocument();
+    });
+
+    it('exposes an accessible label on the cold-state prompt', () => {
+      const cold = {
+        ...FIXTURE_MC_RESULT,
+        p50: '2026-10-05',
+        p80: '2026-11-03',
+        p95: '2026-11-30',
+        buckets: [],
+      };
+      renderWithProviders(<MonteCarloHistogram result={cold} />);
+      const region = screen.getByRole('img');
+      expect(region).toHaveAttribute(
+        'aria-label',
+        expect.stringContaining('run a fresh simulation'),
       );
     });
   });

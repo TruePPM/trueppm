@@ -88,13 +88,39 @@ describe('healthClusterModel', () => {
     expect(segs.map((s) => s.kind)).toEqual(['sprint', 'points', 'velocity']);
   });
 
-  it('forecast carries the P50·P80 band, or p80 null when the scheduler has not run', () => {
+  it('forecast carries the P50·P80 band, or p80 null when neither source has it', () => {
     const segs = healthClusterModel(input({ methodology: 'WATERFALL' }));
     expect(segs[0]).toMatchObject({ kind: 'forecast', p50: '2026-10-05', p80: '2026-11-03' });
+    // p80 is null only when BOTH the status summary AND the live MC result lack it.
     const none = healthClusterModel(
-      input({ methodology: 'WATERFALL', stats: { ...STATS, monteCarlop80: null } }),
+      input({ methodology: 'WATERFALL', stats: { ...STATS, monteCarlop80: null }, mc: undefined }),
     );
     expect(none[0]).toMatchObject({ kind: 'forecast', p80: null });
+  });
+
+  it('forecast p80 falls back to the live MC result when the status summary omits it (ADR-0144, #1231)', () => {
+    // The status summary hardcodes monte_carlo_p80 = None; without the fallback
+    // the header rendered "P80 —" even with a real MC p80. The fallback must
+    // surface mc.p80 instead of null.
+    const segs = healthClusterModel(
+      input({
+        methodology: 'WATERFALL',
+        stats: { ...STATS, monteCarlop80: null },
+        mc: { p50: '2026-10-05', p80: '2026-11-03' },
+      }),
+    );
+    expect(segs[0]).toMatchObject({ kind: 'forecast', p50: '2026-10-05', p80: '2026-11-03' });
+  });
+
+  it('forecast prefers the status-summary p80 over the MC fallback when both are present', () => {
+    const segs = healthClusterModel(
+      input({
+        methodology: 'WATERFALL',
+        stats: { ...STATS, monteCarlop80: '2026-12-01' },
+        mc: { p50: '2026-10-05', p80: '2026-11-03' },
+      }),
+    );
+    expect(segs[0]).toMatchObject({ kind: 'forecast', p80: '2026-12-01' });
   });
 
   it('forecast P50 is null (P80 alone) when no MC distribution is cached', () => {

@@ -1,4 +1,5 @@
 import type { MonteCarloResult } from '@/types';
+import { fmtUtcShort, fmtUtcLong } from '@/lib/formatUtcDate';
 
 interface Props {
   result: MonteCarloResult;
@@ -26,7 +27,7 @@ interface Props {
  * lingering hover without intercepting cursor traffic.
  *
  * The full distribution histogram lives in the `MonteCarloDetailPanel` (opened via the
- * "Details" button in MonteCarloRow), `MCResultPanel` (TopBar P80 pill), and
+ * "Details" button in `ScheduleForecastBar`), `MCResultPanel` (TopBar P80 pill), and
  * `MonteCarloSheet` (mobile).
  *
  * Chip text satisfies WCAG 1.4.1 — percentile boundaries are expressed as
@@ -36,21 +37,9 @@ export function MonteCarloTimeline({ result, p80DeltaDays }: Props) {
   const { p50, p80, p95 } = result;
   const isCollapsed = p50 === p80 && p80 === p95;
 
-  const fmtShort = (iso: string) =>
-    new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(
-      new Date(iso),
-    );
-  const fmtLong = (iso: string) =>
-    new Intl.DateTimeFormat('en-US', {
-      month: 'long',
-      day: 'numeric',
-      year: 'numeric',
-      timeZone: 'UTC',
-    }).format(new Date(iso));
-
   const title = isCollapsed
-    ? `Every simulation finished on ${fmtLong(p80)}. Add PERT estimates (optimistic / most-likely / pessimistic durations) on tasks to see a distribution.`
-    : `8 in 10 simulations finish by ${fmtLong(p80)}.`;
+    ? `Every simulation finished on ${fmtUtcLong(p80)}. Add PERT estimates (optimistic / most-likely / pessimistic durations) on tasks to see a distribution.`
+    : `8 in 10 simulations finish by ${fmtUtcLong(p80)}.`;
 
   const showDelta = typeof p80DeltaDays === 'number' && p80DeltaDays > 0;
 
@@ -71,7 +60,7 @@ export function MonteCarloTimeline({ result, p80DeltaDays }: Props) {
           key={label}
           className={`text-xs font-medium px-1.5 py-0.5 rounded border ${border} ${text} bg-transparent whitespace-nowrap`}
         >
-          {label}: {fmtShort(iso)}{suffix ? ` ${suffix}` : ''}
+          {label}: {fmtUtcShort(iso)}{suffix ? ` ${suffix}` : ''}
         </span>
       ))}
     </div>

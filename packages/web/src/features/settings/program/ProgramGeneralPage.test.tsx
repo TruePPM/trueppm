@@ -42,6 +42,15 @@ function makeProgram(overrides: Partial<Program> = {}): Program {
     effective_allow_guests: true,
     inherited_public_sharing: false,
     inherited_allow_guests: true,
+    mc_history_enabled: null,
+    mc_history_retention_cap: null,
+    mc_history_attribution_audience: null,
+    effective_mc_history_enabled: true,
+    effective_mc_history_retention_cap: 100,
+    effective_mc_history_attribution_audience: 'ADMIN_OWNER',
+    inherited_mc_history_enabled: true,
+    inherited_mc_history_retention_cap: 100,
+    inherited_mc_history_attribution_audience: 'ADMIN_OWNER',
     health: 'AUTO',
     visibility: 'WORKSPACE',
     color: null,
@@ -195,6 +204,9 @@ describe('ProgramGeneralPage (settings)', () => {
         visibility: 'WORKSPACE',
         color: null,
         lead: 'u-1',
+        mc_history_enabled: null,
+        mc_history_retention_cap: null,
+        mc_history_attribution_audience: null,
       },
     });
   });
@@ -232,6 +244,9 @@ describe('ProgramGeneralPage (settings)', () => {
         visibility: 'WORKSPACE',
         color: '#0EA5E9',
         lead: 'u-1',
+        mc_history_enabled: null,
+        mc_history_retention_cap: null,
+        mc_history_attribution_audience: null,
       },
     });
   });
@@ -266,6 +281,9 @@ describe('ProgramGeneralPage (settings)', () => {
         visibility: 'WORKSPACE',
         color: null,
         lead: 'u-1',
+        mc_history_enabled: null,
+        mc_history_retention_cap: null,
+        mc_history_attribution_audience: null,
       },
     });
   });

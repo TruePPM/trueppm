@@ -21,6 +21,10 @@ const WS: WorkspaceSettings = {
   publicSharing: false,
   iterationLabel: 'Sprint',
   iterationLabelOverridePolicy: 'suggest',
+  mcHistoryEnabled: true,
+  mcHistoryRetentionCap: 100,
+  mcHistoryAttributionAudience: 'ADMIN_OWNER',
+  mcHistoryOverridePolicy: 'allow',
 };
 
 vi.mock('../hooks/useWorkspaceSettings', () => ({
@@ -94,5 +98,44 @@ describe('WorkspaceGeneralPage — unwired buttons (#969, #641, Enterprise)', ()
     await user.click(publicSharing);
     expect(publicSharing).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByText('Enabled')).toBeInTheDocument();
+  });
+});
+
+// ----- Forecast history (ADR-0144, #1232) ------------------------------------
+
+describe('WorkspaceGeneralPage — forecast history', () => {
+  it('renders the forecast-history group seeded from the workspace settings', () => {
+    renderPage();
+    expect(screen.getByRole('heading', { name: /forecast history/i, level: 3 })).toBeInTheDocument();
+    // The workspace root is non-null: a plain switch, number input, and select.
+    expect(
+      screen.getByRole('switch', { name: 'Keep Monte Carlo run history' }),
+    ).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('spinbutton', { name: 'Run history limit' })).toHaveValue(100);
+    expect(screen.getByRole('combobox', { name: 'Run attribution visible to' })).toHaveValue(
+      'ADMIN_OWNER',
+    );
+  });
+
+  it('clamps the retention input to the 500 hard cap', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const cap = screen.getByRole('spinbutton', { name: 'Run history limit' });
+    await user.clear(cap);
+    await user.type(cap, '9999');
+    expect(cap).toHaveValue(500);
+  });
+
+  it('renders the Lock policy as a disabled Enterprise affordance with an EE badge', () => {
+    renderPage();
+    const lock = screen.getByRole('radio', { name: /Lock workspace-wide/i });
+    expect(lock).toBeDisabled();
+    // The "May override" radio is the live OSS default.
+    expect(screen.getByRole('radio', { name: /May override these settings/i })).toBeChecked();
+    // The EE badge sits beside the disabled Lock option.
+    const ee = within(lock.closest('span') as HTMLElement).getByRole('link', {
+      name: /Available in TruePPM Enterprise/i,
+    });
+    expect(ee).toHaveAttribute('href', 'https://trueppm.com/enterprise');
   });
 });

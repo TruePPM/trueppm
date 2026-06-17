@@ -32,6 +32,11 @@ from django.utils import timezone
 from trueppm_api.apps.access.models import Role
 from trueppm_api.apps.projects.models import VersionedModel
 
+# MCAttributionAudience lives in scheduling.models (the gate consumer); imported
+# here only as a choices set for the column. scheduling never imports workspace,
+# so there is no cycle (ADR-0144).
+from trueppm_api.apps.scheduling.models import MCAttributionAudience
+
 INVITE_TTL_DAYS = 7  # ADR-0087 §4 — invite token validity window
 
 # English month names, indexed 1–12, for the fiscal-year display label (#756).
@@ -171,6 +176,32 @@ class Workspace(models.Model):
     # ENFORCE is a no-op in the community edition (degrades to SUGGEST) unless a
     # sharing-enforcement provider is registered (``apps.projects.sharing_settings``).
     public_sharing_override_policy = models.CharField(
+        max_length=16,
+        choices=TermOverridePolicy.choices,
+        default=TermOverridePolicy.SUGGEST,
+    )
+    # Per-workspace Monte Carlo forecast-history config (ADR-0144, #1232) — the
+    # non-null root of the Workspace → Program → Project inheritance chain. A
+    # program/project whose own override is NULL resolves up to these values via
+    # ``scheduling.forecast_history_settings``. All three carry model-level defaults
+    # that reproduce the pre-0143 behavior exactly (history on, cap 100, attribution
+    # to Admin/Owner), so the migration is purely additive.
+    mc_history_enabled = models.BooleanField(default=True)
+    # Default matches settings.MC_HISTORY_CAP; the resolver clamps reads to
+    # settings.MC_HISTORY_HARD_CAP (500) so a misconfigured value can't unbound the
+    # nightly purge.
+    mc_history_retention_cap = models.PositiveIntegerField(default=100)
+    mc_history_attribution_audience = models.CharField(
+        max_length=16,
+        choices=MCAttributionAudience.choices,
+        default=MCAttributionAudience.ADMIN_OWNER,
+    )
+    # Whether programs/projects may override the forecast-history config above
+    # (ADR-0144, mirroring public_sharing_override_policy). SUGGEST (OSS default) =
+    # downstream may override freely; ENFORCE = Enterprise hard lock (no-op in OSS —
+    # stored but never enforced; the enforcement seam lives in
+    # ``scheduling.forecast_history_settings``).
+    mc_history_override_policy = models.CharField(
         max_length=16,
         choices=TermOverridePolicy.choices,
         default=TermOverridePolicy.SUGGEST,

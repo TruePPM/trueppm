@@ -9,6 +9,7 @@ import { useMonteCarloResult } from '@/hooks/useMonteCarloResult';
 import { WarningIcon, CriticalDotIcon } from '@/components/Icons';
 import { MCResultPanel } from './MCResultPanel';
 import { healthClusterModel, type HealthSegment } from './healthClusterModel';
+import { fmtUtcShort } from '@/lib/formatUtcDate';
 
 interface Props {
   /** Selects + scrolls to a task and routes to the schedule (owned by TopBar). */
@@ -21,9 +22,10 @@ interface BadgeTaskItem {
   name: string;
 }
 
-function formatForecastDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
+// Forecast dates are formatted in UTC (the server emits MC percentile dates as
+// UTC ISO strings). Local-zone formatting drifts a calendar day west of UTC,
+// which is what made the shell header disagree with the schedule bar (ADR-0144).
+const formatForecastDate = fmtUtcShort;
 
 // The velocity number is audience-scoped (ADR-0104). Even when the viewer is in
 // audience, the slot surfaces this boundary so teams trust the figure isn't piped

@@ -256,8 +256,13 @@ class TestLatestDbFallback:
 class TestRetentionPurge:
     def test_purge_trims_to_cap_newest(self, project: Project, settings: object) -> None:
         from trueppm_api.apps.scheduling.tasks import _do_monte_carlo_run_purge
+        from trueppm_api.apps.workspace.models import Workspace
 
-        settings.MC_HISTORY_CAP = 3
+        # The purge now reads the per-workspace effective retention cap (ADR-0144),
+        # not the global setting — set the workspace cap to 3.
+        ws = Workspace.load()
+        ws.mc_history_retention_cap = 3
+        ws.save(update_fields=["mc_history_retention_cap"])
         base = timezone.now()
         for i in range(6):
             run = MonteCarloRun.objects.create(
@@ -271,10 +276,10 @@ class TestRetentionPurge:
         newest = remaining.order_by("-taken_at").first()
         assert newest is not None
 
-    def test_purge_noop_when_cap_none(self, project: Project, settings: object) -> None:
+    def test_purge_noop_when_under_cap(self, project: Project) -> None:
         from trueppm_api.apps.scheduling.tasks import _do_monte_carlo_run_purge
 
-        settings.MC_HISTORY_CAP = None  # Enterprise: unlimited
+        # 5 runs under the default workspace cap (100) — nothing is purged.
         for _ in range(5):
             MonteCarloRun.objects.create(project=project, p80=date(2026, 9, 1), n_simulations=10)
         _do_monte_carlo_run_purge()

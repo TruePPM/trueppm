@@ -185,6 +185,13 @@ test.describe('Wave 1 — TopBar health cluster (desktop, lg+ viewport)', () => 
         body: JSON.stringify(EMPTY_STATUS_SUMMARY),
       }),
     );
+    // "No signals" also means no forecast has been run: a 404 from /latest/ is
+    // the genuine not-run state. The forecast segment now falls back to the live
+    // MC P80 when the status summary omits it (ADR-0144 "P80 —" fix), so the live
+    // result must also be empty here for the segment to read "—".
+    await page.route('**/api/v1/projects/*/monte-carlo/latest/', (route) =>
+      route.fulfill({ status: 404, contentType: 'application/json', body: '{}' }),
+    );
     await page.reload();
     const cluster = page.getByTestId('health-cluster');
     await expect(cluster).toBeVisible();

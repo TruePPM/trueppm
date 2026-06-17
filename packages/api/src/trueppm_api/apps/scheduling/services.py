@@ -153,6 +153,7 @@ def record_monte_carlo_run(
     cpm_finish: date | None = None,
     task_count: int | None = None,
     user: Any = None,
+    distribution: dict[str, Any] | None = None,
 ) -> MonteCarloRun | None:
     """Persist one project-level Monte Carlo run for the forecast history (ADR-0109).
 
@@ -162,10 +163,14 @@ def record_monte_carlo_run(
     returns the computed result; the history simply misses that row). Returns the
     created ``MonteCarloRun`` or ``None`` on failure.
 
-    ``user`` is stored as ``triggered_by`` and is serialized only to Admin/Owner
-    (ADR-0109 / VoC): forecast drift must not become a named-individual signal at
-    the team level. An ``AnonymousUser`` (never expected here behind
-    IsAuthenticated) is normalized to ``None``.
+    ``user`` is stored as ``triggered_by`` and is serialized only to the resolved
+    attribution audience (ADR-0144 / VoC): forecast drift must not become a
+    named-individual signal at the team level. An ``AnonymousUser`` (never expected
+    here behind IsAuthenticated) is normalized to ``None``.
+
+    ``distribution`` is the size-bounded ``{histogram_buckets, confidence_curve,
+    sensitivity}`` payload (#1231) persisted so the histogram survives cache expiry;
+    ``None`` (legacy / no distribution) renders the empty-state prose on read.
     """
     from trueppm_api.apps.scheduling.models import MonteCarloRun
 
@@ -180,6 +185,7 @@ def record_monte_carlo_run(
             n_simulations=n_simulations,
             task_count=task_count,
             triggered_by=triggered_by,
+            distribution=distribution,
         )
     except Exception:
         logger.exception(

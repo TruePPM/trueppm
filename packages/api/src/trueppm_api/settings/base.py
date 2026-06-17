@@ -480,6 +480,20 @@ MC_TASK_CAP: int | None = 5_000
 # — unbounded history + cross-program rollup is the portfolio upsell).
 MC_HISTORY_CAP: int | None = 100
 
+# Per-run distribution persistence (#1231, ADR-0144). The full
+# {histogram_buckets, confidence_curve, sensitivity} payload is stored on
+# MonteCarloRun.distribution so the histogram survives cache expiry. Bounded at
+# 32 KB: a payload over this is down-sampled (every Nth histogram bucket) before
+# persist so a pathological high-bucket run cannot bloat the row. The cache copy
+# is unaffected by the down-sample.
+MC_DISTRIBUTION_MAX_BYTES: int = 32_768
+
+# Absolute upper bound on the per-workspace forecast-history retention cap
+# (ADR-0144). The per-workspace mc_history_retention_cap is clamped to this on
+# read so an operator (or future Enterprise override) cannot configure an
+# unbounded per-project history that the nightly purge would never trim.
+MC_HISTORY_HARD_CAP: int = 500
+
 # ---------------------------------------------------------------------------
 # Upload caps (ADR-0075, task attachments)
 # ---------------------------------------------------------------------------

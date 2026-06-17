@@ -1,4 +1,5 @@
 import type { McBucket, MonteCarloResult } from '@/types';
+import { fmtUtcLong } from '@/lib/formatUtcDate';
 
 interface Props {
   result: MonteCarloResult;
@@ -39,32 +40,44 @@ function findBucketIndex(buckets: McBucket[], isoDate: string): number {
  * In that case we render a plain-prose summary instead of a broken chart.
  *
  * No external charting library — plain SVG keeps bundle impact at zero.
- * Rendered inside the hover tooltip on the MonteCarloRow.
+ * Rendered in the expanded ScheduleForecastBar, the detail drawer, and the
+ * mobile sheet.
  */
 export function MonteCarloHistogram({ result }: Props) {
   const { buckets, p50, p80, p95 } = result;
 
-  // Collapse case — single-date distribution. Nothing to plot.
+  // Cold / not-persisted case — NO distribution to plot at all (issue 1231). A run
+  // served from history past the cache TTL with no persisted distribution, or a
+  // not-yet-run project, returns zero buckets. This is distinct from the
+  // genuine zero-spread collapse below: here we have no shape, so we prompt a
+  // fresh run rather than claim "every simulation finished on {date}" — which
+  // would be a misleading fabrication when we never had the distribution.
+  if (buckets.length === 0) {
+    return (
+      <p
+        className="text-xs text-neutral-text-secondary leading-snug"
+        role="img"
+        aria-label="No Monte Carlo distribution available — run a fresh simulation to see it."
+      >
+        Run a fresh simulation to see the distribution. This run was recorded before its
+        full distribution was kept, or its cached shape has expired.
+      </p>
+    );
+  }
+
+  // Genuine zero-spread collapse — every simulation finished on the same date.
   //
   // The strongest signal is `p50 === p80 === p95` (ISO date equality). The
-  // API does NOT return one bucket in this case — it always returns up to 30
-  // buckets sized by run count, so when every run finishes on the same date
-  // you get 30 buckets sharing a single date with all weight in bucket 0 and
-  // the percentile rules pinned to the last bucket index. Drawing that
-  // produces a lonely bar at the left edge and three rules stacked at the
-  // right edge with their labels overlapping into illegible glyphs.
+  // API does NOT always return one bucket here — it can return up to 30 buckets
+  // sharing a single date with all weight in bucket 0 and the percentile rules
+  // pinned to the last bucket index. `buckets.length === 1` is the explicit
+  // single-bucket form. Drawing either produces a lonely bar and three stacked
+  // rules with overlapping labels, so render prose instead. The date is
+  // formatted via the shared UTC formatter (ADR-0144) — server ISO dates are
+  // UTC and a local format drifts a day.
   const isCollapsed = p50 === p80 && p80 === p95;
-  if (isCollapsed || buckets.length <= 1) {
-    // Format in the local zone for consistency with the chips elsewhere in
-    // the row. `new Date(iso)` parses ISO date strings as UTC midnight, which
-    // can shift the displayed day west of UTC — that mismatch is real but
-    // project-scoped (every other date label has the same behaviour) and
-    // tracked separately.
-    const sameDate = new Intl.DateTimeFormat('en-US', {
-      month: 'long',
-      day: 'numeric',
-      year: 'numeric',
-    }).format(new Date(p80));
+  if (isCollapsed || buckets.length === 1) {
+    const sameDate = fmtUtcLong(p80);
     return (
       <p className="text-xs text-neutral-text-secondary leading-snug" role="img" aria-label={`Monte Carlo distribution: every simulation finished on ${p80}.`}>
         Every simulation finished on{' '}

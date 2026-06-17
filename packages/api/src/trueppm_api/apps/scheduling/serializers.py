@@ -144,6 +144,7 @@ class MonteCarloRunSerializer(serializers.ModelSerializer[MonteCarloRun]):
 
     delta = serializers.SerializerMethodField()
     triggered_by_name = serializers.SerializerMethodField()
+    distribution = serializers.SerializerMethodField()
 
     class Meta:
         model = MonteCarloRun
@@ -158,6 +159,7 @@ class MonteCarloRunSerializer(serializers.ModelSerializer[MonteCarloRun]):
             "task_count",
             "delta",
             "triggered_by_name",
+            "distribution",
         ]
         read_only_fields = fields
 
@@ -166,7 +168,13 @@ class MonteCarloRunSerializer(serializers.ModelSerializer[MonteCarloRun]):
         return getattr(obj, "_delta", None)
 
     def get_triggered_by_name(self, obj: MonteCarloRun) -> str | None:
-        """Run-author display name — Admin/Owner only, else None (ADR-0109)."""
+        """Run-author display name — gated by the resolved attribution audience.
+
+        The view sets ``can_see_attribution`` per the workspace-effective
+        ``mc_history_attribution_audience`` (ADR-0144): ADMIN_OWNER → Admin/Owner,
+        SCHEDULER_PLUS → Scheduler+, NONE → nobody. None when the reader is below
+        the audience so forecast drift cannot become a named-individual signal.
+        """
         if not self.context.get("can_see_attribution"):
             return None
         user: Any = obj.triggered_by
@@ -174,3 +182,17 @@ class MonteCarloRunSerializer(serializers.ModelSerializer[MonteCarloRun]):
             return None
         full_name = user.get_full_name() if hasattr(user, "get_full_name") else ""
         return full_name or user.get_username()
+
+    def get_distribution(self, obj: MonteCarloRun) -> dict[str, Any] | None:
+        """The persisted per-run distribution — only when explicitly expanded (#1231).
+
+        Returns the stored ``{histogram_buckets, confidence_curve, sensitivity}``
+        payload (snake_case, matching the ``/latest/`` response shape) ONLY when the
+        view sets ``context['expand_distribution']`` — the history *list* stays
+        lightweight by default and a single detail fetch opts in via
+        ``?expand=distribution``. ``None`` for legacy runs with no stored
+        distribution, or whenever the flag is unset.
+        """
+        if not self.context.get("expand_distribution"):
+            return None
+        return obj.distribution

@@ -1,6 +1,10 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
-import type { WorkspaceSettings } from '@/api/types';
+import type {
+  MCAttributionAudience,
+  MCHistoryOverridePolicy,
+  WorkspaceSettings,
+} from '@/api/types';
 
 /**
  * Subset of WorkspaceSettings accepted by PATCH /workspace/. `subdomain` and
@@ -22,6 +26,10 @@ interface WorkspaceSettingsPatchRaw {
   public_sharing?: boolean;
   iteration_label?: string;
   iteration_label_override_policy?: 'inherit' | 'suggest' | 'enforce';
+  mc_history_enabled?: boolean;
+  mc_history_retention_cap?: number;
+  mc_history_attribution_audience?: MCAttributionAudience;
+  mc_history_override_policy?: MCHistoryOverridePolicy;
 }
 
 function toRaw(patch: WorkspaceSettingsPatch): WorkspaceSettingsPatchRaw {
@@ -38,6 +46,13 @@ function toRaw(patch: WorkspaceSettingsPatch): WorkspaceSettingsPatchRaw {
   if (patch.iterationLabel !== undefined) raw.iteration_label = patch.iterationLabel;
   if (patch.iterationLabelOverridePolicy !== undefined)
     raw.iteration_label_override_policy = patch.iterationLabelOverridePolicy;
+  if (patch.mcHistoryEnabled !== undefined) raw.mc_history_enabled = patch.mcHistoryEnabled;
+  if (patch.mcHistoryRetentionCap !== undefined)
+    raw.mc_history_retention_cap = patch.mcHistoryRetentionCap;
+  if (patch.mcHistoryAttributionAudience !== undefined)
+    raw.mc_history_attribution_audience = patch.mcHistoryAttributionAudience;
+  if (patch.mcHistoryOverridePolicy !== undefined)
+    raw.mc_history_override_policy = patch.mcHistoryOverridePolicy;
   return raw;
 }
 

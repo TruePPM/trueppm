@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type {
+  MCAttributionAudience,
   PaginatedResponse,
   ProjectDefaultView,
   ProjectHealth,
@@ -80,6 +81,11 @@ export interface UpdateProjectPayload {
    *  inherits the program/workspace value. Admin+-only server-side. */
   public_sharing?: boolean | null;
   allow_guests?: boolean | null;
+  /** Forecast-history overrides (ADR-0144, issue 1232). `null` clears the override so
+   *  the project inherits the program/workspace value. Admin+-only server-side. */
+  mc_history_enabled?: boolean | null;
+  mc_history_retention_cap?: number | null;
+  mc_history_attribution_audience?: MCAttributionAudience | null;
   /** Calendar UUID or null to inherit from the workspace. */
   calendar?: string | null;
   /** Project lead — user id, or null to unassign. Admin+-only and must already
