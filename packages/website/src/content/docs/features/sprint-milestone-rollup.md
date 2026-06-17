@@ -47,6 +47,43 @@ When at least one sprint targets a milestone task:
   milestone_rollup_locked`). To override, unlink or close the sprint first;
   the lock releases immediately.
 
+## Linking a sprint to a milestone
+
+Binding is what turns on every rollup above — until a sprint targets a
+milestone, none of it applies.
+
+**In the app.** From the sprint panel, a Scheduler (or above) uses **Link
+milestone** — the action appears only while the sprint is unbound. It opens a
+dialog with a live **reforecast preview** (projected dates and a team-pace band,
+computed on the fly and persisted to nothing), then either mints a new milestone
+from the sprint goal or binds an existing milestone in the same project.
+
+**Over the API.** `POST /api/v1/sprints/{id}/promote-to-milestone/` (Scheduler+):
+
+- **Body `{}`** — mints a new `Task(is_milestone=true)` from the sprint goal,
+  dated at the sprint finish, and binds it. Returns **201**. Optional
+  `{"name", "target_date"}` rename or re-date the minted milestone (create-mode
+  only; both are ignored when `milestone_id` is given).
+- **Body `{"milestone_id": "<uuid>"}`** — binds an existing milestone in the
+  same project. Returns **200**. Re-binding the milestone already bound is an
+  idempotent **200**.
+
+A dry run for the dialog is available at
+`GET /api/v1/sprints/{id}/reforecast-preview/?milestone_id=<uuid>` (any project
+member; omit `milestone_id` to preview the to-be-minted milestone).
+
+To bind a *different* milestone, unbind first — the binding never silently
+re-points. `POST /api/v1/sprints/{id}/unbind-milestone/` (Scheduler+) clears the
+binding and its provenance and recomputes the freed milestone's rollup. It is
+no-op-safe: an already-unbound sprint returns **200** unchanged.
+
+### Errors
+
+| Status | Code / body | When |
+|--------|-------------|------|
+| **409** | `{"code": "sprint_already_bound", "current_milestone_id": "<uuid>"}` | Binding a different milestone while the sprint is already bound. Unbind first. |
+| **400** | `{"milestone_id": "Milestone not found in this project."}` | `milestone_id` does not name a milestone in the sprint's project. |
+
 ## Calculation
 
 The rollup uses points by default and falls back to task counts when no team
