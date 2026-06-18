@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { SprintDailyDeltaPanel } from './SprintDailyDeltaPanel';
 import type { SprintDailyDelta } from '@/hooks/useSprints';
@@ -16,11 +16,15 @@ interface QueryShape {
 // switching can be asserted against the `since` the panel computes.
 const useDeltaMock = vi.fn<() => QueryShape>();
 let lastSince: string | undefined;
+// The burndown hook supplies the sprint finish date for the sub-5-day footnote (#1238).
+// Default: no finish date → no footnote, so the existing tests are unaffected.
+const useBurndownMock = vi.fn<() => { data: { sprint: { finish_date: string } } | undefined }>();
 vi.mock('@/hooks/useSprints', () => ({
   useSprintDailyDelta: (_sprintId: string, opts?: { since?: string }) => {
     lastSince = opts?.since;
     return useDeltaMock();
   },
+  useSprintBurndown: () => useBurndownMock(),
 }));
 
 // The task-drawer open mechanism (#1124) — the shared schedule store selectedTaskId.
@@ -73,6 +77,9 @@ function ok(data: SprintDailyDelta, extra: Partial<QueryShape> = {}): QueryShape
 beforeEach(() => {
   useDeltaMock.mockReset();
   setSelectedTaskIdMock.mockReset();
+  // No finish date by default → the #1238 footnote never renders in unrelated tests.
+  useBurndownMock.mockReset();
+  useBurndownMock.mockReturnValue({ data: undefined });
   lastSince = undefined;
   try {
     window.localStorage.clear();
@@ -268,5 +275,56 @@ describe('SprintDailyDeltaPanel (#925)', () => {
     useDeltaMock.mockReturnValue({ data: undefined, isLoading: true });
     const { container } = render(<SprintDailyDeltaPanel sprintId="s1" />);
     expect(container.querySelector('.animate-pulse')).toBeTruthy();
+  });
+
+  describe('sub-5-day "N days left" burndown footnote (#1238)', () => {
+    const burndownDelta = {
+      prior_date: '2026-04-13', prior_remaining: 20, current_date: '2026-04-14',
+      current_remaining: 12, remaining_delta: -8, completed_delta: 8,
+    };
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('appends the footnote when fewer than 5 working days remain', () => {
+      // Mon 2026-04-13 → finish Fri 2026-04-17 = 5 working days inclusive… use a
+      // finish that leaves exactly 3 working days (Wed → Fri).
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-04-15T09:00:00Z')); // Wednesday
+      useDeltaMock.mockReturnValue(ok(delta({ burndown_delta: burndownDelta })));
+      useBurndownMock.mockReturnValue({ data: { sprint: { finish_date: '2026-04-17' } } });
+      render(<SprintDailyDeltaPanel sprintId="s1" />);
+      // Wed, Thu, Fri = 3 working days left.
+      expect(screen.getByText('(3 days left)')).toBeInTheDocument();
+    });
+
+    it('uses the singular "day" at one working day left', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-04-17T09:00:00Z')); // Friday, finish same day
+      useDeltaMock.mockReturnValue(ok(delta({ burndown_delta: burndownDelta })));
+      useBurndownMock.mockReturnValue({ data: { sprint: { finish_date: '2026-04-17' } } });
+      render(<SprintDailyDeltaPanel sprintId="s1" />);
+      expect(screen.getByText('(1 day left)')).toBeInTheDocument();
+    });
+
+    it('omits the footnote when 5 or more working days remain', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-04-13T09:00:00Z')); // Monday
+      useDeltaMock.mockReturnValue(ok(delta({ burndown_delta: burndownDelta })));
+      // Finish two weeks out → well over a working week of runway.
+      useBurndownMock.mockReturnValue({ data: { sprint: { finish_date: '2026-04-27' } } });
+      render(<SprintDailyDeltaPanel sprintId="s1" />);
+      expect(screen.queryByText(/days? left/)).not.toBeInTheDocument();
+    });
+
+    it('omits the footnote once the sprint finish date has passed', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-04-20T09:00:00Z'));
+      useDeltaMock.mockReturnValue(ok(delta({ burndown_delta: burndownDelta })));
+      useBurndownMock.mockReturnValue({ data: { sprint: { finish_date: '2026-04-17' } } });
+      render(<SprintDailyDeltaPanel sprintId="s1" />);
+      expect(screen.queryByText(/days? left/)).not.toBeInTheDocument();
+    });
   });
 });

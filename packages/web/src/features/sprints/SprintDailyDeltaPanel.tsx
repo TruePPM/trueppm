@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { useSprintDailyDelta, type SprintDailyDelta } from '@/hooks/useSprints';
+import {
+  useSprintBurndown,
+  useSprintDailyDelta,
+  type SprintDailyDelta,
+} from '@/hooks/useSprints';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import { blockerTypeLabel, formatBlockedAge } from '@/lib/blocker';
 import { ScopeChangeDrawer } from './ScopeChangeDrawer';
@@ -87,6 +91,12 @@ export function SprintDailyDeltaPanel({ sprintId }: Props) {
 
   const query = useSprintDailyDelta(sprintId, { since });
 
+  // The daily-delta payload carries no sprint window, so the sub-5-day burndown
+  // footnote (issue 1238) reads the finish date from the existing burndown endpoint —
+  // no new API field, purely presentational.
+  const burndownQuery = useSprintBurndown(sprintId);
+  const daysLeft = daysLeftFootnote(burndownQuery.data?.sprint.finish_date);
+
   // After data loads, advance the stored last-viewed timestamp to "now" so the next
   // visit's "Since I last looked" shows everything since this view (#1123).
   const loadedUntil = query.data?.until;
@@ -173,7 +183,7 @@ export function SprintDailyDeltaPanel({ sprintId }: Props) {
         </div>
       ) : (
         <div className="flex flex-col divide-y divide-neutral-border">
-          {d.burndown_delta && <BurndownRow delta={d.burndown_delta} />}
+          {d.burndown_delta && <BurndownRow delta={d.burndown_delta} daysLeft={daysLeft} />}
           {d.sprint_load && <SprintLoadRow load={d.sprint_load} />}
           <PerActorRow actors={d.per_actor} aggregate={d.actor_aggregate} />
           {d.new_blockers.length > 0 && (
@@ -249,7 +259,14 @@ function WindowControl({
   );
 }
 
-function BurndownRow({ delta }: { delta: NonNullable<SprintDailyDelta['burndown_delta']> }) {
+function BurndownRow({
+  delta,
+  daysLeft,
+}: {
+  delta: NonNullable<SprintDailyDelta['burndown_delta']>;
+  /** Sub-5-day runway footnote (issue 1238); null at 5+ days or with no finish date. */
+  daysLeft: string | null;
+}) {
   const down = delta.remaining_delta < 0; // remaining went DOWN = progress (good)
   const tone = down
     ? 'text-semantic-on-track'
@@ -274,6 +291,9 @@ function BurndownRow({ delta }: { delta: NonNullable<SprintDailyDelta['burndown_
         ({delta.prior_remaining} → {delta.current_remaining}
         {delta.completed_delta > 0 && <>, +{delta.completed_delta} done</>})
       </span>
+      {daysLeft && (
+        <span className="text-xs text-neutral-text-secondary">({daysLeft})</span>
+      )}
     </div>
   );
 }
@@ -543,6 +563,40 @@ function TaskRef({
       {inner}
     </button>
   );
+}
+
+/**
+ * Whole working days (Mon–Fri) remaining from `today` up to and including the
+ * sprint finish date. Returns 0 once the finish date has passed. Weekend-only
+ * (the default calendar) so it stays purely presentational — the precise
+ * calendar-aware figure is the scheduler's job, not this caption's.
+ */
+function remainingWorkingDays(finishIso: string, today: Date = new Date()): number {
+  const finish = new Date(finishIso + 'T00:00:00Z');
+  if (Number.isNaN(finish.getTime())) return 0;
+  const cursor = new Date(
+    Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()),
+  );
+  let count = 0;
+  while (cursor.getTime() <= finish.getTime()) {
+    const dow = cursor.getUTCDay();
+    if (dow !== 0 && dow !== 6) count += 1;
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return count;
+}
+
+/**
+ * Sub-5-day "(N days left)" footnote for the burndown caption (issue 1238). On a
+ * compressed sprint the daily rate is hard to read without the runway; this
+ * appends the remaining working-day count once it drops below a working week.
+ * Returns `null` at 5+ days (no footnote) or with no finish date.
+ */
+function daysLeftFootnote(finishIso: string | undefined): string | null {
+  if (!finishIso) return null;
+  const left = remainingWorkingDays(finishIso);
+  if (left <= 0 || left >= 5) return null;
+  return `${left} day${left === 1 ? '' : 's'} left`;
 }
 
 /** "since 6:00 PM Mon" style hint — purely cosmetic, the server owns the window. */
