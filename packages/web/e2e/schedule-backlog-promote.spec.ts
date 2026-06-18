@@ -211,7 +211,7 @@ test.describe('Schedule backlog gutter section (#318)', () => {
     await page.mouse.up();
 
     // Success toast uses the fixed verb ("to To Do").
-    await expect(page.getByText(/Promoted 'Spike Auth Provider' to To Do and scheduled for/)).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText(/Added 'Spike Auth Provider' to the sprint, starting/)).toBeVisible({ timeout: 5_000 });
 
     expect(patchBody).not.toBeNull();
     expect(patchBody!.status).toBe('NOT_STARTED');
@@ -248,15 +248,15 @@ test.describe('Schedule "…" dialog (#318, rule 135)', () => {
     // Scope to the Schedule dialog by its accessible name — the schedule view
     // always renders a closed TaskDetailDrawer (role="dialog", empty name) that
     // an unscoped getByRole('dialog') collides with on desktop viewports.
-    const dialog = page.getByRole('dialog', { name: /^Schedule/ });
+    const dialog = page.getByRole('dialog', { name: /to a sprint$/ });
     await expect(dialog).toBeVisible();
-    await expect(dialog.getByText('This moves the item from Backlog to your schedule.')).toBeVisible();
+    await expect(dialog.getByText('This commits the idea from your backlog to a sprint')).toBeVisible();
 
-    await dialog.getByLabel('Planned start').fill('2026-06-15');
-    await dialog.getByRole('button', { name: 'Schedule' }).click();
+    await dialog.getByLabel('Target date').fill('2026-06-15');
+    await dialog.getByRole('button', { name: 'Add to sprint' }).click();
 
     await expect(dialog).not.toBeVisible();
-    await expect(page.getByText(/Promoted 'Spike Auth Provider' to To Do and scheduled for/)).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText(/Added 'Spike Auth Provider' to the sprint, starting/)).toBeVisible({ timeout: 5_000 });
 
     expect(patchBody).toEqual({ planned_start: '2026-06-15', status: 'NOT_STARTED' });
   });
@@ -264,7 +264,7 @@ test.describe('Schedule "…" dialog (#318, rule 135)', () => {
   test('Esc cancels the dialog', async ({ page }) => {
     await gotoSchedule(page);
     await page.getByRole('button', { name: 'Actions for Spike Auth Provider' }).click();
-    const dialog = page.getByRole('dialog', { name: /^Schedule/ });
+    const dialog = page.getByRole('dialog', { name: /to a sprint$/ });
     await expect(dialog).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(dialog).not.toBeVisible();
@@ -282,10 +282,10 @@ test.describe('Schedule "…" dialog offline (#318, rule 29)', () => {
     await page.context().setOffline(true);
 
     await page.getByRole('button', { name: 'Actions for Spike Auth Provider' }).click();
-    const dialog = page.getByRole('dialog', { name: /^Schedule/ });
+    const dialog = page.getByRole('dialog', { name: /to a sprint$/ });
     await expect(dialog).toBeVisible();
 
-    const scheduleBtn = dialog.getByRole('button', { name: 'Schedule' });
+    const scheduleBtn = dialog.getByRole('button', { name: 'Add to sprint' });
     await expect(scheduleBtn).toBeDisabled();
     await expect(scheduleBtn).toHaveAttribute('title', "You're offline — change not saved.");
 

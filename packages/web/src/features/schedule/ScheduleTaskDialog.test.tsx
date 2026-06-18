@@ -84,20 +84,34 @@ describe('ScheduleTaskDialog', () => {
     );
 
     expect(screen.getByRole('dialog')).toHaveAttribute('aria-modal', 'true');
-    expect(screen.getByRole('heading', { name: /Schedule.*Spike auth flow/ })).toBeInTheDocument();
     expect(
-      screen.getByText('This moves the item from Backlog to your schedule.'),
+      screen.getByRole('heading', { name: /Add.*Spike auth flow.*to a sprint/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/commits the idea from your backlog to a sprint/),
     ).toBeInTheDocument();
 
-    const dateInput = screen.getByLabelText<HTMLInputElement>('Planned start');
+    const dateInput = screen.getByLabelText<HTMLInputElement>('Target date');
     expect(dateInput.value).toBe(todayLocalIso());
+  });
+
+  it('speaks in sprint/milestone language, not CPM float/early-start terms', () => {
+    renderDialog(
+      <ScheduleTaskDialog task={makeTask()} projectId="proj1" onClose={vi.fn()} />,
+    );
+
+    // Jordan (PO) hard-NO: the drop dialog must not force CPM/WBS vocabulary.
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveTextContent('sprint');
+    expect(dialog.textContent ?? '').not.toMatch(/early start|float|critical path/i);
+    expect(screen.getByRole('button', { name: 'Add to sprint' })).toBeInTheDocument();
   });
 
   it('focuses the date input on open (focus-first, rule 135)', () => {
     renderDialog(
       <ScheduleTaskDialog task={makeTask()} projectId="proj1" onClose={vi.fn()} />,
     );
-    expect(screen.getByLabelText('Planned start')).toHaveFocus();
+    expect(screen.getByLabelText('Target date')).toHaveFocus();
   });
 
   it('Schedule sends PATCH with { planned_start, status: NOT_STARTED } (decision A2)', async () => {
@@ -106,10 +120,10 @@ describe('ScheduleTaskDialog', () => {
       <ScheduleTaskDialog task={makeTask({ id: 'bk1' })} projectId="proj1" onClose={onClose} />,
     );
 
-    fireEvent.change(screen.getByLabelText('Planned start'), {
+    fireEvent.change(screen.getByLabelText('Target date'), {
       target: { value: '2026-06-10' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Schedule' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add to sprint' }));
 
     await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(1));
     expect(patchMock).toHaveBeenCalledWith('/tasks/bk1/', {
@@ -129,7 +143,7 @@ describe('ScheduleTaskDialog', () => {
       <ScheduleTaskDialog task={makeTask()} projectId="proj1" onClose={onClose} />,
     );
     // Dialog steals focus to the date input on mount.
-    expect(screen.getByLabelText('Planned start')).toHaveFocus();
+    expect(screen.getByLabelText('Target date')).toHaveFocus();
 
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(onClose).toHaveBeenCalledTimes(1);
@@ -142,7 +156,7 @@ describe('ScheduleTaskDialog', () => {
     renderDialog(
       <ScheduleTaskDialog task={makeTask()} projectId="proj1" onClose={vi.fn()} />,
     );
-    const scheduleBtn = screen.getByRole('button', { name: 'Schedule' });
+    const scheduleBtn = screen.getByRole('button', { name: 'Add to sprint' });
     expect(scheduleBtn).toBeDisabled();
     expect(scheduleBtn).toHaveAttribute('title', "You're offline — change not saved.");
   });
@@ -153,10 +167,10 @@ describe('ScheduleTaskDialog', () => {
     renderDialog(
       <ScheduleTaskDialog task={makeTask()} projectId="proj1" onClose={onClose} />,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Schedule' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add to sprint' }));
 
     await waitFor(() =>
-      expect(screen.getByRole('alert')).toHaveTextContent("Couldn't schedule this item"),
+      expect(screen.getByRole('alert')).toHaveTextContent("Couldn't add this item to the sprint"),
     );
     expect(onClose).not.toHaveBeenCalled();
   });
