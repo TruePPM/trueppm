@@ -105,7 +105,7 @@ export function MyWorkPage() {
     [allTasks],
   );
 
-  // Blocked quick-filter (#1198): a top-of-page "N blocked" chip the contributor
+  // Blocked quick-filter: a top-of-page "N blocked" chip the contributor
   // taps to narrow the list to flagged-blocked tasks. Reads `is_blocked` already
   // on each row — no extra request. The filter auto-clears if the count falls to
   // zero (chip hides), so we never strand the user on an empty filtered view.

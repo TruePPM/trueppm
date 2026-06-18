@@ -1,10 +1,10 @@
 /**
- * Blocked-task selectors for the My Work surface (#1198).
+ * Blocked-task selectors for the My Work surface.
  *
  * Pure helpers over the already-loaded `/me/work/` task list — the "N blocked"
  * chip and its tap-to-filter both read from data the page already holds, so no
- * extra request is made. "Blocked" here is the explicit human flag (`is_blocked`,
- * #476/#855), matching the row's blocked badge — not dependency readiness.
+ * extra request is made. "Blocked" here is the explicit human flag (`is_blocked`),
+ * matching the row's blocked badge — not dependency readiness.
  */
 import type { MyWorkTask } from '@/hooks/useMyWork';
 
