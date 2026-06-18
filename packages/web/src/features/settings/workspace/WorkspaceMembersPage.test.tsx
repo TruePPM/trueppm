@@ -290,11 +290,12 @@ describe('buildMembersCsv — member CSV export (issue 969)', () => {
     const csv = buildMembersCsv([
       member({ name: 'Smith, Jordan', groups: ['Ops "core"', 'Line\nbreak'] }),
     ]);
-    const [, row] = csv.split('\n');
     // Name with a comma is quoted; embedded double-quotes are doubled; the
     // newline in a group keeps the cell quoted so the record stays intact.
-    expect(row).toContain('"Smith, Jordan"');
-    expect(row).toContain('"Ops ""core""; Line\nbreak"');
+    // Assert against the whole CSV — the Groups cell contains an embedded
+    // newline, so splitting on '\n' would tear the quoted record in two.
+    expect(csv).toContain('"Smith, Jordan"');
+    expect(csv).toContain('"Ops ""core""; Line\nbreak"');
   });
 
   it('renders one row per member', () => {
