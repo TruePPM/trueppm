@@ -347,9 +347,7 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
                 .values("c")
             )
             qs = qs.annotate(
-                open_task_count=Coalesce(
-                    Subquery(open_tasks, output_field=IntegerField()), 0
-                )
+                open_task_count=Coalesce(Subquery(open_tasks, output_field=IntegerField()), 0)
             )
         flag = self.request.query_params.get("program__isnull")
         if flag is not None and flag.lower() in ("true", "1", "yes"):

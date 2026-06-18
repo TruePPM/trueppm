@@ -740,9 +740,7 @@ def test_project_list_open_task_count_zero_when_no_open_tasks(
 
 
 @pytest.mark.django_db
-def test_project_list_open_task_count_has_no_n_plus_one(
-    owner: object, calendar: Calendar
-) -> None:
+def test_project_list_open_task_count_has_no_n_plus_one(owner: object, calendar: Calendar) -> None:
     """The open_task_count Subquery annotation must not add a query per project —
     listing 1 vs N projects costs the same number of queries (#960, perf-check)."""
 
