@@ -151,7 +151,9 @@ test.describe('Project Settings → General', () => {
     );
 
     // At-risk pill starts pressed (matches FIXTURE_PROJECT.health = AT_RISK).
-    await expect(page.getByRole('button', { name: 'At risk' })).toHaveAttribute(
+    // `exact` disambiguates the settings pill ("At risk") from the sidebar
+    // project row, whose accessible name now embeds the health word for #960.
+    await expect(page.getByRole('button', { name: 'At risk', exact: true })).toHaveAttribute(
       'aria-pressed',
       'true',
     );
