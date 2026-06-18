@@ -37,6 +37,50 @@ const STATUS_LABELS: Record<Risk['status'], string> = {
   CLOSED: 'Closed',
 };
 
+/**
+ * localStorage key for the client-side severity-band visibility preference.
+ * Persists the set of hidden bands so the choice survives a reload/remount.
+ * Mirrors the board's `trueppm.board.*` lazy-read / write-on-change pattern.
+ */
+const HIDDEN_SEVERITIES_KEY = 'trueppm.riskFilters.hiddenSeverities';
+
+/**
+ * Severity bands, keyed by the lower bound of their `probability × impact`
+ * score (matching the design-system severity color mapping, web-rule 86).
+ * The "Display" toggle hides whole bands; LOW is the canonical hideable band
+ * (low-noise risks a PM may want to collapse out of the register).
+ */
+type SeverityBand = 'low';
+
+/** Inclusive score range for each hideable severity band. */
+const SEVERITY_BANDS: Record<SeverityBand, { min: number; max: number }> = {
+  // LOW + MINIMAL collapse into the single user-facing "low" band: score 1–5.
+  low: { min: 1, max: 5 },
+};
+
+/** True when the risk's severity falls inside the given band's score range. */
+function isInBand(risk: Pick<Risk, 'severity'>, band: SeverityBand): boolean {
+  const { min, max } = SEVERITY_BANDS[band];
+  return risk.severity >= min && risk.severity <= max;
+}
+
+/**
+ * Reads the persisted hidden-band set from localStorage. Tolerates a missing,
+ * empty, or malformed value by returning an empty set rather than throwing —
+ * an unreadable preference must never break the register.
+ */
+function readHiddenSeverities(): Set<SeverityBand> {
+  try {
+    const raw = localStorage.getItem(HIDDEN_SEVERITIES_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.filter((b): b is SeverityBand => b === 'low'));
+  } catch {
+    return new Set();
+  }
+}
+
 export function RiskRegisterView() {
   const projectId = useProjectId() ?? '';
   const { risks, isLoading, error } = useRisks(projectId || null);
@@ -53,6 +97,22 @@ export function RiskRegisterView() {
   // facet below via AND.
   const [filter, setFilter] = useState<RiskFilter>('all');
   const [severitySort, setSeveritySort] = useState<SeveritySort>('none');
+  // Client-side severity-band visibility — seeded from localStorage so the
+  // preference survives a remount. Persisted on every change. Composes with
+  // the segment + matrix-cell facets below (AND): a hidden band drops its
+  // rows from the table only; the heatmap and count chips stay over the full set.
+  const [hiddenSeverities, setHiddenSeverities] = useState<Set<SeverityBand>>(readHiddenSeverities);
+
+  function toggleSeverityBand(band: SeverityBand) {
+    setHiddenSeverities((prev) => {
+      const next = new Set(prev);
+      if (next.has(band)) next.delete(band);
+      else next.add(band);
+      localStorage.setItem(HIDDEN_SEVERITIES_KEY, JSON.stringify([...next]));
+      return next;
+    });
+  }
+  const isLowHidden = hiddenSeverities.has('low');
   // When true the drawer opens directly in edit mode (✎ quick-edit affordance)
   const [editMode, setEditMode] = useState(false);
 
@@ -97,7 +157,11 @@ export function RiskRegisterView() {
   // consumes the facets (dimming the matrix to its own selection would be
   // circular).
   const currentUserId = user?.id ?? null;
-  const segmentRisks = risks.filter((r) => matchesRiskFilter(r, filter, currentUserId));
+  const segmentRisks = risks
+    .filter((r) => matchesRiskFilter(r, filter, currentUserId))
+    // Severity-band visibility: drop rows in any hidden band (client-side,
+    // persisted). Applied alongside the segment facet so both narrow the table.
+    .filter((r) => ![...hiddenSeverities].some((band) => isInBand(r, band)));
   const cellRisks = selectedCell
     ? segmentRisks.filter(
         (r) => r.probability === selectedCell.probability && r.impact === selectedCell.impact,
@@ -179,6 +243,24 @@ export function RiskRegisterView() {
               {highCount} high
             </span>
           )}
+
+          {/* Display — client-side severity-band visibility toggle (persisted).
+              Hides low-severity rows from the table to declutter the register. */}
+          <label
+            className="inline-flex items-center gap-2 h-8 px-3 rounded text-xs font-medium
+              border border-neutral-border text-neutral-text-primary bg-neutral-surface
+              hover:bg-neutral-surface-raised cursor-pointer
+              focus-within:ring-2 focus-within:ring-brand-primary focus-within:ring-offset-1"
+          >
+            <input
+              type="checkbox"
+              checked={isLowHidden}
+              onChange={() => toggleSeverityBand('low')}
+              className="h-3.5 w-3.5 rounded border-neutral-border accent-brand-primary
+                focus-visible:outline-none"
+            />
+            Hide low severity
+          </label>
 
           <button
             type="button"

@@ -54,6 +54,8 @@ The segment filter composes with the **exposure-matrix cell filter** (clicking a
 
 The **Severity** column header sorts the table — click to cycle descending → ascending → back to the default order (most impactful first). Unmitigated risks also carry an always-on left-edge highlight so live threats stand out regardless of the active filter.
 
+A **Hide low severity** toggle in the toolbar will also collapse LOW-severity risks (score 1–5) out of the table — a client-side declutter that composes with the segment and matrix-cell filters. Your choice is remembered in the browser, so the register opens the same way next time.
+
 ## Response strategies
 
 Each risk can be assigned one response strategy:

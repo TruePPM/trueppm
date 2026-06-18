@@ -323,6 +323,27 @@ test.describe('Risk register — severity sort & empty state', () => {
     await expect(header).toHaveAttribute('aria-sort', 'ascending');
   });
 
+  test('Hide low severity toggle hides low-severity rows and persists across reload (#1239)', async ({
+    page,
+  }) => {
+    // R1 sev 25 (critical), R2 sev 9 (medium), R3 sev 4 (low).
+    const toggle = page.getByRole('checkbox', { name: 'Hide low severity' });
+    await expect(page.getByText('Scope creep')).toBeVisible();
+
+    await toggle.check();
+    await expect(page.getByText('Scope creep')).not.toBeVisible();
+    await expect(page.getByText('Critical infrastructure failure')).toBeVisible();
+    await expect(page.getByText('Vendor delivery delay')).toBeVisible();
+
+    // Persisted to localStorage and re-applied on reload.
+    await page.reload();
+    await expect(page.getByRole('heading', { name: 'Risk register' })).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.getByRole('checkbox', { name: 'Hide low severity' })).toBeChecked();
+    await expect(page.getByText('Scope creep')).not.toBeVisible();
+  });
+
   test('combined cell + segment with no match shows the empty state and resets', async ({
     page,
   }) => {

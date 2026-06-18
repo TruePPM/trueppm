@@ -116,6 +116,7 @@ describe('RiskRegisterView', () => {
     useRisksState.isLoading = false;
     useRisksState.error = null;
     currentUserState.id = 'user-1';
+    localStorage.clear();
   });
 
   it('renders the drawer as a sibling of the table column inside the two-column flex container (issue #293)', () => {
@@ -324,5 +325,48 @@ describe('RiskRegisterView', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Clear all' }));
     expect(screen.queryByText(/Filtered to/)).not.toBeInTheDocument();
     expect(screen.getByRole('radio', { name: 'All' })).toHaveAttribute('aria-checked', 'true');
+  });
+
+  // ── Severity-band visibility toggle (#1239) ───────────────────────────────
+
+  it('hides low-severity rows when the "Hide low severity" toggle is checked', () => {
+    // FIXTURE_RISK is severity 25 (critical); LOW_RESOLVED is severity 4 (low).
+    useRisksState.risks = [FIXTURE_RISK, LOW_RESOLVED];
+    renderWithProviders(<RiskRegisterView />);
+
+    // Both rows visible by default.
+    expect(screen.getByText('Critical infrastructure failure')).toBeInTheDocument();
+    expect(screen.getByText('Low resolved risk')).toBeInTheDocument();
+
+    const toggle = screen.getByRole('checkbox', { name: 'Hide low severity' });
+    expect(toggle).not.toBeChecked();
+    fireEvent.click(toggle);
+
+    // The low-severity row is now hidden; the critical row remains.
+    expect(toggle).toBeChecked();
+    expect(screen.getByText('Critical infrastructure failure')).toBeInTheDocument();
+    expect(screen.queryByText('Low resolved risk')).not.toBeInTheDocument();
+  });
+
+  it('persists the hidden-severity choice to localStorage', () => {
+    useRisksState.risks = [FIXTURE_RISK, LOW_RESOLVED];
+    renderWithProviders(<RiskRegisterView />);
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Hide low severity' }));
+    expect(localStorage.getItem('trueppm.riskFilters.hiddenSeverities')).toBe(
+      JSON.stringify(['low']),
+    );
+  });
+
+  it('re-applies the persisted hidden-severity preference on remount', () => {
+    // Seed the persisted preference before the view mounts.
+    localStorage.setItem('trueppm.riskFilters.hiddenSeverities', JSON.stringify(['low']));
+    useRisksState.risks = [FIXTURE_RISK, LOW_RESOLVED];
+    renderWithProviders(<RiskRegisterView />);
+
+    // The toggle reflects the stored state and the low-severity row is hidden.
+    expect(screen.getByRole('checkbox', { name: 'Hide low severity' })).toBeChecked();
+    expect(screen.getByText('Critical infrastructure failure')).toBeInTheDocument();
+    expect(screen.queryByText('Low resolved risk')).not.toBeInTheDocument();
   });
 });
