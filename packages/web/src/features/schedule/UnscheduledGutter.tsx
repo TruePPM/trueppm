@@ -167,15 +167,15 @@ export function UnscheduledGutter({
                 onSuccess: () => {
                   const label = formatShortDate(dropDate);
                   setActionToast({
-                    message: `Promoted '${task.name}' to To Do and scheduled for ${label}`,
+                    message: `Added '${task.name}' to the sprint, starting ${label}`,
                   });
                   if (ariaLiveRef.current) {
-                    ariaLiveRef.current.textContent = `Promoted ${task.name}, scheduled for ${label}.`;
+                    ariaLiveRef.current.textContent = `Added ${task.name} to the sprint, starting ${label}.`;
                   }
                 },
                 onError: () => {
                   if (ariaLiveRef.current) {
-                    ariaLiveRef.current.textContent = `Could not schedule ${task.name}.`;
+                    ariaLiveRef.current.textContent = `Could not add ${task.name} to the sprint.`;
                   }
                 },
               },

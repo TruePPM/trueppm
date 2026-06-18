@@ -109,9 +109,9 @@ Because this lives at the API layer, every write path behaves the same way, incl
 
 The **Unscheduled gutter** beneath the timeline now includes a **Backlog** section listing tasks that have been captured but not yet scheduled. Backlog cards are visually distinct — a dashed edge and a readiness label — so it's clear that placing one on the timeline does more than move it.
 
-To schedule a backlog item, **drag its card from the gutter up onto the timeline**. Dropping it promotes the task to **To Do** and schedules it at the drop date; CPM then cascades the rest of the plan automatically, so any successors re-forecast in the same motion.
+To pull a backlog item into your plan, **drag its card from the gutter up onto the timeline**. Dropping it adds the idea to the sprint at the drop date — a confirmation reads "Added '{name}' to the sprint, starting {date}" — and CPM cascades the rest of the plan automatically, so any successors re-forecast in the same motion. The drop dialog speaks in sprint terms ("Add to a sprint", a **Target date**) rather than CPM vocabulary, so you don't need to know about early start or float to commit an idea.
 
-If you'd rather not drag — or you're working from the keyboard — every backlog card has a **Schedule…** action (both in the gutter and on the [Board](/features/board/)). It opens a date picker and does exactly the same thing: promote to To Do and schedule at the chosen date.
+If you'd rather not drag — or you're working from the keyboard — every backlog card has an **Add to a sprint** action (both in the gutter and on the [Board](/features/board/)). It opens a target-date picker and does exactly the same thing: add the idea to the sprint at the chosen date.
 
 ## Live re-forecast
 

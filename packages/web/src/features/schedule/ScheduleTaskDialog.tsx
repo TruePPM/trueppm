@@ -121,16 +121,16 @@ export function ScheduleTaskDialog({
         onSuccess: () => {
           const label = formatShortDate(date);
           setActionToast({
-            message: `Promoted '${task.name}' to To Do and scheduled for ${label}`,
+            message: `Added '${task.name}' to the sprint, starting ${label}`,
           });
           if (ariaLiveRef?.current) {
-            ariaLiveRef.current.textContent = `Scheduled ${task.name} for ${label}.`;
+            ariaLiveRef.current.textContent = `Added ${task.name} to the sprint, starting ${label}.`;
           }
           onClose();
         },
         onError: () => {
           // Keep the dialog open with an inline error so the user can retry.
-          setError("Couldn't schedule this item. Try again.");
+          setError("Couldn't add this item to the sprint. Try again.");
         },
       },
     );
@@ -156,12 +156,12 @@ export function ScheduleTaskDialog({
             id={titleId}
             className="flex-1 min-w-0 text-sm font-semibold text-neutral-text-primary truncate"
           >
-            Schedule &ldquo;{task.name}&rdquo;
+            Add &ldquo;{task.name}&rdquo; to a sprint
           </h2>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Cancel scheduling"
+            aria-label="Cancel"
             className="-mr-2 -mt-2 w-11 h-11 flex items-center justify-center rounded
               text-neutral-text-secondary hover:text-neutral-text-primary
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
@@ -173,14 +173,15 @@ export function ScheduleTaskDialog({
         </div>
 
         <p id={helperId} className="text-xs text-neutral-text-secondary mb-4">
-          This moves the item from Backlog to your schedule.
+          This commits the idea from your backlog to a sprint, starting on the
+          target date you pick below.
         </p>
 
         <label
           htmlFor={dateInputId}
           className="block text-xs font-medium text-neutral-text-secondary mb-1.5"
         >
-          Planned start
+          Target date
         </label>
         <input
           ref={dateInputRef}
@@ -218,7 +219,7 @@ export function ScheduleTaskDialog({
               disabled:opacity-40 disabled:cursor-not-allowed
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >
-            {promote.isPending ? 'Scheduling…' : 'Schedule'}
+            {promote.isPending ? 'Adding…' : 'Add to sprint'}
           </button>
         </div>
       </div>
