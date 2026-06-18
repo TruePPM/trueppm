@@ -141,6 +141,15 @@ A feature that **resolves** a tension cleanly (e.g. a notification model that sa
 **Title**: Senior Project Manager, Mid-size Construction Firm (200 employees)
 **Age**: 38 | **Tech comfort**: Moderate (uses MS Project reluctantly, loves mobile apps)
 
+> **Release-window note**: Sarah is a **0.4+/1.0 persona**. Her top evaluation
+> criterion and a hard NO both turn on a real native mobile editor that works
+> offline, and native mobile lands in **0.4** (Android phones first; iPhone/iPad
+> parity completes at **1.0**). Until then an honest VoC run returns Sarah 🔴,
+> and that is correct, not a gap to paper over. Weight pre-0.4 runs accordingly:
+> her web-only / no-real-native-mobile hard NO is *expected* to fire, so a 🔴
+> from Sarah before 0.4 is not a signal to rescope a feature — 0.1–0.3 are
+> Alex/Jordan/Priya releases. Treat her score as load-bearing only from 0.4 on.
+
 **Goals**:
 - Keep projects on schedule and within budget
 - Track dependencies and know the critical path at all times
@@ -288,6 +297,15 @@ A feature that **resolves** a tension cleanly (e.g. a notification model that sa
 **Name**: David Okafor
 **Title**: Engineering Manager / Resource Manager, Professional Services Firm (800 employees)
 **Age**: 43 | **Tech comfort**: Moderate-high (uses spreadsheets heavily, evaluates tools pragmatically)
+
+> **Release-window note**: David is a **0.5+ persona**. His top evaluation
+> criteria and a hard NO turn on partial-allocation support (e.g. 60/40 splits)
+> and a pre-commit over-allocation warning, and resource allocation lands in
+> **0.5**. Until then an honest VoC run returns David 🔴, and that is correct:
+> a pre-0.5 run *should* fire his "binary allocation only / no pre-commit
+> conflict warning" hard NO. Weight pre-0.5 runs accordingly — a 🔴 from David
+> before 0.5 is expected and is not a reason to rescope a feature. Treat his
+> score as load-bearing only from 0.5 on.
 
 **Goals**:
 - Know who on his team is available, over-allocated, or at risk of burnout

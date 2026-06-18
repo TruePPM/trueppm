@@ -69,6 +69,11 @@ Migration, which gates the public-launch milestone — and the **Monte Carlo**
 modal: several risks are schedule-driving, so toggling a high
 probability × impact risk visibly shifts the P80.
 
+**Personas:** the program-level story — a program manager (and Sarah, the PM, on
+the waterfall project) running related agile, waterfall, and hybrid projects at
+once, with Alex's sprints on Platform Core feeding Jordan's release forecast and
+Sarah's CPM plan on Migration Tooling. This is the bridge demo at program scale.
+
 #### Aurora Mobile App — agile-only
 
 A mobile product team running the sprint lifecycle: a board, a multi-sprint
@@ -76,6 +81,11 @@ A mobile product team running the sprint lifecycle: a board, a multi-sprint
 
 **Look at first:** the burndown of the closed sprints and the velocity chart —
 this is the pure-scrum tour, with no CPM or estimates to distract.
+
+**Personas:** the agile team — Alex (Scrum Master) running the sprint lifecycle,
+Jordan (Product Owner) owning the backlog and the velocity-based release
+forecast, and Priya (team member) working the board. No PM and no schedule:
+this is the surface those three live on.
 
 #### Bayside Civic Center — waterfall-only
 
@@ -86,6 +96,11 @@ weather, inspections).
 
 **Look at first:** the critical path and the baseline-vs-actual slip.
 
+**Personas:** Sarah (the construction PM) — a single waterfall project, CPM with
+all four dependency types, a baseline to defend, and a risk register. This is her
+home turf: no sprints, no backlog, just the schedule and what moves when a task
+slips.
+
 #### Helios CRM Replacement — hybrid-small
 
 A completed waterfall planning phase feeding an agile build phase, joined by a
@@ -93,6 +108,11 @@ cross-phase dependency, with a **5-risk register** that includes one realized
 risk with a captured impact.
 
 **Look at first:** how the finished plan hands off to the live build sprints.
+
+**Personas:** the hybrid bridge — Sarah's completed waterfall planning phase
+handing off across a cross-phase dependency to Alex and Jordan's agile build
+sprints. The entry-level story for a PM and an agile team sharing one plan
+without maintaining two representations of the same work.
 
 ### Loading from the command line
 

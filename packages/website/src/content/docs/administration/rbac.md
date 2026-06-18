@@ -48,11 +48,15 @@ The 5 roles are capability levels, not job titles. The same role may serve diffe
 | Team Member / Contributor | Team Member (Member) | Edits their own assigned tasks and logs time. |
 | Agile Coach | Viewer | Observes team health signals; editing authority belongs to the team, not the coach. |
 
-### Waterfall and agile on the same role tier
+### Why Product Owner and Scrum Master map to Project Manager (Admin)
 
-Product Owners and Scrum Masters hold the same **Project Manager** role as a traditional PM. This is intentional: sprint sovereignty and scope-change protection are enforced at the **application layer** (sprint open/close rules, explicit scope-injection approval), not by RBAC. A PM cannot silently add tasks to an active sprint regardless of their role, because the sprint model rejects mid-sprint mutations without team notification — the guardrail is in the workflow, not the permission level.
+Product Owners and Scrum Masters hold the same **Project Manager (Admin)** role as a traditional PM. This is intentional: the capabilities a PO or Scrum Master needs — author and groom the backlog, open and close sprints, manage velocity, run ceremonies — all require the same project-wide write access the Admin tier grants. There is no narrower tier that fits, because the access ordinal (Viewer 0 → Owner 400, in `apps/access/models.py`) measures *how much* a member can write, not *which agile facet* they hold.
 
-This means you do not need separate "Product Owner" or "Scrum Master" role slots. A project board with a Scrum Master assigned Admin and a PM also assigned Admin will have both respect the sprint boundary because the system enforces it uniformly.
+Crucially, the guardrails a PO or Scrum Master cares about — **sprint sovereignty** and **scope-change protection** — are **not** enforced by the RBAC ordinal. They are enforced at the **application layer**: the sprint model rejects mid-sprint mutations without team notification (explicit, audited scope-injection approval), and velocity is never auto-exposed as a management gauge. A PM cannot silently add tasks to an active sprint regardless of their role, because the workflow — not the permission level — is the gate.
+
+So the role tier and the agile facet are deliberately **orthogonal**. The access ordinal answers "can this person write to the project?"; the team facet answers "is this person the Product Owner or the Scrum Master for this team?". The facet axis lives on `TeamMembership` (`is_product_owner` / `is_scrum_master`) as two independent booleans alongside the ordinal role — a member who is also PO, or an admin who is also Scrum Master — rather than as extra rungs on the role ladder (#927). Facet-gated behavior (for example, a Product Owner may edit but not delete `EPIC`/`STORY` items) resolves through that facet, not through a higher ordinal.
+
+This means you do not need separate "Product Owner" or "Scrum Master" role slots. A project with a Scrum Master assigned Admin and a PM also assigned Admin has both respect the sprint boundary because the system enforces it uniformly — and the agile-specific authority each holds is carried by their team facet, independent of the role each was given.
 
 ## Managing members
 
