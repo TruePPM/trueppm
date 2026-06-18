@@ -92,7 +92,7 @@ export function SprintDailyDeltaPanel({ sprintId }: Props) {
   const query = useSprintDailyDelta(sprintId, { since });
 
   // The daily-delta payload carries no sprint window, so the sub-5-day burndown
-  // footnote (#1238) reads the finish date from the existing burndown endpoint —
+  // footnote (issue 1238) reads the finish date from the existing burndown endpoint —
   // no new API field, purely presentational.
   const burndownQuery = useSprintBurndown(sprintId);
   const daysLeft = daysLeftFootnote(burndownQuery.data?.sprint.finish_date);
@@ -264,7 +264,7 @@ function BurndownRow({
   daysLeft,
 }: {
   delta: NonNullable<SprintDailyDelta['burndown_delta']>;
-  /** Sub-5-day runway footnote (#1238); null at 5+ days or with no finish date. */
+  /** Sub-5-day runway footnote (issue 1238); null at 5+ days or with no finish date. */
   daysLeft: string | null;
 }) {
   const down = delta.remaining_delta < 0; // remaining went DOWN = progress (good)
@@ -587,7 +587,7 @@ function remainingWorkingDays(finishIso: string, today: Date = new Date()): numb
 }
 
 /**
- * Sub-5-day "(N days left)" footnote for the burndown caption (#1238). On a
+ * Sub-5-day "(N days left)" footnote for the burndown caption (issue 1238). On a
  * compressed sprint the daily rate is hard to read without the runway; this
  * appends the remaining working-day count once it drops below a working week.
  * Returns `null` at 5+ days (no footnote) or with no finish date.
