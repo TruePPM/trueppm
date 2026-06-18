@@ -1,7 +1,22 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
-import type { Methodology, Project } from '@/types';
+import type { HealthState, Methodology, Project } from '@/types';
 import type { PaginatedResponse } from '@/api/types';
+
+/** Server health enum (projects.models.Health) values that map to a colored dot.
+ *  AUTO (the default, "defer to rollup") and any unknown value stay hollow. */
+type ApiHealth = 'AUTO' | 'ON_TRACK' | 'AT_RISK' | 'CRITICAL';
+
+const HEALTH_STATE: Record<ApiHealth, HealthState> = {
+  AUTO: 'unknown',
+  ON_TRACK: 'on-track',
+  AT_RISK: 'at-risk',
+  CRITICAL: 'critical',
+};
+
+function toHealthState(health: string | undefined): HealthState {
+  return HEALTH_STATE[health as ApiHealth] ?? 'unknown';
+}
 
 export interface UseProjectsResult {
   data: Project[] | undefined;
@@ -18,6 +33,10 @@ interface ApiProject {
   methodology?: Methodology;
   /** Optional program FK (ADR-0070). Null for standalone projects. */
   program?: string | null;
+  /** PM/rollup health enum — mapped to the row's health dot. */
+  health?: string;
+  /** Count of non-deleted, not-yet-complete tasks (annotated on the list). */
+  open_task_count?: number | null;
 }
 
 // Deterministic palette cycled by index — no server-side color assignment yet.
@@ -38,8 +57,9 @@ function mapProject(p: ApiProject, index: number): Project {
   return {
     id: p.id,
     name: p.name,
-    // healthState is not computed server-side yet; default to unknown
-    healthState: 'unknown',
+    // Server health enum → dot state; AUTO/unset stays hollow ('unknown').
+    healthState: toHealthState(p.health),
+    openTaskCount: p.open_task_count ?? null,
     // The modulo guarantees index is in bounds; fallback keeps TS happy on the readonly array type
     colorDot: COLOR_PALETTE[index % COLOR_PALETTE.length] ?? '#3E8C6D',
     // Default to HYBRID for projects created before ADR-0041 landed (preserves
@@ -54,7 +74,8 @@ function mapProject(p: ApiProject, index: number): Project {
  *
  * Suppresses error state during the 401→token-refresh→retry cycle to prevent
  * a "Failed to load" flash while the interceptor silently retries the request.
- * colorDot is assigned client-side from a deterministic palette (no server color).
+ * colorDot is assigned client-side from a deterministic palette (no server color);
+ * healthState and openTaskCount are mapped from the server's annotated list row.
  */
 export function useProjects(): UseProjectsResult {
   const query = useQuery({

@@ -320,6 +320,12 @@ export interface Project {
   /** Hex color for the 8px project dot, e.g. '#3E8C6D' */
   colorDot: string;
   healthState: HealthState;
+  /**
+   * Count of non-deleted, not-yet-complete tasks — drives the right-aligned
+   * mono badge on each sidebar project row. Annotated by the projects list
+   * endpoint; null when the server did not provide it.
+   */
+  openTaskCount: number | null;
   /** Project methodology preset — drives default tab visibility (ADR-0041). */
   methodology: Methodology;
   /**

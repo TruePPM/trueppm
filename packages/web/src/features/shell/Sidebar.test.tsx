@@ -9,9 +9,11 @@ import { Sidebar } from './Sidebar';
 vi.mock('@/hooks/useProjects', () => ({
   useProjects: () => ({
     data: [
-      { id: 'p1', name: 'Alpha Platform', programId: 'prog1', healthState: 'unknown', colorDot: '#3E8C6D' },
-      { id: 'p2', name: 'Beta Migration', programId: 'prog1', healthState: 'unknown', colorDot: '#E8A020' },
-      { id: 'p3', name: 'Standalone Site', programId: null, healthState: 'unknown', colorDot: '#B91C1C' },
+      // Real, server-mapped health + open-task count (#960) — the dot colors and
+      // the count badge render from data, not a hardcoded 'unknown'.
+      { id: 'p1', name: 'Alpha Platform', programId: 'prog1', healthState: 'at-risk', openTaskCount: 7, colorDot: '#3E8C6D' },
+      { id: 'p2', name: 'Beta Migration', programId: 'prog1', healthState: 'on-track', openTaskCount: 0, colorDot: '#E8A020' },
+      { id: 'p3', name: 'Standalone Site', programId: null, healthState: 'unknown', openTaskCount: 4, colorDot: '#B91C1C' },
     ],
   }),
 }));
@@ -70,27 +72,41 @@ describe('Sidebar (v2 left rail)', () => {
     renderRail();
     expect(screen.queryByRole('button', { name: /Alpha Platform/ })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Expand Artemis/ }));
-    expect(screen.getByRole('button', { name: /Alpha Platform, health unknown/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Beta Migration, health unknown/ })).toBeInTheDocument();
+    // Health maps from server data ('at risk', 'on track'), not a hardcoded
+    // 'unknown' — and the open-task count rides in the accessible name (rule 6).
+    expect(screen.getByRole('button', { name: /Alpha Platform, at risk, 7 open tasks/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Beta Migration, on track/ })).toBeInTheDocument();
+  });
+
+  it('colors each row health dot from server data and renders the open-task count badge (#960)', () => {
+    renderRail();
+    fireEvent.click(screen.getByRole('button', { name: /Expand Artemis/ }));
+    // The right-aligned mono count renders for projects with open tasks (7, 4)
+    // and is suppressed at zero (Beta Migration, on track).
+    expect(screen.getByText('7')).toBeInTheDocument();
+    expect(screen.getByText('4')).toBeInTheDocument();
+    // Health words are carried in each row's accessible name, mapped from data.
+    expect(screen.getByRole('button', { name: /Alpha Platform, at risk, 7 open tasks/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Standalone Site, health unknown, 4 open tasks/ })).toBeInTheDocument();
   });
 
   it('pins a project into the Shortcuts group', () => {
     renderRail();
     fireEvent.click(screen.getByRole('button', { name: /Expand Artemis/ }));
     // Before pinning: Alpha appears once (in the program tree).
-    expect(screen.getAllByRole('button', { name: /Alpha Platform, health unknown/ })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: /Alpha Platform, at risk/ })).toHaveLength(1);
     fireEvent.click(screen.getByRole('button', { name: /Pin Alpha Platform to Shortcuts/ }));
     expect(useShellStore.getState().pinnedProjectIds).toContain('p1');
     expect(screen.getByText('Shortcuts')).toBeInTheDocument();
     // After pinning: it appears twice (Shortcuts + the tree).
-    expect(screen.getAllByRole('button', { name: /Alpha Platform, health unknown/ })).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: /Alpha Platform, at risk/ })).toHaveLength(2);
   });
 
   it('shows standalone (no-program) projects under Projects', () => {
     renderRail();
     expect(screen.getByText('Projects')).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: /Standalone Site, health unknown/ }),
+      screen.getByRole('button', { name: /Standalone Site, health unknown, 4 open tasks/ }),
     ).toBeInTheDocument();
   });
 
