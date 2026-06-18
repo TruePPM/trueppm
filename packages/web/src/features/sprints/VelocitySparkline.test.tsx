@@ -170,4 +170,28 @@ describe('VelocitySparkline', () => {
     const hollow = container.querySelector('rect[fill="none"]');
     expect(hollow).toBeInTheDocument();
   });
+
+  it('shows a visible excluded-count pill when one or more sprints are excluded', () => {
+    const sprints = [
+      entry({ id: '0', name: 'Sprint 0', completed_points: 4, exclude_from_velocity: true }),
+      entry({ id: '1', completed_points: 30 }),
+      entry({ id: '2', completed_points: 30 }),
+    ];
+    render(<VelocitySparkline velocity={velocity({ sprints })} />);
+    const pill = screen.getByTitle('Excluded from velocity average');
+    expect(pill).toBeInTheDocument();
+    expect(pill).toHaveTextContent('1 excluded');
+    // The pill is the visible signal only; the SVG aria-label is the accessible
+    // source of truth, so the pill must not double-announce to screen readers.
+    expect(pill).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('does not render the excluded-count pill when nothing is excluded', () => {
+    const sprints = [
+      entry({ id: '1', completed_points: 20 }),
+      entry({ id: '2', completed_points: 30 }),
+    ];
+    render(<VelocitySparkline velocity={velocity({ sprints })} />);
+    expect(screen.queryByTitle('Excluded from velocity average')).not.toBeInTheDocument();
+  });
 });
