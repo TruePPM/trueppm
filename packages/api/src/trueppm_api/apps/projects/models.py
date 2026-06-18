@@ -1580,7 +1580,10 @@ class Task(VersionedModel):
         if _status_changed:
             from trueppm_api.apps.projects.signals import task_status_changed
 
-            task_status_changed.send(
+            # send_robust: this signal is an OSS extension point Enterprise
+            # connects against. A raising third-party receiver must never
+            # propagate out of and break this OSS write path.
+            task_status_changed.send_robust(
                 sender=type(self),
                 task=self,
                 old_status=_old_status,
@@ -2093,7 +2096,10 @@ class Risk(VersionedModel):
         if _update_fields is None or not _scoring_fields.isdisjoint(_update_fields):
             from trueppm_api.apps.projects.signals import risk_changed
 
-            risk_changed.send(sender=type(self), risk=self, action="saved")
+            # send_robust: risk_changed is the OSS extension point for the
+            # Enterprise portfolio risk rollup. A raising receiver must not
+            # propagate out of and break this OSS write path.
+            risk_changed.send_robust(sender=type(self), risk=self, action="saved")
 
     def soft_delete(self) -> None:
         # VersionedModel.soft_delete() calls self.save(); the save() override
@@ -2102,7 +2108,9 @@ class Risk(VersionedModel):
         super().soft_delete()
         from trueppm_api.apps.projects.signals import risk_changed
 
-        risk_changed.send(sender=type(self), risk=self, action="deleted")
+        # send_robust: a raising Enterprise risk-rollup receiver must not
+        # propagate out of and break this OSS soft-delete write path.
+        risk_changed.send_robust(sender=type(self), risk=self, action="deleted")
 
 
 class RiskTask(models.Model):
