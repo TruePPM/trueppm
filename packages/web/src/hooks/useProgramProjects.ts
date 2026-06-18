@@ -32,6 +32,7 @@ export function useProgramProjects(
         colorDot: '#6B6965', // neutral until the projects list assigns a palette color
         methodology: p.methodology ?? 'HYBRID',
         programId: p.program ?? programId ?? null,
+        openTaskCount: null, // not annotated on the program-projects endpoint
       }));
     },
     enabled: !!programId,
