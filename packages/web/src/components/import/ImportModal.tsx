@@ -125,7 +125,7 @@ export function ImportModal({ projectId, onClose }: Props) {
           aria-modal="true"
           aria-label="Import from MS Project"
           tabIndex={-1}
-          className="pointer-events-auto w-full max-w-[560px] rounded-lg border border-neutral-border
+          className="pointer-events-auto w-full max-w-[560px] rounded-card border border-neutral-border
             bg-neutral-surface p-6 focus-visible:outline-none"
         >
           <h2 className="mb-1 text-base font-semibold text-neutral-text-primary">

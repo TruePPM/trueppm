@@ -98,7 +98,7 @@ export function ImportDropzone({
   // File-selected state.
   if (file) {
     return (
-      <div className="flex items-center gap-3 rounded-lg border border-neutral-border bg-neutral-surface-raised p-4">
+      <div className="flex items-center gap-3 rounded-card border border-neutral-border bg-neutral-surface-raised p-4">
         <span aria-hidden="true" className="text-2xl">
           📄
         </span>
@@ -140,7 +140,7 @@ export function ImportDropzone({
         }}
         onDragLeave={() => setDragOver(false)}
         onDrop={handleDrop}
-        className={`flex h-56 flex-col items-center justify-center gap-2 rounded-lg border-[1.5px]
+        className={`flex h-56 flex-col items-center justify-center gap-2 rounded-card border-[1.5px]
           border-dashed p-6 text-center transition-colors
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
           ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}

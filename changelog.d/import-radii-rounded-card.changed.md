@@ -1,0 +1,1 @@
+Import dialogs, dropzone, and format picker now use the semantic `rounded-card` (12px) radius token instead of the legacy `rounded-lg`, aligning the import component family with the Design System v2 foundation.

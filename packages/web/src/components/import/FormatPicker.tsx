@@ -29,7 +29,7 @@ export function FormatPicker({ guidanceOpen, onToggleGuidance }: FormatPickerPro
             role="radio"
             aria-checked={false}
             aria-disabled
-            className="cursor-not-allowed rounded-lg border border-neutral-border bg-neutral-surface-raised p-3 opacity-60"
+            className="cursor-not-allowed rounded-card border border-neutral-border bg-neutral-surface-raised p-3 opacity-60"
           >
             <p className="text-sm font-medium text-neutral-text-primary">TruePPM</p>
             <span className="mt-1 inline-block rounded bg-neutral-surface px-1.5 py-0.5 text-[11px] font-medium text-neutral-text-secondary">
@@ -40,7 +40,7 @@ export function FormatPicker({ guidanceOpen, onToggleGuidance }: FormatPickerPro
             role="radio"
             aria-checked
             tabIndex={0}
-            className="rounded-lg border-[1.5px] border-brand-primary bg-brand-primary/5 p-3
+            className="rounded-card border-[1.5px] border-brand-primary bg-brand-primary/5 p-3
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
           >
             <p className="text-sm font-medium text-neutral-text-primary">MS Project</p>
