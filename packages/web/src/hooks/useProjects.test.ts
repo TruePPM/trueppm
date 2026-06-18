@@ -26,6 +26,21 @@ interface ApiProject {
   start_date: string;
   calendar: string;
   methodology?: 'WATERFALL' | 'AGILE' | 'HYBRID';
+  health?: string;
+  open_task_count?: number | null;
+}
+
+type HealthState = 'on-track' | 'at-risk' | 'critical' | 'unknown';
+
+/** Inline mirror of HEALTH_STATE/toHealthState in useProjects.ts. */
+const HEALTH_STATE: Record<string, HealthState> = {
+  AUTO: 'unknown',
+  ON_TRACK: 'on-track',
+  AT_RISK: 'at-risk',
+  CRITICAL: 'critical',
+};
+function toHealthState(health: string | undefined): HealthState {
+  return HEALTH_STATE[health ?? ''] ?? 'unknown';
 }
 
 const COLOR_PALETTE: ReadonlyArray<string> = [
@@ -44,7 +59,8 @@ function mapProject(p: ApiProject, index: number) {
   return {
     id: p.id,
     name: p.name,
-    healthState: 'unknown' as const,
+    healthState: toHealthState(p.health),
+    openTaskCount: p.open_task_count ?? null,
     colorDot: COLOR_PALETTE[index % COLOR_PALETTE.length] ?? '#3E8C6D',
     methodology: p.methodology ?? ('HYBRID' as const),
   };
@@ -64,6 +80,7 @@ describe('useProjects mapper', () => {
     expect(project.id).toBe('proj-1');
     expect(project.name).toBe('Alpha');
     expect(project.healthState).toBe('unknown');
+    expect(project.openTaskCount).toBeNull();
     expect(project.colorDot).toBe('#3E8C6D');
   });
 
@@ -78,9 +95,21 @@ describe('useProjects mapper', () => {
     expect(new Set(colors).size).toBe(8);
   });
 
-  it('healthState is always unknown (server does not compute it yet)', () => {
-    const project = mapProject(apiProject, 0);
-    expect(project.healthState).toBe('unknown');
+  it('maps the server health enum to the dot state (#960)', () => {
+    expect(mapProject({ ...apiProject, health: 'ON_TRACK' }, 0).healthState).toBe('on-track');
+    expect(mapProject({ ...apiProject, health: 'AT_RISK' }, 0).healthState).toBe('at-risk');
+    expect(mapProject({ ...apiProject, health: 'CRITICAL' }, 0).healthState).toBe('critical');
+    // AUTO (the default "defer to rollup") and unset both stay hollow.
+    expect(mapProject({ ...apiProject, health: 'AUTO' }, 0).healthState).toBe('unknown');
+    expect(mapProject(apiProject, 0).healthState).toBe('unknown');
+  });
+
+  it('maps the annotated open_task_count (#960)', () => {
+    expect(mapProject({ ...apiProject, open_task_count: 5 }, 0).openTaskCount).toBe(5);
+    expect(mapProject({ ...apiProject, open_task_count: 0 }, 0).openTaskCount).toBe(0);
+    // Null/absent on unannotated paths.
+    expect(mapProject({ ...apiProject, open_task_count: null }, 0).openTaskCount).toBeNull();
+    expect(mapProject(apiProject, 0).openTaskCount).toBeNull();
   });
 });
 

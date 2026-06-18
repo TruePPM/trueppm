@@ -144,6 +144,10 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
 
     member_count = serializers.SerializerMethodField()
     percent_complete = serializers.SerializerMethodField()
+    # Count of non-deleted, not-yet-COMPLETE tasks — annotated on the list
+    # branch (#960) for the sidebar row badge. ``None`` on unannotated paths
+    # (retrieve/create) so no per-row query is triggered.
+    open_task_count = serializers.SerializerMethodField()
     # Read-only nested user payload so the General settings page can render the
     # lead's name + initials without a second per-project user fetch. Null when
     # ``lead`` is unset. The write side stays on the plain ``lead`` UUID field —
@@ -234,6 +238,7 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "program",
             "member_count",
             "percent_complete",
+            "open_task_count",
             # Lifecycle (#530) — read-only; flipped via /archive/ and /unarchive/.
             "is_archived",
             "archived_at",
@@ -276,6 +281,11 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         tasks. Rounded to one decimal for display stability."""
         value = getattr(obj, "percent_complete", None)
         return round(value, 1) if value is not None else None
+
+    def get_open_task_count(self, obj: Project) -> int | None:
+        """Count of non-deleted, not-yet-COMPLETE tasks — annotated only on the
+        list branch (#960). ``None`` elsewhere; never triggers a per-row query."""
+        return getattr(obj, "open_task_count", None)
 
     def validate_code(self, value: str) -> str:
         """Project code format: uppercase A-Z, 0-9, and hyphen, ≤12 chars.

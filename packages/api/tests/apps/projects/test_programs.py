@@ -15,10 +15,20 @@ from datetime import date
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
-from trueppm_api.apps.projects.models import Calendar, Methodology, Program, Project, Task
+from trueppm_api.apps.projects.models import (
+    Calendar,
+    Health,
+    Methodology,
+    Program,
+    Project,
+    Task,
+    TaskStatus,
+)
 
 User = get_user_model()
 
@@ -691,3 +701,78 @@ def test_default_project_list_does_not_annotate_aggregates(
     row = next(r for r in resp.data["results"] if r["id"] == str(project.pk))
     assert row["member_count"] is None
     assert row["percent_complete"] is None
+
+
+# ---------------------------------------------------------------------------
+# Per-project open-task count — GET /projects/ list annotation (#960)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_project_list_annotates_open_task_count(owner: object, calendar: Calendar) -> None:
+    # open_task_count = non-deleted, not-yet-COMPLETE tasks. The COMPLETE and
+    # soft-deleted tasks must NOT be counted; the two open tasks must be.
+    project = _make_project(owner, calendar, name="Counts")
+    Task.objects.create(project=project, name="Open 1", status=TaskStatus.NOT_STARTED)
+    Task.objects.create(project=project, name="Open 2", status=TaskStatus.IN_PROGRESS)
+    Task.objects.create(project=project, name="Done", status=TaskStatus.COMPLETE)
+    Task.objects.create(project=project, name="Deleted", is_deleted=True)
+
+    resp = _client(owner).get("/api/v1/projects/")
+
+    assert resp.status_code == 200, resp.content
+    row = next(r for r in resp.data["results"] if r["id"] == str(project.pk))
+    assert row["open_task_count"] == 2
+
+
+@pytest.mark.django_db
+def test_project_list_open_task_count_zero_when_no_open_tasks(
+    owner: object, calendar: Calendar
+) -> None:
+    project = _make_project(owner, calendar, name="All done")
+    Task.objects.create(project=project, name="Done", status=TaskStatus.COMPLETE)
+
+    resp = _client(owner).get("/api/v1/projects/")
+
+    assert resp.status_code == 200, resp.content
+    row = next(r for r in resp.data["results"] if r["id"] == str(project.pk))
+    assert row["open_task_count"] == 0
+
+
+@pytest.mark.django_db
+def test_project_list_open_task_count_has_no_n_plus_one(owner: object, calendar: Calendar) -> None:
+    """The open_task_count Subquery annotation must not add a query per project —
+    listing 1 vs N projects costs the same number of queries (#960, perf-check)."""
+
+    def seed(name: str, n_projects: int) -> None:
+        for i in range(n_projects):
+            p = _make_project(owner, calendar, name=f"{name}-{i}")
+            Task.objects.create(project=p, name="t", status=TaskStatus.IN_PROGRESS)
+
+    seed("one", 1)
+
+    def list_query_count() -> int:
+        with CaptureQueriesContext(connection) as ctx:
+            r = _client(owner).get("/api/v1/projects/")
+            assert r.status_code == 200, r.content
+        return len(ctx.captured_queries)
+
+    # Prime per-process caches (content types, permission lookups) so the
+    # baseline reflects steady-state query count, not first-request overhead.
+    list_query_count()
+    baseline = list_query_count()
+    seed("many", 5)
+    assert list_query_count() == baseline
+
+
+@pytest.mark.django_db
+def test_serializer_exposes_real_health(owner: object, calendar: Calendar) -> None:
+    # The list row carries the project's health enum so the sidebar dot can color
+    # from server data rather than hardcoding 'unknown'.
+    project = _make_project(owner, calendar, name="At risk", health=Health.AT_RISK)
+
+    resp = _client(owner).get("/api/v1/projects/")
+
+    assert resp.status_code == 200, resp.content
+    row = next(r for r in resp.data["results"] if r["id"] == str(project.pk))
+    assert row["health"] == Health.AT_RISK

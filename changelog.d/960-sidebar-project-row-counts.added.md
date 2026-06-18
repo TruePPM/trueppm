@@ -1,0 +1,1 @@
+- **Sidebar project rows**: each project in the left rail now shows a right-aligned open-task count and a health dot colored from real project health (on-track / at-risk / critical), instead of a hollow placeholder. The projects list endpoint exposes a new `open_task_count` field, annotated server-side with no per-project query.

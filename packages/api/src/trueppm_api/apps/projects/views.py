@@ -306,13 +306,13 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
         ungrouped view: a project that is out of active management should not be
         nagged as "needing a home".
         """
+        from django.db.models.functions import Coalesce
+
         qs = super().get_queryset()
         if self.action == "retrieve":
             # ProjectDetailSerializer.unresolved_assignee_count would otherwise
             # issue a live COUNT() per detail retrieve; fold it into the row as a
             # correlated subquery so the detail fetch is one query (#821).
-            from django.db.models.functions import Coalesce
-
             from trueppm_api.apps.projects.models import InboundTaskLink
 
             unresolved = (
@@ -330,6 +330,24 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
                 unresolved_assignee_count=Coalesce(
                     Subquery(unresolved, output_field=IntegerField()), 0
                 )
+            )
+        if self.action == "list":
+            # Per-project open-task count for the sidebar row badge (#960):
+            # non-deleted tasks that are not yet COMPLETE. A LEFT JOIN + Count
+            # over ``tasks`` here would fan out against the ``memberships`` join
+            # added on the ungrouped branch below (and inflate both), so this is
+            # a correlated Subquery — one extra scalar per row, no N+1, no join
+            # multiplication (mirrors ``unresolved_assignee_count`` above).
+            open_tasks = (
+                Task.objects.filter(project=OuterRef("pk"), is_deleted=False)
+                .exclude(status=TaskStatus.COMPLETE)
+                .order_by()
+                .values("project")
+                .annotate(c=Count("pk"))
+                .values("c")
+            )
+            qs = qs.annotate(
+                open_task_count=Coalesce(Subquery(open_tasks, output_field=IntegerField()), 0)
             )
         flag = self.request.query_params.get("program__isnull")
         if flag is not None and flag.lower() in ("true", "1", "yes"):

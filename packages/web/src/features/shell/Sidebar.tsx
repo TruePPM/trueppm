@@ -250,6 +250,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
                   key={p.id}
                   name={p.name}
                   health={(p.healthState as HealthState) ?? 'unknown'}
+                  openTaskCount={p.openTaskCount}
                   pinned
                   onOpen={() => go(`/projects/${p.id}/overview`)}
                   onTogglePin={() => togglePin(p.id)}
@@ -369,6 +370,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
                             key={p.id}
                             name={p.name}
                             health={(p.healthState as HealthState) ?? 'unknown'}
+                            openTaskCount={p.openTaskCount}
                             pinned={pinned.includes(p.id)}
                             onOpen={() => go(`/projects/${p.id}/overview`)}
                             onTogglePin={() => togglePin(p.id)}
@@ -390,6 +392,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
                   key={p.id}
                   name={p.name}
                   health={(p.healthState as HealthState) ?? 'unknown'}
+                  openTaskCount={p.openTaskCount}
                   pinned={pinned.includes(p.id)}
                   onOpen={() => go(`/projects/${p.id}/overview`)}
                   onTogglePin={() => togglePin(p.id)}
@@ -492,16 +495,18 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
   );
 }
 
-/** One project row — health dot + name (opens overview) + a ★ pin toggle. */
+/** One project row — health dot + name (opens overview) + open-task count + a ★ pin toggle. */
 function ProjectRow({
   name,
   health,
+  openTaskCount,
   pinned,
   onOpen,
   onTogglePin,
 }: {
   name: string;
   health: HealthState;
+  openTaskCount: number | null;
   pinned: boolean;
   onOpen: () => void;
   onTogglePin: () => void;
@@ -512,11 +517,26 @@ function ProjectRow({
       <button
         type="button"
         onClick={onOpen}
-        aria-label={`${name}, ${HEALTH_LABEL[health]}`}
+        aria-label={
+          openTaskCount != null
+            ? `${name}, ${HEALTH_LABEL[health]}, ${openTaskCount} open ${openTaskCount === 1 ? 'task' : 'tasks'}`
+            : `${name}, ${HEALTH_LABEL[health]}`
+        }
         className="min-w-0 flex-1 truncate text-left focus-visible:outline-none"
       >
         {name}
       </button>
+      {/* Right-aligned open-task count (rule 7: mono numerals). aria-hidden —
+          the count is already in the name button's aria-label above. The pin
+          toggle reveals on hover and overlays this when present. */}
+      {openTaskCount != null && openTaskCount > 0 && (
+        <span
+          aria-hidden="true"
+          className="tppm-mono shrink-0 text-xs text-chrome-text-secondary group-hover:hidden"
+        >
+          {openTaskCount}
+        </span>
+      )}
       <button
         type="button"
         onClick={() => {
