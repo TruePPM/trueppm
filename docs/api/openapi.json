@@ -25624,6 +25624,12 @@
                         "description": "Task-weighted mean progress — annotated only on the ungrouped list\nbranch (ADR-0083). ``None`` when unannotated or the project has no\ntasks. Rounded to one decimal for display stability.",
                         "readOnly": true
                     },
+                    "open_task_count": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "Count of non-deleted, not-yet-COMPLETE tasks — annotated only on the\nlist branch (#960). ``None`` elsewhere; never triggers a per-row query.",
+                        "readOnly": true
+                    },
                     "is_archived": {
                         "type": "boolean",
                         "readOnly": true
@@ -25660,6 +25666,7 @@
                     "lead_detail",
                     "member_count",
                     "name",
+                    "open_task_count",
                     "percent_complete",
                     "server_version",
                     "start_date"
@@ -25997,6 +26004,12 @@
                         "description": "Task-weighted mean progress — annotated only on the ungrouped list\nbranch (ADR-0083). ``None`` when unannotated or the project has no\ntasks. Rounded to one decimal for display stability.",
                         "readOnly": true
                     },
+                    "open_task_count": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "Count of non-deleted, not-yet-COMPLETE tasks — annotated only on the\nlist branch (#960). ``None`` elsewhere; never triggers a per-row query.",
+                        "readOnly": true
+                    },
                     "is_archived": {
                         "type": "boolean",
                         "readOnly": true
@@ -26070,6 +26083,7 @@
                     "member_count",
                     "my_facets",
                     "name",
+                    "open_task_count",
                     "percent_complete",
                     "program_detail",
                     "recalculated_at",
