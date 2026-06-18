@@ -5,8 +5,10 @@ import {
   useCloseProgram,
   useDeleteProgram,
   useReopenProgram,
+  useTransferSponsorship,
 } from '@/hooks/useProgramMutations';
 import { SettingsPageTitle } from '../SettingsShell';
+import { TransferOwnershipDialog } from '../components/TransferOwnershipDialog';
 
 interface LifecycleCardProps {
   title: string;
@@ -91,6 +93,10 @@ export function ProgramArchivePage() {
   const close = useCloseProgram();
   const reopen = useReopenProgram();
   const remove = useDeleteProgram();
+  const transfer = useTransferSponsorship();
+
+  const [transferOpen, setTransferOpen] = useState(false);
+  const transferError = transfer.error instanceof Error ? transfer.error.message : null;
 
   const isClosed = Boolean(program?.is_closed);
   const closeActionLabel = isClosed ? 'Reopen program…' : 'Close program…';
@@ -152,14 +158,15 @@ export function ProgramArchivePage() {
         <LifecycleCard
           title="Transfer sponsorship"
           tone="warning"
-          description="Assign a new sponsor and optionally a new program manager. The current sponsor is demoted to Admin unless changed."
+          description="Assign a new sponsor and optionally a new program manager. The current sponsor is demoted to Admin."
           actionLabel="Transfer sponsorship…"
           notes={[
             'New sponsor must already be a program member.',
-            'Sends notification to all program members.',
+            'You are demoted to Admin when the transfer completes.',
           ]}
-          disabled
-          disabledReason="Transferring sponsorship isn't available yet — tracked in #967"
+          onClick={() => setTransferOpen(true)}
+          busy={transfer.isPending}
+          error={transferError}
         />
 
         <LifecycleCard
@@ -231,6 +238,30 @@ export function ProgramArchivePage() {
           ) : null}
         </div>
       </div>
+
+      {transferOpen && programId ? (
+        <TransferOwnershipDialog
+          scope="program"
+          scopeId={programId}
+          title="Transfer sponsorship"
+          description="The selected member becomes the program Owner (sponsor). You are demoted to Admin. Optionally rotate the program manager too. The new sponsor must already be a program member."
+          ownerPickerLabel="new sponsor"
+          leadPickerLabel="new program manager"
+          error={transferError}
+          busy={transfer.isPending}
+          onCancel={() => setTransferOpen(false)}
+          onConfirm={({ newOwnerId, newLeadId }) => {
+            transfer.mutate(
+              {
+                programId,
+                new_owner_user_id: newOwnerId,
+                new_lead_user_id: newLeadId,
+              },
+              { onSuccess: () => setTransferOpen(false) },
+            );
+          }}
+        />
+      ) : null}
     </div>
   );
 }

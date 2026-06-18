@@ -121,7 +121,10 @@ Deeper program configuration lives under **/programs/:id/settings**:
 - **Risk policy** — program-wide risk rules: which dependency types are allowed
   (FS / SS / FF / SF), which risk fields are mandatory, and escalation thresholds.
 - **Lifecycle** — close or reopen the program, and transfer sponsorship to another
-  owner.
+  member. Transfer sponsorship opens a member picker: the chosen member becomes the
+  program Owner, the current Owner is demoted to Admin, and you can optionally rotate
+  the program manager in the same step. The new sponsor must already be a program
+  member.
 
 The rollup-KPI and risk-policy settings are backed by
 `GET`/`PATCH /api/v1/programs/{id}/rollup-config/` and `/risk-policy/` respectively;

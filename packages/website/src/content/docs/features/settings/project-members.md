@@ -29,6 +29,10 @@ For privacy, the search returns username, display name, and initials only — ne
 
 Each member row carries a role picker. Selecting a new role updates it immediately. You cannot assign a role above your own, and the last Owner cannot be demoted — the project must always have at least one Owner. The API rejects a last-Owner demotion with `HTTP 400`.
 
+## Transferring ownership
+
+To hand the project to someone else, use **Transfer ownership** on **Project → Settings → Lifecycle**. It opens a member picker: the chosen member becomes the project Owner and you are demoted to Admin in the same atomic step. The new owner must already be a project member — invite them first if needed. Only an Owner can transfer ownership; the API enforces this with `POST /api/v1/projects/{id}/transfer/` and rejects a non-owner with `HTTP 403`.
+
 ## Removing a member and leaving a project
 
 An Owner can remove any other member from their row. Any member can remove **their own** membership — surfaced as a **Leave** action on your own row, and also as a **Leave project** item in the user menu so you can leave without opening Settings. Removing the last Owner is blocked by the same last-Owner guard.
