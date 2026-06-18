@@ -2184,7 +2184,10 @@ def record_sprint_scope_change(
             task.sprint_pending = True
             task.save(update_fields=["sprint_pending"])
 
-    sprint_scope_changed.send(
+    # send_robust: sprint_scope_changed is the OSS extension point Enterprise
+    # connects against. A raising receiver must not propagate out of and break
+    # this OSS scope-change write path.
+    sprint_scope_changed.send_robust(
         sender=SprintScopeChange,
         scope_change=scope_change,
         task=task,

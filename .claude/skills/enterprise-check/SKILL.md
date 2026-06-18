@@ -156,7 +156,7 @@ Enterprise feature list (non-exhaustive):
 - Risk register: risk matrix visualization, risk-to-task linkage, severity scoring (OSS has basic CRUD only)
 - Monte Carlo: unlimited simulations and tasks, sensitivity analysis, confidence intervals (OSS has capped simulation only)
 - Custom fields / custom attributes on tasks and projects (org-specific metadata)
-- Guest / external stakeholder access (managed guest accounts with audit trail; OSS provides anonymous read-only links only)
+- Guest / external stakeholder access — **managed-guest compliance only**: audit trail of guest access, guest-account lifecycle governance, and access-review evidence. OSS already ships the basic permission-limited guest itself (`MemberStatus.GUEST` membership plus the `Workspace.allow_guests` toggle, with no audit trail) alongside anonymous read-only share links. The Enterprise piece is solely the audit-trail / compliance layer on top, not the guest capability.
 - **Executive multi-project Roadmap** — health-colored project bars, P80 markers,
   baseline shadow bars, inter-project dependency arrows, scenario integration,
   program swimlanes, board-deck PNG export. (OSS has the basic timeline; this is
