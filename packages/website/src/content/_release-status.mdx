@@ -1,0 +1,40 @@
+{/*
+  Release-status single source of truth (#807).
+
+  Every release-status banner derives its version claims from these constants
+  instead of hard-coding "0.2 shipped" in prose. When the next release tags,
+  ONE file changes here and every banner that imports it flips simultaneously —
+  the drift that produced the 2026-05-28 "0.2 shipped" regression cannot recur.
+
+  The authoritative classification (Shipped / Underway / Planned) lives in
+  overview/roadmap.md; these constants must stay in lockstep with its
+  "## Shipped" section. The `docs:version-accuracy` CI job (scripts/check-version-status.sh)
+  enforces that no doc references an unshipped version in past/present tense.
+
+  This file lives at src/content/_release-status.mdx (outside src/content/docs/),
+  so Starlight's docs loader does NOT render it as a page. Import it from .mdx
+  banners:
+
+      import { SHIPPED, IN_ALPHA, FIRST_BETA } from "../_release-status.mdx";
+
+  Note: plain .md banners cannot import MDX exports. Convert a banner to .mdx
+  before wiring it to these constants, or keep its prose aligned with the values
+  below by hand (the CI gate still guards the tense).
+*/}
+
+{/* Latest version that has SHIPPED (tagged, in main). */}
+export const SHIPPED = "0.2";
+
+{/* The shipped line is an alpha pre-release; this is the tagged artifact. */}
+export const SHIPPED_TAG = "0.2.0-alpha.1";
+export const SHIPPED_DATE = "May 2026";
+
+{/* The release line stays alpha through 0.3. IN_ALPHA mirrors SHIPPED while
+    the current shipped release is still an alpha. */}
+export const IN_ALPHA = "0.2";
+
+{/* First release planned to leave alpha (the first beta). */}
+export const FIRST_BETA = "0.4";
+
+{/* Currently UNDERWAY (next release in flight, not yet shipped). */}
+export const UNDERWAY = "0.3";

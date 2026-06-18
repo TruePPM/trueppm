@@ -17,6 +17,7 @@ Before cutting any release:
    make release-smoke
    ```
    This boots the dev stack, seeds the demo project, and curls every shipped endpoint. Fix any failures before proceeding.
+5. **Version-tense alignment.** Diff the docs under `packages/website/src/content/docs/` against `overview/roadmap.md` (the single source of truth) for version-tense drift: every version mentioned in past/present tense must be under the roadmap's **## Shipped** section; anything under **Underway** or **Planned** must read in future tense. Run `bash scripts/check-version-status.sh` (the same gate the `docs:version-accuracy` CI job runs). When this release tags, move it to the roadmap's **## Shipped** section and bump `SHIPPED` in `src/content/_release-status.mdx` so the prose tense for the new release becomes legal.
 
 ## Version scheme
 

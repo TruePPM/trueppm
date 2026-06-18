@@ -15,9 +15,13 @@ hero:
 ---
 
 import { Card, CardGrid, Badge } from "@astrojs/starlight/components";
+import { SHIPPED, SHIPPED_TAG, SHIPPED_DATE, FIRST_BETA } from "../_release-status.mdx";
 
+{/* Banner derives its version from the release-status SSOT (#807). The
+    admonition label is plain directive text and cannot interpolate, so it
+    stays in sync with SHIPPED by hand; the body interpolates the constants. */}
 :::caution[0.2 shipped (alpha) · pre-GA]
-TruePPM 0.2 shipped May 2026 (as the `0.2.0-alpha.1` pre-release) — the scheduling engine, REST API, real-time backend, the full web UI (Schedule, Board, Sprints, Risk, My Work, Programs), the settings/administration platform, program foundations, board and schedule depth, and the first import/export migration path are all functional. 0.2 is an alpha release; the first beta is planned for 0.4. The product is pre-GA: API contracts may evolve across 0.x point releases. Suitable for evaluation and early-adopter deployments; expect breaking changes before 1.0.
+TruePPM {SHIPPED} shipped {SHIPPED_DATE} (as the <code>{SHIPPED_TAG}</code> pre-release) — the scheduling engine, REST API, real-time backend, the full web UI (Schedule, Board, Sprints, Risk, My Work, Programs), the settings/administration platform, program foundations, board and schedule depth, and the first import/export migration path are all functional. {SHIPPED} is an alpha release; the first beta is planned for {FIRST_BETA}. The product is pre-GA: API contracts may evolve across 0.x point releases. Suitable for evaluation and early-adopter deployments; expect breaking changes before 1.0.
 :::
 
 ## One platform, every methodology
