@@ -757,6 +757,9 @@ def test_project_list_open_task_count_has_no_n_plus_one(owner: object, calendar:
             assert r.status_code == 200, r.content
         return len(ctx.captured_queries)
 
+    # Prime per-process caches (content types, permission lookups) so the
+    # baseline reflects steady-state query count, not first-request overhead.
+    list_query_count()
     baseline = list_query_count()
     seed("many", 5)
     assert list_query_count() == baseline
