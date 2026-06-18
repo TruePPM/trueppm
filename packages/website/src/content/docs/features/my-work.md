@@ -39,7 +39,7 @@ Tasks are grouped into three sections, computed on the server so every client gr
 2. **This Sprint** — your remaining work committed to the current active sprint.
 3. **Upcoming** — everything else assigned to you.
 
-Within each section, **blocked** tasks sort first, then by due date and priority. A blocked task shows a red **Blocked** badge — and, when one is set, a **blocker type** ("External vendor", "Decision needed", and so on) and an **age** ("2d 3h blocked") so you can see at a glance what is stuck and for how long.
+Within each section, **blocked** tasks sort first, then by due date and priority. A blocked task shows a red **Blocked** badge — and, when one is set, a **blocker type** ("External vendor", "Decision needed", and so on) and an **age** ("2d 3h blocked") so you can see at a glance what is stuck and for how long. At the top of the page, a **blocked-count chip** will show how many of your tasks are flagged; tap it to filter the list to just the blocked ones, and tap again to clear.
 
 ### What is shared, and what stays private *(ships in 0.3, ADR-0124)*
 

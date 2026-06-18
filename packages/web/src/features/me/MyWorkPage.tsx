@@ -27,8 +27,9 @@
  * Status updates from this surface go through the existing task PATCH path
  * with header ``X-Source: my_work`` (see ``useMyWorkStatusUpdate``).
  */
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useMyWork, type MyWorkGroup, type MyWorkTask } from '@/hooks/useMyWork';
+import { countBlocked, selectVisibleTasks } from './myWorkBlocked';
 import { useProjects } from '@/hooks/useProjects';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { MyWorkTaskRow } from './MyWorkTaskRow';
@@ -104,7 +105,19 @@ export function MyWorkPage() {
     [allTasks],
   );
 
-  const workGroups = useMemo(() => groupByBucket(allTasks), [allTasks]);
+  // Blocked quick-filter: a top-of-page "N blocked" chip the contributor
+  // taps to narrow the list to flagged-blocked tasks. Reads `is_blocked` already
+  // on each row — no extra request. The filter auto-clears if the count falls to
+  // zero (chip hides), so we never strand the user on an empty filtered view.
+  const blockedCount = useMemo(() => countBlocked(allTasks), [allTasks]);
+  const [blockedOnly, setBlockedOnly] = useState(false);
+  const filteringBlocked = blockedOnly && blockedCount > 0;
+  const visibleTasks = useMemo(
+    () => selectVisibleTasks(allTasks, filteringBlocked),
+    [allTasks, filteringBlocked],
+  );
+
+  const workGroups = useMemo(() => groupByBucket(visibleTasks), [visibleTasks]);
   const focusCards = useMemo(
     () => buildMyWorkFocusCards(allTasks, activeSprints, dueTodayCount),
     [allTasks, activeSprints, dueTodayCount],
@@ -128,12 +141,35 @@ export function MyWorkPage() {
             {greetingSubline(dueTodayCount, criticalCount)}
           </p>
         </div>
-        <span
-          className="tppm-mono shrink-0 rounded-chip border border-neutral-border px-2 py-1 text-xs text-neutral-text-secondary"
-          aria-label={`Today is ${dateChip(now)}`}
-        >
-          {dateChip(now)}
-        </span>
+        <div className="flex shrink-0 items-baseline gap-2">
+          {blockedCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setBlockedOnly((v) => !v)}
+              aria-pressed={filteringBlocked}
+              aria-label={
+                filteringBlocked
+                  ? `Showing only ${blockedCount} blocked task${blockedCount === 1 ? '' : 's'}. Show all tasks.`
+                  : `Filter to ${blockedCount} blocked task${blockedCount === 1 ? '' : 's'}`
+              }
+              className={[
+                'tppm-mono rounded-chip border px-2 py-1 text-xs transition-colors',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+                filteringBlocked
+                  ? 'border-semantic-critical bg-semantic-critical-bg text-semantic-critical font-medium'
+                  : 'border-semantic-critical/40 bg-semantic-critical-bg/60 text-semantic-critical hover:bg-semantic-critical-bg',
+              ].join(' ')}
+            >
+              {blockedCount} blocked
+            </button>
+          )}
+          <span
+            className="tppm-mono rounded-chip border border-neutral-border px-2 py-1 text-xs text-neutral-text-secondary"
+            aria-label={`Today is ${dateChip(now)}`}
+          >
+            {dateChip(now)}
+          </span>
+        </div>
       </header>
 
       {/* Role-based landing transparency (ADR-0129). Both self-gate and
