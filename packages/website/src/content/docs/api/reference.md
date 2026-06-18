@@ -138,6 +138,26 @@ read-only. See [Sharing & Access Inheritance](/administration/sharing-and-access
 
 See [RBAC](/administration/rbac/) for the permission matrix and role escalation rules.
 
+### Programs
+
+A program is a container for related projects (see [Programs](/features/programs/)).
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/programs/` | List (scoped to your memberships) |
+| POST | `/api/v1/programs/` | Create (caller becomes Owner) |
+| GET | `/api/v1/programs/{id}/` | Retrieve |
+| PUT / PATCH | `/api/v1/programs/{id}/` | Update |
+| DELETE | `/api/v1/programs/{id}/` | Soft-delete |
+| GET | `/api/v1/programs/samples/` | List the bundled samples available to the demo loader |
+| POST | `/api/v1/programs/load-sample/` | Load a bundled sample program (the in-app "Load demo data" action); body `{"sample": "<key>"}` |
+| POST | `/api/v1/programs/import/` | Import a JSON seed document as a new program (raw JSON body or multipart `file` upload); caller becomes Owner |
+| GET | `/api/v1/programs/{id}/export/` | Download the program as a canonical JSON seed file (`Content-Disposition: attachment`) |
+
+The import and load-sample endpoints return `201 Created` with the new program;
+import returns `400` with an `errors` array on a malformed or oversized seed
+document. See [Sample projects](/getting-started/sample-projects/).
+
 ### Tasks
 
 | Method | Path | Description |
@@ -150,6 +170,16 @@ See [RBAC](/administration/rbac/) for the permission matrix and role escalation 
 
 CPM fields (`early_start`, `early_finish`, `late_start`, `late_finish`, `total_float`, `is_critical`) are read-only — set by the auto-scheduler.
 
+### Sprint–milestone binding
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v1/sprints/{id}/promote-to-milestone/` | Bind the sprint's commitment to a schedule milestone so sprint velocity reforecasts the CPM finish |
+| POST | `/api/v1/sprints/{id}/unbind-milestone/` | Remove the binding between the sprint and its milestone |
+
+See [Sprint–milestone rollup](/features/sprint-milestone-rollup/) for the UI
+workflow and error codes.
+
 ### Dependencies
 
 | Method | Path | Description |
@@ -161,6 +191,19 @@ CPM fields (`early_start`, `early_finish`, `late_start`, `late_finish`, `total_f
 | DELETE | `/api/v1/dependencies/{id}/` | Soft-delete |
 
 Predecessor and successor must belong to the same project — cross-project edges return `HTTP 400`.
+
+### Monte Carlo
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v1/projects/{id}/monte-carlo/` | Run a probabilistic schedule simulation synchronously and return P50/P80/P95 (no state written) |
+| GET | `/api/v1/projects/{id}/monte-carlo/latest/` | Retrieve the most recently recorded simulation run for the project |
+| GET | `/api/v1/projects/{id}/monte-carlo/history/` | List recorded simulation runs for the project |
+
+The run endpoint accepts an optional `n_simulations` in the body; it must not
+exceed the OSS simulation cap or the request returns `402`. See
+[Monte Carlo](/features/monte-carlo/) and the `MC_*` caps in
+[Configuration](/administration/configuration/).
 
 ### Resources
 
