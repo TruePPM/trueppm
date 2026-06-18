@@ -130,7 +130,7 @@ export function MyWorkPage() {
   const hasWork = totalCount > 0;
 
   return (
-    <main className="flex flex-col h-full overflow-y-auto bg-neutral-surface">
+    <main className="flex flex-col h-full overflow-y-auto bg-app-canvas">
       <header className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-4 py-5 md:px-6">
         <div className="flex min-w-0 flex-col gap-1">
           {/* Time-aware greeting (v2 My Work spec). This IS the page <h1>. */}

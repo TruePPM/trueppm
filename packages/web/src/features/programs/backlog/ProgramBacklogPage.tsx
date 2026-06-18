@@ -51,7 +51,7 @@ export function ProgramBacklogPage() {
 
   if (controller.isLoading) {
     return (
-      <div className="flex h-full flex-col">
+      <div className="flex h-full flex-col bg-app-canvas">
         <div className="border-b border-neutral-border bg-neutral-surface-raised px-6 py-4">
           <div
             aria-hidden="true"

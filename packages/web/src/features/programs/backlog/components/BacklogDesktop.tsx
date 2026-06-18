@@ -58,7 +58,7 @@ export function BacklogDesktop({ controller }: BacklogDesktopProps) {
   const isEmpty = !isLoading && allItems.length === 0;
 
   return (
-    <div className="flex h-full flex-col bg-neutral-surface">
+    <div className="flex h-full flex-col bg-app-canvas">
       <BacklogHeader
         programName={controller.programName}
         program={controller.program}
