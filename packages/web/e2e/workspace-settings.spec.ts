@@ -388,6 +388,29 @@ test.describe('Workspace Members page', () => {
     await expect(page.getByRole('textbox', { name: /email/i })).toHaveValue('');
   });
 
+  test('golden path — Export CSV downloads the visible members (issue 969)', async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.route('**/api/v1/workspace/members/', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pj([MEMBER]) }),
+    );
+    await page.route('**/api/v1/workspace/invites/', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pj([]) }),
+    );
+
+    await page.goto('/settings/members');
+
+    const exportBtn = page.getByRole('button', { name: 'Export CSV' });
+    await expect(exportBtn).toBeEnabled();
+
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      exportBtn.click(),
+    ]);
+    expect(download.suggestedFilename()).toBe('trueppm-workspace-members.csv');
+  });
+
   test('empty state — shows skeleton when loading', async ({ page }) => {
     await setup(page);
     // Both member endpoints are covered by catch-all returning [] which triggers
