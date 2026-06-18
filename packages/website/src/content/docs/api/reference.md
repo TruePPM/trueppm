@@ -153,10 +153,37 @@ A program is a container for related projects (see [Programs](/features/programs
 | POST | `/api/v1/programs/load-sample/` | Load a bundled sample program (the in-app "Load demo data" action); body `{"sample": "<key>"}` |
 | POST | `/api/v1/programs/import/` | Import a JSON seed document as a new program (raw JSON body or multipart `file` upload); caller becomes Owner |
 | GET | `/api/v1/programs/{id}/export/` | Download the program as a canonical JSON seed file (`Content-Disposition: attachment`) |
+| GET | `/api/v1/programs/{id}/rollup-config/` | Read the program rollup KPIs config (enabled KPIs + aggregation policy) |
+| PATCH | `/api/v1/programs/{id}/rollup-config/` | Update the program rollup KPIs config (Admin only) |
+| GET | `/api/v1/programs/{id}/risk-policy/` | Read the program risk & dependencies policy |
+| PATCH | `/api/v1/programs/{id}/risk-policy/` | Update the program risk & dependencies policy (Admin only) |
+| GET | `/api/v1/programs/{id}/resource-contention/` | Within-program resource contention across member projects (Scheduler+; optional `?start=` / `?end=` window, repeatable `?resource=` / `?status=`) |
+| POST | `/api/v1/programs/{id}/split/` | Split a program into sub-programs — **planned, not yet implemented** (returns `501`) |
 
 The import and load-sample endpoints return `201 Created` with the new program;
 import returns `400` with an `errors` array on a malformed or oversized seed
 document. See [Sample projects](/getting-started/sample-projects/).
+
+The `rollup-config` and `risk-policy` endpoints use a method-level permission
+split: `GET` is open to any program member (closed programs remain readable for
+audit), while `PATCH` requires the Admin role and is blocked on closed programs.
+Both are partial updates — send only the fields you want to change — and every
+successful `PATCH` is audited automatically.
+
+`resource-contention` returns each resource with their task spans across every
+member project of the program, each span tagged with its source project, so the
+client can surface people over-allocated across sibling projects in overlapping
+windows. Overallocation detection is intentionally client-side. The window
+defaults to the earliest start and latest finish across member projects; it
+returns `409` if no member project has a computed schedule yet, and `400` for an
+invalid date or a `start` after `end`. This is within-program visibility only —
+cross-program leveling and the portfolio heat map remain Enterprise.
+
+Program `split` is a **planned** endpoint that validates the request payload and
+the caller's Owner role, then returns `501 Not Implemented` with a `detail`
+message and a `tracking_issue` number. The request contract it accepts is
+`{"splits": [{"name": str, "project_ids": [uuid]}, ...]}`; the working
+implementation is not yet available.
 
 ### Tasks
 
@@ -232,6 +259,24 @@ applies to the list endpoint to bound bulk scraping; exceeding it returns
 | GET | `/api/v1/task-resources/{id}/` | Retrieve |
 | PUT / PATCH | `/api/v1/task-resources/{id}/` | Update |
 | DELETE | `/api/v1/task-resources/{id}/` | Remove |
+
+### Project resource roster
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/project-resources/` | List the roster (filter: `?project=`) |
+| POST | `/api/v1/project-resources/` | Add a resource to a project's roster (Scheduler+) |
+| GET | `/api/v1/project-resources/{id}/` | Retrieve |
+| PUT / PATCH | `/api/v1/project-resources/{id}/` | Update (Scheduler+) |
+| DELETE | `/api/v1/project-resources/{id}/` | Remove from roster (Scheduler+) |
+| DELETE | `/api/v1/project-resources/{id}/?force=true` | Force-remove and cascade-delete the resource's task assignments |
+
+A plain `DELETE` returns `409 Conflict` with code `has_assignments` if the
+resource has live task assignments on the project; the response body lists the
+`affected_tasks`, a sample of `task_names`, and the `assignment_count`. Passing
+`?force=true` cascades the deletion to the resource's `TaskResource` rows on the
+project and triggers a CPM recalculation for the affected tasks. All write and
+delete operations require the Scheduler role or higher on the project.
 
 ### Workspace
 
