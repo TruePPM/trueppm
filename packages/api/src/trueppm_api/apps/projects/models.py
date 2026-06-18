@@ -2412,6 +2412,16 @@ class Sprint(VersionedModel):
             models.Index(fields=["project", "start_date"], name="sprint_project_start_idx"),
             # Sync delta pull: WHERE project_id = X AND server_version > since (#810).
             models.Index(fields=["project", "server_version"], name="sprint_proj_serverver_idx"),
+            # Velocity rollup scan (ADR-0113): velocity_eligible_sprints() filters
+            # WHERE project_id = X AND exclude_from_velocity = false AND state = 'COMPLETED'
+            # ORDER BY closed_at DESC. The leading equality columns (project,
+            # exclude_from_velocity, state) let PG seek straight to the eligible
+            # set, and the trailing closed_at supplies the sort order so the
+            # newest-first window slice needs no separate sort step.
+            models.Index(
+                fields=["project", "exclude_from_velocity", "state", "-closed_at"],
+                name="ix_sprint_velocity",
+            ),
         ]
 
     def __str__(self) -> str:
