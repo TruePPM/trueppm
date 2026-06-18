@@ -269,7 +269,7 @@ export function ProgramOverviewPage() {
   const kpiEntries = rollup ? Object.entries(rollup.kpis) : [];
 
   return (
-    <div className="flex flex-col gap-6 p-6 overflow-y-auto h-full bg-neutral-surface">
+    <div className="flex flex-col gap-6 p-6 overflow-y-auto h-full bg-app-canvas">
       {program?.is_sample && programId && (
         <SampleDataBanner programId={programId} canRemove={program.my_role === 400} />
       )}

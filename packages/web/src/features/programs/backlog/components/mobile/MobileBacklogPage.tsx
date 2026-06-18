@@ -90,7 +90,7 @@ export function MobileBacklogPage({ controller }: MobileBacklogPageProps) {
   }
 
   return (
-    <div className="flex h-full flex-col bg-neutral-surface">
+    <div className="flex h-full flex-col bg-app-canvas">
       {/* Header */}
       <header className="flex items-center justify-between gap-2 border-b border-neutral-border bg-neutral-surface-raised px-4 py-3">
         <div className="flex min-w-0 items-center gap-2.5">

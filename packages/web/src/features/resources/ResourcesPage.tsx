@@ -57,7 +57,7 @@ export function ResourcesPage() {
   const showDetail = mode === 'create' || selectedResource !== null;
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full bg-app-canvas">
       {/* Toolbar */}
       <div className="shrink-0 border-b border-neutral-border px-4 py-2 flex items-center gap-3 flex-wrap">
         <div className="flex-1 min-w-[160px]">

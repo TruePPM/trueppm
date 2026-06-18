@@ -21,7 +21,7 @@ export function ProgramListPage() {
   const isEmpty = !isLoading && !error && programs && programs.length === 0;
 
   return (
-    <div className="flex h-full flex-col bg-neutral-surface">
+    <div className="flex h-full flex-col bg-app-canvas">
       {/* Header */}
       <header className="flex items-center justify-between border-b border-neutral-border px-6 py-4">
         <h1 className="text-lg font-semibold text-neutral-text-primary">Programs</h1>

@@ -833,7 +833,7 @@ export function ProjectOverviewPage() {
   const focusHeadingText = focusHeading(focus);
 
   return (
-    <div className="flex flex-col gap-6 p-6 overflow-y-auto h-full bg-neutral-surface">
+    <div className="flex flex-col gap-6 p-6 overflow-y-auto h-full bg-app-canvas">
       {/* Project header */}
       {overview && !overviewLoading && <ProjectHeader overview={overview} />}
 
