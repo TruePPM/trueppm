@@ -5911,6 +5911,35 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/acceptance-results/": {
+            "post": {
+                "operationId": "v1_projects_acceptance_results_create",
+                "description": "``POST /api/v1/projects/{project_id}/acceptance-results/`` — CI test ingest (ADR-0148).\n\nCloses the XP acceptance-test-driven loop: a CI job that runs a story's\nacceptance tests reports the verdicts here and the matching\n``AcceptanceCriterion.met`` flags flip, stamping the review trail to the human\nwho minted the token (``met_by``/``met_at``). Flipping the last unmet criterion\n*satisfies* the Definition-of-Ready gate but does NOT auto-transition the task to\nREADY — the team keeps the deliberate Mark-ready step (the ``dor_ready`` flag in\nthe response tells CI the gate is now clear).\n\nOSS boundary (ADR-0097 carve-out, rule 9): this reuses the EXISTING ADR-0068\n``ProjectApiTokenAuthentication`` — a single narrow authenticated endpoint, no\nprovider registry, no HMAC/OAuth, no conflict resolution, no reconciliation loop.\nThe general multi-provider bidirectional ingest hub remains Enterprise.\n\nIDOR defense: ``IsTokenForProject`` verifies the token authorizes the URL project\n(401 on mismatch). Criteria that belong to a *different* project than the URL are\nnever flipped — they are returned in ``unknown`` rather than touched, so a token\ncannot reach across the project boundary by naming foreign criterion ids.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/archive/": {
             "post": {
                 "operationId": "v1_projects_archive_create",
@@ -21473,10 +21502,13 @@
                     "task.assigned",
                     "task.assignee_changed",
                     "task.mentioned",
-                    "task.due_date_changed"
+                    "task.due_date_changed",
+                    "sprint.activated",
+                    "sprint.closed",
+                    "sprint.scope_changed"
                 ],
                 "type": "string",
-                "description": "* `task.created` - Task Created\n* `task.updated` - Task Updated\n* `task.deleted` - Task Deleted\n* `dependency.created` - Dependency Created\n* `dependency.deleted` - Dependency Deleted\n* `schedule.recalculated` - Schedule Recalculated\n* `project.created` - Project Created\n* `task.assigned` - Task Assigned\n* `task.assignee_changed` - Task Assignee Changed\n* `task.mentioned` - Task Mentioned\n* `task.due_date_changed` - Task Due Date Changed"
+                "description": "* `task.created` - Task Created\n* `task.updated` - Task Updated\n* `task.deleted` - Task Deleted\n* `dependency.created` - Dependency Created\n* `dependency.deleted` - Dependency Deleted\n* `schedule.recalculated` - Schedule Recalculated\n* `project.created` - Project Created\n* `task.assigned` - Task Assigned\n* `task.assignee_changed` - Task Assignee Changed\n* `task.mentioned` - Task Mentioned\n* `task.due_date_changed` - Task Due Date Changed\n* `sprint.activated` - Sprint Activated\n* `sprint.closed` - Sprint Closed\n* `sprint.scope_changed` - Sprint Scope Changed"
             },
             "EventsEnum": {
                 "enum": [
@@ -21490,10 +21522,13 @@
                     "task.assigned",
                     "task.assignee_changed",
                     "task.mentioned",
-                    "task.due_date_changed"
+                    "task.due_date_changed",
+                    "sprint.activated",
+                    "sprint.closed",
+                    "sprint.scope_changed"
                 ],
                 "type": "string",
-                "description": "* `task.created` - Task Created\n* `task.updated` - Task Updated\n* `task.deleted` - Task Deleted\n* `dependency.created` - Dependency Created\n* `dependency.deleted` - Dependency Deleted\n* `schedule.recalculated` - Schedule Recalculated\n* `project.created` - Project Created\n* `task.assigned` - Task Assigned\n* `task.assignee_changed` - Task Assignee Changed\n* `task.mentioned` - Task Mentioned\n* `task.due_date_changed` - Task Due Date Changed"
+                "description": "* `task.created` - Task Created\n* `task.updated` - Task Updated\n* `task.deleted` - Task Deleted\n* `dependency.created` - Dependency Created\n* `dependency.deleted` - Dependency Deleted\n* `schedule.recalculated` - Schedule Recalculated\n* `project.created` - Project Created\n* `task.assigned` - Task Assigned\n* `task.assignee_changed` - Task Assignee Changed\n* `task.mentioned` - Task Mentioned\n* `task.due_date_changed` - Task Due Date Changed\n* `sprint.activated` - Sprint Activated\n* `sprint.closed` - Sprint Closed\n* `sprint.scope_changed` - Sprint Scope Changed"
             },
             "FailedTask": {
                 "type": "object",

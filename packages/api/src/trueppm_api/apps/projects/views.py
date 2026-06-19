@@ -88,6 +88,7 @@ from trueppm_api.apps.projects.models import (
     RiskComment,
     RiskStatus,
     Sprint,
+    SprintScopeChange,
     SprintState,
     SprintTaskOutcome,
     Task,
@@ -4819,9 +4820,7 @@ def _sprint_closed_webhook_payload(sprint: Sprint, *, source: str) -> dict:  # t
     return payload
 
 
-def _sprint_scope_change_webhook_payload(
-    scope_change: SprintScopeChange, *, source: str
-) -> dict:  # type: ignore[type-arg]
+def _sprint_scope_change_webhook_payload(scope_change: SprintScopeChange, *, source: str) -> dict:  # type: ignore[type-arg]
     """Payload for ``sprint.scope_changed`` — fired only on accept (ADR-0102/0147).
 
     Carries no velocity/pulse signal, so no privacy gate applies. ``id`` is the
@@ -6317,9 +6316,7 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
             # and captured by value so the on_commit callback does no DB work.
             activated_payload = _sprint_base_webhook_payload(sprint, source="api")
             transaction.on_commit(
-                lambda: _dispatch_webhooks(
-                    project_id_str, "sprint.activated", activated_payload
-                )
+                lambda: _dispatch_webhooks(project_id_str, "sprint.activated", activated_payload)
             )
             # ADR-0074: recompute the linked milestone's rollup so the Gantt
             # reflects the now-active sprint immediately. No-op when the
@@ -8839,8 +8836,17 @@ class AcceptanceResultIngestView(IdempotencyMixin, APIView):
 
         # Report the post-flip DoR state per affected task so CI knows whether the
         # gate cleared. Counts are recomputed from the now-current criteria rows.
+        # Re-fetch the affected tasks once with their criteria prefetched so the
+        # per-task ac_counts + dor_blockers calls below stay O(1) queries total
+        # rather than O(affected tasks) — the select_related("task") instances above
+        # carry no prefetched criteria, so a naive loop would re-query per task.
+        reported_tasks = (
+            Task.objects.filter(pk__in=list(affected_tasks))
+            .prefetch_related("acceptance_criteria")
+            .order_by("pk")
+        )
         task_reports = []
-        for task in affected_tasks.values():
+        for task in reported_tasks:
             met, total = ac_counts(task)
             task_reports.append(
                 {
