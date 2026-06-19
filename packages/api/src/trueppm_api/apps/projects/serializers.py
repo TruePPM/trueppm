@@ -179,6 +179,14 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
     inherited_mc_history_retention_cap = serializers.SerializerMethodField()
     effective_mc_history_attribution_audience = serializers.SerializerMethodField()
     inherited_mc_history_attribution_audience = serializers.SerializerMethodField()
+    # Server-resolved planning methodology (ADR-0107, issue 955): project ?? program
+    # ?? workspace, gated by the workspace override policy. The frontend tab-gate
+    # reads THIS (not the raw ``methodology`` override) so web/mobile/MCP share one
+    # resolved value. ``inherited_methodology`` is what the project would show if its
+    # own value were ignored (program ?? workspace) — drives the settings "Inherited
+    # from workspace (X)" affordance and the policy-driven read-only treatment.
+    effective_methodology = serializers.SerializerMethodField()
+    inherited_methodology = serializers.SerializerMethodField()
 
     class Meta:
         model = Project
@@ -202,6 +210,10 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "estimation_mode",
             "agile_features",
             "methodology",
+            # Read-only server-resolved methodology (ADR-0107) — what clients render
+            # for tab visibility — and the value inherited if the override were ignored.
+            "effective_methodology",
+            "inherited_methodology",
             # Product-backlog prioritization model (ADR-0105 §3). Admin+-gated write,
             # enforced in ProjectViewSet alongside estimation_mode.
             "prioritization_model",
@@ -250,6 +262,8 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "lead_detail",
             "effective_iteration_label",
             "inherited_iteration_label",
+            "effective_methodology",
+            "inherited_methodology",
             "effective_public_sharing",
             "inherited_public_sharing",
             "effective_allow_guests",
@@ -448,6 +462,42 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         program_label = program.iteration_label if program else None
         return program_label or ws.iteration_label or DEFAULT_ITERATION_LABEL
 
+    def validate_methodology(self, value: str) -> str:
+        """Reject a methodology override while a workspace enforcement lock is active.
+
+        ADR-0107 §4: under ``ENFORCE`` *with* a registered enterprise provider the
+        workspace default is mandatory and a per-project override is forbidden. OSS
+        registers no provider, so ``methodology_override_locked`` is False there and
+        the override is allowed (``ENFORCE`` degrades to ``SUGGEST``). ``INHERIT``
+        also locks — but the UI renders the picker read-only under INHERIT, so this
+        is the server-side backstop for a direct API write. Raising
+        ``PermissionDenied`` returns 403 (a policy refusal), not 400 (a bad value).
+        """
+        from rest_framework.exceptions import PermissionDenied
+
+        from .methodology import methodology_override_locked
+
+        instance = self.instance
+        # Only a *change* is blocked; re-sending the current value is a harmless no-op.
+        if instance is not None and value == instance.methodology:
+            return value
+        if methodology_override_locked(self._iteration_workspace()):
+            raise PermissionDenied(
+                "This workspace's methodology policy locks the delivery model to the "
+                "workspace default — it can't be overridden per project."
+            )
+        return value
+
+    def get_effective_methodology(self, obj: Project) -> str:
+        from .methodology import resolve_effective_methodology
+
+        return resolve_effective_methodology(obj, workspace=self._iteration_workspace())
+
+    def get_inherited_methodology(self, obj: Project) -> str:
+        from .methodology import resolve_inherited_methodology
+
+        return resolve_inherited_methodology(obj, workspace=self._iteration_workspace())
+
     def get_effective_public_sharing(self, obj: Project) -> bool:
         from .sharing_settings import resolve_effective_sharing
 
@@ -626,6 +676,11 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
     # Read-only label the program inherits when its own override is cleared — the
     # workspace default (ADR-0116, #1106). Drives the settings "Inherit (X)" copy.
     inherited_iteration_label = serializers.SerializerMethodField()
+    # Server-resolved planning methodology (ADR-0107, issue 955): program ?? workspace,
+    # gated by the workspace override policy. ``inherited_methodology`` is the workspace
+    # default the program shows under an active lock or when its own value is ignored.
+    effective_methodology = serializers.SerializerMethodField()
+    inherited_methodology = serializers.SerializerMethodField()
     # Server-resolved sharing settings (ADR-0135, #978): program override ?? workspace
     # value. Clients read ``effective_*``; ``inherited_*`` is the workspace value the
     # program shows when its own override is cleared (drives the "Inherit (On/Off)" chip).
@@ -653,6 +708,10 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             "description",
             "code",
             "methodology",
+            # Read-only server-resolved methodology + the value inherited when the
+            # program's own value is ignored (ADR-0107).
+            "effective_methodology",
+            "inherited_methodology",
             # Iteration-container label override for the program (ADR-0116, #1106).
             # Nullable: NULL = inherit the workspace default.
             "iteration_label",
@@ -705,6 +764,8 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             "my_role_label",
             "project_count",
             "member_count",
+            "effective_methodology",
+            "inherited_methodology",
             "effective_public_sharing",
             "inherited_public_sharing",
             "effective_allow_guests",
@@ -757,6 +818,38 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
 
         ws = self._sharing_workspace()
         return ws.iteration_label or DEFAULT_ITERATION_LABEL
+
+    def validate_methodology(self, value: str) -> str:
+        """Reject a methodology override while a workspace enforcement lock is active.
+
+        ADR-0107 §4 — mirrors ``ProjectSerializer.validate_methodology``. OSS
+        registers no enforcement provider, so the lock is never active and the
+        override is allowed; the 403 only fires under Enterprise-active ENFORCE (or
+        the INHERIT backstop for a direct API write).
+        """
+        from rest_framework.exceptions import PermissionDenied
+
+        from .methodology import methodology_override_locked
+
+        instance = self.instance
+        if instance is not None and value == instance.methodology:
+            return value
+        if methodology_override_locked(self._sharing_workspace()):
+            raise PermissionDenied(
+                "This workspace's methodology policy locks the delivery model to the "
+                "workspace default — it can't be overridden per program."
+            )
+        return value
+
+    def get_effective_methodology(self, obj: Program) -> str:
+        from .methodology import resolve_effective_methodology
+
+        return resolve_effective_methodology(obj, workspace=self._sharing_workspace())
+
+    def get_inherited_methodology(self, obj: Program) -> str:
+        from .methodology import resolve_inherited_methodology
+
+        return resolve_inherited_methodology(obj, workspace=self._sharing_workspace())
 
     def _sharing_workspace(self) -> Workspace:
         """Load the Workspace singleton once per serializer instance so a list of

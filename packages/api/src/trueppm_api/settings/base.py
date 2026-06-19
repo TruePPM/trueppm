@@ -724,6 +724,12 @@ SPECTACULAR_SETTINGS = {
         # rename existing stable enums (the same schema-drift regression class as
         # ScopeChangeStatus above — project_drf_enum_name_collision).
         "TermOverridePolicyEnum": "trueppm_api.apps.workspace.models.TermOverridePolicy",
+        # ADR-0107: Workspace gains a third use of Methodology (after Project +
+        # Program) and methodology_override_policy reuses TermOverridePolicy. Pin
+        # Methodology to its stable component name proactively so the third use does
+        # not trip the drf-spectacular enum-name-collision / schema-drift regression
+        # (project_drf_enum_name_collision), same class as the entries above.
+        "MethodologyEnum": "trueppm_api.apps.projects.models.Methodology",
         # ADR-0105: Task gains task_type / readiness and Project gains
         # backlog_scoring_model. Each is a new choice set on a *_type / status-adjacent
         # field; pin to model-prefixed names so drf-spectacular does not rename the
