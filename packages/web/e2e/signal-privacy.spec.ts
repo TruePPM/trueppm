@@ -48,6 +48,13 @@ async function setup(page: Page, policyBody: Record<string, unknown> = policy())
   });
   const pj = (data: unknown) => JSON.stringify(data);
 
+  // Catch-all 401-guard FIRST (ADR-0146): the consolidated settings page mounts
+  // every section at once, so sibling sections fire their own endpoints. Without
+  // this net those unmocked requests 401 and trip the session-expired modal,
+  // which replaces the app and detaches the signal-privacy ladders. Specific
+  // routes below override it (Playwright applies routes LIFO).
+  await page.route('**/api/v1/**', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
+
   await page.route('**/api/v1/projects/', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: pj([FIXTURE_PROJECT]) }));
   await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_PROJECT) }));
   await page.route('**/api/v1/auth/me/', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_ME) }));

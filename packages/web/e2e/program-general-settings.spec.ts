@@ -120,18 +120,22 @@ test.describe('Program Settings → General', () => {
     await setup(page, captures);
     await page.goto(`/programs/${PROGRAM_ID}/settings/general`);
 
-    await expect(page.getByRole('heading', { name: 'General' })).toBeVisible();
-    await expect(page.getByLabel('Program name')).toHaveValue('Phase 2 Modernization');
-    await expect(page.getByLabel('Program code')).toHaveValue('PH2');
-    await expect(page.getByLabel('Description')).toHaveValue('Q3 platform rebuild');
+    // All sections mount on one page (ADR-0146) — scope to the general section so
+    // shared labels (e.g. "Program code" also appears in the lifecycle delete-confirm
+    // field) don't trip strict mode.
+    const general = page.locator('[data-settings-section="general"]');
+    await expect(general.getByRole('heading', { name: 'General' })).toBeVisible();
+    await expect(general.getByLabel('Program name')).toHaveValue('Phase 2 Modernization');
+    await expect(general.getByLabel('Program code')).toHaveValue('PH2');
+    await expect(general.getByLabel('Description')).toHaveValue('Q3 platform rebuild');
 
     // Lead block renders the username from lead_detail (no hardcoded "Anika Krishnan").
-    await expect(page.getByText('anika.k')).toBeVisible();
-    await expect(page.getByText('Anika Krishnan')).toHaveCount(0);
+    await expect(general.getByText('anika.k')).toBeVisible();
+    await expect(general.getByText('Anika Krishnan')).toHaveCount(0);
 
     // Edit the name and flip health to At risk.
-    await page.getByLabel('Program name').fill('Phase 2 Rebuilt');
-    await page.getByRole('button', { name: 'At risk' }).click();
+    await general.getByLabel('Program name').fill('Phase 2 Rebuilt');
+    await general.getByRole('button', { name: 'At risk' }).click();
 
     // Save bar arms — click "Save changes" (provided by SettingsShell).
     await page.getByRole('button', { name: /Save changes/i }).click();
@@ -156,7 +160,8 @@ test.describe('Program Settings → General', () => {
     await setup(page);
     await page.goto(`/programs/${PROGRAM_ID}/settings/general`);
 
-    await expect(page.getByRole('heading', { name: 'General' })).toBeVisible();
+    const general = page.locator('[data-settings-section="general"]');
+    await expect(general.getByRole('heading', { name: 'General' })).toBeVisible();
     // The program nav now lives in the TopBar and persists here, Settings active.
     const programNav = page.getByRole('navigation', { name: 'Program' });
     await expect(programNav.getByRole('link', { name: /Backlog/i })).toBeVisible();
@@ -164,8 +169,10 @@ test.describe('Program Settings → General', () => {
       'aria-current',
       'page',
     );
-    // The settings shell still rendered its own nav (a program-settings-only item).
-    await expect(page.getByRole('link', { name: 'Risk policy' })).toBeVisible();
+    // The settings shell still rendered its own scroll-spy rail (ADR-0146) — the
+    // section items are buttons, not links. Scope to the settings nav region.
+    const settingsNav = page.getByRole('navigation', { name: 'Settings sections' });
+    await expect(settingsNav.getByRole('button', { name: 'Risk policy', exact: true })).toBeVisible();
   });
 
   // #776: the context pill is a switcher — from one program's settings you can
@@ -197,16 +204,18 @@ test.describe('Program Settings → General', () => {
     );
 
     await page.goto(`/programs/${PROGRAM_ID}/settings/general`);
-    await expect(page.getByLabel('Program name')).toHaveValue('Phase 2 Modernization');
+    const general = page.locator('[data-settings-section="general"]');
+    await expect(general.getByLabel('Program name')).toHaveValue('Phase 2 Modernization');
 
     // Open the switcher and pick the other program.
     await page.getByRole('button', { name: /Switch program/ }).click();
     await expect(page.getByRole('listbox', { name: 'Switch program' })).toBeVisible();
     await page.getByRole('option', { name: /Phase 3 Rollout/ }).click();
 
-    // Navigated to program 2's settings, same sub-page (general).
-    await page.waitForURL(`**/programs/${PROGRAM_2}/settings/general`);
-    await expect(page.getByLabel('Program name')).toHaveValue('Phase 3 Rollout');
+    // Navigated to program 2's consolidated settings page (one page per entity,
+    // ADR-0146 — no per-section route segment).
+    await page.waitForURL(`**/programs/${PROGRAM_2}/settings`);
+    await expect(general.getByLabel('Program name')).toHaveValue('Phase 3 Rollout');
     await expect(page.getByRole('button', { name: /Current program: Phase 3 Rollout/ })).toBeVisible();
   });
 
@@ -248,8 +257,10 @@ test.describe('Program Settings → General', () => {
 
     // Enter selects the single match and navigates to its settings.
     await search.press('Enter');
-    await page.waitForURL(`**/programs/${ZENITH}/settings/general`);
-    await expect(page.getByLabel('Program name')).toHaveValue('Zenith Initiative');
+    await page.waitForURL(`**/programs/${ZENITH}/settings`);
+    await expect(
+      page.locator('[data-settings-section="general"]').getByLabel('Program name'),
+    ).toHaveValue('Zenith Initiative');
   });
 
   test('discard reverts edited fields to the seeded snapshot', async ({ page }) => {
@@ -257,16 +268,17 @@ test.describe('Program Settings → General', () => {
     await setup(page, captures);
     await page.goto(`/programs/${PROGRAM_ID}/settings/general`);
 
-    await expect(page.getByLabel('Program name')).toHaveValue('Phase 2 Modernization');
+    const general = page.locator('[data-settings-section="general"]');
+    await expect(general.getByLabel('Program name')).toHaveValue('Phase 2 Modernization');
 
-    await page.getByLabel('Program name').fill('Should Be Discarded');
-    await expect(page.getByLabel('Program name')).toHaveValue('Should Be Discarded');
+    await general.getByLabel('Program name').fill('Should Be Discarded');
+    await expect(general.getByLabel('Program name')).toHaveValue('Should Be Discarded');
 
-    // The in-page Discard button reverts immediately (no confirmation modal —
+    // The shell save-bar Discard button reverts immediately (no confirmation modal —
     // ConfirmDiscardDialog only gates pending-nav scenarios in SettingsShell).
     await page.getByRole('button', { name: /^Discard$/ }).click();
 
-    await expect(page.getByLabel('Program name')).toHaveValue('Phase 2 Modernization');
+    await expect(general.getByLabel('Program name')).toHaveValue('Phase 2 Modernization');
     expect(captures.patch).toBeUndefined();
   });
 
@@ -281,18 +293,19 @@ test.describe('Program Settings → General', () => {
     await setup(page, captures);
     await page.goto(`/programs/${PROGRAM_ID}/settings/general`);
 
-    await expect(page.getByRole('heading', { name: 'General' })).toBeVisible();
+    const general = page.locator('[data-settings-section="general"]');
+    await expect(general.getByRole('heading', { name: 'General' })).toBeVisible();
 
     // (b) Both rows start on "Inherit", and the chip suffix reflects inherited_*
     // (allow_guests inherited On, public_sharing inherited Off).
-    const guestGroup = page.getByRole('radiogroup', { name: 'Allow guest access' });
-    const sharingGroup = page.getByRole('radiogroup', { name: 'Allow public link sharing' });
+    const guestGroup = general.getByRole('radiogroup', { name: 'Allow guest access' });
+    const sharingGroup = general.getByRole('radiogroup', { name: 'Allow public link sharing' });
     await expect(guestGroup.getByText('Inherit (On)')).toBeVisible();
     await expect(sharingGroup.getByText('Inherit (Off)')).toBeVisible();
 
     // (a) Override public sharing, then flip the revealed switch to On.
     await sharingGroup.getByText('Override', { exact: true }).click();
-    const sharingSwitch = page.getByRole('switch', { name: 'Allow public link sharing' });
+    const sharingSwitch = general.getByRole('switch', { name: 'Allow public link sharing' });
     await expect(sharingSwitch).toBeVisible();
     // Seeded from the effective value (inherited Off) → starts unchecked.
     await expect(sharingSwitch).toHaveAttribute('aria-checked', 'false');
@@ -301,7 +314,7 @@ test.describe('Program Settings → General', () => {
 
     // Override allow guests and flip its switch to Off (was inherited On).
     await guestGroup.getByText('Override', { exact: true }).click();
-    const guestSwitch = page.getByRole('switch', { name: 'Allow guest access' });
+    const guestSwitch = general.getByRole('switch', { name: 'Allow guest access' });
     await expect(guestSwitch).toHaveAttribute('aria-checked', 'true');
     await guestSwitch.click();
     await expect(guestSwitch).toHaveAttribute('aria-checked', 'false');
@@ -325,13 +338,14 @@ test.describe('Program Settings → General', () => {
     await setup(page, captures);
     await page.goto(`/programs/${PROGRAM_ID}/settings/general`);
 
-    const sharingGroup = page.getByRole('radiogroup', { name: 'Allow public link sharing' });
+    const general = page.locator('[data-settings-section="general"]');
+    const sharingGroup = general.getByRole('radiogroup', { name: 'Allow public link sharing' });
     await sharingGroup.getByText('Override', { exact: true }).click();
-    await expect(page.getByRole('switch', { name: 'Allow public link sharing' })).toBeVisible();
+    await expect(general.getByRole('switch', { name: 'Allow public link sharing' })).toBeVisible();
 
     // Back to Inherit → switch is gone, inheriting line shows the workspace value.
     await sharingGroup.getByText(/^Inherit/).click();
-    await expect(page.getByRole('switch', { name: 'Allow public link sharing' })).toHaveCount(0);
+    await expect(general.getByRole('switch', { name: 'Allow public link sharing' })).toHaveCount(0);
     await expect(sharingGroup.getByText('Inherit (Off)')).toBeVisible();
   });
 });

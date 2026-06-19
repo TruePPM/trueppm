@@ -196,8 +196,12 @@ test.describe('Project Integrations — CRUD UI', () => {
 
     await page.goto(`/projects/${PROJECT_ID}/settings/integrations`);
 
-    await expect(page.getByText(/Couldn.t load webhooks/i)).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible();
+    // Scope to the Integrations section: the consolidated page (ADR-0146) mounts
+    // every section, and sibling sections backed only by the catch-all mock
+    // render their own "Retry" error states — so an unscoped Retry collides.
+    const section = page.locator('[data-settings-section="integrations"]');
+    await expect(section.getByText(/Couldn.t load webhooks/i)).toBeVisible();
+    await expect(section.getByRole('button', { name: 'Retry' })).toBeVisible();
   });
 });
 
@@ -210,10 +214,12 @@ test.describe('Workspace integrations redirect shim', () => {
     await expect(
       page.getByRole('heading', { name: /Which project's integrations/i }),
     ).toBeVisible();
-    // Scope to the settings content panel: the redesigned sidebar (#959) now renders a
-    // row link per project with the same accessible name, so an unscoped getByRole('link')
-    // is a strict-mode collision. The picker we assert on lives under settings-content-scroll.
-    const picker = page.getByTestId('settings-content-scroll');
+    // The workspace `/settings/integrations` shim (IntegrationsRedirect) renders
+    // OUTSIDE SettingsShell now (ADR-0146) — it's a standalone redirect page, not
+    // a consolidated section — so there's no `settings-content-scroll` panel.
+    // Scope to the main content region to keep the picker links disambiguated
+    // from the redesigned sidebar (#959) project rows.
+    const picker = page.getByRole('main');
     await expect(
       picker.getByRole('link', { name: 'Integrations Test Project', exact: true }),
     ).toBeVisible();

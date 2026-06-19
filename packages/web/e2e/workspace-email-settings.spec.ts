@@ -18,6 +18,30 @@ const EMAIL_STATUS = {
   configured_via: 'environment',
 };
 
+// The consolidated settings page (#1248) mounts every section at once, so the
+// General section's /workspace/ hook runs even on the email-anchored route. The
+// catch-all returns a list shape for that object endpoint, which makes General
+// render its own error + "Retry", colliding with the email section's Retry.
+// Mock /workspace/ with its real object shape so General renders cleanly.
+const WORKSPACE = {
+  name: 'TrueScope Aerospace',
+  subdomain: 'truescope',
+  timezone: 'America/Los_Angeles',
+  fiscal_year_start_month: 1,
+  fiscal_year_start_day: 1,
+  fiscal_year_start_display: 'January 1',
+  work_week: [true, true, true, true, true, false, false],
+  default_project_view: 'Board',
+  allow_guests: true,
+  public_sharing: false,
+  iteration_label: 'Sprint',
+  iteration_label_override_policy: 'suggest',
+  mc_history_enabled: true,
+  mc_history_retention_cap: 100,
+  mc_history_attribution_audience: 'ADMIN_OWNER',
+  mc_history_override_policy: 'allow',
+};
+
 const pj = (data: unknown) => JSON.stringify(data);
 
 async function setup(page: Page) {
@@ -45,6 +69,9 @@ async function setup(page: Page) {
   await page.route('**/api/v1/projects/', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj({ count: 0, next: null, previous: null, results: [] }) }),
   );
+  await page.route('**/api/v1/workspace/', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj(WORKSPACE) }),
+  );
 }
 
 test.describe('Workspace Email & SMTP — read-only status', () => {
@@ -70,7 +97,9 @@ test.describe('Workspace Email & SMTP — read-only status', () => {
 
     await page.goto('/settings/email');
 
-    await expect(page.getByText(/Couldn.t load email settings/i)).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible();
+    // Scope to the email section — other sections render their own Retry buttons.
+    const email = page.locator('[data-settings-section="email"]');
+    await expect(email.getByText(/Couldn.t load email settings/i)).toBeVisible();
+    await expect(email.getByRole('button', { name: 'Retry' })).toBeVisible();
   });
 });

@@ -213,9 +213,12 @@ test.describe('Program Settings → Rollup KPIs', () => {
     await setup(page, captures, { myRole: 100 });
     await page.goto(`/programs/${PROGRAM_ID}/settings/rollup`);
 
-    await expect(page.getByRole('heading', { name: /^Rollup KPIs/ })).toBeVisible();
-    await expect(page.getByText(/Read-only/)).toBeVisible();
-    await expect(page.getByRole('switch', { name: 'Schedule health' })).toHaveAttribute(
+    // All sections mount on one page (ADR-0146); the "Read-only" pill also appears
+    // in the risk-policy section for a non-admin, so scope to the rollup section.
+    const rollup = page.locator('[data-settings-section="rollup"]');
+    await expect(rollup.getByRole('heading', { name: /^Rollup KPIs/ })).toBeVisible();
+    await expect(rollup.getByText(/Read-only/)).toBeVisible();
+    await expect(rollup.getByRole('switch', { name: 'Schedule health' })).toHaveAttribute(
       'aria-disabled',
       'true',
     );

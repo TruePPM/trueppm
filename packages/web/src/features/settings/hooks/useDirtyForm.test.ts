@@ -95,7 +95,8 @@ describe('useDirtyForm', () => {
     expect(useSettingsSaveStore.getState().dirty).toBe(true);
     unmount();
     expect(useSettingsSaveStore.getState().dirty).toBe(false);
-    expect(useSettingsSaveStore.getState().onSave).toBeNull();
+    // Unmount unregisters the section, leaving an empty registry.
+    expect(useSettingsSaveStore.getState().sections).toEqual({});
   });
 
   it('store.triggerSave invokes the registered onSave', async () => {

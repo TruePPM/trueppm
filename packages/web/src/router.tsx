@@ -7,6 +7,7 @@ import { ProjectShell } from '@/features/project/ProjectShell';
 import { LoginPage } from '@/features/auth/LoginPage';
 import { RequireAuth } from '@/features/auth/RequireAuth';
 import { RequireAdminSettings } from '@/features/settings/RequireAdminSettings';
+import { SectionRedirect } from '@/features/settings/SectionRedirect';
 
 // Route-level code splitting — each chunk is loaded only when the route is
 // first visited, keeping the initial bundle (login + shell) minimal.
@@ -116,65 +117,13 @@ const ProgramMembersTab = lazy(() =>
   })),
 );
 
-// ── Project settings ──────────────────────────────────────────────────────────
+// ── Settings (ADR-0146, #1248) — ONE scrolling page per entity. Each shell
+//    renders every section inline; legacy `…/settings/<slug>` paths redirect to
+//    `…/settings#<slug>` via SectionRedirect. The section components are imported
+//    by the shells directly, so they no longer need per-route lazy chunks. ──────
 const ProjectSettingsPage = lazy(() =>
   import('@/features/settings/ProjectSettingsPage').then((m) => ({
     default: m.ProjectSettingsPage,
-  })),
-);
-const ProjectSettingsIndex = lazy(() =>
-  import('@/features/settings/ProjectSettingsPage').then((m) => ({
-    default: m.ProjectSettingsIndex,
-  })),
-);
-const ProjectGeneralPage = lazy(() =>
-  import('@/features/settings/project/ProjectGeneralPage').then((m) => ({
-    default: m.ProjectGeneralPage,
-  })),
-);
-const ProjectAccessPage = lazy(() =>
-  import('@/features/settings/project/ProjectAccessPage').then((m) => ({
-    default: m.ProjectAccessPage,
-  })),
-);
-const ProjectMethodologyPage = lazy(() =>
-  import('@/features/settings/project/ProjectMethodologyPage').then((m) => ({
-    default: m.ProjectMethodologyPage,
-  })),
-);
-const ProjectTeamPage = lazy(() =>
-  import('@/features/settings/team/ProjectTeamPage').then((m) => ({
-    default: m.ProjectTeamPage,
-  })),
-);
-const ProjectSignalPrivacyPage = lazy(() =>
-  import('@/features/settings/signalPrivacy/ProjectSignalPrivacyPage').then((m) => ({
-    default: m.ProjectSignalPrivacyPage,
-  })),
-);
-const ProjectGuardrailsPage = lazy(() =>
-  import('@/features/settings/project/ProjectGuardrailsPage').then((m) => ({
-    default: m.ProjectGuardrailsPage,
-  })),
-);
-const ProjectWorkflowPage = lazy(() =>
-  import('@/features/settings/project/ProjectWorkflowPage').then((m) => ({
-    default: m.ProjectWorkflowPage,
-  })),
-);
-const ProjectIntegrationsPage = lazy(() =>
-  import('@/features/settings/project/ProjectIntegrationsPage').then((m) => ({
-    default: m.ProjectIntegrationsPage,
-  })),
-);
-const ProjectNotificationsPage = lazy(() =>
-  import('@/features/settings/project/ProjectNotificationsPage').then((m) => ({
-    default: m.ProjectNotificationsPage,
-  })),
-);
-const ProjectArchivePage = lazy(() =>
-  import('@/features/settings/project/ProjectArchivePage').then((m) => ({
-    default: m.ProjectArchivePage,
   })),
 );
 // ── Workspace settings ────────────────────────────────────────────────────────
@@ -183,49 +132,16 @@ const WorkspaceSettingsPage = lazy(() =>
     default: m.WorkspaceSettingsPage,
   })),
 );
-const WorkspaceSettingsIndex = lazy(() =>
-  import('@/features/settings/workspace/WorkspaceSettingsPage').then((m) => ({
-    default: m.WorkspaceSettingsIndex,
-  })),
-);
-const WorkspaceGeneralPage = lazy(() =>
-  import('@/features/settings/workspace/WorkspaceGeneralPage').then((m) => ({
-    default: m.WorkspaceGeneralPage,
-  })),
-);
-const WorkspaceMembersPage = lazy(() =>
-  import('@/features/settings/workspace/WorkspaceMembersPage').then((m) => ({
-    default: m.WorkspaceMembersPage,
-  })),
-);
-const WorkspaceGroupsPage = lazy(() =>
-  import('@/features/settings/workspace/WorkspaceGroupsPage').then((m) => ({
-    default: m.WorkspaceGroupsPage,
-  })),
-);
-const WorkspaceRolesPage = lazy(() =>
-  import('@/features/settings/workspace/WorkspaceRolesPage').then((m) => ({
-    default: m.WorkspaceRolesPage,
-  })),
-);
-const WorkspaceMethodologyPage = lazy(() =>
-  import('@/features/settings/workspace/WorkspaceMethodologyPage').then((m) => ({
-    default: m.WorkspaceMethodologyPage,
-  })),
-);
-const WorkspaceEmailPage = lazy(() =>
-  import('@/features/settings/workspace/WorkspaceEmailPage').then((m) => ({
-    default: m.WorkspaceEmailPage,
-  })),
-);
+// Redirect shim for the OSS-removed Connections routes (ADR-0076) — kept so
+// external bookmarks don't 404; Enterprise re-injects the hub via the slot registry.
 const IntegrationsRedirect = lazy(() =>
   import('@/features/settings/workspace/IntegrationsRedirect').then((m) => ({
     default: m.IntegrationsRedirect,
   })),
 );
-const WorkspaceDangerPage = lazy(() =>
-  import('@/features/settings/workspace/WorkspaceDangerPage').then((m) => ({
-    default: m.WorkspaceDangerPage,
+const WorkspaceSystemHealthShell = lazy(() =>
+  import('@/features/settings/workspace/WorkspaceSystemHealthShell').then((m) => ({
+    default: m.WorkspaceSystemHealthShell,
   })),
 );
 const SystemHealthOverviewPage = lazy(() =>
@@ -249,55 +165,10 @@ const InviteAcceptPage = lazy(() =>
   })),
 );
 
-// ── Program settings ──────────────────────────────────────────────────────────
+// ── Program settings (consolidated, ADR-0146) ──────────────────────────────────
 const ProgramSettingsPage = lazy(() =>
   import('@/features/settings/ProgramSettingsPage').then((m) => ({
     default: m.ProgramSettingsPage,
-  })),
-);
-const ProgramSettingsIndex = lazy(() =>
-  import('@/features/settings/ProgramSettingsPage').then((m) => ({
-    default: m.ProgramSettingsIndex,
-  })),
-);
-const ProgramSettingsGeneralPage = lazy(() =>
-  import('@/features/settings/program/ProgramGeneralPage').then((m) => ({
-    default: m.ProgramGeneralPage,
-  })),
-);
-const ProgramSettingsProjectsPage = lazy(() =>
-  import('@/features/settings/program/ProgramProjectsPage').then((m) => ({
-    default: m.ProgramProjectsPage,
-  })),
-);
-const ProgramSettingsAccessPage = lazy(() =>
-  import('@/features/settings/program/ProgramAccessPage').then((m) => ({
-    default: m.ProgramAccessPage,
-  })),
-);
-const ProgramRollupPage = lazy(() =>
-  import('@/features/settings/program/ProgramRollupPage').then((m) => ({
-    default: m.ProgramRollupPage,
-  })),
-);
-const ProgramCadencePage = lazy(() =>
-  import('@/features/settings/program/ProgramCadencePage').then((m) => ({
-    default: m.ProgramCadencePage,
-  })),
-);
-const ProgramRiskPolicyPage = lazy(() =>
-  import('@/features/settings/program/ProgramRiskPolicyPage').then((m) => ({
-    default: m.ProgramRiskPolicyPage,
-  })),
-);
-const ProgramIntegrationsPage = lazy(() =>
-  import('@/features/settings/program/ProgramIntegrationsPage').then((m) => ({
-    default: m.ProgramIntegrationsPage,
-  })),
-);
-const ProgramArchivePage = lazy(() =>
-  import('@/features/settings/program/ProgramArchivePage').then((m) => ({
-    default: m.ProgramArchivePage,
   })),
 );
 
@@ -465,6 +336,8 @@ export const router = createBrowserRouter([
                 ),
               },
               {
+                // Consolidated single scrolling page (ADR-0146, #1248). The shell
+                // renders every section inline on one mounted page (no Outlet).
                 path: 'settings',
                 element: (
                   <RequireAdminSettings>
@@ -473,99 +346,23 @@ export const router = createBrowserRouter([
                     </Suspense>
                   </RequireAdminSettings>
                 ),
-                children: [
-                  {
-                    index: true,
-                    element: (
-                      <Suspense fallback={<RouteLoadingFallback />}>
-                        <ProjectSettingsIndex />
-                      </Suspense>
-                    ),
-                  },
-                  {
-                    path: 'general',
-                    element: (
-                      <Suspense fallback={<RouteLoadingFallback />}>
-                        <ProjectGeneralPage />
-                      </Suspense>
-                    ),
-                  },
-                  {
-                    path: 'access',
-                    element: (
-                      <Suspense fallback={<RouteLoadingFallback />}>
-                        <ProjectAccessPage />
-                      </Suspense>
-                    ),
-                  },
-                  {
-                    path: 'methodology',
-                    element: (
-                      <Suspense fallback={<RouteLoadingFallback />}>
-                        <ProjectMethodologyPage />
-                      </Suspense>
-                    ),
-                  },
-                  {
-                    path: 'team',
-                    element: (
-                      <Suspense fallback={<RouteLoadingFallback />}>
-                        <ProjectTeamPage />
-                      </Suspense>
-                    ),
-                  },
-                  {
-                    path: 'signal-privacy',
-                    element: (
-                      <Suspense fallback={<RouteLoadingFallback />}>
-                        <ProjectSignalPrivacyPage />
-                      </Suspense>
-                    ),
-                  },
-                  {
-                    path: 'workflow',
-                    element: (
-                      <Suspense fallback={<RouteLoadingFallback />}>
-                        <ProjectWorkflowPage />
-                      </Suspense>
-                    ),
-                  },
-                  {
-                    path: 'guardrails',
-                    element: (
-                      <Suspense fallback={<RouteLoadingFallback />}>
-                        <ProjectGuardrailsPage />
-                      </Suspense>
-                    ),
-                  },
-                  {
-                    path: 'integrations',
-                    element: (
-                      <Suspense fallback={<RouteLoadingFallback />}>
-                        <ProjectIntegrationsPage />
-                      </Suspense>
-                    ),
-                  },
-                  {
-                    path: 'notifications',
-                    element: (
-                      <Suspense fallback={<RouteLoadingFallback />}>
-                        <ProjectNotificationsPage />
-                      </Suspense>
-                    ),
-                  },
-                  {
-                    path: 'lifecycle',
-                    element: (
-                      <Suspense fallback={<RouteLoadingFallback />}>
-                        <ProjectArchivePage />
-                      </Suspense>
-                    ),
-                  },
-                  // Legacy redirect — old bookmarks pointing at /settings/members
-                  { path: 'members', element: <Navigate to="../access" replace /> },
-                ],
               },
+              // Legacy per-section paths (pre-0146) redirect to the consolidated
+              // page at the matching anchor so bookmarks, emails, and old e2e
+              // specs keep working. SIBLINGS of `settings` — the consolidated
+              // page renders no Outlet, so these can't be nested under it.
+              { path: 'settings/general', element: <SectionRedirect base="/projects/:projectId/settings" anchor="general" /> },
+              { path: 'settings/access', element: <SectionRedirect base="/projects/:projectId/settings" anchor="access" /> },
+              { path: 'settings/methodology', element: <SectionRedirect base="/projects/:projectId/settings" anchor="methodology" /> },
+              { path: 'settings/team', element: <SectionRedirect base="/projects/:projectId/settings" anchor="team" /> },
+              { path: 'settings/signal-privacy', element: <SectionRedirect base="/projects/:projectId/settings" anchor="signal-privacy" /> },
+              { path: 'settings/workflow', element: <SectionRedirect base="/projects/:projectId/settings" anchor="workflow" /> },
+              { path: 'settings/guardrails', element: <SectionRedirect base="/projects/:projectId/settings" anchor="guardrails" /> },
+              { path: 'settings/integrations', element: <SectionRedirect base="/projects/:projectId/settings" anchor="integrations" /> },
+              { path: 'settings/notifications', element: <SectionRedirect base="/projects/:projectId/settings" anchor="notifications" /> },
+              { path: 'settings/lifecycle', element: <SectionRedirect base="/projects/:projectId/settings" anchor="lifecycle" /> },
+              // Pre-0061 alias: /settings/members → Access section.
+              { path: 'settings/members', element: <SectionRedirect base="/projects/:projectId/settings" anchor="access" /> },
             ],
           },
           // Org-level resource catalog
@@ -684,6 +481,7 @@ export const router = createBrowserRouter([
                 ),
               },
               {
+                // Consolidated single scrolling page (ADR-0146, #1248). No Outlet.
                 path: 'settings',
                 element: (
                   <RequireAdminSettings>
@@ -692,85 +490,23 @@ export const router = createBrowserRouter([
                     </Suspense>
                   </RequireAdminSettings>
                 ),
-                children: [
-                  {
-                    index: true,
-                    element: (
-                      <Suspense fallback={<RouteLoadingFallback />}>
-                        <ProgramSettingsIndex />
-                      </Suspense>
-                    ),
-                  },
-                  {
-                    path: 'general',
-                    element: (
-                      <Suspense fallback={<RouteLoadingFallback />}>
-                        <ProgramSettingsGeneralPage />
-                      </Suspense>
-                    ),
-                  },
-                  {
-                    path: 'projects',
-                    element: (
-                      <Suspense fallback={<RouteLoadingFallback />}>
-                        <ProgramSettingsProjectsPage />
-                      </Suspense>
-                    ),
-                  },
-                  {
-                    path: 'access',
-                    element: (
-                      <Suspense fallback={<RouteLoadingFallback />}>
-                        <ProgramSettingsAccessPage />
-                      </Suspense>
-                    ),
-                  },
-                  {
-                    path: 'rollup',
-                    element: (
-                      <Suspense fallback={<RouteLoadingFallback />}>
-                        <ProgramRollupPage />
-                      </Suspense>
-                    ),
-                  },
-                  {
-                    path: 'cadence',
-                    element: (
-                      <Suspense fallback={<RouteLoadingFallback />}>
-                        <ProgramCadencePage />
-                      </Suspense>
-                    ),
-                  },
-                  {
-                    path: 'risk',
-                    element: (
-                      <Suspense fallback={<RouteLoadingFallback />}>
-                        <ProgramRiskPolicyPage />
-                      </Suspense>
-                    ),
-                  },
-                  {
-                    path: 'integrations',
-                    element: (
-                      <Suspense fallback={<RouteLoadingFallback />}>
-                        <ProgramIntegrationsPage />
-                      </Suspense>
-                    ),
-                  },
-                  {
-                    path: 'lifecycle',
-                    element: (
-                      <Suspense fallback={<RouteLoadingFallback />}>
-                        <ProgramArchivePage />
-                      </Suspense>
-                    ),
-                  },
-                ],
               },
+              // Legacy per-section redirects — SIBLINGS of `settings` (no Outlet).
+              { path: 'settings/general', element: <SectionRedirect base="/programs/:programId/settings" anchor="general" /> },
+              { path: 'settings/projects', element: <SectionRedirect base="/programs/:programId/settings" anchor="projects" /> },
+              { path: 'settings/access', element: <SectionRedirect base="/programs/:programId/settings" anchor="access" /> },
+              { path: 'settings/rollup', element: <SectionRedirect base="/programs/:programId/settings" anchor="rollup" /> },
+              { path: 'settings/cadence', element: <SectionRedirect base="/programs/:programId/settings" anchor="cadence" /> },
+              { path: 'settings/risk', element: <SectionRedirect base="/programs/:programId/settings" anchor="risk" /> },
+              { path: 'settings/integrations', element: <SectionRedirect base="/programs/:programId/settings" anchor="integrations" /> },
+              { path: 'settings/lifecycle', element: <SectionRedirect base="/programs/:programId/settings" anchor="lifecycle" /> },
             ],
           },
-          // Workspace settings — lives outside any project/program scope
+          // Workspace settings — ONE consolidated scrolling page (ADR-0146, #1248).
+          // System Health is a separate multi-route tool area, so it lives on its
+          // own shell route below; everything else redirects to an anchor.
           {
+            // Consolidated single scrolling page (ADR-0146, #1248). No Outlet.
             path: 'settings',
             element: (
               <RequireAdminSettings>
@@ -779,89 +515,46 @@ export const router = createBrowserRouter([
                 </Suspense>
               </RequireAdminSettings>
             ),
+          },
+          // Legacy per-section redirects — SIBLINGS of `settings` (no Outlet).
+          { path: 'settings/general', element: <SectionRedirect base="/settings" anchor="general" /> },
+          { path: 'settings/members', element: <SectionRedirect base="/settings" anchor="members" /> },
+          { path: 'settings/groups', element: <SectionRedirect base="/settings" anchor="groups" /> },
+          { path: 'settings/roles', element: <SectionRedirect base="/settings" anchor="roles" /> },
+          { path: 'settings/methodology', element: <SectionRedirect base="/settings" anchor="methodology" /> },
+          { path: 'settings/email', element: <SectionRedirect base="/settings" anchor="email" /> },
+          { path: 'settings/danger', element: <SectionRedirect base="/settings" anchor="danger" /> },
+          // OSS-removed Connections routes (ADR-0076) — kept as redirect shims.
+          {
+            path: 'settings/integrations',
+            element: (
+              <Suspense fallback={<RouteLoadingFallback />}>
+                <IntegrationsRedirect />
+              </Suspense>
+            ),
+          },
+          {
+            path: 'settings/webhooks',
+            element: (
+              <Suspense fallback={<RouteLoadingFallback />}>
+                <IntegrationsRedirect />
+              </Suspense>
+            ),
+          },
+          // System Health tools — separate multi-route area with its own shell
+          // (ADR-0146). Not part of the consolidated scroll page.
+          {
+            path: 'settings/health',
+            element: (
+              <RequireAdminSettings>
+                <Suspense fallback={<RouteLoadingFallback />}>
+                  <WorkspaceSystemHealthShell />
+                </Suspense>
+              </RequireAdminSettings>
+            ),
             children: [
               {
                 index: true,
-                element: (
-                  <Suspense fallback={<RouteLoadingFallback />}>
-                    <WorkspaceSettingsIndex />
-                  </Suspense>
-                ),
-              },
-              {
-                path: 'general',
-                element: (
-                  <Suspense fallback={<RouteLoadingFallback />}>
-                    <WorkspaceGeneralPage />
-                  </Suspense>
-                ),
-              },
-              {
-                path: 'members',
-                element: (
-                  <Suspense fallback={<RouteLoadingFallback />}>
-                    <WorkspaceMembersPage />
-                  </Suspense>
-                ),
-              },
-              {
-                path: 'groups',
-                element: (
-                  <Suspense fallback={<RouteLoadingFallback />}>
-                    <WorkspaceGroupsPage />
-                  </Suspense>
-                ),
-              },
-              {
-                path: 'roles',
-                element: (
-                  <Suspense fallback={<RouteLoadingFallback />}>
-                    <WorkspaceRolesPage />
-                  </Suspense>
-                ),
-              },
-              {
-                path: 'methodology',
-                element: (
-                  <Suspense fallback={<RouteLoadingFallback />}>
-                    <WorkspaceMethodologyPage />
-                  </Suspense>
-                ),
-              },
-              {
-                path: 'email',
-                element: (
-                  <Suspense fallback={<RouteLoadingFallback />}>
-                    <WorkspaceEmailPage />
-                  </Suspense>
-                ),
-              },
-              {
-                path: 'integrations',
-                element: (
-                  <Suspense fallback={<RouteLoadingFallback />}>
-                    <IntegrationsRedirect />
-                  </Suspense>
-                ),
-              },
-              {
-                path: 'webhooks',
-                element: (
-                  <Suspense fallback={<RouteLoadingFallback />}>
-                    <IntegrationsRedirect />
-                  </Suspense>
-                ),
-              },
-              {
-                path: 'danger',
-                element: (
-                  <Suspense fallback={<RouteLoadingFallback />}>
-                    <WorkspaceDangerPage />
-                  </Suspense>
-                ),
-              },
-              {
-                path: 'health',
                 element: (
                   <Suspense fallback={<RouteLoadingFallback />}>
                     <SystemHealthOverviewPage />
@@ -869,7 +562,7 @@ export const router = createBrowserRouter([
                 ),
               },
               {
-                path: 'health/dead-letters',
+                path: 'dead-letters',
                 element: (
                   <Suspense fallback={<RouteLoadingFallback />}>
                     <DeadLetterInspectorPage />
@@ -877,7 +570,7 @@ export const router = createBrowserRouter([
                 ),
               },
               {
-                path: 'health/retention',
+                path: 'retention',
                 element: (
                   <Suspense fallback={<RouteLoadingFallback />}>
                     <RetentionPurgePage />

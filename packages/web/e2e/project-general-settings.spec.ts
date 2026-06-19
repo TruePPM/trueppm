@@ -143,28 +143,32 @@ test.describe('Project Settings → General', () => {
     await setup(page, captures);
     await page.goto(`/projects/${PROJECT_ID}/settings/general`);
 
-    await expect(page.getByRole('heading', { name: 'General' })).toBeVisible();
-    await expect(page.getByLabel('Project name')).toHaveValue('Atlas Migration');
-    await expect(page.getByLabel('Project code')).toHaveValue('ATLAS');
-    await expect(page.getByLabel('Description')).toHaveValue(
+    // Scope to the General section: all sections mount at once on the
+    // consolidated page (ADR-0146), so unscoped labels like "Project code"
+    // collide with the lifecycle "Type ATLAS to confirm" delete input.
+    const section = page.locator('[data-settings-section="general"]');
+    await expect(section.getByRole('heading', { name: 'General' })).toBeVisible();
+    await expect(section.getByLabel('Project name')).toHaveValue('Atlas Migration');
+    await expect(section.getByLabel('Project code')).toHaveValue('ATLAS');
+    await expect(section.getByLabel('Description')).toHaveValue(
       'Migrate the data warehouse to the new platform.',
     );
 
     // At-risk pill starts pressed (matches FIXTURE_PROJECT.health = AT_RISK).
     // `exact` disambiguates the settings pill ("At risk") from the sidebar
     // project row, whose accessible name now embeds the health word for #960.
-    await expect(page.getByRole('button', { name: 'At risk', exact: true })).toHaveAttribute(
+    await expect(section.getByRole('button', { name: 'At risk', exact: true })).toHaveAttribute(
       'aria-pressed',
       'true',
     );
 
     // Timezone + default view seed from the response.
-    await expect(page.getByLabel('Timezone')).toHaveValue('Europe/London');
-    await expect(page.getByLabel('Default view')).toHaveValue('BOARD');
+    await expect(section.getByLabel('Timezone')).toHaveValue('Europe/London');
+    await expect(section.getByLabel('Default view')).toHaveValue('BOARD');
 
     // Flip a few fields and save.
-    await page.getByRole('button', { name: 'On track' }).click();
-    await page.getByLabel('Default view').selectOption('TABLE');
+    await section.getByRole('button', { name: 'On track' }).click();
+    await section.getByLabel('Default view').selectOption('TABLE');
 
     await page.getByRole('button', { name: /Save changes/i }).click();
 
@@ -187,11 +191,13 @@ test.describe('Project Settings → General', () => {
     });
     await page.goto(`/projects/${PROJECT_ID}/settings/general`);
 
+    // Scope to General — the lifecycle confirm input also matches "project code".
+    const section = page.locator('[data-settings-section="general"]');
     // Client uppercases on input but does NOT pre-filter leading hyphens —
     // the user can type "-ATLAS" and only the server rejects it. This is
     // the reachable validation-error path from the UI today.
-    await page.getByLabel('Project code').fill('-ATLAS');
-    await expect(page.getByLabel('Project code')).toHaveValue('-ATLAS');
+    await section.getByLabel('Project code').fill('-ATLAS');
+    await expect(section.getByLabel('Project code')).toHaveValue('-ATLAS');
 
     await page.getByRole('button', { name: /Save changes/i }).click();
 

@@ -45,13 +45,15 @@ test.describe('Roles matrix — Enterprise upsell (#541)', () => {
     await setup(page, 'community');
     await page.goto('/settings/roles');
 
-    await expect(page.getByRole('heading', { name: 'Roles & permissions' })).toBeVisible();
+    const roles = page.locator('[data-settings-section="roles"]');
+    await expect(roles.getByRole('heading', { name: 'Roles & permissions' })).toBeVisible();
 
-    // Scope to the page content (<main>), not the whole document: the Sidebar
-    // also carries an Enterprise upsell nav row (Portfolio rollup) that matches
-    // this accessible name, and that chrome affordance is asserted in its own
-    // spec. This count is specifically the Enterprise-only rows of the matrix.
-    const badges = page.getByRole('main').getByRole('link', { name: /Available in TruePPM Enterprise/i });
+    // Scope to the roles section, not the whole document or <main>: the Sidebar
+    // carries an Enterprise upsell nav row, and on the consolidated settings page
+    // (#1248) every section mounts at once — other sections (e.g. methodology's
+    // lock-policy affordance) also link to the Enterprise page. This count is
+    // specifically the Enterprise-only rows of the roles matrix.
+    const badges = roles.getByRole('link', { name: /Available in TruePPM Enterprise/i });
     await expect(badges).toHaveCount(5);
     await expect(badges.first()).toHaveAttribute('href', 'https://trueppm.com/enterprise');
   });
@@ -60,7 +62,8 @@ test.describe('Roles matrix — Enterprise upsell (#541)', () => {
     await setup(page, 'enterprise');
     await page.goto('/settings/roles');
 
-    await expect(page.getByRole('heading', { name: 'Roles & permissions' })).toBeVisible();
-    await expect(page.getByRole('link', { name: /Available in TruePPM Enterprise/i })).toHaveCount(0);
+    const roles = page.locator('[data-settings-section="roles"]');
+    await expect(roles.getByRole('heading', { name: 'Roles & permissions' })).toBeVisible();
+    await expect(roles.getByRole('link', { name: /Available in TruePPM Enterprise/i })).toHaveCount(0);
   });
 });

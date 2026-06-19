@@ -120,38 +120,56 @@ test.describe('Settings stub banner (#538)', () => {
     await page.goto(`/projects/${PROJECT_ID}/settings/general`);
     // Wait for the wired field to settle so we know the page has mounted.
     await expect(page.getByRole('textbox', { name: /project name/i })).toBeVisible();
-    await expect(page.getByTestId('stub-page-banner')).toBeHidden();
+    // The consolidated page (#1248) mounts every section at once, and stub
+    // sections (e.g. Methodology) render their own banner. Scope to the General
+    // section: a wired page must carry no banner of its own.
+    const general = page.locator('[data-settings-section="general"]');
+    await expect(general.getByTestId('stub-page-banner')).toBeHidden();
   });
 
   test('is absent on Project Access (wraps live MembersTab)', async ({ page }) => {
     await setup(page);
     await page.goto(`/projects/${PROJECT_ID}/settings/access`);
-    await expect(page.getByRole('heading', { name: 'Access' })).toBeVisible();
-    await expect(page.getByTestId('stub-page-banner')).toBeHidden();
+    const access = page.locator('[data-settings-section="access"]');
+    await expect(access.getByRole('heading', { name: 'Access' })).toBeVisible();
+    await expect(access.getByTestId('stub-page-banner')).toBeHidden();
   });
 
   test('per-issue dismissal: navigating to another stub keeps the new banner visible', async ({ page }) => {
     await setup(page);
     await page.goto(`/projects/${PROJECT_ID}/settings/methodology`);
-    await page.getByRole('button', { name: /dismiss preview banner/i }).click();
-    await expect(page.getByTestId('stub-page-banner')).toBeHidden();
+    // Project Methodology is the only stub section on the project page; scope to
+    // it since the consolidated page (#1248) mounts every section at once.
+    const projectMethodology = page.locator('[data-settings-section="methodology"]');
+    await projectMethodology.getByRole('button', { name: /dismiss preview banner/i }).click();
+    await expect(projectMethodology.getByTestId('stub-page-banner')).toBeHidden();
 
-    // Workspace Methodology is a separate stub page with a different issue ref
+    // Workspace Methodology is a separate stub section with a different issue ref
     // (#510 vs Project Methodology's #511) — its banner must remain visible because
     // dismissal is keyed per pageIssue. (Workspace General, the previous second
-    // stub here, is now API-wired by #517 and no longer renders one.)
+    // stub here, is now API-wired by #517 and no longer renders one.) Scope to the
+    // workspace methodology section: other workspace stub sections (e.g. Roles)
+    // also render a banner on the consolidated page.
     await page.goto('/settings/methodology');
-    await expect(page.getByTestId('stub-page-banner')).toBeVisible();
+    const workspaceMethodology = page.locator('[data-settings-section="methodology"]');
+    await expect(workspaceMethodology.getByTestId('stub-page-banner')).toBeVisible();
   });
 
   test('dismissal persists across in-app navigation back to the same page', async ({ page }) => {
     await setup(page);
     await page.goto(`/projects/${PROJECT_ID}/settings/methodology`);
-    await page.getByRole('button', { name: /dismiss preview banner/i }).click();
-    await expect(page.getByTestId('stub-page-banner')).toBeHidden();
+    // Project Methodology is the only stub section; scope to it (every section
+    // mounts at once on the consolidated page, #1248).
+    const methodology = page.locator('[data-settings-section="methodology"]');
+    await methodology.getByRole('button', { name: /dismiss preview banner/i }).click();
+    await expect(methodology.getByTestId('stub-page-banner')).toBeHidden();
 
-    await page.getByRole('link', { name: 'Lifecycle' }).click();
-    await page.getByRole('link', { name: 'Methodology' }).click();
-    await expect(page.getByTestId('stub-page-banner')).toBeHidden();
+    // Dismissal is persisted in localStorage (#592), so it survives a full
+    // departure from the settings page and a return. Sections are now anchors on
+    // one page rather than separate routes, so we leave the settings page
+    // entirely (to the project root) and navigate back.
+    await page.goto(`/projects/${PROJECT_ID}`);
+    await page.goto(`/projects/${PROJECT_ID}/settings/methodology`);
+    await expect(page.locator('[data-settings-section="methodology"]').getByTestId('stub-page-banner')).toBeHidden();
   });
 });

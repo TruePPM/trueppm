@@ -132,7 +132,10 @@ test.describe('Settings shell — copy-link affordance (#595)', () => {
     await expect(page.getByText('Link copied to clipboard')).toBeVisible();
 
     const copied = await page.evaluate(() => navigator.clipboard.readText());
-    expect(copied).toContain(`/projects/${PROJECT_ID}/settings/general`);
+    // The legacy /settings/general path redirects to the consolidated page at the
+    // #general anchor (ADR-0146); the copied link is the deep-linkable anchor URL.
+    expect(copied).toContain(`/projects/${PROJECT_ID}/settings`);
+    expect(copied).toContain('#general');
   });
 });
 
@@ -198,7 +201,8 @@ test.describe('Settings shell — scrollbar-gutter layout shift (#776)', () => {
 
     await page.goto(`/projects/${PROJECT_ID}/settings/general`);
     await page.getByRole('button', { name: 'Program', exact: true }).click();
-    await page.waitForURL(`**/programs/${PARENT}/settings/general`);
+    // Scope switch targets the consolidated program settings page (ADR-0146).
+    await page.waitForURL(new RegExp(`/programs/${PARENT}/settings`));
   });
 });
 

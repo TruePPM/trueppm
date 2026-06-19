@@ -160,9 +160,12 @@ test.describe('Program Settings → Risk & deps policy', () => {
     await setup(page, captures, { myRole: 100 });
     await page.goto(`/programs/${PROGRAM_ID}/settings/risk`);
 
-    await expect(page.getByRole('heading', { name: /Risk & deps policy/ })).toBeVisible();
-    await expect(page.getByText(/Read-only/)).toBeVisible();
-    await expect(page.getByRole('radio', { name: /Warn only/ })).toBeDisabled();
-    await expect(page.getByRole('spinbutton')).toBeDisabled();
+    // All sections mount on one page (ADR-0146); the "Read-only" pill also appears
+    // in the rollup section for a non-admin, so scope to the risk section.
+    const risk = page.locator('[data-settings-section="risk"]');
+    await expect(risk.getByRole('heading', { name: /Risk & deps policy/ })).toBeVisible();
+    await expect(risk.getByText(/Read-only/)).toBeVisible();
+    await expect(risk.getByRole('radio', { name: /Warn only/ })).toBeDisabled();
+    await expect(risk.getByRole('spinbutton')).toBeDisabled();
   });
 });

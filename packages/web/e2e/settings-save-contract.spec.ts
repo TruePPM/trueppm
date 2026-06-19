@@ -207,11 +207,33 @@ test.describe('Settings save contract (#536)', () => {
     await expect(page.getByText('You have unsaved changes')).toBeHidden();
   });
 
-  test('navigating away while dirty opens the confirm-discard dialog', async ({ page }) => {
+  // ── ADR-0146 (issue 1248): sections are now anchored regions on ONE mounted
+  // page. Clicking a section in the rail scroll-spies in place (no route change,
+  // no data loss), so it must NOT trip the dirty guard. The guard now fires only
+  // on a real route departure — here the scope switcher's "Workspace" button.
+
+  test('switching section in the rail while dirty stays on the page (no guard)', async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.goto(`/projects/${PROJECT_ID}/settings/general`);
+    const nameInput = page.getByRole('textbox', { name: /project name/i });
+    await nameInput.fill(EDITED_NAME);
+    // 'Access' is now a scroll-spy rail button, not a route link.
+    await page.getByRole('button', { name: 'Access', exact: true }).click();
+    // Same mounted page — no confirm dialog, edit preserved, bar still armed.
+    await expect(page.getByRole('alertdialog')).toBeHidden();
+    await expect(nameInput).toHaveValue(EDITED_NAME);
+    await expect(page.getByText('You have unsaved changes')).toBeVisible();
+  });
+
+  test('leaving settings (scope switch) while dirty opens the confirm-discard dialog', async ({
+    page,
+  }) => {
     await setup(page);
     await page.goto(`/projects/${PROJECT_ID}/settings/general`);
     await page.getByRole('textbox', { name: /project name/i }).fill(EDITED_NAME);
-    await page.getByRole('link', { name: 'Access' }).click();
+    await page.getByRole('button', { name: 'Workspace', exact: true }).click();
     await expect(page.getByRole('alertdialog')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Discard unsaved changes?' })).toBeVisible();
   });
@@ -221,32 +243,37 @@ test.describe('Settings save contract (#536)', () => {
     await page.goto(`/projects/${PROJECT_ID}/settings/general`);
     const nameInput = page.getByRole('textbox', { name: /project name/i });
     await nameInput.fill(EDITED_NAME);
-    await page.getByRole('link', { name: 'Access' }).click();
+    await page.getByRole('button', { name: 'Workspace', exact: true }).click();
     await page.getByRole('button', { name: 'Keep editing' }).click();
     await expect(page.getByRole('alertdialog')).toBeHidden();
     await expect(nameInput).toHaveValue(EDITED_NAME);
-    // Still on the General page
-    await expect(page).toHaveURL(/\/settings\/general$/);
+    // Still on the project settings page.
+    await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_ID}/settings`));
   });
 
-  test('Discard changes navigates to the destination and drops the edit', async ({ page }) => {
+  test('Discard changes leaves settings and drops the edit', async ({ page }) => {
     await setup(page);
     await page.goto(`/projects/${PROJECT_ID}/settings/general`);
     await page.getByRole('textbox', { name: /project name/i }).fill(EDITED_NAME);
-    await page.getByRole('link', { name: 'Access' }).click();
+    await page.getByRole('button', { name: 'Workspace', exact: true }).click();
     await page.getByRole('button', { name: 'Discard changes' }).click();
-    await expect(page).toHaveURL(/\/settings\/access$/);
-
-    // Return to general; the original value should be back (server seed wins).
-    await page.getByRole('link', { name: 'General' }).click();
-    await expect(page.getByRole('textbox', { name: /project name/i })).toHaveValue(ORIGINAL_NAME);
+    // Navigated away from the project settings page to the workspace settings.
+    await expect(page).toHaveURL(/\/settings(\b|#|$)/);
+    await expect(page).not.toHaveURL(new RegExp(`/projects/${PROJECT_ID}/settings`));
   });
 
-  test('stub pages disable form inputs (preview state for unwired API)', async ({ page }) => {
+  test('legacy /settings/methodology redirects to the anchored section (preview state)', async ({
+    page,
+  }) => {
     await setup(page);
+    // Old per-section path still works — it redirects to …/settings#methodology
+    // on the consolidated page, where the methodology section is mounted.
     await page.goto(`/projects/${PROJECT_ID}/settings/methodology`);
-    // Methodology page is apiReady=false — the methodology choice buttons are disabled.
-    const inheritBtn = page.getByRole('button', { name: /inherit from workspace/i });
+    await expect(page).toHaveURL(/#methodology$/);
+    // Methodology section is apiReady=false — its choice buttons are disabled.
+    // Scope to the methodology section: other sections also reference methodology.
+    const methodologySection = page.locator('[data-settings-section="methodology"]');
+    const inheritBtn = methodologySection.getByRole('button', { name: /inherit from workspace/i });
     await expect(inheritBtn).toBeDisabled();
   });
 });

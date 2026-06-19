@@ -92,7 +92,11 @@ interface ApiPolicy {
 function fromApi(payload: ApiPolicy): ProjectGuardrailPolicy {
   return {
     levels: payload.levels ?? {},
-    effectiveLevels: payload.effective_levels,
+    // Default to an empty map so a partial payload can't crash the render loop —
+    // the rule matrix falls back to 'warn' per missing key. Matters now that the
+    // section mounts alongside every other on the consolidated page (ADR-0146):
+    // a single malformed response must degrade this section, not tear down the page.
+    effectiveLevels: payload.effective_levels ?? ({} as Record<GuardrailRule, GuardrailLevel>),
     source: payload.policy_source,
     sourceLabel: payload.source_label ?? '',
     acknowledgedByTeam: payload.acknowledged_by_team,

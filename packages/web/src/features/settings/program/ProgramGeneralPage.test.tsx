@@ -167,8 +167,9 @@ describe('ProgramGeneralPage (settings)', () => {
     const state = useSettingsSaveStore.getState();
     expect(state.apiReady).toBe(true);
     expect(state.dirty).toBe(false);
-    expect(state.onSave).not.toBeNull();
-    expect(state.onReset).not.toBeNull();
+    const entry = Object.values(state.sections)[0];
+    expect(entry?.onSave).toBeTypeOf('function');
+    expect(entry?.onReset).toBeTypeOf('function');
   });
 
   it('save handler PATCHes the consolidated patch payload', async () => {

@@ -1,93 +1,155 @@
 import { create } from 'zustand';
 
 /**
- * Save-bar state lifted from the active settings page up to `SettingsShell`.
+ * Save-bar state lifted from the active settings sections up to `SettingsShell`.
  *
  * Pages publish via `useDirtyForm`; the shell subscribes and renders the
  * save bar, confirm-discard dialog, and `beforeunload` listener.
  *
- * Only one page may be registered at a time. React Router renders one
- * `<Outlet/>` child at a time, so last-register-wins is safe — the previous
- * page unmounts and calls `reset()` in its cleanup before the next page
- * registers.
+ * ADR-0146 — multi-section registry. The settings IA is now ONE mounted
+ * scrolling page per entity (#1248), so several form sections register at the
+ * same time. Each section registers under a stable key (`sectionId`); the
+ * store keeps a per-key map and derives an aggregate dirty surface:
+ *
+ *   - `dirty`      = ANY registered section is dirty
+ *   - `triggerSave`    = run `onSave` for EVERY dirty section (sequential)
+ *   - `triggerDiscard` = run `onReset` for EVERY dirty section
+ *
+ * Sequential save (not Promise.all) keeps error attribution simple — the first
+ * rejecting section surfaces its message and the run stops; already-saved
+ * sections stay saved. Settings saves are infrequent and small, so the lack of
+ * parallelism costs nothing.
+ *
+ * Standalone settings routes that are not part of the consolidated page (e.g.
+ * the System Health "Retention & purge" tool) register under the default key,
+ * which behaves exactly like the pre-0146 single-registration contract.
  */
-export interface SettingsSaveState {
-  /** True when the active page's current values differ from its initial values. */
+
+/** Default registration key for sections rendered outside a `<SettingsSection>`. */
+export const DEFAULT_SECTION_KEY = '__default__';
+
+interface SectionEntry {
   dirty: boolean;
-  /** True when the active page has a working save mutation. False = stub page (inputs disabled). */
   apiReady: boolean;
-  /** True while `onSave` is in flight. Buttons disable; nav guard short-circuits. */
+  onSave: () => Promise<void> | void;
+  onReset: () => void;
+}
+
+export interface SettingsSaveState {
+  /** Per-section registry, keyed by `sectionId`. */
+  sections: Record<string, SectionEntry>;
+  /** True when the active section's current values differ from its initial values. */
+  dirty: boolean;
+  /** True when at least one registered section has a working save mutation. */
+  apiReady: boolean;
+  /** True while a save run is in flight. Buttons disable; nav guard short-circuits. */
   isSaving: boolean;
   /** Non-null after a save mutation rejects. Cleared on next dirty change or successful save. */
   saveError: string | null;
   /**
-   * Epoch ms of the most recent successful save on the active page, or null.
-   * Cleared on page register so the "Saved [time]" footer is scoped to the
-   * current page mount — once the user navigates away, the signal resets.
+   * Epoch ms of the most recent fully-successful save, or null. Cleared when the
+   * surface goes clean→registers fresh so the "Saved [time]" footer is scoped to
+   * the current page mount.
    */
   lastSavedAt: number | null;
-  /** Page-provided save handler. Returns a promise the store awaits. */
-  onSave: (() => Promise<void> | void) | null;
-  /** Page-provided reset handler — restores `values` to `initialValues`. */
-  onReset: (() => void) | null;
 
   /** Page-side: called from `useDirtyForm` on mount and on every dependency change. */
-  register: (opts: {
-    dirty: boolean;
-    apiReady: boolean;
-    onSave: () => Promise<void> | void;
-    onReset: () => void;
-  }) => void;
-  /** Page-side: called from `useDirtyForm` cleanup. */
+  register: (
+    sectionId: string,
+    opts: {
+      dirty: boolean;
+      apiReady: boolean;
+      onSave: () => Promise<void> | void;
+      onReset: () => void;
+    },
+  ) => void;
+  /** Page-side: called from `useDirtyForm` cleanup — removes only this section. */
+  unregister: (sectionId: string) => void;
+  /** Test/legacy alias for a full reset of the registry. */
   reset: () => void;
   /** Shell-side: invoked when the user clicks "Save changes" or presses Ctrl/Cmd+S. */
   triggerSave: () => Promise<void>;
   /** Shell-side: invoked when the user clicks "Discard" in the save bar. */
   triggerDiscard: () => void;
-  /** Shell-side: clears the error banner without changing other state (e.g. on input change). */
+  /** Shell-side: clears the error banner without changing other state. */
   clearError: () => void;
 }
 
-const INITIAL: Pick<SettingsSaveState, 'dirty' | 'apiReady' | 'isSaving' | 'saveError' | 'lastSavedAt' | 'onSave' | 'onReset'> = {
+const INITIAL: Pick<
+  SettingsSaveState,
+  'sections' | 'dirty' | 'apiReady' | 'isSaving' | 'saveError' | 'lastSavedAt'
+> = {
+  sections: {},
   dirty: false,
   apiReady: false,
   isSaving: false,
   saveError: null,
   lastSavedAt: null,
-  onSave: null,
-  onReset: null,
 };
+
+/** Recompute the aggregate `dirty` / `apiReady` flags from the section registry. */
+function aggregate(sections: Record<string, SectionEntry>): {
+  dirty: boolean;
+  apiReady: boolean;
+} {
+  let dirty = false;
+  let apiReady = false;
+  for (const entry of Object.values(sections)) {
+    if (entry.dirty) dirty = true;
+    if (entry.apiReady) apiReady = true;
+  }
+  return { dirty, apiReady };
+}
 
 export const useSettingsSaveStore = create<SettingsSaveState>()((set, get) => ({
   ...INITIAL,
 
-  register: ({ dirty, apiReady, onSave, onReset }) => {
-    set((s) => ({
-      dirty,
-      apiReady,
-      onSave,
-      onReset,
-      // Preserve in-flight save state, error, and last-saved timestamp across
-      // re-registrations within the same page mount. (A re-register on every
-      // dependency change shouldn't wipe the "Saved [time]" footer.)
-      isSaving: s.isSaving,
-      saveError: dirty ? s.saveError : null,
-      lastSavedAt: s.lastSavedAt,
-    }));
+  register: (sectionId, { dirty, apiReady, onSave, onReset }) => {
+    set((s) => {
+      const sections = { ...s.sections, [sectionId]: { dirty, apiReady, onSave, onReset } };
+      const agg = aggregate(sections);
+      return {
+        sections,
+        dirty: agg.dirty,
+        apiReady: agg.apiReady,
+        // Preserve in-flight + last-saved across re-registers within a mount.
+        isSaving: s.isSaving,
+        // Clear a stale error once nothing is dirty anymore.
+        saveError: agg.dirty ? s.saveError : null,
+        lastSavedAt: s.lastSavedAt,
+      };
+    });
   },
 
-  reset: () => set(INITIAL),
+  unregister: (sectionId) => {
+    set((s) => {
+      if (!(sectionId in s.sections)) return s;
+      const sections = { ...s.sections };
+      delete sections[sectionId];
+      const agg = aggregate(sections);
+      return {
+        sections,
+        dirty: agg.dirty,
+        apiReady: agg.apiReady,
+        saveError: agg.dirty ? s.saveError : null,
+      };
+    });
+  },
+
+  reset: () => set({ ...INITIAL, sections: {} }),
 
   triggerSave: async () => {
-    const { onSave, isSaving } = get();
-    if (!onSave || isSaving) return;
+    const { sections, isSaving } = get();
+    if (isSaving) return;
+    const dirtySections = Object.values(sections).filter((e) => e.dirty);
+    if (dirtySections.length === 0) return;
     set({ isSaving: true, saveError: null });
     try {
-      await onSave();
-      // The page is responsible for bumping its initialValues snapshot,
-      // which in turn re-renders useDirtyForm with `dirty=false`. We clear
-      // the saving flag and stamp the success time for the "Saved [time]"
-      // footer the shell renders while not dirty.
+      // Sequential: a rejection stops the run with the failing section's message;
+      // sections saved before it stay saved (their pages bump their own snapshot).
+      for (const entry of dirtySections) {
+        await entry.onSave();
+      }
       set({ isSaving: false, lastSavedAt: Date.now() });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Save failed';
@@ -96,11 +158,13 @@ export const useSettingsSaveStore = create<SettingsSaveState>()((set, get) => ({
   },
 
   triggerDiscard: () => {
-    const { onReset, isSaving } = get();
-    if (!onReset || isSaving) return;
-    onReset();
-    // The page's reset() bumps current values back to initial; useDirtyForm
-    // re-runs and publishes `dirty=false` on the next render.
+    const { sections, isSaving } = get();
+    if (isSaving) return;
+    for (const entry of Object.values(sections)) {
+      if (entry.dirty) entry.onReset();
+    }
+    // Each section's reset() bumps its values back to initial; useDirtyForm
+    // re-runs and re-registers with dirty=false on the next render.
   },
 
   clearError: () => set({ saveError: null }),

@@ -346,9 +346,13 @@ test.describe('Workspace Members page', () => {
 
     await page.goto('/settings/members');
 
-    await expect(page.getByRole('heading', { name: 'Members' })).toBeVisible();
-    await expect(page.getByText('Alice Khoury')).toBeVisible();
-    await expect(page.getByText('alice@truescope.io')).toBeVisible();
+    // All sections mount at once now (#1248); "Alice Khoury" also appears as an
+    // option in the Danger section's transfer-owner select, so scope to the
+    // members section to avoid a strict-mode collision.
+    const members = page.locator('[data-settings-section="members"]');
+    await expect(members.getByRole('heading', { name: 'Members' })).toBeVisible();
+    await expect(members.getByText('Alice Khoury')).toBeVisible();
+    await expect(members.getByText('alice@truescope.io')).toBeVisible();
   });
 
   test('golden path — pending invite section renders', async ({ page }) => {

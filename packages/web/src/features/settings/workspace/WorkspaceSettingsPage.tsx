@@ -1,8 +1,14 @@
 import type { ReactNode } from 'react';
-import { Navigate } from 'react-router';
 import { useProjects } from '@/hooks/useProjects';
 import { usePrograms } from '@/hooks/usePrograms';
-import { SettingsShell, type SettingsNavGroup } from '../SettingsShell';
+import { SettingsShell, SettingsSection, type SettingsNavGroup } from '../SettingsShell';
+import { WorkspaceGeneralPage } from './WorkspaceGeneralPage';
+import { WorkspaceMembersPage } from './WorkspaceMembersPage';
+import { WorkspaceGroupsPage } from './WorkspaceGroupsPage';
+import { WorkspaceRolesPage } from './WorkspaceRolesPage';
+import { WorkspaceMethodologyPage } from './WorkspaceMethodologyPage';
+import { WorkspaceEmailPage } from './WorkspaceEmailPage';
+import { WorkspaceDangerPage } from './WorkspaceDangerPage';
 import {
   OverviewIcon,
   ResourcesIcon,
@@ -36,29 +42,30 @@ function NavIcon({ children }: { children: ReactNode }) {
   return <span className="w-4 h-4 inline-flex items-center justify-center shrink-0">{children}</span>;
 }
 
+// Config sections live inline on the consolidated page (ADR-0146); their nav
+// items omit `to` and scroll-spy. System Health items keep a `to` — they are
+// separate multi-route operational tools (overview, dead-letters, retention),
+// not dirty-form sections, so they navigate as before.
 const NAV_GROUPS: SettingsNavGroup[] = [
   {
     label: 'Organization',
     items: [
-      { id: 'general',     label: 'General',              to: '/settings/general',     icon: <NavIcon><OverviewIcon aria-hidden="true" /></NavIcon> },
-      { id: 'members',     label: 'Members',              to: '/settings/members',     icon: <NavIcon><ResourcesIcon aria-hidden="true" /></NavIcon> },
-      { id: 'groups',      label: 'Groups & teams',       to: '/settings/groups',      icon: <NavIcon><WbsIcon aria-hidden="true" /></NavIcon> },
-      { id: 'roles',       label: 'Roles & permissions',  to: '/settings/roles',       icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> },
+      { id: 'general',     label: 'General',              icon: <NavIcon><OverviewIcon aria-hidden="true" /></NavIcon> },
+      { id: 'members',     label: 'Members',              icon: <NavIcon><ResourcesIcon aria-hidden="true" /></NavIcon> },
+      { id: 'groups',      label: 'Groups & teams',       icon: <NavIcon><WbsIcon aria-hidden="true" /></NavIcon> },
+      { id: 'roles',       label: 'Roles & permissions',  icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> },
     ],
   },
   {
     label: 'Delivery',
     items: [
-      { id: 'methodology', label: 'Methodology defaults', to: '/settings/methodology', icon: <NavIcon><SprintIcon aria-hidden="true" /></NavIcon> },
-      { id: 'email',       label: 'Email & SMTP',         to: '/settings/email',       icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> },
+      { id: 'methodology', label: 'Methodology defaults', icon: <NavIcon><SprintIcon aria-hidden="true" /></NavIcon> },
+      { id: 'email',       label: 'Email & SMTP',         icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> },
     ],
   },
-  // The "Connections" nav group (Integrations + Webhooks & API) is removed
-  // from OSS per ADR-0076 — integration management is project-scoped. The
-  // routes themselves (`/settings/integrations`, `/settings/webhooks`) remain
-  // as redirect shims so external bookmarks don't 404, and Enterprise
-  // re-injects this group via the slot registry to host the workspace hub UI
-  // (trueppm-enterprise#114).
+  // The "Connections" nav group (Integrations + Webhooks & API) is removed from
+  // OSS per ADR-0076; the routes remain as redirect shims (see router.tsx) and
+  // Enterprise re-injects this group via the slot registry.
   {
     label: 'System',
     items: [
@@ -69,14 +76,16 @@ const NAV_GROUPS: SettingsNavGroup[] = [
   {
     label: 'Danger',
     items: [
-      { id: 'danger', label: 'Archive / Delete',          to: '/settings/danger',       icon: <NavIcon><WarningIcon aria-hidden="true" /></NavIcon> },
+      { id: 'danger', label: 'Archive / Delete', icon: <NavIcon><WarningIcon aria-hidden="true" /></NavIcon> },
     ],
   },
 ];
 
 /**
- * Workspace settings layout — renders the shared SettingsShell with workspace
- * nav groups and the page Outlet. Lives at /settings/*.
+ * Workspace settings — ONE scrolling page (ADR-0146, #1248). Lives at /settings;
+ * sub-slugs redirect to `#<slug>`. The System Health tools stay as separate
+ * routes (their nav items carry a `to`); the form sections are inline anchored
+ * `<SettingsSection>` regions and reuse the existing components unchanged.
  */
 export function WorkspaceSettingsPage() {
   const { data: projects } = useProjects();
@@ -89,17 +98,20 @@ export function WorkspaceSettingsPage() {
     <SettingsShell
       scope="workspace"
       scopeLinks={[
-        { scope: 'workspace', label: 'Workspace', to: '/settings/general' },
-        { scope: 'program',   label: 'Program',   to: firstProgramId ? `/programs/${firstProgramId}/settings/general` : null, disabledReason: 'No programs yet' },
-        { scope: 'project',   label: 'Project',   to: firstProjectId ? `/projects/${firstProjectId}/settings/general` : null, disabledReason: 'No projects yet' },
+        { scope: 'workspace', label: 'Workspace', to: '/settings' },
+        { scope: 'program',   label: 'Program',   to: firstProgramId ? `/programs/${firstProgramId}/settings` : null, disabledReason: 'No programs yet' },
+        { scope: 'project',   label: 'Project',   to: firstProjectId ? `/projects/${firstProjectId}/settings` : null, disabledReason: 'No projects yet' },
       ]}
       contextName="TrueScope Aerospace"
       navGroups={NAV_GROUPS}
-    />
+    >
+      <SettingsSection id="general"><WorkspaceGeneralPage /></SettingsSection>
+      <SettingsSection id="members"><WorkspaceMembersPage /></SettingsSection>
+      <SettingsSection id="groups"><WorkspaceGroupsPage /></SettingsSection>
+      <SettingsSection id="roles"><WorkspaceRolesPage /></SettingsSection>
+      <SettingsSection id="methodology"><WorkspaceMethodologyPage /></SettingsSection>
+      <SettingsSection id="email"><WorkspaceEmailPage /></SettingsSection>
+      <SettingsSection id="danger"><WorkspaceDangerPage /></SettingsSection>
+    </SettingsShell>
   );
-}
-
-/** Index redirect: /settings → /settings/general */
-export function WorkspaceSettingsIndex() {
-  return <Navigate to="general" replace />;
 }

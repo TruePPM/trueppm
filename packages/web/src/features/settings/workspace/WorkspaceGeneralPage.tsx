@@ -570,7 +570,7 @@ export function WorkspaceGeneralPage() {
           Delete page (#641), always reachable via the DANGER nav section. A single
           inline signpost here is enough — the old full card just duplicated that nav
           entry and padded the page (#977). */}
-      <DangerZoneLink to="/settings/danger" />
+      <DangerZoneLink to="#danger" />
     </div>
   );
 }

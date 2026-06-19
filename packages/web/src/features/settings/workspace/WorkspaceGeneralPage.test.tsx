@@ -73,10 +73,12 @@ describe('WorkspaceGeneralPage — unwired buttons (#969, #641, Enterprise)', ()
     expect(addCalendar).toHaveAttribute('title', expect.stringContaining('#969'));
   });
 
-  it('points the danger zone at the dedicated Archive / Delete page (#641 wired)', () => {
+  it('points the danger zone at the in-page Archive / Delete section (#641 wired, #1248 anchored)', () => {
     renderPage();
     const link = screen.getByRole('link', { name: /Go to Archive \/ Delete/i });
-    expect(link).toHaveAttribute('href', '/settings/danger');
+    // Danger is now an anchored section on the consolidated settings page
+    // (ADR-0146), so it deep-links to the #danger anchor rather than a route.
+    expect(link.getAttribute('href')).toContain('#danger');
     // The old "in progress (#641)" stub and its disabled buttons are gone.
     expect(screen.queryByRole('button', { name: 'Export all data' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Delete workspace…' })).not.toBeInTheDocument();
