@@ -81,7 +81,7 @@ const METHOD_LABEL: Record<Methodology, string> = {
 
 export function ProjectMethodologyPage() {
   const projectId = useProjectId();
-  const { data: project } = useProject(projectId);
+  const { data: project, isLoading: projectLoading } = useProject(projectId);
   const updateProject = useUpdateProject(projectId);
   const { role } = useCurrentUserRole(projectId);
   const { data: ws } = useWorkspaceSettings();
@@ -123,14 +123,31 @@ export function ProjectMethodologyPage() {
     apiReady: !!project && canEdit,
   });
 
-  const effective = project?.effective_methodology ?? 'HYBRID';
-  const inherited = project?.inherited_methodology ?? 'HYBRID';
+  // Gate on BOTH the project and the workspace settings: until both resolve,
+  // `effective`/`inherited` and `lockedByPolicy` would fall back to defaults
+  // (HYBRID selected, unlocked) and momentarily render a wrong, concrete-looking
+  // selection — the opposite of an INHERIT lock. The skeleton avoids that flash.
+  if (projectLoading || !project || ws === undefined) {
+    return (
+      <div className="px-6 py-8 space-y-3">
+        <div className="h-16 rounded bg-neutral-surface-raised animate-pulse" />
+        <div className="grid grid-cols-3 gap-3.5">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-40 rounded bg-neutral-surface-raised animate-pulse" />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  const effective = project.effective_methodology;
+  const inherited = project.inherited_methodology;
 
   return (
     <div>
       <SettingsPageTitle
         title="Methodology"
-        subtitle="The delivery model for this project. It drives which planning surfaces (Board, Schedule, Sprints) appear."
+        subtitle="The planning methodology (delivery model) for this project. It drives which planning surfaces — Board, Schedule, Sprints — appear."
       />
 
       <div className="px-6 pb-8 max-w-[920px] space-y-6">

@@ -476,7 +476,7 @@ export function ProgramGeneralPage() {
             hint={
               methodologyLocked
                 ? 'The workspace requires every program to use its default methodology. A workspace admin can relax this on the workspace Methodology page.'
-                : 'Default delivery model for projects in this program — unless a project sets its own. Inherits the workspace default until you choose one.'
+                : 'Default methodology for projects in this program — unless a project sets its own. Inherits the workspace default until you choose one.'
             }
           >
             <div className="flex gap-2" role="radiogroup" aria-label="Methodology">

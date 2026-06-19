@@ -130,7 +130,7 @@ export function WorkspaceMethodologyPage() {
     <div>
       <SettingsPageTitle
         title="Methodology defaults"
-        subtitle="Set the default delivery model for all new programs and projects. They can override it per scope unless you require a single method."
+        subtitle="Set the default planning methodology (delivery model) for all new programs and projects. They can override it per scope unless you require a single method."
       />
 
       <div className="px-6 pb-8 max-w-[960px] space-y-6">
@@ -140,7 +140,7 @@ export function WorkspaceMethodologyPage() {
             id="method-heading"
             className="text-[11px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary mb-3"
           >
-            Default delivery model
+            Default methodology
           </h2>
           <div className="grid grid-cols-3 gap-3.5" role="radiogroup" aria-labelledby="method-heading">
             {METHODS.map((m) => {
