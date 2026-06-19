@@ -130,7 +130,7 @@ function PanelBody({
     return (
       <div className="grid grid-cols-1 gap-3 py-2 lg:grid-cols-3" aria-hidden="true">
         {[0, 1, 2].map((i) => (
-          <div key={i} className="h-36 animate-pulse rounded bg-neutral-surface-sunken" />
+          <div key={i} className="h-36 animate-pulse rounded-card bg-neutral-surface-sunken" />
         ))}
       </div>
     );
@@ -165,7 +165,7 @@ function PanelBody({
 function SuppressedWall() {
   return (
     <div
-      className="my-2 flex flex-col items-center gap-1 rounded-md border border-neutral-border bg-neutral-surface-raised p-4 text-center"
+      className="my-2 flex flex-col items-center gap-1 rounded-card border border-neutral-border bg-neutral-surface-raised p-4 text-center"
       data-testid="flow-metrics-suppressed"
     >
       <p className="text-xs font-semibold uppercase tracking-wide text-neutral-text-secondary">

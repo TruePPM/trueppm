@@ -25,7 +25,7 @@ export function SprintForecastWidget({ projectId }: Props) {
       <h2 className="text-sm font-semibold text-neutral-text-secondary uppercase tracking-wide mb-3">
         Backlog forecast
       </h2>
-      <div className="rounded-md border border-neutral-border bg-neutral-surface p-4">
+      <div className="rounded-card border border-neutral-border bg-neutral-surface p-4">
         <Body data={data} />
       </div>
     </section>

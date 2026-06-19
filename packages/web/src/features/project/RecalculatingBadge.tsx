@@ -14,7 +14,7 @@ export function RecalculatingBadge({ isVisible }: RecalculatingBadgeProps) {
       role="status"
       aria-live="polite"
       aria-label="CPM recalculation in progress"
-      className="flex items-center gap-1.5 px-2 py-0.5 rounded border border-neutral-border
+      className="flex items-center gap-1.5 px-2 py-0.5 rounded-chip border border-neutral-border
         text-xs text-neutral-text-secondary"
     >
       <span

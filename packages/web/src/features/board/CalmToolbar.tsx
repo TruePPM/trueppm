@@ -100,7 +100,7 @@ export function ToolbarChip({
           role="dialog"
           aria-label={ariaLabel}
           className={[
-            'absolute top-full z-20 mt-1 min-w-[220px] rounded-md border border-neutral-border bg-neutral-surface p-2',
+            'absolute top-full z-20 mt-1 min-w-[220px] rounded-card border border-neutral-border bg-neutral-surface p-2',
             align === 'right' ? 'right-0' : 'left-0',
           ].join(' ')}
         >
@@ -373,7 +373,7 @@ export function CalmToolbar(props: CalmToolbarProps) {
         <div className="flex flex-col gap-1">
           <button
             type="button"
-            className="rounded px-2 py-1 text-left text-xs bg-brand-primary/10 text-brand-primary-dark dark:text-brand-primary"
+            className="rounded-control px-2 py-1 text-left text-xs bg-brand-primary/10 text-brand-primary-dark dark:text-brand-primary"
             disabled
           >
             Phase (WBS rollup)
@@ -403,7 +403,7 @@ export function CalmToolbar(props: CalmToolbarProps) {
                 setOpenChip(null);
               }}
               className={[
-                'rounded px-2 py-1 text-left text-xs',
+                'rounded-control px-2 py-1 text-left text-xs',
                 'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none',
                 props.sort === key
                   ? 'bg-brand-primary/10 text-brand-primary-dark dark:text-brand-primary'
@@ -437,7 +437,7 @@ export function CalmToolbar(props: CalmToolbarProps) {
                 aria-label={`Board card density: ${DENSITY_LABELS[key]}`}
                 onClick={() => props.onDensityChange(key)}
                 className={[
-                  'rounded px-2 py-1 text-left text-xs',
+                  'rounded-control px-2 py-1 text-left text-xs',
                   'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none',
                   props.density === key
                     ? 'bg-brand-primary/10 text-brand-primary-dark dark:text-brand-primary'
@@ -461,7 +461,7 @@ export function CalmToolbar(props: CalmToolbarProps) {
                 aria-label={`Backlog card density: ${BACKLOG_DENSITY_LABELS[key]}`}
                 onClick={() => props.onBacklogDensityChange(key)}
                 className={[
-                  'rounded px-2 py-1 text-left text-xs',
+                  'rounded-control px-2 py-1 text-left text-xs',
                   'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none',
                   props.backlogDensity === key
                     ? 'bg-brand-primary/10 text-brand-primary-dark dark:text-brand-primary'
@@ -601,7 +601,7 @@ export function CalmToolbar(props: CalmToolbarProps) {
                 value={props.evmMode}
                 onChange={(e) => props.onEvmChange(e.target.value as EvmMode)}
                 aria-label="EVM indicators"
-                className="border border-neutral-border rounded px-1.5 py-0.5 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
+                className="border border-neutral-border rounded-control px-1.5 py-0.5 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
               >
                 {(Object.keys(EVM_LABELS) as EvmMode[]).map((m) => (
                   <option key={m} value={m}>
@@ -622,7 +622,7 @@ export function CalmToolbar(props: CalmToolbarProps) {
               aria-pressed={props.workshopMode}
               aria-label={props.workshopMode ? 'Exit workshop mode' : 'Start workshop session'}
               className={[
-                'rounded px-2 py-1 text-left text-xs',
+                'rounded-control px-2 py-1 text-left text-xs',
                 'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none',
                 'disabled:opacity-50',
                 props.workshopMode
@@ -653,7 +653,7 @@ function MoreItem({
       type="button"
       onClick={onClick}
       aria-label={ariaLabel}
-      className="rounded px-2 py-1 text-left text-xs text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
+      className="rounded-control px-2 py-1 text-left text-xs text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
     >
       {children}
     </button>

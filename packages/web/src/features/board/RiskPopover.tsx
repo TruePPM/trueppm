@@ -78,7 +78,7 @@ export function RiskPopover({ projectId, task, onClose }: RiskPopoverProps) {
       onPointerDown={onClose}
     >
       <div
-        className="bg-neutral-surface border border-neutral-border rounded-lg w-full max-w-[320px] max-h-[60vh] overflow-y-auto"
+        className="bg-neutral-surface border border-neutral-border rounded-card w-full max-w-[320px] max-h-[60vh] overflow-y-auto"
         onPointerDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between p-3 border-b border-neutral-border">
@@ -97,7 +97,7 @@ export function RiskPopover({ projectId, task, onClose }: RiskPopoverProps) {
             onClick={onClose}
             className="text-neutral-text-secondary hover:text-neutral-text-primary
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
-              focus-visible:outline-none rounded p-1 -mt-1 -mr-1"
+              focus-visible:outline-none rounded-control p-1 -mt-1 -mr-1"
             aria-label="Close risk list"
           >
             ×

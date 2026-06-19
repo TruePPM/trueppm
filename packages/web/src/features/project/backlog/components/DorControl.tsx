@@ -44,7 +44,7 @@ export function DorControl({
         role="radiogroup"
         aria-label="Definition of Ready"
         aria-describedby={!canBeReady ? 'drawer-dor-blockers' : undefined}
-        className="inline-flex w-fit rounded-md border border-neutral-border p-0.5"
+        className="inline-flex w-fit rounded-control border border-neutral-border p-0.5"
       >
         {OPTIONS.map(({ value, label }) => {
           const selected = dor === value;
@@ -58,7 +58,7 @@ export function DorControl({
               disabled={optDisabled}
               onClick={() => !selected && onChange(value)}
               className={[
-                'min-h-[36px] rounded px-3 text-xs font-semibold transition-colors',
+                'min-h-[36px] rounded-control px-3 text-xs font-semibold transition-colors',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
                 selected
                   ? value === 'ready'

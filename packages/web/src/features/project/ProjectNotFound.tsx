@@ -29,7 +29,7 @@ export function ProjectNotFound() {
         to="/"
         className="inline-flex items-center gap-1 text-sm text-brand-primary hover:underline
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-          focus-visible:ring-offset-1 rounded"
+          focus-visible:ring-offset-1 rounded-control"
       >
         <span aria-hidden="true">←</span> Back to your projects
       </Link>

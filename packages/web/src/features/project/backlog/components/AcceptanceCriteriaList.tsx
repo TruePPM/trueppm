@@ -98,7 +98,7 @@ export function AcceptanceCriteriaList({ projectId, taskId, criteria }: Props) {
       </div>
 
       {items.length === 0 && (
-        <p className="rounded-md bg-neutral-surface-sunken px-3 py-2 text-xs text-neutral-text-secondary">
+        <p className="rounded-control bg-neutral-surface-sunken px-3 py-2 text-xs text-neutral-text-secondary">
           No acceptance criteria yet. Add the conditions this story must meet to be Done.
         </p>
       )}
@@ -106,7 +106,7 @@ export function AcceptanceCriteriaList({ projectId, taskId, criteria }: Props) {
       <ul className="flex flex-col gap-1">
         {items.map((c) => (
           <li key={c.id} className="flex items-center gap-2">
-            <label className="flex min-h-[44px] min-w-[44px] cursor-pointer items-center justify-center rounded focus-within:ring-2 focus-within:ring-brand-primary focus-within:ring-offset-1">
+            <label className="flex min-h-[44px] min-w-[44px] cursor-pointer items-center justify-center rounded-control focus-within:ring-2 focus-within:ring-brand-primary focus-within:ring-offset-1">
               <input
                 type="checkbox"
                 checked={c.met}
@@ -129,7 +129,7 @@ export function AcceptanceCriteriaList({ projectId, taskId, criteria }: Props) {
                 }
               }}
               aria-label={`Acceptance criterion: ${c.text}`}
-              className={`flex-1 rounded border border-transparent bg-transparent px-1.5 py-1 text-[13px] text-neutral-text-primary hover:border-neutral-border focus-visible:border-neutral-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 ${
+              className={`flex-1 rounded-control border border-transparent bg-transparent px-1.5 py-1 text-[13px] text-neutral-text-primary hover:border-neutral-border focus-visible:border-neutral-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 ${
                 c.met ? 'line-through decoration-neutral-text-disabled' : ''
               }`}
             />
@@ -137,7 +137,7 @@ export function AcceptanceCriteriaList({ projectId, taskId, criteria }: Props) {
               type="button"
               onClick={() => removeCriterion(c)}
               aria-label={`Remove "${c.text}"`}
-              className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded text-neutral-text-secondary hover:text-semantic-critical focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-control text-neutral-text-secondary hover:text-semantic-critical focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
               ✕
             </button>
@@ -145,7 +145,7 @@ export function AcceptanceCriteriaList({ projectId, taskId, criteria }: Props) {
         ))}
       </ul>
 
-      <div className="flex items-center gap-2 rounded border-t border-neutral-border px-1.5 py-1 focus-within:ring-2 focus-within:ring-brand-primary focus-within:ring-offset-1">
+      <div className="flex items-center gap-2 rounded-control border-t border-neutral-border px-1.5 py-1 focus-within:ring-2 focus-within:ring-brand-primary focus-within:ring-offset-1">
         <span className="flex w-6 justify-center text-neutral-text-secondary" aria-hidden>
           +
         </span>

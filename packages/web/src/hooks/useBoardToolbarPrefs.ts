@@ -1,11 +1,11 @@
 /**
- * useBoardToolbarPrefs — calm-toolbar preferences (issue #382, epic #361 child B).
+ * useBoardToolbarPrefs — calm-toolbar preferences (issue 382, epic 361 child B).
  *
  * Persists two surfaces that the calm toolbar owns:
  *   - layout: rail | drawer | queue (gates which sibling backlog layout renders)
  *   - backlogDensity: compact | comfortable | full (passed to BacklogBand)
  *
- * Sibling MRs (#383 drawer, #384 queue) wire up the alternate layouts; until
+ * Sibling MRs (issue 383 drawer, issue 384 queue) wire up the alternate layouts; until
  * they land the layout selection persists but rail is the only renderable
  * variant. Density preference is independent of board card density (which
  * lives in useBoardDensity, BoardView.tsx) — this is the BACKLOG card density.

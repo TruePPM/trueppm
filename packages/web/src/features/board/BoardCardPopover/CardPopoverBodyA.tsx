@@ -90,7 +90,7 @@ export function CardPopoverBodyA({ task, sprintName }: CardPopoverBodyAProps) {
           {task.readiness && <ReadinessChip readiness={task.readiness} />}
           {showCp && (
             <span
-              className="inline-flex items-center px-1 py-px rounded text-xs text-white bg-semantic-critical font-bold"
+              className="inline-flex items-center px-1 py-px rounded-chip text-xs text-white bg-semantic-critical font-bold"
               aria-label="On critical path"
             >
               CP
@@ -98,7 +98,7 @@ export function CardPopoverBodyA({ task, sprintName }: CardPopoverBodyAProps) {
           )}
           {sprintName && (
             <span
-              className="inline-flex items-center px-1.5 py-0.5 rounded border border-brand-primary/40 bg-transparent text-brand-primary text-[11px] font-medium"
+              className="inline-flex items-center px-1.5 py-0.5 rounded-chip border border-brand-primary/40 bg-transparent text-brand-primary text-[11px] font-medium"
               title={`${itl.singular}: ${sprintName}`}
             >
               <span className="truncate max-w-[14ch]">{itl.singular}: {sprintName}</span>
@@ -147,7 +147,7 @@ export function CardPopoverBodyA({ task, sprintName }: CardPopoverBodyAProps) {
       <div className="px-4 pb-2 pl-[18px]">
         <MetaRow label="Status">
           <span
-            className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-neutral-surface-sunken text-xs font-medium text-neutral-text-primary"
+            className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-chip bg-neutral-surface-sunken text-xs font-medium text-neutral-text-primary"
             aria-label={`Status: ${STATUS_LABEL[task.status]}`}
           >
             <span
@@ -178,7 +178,7 @@ export function CardPopoverBodyA({ task, sprintName }: CardPopoverBodyAProps) {
         {showFloat && (
           <MetaRow label="Float">
             {showCp ? (
-              <span className="inline-flex items-center px-1.5 py-px rounded tppm-mono text-xs bg-semantic-critical-bg text-semantic-critical">
+              <span className="inline-flex items-center px-1.5 py-px rounded-chip tppm-mono text-xs bg-semantic-critical-bg text-semantic-critical">
                 0d float — on critical path
               </span>
             ) : (
@@ -197,7 +197,7 @@ export function CardPopoverBodyA({ task, sprintName }: CardPopoverBodyAProps) {
               {task.assignees.map((a) => (
                 <span
                   key={a.resourceId}
-                  className="inline-flex items-center px-1 py-px rounded text-xs text-white bg-brand-primary font-bold"
+                  className="inline-flex items-center px-1 py-px rounded-chip text-xs text-white bg-brand-primary font-bold"
                   title={`${a.name} (${Math.round(a.units * 100)}%)`}
                   aria-label={a.name}
                 >
@@ -224,25 +224,25 @@ function ReadinessChip({ readiness }: ReadinessChipProps) {
   switch (readiness) {
     case 'idea':
       return (
-        <span className="inline-flex items-center px-1.5 py-px rounded border border-dashed border-neutral-border text-xs text-neutral-text-disabled">
+        <span className="inline-flex items-center px-1.5 py-px rounded-chip border border-dashed border-neutral-border text-xs text-neutral-text-disabled">
           idea
         </span>
       );
     case 'estimated':
       return (
-        <span className="inline-flex items-center gap-0.5 px-1.5 py-px rounded bg-neutral-surface-sunken border border-neutral-border text-xs text-neutral-text-secondary">
+        <span className="inline-flex items-center gap-0.5 px-1.5 py-px rounded-chip bg-neutral-surface-sunken border border-neutral-border text-xs text-neutral-text-secondary">
           <span aria-hidden="true">·</span> estimated
         </span>
       );
     case 'ready':
       return (
-        <span className="inline-flex items-center gap-0.5 px-1.5 py-px rounded bg-brand-primary/10 dark:bg-semantic-on-track-bg border border-brand-primary/30 dark:border-semantic-on-track/30 text-xs text-brand-primary dark:text-semantic-on-track font-medium">
+        <span className="inline-flex items-center gap-0.5 px-1.5 py-px rounded-chip bg-brand-primary/10 dark:bg-semantic-on-track-bg border border-brand-primary/30 dark:border-semantic-on-track/30 text-xs text-brand-primary dark:text-semantic-on-track font-medium">
           <span aria-hidden="true">⛓</span> ready
         </span>
       );
     case 'baselined':
       return (
-        <span className="inline-flex items-center gap-0.5 px-1.5 py-px rounded bg-neutral-surface-sunken border border-neutral-border text-xs text-neutral-text-secondary font-medium">
+        <span className="inline-flex items-center gap-0.5 px-1.5 py-px rounded-chip bg-neutral-surface-sunken border border-neutral-border text-xs text-neutral-text-secondary font-medium">
           <span aria-hidden="true">🔒</span> baselined
         </span>
       );

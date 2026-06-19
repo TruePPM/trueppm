@@ -185,7 +185,7 @@ export function StoryDetailDrawer({
             type="button"
             onClick={requestClose}
             aria-label="Close story detail"
-            className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-control text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >
             ✕
           </button>
@@ -200,7 +200,7 @@ export function StoryDetailDrawer({
               value={draft.name}
               onChange={(e) => set('name', e.target.value)}
               aria-label="Story title"
-              className="h-9 rounded-md border border-neutral-border bg-neutral-surface px-2 text-sm text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              className="h-9 rounded-control border border-neutral-border bg-neutral-surface px-2 text-sm text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             />
           </label>
 
@@ -211,7 +211,7 @@ export function StoryDetailDrawer({
               onChange={(e) => set('notes', e.target.value)}
               rows={4}
               aria-label="Story description"
-              className="resize-y rounded-md border border-neutral-border bg-neutral-surface px-2 py-1.5 text-sm text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              className="resize-y rounded-control border border-neutral-border bg-neutral-surface px-2 py-1.5 text-sm text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             />
           </label>
 
@@ -235,7 +235,7 @@ export function StoryDetailDrawer({
               value={draft.storyPoints ?? ''}
               onChange={(e) => set('storyPoints', e.target.value === '' ? null : Number(e.target.value))}
               aria-label="Story points"
-              className="h-9 w-28 rounded-md border border-neutral-border bg-neutral-surface px-2 text-sm text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              className="h-9 w-28 rounded-control border border-neutral-border bg-neutral-surface px-2 text-sm text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
               <option value="">—</option>
               {FIBONACCI.map((n) => (
@@ -253,7 +253,7 @@ export function StoryDetailDrawer({
                 value={draft.parentEpic ?? ''}
                 onChange={(e) => set('parentEpic', e.target.value === '' ? null : e.target.value)}
                 aria-label="Parent epic"
-                className="h-9 rounded-md border border-neutral-border bg-neutral-surface px-2 text-sm text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                className="h-9 rounded-control border border-neutral-border bg-neutral-surface px-2 text-sm text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               >
                 <option value="">No epic (ungrouped)</option>
                 {epics.map((e) => (

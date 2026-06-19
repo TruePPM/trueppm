@@ -106,7 +106,7 @@ export function BoardSprintSwitcher({
         aria-expanded={open}
         aria-label={selected ? `Sprint view: ${selected.name}` : 'Board scope: Project'}
         className={[
-          'inline-flex h-7 items-center gap-1 rounded border px-2 text-xs font-medium',
+          'inline-flex h-7 items-center gap-1 rounded-control border px-2 text-xs font-medium',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
           selected
             ? 'border-brand-primary/40 bg-brand-primary/5 text-brand-primary'
@@ -123,7 +123,7 @@ export function BoardSprintSwitcher({
         <div
           role="menu"
           aria-label="Board scope"
-          className="absolute left-0 top-full z-50 mt-1 max-h-80 w-64 overflow-y-auto rounded-md
+          className="absolute left-0 top-full z-50 mt-1 max-h-80 w-64 overflow-y-auto rounded-card
             border border-neutral-border bg-neutral-surface py-1 shadow-pop"
         >
           <button
@@ -170,7 +170,7 @@ export function BoardSprintSwitcher({
                     <span className="truncate font-medium text-neutral-text-primary">{s.name}</span>
                     {chip && (
                       <span
-                        className={`shrink-0 rounded px-1 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${chip.cls}`}
+                        className={`shrink-0 rounded-chip px-1 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${chip.cls}`}
                       >
                         {chip.label}
                       </span>

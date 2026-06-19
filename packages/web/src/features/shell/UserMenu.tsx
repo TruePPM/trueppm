@@ -291,7 +291,7 @@ export function UserMenu() {
           <div
             role="menu"
             aria-label="User menu"
-            className="absolute top-full right-0 mt-1 z-50 w-60 bg-chrome-surface rounded-lg border border-neutral-border flex flex-col py-1"
+            className="absolute top-full right-0 mt-1 z-50 w-60 bg-chrome-surface rounded-card border border-neutral-border flex flex-col py-1"
           >
             <MenuContent {...sharedContentProps} isMobile={false} />
           </div>

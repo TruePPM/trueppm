@@ -37,7 +37,7 @@ export function ProjectSampleIndicator({ projectId }: { projectId: string | null
         <Link
           to={`/programs/${program.id}`}
           className="underline hover:text-neutral-text-primary focus:outline-none
-            focus:ring-2 focus:ring-brand-primary rounded"
+            focus:ring-2 focus:ring-brand-primary rounded-control"
         >
           Manage demo data
         </Link>

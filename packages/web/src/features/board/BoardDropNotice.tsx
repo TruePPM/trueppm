@@ -48,7 +48,7 @@ export function BoardDropNotice({ notice }: BoardDropNoticeProps) {
       aria-live="polite"
       className={[
         'pointer-events-none absolute bottom-4 left-1/2 z-40 -translate-x-1/2',
-        'max-w-[90vw] rounded-md border border-neutral-border bg-neutral-surface-raised',
+        'max-w-[90vw] rounded-card border border-neutral-border bg-neutral-surface-raised',
         'px-3 py-2 text-sm text-neutral-text-primary shadow-pop',
         'flex items-center gap-2 transition-opacity duration-200',
         visible ? 'opacity-100' : 'opacity-0',

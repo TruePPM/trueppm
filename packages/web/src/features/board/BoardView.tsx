@@ -250,7 +250,7 @@ function WipBadge({ count, limit }: WipBadgeProps) {
   if (count > limit) {
     return (
       <span
-        className="ml-1.5 text-xs font-medium px-1 py-0.5 rounded border bg-semantic-critical-bg border-semantic-critical/40 text-semantic-critical tppm-mono"
+        className="ml-1.5 text-xs font-medium px-1 py-0.5 rounded-chip border bg-semantic-critical-bg border-semantic-critical/40 text-semantic-critical tppm-mono"
         aria-label={`${count} of ${limit} WIP limit, over limit`}
       >
         {count}/{limit} — over WIP limit
@@ -260,7 +260,7 @@ function WipBadge({ count, limit }: WipBadgeProps) {
   if (count >= limit) {
     return (
       <span
-        className="ml-1.5 text-xs font-medium px-1 py-0.5 rounded border bg-semantic-at-risk-bg border-semantic-at-risk/40 text-semantic-at-risk tppm-mono"
+        className="ml-1.5 text-xs font-medium px-1 py-0.5 rounded-chip border bg-semantic-at-risk-bg border-semantic-at-risk/40 text-semantic-at-risk tppm-mono"
         aria-label={`${count} of ${limit} WIP limit, at limit`}
       >
         {count}/{limit} WIP
@@ -269,7 +269,7 @@ function WipBadge({ count, limit }: WipBadgeProps) {
   }
   return (
     <span
-      className="ml-1.5 text-xs font-medium px-1 py-0.5 rounded border bg-neutral-surface-sunken border-neutral-border text-neutral-text-secondary tppm-mono"
+      className="ml-1.5 text-xs font-medium px-1 py-0.5 rounded-chip border bg-neutral-surface-sunken border-neutral-border text-neutral-text-secondary tppm-mono"
       aria-label={`${count} of ${limit} WIP limit`}
     >
       {count}/{limit}
@@ -297,7 +297,7 @@ function WipBreachChip({ state }: { state: 'at' | 'over' }) {
       aria-hidden="true"
       data-testid="wip-breach-chip"
       data-breach={state}
-      className={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-xs font-semibold ${cls}`}
+      className={`inline-flex items-center gap-0.5 rounded-chip px-1 py-0.5 text-xs font-semibold ${cls}`}
     >
       <span aria-hidden="true">⚠</span>
       {state === 'over' ? 'Over limit' : 'At limit'}
@@ -346,12 +346,12 @@ function PhaseSummaryChips({ phase }: { phase: Phase }) {
   return (
     <div className="flex flex-wrap gap-1 mt-1">
       {allDone && (
-        <span className="text-xs px-1 py-px rounded bg-semantic-on-track-bg border border-semantic-on-track/30 text-semantic-on-track font-medium">
+        <span className="text-xs px-1 py-px rounded-chip bg-semantic-on-track-bg border border-semantic-on-track/30 text-semantic-on-track font-medium">
           {doneCount} done
         </span>
       )}
       {cpCount > 0 && (
-        <span className="text-xs px-1 py-px rounded bg-semantic-critical-bg border border-semantic-critical/30 text-semantic-critical font-medium">
+        <span className="text-xs px-1 py-px rounded-chip bg-semantic-critical-bg border border-semantic-critical/30 text-semantic-critical font-medium">
           {cpCount} CP
         </span>
       )}
@@ -497,7 +497,7 @@ function BoardCell({
     <div
       ref={setNodeRef}
       className={[
-        'rounded-lg p-2 min-h-[120px] flex flex-col gap-[var(--board-card-gap,0.375rem)] transition-colors duration-100',
+        'rounded-card p-2 min-h-[120px] flex flex-col gap-[var(--board-card-gap,0.375rem)] transition-colors duration-100',
         over
           ? 'bg-brand-primary/5 border-l-2 border-brand-primary'
           : `${restingBg} border-l-2 border-transparent`,
@@ -660,7 +660,7 @@ function PhaseLane({
       onKeyDown={handleKeyDown}
       title={collapsed ? 'Expand lane  ]' : 'Collapse lane  ['}
       className="flex-shrink-0 text-neutral-text-secondary text-xs select-none
-        focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none rounded"
+        focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none rounded-control"
       aria-expanded={!collapsed}
       aria-controls={`phase-${phase.id}-content`}
       aria-label={collapsed ? `Expand ${phase.name}` : `Collapse ${phase.name}`}
@@ -690,7 +690,7 @@ function PhaseLane({
         }}
       >
         {/* Phase meta — LaneMeta atom (issue #208) */}
-        <div className="rounded-lg overflow-hidden border border-neutral-border/40 min-w-0">
+        <div className="rounded-card overflow-hidden border border-neutral-border/40 min-w-0">
           <LaneMeta
             phaseId={phase.id}
             phaseName={phase.name}
@@ -720,7 +720,7 @@ function PhaseLane({
               return (
                 <div
                   key={col.status}
-                  className="bg-neutral-surface-sunken rounded-lg p-2 min-h-[56px] flex items-center justify-center"
+                  className="bg-neutral-surface-sunken rounded-card p-2 min-h-[56px] flex items-center justify-center"
                 >
                   <span className="text-xs text-neutral-text-disabled">
                     {count > 0 ? `${count} task${count !== 1 ? 's' : ''}` : '—'}
@@ -2016,7 +2016,7 @@ export function BoardView() {
         onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}
       >
-        <div className="relative flex flex-col h-full overflow-hidden">
+        <div className="relative flex flex-col h-full overflow-hidden bg-app-canvas">
           {/* Board toolbar — calm refactor (issue #382, epic #361 child B). */}
           <CalmToolbar
             projectId={projectId}
@@ -2110,7 +2110,7 @@ export function BoardView() {
                 type="button"
                 onClick={() => myTasksFilter.setEnabled(false)}
                 className="ml-1 underline hover:no-underline
-                  focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none rounded"
+                  focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none rounded-control"
               >
                 Show all →
               </button>
@@ -2132,7 +2132,7 @@ export function BoardView() {
                 type="button"
                 onClick={() => setDebtOnly(false)}
                 className="ml-1 underline hover:no-underline
-                  focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none rounded"
+                  focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none rounded-control"
               >
                 Show all →
               </button>
@@ -2389,7 +2389,7 @@ export function BoardView() {
                                 type="button"
                                 onClick={handleAddPhase}
                                 disabled={createTask.isPending}
-                                className="border border-brand-primary/40 rounded px-4 py-2 text-sm
+                                className="border border-brand-primary/40 rounded-control px-4 py-2 text-sm
                               text-brand-primary-dark dark:text-brand-primary font-medium
                               hover:bg-brand-primary/10 disabled:opacity-50
                               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
@@ -2409,7 +2409,7 @@ export function BoardView() {
                               type="button"
                               onClick={handleAddPhase}
                               disabled={createTask.isPending}
-                              className="border border-dashed border-neutral-border rounded px-3 py-1.5 text-xs
+                              className="border border-dashed border-neutral-border rounded-control px-3 py-1.5 text-xs
                             text-neutral-text-secondary hover:border-brand-primary/40
                             hover:text-brand-primary-dark dark:hover:text-brand-primary
                             hover:bg-brand-primary/5 disabled:opacity-50
@@ -2434,7 +2434,7 @@ export function BoardView() {
                           <button
                             type="button"
                             onClick={() => myTasksFilter.setEnabled(false)}
-                            className="border border-brand-primary/40 rounded px-3 py-1.5 text-xs
+                            className="border border-brand-primary/40 rounded-control px-3 py-1.5 text-xs
                           text-brand-primary-dark dark:text-brand-primary font-medium
                           hover:bg-brand-primary/10
                           focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
@@ -2662,7 +2662,7 @@ export function BoardView() {
             }
           }}
         >
-          <div className="bg-neutral-surface border border-neutral-border rounded-lg p-6 max-w-sm w-full mx-4">
+          <div className="bg-neutral-surface border border-neutral-border rounded-card p-6 max-w-sm w-full mx-4">
             <h2
               id="workshop-exit-title"
               className="text-sm font-semibold text-neutral-text-primary mb-2"
@@ -2681,7 +2681,7 @@ export function BoardView() {
                   setShowExitConfirm(false);
                   workshopToggleRef.current?.focus();
                 }}
-                className="border border-neutral-border rounded px-3 py-1.5 text-xs
+                className="border border-neutral-border rounded-control px-3 py-1.5 text-xs
                   text-neutral-text-primary hover:bg-neutral-surface-raised
                   focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
               >
@@ -2699,7 +2699,7 @@ export function BoardView() {
                     },
                   });
                 }}
-                className="border border-semantic-critical/40 rounded px-3 py-1.5 text-xs
+                className="border border-semantic-critical/40 rounded-control px-3 py-1.5 text-xs
                   text-semantic-critical hover:bg-semantic-critical/10 disabled:opacity-50
                   focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:outline-none"
               >

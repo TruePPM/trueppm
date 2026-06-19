@@ -355,7 +355,7 @@ export function BoardCard({
             onFocus={onChainHoverEnter}
             onBlur={onChainHoverLeave}
             className={[
-              'relative w-5 h-5 inline-flex items-center justify-center rounded text-xs',
+              'relative w-5 h-5 inline-flex items-center justify-center rounded-control text-xs',
               'before:absolute before:inset-[-12px]',
               'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
               'focus-visible:outline-none',
@@ -370,7 +370,7 @@ export function BoardCard({
           >
             <span aria-hidden="true">🔗</span>
             {density === 'detailed' && predecessorCount > 1 && (
-              <span className="absolute -bottom-1 -right-1 text-xs tppm-mono leading-none px-0.5 rounded bg-neutral-surface border border-neutral-border">
+              <span className="absolute -bottom-1 -right-1 text-xs tppm-mono leading-none px-0.5 rounded-chip bg-neutral-surface border border-neutral-border">
                 {predecessorCount}
               </span>
             )}
@@ -384,7 +384,7 @@ export function BoardCard({
               onShowRisks?.();
             }}
             className={[
-              'relative w-5 h-5 inline-flex items-center justify-center rounded text-xs',
+              'relative w-5 h-5 inline-flex items-center justify-center rounded-control text-xs',
               'before:absolute before:inset-[-12px]',
               'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
               'focus-visible:outline-none',
@@ -398,7 +398,7 @@ export function BoardCard({
           >
             <span aria-hidden="true">⚠</span>
             {linkedRisksCount > 1 && (
-              <span className="absolute -top-1 -right-1 text-xs tppm-mono leading-none px-0.5 rounded bg-neutral-surface border border-neutral-border">
+              <span className="absolute -top-1 -right-1 text-xs tppm-mono leading-none px-0.5 rounded-chip bg-neutral-surface border border-neutral-border">
                 {linkedRisksCount}
               </span>
             )}
@@ -418,7 +418,7 @@ export function BoardCard({
           setMenuOpen(!menuOpen);
           setMoveOpen(false);
         }}
-        className="relative before:absolute before:inset-[-10px] before:content-[''] w-6 h-6 flex items-center justify-center rounded text-neutral-text-secondary
+        className="relative before:absolute before:inset-[-10px] before:content-[''] w-6 h-6 flex items-center justify-center rounded-control text-neutral-text-secondary
           hover:bg-neutral-surface-raised opacity-0 group-hover:opacity-100
           focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-brand-primary
           focus-visible:ring-offset-1"
@@ -437,7 +437,7 @@ export function BoardCard({
           aria-label={`Actions for ${task.name}`}
           onKeyDown={onMenuKeyDown}
           className="absolute right-0 top-7 z-20 bg-neutral-surface border border-neutral-border
-            rounded-md py-1 min-w-[160px] focus:outline-none"
+            rounded-card py-1 min-w-[160px] focus:outline-none"
         >
           {/* Reject scope injection (ADR-0102) — critical text, gated. The
               additive accept is the single-tap ✓; reject (destructive) lives
@@ -515,7 +515,7 @@ export function BoardCard({
         }}
         aria-label={`Accept ${task.name} into the sprint`}
         title="Accept into the sprint"
-        className="absolute top-2 right-9 w-6 h-6 flex items-center justify-center rounded
+        className="absolute top-2 right-9 w-6 h-6 flex items-center justify-center rounded-control
           text-brand-primary hover:bg-brand-primary/10
           before:absolute before:inset-[-10px] before:content-['']
           focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-brand-primary
@@ -528,7 +528,7 @@ export function BoardCard({
   // Shared card container class. A read-only (closed-sprint) card drops the
   // grab cursor — it's still clickable to open detail, just not draggable (#1141).
   const containerClass = [
-    'bg-neutral-surface border rounded-md relative group',
+    'bg-neutral-surface border rounded-card relative group',
     readOnly ? 'cursor-default' : 'cursor-grab active:cursor-grabbing',
     'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
     // v2 fluidity (ADR-0126): subtle hover-lift, no shadow (rule 1) — the card's
@@ -553,7 +553,7 @@ export function BoardCard({
   if (isOverlay) {
     return (
       <div
-        className="bg-neutral-surface border border-neutral-border rounded-md p-3
+        className="bg-neutral-surface border border-neutral-border rounded-card p-3
           ring-2 ring-brand-primary opacity-60 scale-105 motion-safe:rotate-1
           w-[85vw] md:w-auto md:min-w-[200px]"
       >
@@ -574,7 +574,7 @@ export function BoardCard({
   if (isDragging) {
     return (
       <div
-        className="border-2 border-dashed border-neutral-border rounded-md"
+        className="border-2 border-dashed border-neutral-border rounded-card"
         style={{ height: lastHeightRef.current || 76 }}
       />
     );
@@ -625,7 +625,7 @@ export function BoardCard({
           {isPending && <PendingAcceptanceChip compact className="shrink-0" />}
           {showCriticalState && (
             <span
-              className="shrink-0 inline-block px-1 py-px rounded text-xs text-white bg-semantic-critical font-bold"
+              className="shrink-0 inline-block px-1 py-px rounded-chip text-xs text-white bg-semantic-critical font-bold"
               aria-hidden="true"
             >
               CP
@@ -750,7 +750,7 @@ export function BoardCard({
             {isPending && <PendingAcceptanceChip />}
             {showCriticalState && (
               <span
-                className="inline-block px-1 py-px rounded text-xs text-white bg-semantic-critical font-bold"
+                className="inline-block px-1 py-px rounded-chip text-xs text-white bg-semantic-critical font-bold"
                 aria-hidden="true"
               >
                 CP
@@ -775,7 +775,7 @@ export function BoardCard({
                   return (
                     <span key={a.resourceId} className="relative inline-block" title={overTooltip}>
                       <span
-                        className="inline-block px-1 py-px rounded text-xs text-white bg-brand-primary font-bold"
+                        className="inline-block px-1 py-px rounded-chip text-xs text-white bg-brand-primary font-bold"
                         aria-label={overFactor ? `${a.name}, overallocated` : a.name}
                       >
                         {initials(a.name)}
@@ -787,7 +787,7 @@ export function BoardCard({
                             className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-semantic-critical border border-neutral-surface"
                           />
                           {isDetailed && (
-                            <span className="ml-1 inline-flex items-center gap-0.5 text-xs px-1 py-px rounded border bg-semantic-critical-bg border-semantic-critical/30 text-semantic-critical tppm-mono">
+                            <span className="ml-1 inline-flex items-center gap-0.5 text-xs px-1 py-px rounded-chip border bg-semantic-critical-bg border-semantic-critical/30 text-semantic-critical tppm-mono">
                               {overFactor.toFixed(1)}×
                             </span>
                           )}
@@ -798,7 +798,7 @@ export function BoardCard({
                 })}
                 {hiddenCount > 0 && (
                   <span
-                    className="inline-block px-1 py-px rounded text-xs text-white bg-brand-primary font-bold"
+                    className="inline-block px-1 py-px rounded-chip text-xs text-white bg-brand-primary font-bold"
                     aria-hidden="true"
                   >
                     +{hiddenCount}
@@ -839,7 +839,7 @@ export function BoardCard({
         {isAging && (
           <div
             className={[
-              'mt-1 inline-flex items-center gap-0.5 text-xs px-1 py-px rounded border',
+              'mt-1 inline-flex items-center gap-0.5 text-xs px-1 py-px rounded-chip border',
               isPastTwiceSla
                 ? 'bg-semantic-critical-bg border-semantic-critical/30 text-semantic-critical motion-safe:animate-pulse'
                 : 'bg-brand-accent/10 border-brand-accent/30 text-brand-accent-dark',
@@ -858,7 +858,7 @@ export function BoardCard({
           <div className="mt-1">
             <span
               className={[
-                'inline-flex items-center gap-0.5 text-xs px-1 py-px rounded border',
+                'inline-flex items-center gap-0.5 text-xs px-1 py-px rounded-chip border',
                 floatDays <= 0
                   ? 'bg-semantic-critical-bg border-semantic-critical/30 text-semantic-critical'
                   : floatDays < 3
@@ -878,7 +878,7 @@ export function BoardCard({
           <div className="mt-1">
             <span
               className={[
-                'inline-flex items-center gap-0.5 text-xs px-1 py-px rounded border',
+                'inline-flex items-center gap-0.5 text-xs px-1 py-px rounded-chip border',
                 spiBand === 'on_track'
                   ? 'bg-semantic-on-track-bg border-semantic-on-track/30 text-semantic-on-track'
                   : spiBand === 'at_risk'
@@ -898,7 +898,7 @@ export function BoardCard({
           <div className="mt-1">
             <span
               className={[
-                'inline-flex items-center gap-0.5 text-xs px-1 py-px rounded border',
+                'inline-flex items-center gap-0.5 text-xs px-1 py-px rounded-chip border',
                 cpi >= 0.95
                   ? 'bg-semantic-on-track-bg border-semantic-on-track/30 text-semantic-on-track'
                   : cpi >= 0.85
@@ -918,7 +918,7 @@ export function BoardCard({
           <div className="mt-1">
             <span
               className={[
-                'inline-flex items-center gap-0.5 text-xs px-1 py-px rounded border',
+                'inline-flex items-center gap-0.5 text-xs px-1 py-px rounded-chip border',
                 task.actualCost != null && task.actualCost > task.budgetAtCompletion
                   ? 'bg-semantic-critical-bg border-semantic-critical/30 text-semantic-critical'
                   : 'bg-neutral-surface-sunken border-neutral-border text-neutral-text-secondary',

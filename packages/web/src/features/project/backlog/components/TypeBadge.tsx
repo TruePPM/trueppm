@@ -25,7 +25,7 @@ export function TypeBadge({ type }: { type?: TaskType }) {
   // Legacy/non-agile rows have no type → treat as a plain task.
   const t: TaskType = type ?? 'task';
   return (
-    <span className="inline-block shrink-0 whitespace-nowrap rounded border border-neutral-border bg-neutral-surface-sunken px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-neutral-text-secondary">
+    <span className="inline-block shrink-0 whitespace-nowrap rounded-chip border border-neutral-border bg-neutral-surface-sunken px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-neutral-text-secondary">
       {LABEL[t]}
     </span>
   );

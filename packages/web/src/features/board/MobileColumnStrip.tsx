@@ -70,7 +70,7 @@ export function MobileColumnStrip({ segments, activeIndex, onJump }: MobileColum
             data-status={seg.status}
             data-active={active ? 'true' : undefined}
             className="flex-1 min-w-0 min-h-[44px] flex flex-col items-center justify-center gap-1
-              rounded-md
+              rounded-control
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
               focus-visible:outline-none"
           >

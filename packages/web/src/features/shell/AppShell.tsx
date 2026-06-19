@@ -63,7 +63,7 @@ export function AppShell() {
             keyboard users jump past the sidebar/topbar straight to content. */}
         <a
           href="#main-content"
-          className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-[100] focus:rounded focus:bg-brand-primary focus:px-3 focus:py-2 focus:text-sm focus:text-white focus-visible:ring-2 focus-visible:ring-white"
+          className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-[100] focus:rounded-control focus:bg-brand-primary focus:px-3 focus:py-2 focus:text-sm focus:text-white focus-visible:ring-2 focus-visible:ring-white"
         >
           Skip to main content
         </a>
@@ -82,10 +82,11 @@ export function AppShell() {
             <Sidebar />
           </div>
 
-          {/* Main content area — neutral-surface, not chrome-surface.
+          {/* Main content area — app-canvas (warm paper), not chrome-surface.
               Chrome surface is reserved for navigation shell (sidebar, topbar).
-              Content views render on the lighter neutral-surface background. */}
-          <main id="main-content" className="flex-1 min-w-0 overflow-auto bg-neutral-surface">
+              Content views render on the v2 app-canvas so cards (bg-neutral-surface)
+              pop against it instead of disappearing into a flat white field (ADR-0126). */}
+          <main id="main-content" className="flex-1 min-w-0 overflow-auto bg-app-canvas">
             <Outlet />
           </main>
         </div>

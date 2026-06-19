@@ -85,7 +85,7 @@ function Diamond({ state, onOpenTask }: DiamondProps) {
         <span
           role="tooltip"
           className="absolute z-20 left-1/2 -translate-x-1/2 top-[calc(100%+6px)]
-            whitespace-nowrap bg-neutral-surface border border-neutral-border rounded
+            whitespace-nowrap bg-neutral-surface border border-neutral-border rounded-card
             px-2 py-1 text-xs shadow-none
             text-neutral-text-primary"
         >
@@ -152,7 +152,7 @@ export function PhaseMilestoneRail({ milestones, columns, onOpenTask }: PhaseMil
             {overflow > 0 && (
               <span
                 className="text-xs tppm-mono text-neutral-text-secondary px-1 py-px
-                  rounded bg-neutral-surface border border-neutral-border"
+                  rounded-chip bg-neutral-surface border border-neutral-border"
                 aria-label={`${overflow} more milestones in ${col.label}`}
               >
                 +{overflow}

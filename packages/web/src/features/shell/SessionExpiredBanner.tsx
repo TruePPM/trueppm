@@ -50,7 +50,7 @@ export function SessionExpiredBanner() {
       aria-describedby="session-expired-body"
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 motion-safe:animate-scrim-fade"
     >
-      <div className="bg-neutral-surface border border-neutral-border rounded-lg w-[420px] max-w-[90vw] p-5 motion-safe:animate-modal-scale-in">
+      <div className="bg-neutral-surface border border-neutral-border rounded-card w-[420px] max-w-[90vw] p-5 motion-safe:animate-modal-scale-in">
         <h2
           id="session-expired-title"
           className="text-base font-semibold text-neutral-text-primary m-0 mb-2"
@@ -69,7 +69,7 @@ export function SessionExpiredBanner() {
             ref={buttonRef}
             type="button"
             onClick={handleSignIn}
-            className="h-9 px-4 rounded bg-brand-primary text-white text-sm font-medium border-none hover:bg-brand-primary-dark focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-brand-primary focus-visible:outline-none"
+            className="h-9 px-4 rounded-control bg-brand-primary text-white text-sm font-medium border-none hover:bg-brand-primary-dark focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-brand-primary focus-visible:outline-none"
           >
             Sign in
           </button>
