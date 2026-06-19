@@ -2,9 +2,10 @@
  * Schedule build-mode v1 (#338 #339 #341 #342, gated by #349).
  *
  * Covers the user-visible acceptance criteria:
- * - Flag-on shows the toolbar pill, the bottom hint strip, and the cheatsheet on `?`
+ * - Flag-on shows the always-on toolbar pill and the cheatsheet on `?`
+ * - Hint strip is contextual (#1250): hidden when idle (NoSelection), revealed
+ *   once a row is focused so the Forecast bar owns the idle bottom band
  * - Flag-off leaves the Schedule toolbar, list, and footer unchanged (regression)
- * - Hint strip switches its three contextual hotkeys when row focus changes
  * - Right-click on a row opens the context menu with the expected items
  *
  * Deeper structural / mutation flows (Tab → indent server call, EditableCell
@@ -102,13 +103,18 @@ test.describe('Schedule build-mode — flag on', () => {
     await expect(page.getByRole('dialog', { name: 'Schedule shortcuts' })).toHaveCount(0);
   });
 
-  test('hint strip is visible at bottom and starts in NoSelection mode', async ({ page }) => {
+  test('hint strip is hidden when idle and reveals contextual hints once a row is focused (#1250)', async ({ page }) => {
     await page.goto(BASE_URL);
+    // Gate on the page having rendered before asserting the strip's absence.
+    await expect(page.getByText('Foundation')).toBeVisible();
     const strip = page.getByTestId('build-mode-hint-strip');
+    // Idle (NoSelection): no strip — the Forecast bar owns the bottom band.
+    await expect(strip).toHaveCount(0);
+    // Focusing a row reveals the strip in RowFocused with its contextual hints.
+    await page.getByText('Foundation').click();
     await expect(strip).toBeVisible();
-    await expect(strip).toHaveAttribute('data-mode', 'NoSelection');
-    await expect(strip).toContainText('Build mode');
-    await expect(strip).toContainText('Select row');
+    await expect(strip).toHaveAttribute('data-mode', 'RowFocused');
+    await expect(strip).toContainText('Indent');
   });
 
   test('? opens cheatsheet from anywhere outside an input', async ({ page }) => {

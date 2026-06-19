@@ -1431,7 +1431,12 @@ export function ScheduleView() {
         />
       )}
 
-      {buildModeActive && (
+      {/* Contextual hint strip (#1250, web rule 194): render only while the user
+          is actively engaged (RowFocused / CellEdit). When idle (NoSelection) the
+          strip is unmounted so ScheduleForecastBar sits flush at the bottom and the
+          P50/P80/P95 signal isn't subordinated by always-on discoverability chrome.
+          The always-on BuildModePill in the toolbar remains the discovery affordance. */}
+      {buildModeActive && focus.state.mode !== 'NoSelection' && (
         <BuildModeHintStrip
           mode={focus.state.mode}
           onShowCheatsheet={() => setCheatsheetOpen(true)}
