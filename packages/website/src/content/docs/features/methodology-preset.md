@@ -50,6 +50,36 @@ Customize views is **per-user and cosmetic** — it changes only your own naviga
 - **Project creation wizard** — step 3 prompts for the methodology with one-line descriptions per choice
 - **Project settings** — the same selector, editable post-creation; takes effect immediately
 
+## Methodology inheritance
+
+Today the methodology is a project-level choice. Coming in **0.3**, you will be able to
+set the planning model — **Waterfall**, **Agile**, or **Hybrid** — at three scopes that
+**inherit** from one another: set the default once for the whole workspace under
+**Settings → Workspace → Methodology**, and programs and projects will inherit it, each
+able to override its own scope.
+
+The key difference from the [iteration label](#iteration-terminology) is that a methodology
+is non-null at *every* scope — there is no blank "inherit" option to choose. Inheritance is
+therefore **policy-driven**: the workspace's **override policy** will decide whether lower
+scopes may deviate from the workspace default.
+
+- **Suggest** (the default) — the workspace default pre-fills new programs and projects, but
+  a PM can change the method per scope.
+- **Inherit** — every program and project follows the workspace default; the per-scope
+  picker is rendered read-only.
+- **Enforce** — the workspace default is mandatory and cannot be overridden. **Enforce will
+  be a TruePPM Enterprise capability**; in the OSS community edition, Enforce behaves like
+  Suggest — it does not lock.
+
+The **effective** methodology will be resolved on the server, so the web app, the mobile app,
+and the API all read the same value. The view-tab matrix above is driven by the *effective*
+methodology, so a workspace-level lock immediately reshapes which tabs appear across every
+project under it.
+
+The read-only picker is only a courtesy render-gate — the server is the source of truth. A
+direct API attempt to override the methodology while a workspace lock is active will be
+rejected with a **403**.
+
 ## Iteration terminology
 
 Not every team that runs timeboxes calls them "Sprints." Scrumban and SAFe-adjacent teams
@@ -74,14 +104,16 @@ scopes cannot override it (**Enforce**) will be a TruePPM Enterprise capability.
 
 | Method | Endpoint | Purpose |
 |---|---|---|
-| `GET`  | `/api/v1/projects/{id}/` | Includes `methodology`, the raw `iteration_label` override (nullable; `null` = inherit), the resolved `effective_iteration_label`, and `inherited_iteration_label` |
-| `PATCH` | `/api/v1/projects/{id}/` | Accepts `methodology` (`WATERFALL` \| `AGILE` \| `HYBRID`) and `iteration_label` (free text, ≤32 chars, or `null` to inherit; Admin+ only) |
-| `PATCH` | `/api/v1/programs/{id}/` | Accepts `iteration_label` (override or `null` to inherit the workspace default; Admin+ only) |
-| `PATCH` | `/api/v1/workspace/` | Accepts `iteration_label` (the workspace default) and `iteration_label_override_policy` (`inherit` \| `suggest` \| `enforce`; `enforce` is Enterprise) |
+| `GET`  | `/api/v1/projects/{id}/` | Includes `methodology`, the raw `iteration_label` override (nullable; `null` = inherit), the resolved `effective_iteration_label`, and `inherited_iteration_label`. Also includes the server-resolved `effective_methodology` and `inherited_methodology` read fields |
+| `GET`  | `/api/v1/programs/{id}/` | Includes the server-resolved `effective_methodology` and `inherited_methodology` read fields |
+| `PATCH` | `/api/v1/projects/{id}/` | Accepts `methodology` (`WATERFALL` \| `AGILE` \| `HYBRID`) and `iteration_label` (free text, ≤32 chars, or `null` to inherit; Admin+ only). A `methodology` PATCH is refused (`403`) when the workspace override policy locks it |
+| `PATCH` | `/api/v1/programs/{id}/` | Accepts `methodology` (`WATERFALL` \| `AGILE` \| `HYBRID`) and `iteration_label` (override or `null` to inherit the workspace default; Admin+ only). A `methodology` PATCH is refused (`403`) when the workspace override policy locks it |
+| `PATCH` | `/api/v1/workspace/` | Accepts `iteration_label` (the workspace default) and `iteration_label_override_policy` (`inherit` \| `suggest` \| `enforce`; `enforce` is Enterprise). Also accepts `methodology` (the workspace default: `WATERFALL` \| `AGILE` \| `HYBRID`) and `methodology_override_policy` (`suggest` \| `inherit` \| `enforce`; `enforce` is Enterprise; Admin only) |
 
 ## Related ADRs
 
 - [ADR-0041](/architecture/decisions/) — Project methodology preset
+- [ADR-0107](/architecture/decisions/) — Workspace experience preset / methodology inheritance
 - [ADR-0111](/architecture/decisions/) — Configurable iteration-container label
 
 ## If you are…
