@@ -117,7 +117,9 @@ def _story(project: Project, **kw: Any) -> Task:
     return Task.objects.create(project=project, **defaults)
 
 
-def _criterion(task: Task, *, met: bool = False, pos: int = 0, text: str = "AC") -> AcceptanceCriterion:
+def _criterion(
+    task: Task, *, met: bool = False, pos: int = 0, text: str = "AC"
+) -> AcceptanceCriterion:
     return AcceptanceCriterion.objects.create(task=task, text=text, met=met, position=pos)
 
 

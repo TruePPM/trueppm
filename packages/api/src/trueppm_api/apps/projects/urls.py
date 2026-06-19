@@ -20,6 +20,7 @@ from trueppm_api.apps.projects.signal_privacy_views import (
 )
 from trueppm_api.apps.projects.views import (
     AcceptanceCriterionViewSet,
+    AcceptanceResultIngestView,
     ApiTokenAuditView,
     BaselineActivateView,
     BaselineViewSet,
@@ -66,7 +67,6 @@ from trueppm_api.apps.projects.views import (
     TaskRecurrenceRuleViewSet,
     TaskReorderView,
     TaskReparentView,
-    AcceptanceResultIngestView,
     TaskSyncView,
     TaskViewSet,
 )

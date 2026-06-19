@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import datetime
+import functools
 import logging
 import re
 import uuid
@@ -8825,12 +8826,17 @@ class AcceptanceResultIngestView(IdempotencyMixin, APIView):
 
             # Broadcast one task_updated per affected task so connected clients
             # refresh the DoR meter without a manual refetch (deferred to commit).
+            # functools.partial freezes the per-iteration task id (avoiding the
+            # late-binding closure trap) and lets the type checker infer the
+            # argument types from broadcast_board_event's signature.
             project_id_str = str(target_project.pk)
             for task_id in list(affected_tasks):
-                tid = str(task_id)
                 transaction.on_commit(
-                    lambda pid=project_id_str, t=tid: broadcast_board_event(
-                        pid, "task_updated", {"id": t}
+                    functools.partial(
+                        broadcast_board_event,
+                        project_id_str,
+                        "task_updated",
+                        {"id": str(task_id)},
                     )
                 )
 
