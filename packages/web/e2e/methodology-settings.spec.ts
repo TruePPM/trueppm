@@ -118,23 +118,28 @@ test.describe('Workspace methodology defaults', () => {
 
     await page.goto('/settings/methodology');
 
+    // The consolidated settings page (#1248) mounts every section at once, so the
+    // iteration-label policy radios (Suggest/Inherit/Enforce) share the page with
+    // the methodology ones — scope methodology assertions to the section (rule 195).
+    const methodology = page.locator('[data-settings-section="methodology"]');
+
     // Seeded selection — Waterfall + Suggest.
-    await expect(page.getByRole('radio', { name: /Waterfall/i, checked: true })).toBeVisible();
+    await expect(methodology.getByRole('radio', { name: /Waterfall/i, checked: true })).toBeVisible();
     await expect(
-      page.getByRole('radio', { name: /Suggest \(recommended\)/i, checked: true }),
+      methodology.getByRole('radio', { name: /Suggest \(recommended\)/i, checked: true }),
     ).toBeVisible();
 
     // The Enterprise-only Enforce policy is rendered but disabled.
-    await expect(page.getByRole('radio', { name: /Enforce/i })).toBeDisabled();
+    await expect(methodology.getByRole('radio', { name: /Enforce/i })).toBeDisabled();
 
     // Change the default method and policy, then save via the page save bar.
     // The method cards are <button role="radio"> (clickable directly). The policy
     // options are an sr-only <input type="radio"> inside a <label>; the input has
     // zero hit area, so click the visible label text — the label forwards to the
     // input's onChange. (check()/clicking the input is intercepted by the label.)
-    await page.getByRole('radio', { name: /Agile/i }).click();
-    await page.getByText('Inherit', { exact: true }).click();
-    await expect(page.getByRole('radio', { name: /^Inherit/i, checked: true })).toBeVisible();
+    await methodology.getByRole('radio', { name: /Agile/i }).click();
+    await methodology.getByText('Inherit', { exact: true }).click();
+    await expect(methodology.getByRole('radio', { name: /^Inherit/i, checked: true })).toBeVisible();
     await page.getByRole('button', { name: /Save changes/i }).click();
 
     await expect.poll(() => patchBody).not.toBeNull();
@@ -175,12 +180,13 @@ test.describe('Project methodology', () => {
 
     await page.goto(`/projects/${PROJECT_ID}/settings/methodology`);
 
+    const methodology = page.locator('[data-settings-section="methodology"]');
     // Seeded from the project's own method, with the inherited default surfaced.
-    await expect(page.getByRole('radio', { name: /Agile/i, checked: true })).toBeVisible();
-    await expect(page.getByText(/Inherited from the workspace default/i)).toBeVisible();
+    await expect(methodology.getByRole('radio', { name: /Agile/i, checked: true })).toBeVisible();
+    await expect(methodology.getByText(/Inherited from the workspace default/i)).toBeVisible();
 
     // Override to Waterfall and save.
-    await page.getByRole('radio', { name: /Waterfall/i }).click();
+    await methodology.getByRole('radio', { name: /Waterfall/i }).click();
     await page.getByRole('button', { name: /Save changes/i }).click();
 
     await expect.poll(() => patchBody).not.toBeNull();
@@ -198,14 +204,15 @@ test.describe('Project methodology', () => {
 
     await page.goto(`/projects/${PROJECT_ID}/settings/methodology`);
 
+    const methodology = page.locator('[data-settings-section="methodology"]');
     // The lock context message is shown.
     await expect(
-      page.getByText(/requires every project to use its default methodology/i),
+      methodology.getByText(/requires every project to use its default methodology/i),
     ).toBeVisible();
 
     // The locked picker shows the workspace-resolved value (Waterfall) and is disabled.
-    await expect(page.getByRole('radio', { name: /Waterfall/i, checked: true })).toBeVisible();
-    await expect(page.getByRole('radio', { name: /Waterfall/i })).toBeDisabled();
-    await expect(page.getByRole('radio', { name: /Agile/i })).toBeDisabled();
+    await expect(methodology.getByRole('radio', { name: /Waterfall/i, checked: true })).toBeVisible();
+    await expect(methodology.getByRole('radio', { name: /Waterfall/i })).toBeDisabled();
+    await expect(methodology.getByRole('radio', { name: /Agile/i })).toBeDisabled();
   });
 });
