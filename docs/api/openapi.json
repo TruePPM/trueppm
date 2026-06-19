@@ -18603,6 +18603,87 @@
                 }
             }
         },
+        "/api/v1/tasks/search/": {
+            "get": {
+                "operationId": "v1_tasks_search_list",
+                "description": "Board card full-text search (#323, ADR-0145).\n\nReturns a slim ``[{id, name, status, short_id}]`` list of cards whose title\n(``name``) or description (``notes``) contains ``?q=`` (case-insensitive\nsubstring), so the board client can dim non-matching cards in place. The\nslim shape deliberately carries no cost/budget/sensitive fields, so\nrole-based field visibility is moot — project membership is the only gate.\nIDOR-safe: ``ProjectScopedViewSet`` already restricts the queryset to\nprojects the requester is an active member of, and ``?project=`` is required.\n\nComment-body search is out of scope until task comments land an indexed body.\n# TODO(#311): include TaskComment.body once threaded comments merge.",
+                "summary": "Full-text search board cards by title and description (#323)",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "project",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "Project to search within (required).",
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "q",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Search term. Case-insensitive substring match over a card's name (title) and notes (description). Trimmed; capped at 100 chars.",
+                        "required": true
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedBoardCardSearchResultList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "400": {
+                        "description": "The 'project' query parameter is required."
+                    }
+                }
+            }
+        },
         "/api/v1/teams/{id}/": {
             "get": {
                 "operationId": "v1_teams_retrieve",
@@ -20732,6 +20813,30 @@
                 "type": "string",
                 "description": "* `dependency` - Waiting on dependency\n* `resource` - Missing resource\n* `vendor` - External vendor\n* `decision` - Decision needed\n* `other` - Other"
             },
+            "BoardCardSearchResult": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "short_id": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "id",
+                    "name",
+                    "short_id",
+                    "status"
+                ]
+            },
             "CadenceTypeEnum": {
                 "enum": [
                     "weekly",
@@ -22504,6 +22609,37 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/Baseline"
+                        }
+                    }
+                }
+            },
+            "PaginatedBoardCardSearchResultList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/BoardCardSearchResult"
                         }
                     }
                 }

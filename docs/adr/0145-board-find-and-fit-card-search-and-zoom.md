@@ -31,7 +31,8 @@ structural (pre-0.4 / pre-0.5) and are not a rescope signal per `personas.md`.
 ### Feature 1 — Board full-text card search (#323)
 - **Endpoint:** a dedicated `@action(detail=False, methods=["get"], url_path="search")`
   named `search` on the existing `TaskViewSet` →
-  `GET /api/v1/projects/tasks/search/?project=<uuid>&q=<term>`.
+  `GET /api/v1/tasks/search/?project=<uuid>&q=<term>` (the task API is flat and
+  `?project=`-scoped, matching the existing board `/tasks/?project=` list fetch).
   - Returns a **slim payload** per match: `{id, name, status, short_id}`. Nothing else.
   - Matching: case-insensitive substring (`Q(name__icontains=q) | Q(notes__icontains=q)`),
     ordered name-matches-first then `name`. `name` = the card title, `notes` = the card
@@ -62,15 +63,25 @@ structural (pre-0.4 / pre-0.5) and are not a rescope signal per `personas.md`.
   shareable link.
 
 ### Feature 2 — Board-local zoom (#379)
-- **Discrete 3 levels** — `compact | normal | spacious` (default `normal`) — chosen
-  over a continuous `transform: scale()` because discrete levels map cleanly to a
-  *coordinated set* of CSS custom properties and never blur text or reflow
-  unpredictably. Rendered as a `−` / level-label / `+` stepper in `CalmToolbar`,
+- **Discrete 3 levels** — `small | normal | large` (default `normal`) — chosen over a
+  continuous `transform: scale()` / CSS `zoom`. This is **not** a stylistic choice: the
+  board is a dnd-kit drag surface, and dnd-kit computes pointer coordinates in CSS
+  pixels — a `transform: scale()` or `zoom` on any *ancestor* of a draggable silently
+  breaks the drop math. The only safe lever is real CSS *sizing*, which discrete levels
+  express cleanly. Rendered as a `−` / level-label / `+` stepper in `CalmToolbar`,
   visually paralleling the Schedule `ZoomControl`.
-- **Mechanism:** each level sets coordinated CSS custom properties on the board
-  container root — `--board-col-min-w`, `--board-card-pad`, `--board-font-scale`,
-  `--board-rail-h` — that the board surface CSS consumes. Only the board element is
-  scaled; the app shell stays at native size.
+- **Mechanism:** each level sets **coordinated CSS custom properties for board chrome
+  spacing** on the board grid container — `--board-phase-col` (the phase-column width,
+  shared by the column-header grid, every lane grid, and `PhaseMilestoneRail`, which all
+  hard-code `188px` today and must stay column-aligned), `--board-lane-gap` (inter-column
+  gap), and `--board-rail-h` (phase-rail height). Shrinking the phase column + gaps + rail
+  reclaims horizontal and vertical space so more card area fits; growing them gives a
+  roomier presentation board. Only the board element is affected; the app shell stays
+  native. **Glyph/font scaling is deliberately left to Density** (and the browser) — it
+  would require either an ancestor `transform`/`zoom` (breaks dnd-kit) or an invasive
+  em-conversion of every `BoardCard` text class (out of scope for a toolbar wave). Zoom
+  scales board *spacing*; Density scales *card padding*; together they control how much
+  fits — the two independent axes the issue calls for.
 - **Persistence:** an additive `zoom` field on the existing `useBoardToolbarPrefs`
   store (`localStorage` key `trueppm.board.toolbarPrefs.v1`, already cross-tab synced).
   Absent key defaults to `normal`, so the change is backwards-compatible without a
@@ -87,8 +98,8 @@ structural (pre-0.4 / pre-0.5) and are not a rescope signal per `personas.md`.
 | **Search: dedicated `search` @action (chosen)** | Slim payload sidesteps field-visibility; API-first + MCP-reachable ("find tasks matching X"); reuses viewset RBAC/scoping; doesn't touch the hot list path | One more route |
 | Search: `?q=` on `TaskViewSet.list` | No new route | Runs the heavy `TaskSerializer` + per-page milestone-rollup batching on every keystroke; forces field-visibility reasoning over the full payload |
 | Search: pure client-side filter over loaded cards | Zero backend, instant | Violates the API-first contract (not MCP-reachable, no server fact); no shareable semantics at project scale; AC explicitly requires the endpoint |
-| **Zoom: discrete levels (chosen)** | Coordinated tokens; crisp text; predictable | Fixed steps, not infinitely granular |
-| Zoom: continuous `transform: scale()` | Feels like Cmd± | Blurs text at non-integer scales; hit-testing/scroll math gets fiddly; layout reflow harder to reason about |
+| **Zoom: discrete CSS-sizing levels (chosen)** | Coordinated spacing tokens; dnd-kit-safe (no ancestor transform); crisp text; predictable | Fixed steps; spacing not glyph scaling |
+| Zoom: continuous `transform: scale()` / CSS `zoom` | Feels like Cmd± | **Breaks dnd-kit drag math** (pointer coords are CSS-px; an ancestor transform/zoom desyncs the drop); blurs text at non-integer scales |
 
 ## Consequences
 - **Easier:** finding a buried card (Priya/Sarah/Alex); fitting a dense multi-column
