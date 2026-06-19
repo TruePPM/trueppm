@@ -46,8 +46,13 @@ const C = {
 // ---------------------------------------------------------------------------
 interface NormPoint {
   date: string;
-  remaining: number;
-  completed: number;
+  // `null` once the sprint passes its last real snapshot (and any future day):
+  // the actual-remaining line must STOP at the last known data point rather than
+  // ride flat at the committed value across the sprint-end corner, otherwise it
+  // visibly diverges from the ideal line that declines to zero (issue 1249).
+  // Recharts skips null y-values (connectNulls defaults false), ending the line.
+  remaining: number | null;
+  completed: number | null;
   scope: number;
   ideal: number;
 }
@@ -96,7 +101,32 @@ function deriveProjectSeries(
   return { points: pts, scopeChanges: changes };
 }
 
-function deriveSprintSeries(
+/**
+ * Number of day-grid STEPS in a sprint window, i.e. the divisor that maps the
+ * ideal burndown from `committed` at step 0 down to exactly `0` at the final
+ * grid row. For an inclusive day count of N rows there are N-1 steps. Floored
+ * at 1 so a single-day sprint never divides by zero.
+ *
+ * This is the single source of truth for the ideal-line slope: both the plotted
+ * `ideal` series and the trend ("X ahead/behind of ideal") number derive from
+ * it, so the drawn dashed line and the spoken trend can never disagree by an
+ * off-by-one (issue 1249).
+ */
+export function idealSlopeDenominator(startIso: string, finishIso: string): number {
+  const inclusiveDays = daysBetween(startIso, finishIso) + 1;
+  return Math.max(inclusiveDays - 1, 1);
+}
+
+/**
+ * Ideal remaining at a given 0-based day index on the burndown grid: a straight
+ * line from `committed` (index 0) to `0` (final index). Shared by the plotted
+ * series and the trend calc so both lines live on ONE coordinate system.
+ */
+export function idealRemainingAt(committed: number, dayIndex: number, denom: number): number {
+  return committed * (1 - dayIndex / denom);
+}
+
+export function deriveSprintSeries(
   sprint: ApiSprint,
   snapshots: import('@/hooks/useSprints').SprintBurnSnapshot[],
   metric: BurnMetric,
@@ -109,27 +139,63 @@ function deriveSprintSeries(
   const committedVal =
     metric === 'points' ? (sprint.committed_points ?? 0) : (sprint.committed_task_count ?? 0);
   const totalDays = daysBetween(sprint.start_date, sprint.finish_date) + 1;
+  const denom = idealSlopeDenominator(sprint.start_date, sprint.finish_date);
   const byDate = new Map(snapshots.map((s) => [s.snapshot_date, s]));
+
+  // The actual-remaining line is only meaningful up to the last day that has a
+  // snapshot. Past that the team simply hasn't burned those days yet, so the
+  // line must END rather than ride flat at the committed value across the
+  // sprint-end/zero corner (which is what made it diverge from the ideal line —
+  // issue 1249). Day 0 is always anchored at `committed` (= ideal at day 0) so
+  // the two lines coincide at the start; gaps BEFORE the last snapshot carry the
+  // previous known remaining forward; days AFTER it are null (no line).
+  const lastSnapIso = snapshots.reduce<string | null>(
+    (max, s) => (max === null || s.snapshot_date > max ? s.snapshot_date : max),
+    null,
+  );
 
   const points: NormPoint[] = [];
   const changes: ScopeChange[] = [];
   let prevScope = committedVal;
+  let carriedRemaining = committedVal;
+  let carriedCompleted = 0;
 
   for (let i = 0; i < totalDays; i++) {
     const d = new Date(sprint.start_date + 'T00:00:00Z');
     d.setUTCDate(d.getUTCDate() + i);
     const iso = d.toISOString().slice(0, 10);
     const snap = byDate.get(iso);
-    const remaining =
-      metric === 'points'
-        ? (snap?.remaining_points ?? committedVal)
-        : (snap?.remaining_task_count ?? committedVal);
-    const completed =
-      metric === 'points' ? (snap?.completed_points ?? 0) : (snap?.completed_task_count ?? 0);
+
+    if (snap) {
+      carriedRemaining =
+        metric === 'points' ? snap.remaining_points : snap.remaining_task_count;
+      carriedCompleted =
+        metric === 'points' ? snap.completed_points : snap.completed_task_count;
+    }
+
+    // Anchor day 0 at the committed value even with no snapshot (sprint start =
+    // full backlog). Beyond the last real snapshot, leave a gap so the actual
+    // line stops instead of flat-lining to the sprint-end corner.
+    const pastLastSnap = lastSnapIso !== null && iso > lastSnapIso;
+    const remaining: number | null = snap
+      ? carriedRemaining
+      : i === 0
+        ? committedVal
+        : pastLastSnap || lastSnapIso === null
+          ? null
+          : carriedRemaining;
+    const completed: number | null = snap
+      ? carriedCompleted
+      : i === 0
+        ? 0
+        : pastLastSnap || lastSnapIso === null
+          ? null
+          : carriedCompleted;
+
     const scopeDelta =
       metric === 'points' ? (snap?.scope_change_points ?? 0) : (snap?.scope_change_task_count ?? 0);
     const curScope = committedVal + (snap ? scopeDelta : 0);
-    const ideal = committedVal * (1 - i / Math.max(totalDays - 1, 1));
+    const ideal = idealRemainingAt(committedVal, i, denom);
 
     if (snap && scopeDelta !== 0 && curScope !== prevScope) {
       changes.push({ date: iso, delta: scopeDelta, newScope: curScope });
@@ -139,9 +205,14 @@ function deriveSprintSeries(
     points.push({ date: iso, remaining, completed, scope: committedVal, ideal });
   }
 
-  const { day: dayIndex, total } = sprintDayOf(sprint.start_date, sprint.finish_date, new Date());
-  const idealNow = committedVal * (1 - dayIndex / Math.max(total, 1));
-  const latestSnap = points[Math.min(dayIndex - 1, points.length - 1)];
+  // Trend uses the SAME slope denominator as the plotted ideal so the
+  // "X ahead/behind" number matches the visual gap (issue 1249). dayIndex is
+  // 1-based from sprintDayOf; the grid is 0-based, so the elapsed grid row is
+  // dayIndex - 1.
+  const { day: dayIndex } = sprintDayOf(sprint.start_date, sprint.finish_date, new Date());
+  const elapsedRow = Math.min(dayIndex - 1, totalDays - 1);
+  const idealNow = idealRemainingAt(committedVal, elapsedRow, denom);
+  const latestSnap = points[Math.max(0, elapsedRow)];
   const actualNow = latestSnap?.remaining ?? committedVal;
   const trendAhead = idealNow - actualNow;
   const burnRate = dayIndex > 0 ? (committedVal - actualNow) / dayIndex : 0;
@@ -192,7 +263,11 @@ function BurnTooltip({
   const unit = metric === 'points' ? 'pts' : 'tasks';
   const change = scopeChanges.find((c) => c.date === label);
   const idealVal = pt.ideal ?? 0;
-  const delta = variant === 'burndown' ? idealVal - pt.remaining : 0;
+  // remaining/completed are null on days past the last snapshot (issue 1249);
+  // treat those as no-data in the tooltip rather than rendering NaN.
+  const remainingVal = pt.remaining ?? 0;
+  const completedVal = pt.completed ?? 0;
+  const delta = variant === 'burndown' ? idealVal - remainingVal : 0;
   const deltaLabel =
     delta >= 0 ? `${Math.round(delta)} ${unit} ahead` : `${Math.round(-delta)} ${unit} behind`;
   const deltaColor = delta >= 0 ? 'text-semantic-on-track' : 'text-semantic-critical';
@@ -206,7 +281,7 @@ function BurnTooltip({
         <p className="text-neutral-text-secondary">
           Remaining{' '}
           <span className="tppm-mono text-neutral-text-primary ml-1">
-            {Math.round(pt.remaining)} {unit}
+            {Math.round(remainingVal)} {unit}
           </span>
         </p>
       )}
@@ -214,7 +289,7 @@ function BurnTooltip({
         <p className="text-neutral-text-secondary">
           Completed{' '}
           <span className="tppm-mono text-neutral-text-primary ml-1">
-            {Math.round(pt.completed)} {unit}
+            {Math.round(completedVal)} {unit}
           </span>
         </p>
       )}
@@ -449,10 +524,15 @@ export function BurnChart({
       effectiveMetric === 'points'
         ? (sprint?.committed_points ?? 0)
         : (sprint?.committed_task_count ?? 0);
-    // The latest non-empty snapshot drives "remaining"; with no snapshots the
-    // series is a flat baseline at the committed value (PLANNED / not started).
+    // The latest day that actually has a remaining value drives the caption.
+    // Grid rows past the last snapshot are now null (issue 1249), so we can't
+    // read the final row blindly — walk back to the last non-null remaining,
+    // falling back to the committed value (PLANNED / not started).
     const lastRemaining =
-      points && points.length > 0 ? points[points.length - 1].remaining : committedVal;
+      points?.reduce<number>(
+        (last, p) => (p.remaining ?? last),
+        committedVal,
+      ) ?? committedVal;
 
     // Caption is split into prose + a single contiguous numeric chunk so the
     // `.tppm-mono` count never swaps font mid-token (rule 8c). The mono chunk
