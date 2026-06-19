@@ -75,7 +75,7 @@ describe('ProjectArchivePage lifecycle (#967)', () => {
 
     expect(transferMutate).toHaveBeenCalledWith(
       { new_owner_user_id: 'u-2' },
-      expect.objectContaining({ onSuccess: expect.any(Function) }),
+      expect.objectContaining({ onSuccess: expect.any(Function) as unknown }),
     );
   });
 

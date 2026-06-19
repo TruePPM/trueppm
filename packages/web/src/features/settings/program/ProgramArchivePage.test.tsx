@@ -78,7 +78,7 @@ describe('ProgramArchivePage lifecycle (#967)', () => {
 
     expect(transferMutate).toHaveBeenCalledWith(
       { programId: 'p-1', new_owner_user_id: 'u-2', new_lead_user_id: undefined },
-      expect.objectContaining({ onSuccess: expect.any(Function) }),
+      expect.objectContaining({ onSuccess: expect.any(Function) as unknown }),
     );
   });
 
