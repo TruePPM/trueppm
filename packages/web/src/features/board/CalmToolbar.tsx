@@ -18,6 +18,7 @@ import type { BoardDensity, EvmMode } from './BoardCard';
 import type { BoardLayoutVariant, BacklogDensity } from '@/hooks/useBoardToolbarPrefs';
 import { BoardViewDropdown } from './BoardViewDropdown';
 import { BoardSprintSwitcher } from './BoardSprintSwitcher';
+import { BoardSearchControl } from './BoardSearchControl';
 import type { BoardViewConfig } from '@/hooks/useBoardSavedViews';
 import type { ApiSprint } from '@/types';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
@@ -218,6 +219,13 @@ export interface CalmToolbarProps {
   projectName?: string;
   activeCount: number;
   backlogCount: number;
+  // Card search (#323) — query is mirrored to ?q= by BoardView; the dim set is
+  // applied there. The control is keyboard-focused via `/` (searchInputRef).
+  searchQuery: string;
+  onSearchQueryChange: (q: string) => void;
+  searchMatchCount: number;
+  isSearching: boolean;
+  searchInputRef: RefObject<HTMLInputElement | null>;
   // Saved views
   currentViewConfig: BoardViewConfig;
   activeViewId: string | null;
@@ -336,6 +344,17 @@ export function CalmToolbar(props: CalmToolbarProps) {
           {props.activeCount} active · {props.backlogCount} in backlog
         </span>
       </div>
+
+      <span aria-hidden="true" className="h-4 w-px bg-neutral-border" />
+
+      {/* Card search (#323) — leads the primary controls. */}
+      <BoardSearchControl
+        value={props.searchQuery}
+        onChange={props.onSearchQueryChange}
+        matchCount={props.searchMatchCount}
+        isSearching={props.isSearching}
+        inputRef={props.searchInputRef}
+      />
 
       <span aria-hidden="true" className="h-4 w-px bg-neutral-border" />
 

@@ -9,6 +9,7 @@ export interface BoardKeyboardHandlers {
   onShowDeps?: () => void;
   onShowComments?: () => void;
   onShowCheatsheet?: () => void;
+  onFocusSearch?: () => void;
   onCloseOverlay?: () => void;
 }
 
@@ -102,6 +103,14 @@ export function useBoardKeyboard(handlers: BoardKeyboardHandlers, enabled = true
         case '?':
           if (handlers.onShowCheatsheet) {
             handlers.onShowCheatsheet();
+            e.preventDefault();
+          }
+          break;
+        case '/':
+          // Focus the card search box (#323). isTypingInInput already exempts
+          // fields, so `/` typed inside a form never steals focus to search.
+          if (handlers.onFocusSearch) {
+            handlers.onFocusSearch();
             e.preventDefault();
           }
           break;

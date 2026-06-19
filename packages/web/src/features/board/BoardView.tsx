@@ -87,6 +87,7 @@ import { ScheduleTaskDialog } from '@/features/schedule/ScheduleTaskDialog';
 import { CalmToolbar } from './CalmToolbar';
 import { SprintPanel } from './SprintPanel';
 import { useBoardToolbarPrefs } from '@/hooks/useBoardToolbarPrefs';
+import { useBoardCardSearch } from '@/hooks/useBoardCardSearch';
 import { useProject } from '@/hooks/useProject';
 import { useActiveSprint, useSprints } from '@/hooks/useSprints';
 import { useCanManageScope } from '@/hooks/useCanManageScope';
@@ -1226,6 +1227,35 @@ export function BoardView() {
   const [chainHoverTaskId, setChainHoverTaskId] = useState<string | null>(null);
   const ariaLiveRef = useRef<HTMLDivElement>(null);
 
+  // Board card search (#323, ADR-0145). The query mirrors to ?q= for shareable
+  // links; matching IDs feed the existing dim plumbing via effectiveHighlightIds.
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [searchQuery, setSearchQuery] = useState<string>(() => searchParams.get('q') ?? '');
+  const onSearchQueryChange = useCallback(
+    (q: string) => {
+      setSearchQuery(q);
+      setSearchParams(
+        (prev: URLSearchParams) => {
+          if (q.trim()) prev.set('q', q);
+          else prev.delete('q');
+          return prev;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+  const {
+    matchIds: searchMatchIds,
+    matchCount: searchMatchCount,
+    isSearching,
+  } = useBoardCardSearch(projectId, searchQuery);
+  // Search dimming reuses the #182 dep-chain dim set. A query with matches takes
+  // precedence over a transient dep-hover highlight; an empty query (or one that
+  // matches nothing) leaves the board undimmed so it never greys out wholesale.
+  const searchActive = searchQuery.trim().length > 0 && searchMatchIds.size > 0;
+  const effectiveHighlightIds = searchActive ? searchMatchIds : highlightedTaskIds;
+
   // Snapshot of current toolbar state for "Save view" — keeps the dropdown in sync.
   const currentViewConfig: BoardViewConfig = useMemo(
     () => ({
@@ -1934,6 +1964,7 @@ export function BoardView() {
       onMoveColumnFocus: b3OverlayOpen ? undefined : moveFocusInPhase,
       onShowDeps: !b3OverlayOpen && focusedTask ? () => handleShowDeps(focusedTask) : undefined,
       onShowCheatsheet: b3OverlayOpen ? undefined : () => setShowCheatsheet(true),
+      onFocusSearch: b3OverlayOpen ? undefined : () => searchInputRef.current?.focus(),
       onCloseOverlay: b3OverlayOpen ? closeAllOverlays : undefined,
     },
     addTaskPhase === null,
@@ -1966,6 +1997,11 @@ export function BoardView() {
             projectName={projectDetail?.name}
             activeCount={committedTasks.filter((t) => !t.isSummary).length}
             backlogCount={backlogTasks.length}
+            searchQuery={searchQuery}
+            onSearchQueryChange={onSearchQueryChange}
+            searchMatchCount={searchMatchCount}
+            isSearching={isSearching}
+            searchInputRef={searchInputRef}
             currentViewConfig={currentViewConfig}
             activeViewId={activeViewId}
             onApplyView={applyViewConfig}
@@ -2282,7 +2318,9 @@ export function BoardView() {
                     onMenuMove: handleMenuMove,
                     onAddTask: handleAddTask,
                     focusedCardId,
-                    highlightedTaskIds,
+                    // Search match set (when active) overrides the #182 dep-hover
+                    // dim set — see effectiveHighlightIds (#323).
+                    highlightedTaskIds: effectiveHighlightIds,
                     overallocByResourcePerTask,
                     onCardFocus: handleCardFocus,
                     onShowDeps: handleShowDeps,
