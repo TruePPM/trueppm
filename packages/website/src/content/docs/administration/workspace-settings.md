@@ -111,6 +111,21 @@ Member list responses include `sso: false` and `two_fa: false` in the community
 edition. SSO and two-factor authentication enforcement are Enterprise features;
 these fields are placeholders and carry no functional meaning in OSS.
 
+### Export members as CSV
+
+The Members page provides an **Export CSV** action that downloads the member
+list as a CSV file. The export is generated entirely in the browser — it
+requires no server endpoint and never leaves the client until you save it.
+
+- The file is named `trueppm-workspace-members.csv`.
+- Columns are **Name**, **Email**, **Role**, **Status**, and **Groups** (a
+  member's groups are joined into one semicolon-separated cell).
+- The export reflects the **currently visible rows** — if a search term or role
+  filter is active, only the matching members are exported. Clear the filters to
+  export the full roster.
+
+This is a 0.3 release feature.
+
 ### Access
 
 - **Workspace Admin+** can list all members and perform role/status changes.

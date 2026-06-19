@@ -3,7 +3,8 @@ import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
-import { WorkspaceMembersPage } from './WorkspaceMembersPage';
+import { WorkspaceMembersPage, buildMembersCsv } from './WorkspaceMembersPage';
+import type { WorkspaceMember } from '../hooks/useWorkspaceMembers';
 
 // Mock apiClient so we can control responses without a running server.
 const { getMock, patchMock, deleteMock, postMock } = vi.hoisted(() => ({
@@ -254,17 +255,93 @@ describe('WorkspaceMembersPage — invite error alert', () => {
   });
 });
 
-describe('WorkspaceMembersPage — unwired buttons disabled (#969)', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
+describe('buildMembersCsv — member CSV export (issue 969)', () => {
+  function member(overrides: Partial<WorkspaceMember>): WorkspaceMember {
+    return {
+      id: '1',
+      name: 'Anika Krishnan',
+      initials: 'AK',
+      color: '#3E8C6D',
+      email: 'anika.k@truescope.io',
+      role: 'Admin',
+      roleValue: 300,
+      groups: ['Propulsion', 'Leadership'],
+      projectCount: 5,
+      lastActive: '2m ago',
+      status: 'active',
+      sso: true,
+      twoFa: true,
+      ...overrides,
+    };
+  }
+
+  it('emits a header row with the visible columns', () => {
+    const csv = buildMembersCsv([]);
+    expect(csv).toBe('Name,Email,Role,Status,Groups');
   });
 
-  it('disables Export CSV until the export endpoint ships', async () => {
+  it('serializes name, email, role, status, and semicolon-joined groups per row', () => {
+    const csv = buildMembersCsv([member({})]);
+    const [, row] = csv.split('\n');
+    expect(row).toBe('Anika Krishnan,anika.k@truescope.io,Admin,active,Propulsion; Leadership');
+  });
+
+  it('quotes and escapes cells containing commas, quotes, or newlines', () => {
+    const csv = buildMembersCsv([
+      member({ name: 'Smith, Jordan', groups: ['Ops "core"', 'Line\nbreak'] }),
+    ]);
+    // Name with a comma is quoted; embedded double-quotes are doubled; the
+    // newline in a group keeps the cell quoted so the record stays intact.
+    // Assert against the whole CSV — the Groups cell contains an embedded
+    // newline, so splitting on '\n' would tear the quoted record in two.
+    expect(csv).toContain('"Smith, Jordan"');
+    expect(csv).toContain('"Ops ""core""; Line\nbreak"');
+  });
+
+  it('renders one row per member', () => {
+    const csv = buildMembersCsv([
+      member({ id: '1' }),
+      member({ id: '2', name: 'Jordan Mehta', email: 'j@x.io' }),
+    ]);
+    expect(csv.split('\n')).toHaveLength(3); // header + 2 rows
+  });
+});
+
+describe('WorkspaceMembersPage — Export CSV (issue 969)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
     setupMocks();
+  });
+
+  it('enables Export CSV once members load and triggers a CSV download on click', async () => {
+    const user = userEvent.setup();
+    // Stub the blob/anchor download path so click() doesn't navigate in jsdom.
+    const createUrl = vi.fn(() => 'blob:members');
+    const revokeUrl = vi.fn();
+    vi.stubGlobal('URL', { ...URL, createObjectURL: createUrl, revokeObjectURL: revokeUrl });
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => {});
+
     render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+
     const exportBtn = await screen.findByRole('button', { name: 'Export CSV' });
-    expect(exportBtn).toBeDisabled();
-    expect(exportBtn).toHaveAttribute('title', expect.stringContaining('#969'));
+    await waitFor(() => expect(exportBtn).toBeEnabled());
+
+    await user.click(exportBtn);
+
+    expect(createUrl).toHaveBeenCalledTimes(1);
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    expect(revokeUrl).toHaveBeenCalledTimes(1);
+
+    clickSpy.mockRestore();
+    vi.unstubAllGlobals();
+  });
+});
+
+describe('WorkspaceMembersPage — Resend deferred (issue 969)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
   });
 
   it('disables Resend on pending invites until the resend endpoint ships', async () => {

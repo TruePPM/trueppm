@@ -207,6 +207,37 @@ function MemberTableRow({ m, last, onRoleChange, onRemove, hasError }: MemberTab
 
 const ROLE_OPTIONS = ['Admin', 'PM', 'Lead', 'Member', 'Viewer'] as const;
 
+/** Quote a CSV cell only when it contains a comma, quote, or newline. */
+function csvCell(value: string): string {
+  return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+}
+
+/**
+ * Serialize the visible member columns (name, email, role, status, groups) to
+ * CSV. Exported for unit testing — pure and deterministic for a given member
+ * list. Groups collapse to a single semicolon-joined cell so the row stays
+ * one CSV record regardless of group count.
+ */
+export function buildMembersCsv(members: WorkspaceMember[]): string {
+  const header = ['Name', 'Email', 'Role', 'Status', 'Groups'].map(csvCell).join(',');
+  const rows = members.map((m) =>
+    [m.name, m.email, m.role, m.status, m.groups.join('; ')].map(csvCell).join(','),
+  );
+  return [header, ...rows].join('\n');
+}
+
+function exportMembersCsv(members: WorkspaceMember[]): void {
+  const blob = new Blob([buildMembersCsv(members)], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'trueppm-workspace-members.csv';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
 /** Workspace > Members management page. */
 export function WorkspaceMembersPage() {
   const { members, pendingInvites, isLoading } = useWorkspaceMembers();
@@ -290,11 +321,18 @@ export function WorkspaceMembersPage() {
         subtitle="People with access to this workspace. Workspace role is the highest a member can act with anywhere."
         action={
           <div className="flex gap-2">
-            {/* Member CSV export not wired yet — disabled until it ships (#969). */}
+            {/* Client-side CSV of the currently-visible member rows (name, email,
+              role, status, groups) — mirrors what the table shows under the
+              active search/role filter, so the export tracks the view. */}
             <button
               type="button"
-              disabled
-              title="Member CSV export isn't available yet — tracked in #969"
+              onClick={() => exportMembersCsv(visibleMembers)}
+              disabled={visibleMembers.length === 0}
+              title={
+                visibleMembers.length === 0
+                  ? 'No members to export'
+                  : 'Download the visible members as a CSV file'
+              }
               className="px-3 py-1.5 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
             >
               Export CSV
