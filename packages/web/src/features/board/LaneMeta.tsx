@@ -168,7 +168,7 @@ export function LaneMeta({
               autoCapitalize="off"
               spellCheck={false}
               className="flex-1 text-xs font-semibold text-neutral-text-primary
-                outline-none border border-dashed border-neutral-border rounded px-[6px] py-[3px]
+                outline-none border border-dashed border-neutral-border rounded-control px-[6px] py-[3px]
                 bg-neutral-surface focus-visible:ring-2 focus-visible:ring-brand-primary"
             >
               {phaseName}
@@ -185,7 +185,7 @@ export function LaneMeta({
             title={addTaskLabel ?? `Add task to ${phaseName}`}
             aria-label={addTaskLabel ?? `Add task to ${phaseName}`}
             data-testid={`add-task-${phaseId}`}
-            className="flex-shrink-0 w-[22px] h-[22px] flex items-center justify-center rounded
+            className="flex-shrink-0 w-[22px] h-[22px] flex items-center justify-center rounded-control
               border border-neutral-border bg-neutral-surface text-neutral-text-secondary
               hover:border-brand-primary/50 hover:text-brand-primary
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"

@@ -25,11 +25,17 @@ vi.mock('@/hooks/useBoardSavedViews', () => ({
 
 function Harness(overrides: Partial<CalmToolbarProps> = {}) {
   const ref = useRef<HTMLButtonElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
   const props: CalmToolbarProps = {
     projectId: 'project-1',
     projectName: 'Test Project',
     activeCount: 12,
     backlogCount: 4,
+    searchQuery: '',
+    onSearchQueryChange: vi.fn(),
+    searchMatchCount: 0,
+    isSearching: false,
+    searchInputRef: searchRef,
     currentViewConfig: { sort: 'priority', showWip: true, showColTints: true, evmMode: 'off', showCost: false, riskLinkedOnly: false },
     activeViewId: null,
     onApplyView: vi.fn(),
@@ -41,6 +47,8 @@ function Harness(overrides: Partial<CalmToolbarProps> = {}) {
     onSortChange: vi.fn(),
     density: 'comfortable',
     onDensityChange: vi.fn(),
+    zoom: 'normal',
+    onZoomChange: vi.fn(),
     backlogDensity: 'comfortable',
     onBacklogDensityChange: vi.fn(),
     layout: 'rail',

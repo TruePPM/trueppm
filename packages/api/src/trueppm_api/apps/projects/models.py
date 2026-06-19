@@ -1485,6 +1485,13 @@ class Task(VersionedModel):
             # Postgres visits every project row on a near-high-water-mark resync
             # (#810). The composite turns it into a single index range seek.
             models.Index(fields=["project", "server_version"], name="task_proj_serverver_idx"),
+            # Board card full-text search (#323, ADR-0145). gin_trgm_ops GIN indexes
+            # turn the `?q=` board search's `name ILIKE '%q%' OR notes ILIKE '%q%'`
+            # into index scans instead of per-row seq-scans — the same pattern the
+            # backlog search uses (0050_backlog_item_trgm_search). pg_trgm is already
+            # enabled by that earlier migration.
+            GinIndex(fields=["name"], opclasses=["gin_trgm_ops"], name="task_name_trgm"),
+            GinIndex(fields=["notes"], opclasses=["gin_trgm_ops"], name="task_notes_trgm"),
         ]
         constraints = [
             models.UniqueConstraint(

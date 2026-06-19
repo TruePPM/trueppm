@@ -15,9 +15,11 @@
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import type { BoardSortKey } from '@/hooks/useBoardSavedViews';
 import type { BoardDensity, EvmMode } from './BoardCard';
-import type { BoardLayoutVariant, BacklogDensity } from '@/hooks/useBoardToolbarPrefs';
+import type { BoardLayoutVariant, BacklogDensity, BoardZoom } from '@/hooks/useBoardToolbarPrefs';
 import { BoardViewDropdown } from './BoardViewDropdown';
 import { BoardSprintSwitcher } from './BoardSprintSwitcher';
+import { BoardSearchControl } from './BoardSearchControl';
+import { BoardZoomControl } from './BoardZoomControl';
 import type { BoardViewConfig } from '@/hooks/useBoardSavedViews';
 import type { ApiSprint } from '@/types';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
@@ -98,7 +100,7 @@ export function ToolbarChip({
           role="dialog"
           aria-label={ariaLabel}
           className={[
-            'absolute top-full z-20 mt-1 min-w-[220px] rounded-md border border-neutral-border bg-neutral-surface p-2',
+            'absolute top-full z-20 mt-1 min-w-[220px] rounded-card border border-neutral-border bg-neutral-surface p-2',
             align === 'right' ? 'right-0' : 'left-0',
           ].join(' ')}
         >
@@ -218,6 +220,13 @@ export interface CalmToolbarProps {
   projectName?: string;
   activeCount: number;
   backlogCount: number;
+  // Card search (issue 323) — query is mirrored to ?q= by BoardView; the dim set is
+  // applied there. The control is keyboard-focused via `/` (searchInputRef).
+  searchQuery: string;
+  onSearchQueryChange: (q: string) => void;
+  searchMatchCount: number;
+  isSearching: boolean;
+  searchInputRef: RefObject<HTMLInputElement | null>;
   // Saved views
   currentViewConfig: BoardViewConfig;
   activeViewId: string | null;
@@ -235,6 +244,9 @@ export interface CalmToolbarProps {
   // Board card density (existing)
   density: BoardDensity;
   onDensityChange: (d: BoardDensity) => void;
+  // Board-local zoom (issue 379) — independent spacing axis from Density.
+  zoom: BoardZoom;
+  onZoomChange: (z: BoardZoom) => void;
   // Backlog density (new — persisted via useBoardToolbarPrefs)
   backlogDensity: BacklogDensity;
   onBacklogDensityChange: (d: BacklogDensity) => void;
@@ -339,6 +351,17 @@ export function CalmToolbar(props: CalmToolbarProps) {
 
       <span aria-hidden="true" className="h-4 w-px bg-neutral-border" />
 
+      {/* Card search (issue 323) — leads the primary controls. */}
+      <BoardSearchControl
+        value={props.searchQuery}
+        onChange={props.onSearchQueryChange}
+        matchCount={props.searchMatchCount}
+        isSearching={props.isSearching}
+        inputRef={props.searchInputRef}
+      />
+
+      <span aria-hidden="true" className="h-4 w-px bg-neutral-border" />
+
       {/* Primary chips */}
       <ToolbarChip
         label="Group"
@@ -350,7 +373,7 @@ export function CalmToolbar(props: CalmToolbarProps) {
         <div className="flex flex-col gap-1">
           <button
             type="button"
-            className="rounded px-2 py-1 text-left text-xs bg-brand-primary/10 text-brand-primary-dark dark:text-brand-primary"
+            className="rounded-control px-2 py-1 text-left text-xs bg-brand-primary/10 text-brand-primary-dark dark:text-brand-primary"
             disabled
           >
             Phase (WBS rollup)
@@ -380,7 +403,7 @@ export function CalmToolbar(props: CalmToolbarProps) {
                 setOpenChip(null);
               }}
               className={[
-                'rounded px-2 py-1 text-left text-xs',
+                'rounded-control px-2 py-1 text-left text-xs',
                 'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none',
                 props.sort === key
                   ? 'bg-brand-primary/10 text-brand-primary-dark dark:text-brand-primary'
@@ -414,7 +437,7 @@ export function CalmToolbar(props: CalmToolbarProps) {
                 aria-label={`Board card density: ${DENSITY_LABELS[key]}`}
                 onClick={() => props.onDensityChange(key)}
                 className={[
-                  'rounded px-2 py-1 text-left text-xs',
+                  'rounded-control px-2 py-1 text-left text-xs',
                   'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none',
                   props.density === key
                     ? 'bg-brand-primary/10 text-brand-primary-dark dark:text-brand-primary'
@@ -438,7 +461,7 @@ export function CalmToolbar(props: CalmToolbarProps) {
                 aria-label={`Backlog card density: ${BACKLOG_DENSITY_LABELS[key]}`}
                 onClick={() => props.onBacklogDensityChange(key)}
                 className={[
-                  'rounded px-2 py-1 text-left text-xs',
+                  'rounded-control px-2 py-1 text-left text-xs',
                   'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none',
                   props.backlogDensity === key
                     ? 'bg-brand-primary/10 text-brand-primary-dark dark:text-brand-primary'
@@ -451,6 +474,11 @@ export function CalmToolbar(props: CalmToolbarProps) {
           </fieldset>
         </div>
       </ToolbarChip>
+
+      {/* Board zoom (issue 379) — desk task, hidden on mobile; independent of Density. */}
+      {breakpoint !== 'sm' && (
+        <BoardZoomControl zoom={props.zoom} onZoomChange={props.onZoomChange} />
+      )}
 
       <span aria-hidden="true" className="h-4 w-px bg-neutral-border" />
 
@@ -573,7 +601,7 @@ export function CalmToolbar(props: CalmToolbarProps) {
                 value={props.evmMode}
                 onChange={(e) => props.onEvmChange(e.target.value as EvmMode)}
                 aria-label="EVM indicators"
-                className="border border-neutral-border rounded px-1.5 py-0.5 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
+                className="border border-neutral-border rounded-control px-1.5 py-0.5 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
               >
                 {(Object.keys(EVM_LABELS) as EvmMode[]).map((m) => (
                   <option key={m} value={m}>
@@ -594,7 +622,7 @@ export function CalmToolbar(props: CalmToolbarProps) {
               aria-pressed={props.workshopMode}
               aria-label={props.workshopMode ? 'Exit workshop mode' : 'Start workshop session'}
               className={[
-                'rounded px-2 py-1 text-left text-xs',
+                'rounded-control px-2 py-1 text-left text-xs',
                 'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none',
                 'disabled:opacity-50',
                 props.workshopMode
@@ -625,7 +653,7 @@ function MoreItem({
       type="button"
       onClick={onClick}
       aria-label={ariaLabel}
-      className="rounded px-2 py-1 text-left text-xs text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
+      className="rounded-control px-2 py-1 text-left text-xs text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
     >
       {children}
     </button>

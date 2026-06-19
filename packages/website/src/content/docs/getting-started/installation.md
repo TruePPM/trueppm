@@ -57,13 +57,29 @@ docker compose exec api cat /tmp/trueppm_admin_password
 docker compose exec api rm  /tmp/trueppm_admin_password   # delete after retrieval
 ```
 
-### Seed a demo project (optional)
+### Load demo data (optional)
+
+The quickest way to see TruePPM with realistic data is the in-app **Load demo data**
+button on the **Programs** page. It imports the **Atlas Platform Launch** sample — a
+hybrid program with a live sprint-to-milestone bridge, anchor-relative dates, and
+replayed history, so the demo always reads as current rather than aging into a
+fixed-date snapshot. If more than one sample is bundled, the button opens a picker.
+
+:::note[Ships in 0.3]
+The in-app sample picker is merged to `main` but not yet in a tagged build — it ships
+in 0.3. See the [sample projects guide](/getting-started/sample-projects/) and the
+[roadmap](/overview/roadmap/).
+:::
+
+Prefer the command line, or want the six persona logins used in the
+[per-persona walkthrough](/getting-started/quickstart/)? Seed the "Platform Migration"
+demo instead:
 
 ```bash
 docker compose exec api python manage.py seed_demo_project --with-personas
 ```
 
-Creates a "Platform Migration" project with eight closed sprints, an active sprint, baselines, resources, a retro, and six persona logins (all password `demo`). See [Quickstart](/getting-started/quickstart/) for a per-persona walkthrough.
+Creates a "Platform Migration" project with eight closed sprints, an active sprint, baselines, resources, a retro, and six persona logins (all password `demo`). The bundled samples can also be loaded from the CLI with `load_sample_project --sample atlas-platform-launch` (see [management commands](/administration/management-commands/)).
 
 ### Verify
 

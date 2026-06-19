@@ -240,7 +240,7 @@ export function ViewsMenu() {
         aria-expanded={isOpen}
         aria-label="Customize views"
         onClick={() => setIsOpen((p) => !p)}
-        className="inline-flex shrink-0 items-center gap-1 h-8 px-2 rounded text-sm font-medium text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface"
+        className="inline-flex shrink-0 items-center gap-1 h-8 px-2 rounded-control text-sm font-medium text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface"
       >
         <EyeIcon className="text-current" aria-hidden="true" />
         <span className="hidden lg:inline">Views</span>
@@ -251,7 +251,7 @@ export function ViewsMenu() {
         <div
           role="menu"
           aria-label="Customize views"
-          className="absolute top-full right-0 mt-1 z-50 w-72 bg-chrome-surface rounded-lg border border-neutral-border flex flex-col py-1"
+          className="absolute top-full right-0 mt-1 z-50 w-72 bg-chrome-surface rounded-card border border-neutral-border flex flex-col py-1"
         >
           <div className="px-4 pt-1 pb-2">
             <h2 className="text-sm font-semibold text-neutral-text-primary leading-tight">

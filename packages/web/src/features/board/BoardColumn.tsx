@@ -37,7 +37,7 @@ export function BoardColumn({
       className={`
         flex flex-col flex-shrink-0 w-[85vw] md:w-auto md:flex-1 md:min-w-[240px]
         snap-start
-        rounded-lg p-3 gap-2
+        rounded-card p-3 gap-2
         transition-colors duration-150
         ${
           isOver && isDragActive

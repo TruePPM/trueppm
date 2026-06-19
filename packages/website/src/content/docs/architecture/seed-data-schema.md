@@ -13,8 +13,8 @@ One seed document describes one program and all of its projects. The JSON
 Schema is the contract:
 
 - **v2** — `packages/api/src/trueppm_api/apps/projects/schemas/seed_v2.json`
-  ([ADR-0114](https://gitlab.com/trueppm/trueppm-suite/-/blob/main/docs/adr/0114-seed-schema-v2-relative-dates-event-replay.md)).
-- **v1** — `seed_v1.json` ([ADR-0109](https://gitlab.com/trueppm/trueppm-suite/-/blob/main/docs/adr/0109-canonical-json-seed-import-export-schema.md));
+  ([ADR-0114](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0114-seed-schema-v2-relative-dates-event-replay.md)).
+- **v1** — `seed_v1.json` ([ADR-0109](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0109-canonical-json-seed-import-export-schema.md));
   still loads. v2 is an additive superset.
 
 `validate_seed()` checks a document against the schema for its major version and
@@ -38,7 +38,7 @@ a matching `code` is replaced (wipe-then-recreate), not duplicated.
 **Three-point estimates as an all-or-none sub-object.** A task's PERT estimate
 is an `estimate: { optimistic, most_likely, pessimistic }` sub-object. Modelling
 it as a single object makes the all-or-none invariant
-([ADR-0093](https://gitlab.com/trueppm/trueppm-suite/-/blob/main/docs/adr/0093-msproject-three-point-pert-mapping.md))
+([ADR-0093](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0093-msproject-three-point-pert-mapping.md))
 structurally enforceable: a task has all three points or none. Imported
 estimates are written as accepted, bypassing estimation governance.
 
@@ -58,8 +58,8 @@ The implemented v2.0 action set covers status, assignment, estimate, points,
 comment, AC-met, sprint activate/close, scope inject/resolve, baseline capture,
 and risk status. `retro.*` and `time.log` are deferred — they need the retro and
 time-entry models respectively
-([#1109](https://gitlab.com/trueppm/trueppm-suite/-/issues/1109),
-[#926](https://gitlab.com/trueppm/trueppm-suite/-/issues/926)).
+([#1109](https://gitlab.com/trueppm/trueppm/-/issues/1109),
+[#926](https://gitlab.com/trueppm/trueppm/-/issues/926)).
 
 ## Authoring a new sample
 

@@ -53,7 +53,7 @@ export function BacklogDemoteConfirmDialog({
         className="absolute inset-0 bg-black/30"
         onClick={onCancel}
       />
-      <div className="relative bg-neutral-surface border border-neutral-border rounded-lg max-w-md w-full p-5">
+      <div className="relative bg-neutral-surface border border-neutral-border rounded-card max-w-md w-full p-5">
         <h2
           id="backlog-demote-heading"
           className="text-sm font-semibold text-neutral-text-primary"
@@ -73,7 +73,7 @@ export function BacklogDemoteConfirmDialog({
           <button
             type="button"
             onClick={onCancel}
-            className="border border-neutral-border rounded px-3 py-1.5 text-sm text-neutral-text-primary
+            className="border border-neutral-border rounded-control px-3 py-1.5 text-sm text-neutral-text-primary
               hover:bg-neutral-surface-raised
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
           >
@@ -83,7 +83,7 @@ export function BacklogDemoteConfirmDialog({
             ref={confirmRef}
             type="button"
             onClick={onConfirm}
-            className="bg-brand-primary border border-brand-primary text-white rounded px-3 py-1.5 text-sm font-medium
+            className="bg-brand-primary border border-brand-primary text-white rounded-control px-3 py-1.5 text-sm font-medium
               hover:bg-brand-primary-dark
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
           >

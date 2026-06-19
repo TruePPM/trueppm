@@ -232,7 +232,7 @@ function Header({
         <button
           type="button"
           onClick={onLinkMilestone}
-          className="flex-shrink-0 inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium
+          className="flex-shrink-0 inline-flex items-center gap-1 rounded-control px-2.5 py-1.5 text-xs font-medium
             text-brand-primary hover:bg-chrome-row-hover
             focus-visible:ring-2 focus-visible:ring-brand-primary
             focus-visible:ring-offset-1 focus-visible:outline-none"
@@ -247,7 +247,7 @@ function Header({
         aria-expanded={isOpen}
         aria-controls={`sprint-panel-body-${sprint.id}`}
         aria-label={isOpen ? `Collapse ${iterationLower} panel` : `Expand ${iterationLower} panel`}
-        className="flex-shrink-0 w-11 h-11 rounded-md flex items-center justify-center
+        className="flex-shrink-0 w-11 h-11 rounded-control flex items-center justify-center
           text-neutral-text-secondary hover:bg-chrome-row-hover
           focus-visible:ring-2 focus-visible:ring-brand-primary
           focus-visible:ring-offset-1 focus-visible:outline-none"
@@ -322,7 +322,7 @@ function WipChip({ count, limit, onClick }: WipChipProps) {
             ? `WIP at limit: ${count} in progress, limit ${limit}`
             : `WIP within limit: ${count} in progress, limit ${limit}`
       }
-      className={`tppm-mono inline-flex items-center gap-1 rounded px-1 -mx-1
+      className={`tppm-mono inline-flex items-center gap-1 rounded-control px-1 -mx-1
         focus-visible:ring-2 focus-visible:ring-brand-primary
         focus-visible:ring-offset-1 focus-visible:outline-none hover:bg-chrome-row-hover
         ${colorClass}`}
@@ -348,7 +348,7 @@ function VelocityCard({ projectId, velocity, isLoading, targetMilestoneId }: Vel
   // sprints-to-complete range, which indirectly reveals the gated velocity band).
   const suppressed = velocity?.velocity_suppressed === true;
   return (
-    <div className="rounded-md border border-neutral-border bg-neutral-surface p-3">
+    <div className="rounded-card border border-neutral-border bg-neutral-surface p-3">
       <h3 className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-2">
         Velocity
       </h3>
@@ -419,7 +419,7 @@ function CapacityCard({ sprint, canEdit, isSaving, onSave }: CapacityCardProps) 
   const status = planned !== null && committed !== null ? capacityStatus(planned, committed) : null;
 
   return (
-    <div className="rounded-md border border-neutral-border bg-neutral-surface p-3">
+    <div className="rounded-card border border-neutral-border bg-neutral-surface p-3">
       <h3 className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-2">
         Capacity
       </h3>
@@ -448,7 +448,7 @@ function CapacityCard({ sprint, canEdit, isSaving, onSave }: CapacityCardProps) 
             disabled={isSaving}
             aria-label="Planned story-point capacity"
             className="tppm-mono w-16 text-right text-sm font-semibold
-              border border-neutral-border rounded px-1 py-0.5
+              border border-neutral-border rounded-control px-1 py-0.5
               focus-visible:ring-2 focus-visible:ring-brand-primary
               focus-visible:ring-offset-1 focus-visible:outline-none"
           />
@@ -461,7 +461,7 @@ function CapacityCard({ sprint, canEdit, isSaving, onSave }: CapacityCardProps) 
                 ? 'Set planned story-point capacity'
                 : `Edit planned story-point capacity, currently ${planned}`
             }
-            className={`flex items-center gap-1 text-sm font-semibold rounded px-1 -mx-1
+            className={`flex items-center gap-1 text-sm font-semibold rounded-control px-1 -mx-1
               cursor-pointer hover:bg-chrome-row-hover
               focus-visible:ring-2 focus-visible:ring-brand-primary
               focus-visible:ring-offset-1 focus-visible:outline-none
@@ -615,7 +615,7 @@ function WipCard({ sprint, canEdit, isSaving, onSave }: WipCardProps) {
   };
 
   return (
-    <div className="rounded-md border border-neutral-border bg-neutral-surface p-3">
+    <div className="rounded-card border border-neutral-border bg-neutral-surface p-3">
       <h3 className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-2">
         Work in progress
       </h3>
@@ -644,7 +644,7 @@ function WipCard({ sprint, canEdit, isSaving, onSave }: WipCardProps) {
             disabled={isSaving}
             aria-label="WIP limit (in-progress task ceiling)"
             className="tppm-mono w-16 text-right text-sm font-semibold
-              border border-neutral-border rounded px-1 py-0.5
+              border border-neutral-border rounded-control px-1 py-0.5
               focus-visible:ring-2 focus-visible:ring-brand-primary
               focus-visible:ring-offset-1 focus-visible:outline-none"
           />
@@ -653,7 +653,7 @@ function WipCard({ sprint, canEdit, isSaving, onSave }: WipCardProps) {
             type="button"
             onClick={startEdit}
             aria-label={limit === null ? 'Set WIP limit' : `Edit WIP limit, currently ${limit}`}
-            className={`flex items-center gap-1 text-sm font-semibold rounded px-1 -mx-1
+            className={`flex items-center gap-1 text-sm font-semibold rounded-control px-1 -mx-1
               cursor-pointer hover:bg-chrome-row-hover
               focus-visible:ring-2 focus-visible:ring-brand-primary
               focus-visible:ring-offset-1 focus-visible:outline-none

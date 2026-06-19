@@ -66,7 +66,7 @@ function DepRow({ edge, task, isBlocking, onJumpTo }: DepRowProps) {
       <span className="flex-1 min-w-0 truncate text-neutral-text-primary">{name}</span>
       <span
         className={[
-          'shrink-0 inline-block px-1.5 py-px rounded border text-xs',
+          'shrink-0 inline-block px-1.5 py-px rounded-chip border text-xs',
           statusPillClass(status),
         ].join(' ')}
       >
@@ -100,7 +100,7 @@ export function DepPopover({ task, taskIndex, onClose, onJumpTo }: DepPopoverPro
       onPointerDown={onClose}
     >
       <div
-        className="bg-neutral-surface border border-neutral-border rounded-lg w-full max-w-[280px] max-h-[60vh] overflow-y-auto"
+        className="bg-neutral-surface border border-neutral-border rounded-card w-full max-w-[280px] max-h-[60vh] overflow-y-auto"
         onPointerDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between p-3 border-b border-neutral-border">
@@ -119,7 +119,7 @@ export function DepPopover({ task, taskIndex, onClose, onJumpTo }: DepPopoverPro
             onClick={onClose}
             className="text-neutral-text-secondary hover:text-neutral-text-primary
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
-              focus-visible:outline-none rounded p-1 -mt-1 -mr-1"
+              focus-visible:outline-none rounded-control p-1 -mt-1 -mr-1"
             aria-label="Close dependency list"
           >
             ×
@@ -176,7 +176,7 @@ export function DepPopover({ task, taskIndex, onClose, onJumpTo }: DepPopoverPro
 
         <div className="px-3 py-2 border-t border-neutral-border text-xs text-neutral-text-disabled">
           Press{' '}
-          <kbd className="bg-neutral-surface-raised border border-neutral-border rounded px-1 tppm-mono">
+          <kbd className="bg-neutral-surface-raised border border-neutral-border rounded-chip px-1 tppm-mono">
             Esc
           </kbd>{' '}
           to close

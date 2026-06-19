@@ -14,8 +14,8 @@ dependencies, sprints, baselines, risks, resources, and memberships.
 
 The format is **v2** (the JSON Schema lives at
 `packages/api/src/trueppm_api/apps/projects/schemas/seed_v2.json`, with the
-design rationale in [ADR-0114](https://gitlab.com/trueppm/trueppm-suite/-/blob/main/docs/adr/0114-seed-schema-v2-relative-dates-event-replay.md)).
-v2 is an additive superset of v1 ([ADR-0109](https://gitlab.com/trueppm/trueppm-suite/-/blob/main/docs/adr/0109-canonical-json-seed-import-export-schema.md));
+design rationale in [ADR-0114](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0114-seed-schema-v2-relative-dates-event-replay.md)).
+v2 is an additive superset of v1 ([ADR-0109](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0109-canonical-json-seed-import-export-schema.md));
 v1 files still load. The developer-facing
 [seed data schema reference](/architecture/seed-data-schema/) explains the
 format if you want to author your own sample.
@@ -189,5 +189,5 @@ Export currently writes the program's **final state**, not its replayed event
 history. A v2 sample therefore exports as a final-state document, and
 re-importing it materializes that final state without re-running the backdated
 timeline. Exporting the full event timeline is tracked as a follow-up
-([#1109](https://gitlab.com/trueppm/trueppm-suite/-/issues/1109)).
+([#1109](https://gitlab.com/trueppm/trueppm/-/issues/1109)).
 :::

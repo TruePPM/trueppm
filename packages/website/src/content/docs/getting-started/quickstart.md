@@ -9,6 +9,14 @@ You should already have completed [Installation](/getting-started/installation/)
 
 ## Route A — seed the demo project (recommended)
 
+:::tip[Just want a quick look?]
+From **0.3**, the fastest path is the in-app **Load demo data** button on the
+**Programs** page, which imports the **Atlas Platform Launch** hybrid sample (the
+sprint-to-milestone bridge, preloaded). See the
+[sample projects guide](/getting-started/sample-projects/). The `seed_demo_project`
+route below is still the way to get the six **persona logins** used in the walkthrough.
+:::
+
 The `seed_demo_project` management command bootstraps a coherent "Platform Migration" project with phases, work packages, baselines, resources, eight closed sprints, an active sprint mid-window, a planned sprint, a retro with a promoted action item, and board WIP overload. With `--with-personas` it also creates six demo logins.
 
 ```bash

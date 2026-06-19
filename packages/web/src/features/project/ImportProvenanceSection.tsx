@@ -39,7 +39,7 @@ export function ImportProvenanceSection({ projectId }: ImportProvenanceSectionPr
         Project history
       </h2>
       <ul
-        className="flex flex-col gap-2 p-4 rounded border border-neutral-border bg-neutral-surface-raised"
+        className="flex flex-col gap-2 p-4 rounded-card border border-neutral-border bg-neutral-surface-raised"
         aria-label="Imports for this project"
       >
         {rows.map((row) => (
@@ -100,7 +100,7 @@ const STATUS_LABEL: Record<ImportRequestStatus, string> = {
 function StatusBadge({ status }: { status: ImportRequestStatus }) {
   return (
     <span
-      className={`inline-block bg-transparent border rounded px-2 py-0.5 text-xs font-medium ${STATUS_CLASS[status]}`}
+      className={`inline-block bg-transparent border rounded-chip px-2 py-0.5 text-xs font-medium ${STATUS_CLASS[status]}`}
       aria-label={`Import status: ${STATUS_LABEL[status]}`}
     >
       {STATUS_LABEL[status]}

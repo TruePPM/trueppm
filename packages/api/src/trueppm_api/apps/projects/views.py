@@ -37,6 +37,7 @@ from drf_spectacular.utils import (
     OpenApiResponse,
     extend_schema,
     extend_schema_view,
+    inline_serializer,
 )
 from rest_framework import filters, generics, mixins, pagination, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -2704,6 +2705,104 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
 
         task = self.get_object()
         return Response(compute_scope_rollup(task), status=status.HTTP_200_OK)
+
+    @extend_schema(
+        summary="Full-text search board cards by title and description (#323)",
+        parameters=[
+            OpenApiParameter(
+                "project",
+                OpenApiTypes.UUID,
+                OpenApiParameter.QUERY,
+                required=True,
+                description="Project to search within (required).",
+            ),
+            OpenApiParameter(
+                "q",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=True,
+                description=(
+                    "Search term. Case-insensitive substring match over a card's "
+                    "name (title) and notes (description). Trimmed; capped at 100 chars."
+                ),
+            ),
+        ],
+        responses={
+            200: inline_serializer(
+                name="BoardCardSearchResult",
+                fields={
+                    "id": serializers.UUIDField(),
+                    "name": serializers.CharField(),
+                    "status": serializers.CharField(),
+                    "short_id": serializers.CharField(),
+                },
+                many=True,
+            ),
+            400: OpenApiResponse(description="The 'project' query parameter is required."),
+        },
+    )
+    @action(detail=False, methods=["get"], url_path="search")
+    def search(self, request: Request, **kwargs: Any) -> Response:
+        """Board card full-text search (#323, ADR-0145).
+
+        Returns a slim ``[{id, name, status, short_id}]`` list of cards whose title
+        (``name``) or description (``notes``) contains ``?q=`` (case-insensitive
+        substring), so the board client can dim non-matching cards in place. The
+        slim shape deliberately carries no cost/budget/sensitive fields, so
+        role-based field visibility is moot — project membership is the only gate.
+        IDOR-safe: ``ProjectScopedViewSet`` already restricts the queryset to
+        projects the requester is an active member of, and ``?project=`` is required.
+
+        Comment-body search is out of scope until task comments land an indexed body.
+        # TODO(#311): include TaskComment.body once threaded comments merge.
+        """
+        from django.db.models import Case, IntegerField, Q, Value, When
+
+        project_id = request.query_params.get("project")
+        if not project_id:
+            return Response(
+                {"detail": "The 'project' query parameter is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        raw_q = (request.query_params.get("q") or "").strip()
+        if not raw_q:
+            return Response([], status=status.HTTP_200_OK)
+        # DoS guard: a pathological term can't force an unbounded trigram scan.
+        q = raw_q[:100]
+
+        # super().get_queryset() is the membership-scoped base queryset
+        # (ProjectScopedViewSet) — already filtered to is_deleted=False and to
+        # projects the user belongs to. We add the project + substring filters and
+        # use .values() to emit a single slim query (prefetch_related is dropped by
+        # values()), avoiding the heavy annotate_tasks_queryset on the hot list path.
+        qs = (
+            super()
+            .get_queryset()
+            .filter(project_id=project_id)
+            .filter(Q(name__icontains=q) | Q(notes__icontains=q))
+            # Title matches rank above description-only matches; name is the stable
+            # tiebreak so results are deterministic.
+            .annotate(
+                _name_match=Case(
+                    When(name__icontains=q, then=Value(0)),
+                    default=Value(1),
+                    output_field=IntegerField(),
+                )
+            )
+            .order_by("_name_match", "name")
+        )
+        rows = list(qs.values("id", "name", "status", "short_id")[:500])
+        results = [
+            {
+                "id": str(row["id"]),
+                "name": row["name"],
+                "status": row["status"],
+                "short_id": row["short_id"],
+            }
+            for row in rows
+        ]
+        return Response(results, status=status.HTTP_200_OK)
 
     @extend_schema(
         summary="Split a story into a sibling task",

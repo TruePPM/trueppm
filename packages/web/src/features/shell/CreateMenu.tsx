@@ -123,7 +123,7 @@ export function CreateMenu() {
         <div
           role="menu"
           aria-label="Create new"
-          className="absolute top-full right-0 mt-1 z-50 min-w-[160px] bg-neutral-surface border border-neutral-border rounded p-1"
+          className="absolute top-full right-0 mt-1 z-50 min-w-[160px] bg-neutral-surface border border-neutral-border rounded-card p-1"
         >
           {visible.map((t: CreateTarget) => (
             <button
@@ -131,7 +131,7 @@ export function CreateMenu() {
               role="menuitem"
               type="button"
               onClick={() => dispatch(t.kind)}
-              className="w-full text-left px-2 py-1.5 rounded text-sm capitalize text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset"
+              className="w-full text-left px-2 py-1.5 rounded-control text-sm capitalize text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset"
             >
               {t.label}
             </button>

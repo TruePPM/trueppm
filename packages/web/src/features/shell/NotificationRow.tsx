@@ -63,13 +63,13 @@ export function NotificationRow({ notification, onNavigate }: Props) {
   return (
     <article
       aria-label={ariaLabel}
-      className="flex flex-col gap-1 p-3 rounded border border-neutral-border bg-neutral-surface-raised"
+      className="flex flex-col gap-1 p-3 rounded-card border border-neutral-border bg-neutral-surface-raised"
     >
       <button
         type="button"
         onClick={handleNavigate}
         className="flex flex-col gap-1 text-left
-          focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none rounded"
+          focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none rounded-control"
       >
         <div className="flex items-baseline gap-2 flex-wrap">
           {!notification.is_read && (
@@ -89,7 +89,7 @@ export function NotificationRow({ notification, onNavigate }: Props) {
           onClick={handleMarkRead}
           disabled={update.isPending}
           className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary
-            rounded px-2 h-7
+            rounded-control px-2 h-7
             focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
             disabled:opacity-50"
         >
@@ -101,7 +101,7 @@ export function NotificationRow({ notification, onNavigate }: Props) {
             onClick={handleArchive}
             disabled={update.isPending}
             className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary
-              rounded px-2 h-7
+              rounded-control px-2 h-7
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
               disabled:opacity-50"
           >

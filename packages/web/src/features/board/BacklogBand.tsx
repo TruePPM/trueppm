@@ -236,7 +236,7 @@ function ScheduleAction({
         e.stopPropagation();
         onSchedule(task, e.currentTarget);
       }}
-      className="absolute top-1 right-1 w-6 h-6 flex items-center justify-center rounded
+      className="absolute top-1 right-1 w-6 h-6 flex items-center justify-center rounded-control
         text-neutral-text-secondary hover:text-neutral-text-primary hover:bg-neutral-surface-raised
         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
     >
@@ -308,7 +308,7 @@ export function BacklogCard({
         onClick={(e) => onClick(e.currentTarget)}
         {...attributes}
         {...listeners}
-        className={`flex w-full flex-col gap-1.5 rounded-md border border-neutral-border bg-neutral-surface px-3 py-2.5 text-left cursor-grab focus-visible:outline-none ${focusRing} ${dragOpacity}`}
+        className={`flex w-full flex-col gap-1.5 rounded-card border border-neutral-border bg-neutral-surface px-3 py-2.5 text-left cursor-grab focus-visible:outline-none ${focusRing} ${dragOpacity}`}
         style={{ borderLeft: `3px solid ${phaseColor}` }}
       >
         <div className="flex items-center gap-1.5">
@@ -511,7 +511,7 @@ export function BacklogBand({
           aria-controls="backlog-rail-body"
           aria-label="Collapse backlog rail"
           title="Collapse"
-          className="inline-flex items-center justify-center rounded border border-neutral-border bg-neutral-surface text-neutral-text-secondary
+          className="inline-flex items-center justify-center rounded-control border border-neutral-border bg-neutral-surface text-neutral-text-secondary
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           style={{ width: 24, height: 24 }}
         >
@@ -523,7 +523,7 @@ export function BacklogBand({
           a follow-up under epic #361. */}
       <div className="px-4 pb-2.5">
         <div
-          className="flex items-center gap-2 rounded-md border border-neutral-border bg-neutral-surface px-2.5 text-xs text-neutral-text-disabled"
+          className="flex items-center gap-2 rounded-control border border-neutral-border bg-neutral-surface px-2.5 text-xs text-neutral-text-disabled"
           style={{ height: 30 }}
           role="search"
           aria-label="Search backlog (placeholder)"
@@ -549,7 +549,7 @@ export function BacklogBand({
       >
         {sortedTasks.length === 0 ? (
           <div
-            className="flex-1 flex items-center justify-center rounded-md border border-dashed border-neutral-border text-xs italic text-neutral-text-secondary"
+            className="flex-1 flex items-center justify-center rounded-card border border-dashed border-neutral-border text-xs italic text-neutral-text-secondary"
             role="status"
             style={{ minHeight: 88 }}
           >
@@ -582,7 +582,7 @@ export function BacklogBand({
           onClick={onCaptureIdea}
           disabled={isCaptureIdeaPending || !onCaptureIdea}
           aria-busy={isCaptureIdeaPending}
-          className="mt-1.5 flex items-center justify-center gap-1.5 rounded-md border border-dashed border-neutral-border bg-transparent text-xs text-neutral-text-disabled
+          className="mt-1.5 flex items-center justify-center gap-1.5 rounded-control border border-dashed border-neutral-border bg-transparent text-xs text-neutral-text-disabled
             hover:border-brand-primary hover:text-brand-primary disabled:opacity-50 disabled:cursor-not-allowed
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           style={{ height: 36 }}

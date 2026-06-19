@@ -187,7 +187,7 @@ export function BacklogDrawer({
       >
         {sortedTasks.length === 0 ? (
           <div
-            className="col-span-full flex items-center justify-center rounded-md border border-dashed border-neutral-border text-xs italic text-neutral-text-secondary py-3"
+            className="col-span-full flex items-center justify-center rounded-card border border-dashed border-neutral-border text-xs italic text-neutral-text-secondary py-3"
             role="status"
           >
             No backlog yet — drag a card here to defer it.

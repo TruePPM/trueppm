@@ -32,6 +32,7 @@ const SECTIONS: ShortcutSection[] = [
       { keys: ['E'], description: 'Edit card' },
       { keys: ['D'], description: 'Show dependencies' },
       { keys: ['C'], description: 'Show comments' },
+      { keys: ['/'], description: 'Search cards' },
       { keys: ['Space'], description: 'Pick up card to drag (then arrows)' },
     ],
   },
@@ -75,7 +76,7 @@ export function KeyboardCheatsheet({ onClose }: KeyboardCheatsheetProps) {
       onPointerDown={onClose}
     >
       <div
-        className="bg-neutral-surface border border-neutral-border rounded-lg p-5 w-full max-w-[480px] max-h-[85vh] overflow-y-auto"
+        className="bg-neutral-surface border border-neutral-border rounded-card p-5 w-full max-w-[480px] max-h-[85vh] overflow-y-auto"
         onPointerDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between mb-3">
@@ -91,7 +92,7 @@ export function KeyboardCheatsheet({ onClose }: KeyboardCheatsheetProps) {
             onClick={onClose}
             className="text-neutral-text-secondary hover:text-neutral-text-primary
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
-              focus-visible:outline-none rounded p-1"
+              focus-visible:outline-none rounded-control p-1"
             aria-label="Close shortcuts"
           >
             ×
@@ -114,7 +115,7 @@ export function KeyboardCheatsheet({ onClose }: KeyboardCheatsheetProps) {
                       {entry.keys.map((k, i) => (
                         <kbd
                           key={`${k}-${i}`}
-                          className="bg-neutral-surface-raised border border-neutral-border rounded px-1.5 py-0.5 text-xs tppm-mono text-neutral-text-primary"
+                          className="bg-neutral-surface-raised border border-neutral-border rounded-chip px-1.5 py-0.5 text-xs tppm-mono text-neutral-text-primary"
                         >
                           {k}
                         </kbd>

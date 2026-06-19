@@ -21,7 +21,7 @@ export function DorChip({ dor }: { dor: DorState }) {
   const s = DOR_STYLE[dor];
   return (
     <span
-      className={`inline-block whitespace-nowrap rounded px-2 py-0.5 text-[11px] font-semibold ${s.cls}`}
+      className={`inline-block whitespace-nowrap rounded-chip px-2 py-0.5 text-[11px] font-semibold ${s.cls}`}
     >
       {s.label}
     </span>
@@ -80,7 +80,7 @@ export function SprintCommitmentChip({ story }: { story: Task }) {
   if (story.sprintId) {
     return (
       <span
-        className="inline-flex items-center whitespace-nowrap rounded bg-brand-primary/10 px-2 py-0.5 text-[11px] font-semibold text-brand-primary"
+        className="inline-flex items-center whitespace-nowrap rounded-chip bg-brand-primary/10 px-2 py-0.5 text-[11px] font-semibold text-brand-primary"
         title="Committed to a sprint"
       >
         Pulled
@@ -89,7 +89,7 @@ export function SprintCommitmentChip({ story }: { story: Task }) {
   }
   return (
     <span
-      className="inline-flex items-center whitespace-nowrap rounded border border-dashed border-neutral-border px-2 py-0.5 text-[11px] font-semibold text-neutral-text-secondary"
+      className="inline-flex items-center whitespace-nowrap rounded-chip border border-dashed border-neutral-border px-2 py-0.5 text-[11px] font-semibold text-neutral-text-secondary"
       title="A backlog candidate — not yet committed to a sprint"
     >
       Proposed

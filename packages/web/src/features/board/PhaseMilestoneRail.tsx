@@ -85,7 +85,7 @@ function Diamond({ state, onOpenTask }: DiamondProps) {
         <span
           role="tooltip"
           className="absolute z-20 left-1/2 -translate-x-1/2 top-[calc(100%+6px)]
-            whitespace-nowrap bg-neutral-surface border border-neutral-border rounded
+            whitespace-nowrap bg-neutral-surface border border-neutral-border rounded-card
             px-2 py-1 text-xs shadow-none
             text-neutral-text-primary"
         >
@@ -126,8 +126,12 @@ export function PhaseMilestoneRail({ milestones, columns, onOpenTask }: PhaseMil
     <div
       role="list"
       aria-label="Phase milestones"
-      className="grid gap-2 px-2 py-1.5 border-b border-neutral-border/30 bg-neutral-surface-sunken"
-      style={{ gridTemplateColumns: `188px repeat(${columns.length}, minmax(0, 1fr))` }}
+      className="grid gap-[var(--board-col-gap,0.5rem)] px-2 py-1.5 border-b border-neutral-border/30 bg-neutral-surface-sunken"
+      // Board zoom (issue 379): inherits --board-phase-col / --board-col-gap from the
+      // board grid container so the rail stays column-aligned with the lanes.
+      style={{
+        gridTemplateColumns: `var(--board-phase-col,188px) repeat(${columns.length}, minmax(0, 1fr))`,
+      }}
     >
       {/* Lane meta filler */}
       <div className="text-xs text-neutral-text-disabled italic">Milestones</div>
@@ -148,7 +152,7 @@ export function PhaseMilestoneRail({ milestones, columns, onOpenTask }: PhaseMil
             {overflow > 0 && (
               <span
                 className="text-xs tppm-mono text-neutral-text-secondary px-1 py-px
-                  rounded bg-neutral-surface border border-neutral-border"
+                  rounded-chip bg-neutral-surface border border-neutral-border"
                 aria-label={`${overflow} more milestones in ${col.label}`}
               >
                 +{overflow}

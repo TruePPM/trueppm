@@ -185,7 +185,7 @@ function ProjectHeader({ overview }: ProjectHeaderProps) {
     <div className="flex flex-col gap-1 pb-2 border-b border-neutral-border">
       <div className="flex items-center gap-3 flex-wrap">
         <span
-          className={`bg-transparent border rounded px-2 py-0.5 text-xs font-medium ${healthBadgeClass}`}
+          className={`bg-transparent border rounded-chip px-2 py-0.5 text-xs font-medium ${healthBadgeClass}`}
           aria-label={`Project health: ${healthLabel}`}
         >
           {healthLabel}
@@ -193,7 +193,7 @@ function ProjectHeader({ overview }: ProjectHeaderProps) {
         <div className="flex items-center gap-3 ml-auto">
           <button
             type="button"
-            className="text-xs border border-neutral-border rounded px-3 h-7 font-medium
+            className="text-xs border border-neutral-border rounded-control px-3 h-7 font-medium
               text-neutral-text-primary hover:bg-neutral-surface-raised
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
               focus-visible:outline-none"
@@ -202,7 +202,7 @@ function ProjectHeader({ overview }: ProjectHeaderProps) {
           </button>
           <button
             type="button"
-            className="text-xs bg-brand-primary text-white rounded px-3 h-7 font-medium
+            className="text-xs bg-brand-primary text-white rounded-control px-3 h-7 font-medium
               hover:opacity-90
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
               focus-visible:outline-none"
@@ -257,7 +257,7 @@ function KpiCard({ label, value, sub, variant = 'neutral', title, prominent = fa
   return (
     <div
       title={title}
-      className={`flex flex-col gap-1 ${padding} rounded border border-neutral-border bg-neutral-surface-raised min-w-0 overflow-hidden [container-type:inline-size]`}
+      className={`flex flex-col gap-1 ${padding} rounded-card border border-neutral-border bg-neutral-surface-raised min-w-0 overflow-hidden [container-type:inline-size]`}
     >
       <span className="text-xs font-medium uppercase tracking-wide text-neutral-text-secondary truncate">
         {label}
@@ -283,7 +283,7 @@ function KpiSkeleton() {
         {Array.from({ length: 3 }).map((_, i) => (
           <div
             key={i}
-            className="h-28 rounded border border-neutral-border animate-pulse bg-neutral-surface-raised"
+            className="h-28 rounded-card border border-neutral-border animate-pulse bg-neutral-surface-raised"
           />
         ))}
       </div>
@@ -291,7 +291,7 @@ function KpiSkeleton() {
         {Array.from({ length: 3 }).map((_, i) => (
           <div
             key={i}
-            className="h-20 rounded border border-neutral-border animate-pulse bg-neutral-surface-raised"
+            className="h-20 rounded-card border border-neutral-border animate-pulse bg-neutral-surface-raised"
           />
         ))}
       </div>
@@ -327,7 +327,7 @@ function AttentionPanel({ items }: AttentionPanelProps) {
   if (items.length === 0) {
     return (
       <div
-        className="flex items-center gap-2 px-4 py-3 rounded border border-semantic-on-track/30
+        className="flex items-center gap-2 px-4 py-3 rounded-card border border-semantic-on-track/30
           bg-semantic-on-track-bg text-sm text-semantic-on-track"
         role="status"
       >
@@ -342,7 +342,7 @@ function AttentionPanel({ items }: AttentionPanelProps) {
       {items.map((item, i) => (
         <li
           key={i}
-          className="grid grid-cols-[10px_1fr_auto] gap-3 items-start px-4 py-3 rounded
+          className="grid grid-cols-[10px_1fr_auto] gap-3 items-start px-4 py-3 rounded-card
             border border-neutral-border bg-neutral-surface-raised text-sm"
         >
           {/* Severity dot — colour conveys severity, aria-label conveys severity in words */}
@@ -417,7 +417,7 @@ function MyTasksPanel({ tasks }: MyTasksPanelProps) {
         return (
           <li
             key={task.id}
-            className="flex items-center gap-3 px-3 py-2 rounded border border-neutral-border
+            className="flex items-center gap-3 px-3 py-2 rounded-card border border-neutral-border
               bg-neutral-surface-raised text-sm"
           >
             {task.is_critical && (
@@ -425,7 +425,7 @@ function MyTasksPanel({ tasks }: MyTasksPanelProps) {
                 aria-label="Critical path"
                 title="This task is on the critical path"
                 className="flex-shrink-0 text-xs font-bold text-semantic-critical
-                  border border-semantic-critical/50 rounded px-1 leading-4"
+                  border border-semantic-critical/50 rounded-chip px-1 leading-4"
               >
                 CP
               </span>
@@ -444,7 +444,7 @@ function MyTasksPanel({ tasks }: MyTasksPanelProps) {
               {Math.round(task.percent_complete)}%
             </span>
             {pill && (
-              <span className={`flex-shrink-0 text-xs px-2 py-0.5 rounded border ${pill.cls}`}>
+              <span className={`flex-shrink-0 text-xs px-2 py-0.5 rounded-chip border ${pill.cls}`}>
                 {pill.label}
               </span>
             )}
@@ -489,7 +489,7 @@ export function CriticalPathPanel({ tasks, projectId }: CriticalPathPanelProps) 
         {visible.map((task) => (
           <li
             key={task.id}
-            className="flex flex-col gap-0.5 px-3 py-2 rounded border border-neutral-border
+            className="flex flex-col gap-0.5 px-3 py-2 rounded-card border border-neutral-border
               bg-neutral-surface-raised text-sm"
             title="This task is on the critical path — a delay here delays the project end date"
           >
@@ -497,7 +497,7 @@ export function CriticalPathPanel({ tasks, projectId }: CriticalPathPanelProps) 
               <span
                 aria-label="Critical path"
                 className="flex-shrink-0 text-xs font-bold text-semantic-critical
-                  border border-semantic-critical/50 rounded px-1 leading-4"
+                  border border-semantic-critical/50 rounded-chip px-1 leading-4"
               >
                 CP
               </span>
@@ -527,7 +527,7 @@ export function CriticalPathPanel({ tasks, projectId }: CriticalPathPanelProps) 
           to={`/projects/${projectId}/schedule`}
           className="ml-auto text-xs text-brand-primary underline-offset-2 hover:underline
             focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
-            focus-visible:outline-none rounded"
+            focus-visible:outline-none rounded-control"
         >
           Show full critical path
         </Link>
@@ -589,7 +589,7 @@ function MonteCarloWidget({ projectId }: MonteCarloWidgetProps) {
       type="button"
       onClick={() => runMutation.mutate({})}
       disabled={runMutation.isPending}
-      className="self-start text-xs border border-neutral-border bg-neutral-surface rounded px-3 h-7 font-medium
+      className="self-start text-xs border border-neutral-border bg-neutral-surface rounded-control px-3 h-7 font-medium
         text-neutral-text-primary hover:bg-neutral-surface-raised disabled:opacity-50
         focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
         focus-visible:outline-none"
@@ -605,9 +605,9 @@ function MonteCarloWidget({ projectId }: MonteCarloWidgetProps) {
       </h2>
 
       {isLoading ? (
-        <div className="h-20 rounded border border-neutral-border animate-pulse bg-neutral-surface-raised" />
+        <div className="h-20 rounded-card border border-neutral-border animate-pulse bg-neutral-surface-raised" />
       ) : mc ? (
-        <div className="flex flex-col gap-3 p-4 rounded border border-neutral-border bg-neutral-surface-raised">
+        <div className="flex flex-col gap-3 p-4 rounded-card border border-neutral-border bg-neutral-surface-raised">
           <div className="flex items-end gap-4 flex-wrap">
             {renderHistogram(mc)}
             <div className="flex flex-col gap-1">
@@ -619,19 +619,19 @@ function MonteCarloWidget({ projectId }: MonteCarloWidgetProps) {
               </p>
               <div className="flex items-center gap-2 flex-wrap">
                 <span
-                  className="bg-transparent border border-semantic-on-track/40 rounded
+                  className="bg-transparent border border-semantic-on-track/40 rounded-chip
                     px-2 py-0.5 text-xs tppm-mono text-semantic-on-track"
                 >
                   P50 {formatIsoDate(mc.p50)}
                 </span>
                 <span
-                  className="bg-transparent border border-semantic-at-risk/40 rounded
+                  className="bg-transparent border border-semantic-at-risk/40 rounded-chip
                     px-2 py-0.5 text-xs tppm-mono text-semantic-at-risk"
                 >
                   P80 {formatIsoDate(mc.p80)}
                 </span>
                 <span
-                  className="bg-transparent border border-semantic-critical/40 rounded
+                  className="bg-transparent border border-semantic-critical/40 rounded-chip
                     px-2 py-0.5 text-xs tppm-mono text-semantic-critical"
                 >
                   P95 {formatIsoDate(mc.p95)}
@@ -656,14 +656,14 @@ function MonteCarloWidget({ projectId }: MonteCarloWidgetProps) {
               to={`/projects/${projectId}/schedule`}
               className="ml-auto text-xs text-brand-primary underline-offset-2 hover:underline
                 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
-                focus-visible:outline-none rounded"
+                focus-visible:outline-none rounded-control"
             >
               See full forecast
             </Link>
           </div>
         </div>
       ) : (
-        <div className="flex flex-col gap-2 p-4 rounded border border-neutral-border bg-neutral-surface-raised">
+        <div className="flex flex-col gap-2 p-4 rounded-card border border-neutral-border bg-neutral-surface-raised">
           <p className="text-sm text-neutral-text-secondary">
             No forecast available. Run a simulation to see finish date probabilities.
           </p>
@@ -671,7 +671,7 @@ function MonteCarloWidget({ projectId }: MonteCarloWidgetProps) {
             type="button"
             onClick={() => runMutation.mutate({})}
             disabled={runMutation.isPending}
-            className="self-start text-xs bg-brand-primary text-white rounded px-3 h-7 font-medium
+            className="self-start text-xs bg-brand-primary text-white rounded-control px-3 h-7 font-medium
               hover:opacity-90 disabled:opacity-50
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
               focus-visible:outline-none"
@@ -922,7 +922,7 @@ export function ProjectOverviewPage() {
             Needs attention
           </h2>
           {attentionLoading ? (
-            <div className="h-24 rounded border border-neutral-border animate-pulse bg-neutral-surface-raised" />
+            <div className="h-24 rounded-card border border-neutral-border animate-pulse bg-neutral-surface-raised" />
           ) : (
             <AttentionPanel items={attention ?? []} />
           )}
@@ -934,7 +934,7 @@ export function ProjectOverviewPage() {
             My tasks this week
           </h2>
           {myTasksLoading ? (
-            <div className="h-24 rounded border border-neutral-border animate-pulse bg-neutral-surface-raised" />
+            <div className="h-24 rounded-card border border-neutral-border animate-pulse bg-neutral-surface-raised" />
           ) : (
             <MyTasksPanel tasks={myTasks ?? []} />
           )}
@@ -948,7 +948,7 @@ export function ProjectOverviewPage() {
             Critical path
           </h2>
           {cpTasksLoading ? (
-            <div className="h-24 rounded border border-neutral-border animate-pulse bg-neutral-surface-raised" />
+            <div className="h-24 rounded-card border border-neutral-border animate-pulse bg-neutral-surface-raised" />
           ) : (
             <CriticalPathPanel tasks={cpTasks ?? []} projectId={projectId} />
           )}

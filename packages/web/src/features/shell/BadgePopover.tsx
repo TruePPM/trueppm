@@ -77,7 +77,7 @@ export function BadgePopover({ label, count, items, colorVariant, icon, onItemCl
         aria-label={label}
         onClick={() => setIsOpen((o) => !o)}
         onKeyDown={handleKeyDown}
-        className={`flex items-center gap-1 h-6 px-2 rounded border text-[12px] font-medium
+        className={`flex items-center gap-1 h-6 px-2 rounded-control border text-[12px] font-medium
           min-h-[44px] min-w-[44px] justify-center
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
           ${colorClasses}`}
@@ -92,7 +92,7 @@ export function BadgePopover({ label, count, items, colorVariant, icon, onItemCl
           aria-label={label}
           tabIndex={-1}
           onKeyDown={handleKeyDown}
-          className="absolute top-full right-0 mt-1 z-50 min-w-[200px] bg-neutral-surface border border-neutral-border rounded p-1"
+          className="absolute top-full right-0 mt-1 z-50 min-w-[200px] bg-neutral-surface border border-neutral-border rounded-card p-1"
         >
           {visibleItems.map((item) => (
             <button
@@ -100,7 +100,7 @@ export function BadgePopover({ label, count, items, colorVariant, icon, onItemCl
               role="menuitem"
               type="button"
               onClick={() => handleItemClick(item.id)}
-              className="w-full text-left px-2 py-1 rounded text-xs text-neutral-text-primary
+              className="w-full text-left px-2 py-1 rounded-control text-xs text-neutral-text-primary
                 hover:bg-neutral-surface-raised
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
             >

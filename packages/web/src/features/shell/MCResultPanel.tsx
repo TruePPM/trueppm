@@ -66,7 +66,7 @@ export function MCResultPanel({ result, onClose }: Props) {
             type="button"
             onClick={onClose}
             aria-label="Close Monte Carlo panel"
-            className="inline-flex items-center justify-center w-11 h-11 rounded
+            className="inline-flex items-center justify-center w-11 h-11 rounded-control
               border border-neutral-border text-sm text-neutral-text-secondary
               hover:bg-neutral-surface-raised
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
@@ -80,7 +80,7 @@ export function MCResultPanel({ result, onClose }: Props) {
           <div className="flex flex-col items-center gap-0.5">
             <span className="text-xs uppercase tracking-widest text-neutral-text-disabled">P50</span>
             <span
-              className="inline-flex items-center px-2 py-0.5 rounded border border-semantic-on-track/40 text-semantic-on-track text-xs tppm-mono"
+              className="inline-flex items-center px-2 py-0.5 rounded-chip border border-semantic-on-track/40 text-semantic-on-track text-xs tppm-mono"
               aria-label={`P50: ${fmtDate(result.p50)}`}
             >
               {fmtDate(result.p50)}
@@ -89,7 +89,7 @@ export function MCResultPanel({ result, onClose }: Props) {
           <div className="flex flex-col items-center gap-0.5">
             <span className="text-xs uppercase tracking-widest text-neutral-text-disabled">P80</span>
             <span
-              className="inline-flex items-center px-2 py-0.5 rounded border border-semantic-at-risk/40 text-semantic-at-risk text-xs tppm-mono"
+              className="inline-flex items-center px-2 py-0.5 rounded-chip border border-semantic-at-risk/40 text-semantic-at-risk text-xs tppm-mono"
               aria-label={`P80: ${fmtDate(result.p80)}`}
             >
               {fmtDate(result.p80)}
@@ -98,7 +98,7 @@ export function MCResultPanel({ result, onClose }: Props) {
           <div className="flex flex-col items-center gap-0.5">
             <span className="text-xs uppercase tracking-widest text-neutral-text-disabled">P95</span>
             <span
-              className="inline-flex items-center px-2 py-0.5 rounded border border-semantic-critical/40 text-semantic-critical text-xs tppm-mono"
+              className="inline-flex items-center px-2 py-0.5 rounded-chip border border-semantic-critical/40 text-semantic-critical text-xs tppm-mono"
               aria-label={`P95: ${fmtDate(result.p95)}`}
             >
               {fmtDate(result.p95)}

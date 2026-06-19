@@ -86,7 +86,8 @@ import { BacklogDemoteConfirmDialog } from './BacklogDemoteConfirmDialog';
 import { ScheduleTaskDialog } from '@/features/schedule/ScheduleTaskDialog';
 import { CalmToolbar } from './CalmToolbar';
 import { SprintPanel } from './SprintPanel';
-import { useBoardToolbarPrefs } from '@/hooks/useBoardToolbarPrefs';
+import { useBoardToolbarPrefs, type BoardZoom } from '@/hooks/useBoardToolbarPrefs';
+import { useBoardCardSearch } from '@/hooks/useBoardCardSearch';
 import { useProject } from '@/hooks/useProject';
 import { useActiveSprint, useSprints } from '@/hooks/useSprints';
 import { useCanManageScope } from '@/hooks/useCanManageScope';
@@ -249,7 +250,7 @@ function WipBadge({ count, limit }: WipBadgeProps) {
   if (count > limit) {
     return (
       <span
-        className="ml-1.5 text-xs font-medium px-1 py-0.5 rounded border bg-semantic-critical-bg border-semantic-critical/40 text-semantic-critical tppm-mono"
+        className="ml-1.5 text-xs font-medium px-1 py-0.5 rounded-chip border bg-semantic-critical-bg border-semantic-critical/40 text-semantic-critical tppm-mono"
         aria-label={`${count} of ${limit} WIP limit, over limit`}
       >
         {count}/{limit} — over WIP limit
@@ -259,7 +260,7 @@ function WipBadge({ count, limit }: WipBadgeProps) {
   if (count >= limit) {
     return (
       <span
-        className="ml-1.5 text-xs font-medium px-1 py-0.5 rounded border bg-semantic-at-risk-bg border-semantic-at-risk/40 text-semantic-at-risk tppm-mono"
+        className="ml-1.5 text-xs font-medium px-1 py-0.5 rounded-chip border bg-semantic-at-risk-bg border-semantic-at-risk/40 text-semantic-at-risk tppm-mono"
         aria-label={`${count} of ${limit} WIP limit, at limit`}
       >
         {count}/{limit} WIP
@@ -268,7 +269,7 @@ function WipBadge({ count, limit }: WipBadgeProps) {
   }
   return (
     <span
-      className="ml-1.5 text-xs font-medium px-1 py-0.5 rounded border bg-neutral-surface-sunken border-neutral-border text-neutral-text-secondary tppm-mono"
+      className="ml-1.5 text-xs font-medium px-1 py-0.5 rounded-chip border bg-neutral-surface-sunken border-neutral-border text-neutral-text-secondary tppm-mono"
       aria-label={`${count} of ${limit} WIP limit`}
     >
       {count}/{limit}
@@ -296,7 +297,7 @@ function WipBreachChip({ state }: { state: 'at' | 'over' }) {
       aria-hidden="true"
       data-testid="wip-breach-chip"
       data-breach={state}
-      className={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-xs font-semibold ${cls}`}
+      className={`inline-flex items-center gap-0.5 rounded-chip px-1 py-0.5 text-xs font-semibold ${cls}`}
     >
       <span aria-hidden="true">⚠</span>
       {state === 'over' ? 'Over limit' : 'At limit'}
@@ -345,12 +346,12 @@ function PhaseSummaryChips({ phase }: { phase: Phase }) {
   return (
     <div className="flex flex-wrap gap-1 mt-1">
       {allDone && (
-        <span className="text-xs px-1 py-px rounded bg-semantic-on-track-bg border border-semantic-on-track/30 text-semantic-on-track font-medium">
+        <span className="text-xs px-1 py-px rounded-chip bg-semantic-on-track-bg border border-semantic-on-track/30 text-semantic-on-track font-medium">
           {doneCount} done
         </span>
       )}
       {cpCount > 0 && (
-        <span className="text-xs px-1 py-px rounded bg-semantic-critical-bg border border-semantic-critical/30 text-semantic-critical font-medium">
+        <span className="text-xs px-1 py-px rounded-chip bg-semantic-critical-bg border border-semantic-critical/30 text-semantic-critical font-medium">
           {cpCount} CP
         </span>
       )}
@@ -418,6 +419,30 @@ const COLUMN_DOT_CLASS: Record<TaskStatus, string> = {
   COMPLETE: 'bg-semantic-on-track',
 };
 
+// Board zoom (issue 379, ADR-0145). Each level sets coordinated CSS custom properties
+// on the board grid container; the column-header / lane / phase-rail grids read
+// --board-phase-col and --board-col-gap, and the column card-stack reads
+// --board-card-gap. `normal` reproduces the pre-zoom defaults exactly (188px /
+// gap-2 / gap-1.5) so the default board is visually unchanged. dnd-kit-safe:
+// these are real CSS sizes, not a transform/zoom that would break drag math.
+const BOARD_ZOOM_VARS: Record<BoardZoom, CSSProperties> = {
+  small: {
+    '--board-phase-col': '150px',
+    '--board-col-gap': '0.25rem',
+    '--board-card-gap': '0.25rem',
+  } as CSSProperties,
+  normal: {
+    '--board-phase-col': '188px',
+    '--board-col-gap': '0.5rem',
+    '--board-card-gap': '0.375rem',
+  } as CSSProperties,
+  large: {
+    '--board-phase-col': '224px',
+    '--board-col-gap': '0.75rem',
+    '--board-card-gap': '0.625rem',
+  } as CSSProperties,
+};
+
 function BoardCell({
   phaseId,
   status,
@@ -472,7 +497,7 @@ function BoardCell({
     <div
       ref={setNodeRef}
       className={[
-        'rounded-lg p-2 min-h-[120px] flex flex-col gap-1.5 transition-colors duration-100',
+        'rounded-card p-2 min-h-[120px] flex flex-col gap-[var(--board-card-gap,0.375rem)] transition-colors duration-100',
         over
           ? 'bg-brand-primary/5 border-l-2 border-brand-primary'
           : `${restingBg} border-l-2 border-transparent`,
@@ -635,7 +660,7 @@ function PhaseLane({
       onKeyDown={handleKeyDown}
       title={collapsed ? 'Expand lane  ]' : 'Collapse lane  ['}
       className="flex-shrink-0 text-neutral-text-secondary text-xs select-none
-        focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none rounded"
+        focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none rounded-control"
       aria-expanded={!collapsed}
       aria-controls={`phase-${phase.id}-content`}
       aria-label={collapsed ? `Expand ${phase.name}` : `Collapse ${phase.name}`}
@@ -659,11 +684,13 @@ function PhaseLane({
       )}
       <div
         id={`phase-${phase.id}-content`}
-        className="grid gap-2 p-2"
-        style={{ gridTemplateColumns: `188px repeat(${colCount}, minmax(0, 1fr))` }}
+        className="grid gap-[var(--board-col-gap,0.5rem)] p-2"
+        style={{
+          gridTemplateColumns: `var(--board-phase-col,188px) repeat(${colCount}, minmax(0, 1fr))`,
+        }}
       >
         {/* Phase meta — LaneMeta atom (issue #208) */}
-        <div className="rounded-lg overflow-hidden border border-neutral-border/40 min-w-0">
+        <div className="rounded-card overflow-hidden border border-neutral-border/40 min-w-0">
           <LaneMeta
             phaseId={phase.id}
             phaseName={phase.name}
@@ -693,7 +720,7 @@ function PhaseLane({
               return (
                 <div
                   key={col.status}
-                  className="bg-neutral-surface-sunken rounded-lg p-2 min-h-[56px] flex items-center justify-center"
+                  className="bg-neutral-surface-sunken rounded-card p-2 min-h-[56px] flex items-center justify-center"
                 >
                   <span className="text-xs text-neutral-text-disabled">
                     {count > 0 ? `${count} task${count !== 1 ? 's' : ''}` : '—'}
@@ -1225,6 +1252,35 @@ export function BoardView() {
   const [highlightedTaskIds, setHighlightedTaskIds] = useState<Set<string> | null>(null);
   const [chainHoverTaskId, setChainHoverTaskId] = useState<string | null>(null);
   const ariaLiveRef = useRef<HTMLDivElement>(null);
+
+  // Board card search (issue 323, ADR-0145). The query mirrors to ?q= for shareable
+  // links; matching IDs feed the existing dim plumbing via effectiveHighlightIds.
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [searchQuery, setSearchQuery] = useState<string>(() => searchParams.get('q') ?? '');
+  const onSearchQueryChange = useCallback(
+    (q: string) => {
+      setSearchQuery(q);
+      setSearchParams(
+        (prev: URLSearchParams) => {
+          if (q.trim()) prev.set('q', q);
+          else prev.delete('q');
+          return prev;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+  const {
+    matchIds: searchMatchIds,
+    matchCount: searchMatchCount,
+    isSearching,
+  } = useBoardCardSearch(projectId, searchQuery);
+  // Search dimming reuses the issue-182 dep-chain dim set. A query with matches takes
+  // precedence over a transient dep-hover highlight; an empty query (or one that
+  // matches nothing) leaves the board undimmed so it never greys out wholesale.
+  const searchActive = searchQuery.trim().length > 0 && searchMatchIds.size > 0;
+  const effectiveHighlightIds = searchActive ? searchMatchIds : highlightedTaskIds;
 
   // Snapshot of current toolbar state for "Save view" — keeps the dropdown in sync.
   const currentViewConfig: BoardViewConfig = useMemo(
@@ -1934,6 +1990,7 @@ export function BoardView() {
       onMoveColumnFocus: b3OverlayOpen ? undefined : moveFocusInPhase,
       onShowDeps: !b3OverlayOpen && focusedTask ? () => handleShowDeps(focusedTask) : undefined,
       onShowCheatsheet: b3OverlayOpen ? undefined : () => setShowCheatsheet(true),
+      onFocusSearch: b3OverlayOpen ? undefined : () => searchInputRef.current?.focus(),
       onCloseOverlay: b3OverlayOpen ? closeAllOverlays : undefined,
     },
     addTaskPhase === null,
@@ -1959,13 +2016,18 @@ export function BoardView() {
         onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}
       >
-        <div className="relative flex flex-col h-full overflow-hidden">
+        <div className="relative flex flex-col h-full overflow-hidden bg-app-canvas">
           {/* Board toolbar — calm refactor (issue #382, epic #361 child B). */}
           <CalmToolbar
             projectId={projectId}
             projectName={projectDetail?.name}
             activeCount={committedTasks.filter((t) => !t.isSummary).length}
             backlogCount={backlogTasks.length}
+            searchQuery={searchQuery}
+            onSearchQueryChange={onSearchQueryChange}
+            searchMatchCount={searchMatchCount}
+            isSearching={isSearching}
+            searchInputRef={searchInputRef}
             currentViewConfig={currentViewConfig}
             activeViewId={activeViewId}
             onApplyView={applyViewConfig}
@@ -1977,6 +2039,8 @@ export function BoardView() {
             onSortChange={setSort}
             density={density}
             onDensityChange={setDensity}
+            zoom={toolbarPrefs.zoom}
+            onZoomChange={toolbarPrefs.setZoom}
             backlogDensity={toolbarPrefs.backlogDensity}
             onBacklogDensityChange={toolbarPrefs.setBacklogDensity}
             layout={toolbarPrefs.layout}
@@ -2046,7 +2110,7 @@ export function BoardView() {
                 type="button"
                 onClick={() => myTasksFilter.setEnabled(false)}
                 className="ml-1 underline hover:no-underline
-                  focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none rounded"
+                  focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none rounded-control"
               >
                 Show all →
               </button>
@@ -2068,7 +2132,7 @@ export function BoardView() {
                 type="button"
                 onClick={() => setDebtOnly(false)}
                 className="ml-1 underline hover:no-underline
-                  focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none rounded"
+                  focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none rounded-control"
               >
                 Show all →
               </button>
@@ -2160,7 +2224,12 @@ export function BoardView() {
               )}
 
               {/* Board grid — scrollable */}
-              <div className="flex-1 overflow-auto min-h-0 bg-neutral-surface-sunken">
+              <div
+                className="flex-1 overflow-auto min-h-0 bg-neutral-surface-sunken"
+                // Board zoom CSS vars (issue 379) — cascade to the column-header / lane /
+                // phase-rail grids and the column card-stacks below.
+                style={BOARD_ZOOM_VARS[toolbarPrefs.zoom]}
+              >
                 {/* Active-sprint summary (ADR-0073) — rendered inside the scroll
                 container so the burndown / velocity charts scroll away with
                 the board instead of permanently consuming vertical space.
@@ -2174,8 +2243,10 @@ export function BoardView() {
                 {projectId && <FlowAnalyticsPanel projectId={projectId} />}
                 {/* Sticky column headers */}
                 <div
-                  className="grid gap-2 px-2 py-1.5 border-b-2 border-neutral-border/60 bg-neutral-surface sticky top-0 z-10"
-                  style={{ gridTemplateColumns: `188px repeat(${COLUMNS.length}, minmax(0, 1fr))` }}
+                  className="grid gap-[var(--board-col-gap,0.5rem)] px-2 py-1.5 border-b-2 border-neutral-border/60 bg-neutral-surface sticky top-0 z-10"
+                  style={{
+                    gridTemplateColumns: `var(--board-phase-col,188px) repeat(${COLUMNS.length}, minmax(0, 1fr))`,
+                  }}
                 >
                   <div className="text-xs uppercase tracking-wide text-neutral-text-disabled px-2">
                     Phase
@@ -2282,7 +2353,9 @@ export function BoardView() {
                     onMenuMove: handleMenuMove,
                     onAddTask: handleAddTask,
                     focusedCardId,
-                    highlightedTaskIds,
+                    // Search match set (when active) overrides the issue-182 dep-hover
+                    // dim set — see effectiveHighlightIds (issue 323).
+                    highlightedTaskIds: effectiveHighlightIds,
                     overallocByResourcePerTask,
                     onCardFocus: handleCardFocus,
                     onShowDeps: handleShowDeps,
@@ -2316,7 +2389,7 @@ export function BoardView() {
                                 type="button"
                                 onClick={handleAddPhase}
                                 disabled={createTask.isPending}
-                                className="border border-brand-primary/40 rounded px-4 py-2 text-sm
+                                className="border border-brand-primary/40 rounded-control px-4 py-2 text-sm
                               text-brand-primary-dark dark:text-brand-primary font-medium
                               hover:bg-brand-primary/10 disabled:opacity-50
                               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
@@ -2336,7 +2409,7 @@ export function BoardView() {
                               type="button"
                               onClick={handleAddPhase}
                               disabled={createTask.isPending}
-                              className="border border-dashed border-neutral-border rounded px-3 py-1.5 text-xs
+                              className="border border-dashed border-neutral-border rounded-control px-3 py-1.5 text-xs
                             text-neutral-text-secondary hover:border-brand-primary/40
                             hover:text-brand-primary-dark dark:hover:text-brand-primary
                             hover:bg-brand-primary/5 disabled:opacity-50
@@ -2361,7 +2434,7 @@ export function BoardView() {
                           <button
                             type="button"
                             onClick={() => myTasksFilter.setEnabled(false)}
-                            className="border border-brand-primary/40 rounded px-3 py-1.5 text-xs
+                            className="border border-brand-primary/40 rounded-control px-3 py-1.5 text-xs
                           text-brand-primary-dark dark:text-brand-primary font-medium
                           hover:bg-brand-primary/10
                           focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
@@ -2589,7 +2662,7 @@ export function BoardView() {
             }
           }}
         >
-          <div className="bg-neutral-surface border border-neutral-border rounded-lg p-6 max-w-sm w-full mx-4">
+          <div className="bg-neutral-surface border border-neutral-border rounded-card p-6 max-w-sm w-full mx-4">
             <h2
               id="workshop-exit-title"
               className="text-sm font-semibold text-neutral-text-primary mb-2"
@@ -2608,7 +2681,7 @@ export function BoardView() {
                   setShowExitConfirm(false);
                   workshopToggleRef.current?.focus();
                 }}
-                className="border border-neutral-border rounded px-3 py-1.5 text-xs
+                className="border border-neutral-border rounded-control px-3 py-1.5 text-xs
                   text-neutral-text-primary hover:bg-neutral-surface-raised
                   focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
               >
@@ -2626,7 +2699,7 @@ export function BoardView() {
                     },
                   });
                 }}
-                className="border border-semantic-critical/40 rounded px-3 py-1.5 text-xs
+                className="border border-semantic-critical/40 rounded-control px-3 py-1.5 text-xs
                   text-semantic-critical hover:bg-semantic-critical/10 disabled:opacity-50
                   focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:outline-none"
               >
