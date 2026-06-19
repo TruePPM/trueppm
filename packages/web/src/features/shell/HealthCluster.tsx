@@ -131,7 +131,7 @@ function SegmentPopover({
         <div
           role="menu"
           aria-label={ariaLabel}
-          className="absolute top-full right-0 mt-1 z-50 min-w-[200px] bg-neutral-surface border border-neutral-border rounded p-1"
+          className="absolute top-full right-0 mt-1 z-50 min-w-[200px] bg-neutral-surface border border-neutral-border rounded-card p-1"
         >
           {visible.map((item) => (
             <button
@@ -143,7 +143,7 @@ function SegmentPopover({
                 setOpen(false);
               }}
               className={[
-                'w-full text-left px-2 py-1.5 rounded text-xs',
+                'w-full text-left px-2 py-1.5 rounded-control text-xs',
                 colorClass,
                 'hover:bg-neutral-surface-raised',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset',
@@ -424,7 +424,7 @@ function CollapsedHealth({
         aria-expanded={open}
         aria-haspopup="menu"
         aria-label="Project health summary"
-        className="flex items-center gap-1 h-6 px-2 rounded border border-neutral-border text-[12px] font-medium text-neutral-text-secondary
+        className="flex items-center gap-1 h-6 px-2 rounded-control border border-neutral-border text-[12px] font-medium text-neutral-text-secondary
           hover:bg-neutral-surface-raised
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
       >
@@ -435,7 +435,7 @@ function CollapsedHealth({
         <div
           role="menu"
           aria-label="Project health summary"
-          className="absolute top-full right-0 mt-1 z-50 min-w-[220px] bg-neutral-surface border border-neutral-border rounded p-1"
+          className="absolute top-full right-0 mt-1 z-50 min-w-[220px] bg-neutral-surface border border-neutral-border rounded-card p-1"
         >
           {segments.map((segment, i) => {
             const summary = segmentSummary(segment, iterationSingular, iterationLower);
@@ -461,7 +461,7 @@ function CollapsedHealth({
                       onTaskNavigate(item.id);
                       setOpen(false);
                     }}
-                    className={`w-full text-left px-2 py-1.5 rounded text-xs ${color}
+                    className={`w-full text-left px-2 py-1.5 rounded-control text-xs ${color}
                       hover:bg-neutral-surface-raised
                       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset`}
                   >
@@ -528,7 +528,7 @@ export function HealthCluster({ onTaskNavigate }: Props) {
         role="group"
         aria-label="Project health"
         data-testid="health-cluster"
-        className="hidden lg:flex items-stretch h-7 rounded border border-neutral-border overflow-hidden"
+        className="hidden lg:flex items-stretch h-7 rounded-control border border-neutral-border overflow-hidden"
       >
         {segments.map((segment, i) => (
           <div key={`${segment.kind}-${i}`} className="flex items-stretch">

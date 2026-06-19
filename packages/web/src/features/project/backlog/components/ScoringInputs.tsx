@@ -62,7 +62,7 @@ export function ScoringInputs({ model, values, onChange, readOnly }: ScoringInpu
                   onChange(key, e.target.value === '' ? null : Number(e.target.value))
                 }
                 aria-label={label}
-                className="tppm-mono h-9 rounded-md border border-neutral-border bg-neutral-surface px-2 text-sm text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                className="tppm-mono h-9 rounded-control border border-neutral-border bg-neutral-surface px-2 text-sm text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               />
             )}
           </label>

@@ -81,11 +81,11 @@ export function AssigneesEditor({
     : 'text-neutral-text-secondary';
 
   return (
-    <div className="border border-neutral-border rounded p-1.5 bg-neutral-surface flex flex-col gap-1">
+    <div className="border border-neutral-border rounded-card p-1.5 bg-neutral-surface flex flex-col gap-1">
       {rows.map((row, index) => (
         <div
           key={row.resourceId}
-          className="flex items-center gap-2 px-1.5 py-1 rounded bg-neutral-surface hover:bg-neutral-surface-sunken/60"
+          className="flex items-center gap-2 px-1.5 py-1 rounded-control bg-neutral-surface hover:bg-neutral-surface-sunken/60"
         >
           <span
             aria-hidden="true"
@@ -109,7 +109,7 @@ export function AssigneesEditor({
                 if (Number.isFinite(pct)) onUpdateUnits(index, pct / 100);
               }}
               aria-label={`Allocation percent for ${row.resourceName}`}
-              className="w-16 h-7 pl-2 pr-5 text-[13px] tppm-mono text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-60"
+              className="w-16 h-7 pl-2 pr-5 text-[13px] tppm-mono text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded-control focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-60"
             />
             <span
               aria-hidden="true"
@@ -123,7 +123,7 @@ export function AssigneesEditor({
             onClick={() => onRemove(index)}
             disabled={disabled}
             aria-label={`Remove ${row.resourceName}`}
-            className="w-6 h-6 inline-flex items-center justify-center rounded text-neutral-text-secondary hover:bg-neutral-surface-raised focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none disabled:opacity-40 shrink-0"
+            className="w-6 h-6 inline-flex items-center justify-center rounded-control text-neutral-text-secondary hover:bg-neutral-surface-raised focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none disabled:opacity-40 shrink-0"
           >
             <span aria-hidden="true">×</span>
           </button>
@@ -148,7 +148,7 @@ export function AssigneesEditor({
           // mis-announces the control (#838).
           <ul
             aria-label="People matching search"
-            className="absolute left-0 right-0 top-full mt-1 z-10 bg-neutral-surface border border-neutral-border rounded shadow-none max-h-48 overflow-y-auto"
+            className="absolute left-0 right-0 top-full mt-1 z-10 bg-neutral-surface border border-neutral-border rounded-card shadow-none max-h-48 overflow-y-auto"
           >
             {filteredPool.map((pr) => (
               <li key={pr.resource.id}>

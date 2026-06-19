@@ -26,7 +26,7 @@ export function PendingAcceptanceChip({ compact = false, className }: Props) {
   return (
     <span
       className={[
-        'inline-flex items-center gap-0.5 rounded px-1 py-px text-xs font-medium',
+        'inline-flex items-center gap-0.5 rounded-chip px-1 py-px text-xs font-medium',
         'bg-neutral-surface-sunken text-neutral-text-secondary border border-neutral-border',
         className ?? '',
       ].join(' ')}

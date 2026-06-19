@@ -57,7 +57,7 @@ const GROUP_LABEL =
 // Active vs idle nav row (rule 37: 2px left border + sage tint fill).
 function rowClass(active: boolean): string {
   return [
-    'group flex items-center gap-2 w-full pl-2.5 pr-2 py-2 rounded text-sm transition-colors',
+    'group flex items-center gap-2 w-full pl-2.5 pr-2 py-2 rounded-control text-sm transition-colors',
     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface',
     active
       ? 'bg-brand-primary/10 border-l-2 border-brand-primary text-chrome-text-primary font-medium'
@@ -183,7 +183,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               onClick={toggleSidebar}
               aria-label="Collapse sidebar"
               title={`Hide sidebar (${modifierKeyLabel()}B)`}
-              className="w-9 h-9 flex items-center justify-center rounded text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface"
+              className="w-9 h-9 flex items-center justify-center rounded-control text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface"
             >
               <span aria-hidden="true" className="text-base leading-none">«</span>
             </button>
@@ -305,7 +305,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               aria-disabled="true"
               aria-label="Portfolio rollup — available in TruePPM Enterprise (post-1.0)"
               title="Available in TruePPM Enterprise (post-1.0)"
-              className="group flex w-full items-center gap-2 rounded border-l-2 border-transparent py-2 pl-2.5 pr-2 text-sm text-chrome-text-secondary opacity-50 cursor-not-allowed"
+              className="group flex w-full items-center gap-2 rounded-control border-l-2 border-transparent py-2 pl-2.5 pr-2 text-sm text-chrome-text-secondary opacity-50 cursor-not-allowed"
             >
               <svg width="16" height="16" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true" className="shrink-0">
                 <path d="M2 2h4v4H2V2zm6 0h4v4H8V2zM2 8h4v4H2V8zm6 0h4v4H8V8z" />
@@ -322,7 +322,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
                 type="button"
                 onClick={() => setShowNewProgram(true)}
                 aria-label="New program"
-                className="w-8 h-8 flex items-center justify-center rounded text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface"
+                className="w-8 h-8 flex items-center justify-center rounded-control text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface"
               >
                 <PlusIcon className="h-3 w-3" />
               </button>
@@ -340,7 +340,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
                       onClick={() => toggleProgram(prog.id)}
                       aria-label={isExpanded ? `Collapse ${prog.name}` : `Expand ${prog.name}`}
                       aria-expanded={isExpanded}
-                      className="shrink-0 -ml-0.5 flex h-5 w-5 items-center justify-center rounded text-chrome-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+                      className="shrink-0 -ml-0.5 flex h-5 w-5 items-center justify-center rounded-control text-chrome-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
                     >
                       <ChevronRightIcon
                         className={`h-3 w-3 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
@@ -416,7 +416,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
                 onClick={() => setShowImport(true)}
                 aria-label="Import a project from a file"
                 title="Import a project from a file"
-                className="w-8 h-8 flex items-center justify-center rounded text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface"
+                className="w-8 h-8 flex items-center justify-center rounded-control text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface"
               >
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
                   <path d="M6 8V1m0 0L3.5 3.5M6 1l2.5 2.5M2 8.5v1A1.5 1.5 0 003.5 11h5A1.5 1.5 0 0010 9.5v-1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -447,7 +447,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               onClick={() => isDrawer && onClose?.()}
               className={({ isActive }) =>
                 [
-                  'w-9 h-9 flex items-center justify-center rounded transition-colors',
+                  'w-9 h-9 flex items-center justify-center rounded-control transition-colors',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface',
                   isActive
                     ? 'bg-brand-primary/10 text-chrome-text-primary'
@@ -547,7 +547,7 @@ function ProjectRow({
         aria-label={pinned ? `Unpin ${name}` : `Pin ${name} to Shortcuts`}
         aria-pressed={pinned}
         title={pinned ? 'Unpin' : 'Pin to Shortcuts'}
-        className="shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 aria-pressed:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+        className="shrink-0 rounded-control p-0.5 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 aria-pressed:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
       >
         <svg
           width="13"

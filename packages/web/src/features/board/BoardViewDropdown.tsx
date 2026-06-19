@@ -67,7 +67,7 @@ function SaveViewModal({ onSave, onCancel, isSaving }: SaveViewModalProps) {
 
   return (
     <div
-      className="absolute left-0 top-full mt-1 z-50 bg-neutral-surface border border-neutral-border rounded-md p-3 w-64"
+      className="absolute left-0 top-full mt-1 z-50 bg-neutral-surface border border-neutral-border rounded-card p-3 w-64"
       role="dialog"
       aria-label="Save current view"
       aria-modal="false"
@@ -84,7 +84,7 @@ function SaveViewModal({ onSave, onCancel, isSaving }: SaveViewModalProps) {
         }}
         placeholder="View name…"
         maxLength={64}
-        className="w-full border border-neutral-border rounded px-2 py-1 text-xs text-neutral-text-primary
+        className="w-full border border-neutral-border rounded-control px-2 py-1 text-xs text-neutral-text-primary
           focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none mb-2"
         aria-label="View name"
       />
@@ -92,7 +92,7 @@ function SaveViewModal({ onSave, onCancel, isSaving }: SaveViewModalProps) {
         <button
           type="button"
           onClick={onCancel}
-          className="border border-neutral-border rounded px-2 py-0.5 text-xs text-neutral-text-secondary
+          className="border border-neutral-border rounded-control px-2 py-0.5 text-xs text-neutral-text-secondary
             hover:bg-neutral-surface-raised focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
         >
           Cancel
@@ -101,7 +101,7 @@ function SaveViewModal({ onSave, onCancel, isSaving }: SaveViewModalProps) {
           type="button"
           disabled={!name.trim() || isSaving}
           onClick={() => name.trim() && onSave(name.trim())}
-          className="border border-brand-primary/40 rounded px-2 py-0.5 text-xs text-brand-primary
+          className="border border-brand-primary/40 rounded-control px-2 py-0.5 text-xs text-brand-primary
             hover:bg-brand-primary/5 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none
             disabled:opacity-50 disabled:cursor-not-allowed"
         >
@@ -176,7 +176,7 @@ export function BoardViewDropdown({
   }
 
   const btnClass =
-    'border border-neutral-border rounded px-2 py-0.5 text-xs text-neutral-text-primary ' +
+    'border border-neutral-border rounded-control px-2 py-0.5 text-xs text-neutral-text-primary ' +
     'hover:bg-neutral-surface-raised focus-visible:ring-2 focus-visible:ring-brand-primary ' +
     'focus-visible:outline-none inline-flex items-center gap-1';
 
@@ -201,7 +201,7 @@ export function BoardViewDropdown({
         <div
           role="menu"
           className="absolute left-0 top-full mt-1 z-50 bg-neutral-surface border border-neutral-border
-            rounded-md min-w-[180px] py-1"
+            rounded-card min-w-[180px] py-1"
         >
           {/* Clear selection */}
           {activeViewId && (

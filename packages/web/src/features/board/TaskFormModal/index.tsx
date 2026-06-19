@@ -612,7 +612,7 @@ export function TaskFormModal({
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
             placeholder={isMilestoneCreate ? 'e.g. Phase 1 sign-off' : 'What needs doing?'}
-            className="w-full h-9 px-3 text-sm text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none placeholder:text-neutral-text-disabled disabled:opacity-60"
+            className="w-full h-9 px-3 text-sm text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded-control focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none placeholder:text-neutral-text-disabled disabled:opacity-60"
           />
         </div>
 
@@ -637,7 +637,7 @@ export function TaskFormModal({
                 aria-valuemax={100}
                 aria-valuenow={form.progress}
               />
-              <span className="tppm-mono text-xs text-neutral-text-primary bg-neutral-surface-sunken px-2 py-0.5 rounded min-w-12 text-center">
+              <span className="tppm-mono text-xs text-neutral-text-primary bg-neutral-surface-sunken px-2 py-0.5 rounded-chip min-w-12 text-center">
                 {form.progress}%
               </span>
             </div>
@@ -654,7 +654,7 @@ export function TaskFormModal({
             disabled={isReadOnly}
             value={form.status}
             onChange={(e) => setForm({ ...form, status: e.target.value as TaskStatus })}
-            className="w-full h-9 px-3 text-sm text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-60"
+            className="w-full h-9 px-3 text-sm text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded-control focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-60"
           >
             {STATUS_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -691,7 +691,7 @@ export function TaskFormModal({
                 value={form.type}
                 onChange={(e) => setForm({ ...form, type: e.target.value as TaskType })}
                 aria-describedby="task-type-hint"
-                className="w-full h-9 px-3 text-sm text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-60"
+                className="w-full h-9 px-3 text-sm text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded-control focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-60"
               >
                 {TYPE_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>{o.label}</option>
@@ -712,7 +712,7 @@ export function TaskFormModal({
                 value={form.governanceClass}
                 onChange={(e) => setForm({ ...form, governanceClass: e.target.value as GovernanceClass })}
                 aria-describedby="task-governance-hint"
-                className="w-full h-9 px-3 text-sm text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-60"
+                className="w-full h-9 px-3 text-sm text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded-control focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-60"
               >
                 {GOVERNANCE_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>{o.label}</option>
@@ -733,7 +733,7 @@ export function TaskFormModal({
                 value={form.deliveryMode}
                 onChange={(e) => setForm({ ...form, deliveryMode: e.target.value as DeliveryMode })}
                 aria-describedby="task-delivery-hint"
-                className="w-full h-9 px-3 text-sm text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-60"
+                className="w-full h-9 px-3 text-sm text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded-control focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-60"
               >
                 {DELIVERY_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>{o.label}</option>
@@ -762,7 +762,7 @@ export function TaskFormModal({
               value={selectedParentId ?? ''}
               onChange={(e) => setSelectedParentId(e.target.value || null)}
               aria-describedby="task-parent-hint"
-              className="w-full h-9 px-3 text-sm text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-60"
+              className="w-full h-9 px-3 text-sm text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded-control focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-60"
             >
               <option value="">— No parent (root)</option>
               {parentOptions.map((opt) => (
@@ -799,7 +799,7 @@ export function TaskFormModal({
                   disabled={isReadOnly}
                   value={form.sprintId ?? ''}
                   onChange={(e) => setForm({ ...form, sprintId: e.target.value || null })}
-                  className="w-full h-9 px-3 text-sm text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-60"
+                  className="w-full h-9 px-3 text-sm text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded-control focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-60"
                 >
                   <option value="">No sprint</option>
                   {sprints
@@ -817,7 +817,7 @@ export function TaskFormModal({
                 </label>
                 {pointsReadOnly ? (
                   <div
-                    className="w-full h-9 flex items-center justify-center tppm-mono text-sm text-neutral-text-primary bg-neutral-surface-raised border border-neutral-border/50 rounded"
+                    className="w-full h-9 flex items-center justify-center tppm-mono text-sm text-neutral-text-primary bg-neutral-surface-raised border border-neutral-border/50 rounded-control"
                     aria-label={`Story points: ${form.storyPoints ?? '—'}`}
                   >
                     {form.storyPoints ?? '—'}
@@ -834,7 +834,7 @@ export function TaskFormModal({
                       const raw = e.target.value;
                       setForm({ ...form, storyPoints: raw === '' ? null : Math.max(0, Math.round(Number(raw))) });
                     }}
-                    className="w-full h-9 px-2 text-sm tppm-mono text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none placeholder:text-neutral-text-disabled"
+                    className="w-full h-9 px-2 text-sm tppm-mono text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded-control focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none placeholder:text-neutral-text-disabled"
                   />
                 )}
               </div>
@@ -862,7 +862,7 @@ export function TaskFormModal({
                   disabled={isReadOnly}
                   value={form.plannedStart}
                   onChange={(e) => setForm({ ...form, plannedStart: e.target.value })}
-                  className="w-full h-9 px-3 text-sm text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-60"
+                  className="w-full h-9 px-3 text-sm text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded-control focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-60"
                 />
               </div>
               {showDuration && (
@@ -881,7 +881,7 @@ export function TaskFormModal({
                       const n = Number(e.target.value);
                       setForm({ ...form, duration: Number.isFinite(n) && n >= 1 ? n : 1 });
                     }}
-                    className="w-full h-9 px-3 text-sm text-neutral-text-primary tppm-mono bg-neutral-surface border border-neutral-border rounded focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-60"
+                    className="w-full h-9 px-3 text-sm text-neutral-text-primary tppm-mono bg-neutral-surface border border-neutral-border rounded-control focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-60"
                   />
                 </div>
               )}
@@ -973,12 +973,12 @@ export function TaskFormModal({
             value={form.notes}
             onChange={(e) => setForm({ ...form, notes: e.target.value })}
             placeholder="Notes, acceptance criteria, links…"
-            className="w-full px-3 py-2 text-sm text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded resize-vertical focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none placeholder:text-neutral-text-disabled disabled:opacity-60"
+            className="w-full px-3 py-2 text-sm text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded-control resize-vertical focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none placeholder:text-neutral-text-disabled disabled:opacity-60"
           />
         </div>
 
         {submitError && (
-          <div role="alert" className="bg-semantic-critical-bg border border-semantic-critical/30 text-semantic-critical text-xs px-3 py-2 rounded">
+          <div role="alert" className="bg-semantic-critical-bg border border-semantic-critical/30 text-semantic-critical text-xs px-3 py-2 rounded-card">
             {submitError}
           </div>
         )}
@@ -1017,7 +1017,7 @@ export function TaskFormModal({
           type="button"
           onClick={onClose}
           aria-label="Close"
-          className="w-8 h-8 inline-flex items-center justify-center rounded text-neutral-text-secondary hover:bg-neutral-surface-sunken focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none shrink-0"
+          className="w-8 h-8 inline-flex items-center justify-center rounded-control text-neutral-text-secondary hover:bg-neutral-surface-sunken focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none shrink-0"
         >
           <span aria-hidden="true">×</span>
         </button>
@@ -1032,7 +1032,7 @@ export function TaskFormModal({
           <button
             type="button"
             onClick={onClose}
-            className="h-8 md:h-8 min-h-11 md:min-h-0 px-3 rounded border border-neutral-border bg-transparent text-[13px] text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
+            className="h-8 md:h-8 min-h-11 md:min-h-0 px-3 rounded-control border border-neutral-border bg-transparent text-[13px] text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
           >
             Close
           </button>
@@ -1048,7 +1048,7 @@ export function TaskFormModal({
               type="button"
               onClick={() => setShowDeleteConfirm(true)}
               disabled={isPending || deleteTask.isPending}
-              className="text-[13px] text-semantic-critical hover:bg-semantic-critical/5 px-2 py-1 rounded focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1 focus-visible:outline-none disabled:opacity-50"
+              className="text-[13px] text-semantic-critical hover:bg-semantic-critical/5 px-2 py-1 rounded-control focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1 focus-visible:outline-none disabled:opacity-50"
               aria-haspopup="dialog"
             >
               Delete task
@@ -1073,7 +1073,7 @@ export function TaskFormModal({
               }
             }}
             disabled={isPending}
-            className="h-8 md:h-8 min-h-11 md:min-h-0 px-3 rounded border border-neutral-border bg-transparent text-[13px] text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none disabled:opacity-50"
+            className="h-8 md:h-8 min-h-11 md:min-h-0 px-3 rounded-control border border-neutral-border bg-transparent text-[13px] text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none disabled:opacity-50"
           >
             Cancel
           </button>
@@ -1082,7 +1082,7 @@ export function TaskFormModal({
             form="task-form"
             disabled={!formIsValid || isPending}
             aria-keyshortcuts="Meta+S Control+S"
-            className="h-8 md:h-8 min-h-11 md:min-h-0 px-3.5 rounded bg-brand-primary text-white text-[13px] font-medium border-none hover:bg-brand-primary-dark focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-brand-primary focus-visible:outline-none disabled:opacity-50"
+            className="h-8 md:h-8 min-h-11 md:min-h-0 px-3.5 rounded-control bg-brand-primary text-white text-[13px] font-medium border-none hover:bg-brand-primary-dark focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-brand-primary focus-visible:outline-none disabled:opacity-50"
           >
             {isPending
               ? (isEdit ? 'Saving…' : 'Creating…')
@@ -1149,7 +1149,7 @@ export function TaskFormModal({
         <div
           ref={desktopTrapRef}
           tabIndex={-1}
-          className="bg-neutral-surface border border-neutral-border rounded-lg overflow-hidden flex flex-col w-[560px] max-h-[90vh] pointer-events-auto focus:outline-none motion-safe:animate-modal-scale-in"
+          className="bg-neutral-surface border border-neutral-border rounded-card overflow-hidden flex flex-col w-[560px] max-h-[90vh] pointer-events-auto focus:outline-none motion-safe:animate-modal-scale-in"
         >
           {renderHeader()}
           <div className="flex-1 overflow-y-auto">{renderBody()}</div>

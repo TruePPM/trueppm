@@ -95,7 +95,7 @@ export function CardPopoverShell({
       role="dialog"
       aria-modal="false"
       aria-labelledby={titleId}
-      className="hidden md:block fixed z-50 w-[360px] bg-neutral-surface border border-neutral-border rounded-md overflow-hidden motion-safe:transition-opacity motion-safe:duration-150"
+      className="hidden md:block fixed z-50 w-[360px] bg-neutral-surface border border-neutral-border rounded-card overflow-hidden motion-safe:transition-opacity motion-safe:duration-150"
       style={{
         left: position?.left ?? 0,
         top: position?.top ?? 0,

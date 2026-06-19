@@ -148,7 +148,7 @@ export function NewProjectModal({ onClose, onCreated, programId }: Props) {
           role="dialog"
           aria-modal="true"
           aria-label={`New project — step ${step} of ${TOTAL_STEPS}`}
-          className="w-full max-w-lg rounded-lg border border-neutral-border bg-neutral-surface p-6 pointer-events-auto"
+          className="w-full max-w-lg rounded-card border border-neutral-border bg-neutral-surface p-6 pointer-events-auto"
         >
           {/* Step indicator */}
           <div className="flex items-center gap-2 mb-5" aria-hidden="true">
@@ -189,7 +189,7 @@ export function NewProjectModal({ onClose, onCreated, programId }: Props) {
                     required
                     aria-required="true"
                     placeholder="My Project"
-                    className="h-9 px-3 rounded border border-neutral-border bg-neutral-surface
+                    className="h-9 px-3 rounded-control border border-neutral-border bg-neutral-surface
                       text-sm text-neutral-text-primary placeholder:text-neutral-text-disabled
                       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
                   />
@@ -202,7 +202,7 @@ export function NewProjectModal({ onClose, onCreated, programId }: Props) {
                     rows={3}
                     maxLength={1000}
                     placeholder="Optional"
-                    className="px-3 py-2 rounded border border-neutral-border bg-neutral-surface
+                    className="px-3 py-2 rounded-control border border-neutral-border bg-neutral-surface
                       text-sm text-neutral-text-primary placeholder:text-neutral-text-disabled resize-none
                       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
                   />
@@ -225,7 +225,7 @@ export function NewProjectModal({ onClose, onCreated, programId }: Props) {
                     onChange={(e) => setStartDate(e.target.value)}
                     required
                     aria-required="true"
-                    className="h-9 px-3 rounded border border-neutral-border bg-neutral-surface
+                    className="h-9 px-3 rounded-control border border-neutral-border bg-neutral-surface
                       text-sm text-neutral-text-primary
                       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
                   />
@@ -248,7 +248,7 @@ export function NewProjectModal({ onClose, onCreated, programId }: Props) {
                       role="radio"
                       aria-checked={methodology === m.id}
                       onClick={() => setMethodology(m.id)}
-                      className={`flex flex-col gap-1 rounded border p-3 text-left
+                      className={`flex flex-col gap-1 rounded-control border p-3 text-left
                         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
                         ${methodology === m.id
                           ? 'border-brand-primary bg-brand-primary/5'
@@ -275,7 +275,7 @@ export function NewProjectModal({ onClose, onCreated, programId }: Props) {
                     type="button"
                     onClick={back}
                     disabled={createProject.isPending}
-                    className="h-9 px-4 rounded text-sm font-medium border border-neutral-border
+                    className="h-9 px-4 rounded-control text-sm font-medium border border-neutral-border
                       text-neutral-text-secondary hover:text-neutral-text-primary
                       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
                   >
@@ -288,7 +288,7 @@ export function NewProjectModal({ onClose, onCreated, programId }: Props) {
                   type="button"
                   onClick={onClose}
                   disabled={createProject.isPending}
-                  className="h-9 px-4 rounded text-sm font-medium border border-neutral-border
+                  className="h-9 px-4 rounded-control text-sm font-medium border border-neutral-border
                     text-neutral-text-secondary hover:text-neutral-text-primary
                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
                 >
@@ -301,7 +301,7 @@ export function NewProjectModal({ onClose, onCreated, programId }: Props) {
                     (step === 2 && !canAdvanceStep2) ||
                     (step === TOTAL_STEPS && createProject.isPending)
                   }
-                  className="h-9 px-4 rounded text-sm font-medium bg-brand-primary text-white
+                  className="h-9 px-4 rounded-control text-sm font-medium bg-brand-primary text-white
                     disabled:opacity-50 disabled:cursor-not-allowed hover:bg-brand-primary-dark
                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white
                     focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary"

@@ -74,7 +74,7 @@ export function NotificationPanel({ onClose }: Props) {
       aria-label="My mentions"
       className="absolute top-full right-0 mt-2 z-50 w-[380px] lg:w-[420px]
         max-h-[80vh] flex flex-col
-        bg-neutral-surface border border-neutral-border rounded"
+        bg-neutral-surface border border-neutral-border rounded-card"
     >
       {/* Header */}
       <div className="flex items-center gap-2 p-3 border-b border-neutral-border">
@@ -95,7 +95,7 @@ export function NotificationPanel({ onClose }: Props) {
             }
             disabled={markAllRead.isPending}
             className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary
-              rounded px-2 h-7
+              rounded-control px-2 h-7
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
               disabled:opacity-50"
           >
@@ -106,7 +106,7 @@ export function NotificationPanel({ onClose }: Props) {
             onClick={onClose}
             aria-label="Close notifications"
             className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary
-              rounded px-2 h-7
+              rounded-control px-2 h-7
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
           >
             ✕
@@ -136,7 +136,7 @@ export function NotificationPanel({ onClose }: Props) {
               tabIndex={active ? 0 : -1}
               onKeyDown={handleFilterKeyDown}
               onClick={() => setFilter(f.value)}
-              className={`text-xs px-2 h-7 rounded border
+              className={`text-xs px-2 h-7 rounded-control border
                 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
                 ${
                   active
@@ -170,7 +170,7 @@ export function NotificationPanel({ onClose }: Props) {
             {[0, 1, 2].map((i) => (
               <div
                 key={i}
-                className="h-16 rounded border border-neutral-border animate-pulse bg-neutral-surface-raised"
+                className="h-16 rounded-control border border-neutral-border animate-pulse bg-neutral-surface-raised"
               />
             ))}
           </div>
@@ -202,7 +202,7 @@ export function NotificationPanel({ onClose }: Props) {
           to="/me/settings/notifications"
           onClick={onClose}
           className="text-xs text-brand-primary underline-offset-2 hover:underline
-            focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none rounded"
+            focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none rounded-control"
         >
           Notification preferences →
         </Link>

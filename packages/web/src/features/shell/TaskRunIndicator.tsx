@@ -14,7 +14,7 @@ export function TaskRunIndicator() {
 
   return (
     <div
-      className="flex items-center gap-1.5 px-2 py-0.5 rounded border border-neutral-border bg-neutral-surface text-xs text-neutral-text-secondary"
+      className="flex items-center gap-1.5 px-2 py-0.5 rounded-chip border border-neutral-border bg-neutral-surface text-xs text-neutral-text-secondary"
       aria-label={`${activeCount} background operation${activeCount > 1 ? 's' : ''} running`}
       role="status"
     >

@@ -145,7 +145,7 @@ export function BoardSettingsPanel({ columns, onSave, onClose, readOnly = false 
             type="button"
             onClick={onClose}
             aria-label="Close board settings"
-            className="inline-flex items-center justify-center w-11 h-11 rounded
+            className="inline-flex items-center justify-center w-11 h-11 rounded-control
               border border-neutral-border text-sm text-neutral-text-secondary
               hover:bg-neutral-surface-raised
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
@@ -180,7 +180,7 @@ export function BoardSettingsPanel({ columns, onSave, onClose, readOnly = false 
             <button
               type="button"
               onClick={onClose}
-              className="inline-flex items-center justify-center min-h-[44px] px-3 rounded
+              className="inline-flex items-center justify-center min-h-[44px] px-3 rounded-control
                 border border-neutral-border text-xs text-neutral-text-secondary
                 hover:bg-neutral-surface-raised
                 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
@@ -192,7 +192,7 @@ export function BoardSettingsPanel({ columns, onSave, onClose, readOnly = false 
                 type="button"
                 onClick={() => { void handleSave(); }}
                 disabled={!isDirty || hasErrors || isSaving}
-                className="inline-flex items-center justify-center min-h-[44px] px-3 rounded
+                className="inline-flex items-center justify-center min-h-[44px] px-3 rounded-control
                   bg-brand-primary text-white text-xs font-medium
                   disabled:opacity-50 disabled:cursor-not-allowed
                   hover:bg-brand-primary/90
@@ -247,7 +247,7 @@ function ColumnRow({ col, err, readOnly, onChange }: RowProps) {
           onChange={(e) => onChange({ label: e.target.value })}
           aria-invalid={Boolean(err.label)}
           aria-describedby={err.label ? `${labelId}-err` : undefined}
-          className="w-full min-h-[44px] px-2 rounded border border-neutral-border bg-neutral-surface
+          className="w-full min-h-[44px] px-2 rounded-control border border-neutral-border bg-neutral-surface
             text-sm text-neutral-text-primary
             disabled:bg-neutral-surface-sunken disabled:text-neutral-text-disabled
             focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
@@ -274,7 +274,7 @@ function ColumnRow({ col, err, readOnly, onChange }: RowProps) {
                 aria-label={s.label}
                 title={s.label}
                 className={[
-                  'w-11 h-11 rounded border-2',
+                  'w-11 h-11 rounded-control border-2',
                   selected ? 'border-brand-primary' : 'border-neutral-border',
                   'disabled:opacity-50 disabled:cursor-not-allowed',
                   'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none',
@@ -291,7 +291,7 @@ function ColumnRow({ col, err, readOnly, onChange }: RowProps) {
             aria-label="No color"
             title="No color"
             className={[
-              'w-11 h-11 rounded border-2 bg-neutral-surface',
+              'w-11 h-11 rounded-control border-2 bg-neutral-surface',
               col.color == null ? 'border-brand-primary' : 'border-neutral-border',
               'text-neutral-text-disabled text-xs',
               'disabled:opacity-50 disabled:cursor-not-allowed',
@@ -318,7 +318,7 @@ function ColumnRow({ col, err, readOnly, onChange }: RowProps) {
             }}
             aria-invalid={Boolean(err.color)}
             aria-describedby={err.color ? `${colorId}-err` : undefined}
-            className="w-28 min-h-[44px] px-2 rounded border border-neutral-border bg-neutral-surface
+            className="w-28 min-h-[44px] px-2 rounded-control border border-neutral-border bg-neutral-surface
               text-sm tppm-mono text-neutral-text-primary
               disabled:bg-neutral-surface-sunken disabled:text-neutral-text-disabled
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
@@ -355,7 +355,7 @@ function ColumnRow({ col, err, readOnly, onChange }: RowProps) {
             }}
             aria-invalid={Boolean(err.wip)}
             aria-describedby={err.wip ? `${wipId}-err` : undefined}
-            className="w-24 min-h-[44px] px-2 rounded border border-neutral-border bg-neutral-surface
+            className="w-24 min-h-[44px] px-2 rounded-control border border-neutral-border bg-neutral-surface
               text-sm tppm-mono text-neutral-text-primary
               disabled:bg-neutral-surface-sunken disabled:text-neutral-text-disabled
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"

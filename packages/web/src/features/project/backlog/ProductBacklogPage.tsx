@@ -203,7 +203,7 @@ function StoryRow({
       }}
       className={`${gridCols(hasScore)} cursor-pointer border-b border-neutral-border bg-neutral-surface px-2 py-2.5 text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset ${
         dragging
-          ? 'rounded-md opacity-60 ring-2 ring-brand-primary'
+          ? 'rounded-control opacity-60 ring-2 ring-brand-primary'
           : selected
             ? 'ring-2 ring-inset ring-navy-700 dark:ring-reversed'
             : ''
@@ -213,7 +213,7 @@ function StoryRow({
         <button
           type="button"
           aria-label={`Reorder ${story.name}`}
-          className="flex min-h-[44px] min-w-[44px] cursor-grab touch-none items-center justify-center rounded text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary active:cursor-grabbing"
+          className="flex min-h-[44px] min-w-[44px] cursor-grab touch-none items-center justify-center rounded-control text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary active:cursor-grabbing"
           onClick={(e) => e.stopPropagation()}
           {...attributes}
           {...listeners}
@@ -245,7 +245,7 @@ function StoryRow({
           e.stopPropagation();
           onToggleDor(story);
         }}
-        className="justify-self-start rounded focus:outline-none focus:ring-2 focus:ring-brand-primary"
+        className="justify-self-start rounded-control focus:outline-none focus:ring-2 focus:ring-brand-primary"
         title="Toggle Definition of Ready (ready / refine)"
       >
         <DorChip dor={story.dor ?? 'idea'} />
@@ -312,7 +312,7 @@ function EpicHeader({ group }: { group: EpicGroup }) {
   const pct =
     rollup.pointsTotal > 0 ? Math.round((rollup.pointsDone / rollup.pointsTotal) * 100) : 0;
   return (
-    <div className="flex items-center gap-2.5 rounded-md bg-neutral-surface-sunken px-2 py-2">
+    <div className="flex items-center gap-2.5 rounded-card bg-neutral-surface-sunken px-2 py-2">
       <span className="h-5 w-2 rounded-[2px] bg-brand-primary" aria-hidden />
       <span className="text-xs font-bold uppercase tracking-wide text-neutral-text-secondary">
         Epic
@@ -354,7 +354,7 @@ function ViewToggle({ view, onChange }: { view: BacklogView; onChange: (v: Backl
     <fieldset
       role="radiogroup"
       aria-label="Backlog view"
-      className="inline-flex items-center rounded border border-neutral-border"
+      className="inline-flex items-center rounded-control border border-neutral-border"
     >
       {OPTIONS.map(({ value, label, rounded }) => {
         const active = view === value;
@@ -387,13 +387,13 @@ function LegendStrip() {
   return (
     <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 border-b border-neutral-border bg-neutral-surface px-6 py-2 text-[11px] text-neutral-text-secondary">
       <span className="inline-flex items-center gap-1.5">
-        <span className="rounded bg-brand-primary/10 px-1.5 py-0.5 font-semibold text-brand-primary">
+        <span className="rounded-chip bg-brand-primary/10 px-1.5 py-0.5 font-semibold text-brand-primary">
           Pulled
         </span>
         = committed to a sprint
       </span>
       <span className="inline-flex items-center gap-1.5">
-        <span className="rounded border border-dashed border-neutral-border px-1.5 py-0.5 font-semibold text-neutral-text-secondary">
+        <span className="rounded-chip border border-dashed border-neutral-border px-1.5 py-0.5 font-semibold text-neutral-text-secondary">
           Proposed
         </span>
         = candidate
@@ -722,7 +722,7 @@ export function ProductBacklogPage() {
             )}
 
             {/* Quick-add (921): persistent title-only create pinned at the bottom. */}
-            <div className="flex items-center gap-2.5 rounded border-t border-neutral-border px-2 py-2.5 focus-within:ring-2 focus-within:ring-brand-primary">
+            <div className="flex items-center gap-2.5 rounded-control border-t border-neutral-border px-2 py-2.5 focus-within:ring-2 focus-within:ring-brand-primary">
               <span
                 className="flex w-[44px] justify-center text-neutral-text-secondary"
                 aria-hidden
