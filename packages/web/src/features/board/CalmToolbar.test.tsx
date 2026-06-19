@@ -47,6 +47,8 @@ function Harness(overrides: Partial<CalmToolbarProps> = {}) {
     onSortChange: vi.fn(),
     density: 'comfortable',
     onDensityChange: vi.fn(),
+    zoom: 'normal',
+    onZoomChange: vi.fn(),
     backlogDensity: 'comfortable',
     onBacklogDensityChange: vi.fn(),
     layout: 'rail',

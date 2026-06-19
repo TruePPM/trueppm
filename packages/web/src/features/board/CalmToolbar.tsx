@@ -15,10 +15,11 @@
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import type { BoardSortKey } from '@/hooks/useBoardSavedViews';
 import type { BoardDensity, EvmMode } from './BoardCard';
-import type { BoardLayoutVariant, BacklogDensity } from '@/hooks/useBoardToolbarPrefs';
+import type { BoardLayoutVariant, BacklogDensity, BoardZoom } from '@/hooks/useBoardToolbarPrefs';
 import { BoardViewDropdown } from './BoardViewDropdown';
 import { BoardSprintSwitcher } from './BoardSprintSwitcher';
 import { BoardSearchControl } from './BoardSearchControl';
+import { BoardZoomControl } from './BoardZoomControl';
 import type { BoardViewConfig } from '@/hooks/useBoardSavedViews';
 import type { ApiSprint } from '@/types';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
@@ -243,6 +244,9 @@ export interface CalmToolbarProps {
   // Board card density (existing)
   density: BoardDensity;
   onDensityChange: (d: BoardDensity) => void;
+  // Board-local zoom (#379) — independent spacing axis from Density.
+  zoom: BoardZoom;
+  onZoomChange: (z: BoardZoom) => void;
   // Backlog density (new — persisted via useBoardToolbarPrefs)
   backlogDensity: BacklogDensity;
   onBacklogDensityChange: (d: BacklogDensity) => void;
@@ -470,6 +474,11 @@ export function CalmToolbar(props: CalmToolbarProps) {
           </fieldset>
         </div>
       </ToolbarChip>
+
+      {/* Board zoom (#379) — desk task, hidden on mobile; independent of Density. */}
+      {breakpoint !== 'sm' && (
+        <BoardZoomControl zoom={props.zoom} onZoomChange={props.onZoomChange} />
+      )}
 
       <span aria-hidden="true" className="h-4 w-px bg-neutral-border" />
 

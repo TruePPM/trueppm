@@ -86,7 +86,7 @@ import { BacklogDemoteConfirmDialog } from './BacklogDemoteConfirmDialog';
 import { ScheduleTaskDialog } from '@/features/schedule/ScheduleTaskDialog';
 import { CalmToolbar } from './CalmToolbar';
 import { SprintPanel } from './SprintPanel';
-import { useBoardToolbarPrefs } from '@/hooks/useBoardToolbarPrefs';
+import { useBoardToolbarPrefs, type BoardZoom } from '@/hooks/useBoardToolbarPrefs';
 import { useBoardCardSearch } from '@/hooks/useBoardCardSearch';
 import { useProject } from '@/hooks/useProject';
 import { useActiveSprint, useSprints } from '@/hooks/useSprints';
@@ -419,6 +419,30 @@ const COLUMN_DOT_CLASS: Record<TaskStatus, string> = {
   COMPLETE: 'bg-semantic-on-track',
 };
 
+// Board zoom (#379, ADR-0145). Each level sets coordinated CSS custom properties
+// on the board grid container; the column-header / lane / phase-rail grids read
+// --board-phase-col and --board-col-gap, and the column card-stack reads
+// --board-card-gap. `normal` reproduces the pre-zoom defaults exactly (188px /
+// gap-2 / gap-1.5) so the default board is visually unchanged. dnd-kit-safe:
+// these are real CSS sizes, not a transform/zoom that would break drag math.
+const BOARD_ZOOM_VARS: Record<BoardZoom, CSSProperties> = {
+  small: {
+    '--board-phase-col': '150px',
+    '--board-col-gap': '0.25rem',
+    '--board-card-gap': '0.25rem',
+  } as CSSProperties,
+  normal: {
+    '--board-phase-col': '188px',
+    '--board-col-gap': '0.5rem',
+    '--board-card-gap': '0.375rem',
+  } as CSSProperties,
+  large: {
+    '--board-phase-col': '224px',
+    '--board-col-gap': '0.75rem',
+    '--board-card-gap': '0.625rem',
+  } as CSSProperties,
+};
+
 function BoardCell({
   phaseId,
   status,
@@ -473,7 +497,7 @@ function BoardCell({
     <div
       ref={setNodeRef}
       className={[
-        'rounded-lg p-2 min-h-[120px] flex flex-col gap-1.5 transition-colors duration-100',
+        'rounded-lg p-2 min-h-[120px] flex flex-col gap-[var(--board-card-gap,0.375rem)] transition-colors duration-100',
         over
           ? 'bg-brand-primary/5 border-l-2 border-brand-primary'
           : `${restingBg} border-l-2 border-transparent`,
@@ -660,8 +684,10 @@ function PhaseLane({
       )}
       <div
         id={`phase-${phase.id}-content`}
-        className="grid gap-2 p-2"
-        style={{ gridTemplateColumns: `188px repeat(${colCount}, minmax(0, 1fr))` }}
+        className="grid gap-[var(--board-col-gap,0.5rem)] p-2"
+        style={{
+          gridTemplateColumns: `var(--board-phase-col,188px) repeat(${colCount}, minmax(0, 1fr))`,
+        }}
       >
         {/* Phase meta — LaneMeta atom (issue #208) */}
         <div className="rounded-lg overflow-hidden border border-neutral-border/40 min-w-0">
@@ -2013,6 +2039,8 @@ export function BoardView() {
             onSortChange={setSort}
             density={density}
             onDensityChange={setDensity}
+            zoom={toolbarPrefs.zoom}
+            onZoomChange={toolbarPrefs.setZoom}
             backlogDensity={toolbarPrefs.backlogDensity}
             onBacklogDensityChange={toolbarPrefs.setBacklogDensity}
             layout={toolbarPrefs.layout}
@@ -2196,7 +2224,12 @@ export function BoardView() {
               )}
 
               {/* Board grid — scrollable */}
-              <div className="flex-1 overflow-auto min-h-0 bg-neutral-surface-sunken">
+              <div
+                className="flex-1 overflow-auto min-h-0 bg-neutral-surface-sunken"
+                // Board zoom CSS vars (#379) — cascade to the column-header / lane /
+                // phase-rail grids and the column card-stacks below.
+                style={BOARD_ZOOM_VARS[toolbarPrefs.zoom]}
+              >
                 {/* Active-sprint summary (ADR-0073) — rendered inside the scroll
                 container so the burndown / velocity charts scroll away with
                 the board instead of permanently consuming vertical space.
@@ -2210,8 +2243,10 @@ export function BoardView() {
                 {projectId && <FlowAnalyticsPanel projectId={projectId} />}
                 {/* Sticky column headers */}
                 <div
-                  className="grid gap-2 px-2 py-1.5 border-b-2 border-neutral-border/60 bg-neutral-surface sticky top-0 z-10"
-                  style={{ gridTemplateColumns: `188px repeat(${COLUMNS.length}, minmax(0, 1fr))` }}
+                  className="grid gap-[var(--board-col-gap,0.5rem)] px-2 py-1.5 border-b-2 border-neutral-border/60 bg-neutral-surface sticky top-0 z-10"
+                  style={{
+                    gridTemplateColumns: `var(--board-phase-col,188px) repeat(${COLUMNS.length}, minmax(0, 1fr))`,
+                  }}
                 >
                   <div className="text-xs uppercase tracking-wide text-neutral-text-disabled px-2">
                     Phase

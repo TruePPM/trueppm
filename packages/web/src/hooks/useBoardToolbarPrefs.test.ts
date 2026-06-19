@@ -59,4 +59,50 @@ describe('useBoardToolbarPrefs', () => {
     expect(result.current.layout).toBe('rail');
     expect(result.current.backlogDensity).toBe('comfortable');
   });
+
+  // Board zoom (#379) — additive third axis on the same v1 blob.
+  it('defaults zoom to normal', () => {
+    const { result } = renderHook(() => useBoardToolbarPrefs());
+    expect(result.current.zoom).toBe('normal');
+  });
+
+  it('persists zoom selection to localStorage', () => {
+    const { result } = renderHook(() => useBoardToolbarPrefs());
+    act(() => result.current.setZoom('small'));
+    expect(result.current.zoom).toBe('small');
+    const stored = JSON.parse(
+      localStorage.getItem('trueppm.board.toolbarPrefs.v1') ?? '{}',
+    ) as { zoom?: string };
+    expect(stored.zoom).toBe('small');
+  });
+
+  it('restores zoom across reloads', () => {
+    localStorage.setItem(
+      'trueppm.board.toolbarPrefs.v1',
+      JSON.stringify({ layout: 'rail', backlogDensity: 'comfortable', zoom: 'large' }),
+    );
+    const { result } = renderHook(() => useBoardToolbarPrefs());
+    expect(result.current.zoom).toBe('large');
+  });
+
+  it('defaults zoom to normal when the stored v1 blob predates the key (backwards-compat)', () => {
+    localStorage.setItem(
+      'trueppm.board.toolbarPrefs.v1',
+      JSON.stringify({ layout: 'queue', backlogDensity: 'compact' }),
+    );
+    const { result } = renderHook(() => useBoardToolbarPrefs());
+    expect(result.current.zoom).toBe('normal');
+    // The other axes still restore — the additive key didn't disturb them.
+    expect(result.current.layout).toBe('queue');
+    expect(result.current.backlogDensity).toBe('compact');
+  });
+
+  it('falls back to normal zoom on an unknown stored value', () => {
+    localStorage.setItem(
+      'trueppm.board.toolbarPrefs.v1',
+      JSON.stringify({ zoom: 'gigantic' }),
+    );
+    const { result } = renderHook(() => useBoardToolbarPrefs());
+    expect(result.current.zoom).toBe('normal');
+  });
 });
