@@ -644,7 +644,7 @@ export function ProgramGeneralPage() {
       </StubFieldset>
 
       {/* Destructive actions live on the Archive / Delete page (#977). */}
-      <DangerZoneLink to="../lifecycle" />
+      <DangerZoneLink to="#lifecycle" />
     </div>
   );
 }

@@ -176,8 +176,9 @@ test.describe('Programs — shell tabs', () => {
     await expect(nav.getByRole('link', { name: /Backlog/i })).toBeVisible();
     await nav.getByRole('link', { name: /Settings/i }).click();
 
-    // Lands on program settings, and the Settings tab stays active there.
-    await page.waitForURL(`**/programs/${PROGRAM_ID}/settings/general`);
+    // Lands on the consolidated program settings page (ADR-0146; no per-section
+    // route redirect anymore), and the Settings tab stays active there.
+    await page.waitForURL(`**/programs/${PROGRAM_ID}/settings`);
     await expect(
       page.getByRole('navigation', { name: 'Program' }).getByRole('link', { name: /Settings/i }),
     ).toHaveAttribute('aria-current', 'page');

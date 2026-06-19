@@ -93,6 +93,15 @@ async function setup(page: Page, opts: SetupOpts = {}) {
 
   const pj = (data: unknown) => JSON.stringify(data);
 
+  // Catch-all 401-guard FIRST (ADR-0146): the consolidated settings page mounts
+  // every section at once, so sibling sections (workflow, notifications, …) now
+  // fire their own endpoints. Without this net those unmocked requests hit the
+  // preview server, 401, and trip the session-expired modal — which replaces the
+  // app and detaches the Team switches. Specific routes below override it.
+  await page.route('**/api/v1/**', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  );
+
   await page.route('**/api/v1/projects/', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj([FIXTURE_PROJECT]) }),
   );
@@ -220,7 +229,12 @@ test.describe('Team Settings — read-only', () => {
   test('a plain member sees disabled switches and no role select', async ({ page }) => {
     await setup(page, { selfRole: 100, roster: [aliceRow('member'), bobRow()] });
     await page.goto(`/projects/${PROJECT_ID}/settings/team`);
-    await expect(page.getByRole('switch', { name: 'Scrum Master: bob' })).toBeDisabled();
-    await expect(page.getByRole('combobox')).toHaveCount(0);
+    // Scope to the Team section: the consolidated page (ADR-0146) mounts other
+    // sections (General timezone/default-view selects, etc.) whose comboboxes
+    // would otherwise count here. The assertion is "no role select in the
+    // roster" — a member can't change anyone's role.
+    const teamSection = page.locator('[data-settings-section="team"]');
+    await expect(teamSection.getByRole('switch', { name: 'Scrum Master: bob' })).toBeDisabled();
+    await expect(teamSection.getByRole('combobox')).toHaveCount(0);
   });
 });

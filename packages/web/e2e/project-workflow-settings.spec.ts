@@ -247,8 +247,12 @@ test.describe('Project Settings → Workflow (#521)', () => {
     await expect(fieldsSection.getByText('Phase')).toBeVisible(); // built-in
     await expect(fieldsSection.getByText('Vendor')).toBeVisible(); // dynamic
 
-    // Stub banner must not render once wired.
-    await expect(page.getByTestId('stub-page-banner')).toHaveCount(0);
+    // Stub banner must not render once this section is wired. Scope to the
+    // Workflow section: the consolidated page (ADR-0146) mounts every section,
+    // and unmocked sibling sections render their own stub banners.
+    await expect(
+      page.locator('[data-settings-section="workflow"]').getByTestId('stub-page-banner'),
+    ).toHaveCount(0);
   });
 
   test('+ Add phase POSTs to /phases/ with the default name', async ({ page }) => {

@@ -99,10 +99,13 @@ test.describe('Project Settings → General lead picker', () => {
     await setup(page, captures);
     await page.goto(`/projects/${PROJECT_ID}/settings/general`);
 
-    await expect(page.getByRole('heading', { name: 'General' })).toBeVisible();
+    // Scope to General: the consolidated page (ADR-0146) mounts the Team section
+    // too, so member names/lead controls collide unless scoped to this region.
+    const section = page.locator('[data-settings-section="general"]');
+    await expect(section.getByRole('heading', { name: 'General' })).toBeVisible();
     // No lead → Unassigned + an "Assign" trigger (no hardcoded "Anika Krishnan").
-    expect(await page.getByText('Anika Krishnan').count()).toBe(0);
-    await page.getByRole('button', { name: 'Assign' }).click();
+    expect(await section.getByText('Anika Krishnan').count()).toBe(0);
+    await section.getByRole('button', { name: 'Assign' }).click();
 
     const listbox = page.getByRole('listbox', { name: 'Select project lead' });
     await expect(listbox).toBeVisible();
@@ -125,9 +128,11 @@ test.describe('Project Settings → General lead picker', () => {
     await setup(page, captures, seeded);
     await page.goto(`/projects/${PROJECT_ID}/settings/general`);
 
+    // Scope to General — the Team section also lists "anika" on the consolidated page.
+    const section = page.locator('[data-settings-section="general"]');
     // Seeded lead renders from lead_detail.
-    await expect(page.getByText('anika')).toBeVisible();
-    await page.getByRole('button', { name: 'Change' }).click();
+    await expect(section.getByText('anika')).toBeVisible();
+    await section.getByRole('button', { name: 'Change' }).click();
     await page.getByRole('option', { name: 'Unassign' }).click();
 
     await page.getByRole('button', { name: /Save changes/i }).click();

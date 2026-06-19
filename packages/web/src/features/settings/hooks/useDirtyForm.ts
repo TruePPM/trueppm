@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { useSettingsSaveStore } from './useSettingsSaveStore';
+import { useSettingsSectionId } from '../SettingsSectionContext';
 
 export interface UseDirtyFormOptions<T extends Record<string, unknown>> {
   /** Current form values — usually derived from page-local `useState`. */
@@ -56,23 +57,29 @@ export function useDirtyForm<T extends Record<string, unknown>>({
     [apiReady, values, initialValues],
   );
 
+  // The section this form belongs to (ADR-0146). On the consolidated page each
+  // `<SettingsSection id>` provides its own key so multiple sections register
+  // independently; outside one, the default key preserves single-registration.
+  const sectionId = useSettingsSectionId();
+
   const register = useSettingsSaveStore((s) => s.register);
-  const reset = useSettingsSaveStore((s) => s.reset);
+  const unregister = useSettingsSaveStore((s) => s.unregister);
 
   useEffect(() => {
-    register({
+    register(sectionId, {
       dirty,
       apiReady,
       onSave,
       onReset,
     });
-  }, [dirty, apiReady, onSave, onReset, register]);
+  }, [sectionId, dirty, apiReady, onSave, onReset, register]);
 
+  // Remove only this section's entry on unmount — sibling sections stay registered.
   useEffect(() => {
     return () => {
-      reset();
+      unregister(sectionId);
     };
-  }, [reset]);
+  }, [sectionId, unregister]);
 
   return { dirty };
 }

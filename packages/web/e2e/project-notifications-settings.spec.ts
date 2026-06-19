@@ -146,18 +146,22 @@ test.describe('Project Settings → Notifications (#522)', () => {
     await setup(page, captures);
     await page.goto(`/projects/${PROJECT_ID}/settings/notifications`);
 
-    await expect(page.getByRole('heading', { name: 'Notifications', exact: true })).toBeVisible();
-    // Stub banner is gone — page is wired.
-    await expect(page.getByTestId('stub-page-banner')).toBeHidden();
+    // Scope to the Notifications section: the consolidated page (ADR-0146) mounts
+    // every section at once, so other (unmocked) sections render their own stub
+    // banners — the wired-ness check must be scoped to this section.
+    const section = page.locator('[data-settings-section="notifications"]');
+    await expect(section.getByRole('heading', { name: 'Notifications', exact: true })).toBeVisible();
+    // Stub banner is gone — this section is wired.
+    await expect(section.getByTestId('stub-page-banner')).toBeHidden();
 
     // Initial state: "Task moves to another column" via email is OFF.
-    const statusEmail = page.getByRole('switch', {
+    const statusEmail = section.getByRole('switch', {
       name: /task moves to another column via email/i,
     });
     await expect(statusEmail).toHaveAttribute('aria-checked', 'false');
 
     // Toggle a cell and confirm a partial PATCH was sent.
-    const assignedEmail = page.getByRole('switch', {
+    const assignedEmail = section.getByRole('switch', {
       name: /task assigned to me via email/i,
     });
     await expect(assignedEmail).toHaveAttribute('aria-checked', 'true');
@@ -199,10 +203,13 @@ test.describe('Project Settings → Notifications (#522)', () => {
     await expect.poll(() => captures.patches.length).toBe(1);
     expect(captures.patches[0]).toEqual({ quiet_hours_enabled: false });
 
-    // Scope to the settings pane — the v2 rail's "Import a project from a file"
-    // button's aria-label also contains "from", so an unscoped getByLabel('From')
-    // is ambiguous.
-    const from = page.getByTestId('settings-content-scroll').getByLabel('From');
+    // Scope to the Notifications section + match the select exactly: on the
+    // consolidated page (ADR-0146) other sections' read-only indicators carry
+    // aria-labels containing "…inherited from the program…", so an unscoped /
+    // non-exact getByLabel('From') is ambiguous.
+    const from = page
+      .locator('[data-settings-section="notifications"]')
+      .getByLabel('From', { exact: true });
     await from.selectOption('22:00');
     await expect.poll(() => captures.patches.length).toBe(2);
     expect(captures.patches[1]).toEqual({ quiet_hours_from: '22:00:00' });

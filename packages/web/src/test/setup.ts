@@ -57,6 +57,12 @@ class WebSocketStub {
 }
 (globalThis as unknown as Record<string, unknown>).WebSocket = WebSocketStub;
 
+// jsdom does not implement Element.scrollIntoView; the settings scroll-spy
+// (ADR-0146) calls it on rail-item activation. No-op it so those tests don't throw.
+if (typeof Element.prototype.scrollIntoView !== 'function') {
+  Element.prototype.scrollIntoView = function () {};
+}
+
 // Required by components that use responsive design / media queries.
 // `min-width` queries default to `matches: true` so `useBreakpoint` reports
 // the `lg` tier — the reference layout that existing tests were written
