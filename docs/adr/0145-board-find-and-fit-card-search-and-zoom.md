@@ -54,13 +54,17 @@ structural (pre-0.4 / pre-0.5) and are not a rescope signal per `personas.md`.
   visibility is moot by construction — this is what keeps the Morgan/Marcus VoC
   constraint satisfied without per-field gating.
 - **Frontend:** a search input in the board toolbar (`CalmToolbar`), keyboard-opened
-  with `/`. On query change (200 ms debounce) the board calls the search endpoint,
-  intersects the returned IDs with the cards currently rendered, and sets the existing
-  `BoardCard isDimmed` prop on non-matches (dim to 30% opacity + `aria-hidden`). A
-  result counter chip ("N matches") shows the count among visible cards; Esc or the ×
-  button clears. The query is reflected in the `?q=` URL param (the board already
-  drives `?sprint=` and `?view=` via `useSearchParams`) so a searched board is a
-  shareable link.
+  with `/` (wired through the central `useBoardKeyboard` registry, which already exempts
+  typing-in-field). On query change (200 ms debounce) the board calls the search
+  endpoint and feeds the returned ID set into the **existing `#182` dim plumbing**
+  (`highlightedTaskIds` → `effectiveHighlightIds`), so non-matching cards get the board's
+  established dim treatment (`BoardCard isDimmed` → `opacity-40`). We deliberately do
+  **not** `aria-hidden` the dimmed cards: they remain focusable/clickable, and
+  `aria-hidden` on focusable content is an a11y anti-pattern (phantom focus). A result
+  counter chip ("N matches", `aria-live`) shows the count; Esc or the × button clears. A
+  query that matches nothing leaves the board undimmed rather than greying out wholesale.
+  The query is reflected in the `?q=` URL param (the board already drives `?sprint=` and
+  `?view=` via `useSearchParams`) so a searched board is a shareable link.
 
 ### Feature 2 — Board-local zoom (#379)
 - **Discrete 3 levels** — `small | normal | large` (default `normal`) — chosen over a
