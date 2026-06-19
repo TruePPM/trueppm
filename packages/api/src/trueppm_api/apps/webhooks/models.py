@@ -25,15 +25,24 @@ class WebhookEventType(models.TextChoices):
     TASK_ASSIGNEE_CHANGED = "task.assignee_changed", "Task Assignee Changed"
     TASK_MENTIONED = "task.mentioned", "Task Mentioned"
     TASK_DUE_DATE_CHANGED = "task.due_date_changed", "Task Due Date Changed"
+    # Agile trio added in #1073 (ADR-0147). First-party domain events — they make
+    # the sprint-sovereignty story (ADR-0102/0104) observable to external tooling.
+    # sprint.closed's completion snapshot is velocity and is privacy-gated in its
+    # payload builder per ADR-0104 (see _sprint_closed_webhook_payload).
+    SPRINT_ACTIVATED = "sprint.activated", "Sprint Activated"
+    SPRINT_CLOSED = "sprint.closed", "Sprint Closed"
+    SPRINT_SCOPE_CHANGED = "sprint.scope_changed", "Sprint Scope Changed"
 
 
 ALL_WEBHOOK_EVENTS = [e.value for e in WebhookEventType]
 
-# Hard cap on the number of OSS webhook event types (ADR-0083). Adding a 12th
-# event requires its own ADR — this is the gate against the per-customer event
-# proliferation that is the explicit Enterprise upsell. ``test_event_type_cap``
-# fails loudly if WebhookEventType drifts from this number.
-OSS_WEBHOOK_EVENT_CAP = 11
+# Hard cap on the number of OSS webhook event types (ADR-0083, raised 11→14 by
+# ADR-0147 for the agile trio). Adding a 15th event requires its own ADR — this is
+# the gate against the per-customer event proliferation that is the explicit
+# Enterprise upsell. The trio are first-party domain events, not custom/user-defined
+# events, so the upsell line is unaffected. ``test_event_type_cap`` fails loudly if
+# WebhookEventType drifts from this number.
+OSS_WEBHOOK_EVENT_CAP = 14
 
 
 class Webhook(models.Model):

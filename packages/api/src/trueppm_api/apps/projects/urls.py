@@ -66,6 +66,7 @@ from trueppm_api.apps.projects.views import (
     TaskRecurrenceRuleViewSet,
     TaskReorderView,
     TaskReparentView,
+    AcceptanceResultIngestView,
     TaskSyncView,
     TaskViewSet,
 )
@@ -523,6 +524,12 @@ urlpatterns = [
         "projects/<pk>/task-sync/",
         TaskSyncView.as_view(),
         name="project-task-sync",
+    ),
+    # Inbound CI acceptance-result ingestion — ADR-0148 (issue #1075)
+    path(
+        "projects/<pk>/acceptance-results/",
+        AcceptanceResultIngestView.as_view(),
+        name="project-acceptance-results",
     ),
     path(
         "projects/<project_pk>/api-tokens/",

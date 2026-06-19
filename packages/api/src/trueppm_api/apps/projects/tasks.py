@@ -231,6 +231,19 @@ def close_sprint(self: object, request_id: str) -> None:
                     {"id": sprint_id_str},
                 )
             )
+            # ADR-0147: emit the sprint.closed webhook. The completion snapshot in
+            # the payload is team velocity and is privacy-gated by the builder
+            # (ADR-0104) — built now, inside the close transaction, so the gate reads
+            # the committed policy and the on_commit callback does no DB work.
+            from trueppm_api.apps.projects.views import (
+                _dispatch_webhooks,
+                _sprint_closed_webhook_payload,
+            )
+
+            closed_payload = _sprint_closed_webhook_payload(sprint, source="sprint_close")
+            transaction.on_commit(
+                lambda: _dispatch_webhooks(project_id_str, "sprint.closed", closed_payload)
+            )
             # The carried-over tasks changed sprint (and possibly status). Without
             # a broadcast, connected clients keep rendering them under the closed
             # sprint until a manual refetch. Emit one bulk event for the batch.

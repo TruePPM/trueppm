@@ -217,6 +217,59 @@ Configure a webhook in Jira's `System → WebHooks` that POSTs to a lightweight 
 
 Linear's webhooks include rich JSON. A two-line transform in a Cloudflare Worker or Vercel Function converts Linear's `data.identifier` / `data.title` / `data.state.name` into TruePPM's payload shape and POSTs it. Same `status_map` story.
 
+## CI acceptance-result ingestion
+
+The **same API token** also authorizes a sibling endpoint that closes the XP
+acceptance-test-driven loop: when CI runs a story's acceptance tests, it reports the
+verdicts and TruePPM flips the matching acceptance criteria. This lands in **0.3**.
+
+```http
+POST /api/v1/projects/{project_id}/acceptance-results/
+Authorization: Bearer tppm_<64-hex>
+Content-Type: application/json
+
+{
+  "results": [
+    { "criterion_id": "3fa85f64-...", "passed": true },
+    { "criterion_id": "7c1d92a0-...", "passed": false }
+  ]
+}
+```
+
+- **Criteria are matched by UUID** — CI supplies each `AcceptanceCriterion` id (no
+  external-ref field, no migration). A criterion that belongs to a *different* project
+  than the URL is reported in `unknown` and left untouched (cross-project write
+  defense).
+- **`passed: true` marks the criterion met; `passed: false` un-marks it.** The review
+  trail (`met_by` / `met_at`) is stamped to the **human who minted the token**, never
+  the CI system — the same attribution rule the interactive UI uses.
+- **Idempotent** — re-reporting the same verdict is a no-op (counted as `unchanged`,
+  no version churn, no restamp).
+- **Definition-of-Ready is satisfied, not auto-advanced** — flipping the last unmet
+  criterion clears the DoR gate (the response reports `dor_ready: true` per affected
+  task) but does **not** transition the task to READY. The team keeps the deliberate
+  Mark-ready step.
+- **Batch up to 200 results per request**; duplicate `criterion_id`s and an empty
+  `results` array are rejected with `400`. The endpoint shares the same per-token rate
+  limits as task-sync.
+
+The response reports the outcome per criterion and the post-flip DoR state per task:
+
+```json
+{
+  "updated": 1,
+  "unchanged": 0,
+  "unknown": ["7c1d92a0-..."],
+  "tasks": [
+    { "task": "9c8b...", "dor_ready": true, "criteria_met": 3, "criteria_total": 3 }
+  ]
+}
+```
+
+Like task-sync, this is **one narrow authenticated endpoint** — no provider registry,
+no HMAC/OAuth, no conflict resolution. The general multi-provider bidirectional ingest
+hub remains Enterprise.
+
 ## Security
 
 - The token is a 256-bit random value, hashed with SHA-256 at rest. The raw value is **shown once** and never retrievable. Treat it like a password.
@@ -232,4 +285,5 @@ See [ADR-0068 §Risks](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0
 - [My Work](/features/my-work/) — the contributor surface that consumes the imported tasks
 - [ADR-0065 Hybrid Bridge v1.1](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0065-hybrid-bridge-v1-1-cpm-velocity-feedback-my-work-and-inbound-sync.md) — the overarching v1.1 design
 - [ADR-0068 Inbound Task-Sync Protocol](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0068-inbound-task-sync-protocol-project-api-tokens-audit-and-status-map.md) — full design details
+- [ADR-0148 Inbound CI Acceptance-Result Ingestion](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0148-inbound-ci-acceptance-result-ingestion.md) — the CI acceptance-result endpoint design
 - [ADR-0049 External Integration Extension Points](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0049-external-integration-extension-points.md) — the outbound side (webhooks, task-link providers, notification channels)

@@ -4698,6 +4698,48 @@ class InboundTaskSyncPayloadSerializer(serializers.Serializer[Any]):
         return value
 
 
+# Batch cap for the inbound CI acceptance-result endpoint (ADR-0148). Bounds the
+# per-request work (one DB read + up to N writes) so a misconfigured CI token
+# cannot push an unbounded body. A larger result set chunks into multiple requests
+# (the AcceptanceResultThrottle backfill window absorbs the burst).
+ACCEPTANCE_RESULT_BATCH_CAP = 200
+
+
+class AcceptanceResultItemSerializer(serializers.Serializer[Any]):
+    """One CI-reported acceptance-test outcome (ADR-0148).
+
+    ``criterion_id`` is the AcceptanceCriterion UUID — matching by the stable PK
+    means no external-ref column and therefore no migration. ``passed`` is the test
+    verdict that flips ``met``.
+    """
+
+    criterion_id = serializers.UUIDField()
+    passed = serializers.BooleanField()
+
+
+class AcceptanceResultIngestSerializer(serializers.Serializer[Any]):
+    """Validates the inbound CI acceptance-result batch (ADR-0148).
+
+    Body shape ``{"results": [{"criterion_id": <uuid>, "passed": <bool>}, ...]}``.
+    Capped at ``ACCEPTANCE_RESULT_BATCH_CAP`` items per request and rejects a
+    payload that names the same criterion twice (an ambiguous double verdict).
+    """
+
+    results = serializers.ListField(
+        child=AcceptanceResultItemSerializer(),
+        allow_empty=False,
+        max_length=ACCEPTANCE_RESULT_BATCH_CAP,
+    )
+
+    def validate_results(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        ids = [item["criterion_id"] for item in value]
+        if len(ids) != len(set(ids)):
+            raise serializers.ValidationError(
+                "results contains the same criterion_id more than once."
+            )
+        return value
+
+
 class ApiTokenAuditEntrySerializer(serializers.ModelSerializer[ApiTokenAuditEntry]):
     """Read-only serializer for the per-project audit log.
 
