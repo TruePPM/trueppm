@@ -32,6 +32,7 @@ const SECTIONS: ShortcutSection[] = [
       { keys: ['E'], description: 'Edit card' },
       { keys: ['D'], description: 'Show dependencies' },
       { keys: ['C'], description: 'Show comments' },
+      { keys: ['/'], description: 'Search cards' },
       { keys: ['Space'], description: 'Pick up card to drag (then arrows)' },
     ],
   },

@@ -190,6 +190,7 @@ implementation is not yet available.
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/v1/tasks/` | List (filter: `?project=`, `?is_critical=true`) |
+| GET | `/api/v1/tasks/search/` | Board card search (required: `?project=`, `?q=`); returns slim `{id, name, status, short_id}` matches |
 | POST | `/api/v1/tasks/` | Create |
 | GET | `/api/v1/tasks/{id}/` | Retrieve |
 | PUT / PATCH | `/api/v1/tasks/{id}/` | Update |

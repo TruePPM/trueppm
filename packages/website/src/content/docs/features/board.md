@@ -44,12 +44,33 @@ Drag a card to a new column to change its status. The status change is optimisti
 
 ## Toolbar
 
-The board toolbar (top of the board) groups its controls into four clusters:
+The board toolbar (top of the board) groups its controls into these clusters:
 
+- **Search** — a card search box (see below) that leads the toolbar
 - **Primary chips** — **Group**, **Sort**, and **Density** popovers (card density, plus a separate backlog-card density)
+- **Zoom** — a **Small / Normal / Large** stepper that scales the board surface (see below)
 - **Quiet toggles** — **My tasks** (only tasks assigned to you), **At-risk**, and **Cost**
 - **Layout segmented control** — **Rail · Drawer · Queue** backlog layout variants
 - **More⋯ overflow** — collapse/expand all lanes, **WIP** limit chips, column **Tints**, **EVM** mode, and the **Columns** configuration panel
+
+## Search
+
+The toolbar's search box finds cards by **title and description** across the project. Press <kbd>/</kbd> anywhere on the board to focus it (typing in a form never steals focus to search).
+
+- As you type, matching cards stay lit and the rest dim, so the card you want stands out in place — the board never reflows or hides cards.
+- A chip shows the match count; clear the search with the **×** button or <kbd>Esc</kbd>.
+- The query is reflected in the URL as `?q=…`, so a searched board is a **shareable link**.
+- Search respects your project role: results never include cards from projects you are not a member of, and the search response carries no cost or other role-gated fields.
+
+Matching is a case-insensitive substring (searching `foundation` finds *"Foundation pour"*). Title matches rank above description-only matches. Comment search will arrive with threaded comments.
+
+## Zoom
+
+The **Zoom** stepper (Small / Normal / Large) scales the **board surface only** — the phase-column width and the gaps between columns and cards — so you can fit more of a dense board on screen or spread it out for a presentation. Unlike browser zoom (<kbd>Cmd</kbd>/<kbd>Ctrl</kbd> <kbd>±</kbd>), it leaves the sidebar, top bar, and tabs at their native size.
+
+- Use the **−** / **+** buttons, or focus the control and press the arrow keys.
+- Your choice is remembered per browser and survives a refresh.
+- Zoom is an **independent axis from Density**: Density controls per-card padding; zoom controls how much of the board fits on screen. The control is hidden on phones, where the [mobile layout](#mobile) governs sizing.
 
 ## Readiness states
 
