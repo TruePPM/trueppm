@@ -5,9 +5,11 @@ import { useProjectId } from '@/hooks/useProjectId';
 import {
   useArchiveProject,
   useDeleteProject,
+  useTransferProject,
   useUnarchiveProject,
 } from '@/hooks/useProjectMutations';
 import { SettingsPageTitle } from '../SettingsShell';
+import { TransferOwnershipDialog } from '../components/TransferOwnershipDialog';
 
 interface LifecycleCardProps {
   title: string;
@@ -94,6 +96,10 @@ export function ProjectArchivePage() {
   const archive = useArchiveProject(projectId);
   const unarchive = useUnarchiveProject(projectId);
   const remove = useDeleteProject(projectId);
+  const transfer = useTransferProject(projectId);
+
+  const [transferOpen, setTransferOpen] = useState(false);
+  const transferError = transfer.error instanceof Error ? transfer.error.message : null;
 
   const isArchived = Boolean(project?.is_archived);
   const archiveLabel = isArchived
@@ -168,14 +174,15 @@ export function ProjectArchivePage() {
         <LifecycleCard
           title="Transfer ownership"
           tone="warning"
-          description="Hand the PM role to another member. The current PM becomes an Admin unless changed."
+          description="Hand the Owner role to another member. The current Owner becomes an Admin."
           actionLabel="Transfer ownership…"
           notes={[
             'New owner must already be a project member.',
-            'Notifications sent to workspace admins and project members.',
+            'You are demoted to Admin when the transfer completes.',
           ]}
-          disabled
-          disabledReason="Transferring ownership isn't available yet — tracked in #967"
+          onClick={() => setTransferOpen(true)}
+          busy={transfer.isPending}
+          error={transferError}
         />
 
         <LifecycleCard
@@ -250,6 +257,25 @@ export function ProjectArchivePage() {
           ) : null}
         </div>
       </div>
+
+      {transferOpen ? (
+        <TransferOwnershipDialog
+          scope="project"
+          scopeId={projectId}
+          title="Transfer ownership"
+          description="The selected member becomes the project Owner. You are demoted to Admin. The new owner must already be a project member."
+          ownerPickerLabel="new owner"
+          error={transferError}
+          busy={transfer.isPending}
+          onCancel={() => setTransferOpen(false)}
+          onConfirm={({ newOwnerId }) => {
+            transfer.mutate(
+              { new_owner_user_id: newOwnerId },
+              { onSuccess: () => setTransferOpen(false) },
+            );
+          }}
+        />
+      ) : null}
     </div>
   );
 }

@@ -71,9 +71,21 @@ type Route = import('@playwright/test').Route;
 interface Captures {
   projectArchive?: number;
   projectDelete?: { url: string };
+  projectTransfer?: { body: unknown };
   programClose?: number;
   programDelete?: { url: string };
+  programTransfer?: { body: unknown };
 }
+
+const TARGET_USER_ID = 'user-bob';
+const PROJECT_MEMBERS = [
+  { id: 'pm-1', user_detail: { id: ME_ID, username: 'alice' }, role: 400 },
+  { id: 'pm-2', user_detail: { id: TARGET_USER_ID, username: 'bob' }, role: 100 },
+];
+const PROGRAM_MEMBERS = [
+  { id: 'gm-1', user_detail: { id: ME_ID, username: 'alice', email: 'alice@example.com' }, role: 400 },
+  { id: 'gm-2', user_detail: { id: TARGET_USER_ID, username: 'bob', email: 'bob@example.com' }, role: 100 },
+];
 
 const pj = (data: unknown) => JSON.stringify(data);
 
@@ -147,6 +159,13 @@ async function setupProjectRoutes(page: Page, captures: Captures) {
       }),
     });
   });
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/members/`, async (route: Route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: pj(PROJECT_MEMBERS) });
+  });
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/transfer/`, async (route: Route) => {
+    captures.projectTransfer = { body: route.request().postDataJSON() };
+    await route.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_PROJECT) });
+  });
 }
 
 async function setupProgramRoutes(page: Page, captures: Captures) {
@@ -180,6 +199,20 @@ async function setupProgramRoutes(page: Page, captures: Captures) {
       }),
     });
   });
+  await page.route(`**/api/v1/programs/${PROGRAM_ID}/members/`, async (route: Route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: pj(PROGRAM_MEMBERS) });
+  });
+  await page.route(
+    `**/api/v1/programs/${PROGRAM_ID}/transfer-sponsorship/`,
+    async (route: Route) => {
+      captures.programTransfer = { body: route.request().postDataJSON() };
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj(FIXTURE_PROGRAM),
+      });
+    },
+  );
 }
 
 test.describe('Project lifecycle settings (#530)', () => {
@@ -216,6 +249,32 @@ test.describe('Project lifecycle settings (#530)', () => {
     await expect.poll(() => captures.projectDelete?.url).toContain('force=true');
     await expect(page).toHaveURL(/\/$|\/programs|\/projects|\/me\/work/);
   });
+
+  test('transfer ownership picks a member and POSTs to /projects/:id/transfer/ (#967)', async ({
+    page,
+  }) => {
+    const captures: Captures = {};
+    await setupAuth(page);
+    await setupProjectRoutes(page, captures);
+    await page.goto(`/projects/${PROJECT_ID}/settings/lifecycle`);
+
+    await expect(page.getByRole('heading', { name: 'Lifecycle' })).toBeVisible();
+    await page.getByRole('button', { name: 'Transfer ownership…' }).click();
+
+    const dialog = page.getByRole('dialog', { name: 'Transfer ownership' });
+    await expect(dialog).toBeVisible();
+
+    // Confirm is gated until a new owner is chosen.
+    await expect(dialog.getByRole('button', { name: /Confirm transfer/i })).toBeDisabled();
+
+    await dialog.getByRole('button', { name: 'Assign' }).click();
+    await dialog.getByRole('option', { name: 'bob' }).click();
+
+    await dialog.getByRole('button', { name: /Confirm transfer/i }).click();
+    await expect
+      .poll(() => captures.projectTransfer?.body)
+      .toEqual({ new_owner_user_id: TARGET_USER_ID });
+  });
 });
 
 test.describe('Program lifecycle settings (#530)', () => {
@@ -245,5 +304,31 @@ test.describe('Program lifecycle settings (#530)', () => {
     await page.getByRole('button', { name: /Delete program permanently/i }).click();
 
     await expect.poll(() => captures.programDelete?.url).toContain(`/programs/${PROGRAM_ID}/`);
+  });
+
+  test('transfer sponsorship picks a sponsor and POSTs to /transfer-sponsorship/ (#967)', async ({
+    page,
+  }) => {
+    const captures: Captures = {};
+    await setupAuth(page);
+    await setupProgramRoutes(page, captures);
+    await page.goto(`/programs/${PROGRAM_ID}/settings/lifecycle`);
+
+    await expect(page.getByRole('heading', { name: 'Archive / Close' })).toBeVisible();
+    await page.getByRole('button', { name: 'Transfer sponsorship…' }).click();
+
+    const dialog = page.getByRole('dialog', { name: 'Transfer sponsorship' });
+    await expect(dialog).toBeVisible();
+
+    await expect(dialog.getByRole('button', { name: /Confirm transfer/i })).toBeDisabled();
+
+    // Two pickers render (new sponsor + optional new PM); pick the sponsor only.
+    await dialog.getByRole('button', { name: 'Assign' }).first().click();
+    await dialog.getByRole('option', { name: 'bob' }).click();
+
+    await dialog.getByRole('button', { name: /Confirm transfer/i }).click();
+    await expect
+      .poll(() => captures.programTransfer?.body)
+      .toEqual({ new_owner_user_id: TARGET_USER_ID });
   });
 });
