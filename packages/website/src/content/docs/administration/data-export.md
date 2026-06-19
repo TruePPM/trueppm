@@ -81,7 +81,7 @@ Export writes the program's **final state**. A v2 sample (with its replayed,
 backdated event timeline) therefore exports as a final-state document — and
 re-importing it materializes that final state **without** re-running the event
 history. Exporting the full event timeline is tracked as a follow-up
-([#1109](https://gitlab.com/trueppm/trueppm-suite/-/issues/1109)).
+([#1109](https://gitlab.com/trueppm/trueppm/-/issues/1109)).
 
 See [Sample projects & JSON import/export](/getting-started/sample-projects/)
 for the import side and the bundled demos, and the
