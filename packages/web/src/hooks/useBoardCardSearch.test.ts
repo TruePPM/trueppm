@@ -1,5 +1,5 @@
 /**
- * Tests for useBoardCardSearch (#323, ADR-0145) — the debounced board card
+ * Tests for useBoardCardSearch (issue 323, ADR-0145) — the debounced board card
  * search hook. Covers the happy path (matchIds/matchCount) and the inert cases
  * (empty query, no projectId) that must never hit the network.
  */

@@ -220,7 +220,7 @@ export interface CalmToolbarProps {
   projectName?: string;
   activeCount: number;
   backlogCount: number;
-  // Card search (#323) — query is mirrored to ?q= by BoardView; the dim set is
+  // Card search (issue 323) — query is mirrored to ?q= by BoardView; the dim set is
   // applied there. The control is keyboard-focused via `/` (searchInputRef).
   searchQuery: string;
   onSearchQueryChange: (q: string) => void;
@@ -244,7 +244,7 @@ export interface CalmToolbarProps {
   // Board card density (existing)
   density: BoardDensity;
   onDensityChange: (d: BoardDensity) => void;
-  // Board-local zoom (#379) — independent spacing axis from Density.
+  // Board-local zoom (issue 379) — independent spacing axis from Density.
   zoom: BoardZoom;
   onZoomChange: (z: BoardZoom) => void;
   // Backlog density (new — persisted via useBoardToolbarPrefs)
@@ -351,7 +351,7 @@ export function CalmToolbar(props: CalmToolbarProps) {
 
       <span aria-hidden="true" className="h-4 w-px bg-neutral-border" />
 
-      {/* Card search (#323) — leads the primary controls. */}
+      {/* Card search (issue 323) — leads the primary controls. */}
       <BoardSearchControl
         value={props.searchQuery}
         onChange={props.onSearchQueryChange}
@@ -475,7 +475,7 @@ export function CalmToolbar(props: CalmToolbarProps) {
         </div>
       </ToolbarChip>
 
-      {/* Board zoom (#379) — desk task, hidden on mobile; independent of Density. */}
+      {/* Board zoom (issue 379) — desk task, hidden on mobile; independent of Density. */}
       {breakpoint !== 'sm' && (
         <BoardZoomControl zoom={props.zoom} onZoomChange={props.onZoomChange} />
       )}

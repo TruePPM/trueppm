@@ -1,5 +1,5 @@
 /**
- * Tests for BoardSearchControl (#323, ADR-0145) — the board card search box:
+ * Tests for BoardSearchControl (issue 323, ADR-0145) — the board card search box:
  * collapse/expand, the result-count chip, clear (×), and Escape-to-clear.
  */
 import { render, screen } from '@testing-library/react';

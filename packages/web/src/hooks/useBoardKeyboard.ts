@@ -107,7 +107,7 @@ export function useBoardKeyboard(handlers: BoardKeyboardHandlers, enabled = true
           }
           break;
         case '/':
-          // Focus the card search box (#323). isTypingInInput already exempts
+          // Focus the card search box (issue 323). isTypingInInput already exempts
           // fields, so `/` typed inside a form never steals focus to search.
           if (handlers.onFocusSearch) {
             handlers.onFocusSearch();

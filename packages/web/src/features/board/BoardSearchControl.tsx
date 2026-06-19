@@ -1,5 +1,5 @@
 /**
- * BoardSearchControl — collapsible board card search box (#323, ADR-0145).
+ * BoardSearchControl — collapsible board card search box (issue 323, ADR-0145).
  *
  * Collapsed to a magnifier at rest; expands to an input on focus or when it
  * carries a query. A result-count chip and a clear (×) button appear while a

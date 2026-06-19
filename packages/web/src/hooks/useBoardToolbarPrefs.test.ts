@@ -60,7 +60,7 @@ describe('useBoardToolbarPrefs', () => {
     expect(result.current.backlogDensity).toBe('comfortable');
   });
 
-  // Board zoom (#379) — additive third axis on the same v1 blob.
+  // Board zoom (issue 379) — additive third axis on the same v1 blob.
   it('defaults zoom to normal', () => {
     const { result } = renderHook(() => useBoardToolbarPrefs());
     expect(result.current.zoom).toBe('normal');

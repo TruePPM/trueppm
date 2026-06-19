@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 
-/** Slim board-card search row returned by GET /tasks/search/ (#323, ADR-0145). */
+/** Slim board-card search row returned by GET /tasks/search/ (issue 323, ADR-0145). */
 export interface BoardCardSearchResult {
   id: string;
   name: string;
@@ -24,7 +24,7 @@ export interface BoardCardSearch {
 }
 
 /**
- * Board card full-text search (#323, ADR-0145).
+ * Board card full-text search (issue 323, ADR-0145).
  *
  * Debounces `query` (200 ms) and hits `GET /tasks/search/?project=&q=`, returning
  * the set of matching task IDs so the board can dim non-matching cards in place.

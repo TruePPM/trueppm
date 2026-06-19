@@ -127,7 +127,7 @@ export function PhaseMilestoneRail({ milestones, columns, onOpenTask }: PhaseMil
       role="list"
       aria-label="Phase milestones"
       className="grid gap-[var(--board-col-gap,0.5rem)] px-2 py-1.5 border-b border-neutral-border/30 bg-neutral-surface-sunken"
-      // Board zoom (#379): inherits --board-phase-col / --board-col-gap from the
+      // Board zoom (issue 379): inherits --board-phase-col / --board-col-gap from the
       // board grid container so the rail stays column-aligned with the lanes.
       style={{
         gridTemplateColumns: `var(--board-phase-col,188px) repeat(${columns.length}, minmax(0, 1fr))`,

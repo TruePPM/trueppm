@@ -1,5 +1,5 @@
 /**
- * BoardZoomControl — board-local zoom stepper (#379, ADR-0145).
+ * BoardZoomControl — board-local zoom stepper (issue 379, ADR-0145).
  *
  * A −/level/+ stepper (mirroring the Schedule ZoomControl) that steps the board
  * through three discrete spacing levels. The level is applied as CSS custom
@@ -34,7 +34,7 @@ export function BoardZoomControl({ zoom, onZoomChange }: BoardZoomControlProps) 
   const zoomIn = () => {
     if (!atMax) onZoomChange(ORDER[idx + 1]);
   };
-  // AC #379: arrow keys change levels. The handler lives on the (interactive)
+  // AC issue 379: arrow keys change levels. The handler lives on the (interactive)
   // stepper buttons rather than the group wrapper so a screen-reader user
   // tabbed onto either button can step with the arrows.
   const onArrowKey = (e: ReactKeyboardEvent) => {

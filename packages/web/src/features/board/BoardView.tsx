@@ -419,7 +419,7 @@ const COLUMN_DOT_CLASS: Record<TaskStatus, string> = {
   COMPLETE: 'bg-semantic-on-track',
 };
 
-// Board zoom (#379, ADR-0145). Each level sets coordinated CSS custom properties
+// Board zoom (issue 379, ADR-0145). Each level sets coordinated CSS custom properties
 // on the board grid container; the column-header / lane / phase-rail grids read
 // --board-phase-col and --board-col-gap, and the column card-stack reads
 // --board-card-gap. `normal` reproduces the pre-zoom defaults exactly (188px /
@@ -1253,7 +1253,7 @@ export function BoardView() {
   const [chainHoverTaskId, setChainHoverTaskId] = useState<string | null>(null);
   const ariaLiveRef = useRef<HTMLDivElement>(null);
 
-  // Board card search (#323, ADR-0145). The query mirrors to ?q= for shareable
+  // Board card search (issue 323, ADR-0145). The query mirrors to ?q= for shareable
   // links; matching IDs feed the existing dim plumbing via effectiveHighlightIds.
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [searchQuery, setSearchQuery] = useState<string>(() => searchParams.get('q') ?? '');
@@ -1276,7 +1276,7 @@ export function BoardView() {
     matchCount: searchMatchCount,
     isSearching,
   } = useBoardCardSearch(projectId, searchQuery);
-  // Search dimming reuses the #182 dep-chain dim set. A query with matches takes
+  // Search dimming reuses the issue-182 dep-chain dim set. A query with matches takes
   // precedence over a transient dep-hover highlight; an empty query (or one that
   // matches nothing) leaves the board undimmed so it never greys out wholesale.
   const searchActive = searchQuery.trim().length > 0 && searchMatchIds.size > 0;
@@ -2226,7 +2226,7 @@ export function BoardView() {
               {/* Board grid — scrollable */}
               <div
                 className="flex-1 overflow-auto min-h-0 bg-neutral-surface-sunken"
-                // Board zoom CSS vars (#379) — cascade to the column-header / lane /
+                // Board zoom CSS vars (issue 379) — cascade to the column-header / lane /
                 // phase-rail grids and the column card-stacks below.
                 style={BOARD_ZOOM_VARS[toolbarPrefs.zoom]}
               >
@@ -2353,8 +2353,8 @@ export function BoardView() {
                     onMenuMove: handleMenuMove,
                     onAddTask: handleAddTask,
                     focusedCardId,
-                    // Search match set (when active) overrides the #182 dep-hover
-                    // dim set — see effectiveHighlightIds (#323).
+                    // Search match set (when active) overrides the issue-182 dep-hover
+                    // dim set — see effectiveHighlightIds (issue 323).
                     highlightedTaskIds: effectiveHighlightIds,
                     overallocByResourcePerTask,
                     onCardFocus: handleCardFocus,

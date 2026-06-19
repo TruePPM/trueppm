@@ -1,5 +1,5 @@
 /**
- * Tests for BoardZoomControl (#379, ADR-0145) — the board zoom stepper:
+ * Tests for BoardZoomControl (issue 379, ADR-0145) — the board zoom stepper:
  * level label, bound-disabled steppers, click stepping, and arrow-key stepping.
  */
 import { render, screen } from '@testing-library/react';
@@ -38,7 +38,7 @@ describe('BoardZoomControl', () => {
     expect(onZoomChange).toHaveBeenLastCalledWith('small');
   });
 
-  it('steps with arrow keys (AC #379)', async () => {
+  it('steps with arrow keys (AC issue 379)', async () => {
     const user = userEvent.setup();
     const onZoomChange = vi.fn();
     render(<BoardZoomControl zoom="normal" onZoomChange={onZoomChange} />);

@@ -15,7 +15,7 @@ import { useCallback, useEffect, useState } from 'react';
 export type BoardLayoutVariant = 'rail' | 'drawer' | 'queue';
 export type BacklogDensity = 'compact' | 'comfortable' | 'full';
 /**
- * Board-local zoom level (#379, ADR-0145). An independent axis from board-card
+ * Board-local zoom level (issue 379, ADR-0145). An independent axis from board-card
  * Density: zoom scales board *chrome spacing* (phase-column width, inter-column
  * gap, inter-card gap) so more — or less — of the board fits on screen, while
  * Density scales per-card padding. Realized as CSS custom properties, not a
@@ -47,7 +47,7 @@ function read(): BoardToolbarPrefs {
         parsed.backlogDensity === 'compact' || parsed.backlogDensity === 'full'
           ? parsed.backlogDensity
           : 'comfortable',
-      // Additive (#379): a stored v1 blob without `zoom` defaults to 'normal',
+      // Additive (issue 379): a stored v1 blob without `zoom` defaults to 'normal',
       // so the key change is backwards-compatible without a version bump.
       zoom: parsed.zoom === 'small' || parsed.zoom === 'large' ? parsed.zoom : 'normal',
     };
