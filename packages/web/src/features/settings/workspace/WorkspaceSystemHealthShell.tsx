@@ -11,11 +11,11 @@ import {
 } from '@/components/Icons';
 
 /**
- * Shell for the workspace System Health tools (ADR-0146, #1248).
+ * Shell for the workspace System Health tools (ADR-0146, issue 1248).
  *
  * System Health is a multi-route operational area (overview, dead-letter
  * inspector, retention & purge) — not a dirty-form section — so it stays on its
- * own routes rather than joining the consolidated single-page settings (#1248).
+ * own routes rather than joining the consolidated single-page settings (issue 1248).
  * This wrapper renders the same left rail so the chrome is consistent, with an
  * `<Outlet/>` for the active tool. Every rail item carries a `to`: the config
  * sections link back to the consolidated page at their anchor; the System Health

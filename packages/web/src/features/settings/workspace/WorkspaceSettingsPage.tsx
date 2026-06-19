@@ -82,7 +82,7 @@ const NAV_GROUPS: SettingsNavGroup[] = [
 ];
 
 /**
- * Workspace settings — ONE scrolling page (ADR-0146, #1248). Lives at /settings;
+ * Workspace settings — ONE scrolling page (ADR-0146, issue 1248). Lives at /settings;
  * sub-slugs redirect to `#<slug>`. The System Health tools stay as separate
  * routes (their nav items carry a `to`); the form sections are inline anchored
  * `<SettingsSection>` regions and reuse the existing components unchanged.

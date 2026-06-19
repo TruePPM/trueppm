@@ -45,7 +45,7 @@ function projectHealthDot(health?: HealthState): 'onTrack' | 'atRisk' | 'critica
 }
 
 /**
- * Project settings — ONE scrolling page (ADR-0146, #1248). Every section is an
+ * Project settings — ONE scrolling page (ADR-0146, issue 1248). Every section is an
  * anchored `<SettingsSection>` region on a single mounted page; the rail
  * scroll-spies across them. Lives at /projects/:projectId/settings (sub-slugs
  * redirect to `#<slug>` via the router). The section components are reused
@@ -59,12 +59,12 @@ export function ProjectSettingsPage() {
 
   if (!projectId) return null;
 
-  // Program scope lands on THIS project's parent program (#776) — not an arbitrary
+  // Program scope lands on THIS project's parent program (issue 776) — not an arbitrary
   // first program. Standalone projects fall through to the first program.
   const parentProgramId = projects?.find((p) => p.id === projectId)?.programId ?? null;
   const programTarget = parentProgramId ?? programs?.[0]?.id ?? null;
 
-  // Sibling-project switcher options (#776).
+  // Sibling-project switcher options (issue 776).
   const contextOptions: SettingsContextOption[] = (projects ?? []).map((p) => ({
     id: p.id,
     name: p.name,

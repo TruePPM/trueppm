@@ -33,7 +33,7 @@ export interface SettingsScopeLink {
   label: string;
   /** Target settings route, or null when unavailable (still loading, or no such
       entity exists) — the segment renders disabled rather than navigating to a
-      blank/irrelevant page (#776). */
+      blank/irrelevant page (issue 776). */
   to: string | null;
   /** Tooltip shown on the disabled segment when `to` is null, e.g. "No programs yet". */
   disabledReason?: string;
@@ -48,7 +48,7 @@ interface SettingsShellProps {
   contextName: string;
   /** Health dot for project/program context — omit for workspace */
   contextHealth?: 'onTrack' | 'atRisk' | 'critical' | null;
-  /** Sibling entities in the current scope; renders the context-switcher when >= 2 (#776). */
+  /** Sibling entities in the current scope; renders the context-switcher when >= 2 (issue 776). */
   contextOptions?: SettingsContextOption[];
   /** The current entity's id within `contextOptions` (gets the checkmark). */
   contextActiveId?: string;
@@ -70,7 +70,7 @@ const HEALTH_COLOR: Record<string, string> = {
 
 /**
  * Shared settings layout: scroll-spy left rail + one scrolling page + save bar
- * (ADR-0146, #1248).
+ * (ADR-0146, issue 1248).
  *
  * The page body (`children`) renders every `<SettingsSection>` for the entity at
  * once on a single mounted page. The rail is a scroll-spy: clicking an inline
@@ -259,7 +259,7 @@ export function SettingsShell({
             })}
           </div>
 
-          {/* Context selector — switcher when >= 2 siblings (#776), else identity row. */}
+          {/* Context selector — switcher when >= 2 siblings (issue 776), else identity row. */}
           <div className="mt-2 px-2 py-1.5 rounded flex items-center gap-1.5 bg-neutral-surface-sunken border border-neutral-border/55 text-xs min-w-0">
             {contextOptions && contextOptions.length >= 2 ? (
               <SettingsContextSwitcher
@@ -390,7 +390,7 @@ export function SettingsShell({
       {/* ── Right content area ── */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
         {/* The single scrolling page. scrollbar-gutter:stable keeps the track
-            reserved so growing/shrinking sections never shift the panel (#776). */}
+            reserved so growing/shrinking sections never shift the panel (issue 776). */}
         <div
           ref={scrollRef}
           className="flex-1 overflow-y-auto [scrollbar-gutter:stable] bg-neutral-surface scroll-smooth motion-reduce:scroll-auto"

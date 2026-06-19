@@ -1,7 +1,7 @@
 import { Navigate, useParams } from 'react-router';
 
 /**
- * Legacy per-section settings redirect (ADR-0146, #1248).
+ * Legacy per-section settings redirect (ADR-0146, issue 1248).
  *
  * The settings IA is now ONE scrolling page per entity; sections are anchors,
  * not routes. Old bookmarks / emails / e2e specs that point at

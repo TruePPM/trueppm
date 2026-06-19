@@ -44,7 +44,7 @@ function programHealthDot(health?: ProgramHealth): 'onTrack' | 'atRisk' | 'criti
 }
 
 /**
- * Program settings — ONE scrolling page (ADR-0146, #1248). Lives at
+ * Program settings — ONE scrolling page (ADR-0146, issue 1248). Lives at
  * /programs/:programId/settings; sub-slugs redirect to `#<slug>`. Sections are
  * reused unchanged inside anchored `<SettingsSection>` regions.
  */
@@ -56,10 +56,10 @@ export function ProgramSettingsPage() {
 
   if (!programId) return null;
 
-  // Project scope prefers a project belonging to THIS program, else any (#776).
+  // Project scope prefers a project belonging to THIS program, else any (issue 776).
   const projectTarget = projects?.find((p) => p.programId === programId)?.id ?? projects?.[0]?.id ?? null;
 
-  // Sibling-program switcher options (#776).
+  // Sibling-program switcher options (issue 776).
   const contextOptions: SettingsContextOption[] = (programs ?? []).map((p) => ({
     id: p.id,
     name: p.name,

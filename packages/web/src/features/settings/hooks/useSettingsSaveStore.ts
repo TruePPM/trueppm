@@ -7,7 +7,7 @@ import { create } from 'zustand';
  * save bar, confirm-discard dialog, and `beforeunload` listener.
  *
  * ADR-0146 — multi-section registry. The settings IA is now ONE mounted
- * scrolling page per entity (#1248), so several form sections register at the
+ * scrolling page per entity (issue 1248), so several form sections register at the
  * same time. Each section registers under a stable key (`sectionId`); the
  * store keeps a per-key map and derives an aggregate dirty surface:
  *
