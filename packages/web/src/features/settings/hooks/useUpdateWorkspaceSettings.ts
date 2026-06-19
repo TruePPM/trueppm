@@ -3,6 +3,8 @@ import { apiClient } from '@/api/client';
 import type {
   MCAttributionAudience,
   MCHistoryOverridePolicy,
+  MethodologyOverridePolicy,
+  ProgramMethodology,
   WorkspaceSettings,
 } from '@/api/types';
 
@@ -30,6 +32,8 @@ interface WorkspaceSettingsPatchRaw {
   mc_history_retention_cap?: number;
   mc_history_attribution_audience?: MCAttributionAudience;
   mc_history_override_policy?: MCHistoryOverridePolicy;
+  methodology?: ProgramMethodology;
+  methodology_override_policy?: MethodologyOverridePolicy;
 }
 
 function toRaw(patch: WorkspaceSettingsPatch): WorkspaceSettingsPatchRaw {
@@ -53,6 +57,9 @@ function toRaw(patch: WorkspaceSettingsPatch): WorkspaceSettingsPatchRaw {
     raw.mc_history_attribution_audience = patch.mcHistoryAttributionAudience;
   if (patch.mcHistoryOverridePolicy !== undefined)
     raw.mc_history_override_policy = patch.mcHistoryOverridePolicy;
+  if (patch.methodology !== undefined) raw.methodology = patch.methodology;
+  if (patch.methodologyOverridePolicy !== undefined)
+    raw.methodology_override_policy = patch.methodologyOverridePolicy;
   return raw;
 }
 

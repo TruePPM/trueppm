@@ -35,6 +35,8 @@ const RAW_SETTINGS = {
   mc_history_retention_cap: 100,
   mc_history_attribution_audience: 'ADMIN_OWNER',
   mc_history_override_policy: 'allow',
+  methodology: 'HYBRID',
+  methodology_override_policy: 'suggest',
 };
 
 const EXPECTED: WorkspaceSettings = {
@@ -54,6 +56,8 @@ const EXPECTED: WorkspaceSettings = {
   mcHistoryRetentionCap: 100,
   mcHistoryAttributionAudience: 'ADMIN_OWNER',
   mcHistoryOverridePolicy: 'allow',
+  methodology: 'HYBRID',
+  methodologyOverridePolicy: 'suggest',
 };
 
 function makeWrapper() {

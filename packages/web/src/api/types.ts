@@ -70,6 +70,16 @@ export interface UserSearchResult {
 export type ProgramMethodology = 'WATERFALL' | 'AGILE' | 'HYBRID';
 
 /**
+ * Workspace policy for how the default methodology cascades to programs/projects
+ * (ADR-0107, issue 955). Because methodology is NOT-NULL on every scope (no null
+ * "inherit" sentinel), inheritance is policy-driven: `inherit` locks the per-scope
+ * affordance to the workspace default (picker read-only); `suggest` (OSS default)
+ * lets programs/projects override; `enforce` is the Enterprise hard lock — OSS
+ * stores it but degrades it to `suggest` (no provider registered).
+ */
+export type MethodologyOverridePolicy = 'inherit' | 'suggest' | 'enforce';
+
+/**
  * Program health override. ``AUTO`` defers to the (future) rollup; the explicit
  * values are PM overrides. Mirrors ``apps.projects.models.Health`` (issue #523).
  */
@@ -128,6 +138,11 @@ export interface Program {
   /** Optional short code; empty string when unset. */
   code: string;
   methodology: ProgramMethodology;
+  /** Read-only server-resolved methodology (ADR-0107): program ?? workspace, gated
+   *  by the workspace policy. `inherited_methodology` is the workspace default the
+   *  program shows under an active lock or when its own value is ignored. */
+  effective_methodology: ProgramMethodology;
+  inherited_methodology: ProgramMethodology;
   /** Iteration-container label override (ADR-0116, #1106). null = inherit the
    *  workspace default. */
   iteration_label: string | null;
@@ -332,6 +347,14 @@ export interface WorkspaceSettings {
   mcHistoryAttributionAudience: MCAttributionAudience;
   /** `allow` lets lower scopes override; `lock` is Enterprise-enforced (no-op in OSS). */
   mcHistoryOverridePolicy: MCHistoryOverridePolicy;
+  /** Workspace-wide default planning methodology (ADR-0107, issue 955) — the
+   *  non-null root of the Workspace → Program → Project methodology chain. New
+   *  projects pre-fill from this default. */
+  methodology: ProgramMethodology;
+  /** How the workspace default cascades. `inherit` locks the per-scope affordance
+   *  to the default; `suggest` (OSS default) lets programs/projects override;
+   *  `enforce` is the Enterprise hard lock (no-op in OSS — stored, never enforced). */
+  methodologyOverridePolicy: MethodologyOverridePolicy;
 }
 
 /**

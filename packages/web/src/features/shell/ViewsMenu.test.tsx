@@ -8,7 +8,7 @@ vi.mock('@/hooks/useCurrentUserRole', () => ({
   useCurrentUserRole: vi.fn(() => ({ role: 200, isLoading: false })),
 }));
 vi.mock('@/hooks/useProject', () => ({
-  useProject: vi.fn(() => ({ data: { id: 'proj-1', methodology: 'HYBRID' }, isLoading: false })),
+  useProject: vi.fn(() => ({ data: { id: 'proj-1', methodology: 'HYBRID', effective_methodology: 'HYBRID' }, isLoading: false })),
 }));
 vi.mock('@/hooks/useCurrentUser', () => ({
   useCurrentUser: vi.fn(() => ({ user: { hidden_views: [] }, isLoading: false })),
@@ -39,7 +39,7 @@ describe('ViewsMenu (ADR-0139)', () => {
     mockUseProjectId.mockReturnValue('proj-1');
     mockUseCurrentUser.mockReturnValue({ user: { hidden_views: [] }, isLoading: false });
     mockUseProject.mockReturnValue({
-      data: { id: 'proj-1', methodology: 'HYBRID' },
+      data: { id: 'proj-1', methodology: 'HYBRID', effective_methodology: 'HYBRID' },
       isLoading: false,
     });
   });
@@ -106,7 +106,7 @@ describe('ViewsMenu (ADR-0139)', () => {
 
   it('only lists methodology-visible views as toggles (AGILE hides Schedule/Calendar)', () => {
     mockUseProject.mockReturnValue({
-      data: { id: 'proj-1', methodology: 'AGILE' },
+      data: { id: 'proj-1', methodology: 'AGILE', effective_methodology: 'AGILE' },
       isLoading: false,
     });
     renderWithRouter(<ViewsMenu />, { initialEntries: ['/projects/proj-1/board'] });
