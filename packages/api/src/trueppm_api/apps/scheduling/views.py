@@ -651,7 +651,7 @@ class MonteCarloHistoryView(APIView):
     responses={200: ProjectForecastSnapshotSerializer(many=True)},
 )
 class ForecastSnapshotListView(ListAPIView[ProjectForecastSnapshot]):
-    """Project-grain forecast snapshot history (ADR-0153, #388).
+    """Project-grain forecast snapshot history (ADR-0154, #388).
 
     Returns the project's forecast snapshots newest-first (paginated), the
     persisted record of how the CPM finish and Monte Carlo percentiles drifted

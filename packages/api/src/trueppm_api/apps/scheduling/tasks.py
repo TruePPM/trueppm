@@ -304,7 +304,7 @@ def _do_monte_carlo_run_purge() -> None:
     name="scheduling.capture_daily_forecast_floor",
 )
 def capture_daily_forecast_floor(self: object) -> None:
-    """Guarantee ≥1 forecast snapshot per active project per day (ADR-0153, #388).
+    """Guarantee ≥1 forecast snapshot per active project per day (ADR-0154, #388).
 
     Runs nightly at 00:30 UTC via Celery Beat. Captures a ``scheduled`` snapshot
     for every non-deleted, non-archived project that has no snapshot in the last
@@ -357,7 +357,7 @@ def _do_daily_forecast_floor() -> None:
     name="scheduling.prune_forecast_snapshots",
 )
 def prune_forecast_snapshots(self: object) -> None:
-    """Apply the tiered retention curve to project forecast snapshots (ADR-0153, #388).
+    """Apply the tiered retention curve to project forecast snapshots (ADR-0154, #388).
 
     Runs nightly at 04:15 UTC via Celery Beat. Per ``settings.FORECAST_SNAPSHOT_RETENTION``:
     keep all rows younger than ``daily_days`` (default 90); keep one-per-ISO-week up
@@ -834,7 +834,7 @@ def _run_schedule(
         transaction.on_commit(_broadcast_cpm_complete)
         transaction.on_commit(_broadcast_dates)
 
-        # Capture a project-grain forecast snapshot for drift history (ADR-0153,
+        # Capture a project-grain forecast snapshot for drift history (ADR-0154,
         # #388). Strictly post-commit and best-effort: a capture failure must never
         # roll back the CPM write above. Any miss is backfilled by the daily-floor
         # task, so we do not need an outbox here.

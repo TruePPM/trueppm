@@ -1,4 +1,4 @@
-"""Tests for project-grain forecast snapshot capture (ADR-0153, #388).
+"""Tests for project-grain forecast snapshot capture (ADR-0154, #388).
 
 Covers: the model, the capture service (Task aggregates + best-effort MonteCarloRun
 join + dedup), the best-effort wrapper, the daily floor backstop, the tiered

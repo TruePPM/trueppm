@@ -214,14 +214,14 @@ CELERY_BEAT_SCHEDULE = {
     },
     # Daily forecast-snapshot floor: guarantees ≥1 ProjectForecastSnapshot per
     # active project per day and backfills any recompute capture missed by a broker
-    # blip / worker death (ADR-0153, #388). The durability backstop for capture.
+    # blip / worker death (ADR-0154, #388). The durability backstop for capture.
     "capture-daily-forecast-floor": {
         "task": "scheduling.capture_daily_forecast_floor",
         # 00:30 UTC — early, before the nightly purges, so every project has a row.
         "schedule": crontab(hour=0, minute=30),
     },
     # Nightly cleanup: applies the tiered retention curve to project forecast
-    # snapshots — all <90 d, weekly to 1 y, monthly forever (ADR-0153, #388).
+    # snapshots — all <90 d, weekly to 1 y, monthly forever (ADR-0154, #388).
     "prune-forecast-snapshots-nightly": {
         "task": "scheduling.prune_forecast_snapshots",
         # 04:15 UTC — after the other nightly purge jobs.
@@ -509,7 +509,7 @@ MC_DISTRIBUTION_MAX_BYTES: int = 32_768
 # unbounded per-project history that the nightly purge would never trim.
 MC_HISTORY_HARD_CAP: int = 500
 
-# Tiered retention curve for project-grain forecast snapshots (ADR-0153, #388).
+# Tiered retention curve for project-grain forecast snapshots (ADR-0154, #388).
 # The nightly prune keeps every snapshot younger than ``daily_days``, then thins to
 # one-per-ISO-week up to ``weekly_days``, then one-per-calendar-month beyond that
 # (kept forever — the cold tail is ~12 rows/project/year). Operators can tune the

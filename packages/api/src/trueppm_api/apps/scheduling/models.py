@@ -333,7 +333,7 @@ class ForecastSnapshotTrigger(models.TextChoices):
 
 
 class ProjectForecastSnapshot(models.Model):
-    """One project-grain forecast point-in-time, captured on each recompute (ADR-0153, #388).
+    """One project-grain forecast point-in-time, captured on each recompute (ADR-0154, #388).
 
     The continuous record of how a project's *whole-project* forecast drifts over
     time — "we were saying end of June a month ago, now we're saying end of August".
@@ -361,7 +361,7 @@ class ProjectForecastSnapshot(models.Model):
     A plain ``models.Model`` (not a ``VersionedModel``) with no ``server_version``
     and not on the mobile sync surface — consistent with ``MonteCarloRun`` /
     ``ForecastSnapshot``; this is a high-churn, server-generated, online-read-only
-    history table with no mobile consumer (ADR-0153 §2).
+    history table with no mobile consumer (ADR-0154 §2).
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

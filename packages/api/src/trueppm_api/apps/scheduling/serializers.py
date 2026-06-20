@@ -15,7 +15,7 @@ from trueppm_api.apps.scheduling.models import (
 
 
 class ProjectForecastSnapshotSerializer(serializers.ModelSerializer[ProjectForecastSnapshot]):
-    """Read-only serializer for a project-grain forecast snapshot (ADR-0153, #388).
+    """Read-only serializer for a project-grain forecast snapshot (ADR-0154, #388).
 
     Server-generated history; the endpoint is list-only, so every field is
     read-only and there is no create/update path.

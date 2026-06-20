@@ -1,4 +1,4 @@
-# ADR-0153: Project-Grain Forecast Snapshot Capture
+# ADR-0154: Project-Grain Forecast Snapshot Capture
 
 ## Status
 Accepted
@@ -155,8 +155,8 @@ out so real history accrues before #368's chart consumes it.
   rows/project/year in the cold tail). (3) `total_float_days` semantics are a judgment call
   (tightest-slack) → documented on the field; the chart can reinterpret. (4) ADR/migration
   number races in a saturated worktree environment → `scheduling/0007` is currently
-  uncontested; `api:migration-numbering` CI guards it; ADR-0153 is the lowest free number
-  above the open-MR claims (0150/#1182, 0151/#414).
+  uncontested; `api:migration-numbering` CI guards it; renumbered to ADR-0154 at merge —
+  0150/#1182, 0151/#414, 0152/#327, and 0153/#976 landed on main first.
 
 ## Implementation Notes
 - P3M layer: Programs and Projects

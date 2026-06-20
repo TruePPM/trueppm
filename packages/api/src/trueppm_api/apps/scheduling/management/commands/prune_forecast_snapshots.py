@@ -1,4 +1,4 @@
-"""Apply the tiered retention curve to project forecast snapshots (ADR-0153, #388).
+"""Apply the tiered retention curve to project forecast snapshots (ADR-0154, #388).
 
 Operator-facing wrapper around the same ``_do_prune_forecast_snapshots`` logic the
 nightly ``scheduling.prune_forecast_snapshots`` Celery Beat task runs. Per
@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
-    help = "Prune project forecast snapshots per the tiered retention policy (ADR-0153)."
+    help = "Prune project forecast snapshots per the tiered retention policy (ADR-0154)."
 
     def add_arguments(self, parser: Any) -> None:
         parser.add_argument(

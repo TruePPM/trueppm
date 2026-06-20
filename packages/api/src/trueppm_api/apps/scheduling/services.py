@@ -430,7 +430,7 @@ def build_sched_tasks(db_tasks: list[Any], *, suggest_approve: bool) -> list[Any
     ]
 
 
-# Capture-path dedup window (ADR-0153 §3): a recompute that produces an
+# Capture-path dedup window (ADR-0154 §3): a recompute that produces an
 # unchanged forecast within this window of the previous snapshot is a no-op, so
 # a project recomputed many times during a heavy edit session does not write a
 # row per recompute. This window also makes a duplicate recompute (broker retry,
@@ -452,7 +452,7 @@ _FORECAST_DEDUP_FIELDS = (
 
 
 def capture_forecast_snapshot(project_id: str | uuid.UUID, trigger: str) -> Any | None:
-    """Capture a project-grain ``ProjectForecastSnapshot`` (ADR-0153, #388).
+    """Capture a project-grain ``ProjectForecastSnapshot`` (ADR-0154, #388).
 
     Derives every field from already-committed state — the just-recomputed
     ``Task`` rows (CPM spine) plus the project's most-recent ``MonteCarloRun``
@@ -519,7 +519,7 @@ def capture_forecast_snapshot(project_id: str | uuid.UUID, trigger: str) -> Any 
 
 
 def safe_capture_forecast_snapshot(project_id: str | uuid.UUID, trigger: str) -> None:
-    """Best-effort wrapper around :func:`capture_forecast_snapshot` (ADR-0153 §3).
+    """Best-effort wrapper around :func:`capture_forecast_snapshot` (ADR-0154 §3).
 
     Used by the recompute ``on_commit`` hook: a capture failure must never roll
     back or block the CPM write (we are strictly post-commit), and the data is
