@@ -28,7 +28,7 @@ export function GanttIcon({ className, ...rest }: IconProps) {
   );
 }
 
-/** Chain-link glyph — external-link indicator (#767). Stroke-based; tints via currentColor. */
+/** Chain-link glyph — external-link indicator (issue 767). Stroke-based; tints via currentColor. */
 export function LinkIcon({ className, ...rest }: IconProps) {
   return (
     <svg

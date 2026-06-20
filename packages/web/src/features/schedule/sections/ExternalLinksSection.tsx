@@ -41,7 +41,7 @@ function providerIcon(provider: string): string {
   return '🔗';
 }
 
-// Color/label tokens come from the shared linkStatus module (#767, ADR-0153) so the
+// Color/label tokens come from the shared linkStatus module (issue 767, ADR-0153) so the
 // per-link badge here, the at-a-glance list-row glyph, and the Gantt dot stay in
 // lockstep. Color is never the only signal — the uppercase label is always present
 // (WCAG 1.4.1). No `info`/purple token exists, so MERGED maps to brand-primary (the

@@ -1,5 +1,5 @@
 /**
- * Canonical external-link-status model (#637 / #767, ADR-0153).
+ * Canonical external-link-status model (issue 637 / 767, ADR-0153).
  *
  * Single source of truth on the web for:
  *  - the `ExternalLinkStatus` union,
@@ -7,8 +7,9 @@
  *  - the design-system color tokens for the DOM surfaces (detail-drawer badge,
  *    task-list-row glyph).
  *
- * The Gantt canvas can't use Tailwind classes, so it owns its own hex map keyed
- * by the same status union (see GanttRenderer COLOR/COLOR_DARK link* entries).
+ * The Gantt canvas can't use Tailwind classes, so it maps the same status union
+ * onto its own hex palette (see GanttRenderer LINK_DOT_FILL — closed/merged/unknown
+ * reuse the bar stops, draft/open add the two hues the bar palette lacks).
  *
  * The precedence here MUST match the Python `LINK_STATUS_RANK` in
  * `apps/integrations/registry.py`; a unit test in each language pins the ordering
