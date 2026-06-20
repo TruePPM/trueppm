@@ -104,6 +104,11 @@
         "enabled": true,
         "schedule": ["at any time"]
       }
+    },
+    {
+      "description": "Pin all container image digests and keep them current (#904 supply-chain hardening — OpenSSF Scorecard Pinned-Dependencies). Applies to .gitlab-ci.yml image: refs, Dockerfile FROMs, and Helm image values — anything on the docker datasource.",
+      "matchDatasources": ["docker"],
+      "pinDigests": true
     }
   ],
   "vulnerabilityAlerts": {

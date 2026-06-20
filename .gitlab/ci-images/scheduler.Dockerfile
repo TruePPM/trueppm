@@ -14,7 +14,10 @@
 #
 # Tagged `:py3.11` — the only Python version we ship to. Bump to `:py3.12`
 # when we move requires-python.
-FROM python:3.11-slim
+#
+# Base image pinned by digest (#904 supply-chain hardening). Renovate
+# (pinDigests) keeps the digest current; bump the tag + digest together.
+FROM python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
 
 # git is needed by diff-cover and by some scheduler:* tooling.
 RUN apt-get update -qq \

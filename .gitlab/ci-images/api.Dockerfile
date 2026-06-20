@@ -12,7 +12,12 @@
 #
 # Tagged `:py3.11` — the only Python version we ship to. Bump to `:py3.12`
 # when we move requires-python.
-FROM python:3.11-slim
+#
+# Base image pinned by digest (#904 supply-chain hardening — OpenSSF Scorecard
+# "Pinned-Dependencies"). Renovate (pinDigests) keeps the digest current; bump
+# the tag + digest together. Resolve a new digest with:
+#   docker buildx imagetools inspect python:3.11-slim --format '{{.Manifest.Digest}}'
+FROM python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
 
 # git is needed by drf-spectacular's schema diff and by diff-cover; libpq-dev +
 # gcc build psycopg's C extensions.
@@ -22,12 +27,20 @@ FROM python:3.11-slim
 # template DB) — see #688. It must be v16 to match the postgres:16 service:
 # pg_dump refuses to dump from a server newer than itself, and Debian bookworm's
 # default postgresql-client is v15, so we pull v16 from the PGDG apt repo.
+#
+# The PGDG signing key is verified against a known sha256 (#904 supply-chain
+# hardening) so a www.postgresql.org compromise / DNS hijack cannot substitute a
+# malicious key (which would otherwise sign a substituted postgresql-client). If
+# the sha256sum check ever fails, PostgreSQL re-published the key file: confirm
+# the fingerprint is still ACCC4CF8 and bump the hash. The same pinned hash
+# guards the stale-image fallback in .gitlab-ci.yml (ensure-pg-client).
 RUN apt-get update -qq \
  && apt-get install -y -qq --no-install-recommends \
       libpq-dev gcc git curl ca-certificates gnupg \
  && install -d /usr/share/postgresql-common/pgdg \
  && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
       -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+ && echo "0144068502a1eddd2a0280ede10ef607d1ec592ce819940991203941564e8e76  /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc" | sha256sum -c - \
  && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" \
       > /etc/apt/sources.list.d/pgdg.list \
  && apt-get update -qq \

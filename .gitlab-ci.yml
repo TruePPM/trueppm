@@ -256,7 +256,7 @@ workflow:
     - pip install -e "packages/api[dev]" --quiet
 
 .web:
-  image: node:20-alpine
+  image: node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293
   # Cache npm's content cache (NPM_CONFIG_CACHE), not node_modules: `npm ci`
   # deletes node_modules and reinstalls every run, so a node_modules cache buys
   # nothing — but a warm content cache lets `npm ci --prefer-offline` rebuild it
@@ -275,7 +275,7 @@ workflow:
 
 .website:
   # node:22 — Astro 6 requires Node >=22.12 (dropped Node 20 support).
-  image: node:22-alpine
+  image: node:22-alpine@sha256:ab07539e0988b63558ff621f5fbe1077054c39d9809112974fb79993949d41cd
   cache:
     key:
       files:
@@ -289,7 +289,7 @@ workflow:
     - retry npm ci --prefer-offline --quiet
 
 .wasm:
-  image: rust:1.85-slim
+  image: rust:1.85-slim@sha256:9f841bbe9e7d8e37ceb96ed907265a3a0df7f44e3737d0b100e7907a679acb36
   # No cargo target cache — the ~1 GB target/ directory was exhausting shared
   # runner disk. Cold builds take ~40s which is acceptable until we have a
   # self-hosted runner with more disk (issues #29/#30).
@@ -313,7 +313,7 @@ changelog:check:
   # Exempt branches: chore/*, ci/*, docs/* carry no user-visible change.
   # Exempt MRs: add the ~no-changelog label in GitLab to skip this check.
   stage: lint
-  image: alpine:latest
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
   variables:
     # Full history so `git diff origin/<target>...HEAD` finds a merge base even
     # on long-running feature branches. GitLab's default GIT_DEPTH=20 broke
@@ -362,7 +362,7 @@ boundary:check:
   # An optional BOUNDARY_CHECK_TOKEN (project- or group-level access token)
   # can be set in CI/CD variables; otherwise CI_JOB_TOKEN is used.
   stage: lint
-  image: alpine:latest
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
     - if: '$CI_COMMIT_BRANCH == "main"'
@@ -378,7 +378,7 @@ lint:todo-grep:
   #
   # Runs on every MR pipeline. ~5–10s incl. issue-state lookups.
   stage: lint
-  image: alpine:latest
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == "main"'
@@ -395,7 +395,7 @@ lint:design-system-v2:
   # enforcement that makes "all future work inherits the v2 golden standard" real.
   # See docs/design/v2-golden-standard.md. ~2s.
   stage: lint
-  image: alpine:latest
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == "main"'
@@ -417,7 +417,7 @@ docs:version-accuracy:
   # itself and docs/adr/** are exempt (forward-tense is correct there). See the
   # CLAUDE.md "Version-status tense" rule. ~2s.
   stage: lint
-  image: alpine:latest
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == "main"'
@@ -442,9 +442,9 @@ ci:build-api-image:
   # optional: true}]` so they wait for the build when it's in the pipeline,
   # and pull the existing registry tag when it isn't (the steady state).
   stage: lint
-  image: docker:27
+  image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
   services:
-    - docker:27-dind
+    - docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
   variables:
     DOCKER_TLS_CERTDIR: "/certs"
     IMAGE: "$CI_REGISTRY_IMAGE/ci-api:py3.11"
@@ -483,9 +483,9 @@ ci:build-scheduler-image:
   # net. .gitlab-ci.yml is deliberately NOT in the trigger list (see the
   # equivalent decision on ci:build-api-image above).
   stage: lint
-  image: docker:27
+  image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
   services:
-    - docker:27-dind
+    - docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
   variables:
     DOCKER_TLS_CERTDIR: "/certs"
     IMAGE: "$CI_REGISTRY_IMAGE/ci-scheduler:py3.11"
@@ -528,9 +528,9 @@ ci:mirror-playwright-base:
   # pull is wrapped in exponential-backoff retry since that one pull may still
   # hit the throttle window; once pushed, the mirror tag persists until the bump.
   stage: lint
-  image: docker:27
+  image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
   services:
-    - docker:27-dind
+    - docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
   variables:
     DOCKER_TLS_CERTDIR: "/certs"
     DOCKER_CLI_EXPERIMENTAL: "enabled"
@@ -592,9 +592,9 @@ ci:build-integration-image:
   # guarantees the mirror tag exists before the FROM is resolved; that gate is a
   # no-op in steady state, so the dependency costs nothing once mirrored.
   stage: lint
-  image: docker:27
+  image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
   services:
-    - docker:27-dind
+    - docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
   needs:
     - job: ci:mirror-playwright-base
       artifacts: false
@@ -637,7 +637,7 @@ scheduler:lint:
 
 api:lint:
   stage: lint
-  image: python:3.11-slim
+  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
   cache:
     <<: *api-cache
     policy: pull
@@ -665,7 +665,7 @@ wasm:lint:
 
 helm:lint:
   image:
-    name: alpine/helm:3.14.0
+    name: alpine/helm:3.14.0@sha256:a90798c9c2b671e3546b10db1ae0b845f9abccc9f9ff79b34744a1ba146b67ed
     entrypoint: [""]
   stage: lint
   <<: *rules-helm
@@ -845,6 +845,31 @@ api:schema-drift:
   script:
     - ./scripts/export-openapi.sh --check
 
+api:uv-lock-check:
+  # Verify packages/api/uv.lock stays in sync with packages/api/pyproject.toml
+  # (#904 supply-chain hardening). The api is an application, so unlike the
+  # scheduler library it commits a resolved lockfile — for reproducible installs
+  # and a scannable dependency surface (an SCA tool can audit a lockfile; it
+  # cannot audit a range). This gate fails if pyproject changed without
+  # re-locking; refresh with `cd packages/api && uv lock`. uv is pinned so the
+  # committed lock's revision stays stable across CI runs and Renovate's
+  # lockFileMaintenance owns the routine refreshes.
+  stage: analyze
+  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  needs: []
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/api/pyproject.toml
+        - packages/api/uv.lock
+        - .gitlab-ci.yml
+  before_script:
+    - pip install uv==0.9.5 --quiet
+  script:
+    - cd packages/api
+    - uv lock --check
+
 web:type-check:
   extends: .web
   stage: analyze
@@ -902,7 +927,7 @@ security:bandit:scheduler:
   # -ll = medium severity and above.
   stage: analyze
   needs: [scheduler:lint]
-  image: python:3.11-slim
+  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
   <<: *rules-scheduler
   before_script:
     - pip install bandit --quiet
@@ -916,7 +941,7 @@ security:bandit:api:
   # a web-only branch no longer triggers a full Python security scan.
   stage: analyze
   needs: [api:lint]
-  image: python:3.11-slim
+  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
   <<: *rules-api
   before_script:
     - pip install bandit --quiet
@@ -1004,7 +1029,7 @@ wasm:conformance:
   # Cross-engine conformance: run the Python scheduler against the same shared
   # fixtures that the Rust tests use. If both pass, the engines agree.
   stage: test
-  image: python:3.11-slim
+  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
   needs:
     - scheduler:lint
     # wasm:lint is optional: this job also fires on scheduler-only changes
@@ -1087,6 +1112,12 @@ api:testdb-dump:
         apt-get install -y -qq --no-install-recommends curl ca-certificates gnupg
         install -d /usr/share/postgresql-common/pgdg
         curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+        # Verify the PGDG signing key against a known sha256 (#904 supply-chain
+        # hardening) — same pinned hash as .gitlab/ci-images/api.Dockerfile. A
+        # substituted key (postgresql.org compromise / DNS hijack) aborts here
+        # rather than signing a substituted postgresql-client. Bump both if PGDG
+        # ever re-publishes the key (fingerprint must stay ACCC4CF8).
+        echo "0144068502a1eddd2a0280ede10ef607d1ec592ce819940991203941564e8e76  /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc" | sha256sum -c -
         echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list
         apt-get update -qq
         apt-get install -y -qq --no-install-recommends postgresql-client-16
@@ -1338,7 +1369,7 @@ scheduler:diff-coverage:
 
 api:diff-coverage:
   extends: .diff-coverage
-  image: python:3.11-slim
+  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
   needs:
     - job: api:coverage
       artifacts: true
@@ -1366,7 +1397,7 @@ web:diff-coverage:
   extends: .diff-coverage
   # Use a python image (not node) — diff-cover is a pip tool but reads lcov
   # natively. Avoids npm install just to run diff-cover.
-  image: python:3.11-slim
+  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
   needs:
     - job: web:coverage
       artifacts: true
@@ -1398,7 +1429,7 @@ web:e2e:
   # Consumes dist/ from web:build instead of rebuilding per shard. Emits a blob
   # report per shard; web:e2e:report stitches them into a single HTML report.
   stage: test
-  image: mcr.microsoft.com/playwright:v1.58.2-noble
+  image: mcr.microsoft.com/playwright:v1.58.2-noble@sha256:6446946a1d9fd62d9ae501312a2d76a43ee688542b21622056a372959b65d63d
   needs: [web:lint, web:type-check, web:build]
   parallel: 2
   <<: *rules-web
@@ -1422,7 +1453,7 @@ web:e2e:report:
   # shard fails (when: always) — that is exactly when the report matters. Pulls
   # the blob artifacts from all parallel web:e2e instances via needs.
   stage: test
-  image: mcr.microsoft.com/playwright:v1.58.2-noble
+  image: mcr.microsoft.com/playwright:v1.58.2-noble@sha256:6446946a1d9fd62d9ae501312a2d76a43ee688542b21622056a372959b65d63d
   needs: ["web:e2e"]
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
@@ -1745,7 +1776,10 @@ security:osv:
   #   - npm:  packages/web, packages/website
   #   - Cargo: packages/wasm-scheduler
   # Replaces the per-package npm-audit jobs (former web:security + website:security)
-  # and adds Rust coverage that nothing scanned before. Python (api + scheduler)
+  # and adds Rust coverage that nothing scanned before. This is also where #904's
+  # "add npm-audit" finding lands: OSV's surgical, expiring per-advisory ignores
+  # supersede a blanket `npm audit --audit-level=high`, so re-adding npm-audit
+  # would regress the control rather than strengthen it. Python (api + scheduler)
   # stays on security:pip-audit until each has a committed resolved lockfile —
   # OSV can only scan a lockfile, and both currently ship only pyproject.toml
   # (tracked in #1153).
@@ -1762,7 +1796,7 @@ security:osv:
   # Pinned binary download (the official image is distroless / shell-less, which
   # GitLab's script runner can't use); the linux build is a static Go binary.
   stage: security
-  image: alpine:3.20
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
   needs: []
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
@@ -1801,7 +1835,7 @@ security:trivy:config:
   # alpine + pinned binary download via the official install script. Avoids
   # depending on the trivy container image's tag scheme and matches the install
   # used by the trivy image scan in the publish jobs.
-  image: alpine:3.20
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
   needs: []
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
@@ -1820,7 +1854,17 @@ security:trivy:config:
       - .trivycache/
   before_script:
     - apk add --no-cache curl
-    - curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.71.0
+    # Install a pinned, checksum-verified Trivy release instead of piping the
+    # mutable upstream install.sh through `sh` (#904 supply-chain hardening — the
+    # OpenSSF Scorecard "Pinned-Dependencies" failure). Mirrors the cargo-deny /
+    # wasm-pack pinned-tarball pattern. Bump version + hash together when upgrading.
+    - |
+      TRIVY_VERSION=0.71.0
+      TRIVY_SHA256=30a3d22b23f88c233f1658f562fb477cae3b3e8b4761109d515b7698daf85814
+      TRIVY_TARBALL="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+      curl -sSfL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/${TRIVY_TARBALL}" -o /tmp/trivy.tar.gz
+      echo "${TRIVY_SHA256}  /tmp/trivy.tar.gz" | sha256sum -c -
+      tar xzf /tmp/trivy.tar.gz -C /usr/local/bin trivy
   script:
     - trivy config --severity HIGH,CRITICAL --exit-code 1 --ignorefile .trivyignore.yaml --skip-dirs '**/node_modules' packages/
 
@@ -1837,7 +1881,7 @@ security:semgrep:
   # Platform account or token is used — this is a self-contained, local-rules run.
   stage: security
   image:
-    name: semgrep/semgrep:1.166.0
+    name: semgrep/semgrep:1.166.0@sha256:c180f0c93a17b420c0af5006214a29d3c747c5459c732b740191adf657dd0068
     entrypoint: [""]
   needs: []
   rules:
@@ -1875,7 +1919,7 @@ renovate:
   #      `branch == main`, only this job runs there — the schedule won't spin up
   #      a full main pipeline. (A schedule on main also works but runs everything.)
   stage: security
-  image: renovate/renovate:43
+  image: renovate/renovate:43@sha256:498de63b02c02b49c34dfe0119b59da8e5232e701c813960bcbee80760b148dd
   needs: []
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule" && $RENOVATE == "true"'
@@ -1939,7 +1983,7 @@ license:check:web:
   # node:20-alpine already ships node, so there is no apt install to pay.
   # See license:check:py above for why this was split out.
   stage: security
-  image: node:20-alpine
+  image: node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293
   cache:
     <<: *web-cache
     policy: pull
@@ -2027,7 +2071,7 @@ wasm:license-check:
 scheduler:publish:
   # Publishes trueppm-scheduler to PyPI. Closes issue #37.
   stage: publish
-  image: python:3.11-slim
+  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
   rules:
     # Only fire on tags matching the scheduler version format.
     # Never fire on branch pushes or MR events.
@@ -2122,9 +2166,9 @@ scheduler:publish:
 # missing credentials are a silent skip, not a failure.
 .docker-publish-base:
   stage: publish
-  image: docker:27
+  image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
   services:
-    - docker:27-dind
+    - docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
   variables:
     DOCKER_TLS_CERTDIR: "/certs"
   before_script:
@@ -2132,7 +2176,17 @@ scheduler:publish:
     # Trivy is used to scan each built image before it is pushed (see the
     # docker save | trivy image --input gate in api:publish / web:publish).
     - apk add --no-cache curl
-    - curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.71.0
+    # Install a pinned, checksum-verified Trivy release instead of piping the
+    # mutable upstream install.sh through `sh` (#904 supply-chain hardening — the
+    # OpenSSF Scorecard "Pinned-Dependencies" failure). Mirrors the cargo-deny /
+    # wasm-pack pinned-tarball pattern. Bump version + hash together when upgrading.
+    - |
+      TRIVY_VERSION=0.71.0
+      TRIVY_SHA256=30a3d22b23f88c233f1658f562fb477cae3b3e8b4761109d515b7698daf85814
+      TRIVY_TARBALL="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+      curl -sSfL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/${TRIVY_TARBALL}" -o /tmp/trivy.tar.gz
+      echo "${TRIVY_SHA256}  /tmp/trivy.tar.gz" | sha256sum -c -
+      tar xzf /tmp/trivy.tar.gz -C /usr/local/bin trivy
 
 api:publish:
   extends: .docker-publish-base
@@ -2198,7 +2252,7 @@ helm:publish:
   # rather than failing the pipeline — pre-1.0 GHCR access is optional.
   stage: publish
   image:
-    name: alpine/helm:3.14.0
+    name: alpine/helm:3.14.0@sha256:a90798c9c2b671e3546b10db1ae0b845f9abccc9f9ff79b34744a1ba146b67ed
     entrypoint: [""]
   <<: *rules-release-tag
   before_script:
@@ -2240,7 +2294,7 @@ api:publish:pypi:
   # via hatchling, twine upload). Distinct from api:publish, which ships the
   # Docker image to the container registry.
   stage: publish
-  image: python:3.11-slim
+  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
   <<: *rules-release-tag
   variables:
     TWINE_USERNAME: __token__
@@ -2283,7 +2337,7 @@ web:publish:npm:
   # dist/ (package.json `files` restricts the tarball to the built output).
   # Distinct from web:publish, which ships the Docker image.
   stage: publish
-  image: node:20-alpine
+  image: node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293
   <<: *rules-release-tag
   cache:
     <<: *web-cache
@@ -2327,7 +2381,7 @@ web:publish:npm:
 
 release:create:
   stage: deploy
-  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  image: registry.gitlab.com/gitlab-org/release-cli:v0.24.0@sha256:3f52d526f48e8d10625c722fa6d6423ee82aadeae1b1aa91f07b62551d96dacf
   needs: []
   rules:
     - if: '$CI_COMMIT_TAG =~ /^v[0-9]+/'
