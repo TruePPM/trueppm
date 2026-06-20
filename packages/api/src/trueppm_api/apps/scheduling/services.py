@@ -428,3 +428,105 @@ def build_sched_tasks(db_tasks: list[Any], *, suggest_approve: bool) -> list[Any
         )
         for t in db_tasks
     ]
+
+
+# Capture-path dedup window (ADR-0154 §3): a recompute that produces an
+# unchanged forecast within this window of the previous snapshot is a no-op, so
+# a project recomputed many times during a heavy edit session does not write a
+# row per recompute. This window also makes a duplicate recompute (broker retry,
+# manual re-queue) idempotent.
+FORECAST_DEDUP_WINDOW_SECONDS = 3600
+
+# The fields compared for the dedup no-op decision — the forecast itself plus the
+# schedule-shape context. captured_at/triggered_by are intentionally excluded.
+_FORECAST_DEDUP_FIELDS = (
+    "cpm_finish",
+    "total_float_days",
+    "mc_p50_finish",
+    "mc_p80_finish",
+    "mc_p95_finish",
+    "mc_iterations",
+    "task_count",
+    "completed_task_count",
+)
+
+
+def capture_forecast_snapshot(project_id: str | uuid.UUID, trigger: str) -> Any | None:
+    """Capture a project-grain ``ProjectForecastSnapshot`` (ADR-0154, #388).
+
+    Derives every field from already-committed state — the just-recomputed
+    ``Task`` rows (CPM spine) plus the project's most-recent ``MonteCarloRun``
+    (probabilistic band, best-effort, may be absent or stale). Idempotent within
+    ``FORECAST_DEDUP_WINDOW_SECONDS``: if the latest snapshot is newer than the
+    window and every forecast field is unchanged, this no-ops and returns ``None``.
+
+    Returns the created row, or ``None`` when the capture was deduped.
+    """
+    from datetime import timedelta
+
+    from django.db.models import Count, Max, Min, Q
+    from django.utils import timezone
+
+    from trueppm_api.apps.projects.models import Task, TaskStatus
+    from trueppm_api.apps.scheduling.models import MonteCarloRun, ProjectForecastSnapshot
+
+    # One aggregate query for the whole-project schedule shape. cpm_finish is the
+    # latest task finish; total_float_days is the tightest slack across the project
+    # (negative = a constraint is breached). Counts are over non-deleted tasks.
+    agg = Task.objects.filter(project_id=project_id, is_deleted=False).aggregate(
+        cpm_finish=Max("early_finish"),
+        total_float_days=Min("total_float"),
+        task_count=Count("id"),
+        completed=Count("id", filter=Q(status=TaskStatus.COMPLETE)),
+    )
+
+    latest_mc = (
+        MonteCarloRun.objects.filter(project_id=project_id)
+        .order_by("-taken_at")
+        .values("p50", "p80", "p95", "n_simulations")
+        .first()
+    )
+
+    fields = {
+        "cpm_finish": agg["cpm_finish"],
+        "total_float_days": agg["total_float_days"],
+        "mc_p50_finish": latest_mc["p50"] if latest_mc else None,
+        "mc_p80_finish": latest_mc["p80"] if latest_mc else None,
+        "mc_p95_finish": latest_mc["p95"] if latest_mc else None,
+        "mc_iterations": latest_mc["n_simulations"] if latest_mc else None,
+        "task_count": agg["task_count"] or 0,
+        "completed_task_count": agg["completed"] or 0,
+    }
+
+    # Capture-path dedup: no-op if the latest snapshot is within the window AND
+    # every tracked field matches. The latest-row read is the idempotency guard.
+    latest = (
+        ProjectForecastSnapshot.objects.filter(project_id=project_id)
+        .order_by("-captured_at")
+        .first()
+    )
+    if latest is not None:
+        within_window = (timezone.now() - latest.captured_at) < timedelta(
+            seconds=FORECAST_DEDUP_WINDOW_SECONDS
+        )
+        unchanged = all(getattr(latest, name) == fields[name] for name in _FORECAST_DEDUP_FIELDS)
+        if within_window and unchanged:
+            return None
+
+    return ProjectForecastSnapshot.objects.create(
+        project_id=project_id, triggered_by=trigger, **fields
+    )
+
+
+def safe_capture_forecast_snapshot(project_id: str | uuid.UUID, trigger: str) -> None:
+    """Best-effort wrapper around :func:`capture_forecast_snapshot` (ADR-0154 §3).
+
+    Used by the recompute ``on_commit`` hook: a capture failure must never roll
+    back or block the CPM write (we are strictly post-commit), and the data is
+    fully reconstructable, so any exception is logged and discarded — the daily
+    floor task backfills the miss.
+    """
+    try:
+        capture_forecast_snapshot(project_id, trigger)
+    except Exception:
+        logger.warning("forecast snapshot capture failed for project %s", project_id, exc_info=True)

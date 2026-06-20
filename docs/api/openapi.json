@@ -6511,6 +6511,90 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/forecast-snapshots/": {
+            "get": {
+                "operationId": "v1_projects_forecast_snapshots_list",
+                "description": "Project-grain forecast snapshot history (ADR-0154, #388).\n\nReturns the project's forecast snapshots newest-first (paginated), the\npersisted record of how the CPM finish and Monte Carlo percentiles drifted\nover time. Read-only — rows are server-generated on recompute and by the daily\nfloor; there is no write surface. ``?since=``/``?until=`` bound the window by\n``captured_at`` (ISO datetime, or a bare date interpreted as midnight UTC).\n\nPermission: Member (any role ≥ Viewer), the project-read gate — consistent\nwith the Monte Carlo history read.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "since",
+                        "schema": {
+                            "type": "string",
+                            "format": "date-time"
+                        },
+                        "description": "Only snapshots captured at or after this ISO datetime (or date)."
+                    },
+                    {
+                        "in": "query",
+                        "name": "until",
+                        "schema": {
+                            "type": "string",
+                            "format": "date-time"
+                        },
+                        "description": "Only snapshots captured at or before this ISO datetime (or date)."
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedProjectForecastSnapshotList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/integrations-summary/": {
             "get": {
                 "operationId": "v1_projects_integrations_summary_retrieve",
@@ -23343,6 +23427,37 @@
                     }
                 }
             },
+            "PaginatedProjectForecastSnapshotList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ProjectForecastSnapshot"
+                        }
+                    }
+                }
+            },
             "PaginatedProjectList": {
                 "type": "object",
                 "required": [
@@ -26913,6 +27028,85 @@
                     "sprints_to_complete_high",
                     "sprints_to_complete_low",
                     "velocity"
+                ]
+            },
+            "ProjectForecastSnapshot": {
+                "type": "object",
+                "description": "Read-only serializer for a project-grain forecast snapshot (ADR-0154, #388).\n\nServer-generated history; the endpoint is list-only, so every field is\nread-only and there is no create/update path.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "captured_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "triggered_by": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/TriggeredByEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "cpm_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "total_float_days": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "mc_p50_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "mc_p80_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "mc_p95_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "mc_iterations": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "task_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "completed_task_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "captured_at",
+                    "completed_task_count",
+                    "cpm_finish",
+                    "id",
+                    "mc_iterations",
+                    "mc_p50_finish",
+                    "mc_p80_finish",
+                    "mc_p95_finish",
+                    "task_count",
+                    "total_float_days",
+                    "triggered_by"
                 ]
             },
             "ProjectGuardrailPolicy": {
@@ -30993,6 +31187,15 @@
                 "required": [
                     "new_owner_user_id"
                 ]
+            },
+            "TriggeredByEnum": {
+                "enum": [
+                    "recompute",
+                    "scheduled",
+                    "manual"
+                ],
+                "type": "string",
+                "description": "* `recompute` - Recompute\n* `scheduled` - Scheduled\n* `manual` - Manual"
             },
             "UnitEnum": {
                 "enum": [
