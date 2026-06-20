@@ -28,6 +28,11 @@ dependencies = [
     "defusedxml>=0.7,<0.8",
     "channels>=4.0,<5.0",
     "channels-redis>=4.0,<5.0",
+    # Transitive via channels-redis (channel-layer serializer). Floored to the
+    # fix release for GHSA-6v7p-g79w-8964: a reused Unpacker after an error can
+    # SEGV — a DoS vector when unpacking untrusted input. Pin the floor here so
+    # resolution can't drift back below 1.2.1.
+    "msgpack>=1.2.1,<2.0",
     # 5.4/5.5 are no longer security-maintained upstream; track the supported
     # line (5.6+ requires Python >=3.9, satisfied by our >=3.11 floor).
     "celery>=5.6,<6.0",
