@@ -192,6 +192,7 @@ adding it to that frozen set. Events with no webhook counterpart are marked
 | `program_closed` | **WS-only** |
 | `program_reopened` | **WS-only** |
 | `program_deleted` | **WS-only** |
+| `program_split` | **WS-only** |
 | `risk_created` | **WS-only** |
 | `risk_updated` | **WS-only** |
 | `risk_deleted` | **WS-only** |

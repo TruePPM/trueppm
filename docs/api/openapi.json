@@ -3201,8 +3201,8 @@
         "/api/v1/programs/{id}/split/": {
             "post": {
                 "operationId": "v1_programs_split_create",
-                "description": "Split a program into sub-programs — stub for 0.2 (#530).\n\nValidates payload shape and Owner role, then returns 501 so the UI\ncan render the dialog and a coherent \"coming soon\" toast without a\nclient-side feature flag. Real implementation is tracked in a\nfollow-up issue; the contract here is the one the eventual handler\nwill accept.\n\nBody: ``{\"splits\": [{\"name\": str, \"project_ids\": [uuid]}, ...]}``",
-                "summary": "Split a program into sub-programs (not yet implemented)",
+                "description": "Split a program into sub-programs and close the original (ADR-0156, #967).\n\nEach entry in ``splits`` becomes a new program owned by the caller\n(methodology copied from the parent, inheritable settings left to inherit\nthe workspace defaults); the entry's projects are moved under it. Only the\n``Project.program`` FK moves, so tasks, dependencies, baselines, and history\nare preserved. The original program is closed afterwards and keeps any\nprojects that were not redistributed. The whole operation is atomic.\n\nOwner only (``IsProgramOwner``); a closed program cannot be split\n(``IsProgramNotClosed``), which also makes a retried request safe — once\nthe parent is closed a replay is rejected before it can double-split.\n\nBody: ``{\"splits\": [{\"name\": str, \"project_ids\": [uuid]}, ...]}``",
+                "summary": "Split a program into sub-programs",
                 "parameters": [
                     {
                         "in": "path",
@@ -3247,8 +3247,11 @@
                     }
                 ],
                 "responses": {
-                    "501": {
-                        "description": "Not implemented. Body carries a `detail` message and the `tracking_issue` number; the request payload contract is validated before the 501 is returned."
+                    "200": {
+                        "description": "The closed parent program plus the created sub-programs: `{program, sub_programs}`."
+                    },
+                    "400": {
+                        "description": "Invalid payload, or a project does not belong to this program."
                     }
                 }
             }

@@ -265,3 +265,98 @@ def transfer_program_sponsorship(
         program.save(update_fields=["lead"])
 
     return target
+
+
+@transaction.atomic
+def split_program(
+    *,
+    program: Program,
+    splits: list[dict[str, Any]],
+    actor: Any,
+) -> list[Program]:
+    """Split a program into sub-programs and close the original (ADR-0156, #967).
+
+    For each entry in ``splits`` a new sub-program is created (owned by ``actor``,
+    methodology copied from the parent, all inheritable overrides left NULL so the
+    new program inherits workspace defaults), and the entry's projects are moved
+    under it. After every split is applied the original program is closed — it
+    becomes a read-only shell holding any projects that were not redistributed.
+
+    Only the ``Project.program`` FK moves; tasks, dependencies, baselines,
+    memberships, and history are untouched, so each project keeps its full
+    schedule and audit trail under its new program. Reassignment goes through
+    ``Project.save()`` (not ``.update()``) so ``server_version`` increments and
+    mobile sync clients pick up the move — same rationale as
+    ``delete_program_cascade``.
+
+    The whole operation is one transaction: either every sub-program, every
+    reassignment, and the parent close commit together, or nothing does. A bad
+    payload raises before any INSERT so the error message is precise.
+
+    Args:
+        program: The program being split. Must be open — callers gate on
+            ``IsProgramNotClosed``; once closed by this call a replayed request
+            is rejected by that gate, which is what makes a network retry safe.
+        splits: ``[{"name": str, "project_ids": [uuid]}, ...]``. Each entry
+            becomes one sub-program. ``project_ids`` may be empty (an empty
+            sub-program shell, symmetric with ``create_program``).
+        actor: The current OWNER initiating the split; becomes OWNER of every
+            sub-program.
+
+    Returns:
+        The created sub-programs, in input order.
+
+    Raises:
+        ValidationError: if a referenced project is not a live member of this
+            program, or if a project appears in more than one split.
+    """
+    # Lock the parent row so a concurrent project-assign / delete cannot land
+    # between validation and reassignment (mirrors delete_program_cascade).
+    program = Program.objects.select_for_update().get(pk=program.pk)
+
+    member_project_ids = {
+        str(pk)
+        for pk in Project.objects.filter(program=program, is_deleted=False).values_list(
+            "pk", flat=True
+        )
+    }
+
+    # Validate the full payload up front: every id must be a live member of this
+    # program, and no id may be claimed by two sub-programs.
+    seen: set[str] = set()
+    normalized: list[tuple[str, list[str]]] = []
+    for entry in splits:
+        name = entry["name"]
+        ids = [str(pid) for pid in entry["project_ids"]]
+        for pid in ids:
+            if pid not in member_project_ids:
+                raise ValidationError(f"Project {pid} is not a project of this program.")
+            if pid in seen:
+                raise ValidationError(f"Project {pid} is assigned to more than one sub-program.")
+            seen.add(pid)
+        normalized.append((name, ids))
+
+    sub_programs: list[Program] = []
+    for name, ids in normalized:
+        sub = create_program(
+            name=name,
+            description="",
+            methodology=program.methodology,
+            created_by=actor,
+        )
+        # Filter by program=program as well as pk so a project moved out by a
+        # racing request (despite the lock) is never silently captured.
+        for project in Project.objects.select_for_update().filter(
+            program=program, pk__in=ids, is_deleted=False
+        ):
+            project.program = sub
+            project.save(update_fields=["program"])
+        sub_programs.append(sub)
+
+    if not program.is_closed:
+        program.is_closed = True
+        program.closed_at = timezone.now()
+        program.closed_by = actor
+        program.save(update_fields=["is_closed", "closed_at", "closed_by"])
+
+    return sub_programs

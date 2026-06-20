@@ -6,7 +6,7 @@ Covers:
 - DELETE /projects/:id/?force=true           (hard delete; requires archived)
 - POST /programs/:id/close/ + /reopen/       (Owner only, idempotent)
 - POST /programs/:id/transfer-sponsorship/   (Owner only, target must be member)
-- POST /programs/:id/split/                  (501 stub; payload validated)
+- POST /programs/:id/split/                  (Owner only; creates sub-programs, ADR-0156)
 - IsProjectNotArchived / IsProgramNotClosed write gates
 """
 
@@ -390,19 +390,135 @@ def test_transfer_sponsorship_rejects_non_member(
 
 
 # ---------------------------------------------------------------------------
-# Program split — stub (501)
+# Program split (ADR-0156, #967)
 # ---------------------------------------------------------------------------
 
 
+def _project_in_program(program: Program, calendar: Calendar, name: str) -> Project:
+    return Project.objects.create(
+        name=name,
+        start_date=date(2026, 4, 1),
+        calendar=calendar,
+        program=program,
+    )
+
+
 @pytest.mark.django_db
-def test_split_program_returns_501_with_valid_payload(owner: object, program: Program) -> None:
+def test_split_program_creates_subprograms_and_moves_projects(
+    owner: object, program: Program, calendar: Calendar
+) -> None:
+    p1 = _project_in_program(program, calendar, "Alpha")
+    p2 = _project_in_program(program, calendar, "Beta")
+
     resp = _client(owner).post(
         f"/api/v1/programs/{program.pk}/split/",
-        {"splits": [{"name": "A", "project_ids": []}]},
+        {
+            "splits": [
+                {"name": "North", "project_ids": [str(p1.pk)]},
+                {"name": "South", "project_ids": [str(p2.pk)]},
+            ]
+        },
         format="json",
     )
-    assert resp.status_code == 501
-    assert resp.data["tracking_issue"] == 530
+    assert resp.status_code == 200, resp.content
+
+    sub_programs = resp.data["sub_programs"]
+    assert [s["name"] for s in sub_programs] == ["North", "South"]
+    north_id = sub_programs[0]["id"]
+    south_id = sub_programs[1]["id"]
+
+    p1.refresh_from_db()
+    p2.refresh_from_db()
+    assert str(p1.program_id) == north_id
+    assert str(p2.program_id) == south_id
+
+    # Caller is OWNER of each sub-program (atomic via create_program).
+    assert ProgramMembership.objects.get(program_id=north_id, user=owner).role == Role.OWNER
+    # Parent is closed afterwards.
+    program.refresh_from_db()
+    assert program.is_closed is True
+    assert program.closed_by_id == owner.pk
+    # Sub-program copies the parent methodology.
+    assert sub_programs[0]["methodology"] == program.methodology
+
+
+@pytest.mark.django_db
+def test_split_program_leaves_unlisted_projects_on_closed_parent(
+    owner: object, program: Program, calendar: Calendar
+) -> None:
+    moved = _project_in_program(program, calendar, "Moved")
+    stayed = _project_in_program(program, calendar, "Stayed")
+
+    resp = _client(owner).post(
+        f"/api/v1/programs/{program.pk}/split/",
+        {"splits": [{"name": "Spin-off", "project_ids": [str(moved.pk)]}]},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.content
+
+    moved.refresh_from_db()
+    stayed.refresh_from_db()
+    assert str(moved.program_id) == resp.data["sub_programs"][0]["id"]
+    # Unlisted project stays with the (now-closed) original program.
+    assert stayed.program_id == program.pk
+
+
+@pytest.mark.django_db
+def test_split_program_bumps_moved_project_server_version(
+    owner: object, program: Program, calendar: Calendar
+) -> None:
+    p1 = _project_in_program(program, calendar, "Alpha")
+    before = p1.server_version
+
+    resp = _client(owner).post(
+        f"/api/v1/programs/{program.pk}/split/",
+        {"splits": [{"name": "North", "project_ids": [str(p1.pk)]}]},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.content
+    p1.refresh_from_db()
+    # Reassignment goes through Project.save() so mobile sync clients see it.
+    assert p1.server_version > before
+
+
+@pytest.mark.django_db
+def test_split_program_rejects_foreign_project(
+    owner: object, program: Program, calendar: Calendar
+) -> None:
+    # A project that is NOT a member of this program.
+    foreign = Project.objects.create(
+        name="Outsider", start_date=date(2026, 4, 1), calendar=calendar
+    )
+    resp = _client(owner).post(
+        f"/api/v1/programs/{program.pk}/split/",
+        {"splits": [{"name": "X", "project_ids": [str(foreign.pk)]}]},
+        format="json",
+    )
+    assert resp.status_code == 400
+    # Atomic: nothing was created and the parent stays open.
+    program.refresh_from_db()
+    assert program.is_closed is False
+    assert not Program.objects.filter(name="X").exists()
+
+
+@pytest.mark.django_db
+def test_split_program_rejects_project_in_two_splits(
+    owner: object, program: Program, calendar: Calendar
+) -> None:
+    p1 = _project_in_program(program, calendar, "Alpha")
+    resp = _client(owner).post(
+        f"/api/v1/programs/{program.pk}/split/",
+        {
+            "splits": [
+                {"name": "A", "project_ids": [str(p1.pk)]},
+                {"name": "B", "project_ids": [str(p1.pk)]},
+            ]
+        },
+        format="json",
+    )
+    assert resp.status_code == 400
+    program.refresh_from_db()
+    assert program.is_closed is False
 
 
 @pytest.mark.django_db
@@ -414,6 +530,28 @@ def test_split_program_rejects_empty_payload(owner: object, program: Program) ->
 
 
 @pytest.mark.django_db
+def test_split_program_rejects_malformed_entry(owner: object, program: Program) -> None:
+    resp = _client(owner).post(
+        f"/api/v1/programs/{program.pk}/split/",
+        {"splits": [{"name": "A"}]},  # missing project_ids
+        format="json",
+    )
+    assert resp.status_code == 400
+
+
+@pytest.mark.django_db
+def test_split_program_rejects_too_many_splits(owner: object, program: Program) -> None:
+    resp = _client(owner).post(
+        f"/api/v1/programs/{program.pk}/split/",
+        {"splits": [{"name": f"S{i}", "project_ids": []} for i in range(51)]},
+        format="json",
+    )
+    assert resp.status_code == 400
+    program.refresh_from_db()
+    assert program.is_closed is False
+
+
+@pytest.mark.django_db
 def test_split_program_requires_owner(owner: object, other_user: object, program: Program) -> None:
     ProgramMembership.objects.create(program=program, user=other_user, role=Role.ADMIN)
     resp = _client(other_user).post(
@@ -421,6 +559,20 @@ def test_split_program_requires_owner(owner: object, other_user: object, program
         {"splits": [{"name": "A", "project_ids": []}]},
         format="json",
     )
+    assert resp.status_code == 403
+
+
+@pytest.mark.django_db
+def test_split_closed_program_is_blocked(owner: object, program: Program) -> None:
+    program.is_closed = True
+    program.save(update_fields=["is_closed"])
+    resp = _client(owner).post(
+        f"/api/v1/programs/{program.pk}/split/",
+        {"splits": [{"name": "A", "project_ids": []}]},
+        format="json",
+    )
+    # IsProgramNotClosed gate — a closed program cannot be split (also makes a
+    # replayed request safe after the first split closes the parent).
     assert resp.status_code == 403
 
 

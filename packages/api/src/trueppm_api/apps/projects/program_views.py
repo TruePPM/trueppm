@@ -51,6 +51,11 @@ from trueppm_api.apps.projects.serializers import (
     ProjectSerializer,
 )
 
+# Upper bound on sub-programs created by a single split call (#967). Generous
+# enough for "one sub-program per project" on a large program, but caps the
+# unbounded-empty-program creation vector.
+_MAX_SPLITS = 50
+
 
 class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
     """CRUD for programs.
@@ -641,36 +646,53 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
         return Response(ProgramSerializer(fresh).data, status=status.HTTP_200_OK)
 
     @extend_schema(
-        summary="Split a program into sub-programs (not yet implemented)",
+        summary="Split a program into sub-programs",
         responses={
-            501: OpenApiResponse(
+            200: OpenApiResponse(
                 description=(
-                    "Not implemented. Body carries a `detail` message and the "
-                    "`tracking_issue` number; the request payload contract is "
-                    "validated before the 501 is returned."
+                    "The closed parent program plus the created sub-programs: "
+                    "`{program, sub_programs}`."
                 )
-            )
+            ),
+            400: OpenApiResponse(
+                description="Invalid payload, or a project does not belong to this program."
+            ),
         },
     )
     @action(detail=True, methods=["post"], url_path="split")
     def split(self, request: Request, pk: str | None = None) -> Response:
-        """Split a program into sub-programs — stub for 0.2 (#530).
+        """Split a program into sub-programs and close the original (ADR-0156, #967).
 
-        Validates payload shape and Owner role, then returns 501 so the UI
-        can render the dialog and a coherent "coming soon" toast without a
-        client-side feature flag. Real implementation is tracked in a
-        follow-up issue; the contract here is the one the eventual handler
-        will accept.
+        Each entry in ``splits`` becomes a new program owned by the caller
+        (methodology copied from the parent, inheritable settings left to inherit
+        the workspace defaults); the entry's projects are moved under it. Only the
+        ``Project.program`` FK moves, so tasks, dependencies, baselines, and history
+        are preserved. The original program is closed afterwards and keeps any
+        projects that were not redistributed. The whole operation is atomic.
+
+        Owner only (``IsProgramOwner``); a closed program cannot be split
+        (``IsProgramNotClosed``), which also makes a retried request safe — once
+        the parent is closed a replay is rejected before it can double-split.
 
         Body: ``{"splits": [{"name": str, "project_ids": [uuid]}, ...]}``
         """
-        # Run the Owner-only get_object check (also confirms the program exists).
-        self.get_object()
+        from trueppm_api.apps.access.services import split_program
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        # Owner-only object check (also confirms the program exists).
+        program = self.get_object()
 
         splits = request.data.get("splits")
         if not isinstance(splits, list) or not splits:
             return Response(
                 {"detail": "splits must be a non-empty array."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # Bound the number of sub-programs created in one call — even an Owner
+        # shouldn't be able to spawn unbounded empty programs in a single request.
+        if len(splits) > _MAX_SPLITS:
+            return Response(
+                {"detail": f"A program can be split into at most {_MAX_SPLITS} sub-programs."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         for split in splits:
@@ -685,12 +707,31 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
+        try:
+            sub_programs = split_program(program=program, splits=splits, actor=request.user)
+        except DjangoValidationError as exc:
+            return Response(
+                {"detail": exc.messages[0] if exc.messages else str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        program_id = str(program.pk)
+        sub_ids = [str(sub.pk) for sub in sub_programs]
+        transaction.on_commit(
+            lambda: broadcast_board_event(
+                program_id,
+                "program_split",
+                {"id": program_id, "sub_program_ids": sub_ids},
+            )
+        )
+
+        fresh = self.get_queryset().get(pk=program.pk)
         return Response(
             {
-                "detail": "Program split is not yet implemented.",
-                "tracking_issue": 530,
+                "program": ProgramSerializer(fresh).data,
+                "sub_programs": ProgramSerializer(sub_programs, many=True).data,
             },
-            status=status.HTTP_501_NOT_IMPLEMENTED,
+            status=status.HTTP_200_OK,
         )
 
     # -----------------------------------------------------------------------
