@@ -17,6 +17,12 @@ sprint-to-milestone bridge, preloaded). See the
 route below is still the way to get the six **persona logins** used in the walkthrough.
 :::
 
+:::tip[Evaluating, not just clicking around?]
+The [Evaluation guide](/getting-started/evaluation-guide/) turns "here is the app"
+into "here is how to verify each 0.3 capability" — which sample, which login,
+which screen, and what to expect — in about 30 minutes.
+:::
+
 The `seed_demo_project` management command bootstraps a coherent "Platform Migration" project with phases, work packages, baselines, resources, eight closed sprints, an active sprint mid-window, a planned sprint, a retro with a promoted action item, and board WIP overload. With `--with-personas` it also creates six demo logins.
 
 ```bash

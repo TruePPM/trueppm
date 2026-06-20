@@ -1,0 +1,175 @@
+---
+title: Evaluation guide
+description: Verify every 0.3 capability in about 30 minutes using the bundled sample programs — which sample, which login, which screen, and what to expect.
+---
+
+:::note[Ships in 0.3]
+This guide covers the 0.3 feature set. Those features are merged to `main` but
+not yet in a tagged build — they ship in 0.3. See the
+[roadmap](/overview/roadmap/).
+:::
+
+This page is for someone evaluating TruePPM — or a reviewer doing a release
+walkthrough — who wants to confirm each capability works without first learning
+where everything lives. It maps every 0.3 capability to a **bundled sample**, a
+**persona login**, the **exact screen** to open, and **what you should see**.
+
+The fastest way through it: load a sample, sign in as the named persona, open the
+screen, and check the expectation. Every sample imports as a **program already in
+flight** — its history is replayed with backdated, attributed events, so you are
+reviewing a program that has run for months, not a blank slate.
+
+## Before you start
+
+Load one or more of the four bundled samples. On a fresh install the **Programs**
+page has a **Load demo data** button; or load from the command line:
+
+```bash
+python manage.py load_sample_project --sample aurora-mobile-app
+python manage.py load_sample_project --sample bayside-civic-center
+python manage.py load_sample_project --sample helios-crm-replacement
+python manage.py load_sample_project                          # Atlas (default)
+```
+
+See [Sample projects & JSON import/export](/getting-started/sample-projects/) for
+what each sample is built to demonstrate, and the
+[Quickstart](/getting-started/quickstart/) for the persona logins (loaded with
+`--create-users`, every persona signs in with the seeded password). When you are
+done, the program owner can **Remove sample data** to tear a demo down without
+touching real work.
+
+:::tip
+Pick the sample that matches the methodology you care about: **Aurora** for pure
+agile, **Bayside** for waterfall/CPM, **Helios** for the small hybrid bridge, and
+**Atlas** for the whole story at program scale.
+:::
+
+## What makes the demo data realistic
+
+Most of what an evaluator distrusts about demo data is that it looks *staged* —
+every task owned by one person, every status frozen, no trail of how the work got
+there. The bundled samples are authored as **event timelines** instead, so the
+history holds up to inspection:
+
+- **Tasks change hands.** Work is reassigned for coverage (someone is out), for
+  load-balancing (a teammate is overloaded), and to hand a task to the right
+  specialist. Open any reassigned task's **History** and you see dated
+  "reassigned from … to …" rows by name.
+- **Work moves non-linearly.** A few "hero" tasks per program fail review and
+  bounce back to In Progress before they ship — the path a real task takes, not a
+  straight line to Done.
+- **People talk.** Standup notes, blocker call-outs, handoff notes, and review
+  feedback appear as dated comments by named personas.
+- **Sprints have verdicts.** Closed sprints carry an honest goal outcome (Met /
+  Partially met) and a real burndown curve, not a single fabricated number.
+- **Risks have a life.** A risk's status walks Open → Mitigating →
+  Resolved/Closed over time, tied to the tasks that drove it.
+- **Scope is governed.** A mid-sprint injection is accepted in one program and
+  rejected (deferred) in another, each recorded as a scope-change audit entry.
+
+## Capability checklist
+
+Each row is independently verifiable. "Look here" names the screen; "Expect"
+is the signal that the capability works.
+
+### Agile team (the 0.3 headline)
+
+| Capability | Sample · persona | Look here | Expect |
+|---|---|---|---|
+| Sprint lifecycle & burndown | Aurora · Alex (Scrum Master) | Sprint 1–2 (closed) → burndown | A real downward curve with day-by-day points, not a single number |
+| Velocity trend with a range | Aurora · Jordan (Product Owner) | Velocity chart | A 20 → 27 ramp across the closed sprints, with a forecast spread |
+| Sprint goal verdict | Aurora · Alex | Closed sprint header | Sprint 1 reads **Partially met** (20 of 26), Sprint 2 **Met** |
+| Active sprint brackets "today" | Aurora / Helios · any | Active sprint board | The in-flight sprint straddles the current date, with work mid-column |
+| Mid-sprint scope audit (accepted) | Aurora · Priya / Alex | "Widget gallery" task → sprint scope chip | A goal-impacting injection accepted mid-sprint, recorded in the audit |
+| Mid-sprint scope audit (rejected) | Helios · Ivan / Jordan | "Search & filters" task | An injection rejected and deferred — the task drops out of the sprint |
+
+### Task history & collaboration (new in this guide)
+
+| Capability | Sample · persona | Look here | Expect |
+|---|---|---|---|
+| Reassignment trail | every sample | A reassigned task → **History** | Dated "reassigned to …" rows by name (e.g. Aurora "Biometric login": Diego → Mei) |
+| Non-linear "hero" task | every sample | The hero task → **History** | A Review → In Progress bounce, then Review → Done (Aurora "Onboarding flow"; Atlas "SSO login"; Bayside "Rebar & formwork") |
+| Persona comments | every sample | A hero/handoff task → comments | Standup, blocker, handoff, and review-rework notes by named people, dated |
+| Backdated, attributed history | every sample | Any completed task → **History** | "Moved to Done by … N days ago", not everything stamped "today" |
+
+### Schedule (CPM) & forecasting
+
+| Capability | Sample · persona | Look here | Expect |
+|---|---|---|---|
+| Critical path | Bayside · Sarah (PM) | Schedule view | A highlighted critical path through the construction phases |
+| All four dependency types | Bayside · Sarah | Foundation/Finish-out links | FS, SS, FF, and SF links present (parallel pours, "finish together", SF on commissioning) |
+| Three-point estimates | Bayside · Sarah | Any scheduled task | Optimistic / most-likely / pessimistic on the estimate |
+| Baseline-vs-actual slip | Bayside · Sarah | Baseline overlay | Completed work compared against the captured **Contract baseline** |
+| Monte Carlo P50/P80/P95 | Bayside / Atlas · Sarah | Monte Carlo modal | Monotonic P50 ≤ P80 ≤ P95; toggling a high-impact risk shifts P80 |
+
+### Risk register
+
+| Capability | Sample · persona | Look here | Expect |
+|---|---|---|---|
+| Populated register | Bayside (12) · Atlas (20) | Risk register | A full register with a probability × impact matrix |
+| Risk status lifecycle | every sample | A risk → **History** | Dated Open → Mitigating → Resolved/Closed (e.g. Bayside "soil conditions"; Atlas "SSO security finding") |
+| Schedule-driving risks | Atlas · Alex | Risk → Monte Carlo | Several high probability × impact risks that visibly move the forecast |
+
+### Hybrid & program scale
+
+| Capability | Sample · persona | Look here | Expect |
+|---|---|---|---|
+| The bridge demo | Helios · Sarah → Jordan | Plan → build handoff | A completed waterfall plan feeding live build sprints across a cross-phase dependency |
+| Hybrid rollup | Helios / Atlas · any | Program / project overview | Gated and flow work rolling up together under one parent |
+| Cross-project critical path | Atlas · program lead | Program schedule | Platform Core gates Migration, which gates the public-launch milestone |
+| Methodology mix in one program | Atlas · program lead | Three projects | Agile, waterfall, and hybrid streams side by side |
+
+### Interface (v2)
+
+| Capability | Sample · persona | Look here | Expect |
+|---|---|---|---|
+| Unified app-shell bar | any · any | Top bar | A single 56-px bar with identity, scrollable view tabs, and the user menu |
+| Command palette | any · any | Press **⌘K** | Jump to backlog/board and search tasks inline |
+| Role-based landing | any · sign in as different roles | Post-login screen | Each role lands on the surface it lives on (a Viewer lands read-only) |
+
+## A 30-minute tour by persona
+
+If you would rather follow one role end to end, pick the path that matches you.
+
+### Scrum Master / agile delivery — ~10 min (Aurora)
+
+1. Sign in as **Alex**. Open the closed **Sprint 1** — read its **Partially met**
+   verdict and its burndown curve.
+2. Open the **Velocity** chart — note the 20 → 27 ramp and the forecast range.
+3. Open the active sprint board. Find **"Onboarding flow"** and open its
+   **History**: it went to Review, bounced back on a real defect, was reworked,
+   and shipped — with Tom's review comments inline.
+4. Find **"Widget gallery"** — a mid-sprint injection the PO pulled in and the
+   team accepted, recorded in the scope audit.
+
+### Project Manager / scheduler — ~10 min (Bayside)
+
+1. Sign in as **Sarah**. Open the **Schedule** — follow the critical path and
+   spot the four dependency types (the parallel pours and the "finish together"
+   framing links).
+2. Turn on the **Contract baseline** overlay — compare completed phases against
+   plan.
+3. Open the **Monte Carlo** modal — confirm P50 ≤ P80 ≤ P95, then toggle the
+   **supply-chain** risk and watch P80 move.
+4. Open the **soil-conditions** risk's **History** — Open → Mitigating → Closed
+   as the geotech survey cleared it.
+
+### Product Owner / hybrid lead — ~10 min (Helios, then Atlas)
+
+1. In **Helios**, sign in as **Jordan**. See the finished waterfall **Planning**
+   phase hand off to the live **Build** sprints across the cross-phase
+   dependency.
+2. Find **"Search & filters"** — an injection that was **rejected** mid-sprint
+   and deferred, so it dropped back out of the sprint.
+3. Open **Atlas** as the program lead. Follow the cross-project critical path
+   (Platform Core → Migration → public launch) and open the **SSO login** task's
+   History to see a security-review bounce that became a tracked audit risk.
+
+## Where this data comes from
+
+Every sample is generated from a committed builder
+(`scripts/seeds/build_atlas_seed.py`, `scripts/seeds/build_samples.py`) and
+replayed by the importer (ADR-0114). The event timeline — reassignments,
+comments, status moves, scope changes, risk lifecycles — is authored in those
+builders and reconstructed as backdated history on import. To author your own,
+see the [seed data schema reference](/architecture/seed-data-schema/).
