@@ -77,7 +77,7 @@ export interface ApiTask {
   blocked_age_seconds?: number | null;
   linked_risks_count?: number;
   linked_risks_max_severity?: number | null;
-  // At-a-glance external-link summary (issue 767, ADR-0153). worst_status is null when
+  // At-a-glance external-link summary (issue 767, ADR-0154). worst_status is null when
   // count is 0. snake_case on the wire (TaskSerializer does not camelCase).
   external_link_summary?: { count: number; worst_status: ExternalLinkStatus | null };
   // Board batch 5 (issue #105) — entry stamps, priority rank, readiness.

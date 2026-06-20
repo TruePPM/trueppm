@@ -171,5 +171,5 @@ changes reach the mobile client through the project sync delta.
 - **ADR-0050** — Task Detail Drawer Section Extension Points (where
   `task_detail.external_links` registers)
 - **ADR-0076** — Integration Management Surface Boundary
-- **ADR-0153** — At-a-glance external-link status indicators (the schedule
+- **ADR-0154** — At-a-glance external-link status indicators (the schedule
   list/Gantt roll-up)

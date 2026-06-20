@@ -858,7 +858,7 @@ function TaskListRowInner({
                 <span>missing dates</span>
               </span>
             )}
-            {/* At-a-glance external-link status (issue 767, ADR-0153): link glyph + count,
+            {/* At-a-glance external-link status (issue 767, ADR-0154): link glyph + count,
                 tinted by the worst link status, immediately left of the assignee chips.
                 Hidden for summary/milestone tasks and when the task has no live links. */}
             {!task.isSummary &&

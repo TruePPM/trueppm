@@ -1,4 +1,4 @@
-"""Tests for the at-a-glance external-link summary annotation (#767, ADR-0153).
+"""Tests for the at-a-glance external-link summary annotation (#767, ADR-0154).
 
 TaskSerializer exposes ``external_link_summary`` = {count, worst_status} on the
 task list/detail endpoints, computed by two filtered aggregates in

@@ -44,7 +44,7 @@ LINK_STATUS_CHOICES: tuple[tuple[str, str], ...] = tuple(
     (value, value) for value in LINK_STATUS_VALUES
 )
 
-# Worst-status precedence for at-a-glance link-status rollups (#767, ADR-0153).
+# Worst-status precedence for at-a-glance link-status rollups (#767, ADR-0154).
 # Most-attention-first: the *worst* status across a task's links is the one with
 # the **minimum** rank present. The ordering mirrors the existing detail-drawer
 # badge color severity (critical → at-risk → on-track → success → neutral) so the

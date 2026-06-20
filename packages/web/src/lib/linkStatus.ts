@@ -1,5 +1,5 @@
 /**
- * Canonical external-link-status model (issue 637 / 767, ADR-0153).
+ * Canonical external-link-status model (issue 637 / 767, ADR-0154).
  *
  * Single source of truth on the web for:
  *  - the `ExternalLinkStatus` union,

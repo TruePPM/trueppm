@@ -10,7 +10,7 @@ import {
 
 describe('LINK_STATUS_RANK', () => {
   // Pins the canonical precedence so it can't drift from the Python
-  // LINK_STATUS_RANK in apps/integrations/registry.py (issue 767, ADR-0153).
+  // LINK_STATUS_RANK in apps/integrations/registry.py (issue 767, ADR-0154).
   it('is most-attention-first: closed < draft < open < merged < unknown', () => {
     expect(LINK_STATUS_RANK.closed).toBeLessThan(LINK_STATUS_RANK.draft);
     expect(LINK_STATUS_RANK.draft).toBeLessThan(LINK_STATUS_RANK.open);

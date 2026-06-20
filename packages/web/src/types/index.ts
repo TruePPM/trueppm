@@ -164,7 +164,7 @@ export interface Task {
   /** Max(probability * impact) across active linked risks; null when none. */
   linkedRisksMaxSeverity?: number | null;
   /**
-   * At-a-glance external-link rollup (issue 767, ADR-0153): count of the task's live
+   * At-a-glance external-link rollup (issue 767, ADR-0154): count of the task's live
    * external links and the worst status across them (null when count is 0).
    * Absent on tasks serialized off the annotated list queryset.
    */
