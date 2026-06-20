@@ -105,4 +105,47 @@ describe('useBoardToolbarPrefs', () => {
     const { result } = renderHook(() => useBoardToolbarPrefs());
     expect(result.current.zoom).toBe('normal');
   });
+
+  // Swimlane grouping (issue 324) — additive fourth axis on the same v1 blob.
+  it('defaults groupBy to phase', () => {
+    const { result } = renderHook(() => useBoardToolbarPrefs());
+    expect(result.current.groupBy).toBe('phase');
+  });
+
+  it('persists groupBy selection to localStorage', () => {
+    const { result } = renderHook(() => useBoardToolbarPrefs());
+    act(() => result.current.setGroupBy('assignee'));
+    expect(result.current.groupBy).toBe('assignee');
+    const stored = JSON.parse(
+      localStorage.getItem('trueppm.board.toolbarPrefs.v1') ?? '{}',
+    ) as { groupBy?: string };
+    expect(stored.groupBy).toBe('assignee');
+  });
+
+  it('restores groupBy across reloads', () => {
+    localStorage.setItem(
+      'trueppm.board.toolbarPrefs.v1',
+      JSON.stringify({ layout: 'rail', backlogDensity: 'comfortable', groupBy: 'assignee' }),
+    );
+    const { result } = renderHook(() => useBoardToolbarPrefs());
+    expect(result.current.groupBy).toBe('assignee');
+  });
+
+  it('defaults groupBy to phase when the stored blob predates the key (backwards-compat)', () => {
+    localStorage.setItem(
+      'trueppm.board.toolbarPrefs.v1',
+      JSON.stringify({ layout: 'queue', backlogDensity: 'compact', zoom: 'large' }),
+    );
+    const { result } = renderHook(() => useBoardToolbarPrefs());
+    expect(result.current.groupBy).toBe('phase');
+    // The other axes still restore — the additive key didn't disturb them.
+    expect(result.current.zoom).toBe('large');
+    expect(result.current.layout).toBe('queue');
+  });
+
+  it('falls back to phase groupBy on an unknown stored value', () => {
+    localStorage.setItem('trueppm.board.toolbarPrefs.v1', JSON.stringify({ groupBy: 'team' }));
+    const { result } = renderHook(() => useBoardToolbarPrefs());
+    expect(result.current.groupBy).toBe('phase');
+  });
 });

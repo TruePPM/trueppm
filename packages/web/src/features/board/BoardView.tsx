@@ -86,7 +86,12 @@ import { BacklogDemoteConfirmDialog } from './BacklogDemoteConfirmDialog';
 import { ScheduleTaskDialog } from '@/features/schedule/ScheduleTaskDialog';
 import { CalmToolbar } from './CalmToolbar';
 import { SprintPanel } from './SprintPanel';
-import { useBoardToolbarPrefs, type BoardZoom } from '@/hooks/useBoardToolbarPrefs';
+import {
+  useBoardToolbarPrefs,
+  type BoardZoom,
+  type BoardGroupMode,
+} from '@/hooks/useBoardToolbarPrefs';
+import { buildAssigneeLanes, primaryAssigneeLaneId } from './grouping';
 import { useBoardCardSearch } from '@/hooks/useBoardCardSearch';
 import { useProject } from '@/hooks/useProject';
 import { useActiveSprint, useSprints } from '@/hooks/useSprints';
@@ -561,7 +566,9 @@ interface PhaseLaneProps {
   collapsed: boolean;
   onToggleCollapse: () => void;
   onMenuMove: (task: Task, newStatus: TaskStatus) => void;
-  onAddTask: (phaseId: string, phaseName: string, isSynthetic?: boolean) => void;
+  // Optional: assignee-grouped lanes (#324) pass none — a lane id there is a
+  // resource, not a parent, so the add-task affordance is suppressed.
+  onAddTask?: (phaseId: string, phaseName: string, isSynthetic?: boolean) => void;
   focusedCardId: string | null;
   highlightedTaskIds: Set<string> | null;
   overallocByResourcePerTask: Map<string, Map<string, number>>;
@@ -701,7 +708,7 @@ function PhaseLane({
             workshop={workshop}
             onPhaseRename={onPhaseRename ? (name) => onPhaseRename(phase.id, name) : undefined}
             dragHandleListeners={dragHandleListeners}
-            onAddTask={() => onAddTask(phase.id, phase.name, isSynthetic)}
+            onAddTask={onAddTask ? () => onAddTask(phase.id, phase.name, isSynthetic) : undefined}
             addTaskLabel={isSynthetic ? 'Add to backlog' : undefined}
             collapseToggle={collapseToggle}
             showCost={showCost}
@@ -1338,6 +1345,9 @@ export function BoardView() {
   } = useBoardCollapsedLanes(projectId);
   const { density, setDensity, isMobile } = useBoardDensity();
   const toolbarPrefs = useBoardToolbarPrefs();
+  // Effective swimlane grouping (#324). Workshop mode authors WBS phase
+  // structure, so it always groups by phase regardless of the saved preference.
+  const groupMode: BoardGroupMode = workshopMode ? 'phase' : toolbarPrefs.groupBy;
   const { data: projectDetail } = useProject(projectId || null);
   const iterationLabel = useIterationLabel(projectId || undefined);
 
@@ -1403,7 +1413,13 @@ export function BoardView() {
     return { committedTasks: committed, backlogTasks: backlog };
   }, [tasks, selectedSprintId]);
 
-  const phases = useMemo(() => {
+  const phases = useMemo<Phase[]>(() => {
+    // Assignee grouping (#324): one lane per primary assignee + an Unassigned
+    // lane. A pure client view over the same cards — no synthetic root/backlog
+    // injection (that is phase-mode promote-target plumbing, #386).
+    if (groupMode === 'assignee') {
+      return buildAssigneeLanes(committedTasks);
+    }
     const built = buildPhases(committedTasks, workshopMode);
     // #386: phase-less projects with at least one backlog card need a drop
     // target so the rail/drawer's "Drag right onto a phase" affordance works.
@@ -1417,7 +1433,7 @@ export function BoardView() {
       built.push({ id: 'root', name: 'Project Tasks', summaryTask: undefined, tasks: [] });
     }
     return built;
-  }, [committedTasks, workshopMode, backlogTasks.length]);
+  }, [committedTasks, workshopMode, backlogTasks.length, groupMode]);
 
   // Demotion confirmation candidate (ADR-0057, Option C) — set by handleDragEnd
   // when a NOT_STARTED card is dropped on the band; cleared on confirm/cancel.
@@ -1757,7 +1773,18 @@ export function BoardView() {
       if (!newStatus) return;
       const currentPhaseId = activeTask.parentId ?? 'root';
       const phaseChanged = workshopMode && newPhaseId !== currentPhaseId;
-      if (newStatus === activeTask.status && !phaseChanged) return;
+      // Cross-lane drag under assignee grouping (#324): drag-to-reassign is a
+      // deferred follow-up, so a drop into a different assignee lane never
+      // changes the assignee. A status (column) change in the same drop still
+      // applies; we append a hint pointing at the card's own assignee control.
+      const reassignDeferred =
+        groupMode === 'assignee' && newPhaseId !== primaryAssigneeLaneId(activeTask);
+      if (newStatus === activeTask.status && !phaseChanged) {
+        if (reassignDeferred && ariaLiveRef.current) {
+          ariaLiveRef.current.textContent = `Drag-to-reassign isn't available yet — open ${activeTask.name} to change its assignee.`;
+        }
+        return;
+      }
       // WIP-limit guard (#232): if the destination column is at or over its
       // limit and the task isn't already in that column, prompt before moving.
       if (
@@ -1789,7 +1816,8 @@ export function BoardView() {
       if (ariaLiveRef.current) {
         const colLabel = COLUMNS.find((c) => c.status === newStatus)?.label ?? newStatus;
         const intoSprint = assignSprintId ? ` and added to ${selectedSprint?.name}` : '';
-        ariaLiveRef.current.textContent = `${activeTask.name} moved to ${colLabel}${intoSprint}`;
+        const reassignNote = reassignDeferred ? ' — reassign from the card' : '';
+        ariaLiveRef.current.textContent = `${activeTask.name} moved to ${colLabel}${intoSprint}${reassignNote}`;
       }
       // Scope-injection drop toast (#1140): only an ACTIVE-sprint assignment
       // creates a pending scope-change (ADR-0102 post-activation injection). A
@@ -1809,11 +1837,13 @@ export function BoardView() {
       COLUMNS,
       phaseOrder,
       phaseReorder,
+      taskIndex,
       workshopMode,
       selectedSprint,
       showWip,
       totalByStatus,
       iterationLabel,
+      groupMode,
     ],
   );
 
@@ -2034,7 +2064,8 @@ export function BoardView() {
             sprints={sprints}
             selectedSprintId={selectedSprintId}
             onSelectSprint={setSelectedSprintId}
-            groupBy="Phase (WBS rollup)"
+            groupBy={groupMode}
+            onGroupByChange={toolbarPrefs.setGroupBy}
             sort={sort}
             onSortChange={setSort}
             density={density}
@@ -2351,7 +2382,9 @@ export function BoardView() {
                     collapsed: collapsedIds.has(phase.id),
                     onToggleCollapse: () => toggleCollapse(phase.id),
                     onMenuMove: handleMenuMove,
-                    onAddTask: handleAddTask,
+                    // Assignee lanes (#324) can't host a new task (a lane id is a
+                    // resource, not a parent) — suppress the per-lane add button.
+                    onAddTask: groupMode === 'assignee' ? undefined : handleAddTask,
                     focusedCardId,
                     // Search match set (when active) overrides the issue-182 dep-hover
                     // dim set — see effectiveHighlightIds (issue 323).

@@ -22,11 +22,19 @@ export type BacklogDensity = 'compact' | 'comfortable' | 'full';
  * transform/zoom (which would break dnd-kit drag math).
  */
 export type BoardZoom = 'small' | 'normal' | 'large';
+/**
+ * Board swimlane grouping mode (issue #324). Persisted per-user-per-device like
+ * zoom/density (not a saved-view config) — it's a personal lens on the board,
+ * not shared board state. `assignee` groups cards by primary assignee; team
+ * grouping is a deferred follow-up (needs a server-side team field).
+ */
+export type BoardGroupMode = 'phase' | 'assignee';
 
 export interface BoardToolbarPrefs {
   layout: BoardLayoutVariant;
   backlogDensity: BacklogDensity;
   zoom: BoardZoom;
+  groupBy: BoardGroupMode;
 }
 
 const STORAGE_KEY = 'trueppm.board.toolbarPrefs.v1';
@@ -34,6 +42,7 @@ const DEFAULTS: BoardToolbarPrefs = {
   layout: 'rail',
   backlogDensity: 'comfortable',
   zoom: 'normal',
+  groupBy: 'phase',
 };
 
 function read(): BoardToolbarPrefs {
@@ -50,6 +59,9 @@ function read(): BoardToolbarPrefs {
       // Additive (issue 379): a stored v1 blob without `zoom` defaults to 'normal',
       // so the key change is backwards-compatible without a version bump.
       zoom: parsed.zoom === 'small' || parsed.zoom === 'large' ? parsed.zoom : 'normal',
+      // Additive (issue 324): a stored blob without `groupBy` defaults to 'phase'
+      // — same backwards-compatible pattern as zoom, no version bump.
+      groupBy: parsed.groupBy === 'assignee' ? 'assignee' : 'phase',
     };
   } catch {
     return DEFAULTS;
@@ -68,9 +80,11 @@ export function useBoardToolbarPrefs(): {
   layout: BoardLayoutVariant;
   backlogDensity: BacklogDensity;
   zoom: BoardZoom;
+  groupBy: BoardGroupMode;
   setLayout: (v: BoardLayoutVariant) => void;
   setBacklogDensity: (d: BacklogDensity) => void;
   setZoom: (z: BoardZoom) => void;
+  setGroupBy: (g: BoardGroupMode) => void;
 } {
   const [prefs, setPrefs] = useState<BoardToolbarPrefs>(() => read());
 
@@ -107,12 +121,22 @@ export function useBoardToolbarPrefs(): {
     });
   }, []);
 
+  const setGroupBy = useCallback((groupBy: BoardGroupMode) => {
+    setPrefs((p) => {
+      const next = { ...p, groupBy };
+      write(next);
+      return next;
+    });
+  }, []);
+
   return {
     layout: prefs.layout,
     backlogDensity: prefs.backlogDensity,
     zoom: prefs.zoom,
+    groupBy: prefs.groupBy,
     setLayout,
     setBacklogDensity,
     setZoom,
+    setGroupBy,
   };
 }

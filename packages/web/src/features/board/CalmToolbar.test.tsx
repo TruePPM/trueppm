@@ -42,7 +42,8 @@ function Harness(overrides: Partial<CalmToolbarProps> = {}) {
     sprints: [],
     selectedSprintId: null,
     onSelectSprint: vi.fn(),
-    groupBy: 'Phase (WBS rollup)',
+    groupBy: 'phase',
+    onGroupByChange: vi.fn(),
     sort: 'priority',
     onSortChange: vi.fn(),
     density: 'comfortable',
@@ -102,6 +103,35 @@ describe('CalmToolbar', () => {
   });
 
   // Acceptance: chip popovers ----------------------------------------------
+
+  // Group swimlanes by phase or assignee (#324) -----------------------------
+
+  it('Group chip shows the active mode label and opens a radiogroup', async () => {
+    const user = userEvent.setup();
+    renderToolbar({ groupBy: 'assignee' });
+    const groupChip = screen.getByRole('button', { name: 'Group lanes by' });
+    expect(groupChip).toHaveTextContent('By assignee');
+    await user.click(groupChip);
+    expect(screen.getByRole('radiogroup', { name: 'Group lanes by' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Phase' })).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByRole('radio', { name: 'By assignee' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+  });
+
+  it('Group chip selection invokes onGroupByChange and closes the popover', async () => {
+    const user = userEvent.setup();
+    const onGroupByChange = vi.fn();
+    renderToolbar({ groupBy: 'phase', onGroupByChange });
+    await user.click(screen.getByRole('button', { name: 'Group lanes by' }));
+    await user.click(screen.getByRole('radio', { name: 'By assignee' }));
+    expect(onGroupByChange).toHaveBeenCalledWith('assignee');
+    expect(screen.getByRole('button', { name: 'Group lanes by' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+  });
 
   it('Sort chip is closed by default and opens a radiogroup popover on click', async () => {
     const user = userEvent.setup();

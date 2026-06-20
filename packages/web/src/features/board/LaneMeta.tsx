@@ -179,22 +179,28 @@ export function LaneMeta({
             </span>
           )}
 
-          <button
-            type="button"
-            onClick={onAddTask}
-            title={addTaskLabel ?? `Add task to ${phaseName}`}
-            aria-label={addTaskLabel ?? `Add task to ${phaseName}`}
-            data-testid={`add-task-${phaseId}`}
-            className="flex-shrink-0 w-[22px] h-[22px] flex items-center justify-center rounded-control
-              border border-neutral-border bg-neutral-surface text-neutral-text-secondary
-              hover:border-brand-primary/50 hover:text-brand-primary
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-          >
-            <svg aria-hidden="true" width={10} height={10} viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round">
-              <line x1="5" y1="1" x2="5" y2="9" />
-              <line x1="1" y1="5" x2="9" y2="5" />
-            </svg>
-          </button>
+          {/* The add-task affordance is phase-authoring: it parents a new task
+              under this lane's summary. Assignee-grouped lanes (#324) pass no
+              onAddTask — a lane id there is a resource, not a parent — so the
+              button is suppressed rather than rendered dead. */}
+          {onAddTask && (
+            <button
+              type="button"
+              onClick={onAddTask}
+              title={addTaskLabel ?? `Add task to ${phaseName}`}
+              aria-label={addTaskLabel ?? `Add task to ${phaseName}`}
+              data-testid={`add-task-${phaseId}`}
+              className="flex-shrink-0 w-[22px] h-[22px] flex items-center justify-center rounded-control
+                border border-neutral-border bg-neutral-surface text-neutral-text-secondary
+                hover:border-brand-primary/50 hover:text-brand-primary
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            >
+              <svg aria-hidden="true" width={10} height={10} viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round">
+                <line x1="5" y1="1" x2="5" y2="9" />
+                <line x1="1" y1="5" x2="9" y2="5" />
+              </svg>
+            </button>
+          )}
         </div>
 
         {/* Progress row — 4px inline bar + mono percent + task count.
