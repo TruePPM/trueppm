@@ -402,11 +402,11 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
     });
   }
 
-  function tasksInvalidations(spy: ReturnType<typeof vi.spyOn>): number {
-    const calls = spy.mock.calls as Array<[{ queryKey?: unknown[] }]>;
-    return calls.filter(
-      ([arg]) => Array.isArray(arg?.queryKey) && arg.queryKey[0] === 'tasks',
-    ).length;
+  function tasksInvalidationCount(calls: unknown[][]): number {
+    return calls.filter((call) => {
+      const arg = call[0] as { queryKey?: unknown[] } | undefined;
+      return Array.isArray(arg?.queryKey) && arg.queryKey[0] === 'tasks';
+    }).length;
   }
 
   it('suppresses a self-echo task_updated (actor is the current user)', () => {
@@ -418,7 +418,7 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
     flushDebounce();
 
     // The originating client already applied its optimistic update — no refetch.
-    expect(tasksInvalidations(invalidateSpy)).toBe(0);
+    expect(tasksInvalidationCount(invalidateSpy.mock.calls)).toBe(0);
   });
 
   it('invalidates tasks on a remote-actor task_updated', () => {
@@ -458,7 +458,7 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
     flushDebounce();
 
     // First event invalidates; the replay at the same version is a no-op.
-    expect(tasksInvalidations(invalidateSpy)).toBe(1);
+    expect(tasksInvalidationCount(invalidateSpy.mock.calls)).toBe(1);
   });
 });
 
