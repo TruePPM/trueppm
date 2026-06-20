@@ -9403,7 +9403,9 @@ class TaskAttachmentViewSet(
         attachment MIME check enforces the *resolved* per-project allow-list
         (ADR-0153, #976) instead of the system default. ``program`` is
         select_related so the policy resolver's parent lookup is free."""
-        context: dict[str, Any] = super().get_serializer_context()
+        # DRF types the base return as Mapping; copy into a mutable dict so the
+        # injection below type-checks and never aliases the base context.
+        context: dict[str, Any] = dict(super().get_serializer_context())
         if self.action == "create":
             project_pk = self.kwargs.get("project_pk")
             if project_pk:
