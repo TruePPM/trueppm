@@ -4,7 +4,10 @@ import { useRisks } from '@/hooks/useRisks';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProjects } from '@/hooks/useProjects';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
+import { canEditRisk } from '@/lib/roles';
 import { EmptyState } from '@/components/EmptyState';
+import { RiskImportModal } from './RiskImportModal';
 import { Button } from '@/components/Button';
 import { RiskIcon } from '@/components/Icons';
 import { RiskChip } from './RiskChip';
@@ -86,6 +89,11 @@ export function RiskRegisterView() {
   const { risks, isLoading, error } = useRisks(projectId || null);
   const { data: projects } = useProjects();
   const { user } = useCurrentUser();
+  // Risk write gate (Member+) — drives the Import CSV affordance, mirroring the
+  // server's IsProjectMemberWrite on the import action (issue 223). Viewers don't see it.
+  const { role } = useCurrentUserRole(projectId || undefined);
+  const canImport = canEditRisk(role);
+  const [isImportOpen, setIsImportOpen] = useState(false);
   const [showHeatmap, setShowHeatmap] = useState(true);
 
   // null = drawer closed, undefined = create mode, Risk = edit mode
@@ -281,6 +289,22 @@ export function RiskRegisterView() {
             </span>
           </button>
 
+          {/* Import CSV (issue 223) — write-gated (Member+); not gated on risks.length
+              so an empty register can be seeded from a file. */}
+          {canImport && (
+            <button
+              type="button"
+              onClick={() => setIsImportOpen(true)}
+              className="inline-flex items-center gap-1 h-8 px-3 rounded text-xs font-medium
+                border border-neutral-border text-neutral-text-secondary bg-neutral-surface
+                hover:text-neutral-text-primary hover:bg-neutral-surface-raised
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
+                dark:focus-visible:ring-semantic-on-track focus-visible:ring-offset-1"
+            >
+              Import CSV
+            </button>
+          )}
+
           {risks.length > 0 && (
             <button
               type="button"
@@ -308,8 +332,10 @@ export function RiskRegisterView() {
           </button>
         </div>
 
-        {/* Mobile overflow menu (< md) — exposes Export CSV (ADR-0043) and other low-frequency actions */}
-        {risks.length > 0 && (
+        {/* Mobile overflow menu (< md) — exposes Import (issue 223, Member+) and
+            Export CSV (ADR-0043) and other low-frequency actions. Rendered when
+            either action is available so import is reachable on an empty register. */}
+        {(risks.length > 0 || canImport) && (
           <div ref={overflowRef} className="md:hidden relative shrink-0 pt-1">
             <button
               type="button"
@@ -332,19 +358,36 @@ export function RiskRegisterView() {
                 className="absolute right-0 top-11 min-w-[180px] z-30 rounded-md
                   bg-neutral-surface border border-neutral-border py-1"
               >
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    exportRisksToCSV(displayRisks, projectSlug);
-                    setIsOverflowOpen(false);
-                  }}
-                  className="w-full text-left px-3 py-2 text-sm text-neutral-text-primary
-                    hover:bg-neutral-surface-raised
-                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset focus-visible:bg-neutral-surface-raised"
-                >
-                  Export CSV
-                </button>
+                {canImport && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setIsImportOpen(true);
+                      setIsOverflowOpen(false);
+                    }}
+                    className="w-full text-left px-3 py-2 text-sm text-neutral-text-primary
+                      hover:bg-neutral-surface-raised
+                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset focus-visible:bg-neutral-surface-raised"
+                  >
+                    Import CSV
+                  </button>
+                )}
+                {risks.length > 0 && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      exportRisksToCSV(displayRisks, projectSlug);
+                      setIsOverflowOpen(false);
+                    }}
+                    className="w-full text-left px-3 py-2 text-sm text-neutral-text-primary
+                      hover:bg-neutral-surface-raised
+                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset focus-visible:bg-neutral-surface-raised"
+                  >
+                    Export CSV
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -443,7 +486,14 @@ export function RiskRegisterView() {
               title="No risks yet"
               description="Log the things that could derail this project — then track likelihood, impact, and mitigation in one place."
               action={
-                <Button onClick={openCreate}>+ Add your first risk</Button>
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  <Button onClick={openCreate}>+ Add your first risk</Button>
+                  {canImport && (
+                    <Button variant="secondary" onClick={() => setIsImportOpen(true)}>
+                      Import CSV
+                    </Button>
+                  )}
+                </div>
               }
             />
           )}
@@ -779,6 +829,12 @@ export function RiskRegisterView() {
           +
         </span>
       </button>
+
+      {/* Import-from-CSV modal (issue 223) — write-gated open trigger; the modal
+          itself owns the upload → result state machine. */}
+      {isImportOpen && (
+        <RiskImportModal projectId={projectId} onClose={() => setIsImportOpen(false)} />
+      )}
     </div>
   );
 }

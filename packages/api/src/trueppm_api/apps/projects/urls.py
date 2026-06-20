@@ -178,6 +178,13 @@ urlpatterns = [
         RiskViewSet.as_view({"get": "list", "post": "create"}),
         name="project-risks-list",
     ),
+    # CSV import — must precede the <pk> detail route so "import" is not
+    # captured as a risk id (ADR-0043 addendum, #223).
+    path(
+        "projects/<project_pk>/risks/import/",
+        RiskViewSet.as_view({"post": "import_csv"}),
+        name="project-risks-import",
+    ),
     path(
         "projects/<project_pk>/risks/<pk>/",
         RiskViewSet.as_view(

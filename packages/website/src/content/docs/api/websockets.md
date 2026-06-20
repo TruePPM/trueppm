@@ -93,7 +93,7 @@ include:
 - **Scheduling**: `cpm_complete`, `cpm_error`, `task_run_started`,
   `task_run_progress`, `task_run_completed`, `task_run_failed`, `task_run_cancelled`
 - **Baselines**: `baseline_created`, `baseline_activated`, `baseline_deleted`
-- **Risks**: `risk_created`, `risk_updated`, `risk_deleted`
+- **Risks**: `risk_created`, `risk_updated`, `risk_deleted`, `risks_imported`
 - **Sprints**: `sprint_created`, `sprint_updated`, `sprint_deleted`,
   `sprint_activated`, `sprint_cancelled`, `sprint_closed`, `milestone_rollup_updated`
 - **Comments / attachments**: `task_comment_created`, `task_comment_updated`,
@@ -173,6 +173,7 @@ adding it to that frozen set. Events with no webhook counterpart are marked
 | `risk_created` | **WS-only** |
 | `risk_updated` | **WS-only** |
 | `risk_deleted` | **WS-only** |
+| `risks_imported` | **WS-only** |
 | `sprint_created` | **WS-only** |
 | `sprint_updated` | **WS-only** |
 | `sprint_deleted` | **WS-only** |
