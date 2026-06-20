@@ -17,6 +17,7 @@ import { ProgramRollupPage } from './program/ProgramRollupPage';
 import { ProgramCadencePage } from './program/ProgramCadencePage';
 import { ProgramRiskPolicyPage } from './program/ProgramRiskPolicyPage';
 import { ProgramIntegrationsPage } from './program/ProgramIntegrationsPage';
+import { ProgramAttachmentsPage } from './program/ProgramAttachmentsPage';
 import { ProgramArchivePage } from './program/ProgramArchivePage';
 import {
   OverviewIcon,
@@ -26,6 +27,7 @@ import {
   SprintIcon,
   RiskIcon,
   SettingsIcon,
+  ExternalLinkIcon,
   WarningIcon,
 } from '@/components/Icons';
 
@@ -82,6 +84,7 @@ export function ProgramSettingsPage() {
     {
       label: 'Configuration',
       items: [
+        { id: 'attachments',  label: 'Attachments',  icon: <NavIcon><ExternalLinkIcon aria-hidden="true" /></NavIcon> },
         { id: 'integrations', label: 'Integrations', icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> },
       ],
     },
@@ -113,6 +116,7 @@ export function ProgramSettingsPage() {
       <SettingsSection id="rollup"><ProgramRollupPage /></SettingsSection>
       <SettingsSection id="cadence"><ProgramCadencePage /></SettingsSection>
       <SettingsSection id="risk"><ProgramRiskPolicyPage /></SettingsSection>
+      <SettingsSection id="attachments"><ProgramAttachmentsPage /></SettingsSection>
       <SettingsSection id="integrations"><ProgramIntegrationsPage /></SettingsSection>
       <SettingsSection id="lifecycle"><ProgramArchivePage /></SettingsSection>
     </SettingsShell>

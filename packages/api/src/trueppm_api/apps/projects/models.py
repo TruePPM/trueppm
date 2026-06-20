@@ -7,6 +7,7 @@ from datetime import time
 from typing import Any
 
 from django.conf import settings
+from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
@@ -427,6 +428,20 @@ class Program(VersionedModel):
     task_duration_change_percent_policy = models.CharField(  # noqa: DJ001 — null = inherit
         max_length=16,
         choices=DurationChangePercentPolicy.choices,
+        null=True,
+        blank=True,
+    )
+    # Per-scope attachment-policy overrides (ADR-0153, #976). ``attachments_enabled``
+    # NULL = inherit the workspace value; True/False = explicit override for every
+    # project in this program whose own override is NULL. ``allowed_attachment_types``
+    # is tri-state: NULL = inherit, [] = explicit empty (no type allowed), [...] =
+    # explicit set. Resolved computed-on-read in ``apps.projects.attachment_policy``
+    # and surfaced via the serializer's ``effective_*``/``inherited_*`` fields. Not in
+    # ``_HISTORY_EXCLUDED_BASE``, so every override write is captured (audit). No
+    # override_policy on Program — only the root Workspace defines it (ADR-0135).
+    attachments_enabled = models.BooleanField(null=True, blank=True)
+    allowed_attachment_types = ArrayField(
+        models.CharField(max_length=255),
         null=True,
         blank=True,
     )
@@ -851,6 +866,19 @@ class Project(VersionedModel):
     task_duration_change_percent_policy = models.CharField(  # noqa: DJ001 — null = inherit
         max_length=16,
         choices=DurationChangePercentPolicy.choices,
+        null=True,
+        blank=True,
+    )
+    # Per-scope attachment-policy overrides (ADR-0153, #976). ``attachments_enabled``
+    # NULL = inherit from the program (or workspace, if the program also inherits);
+    # True/False = explicit override for this project. ``allowed_attachment_types``
+    # is tri-state: NULL = inherit, [] = explicit empty (no type allowed), [...] =
+    # explicit set. Resolved computed-on-read in ``apps.projects.attachment_policy``
+    # and surfaced via the serializer's ``effective_*``/``inherited_*`` fields. Not in
+    # ``_HISTORY_EXCLUDED_BASE``, so every override write is captured (audit).
+    attachments_enabled = models.BooleanField(null=True, blank=True)
+    allowed_attachment_types = ArrayField(
+        models.CharField(max_length=255),
         null=True,
         blank=True,
     )

@@ -35,6 +35,9 @@ interface WorkspaceSettingsPatchRaw {
   mc_history_override_policy?: MCHistoryOverridePolicy;
   methodology?: ProgramMethodology;
   methodology_override_policy?: MethodologyOverridePolicy;
+  attachments_enabled?: boolean;
+  allowed_attachment_types?: string[];
+  attachments_override_policy?: 'inherit' | 'suggest' | 'enforce';
 }
 
 function toRaw(patch: WorkspaceSettingsPatch): WorkspaceSettingsPatchRaw {
@@ -61,6 +64,12 @@ function toRaw(patch: WorkspaceSettingsPatch): WorkspaceSettingsPatchRaw {
   if (patch.methodology !== undefined) raw.methodology = patch.methodology;
   if (patch.methodologyOverridePolicy !== undefined)
     raw.methodology_override_policy = patch.methodologyOverridePolicy;
+  if (patch.attachmentsEnabled !== undefined)
+    raw.attachments_enabled = patch.attachmentsEnabled;
+  if (patch.allowedAttachmentTypes !== undefined)
+    raw.allowed_attachment_types = patch.allowedAttachmentTypes;
+  if (patch.attachmentsOverridePolicy !== undefined)
+    raw.attachments_override_policy = patch.attachmentsOverridePolicy;
   return raw;
 }
 

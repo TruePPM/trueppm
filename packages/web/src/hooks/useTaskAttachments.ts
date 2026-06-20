@@ -14,16 +14,29 @@ import type { SignedDownloadUrl, TaskAttachment } from '@/types';
 
 /** Locked from ADR-0075 threat-model #4 — match the server-side cap. */
 export const MAX_ATTACHMENT_SIZE_BYTES = 100 * 1024 * 1024;
-/** Locked from ADR-0075 threat-model #5 — match the server-side allow-list. */
-export const ALLOWED_ATTACHMENT_MIMES = new Set([
-  'application/pdf',
-  'image/jpeg',
-  'image/png',
-  'image/webp',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'text/csv',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-]);
+
+/**
+ * Normalize a raw MIME (drops a `;charset=…` suffix, lowercases, trims) so the
+ * client compares apples to apples with the server-resolved allow-list. A bare
+ * empty string is returned for a typeless drop so the caller can reject it.
+ */
+export function normalizeMime(raw: string): string {
+  return (raw || '').toLowerCase().split(';')[0].trim();
+}
+
+/**
+ * Whether a file's MIME is in the resolved allow-list (ADR-0153, issue 976).
+ *
+ * The allow-list is the project's server-resolved
+ * `effective_allowed_attachment_types` — there is no static client-side Set
+ * anymore. The server is authoritative (it also subtracts the security denylist
+ * and sniffs magic bytes); this client check just gives a fast, friendly error
+ * before the multipart POST burns a round-trip, and it now mirrors the project's
+ * actual policy instead of a frozen default.
+ */
+export function isMimeAllowed(mime: string, allowed: readonly string[]): boolean {
+  return allowed.includes(normalizeMime(mime));
+}
 
 const attachmentsKey = (taskId: string | null) => ['task-attachments', taskId];
 

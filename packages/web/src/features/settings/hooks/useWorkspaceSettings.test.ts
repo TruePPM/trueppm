@@ -37,6 +37,9 @@ const RAW_SETTINGS = {
   mc_history_override_policy: 'allow',
   methodology: 'HYBRID',
   methodology_override_policy: 'suggest',
+  attachments_enabled: true,
+  allowed_attachment_types: ['application/pdf', 'image/png'],
+  attachments_override_policy: 'suggest',
   logo_url: '/api/v1/workspace/logo/?v=1700000000',
 };
 
@@ -59,6 +62,9 @@ const EXPECTED: WorkspaceSettings = {
   mcHistoryOverridePolicy: 'allow',
   methodology: 'HYBRID',
   methodologyOverridePolicy: 'suggest',
+  attachmentsEnabled: true,
+  allowedAttachmentTypes: ['application/pdf', 'image/png'],
+  attachmentsOverridePolicy: 'suggest',
   logoUrl: '/api/v1/workspace/logo/?v=1700000000',
 };
 

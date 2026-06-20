@@ -126,10 +126,15 @@ Two add affordances sit above the grid: **+ Attach file** (native file picker)
 and **+ Pin link** (modal for external URLs). Files can also be dropped
 directly onto the section — the drop zone is hidden until you start dragging.
 
-Allowed file types: PDF, JPG, PNG, WebP, XLSX, CSV, DOCX. The size cap is
-**100 MB** per file. Anything outside the allow-list or over the cap gets a
-friendly inline error before the upload runs, so you don't burn a multipart
-round-trip on a rejected file.
+The default allowed file types are PDF, JPG, PNG, WebP, XLSX, CSV, and DOCX, but a
+workspace, program, or project Admin can **enable/disable attachments and change the
+allowed types per scope** — see [Attachment Policy](/administration/attachment-policy/).
+When uploads are disabled for a project the **+ Attach file** control is replaced by a
+short note (existing files stay viewable). A built-in security denylist (HTML, SVG,
+XHTML) is permanently blocked and cannot be enabled. The size cap is **100 MB** per
+file. Anything outside the resolved allow-list or over the cap gets a friendly inline
+error before the upload runs, so you don't burn a multipart round-trip on a rejected
+file.
 
 External-URL attachments require `http(s)` schemes only. Pinning a Figma,
 Confluence, or Notion link is a one-shot — title is optional and defaults
