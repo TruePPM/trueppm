@@ -18,6 +18,16 @@ vi.mock('@/hooks/useProgramMutations', () => ({
   useUpdateProgram: () => ({ mutateAsync }),
 }));
 
+// The methodology picker reads the workspace override policy (ADR-0107). SUGGEST
+// keeps the picker editable (the default OSS behavior); a separate test exercises
+// the INHERIT lock.
+const useWorkspaceSettings = vi.fn(() => ({
+  data: { methodologyOverridePolicy: 'suggest' },
+}));
+vi.mock('../hooks/useWorkspaceSettings', () => ({
+  useWorkspaceSettings: () => useWorkspaceSettings(),
+}));
+
 // The lead MemberPicker fetches the program roster; stub it so the test makes no
 // network call. The resting lead row renders from the record's lead_detail, so an
 // empty roster is fine here (the picker behavior itself is covered by
@@ -34,6 +44,8 @@ function makeProgram(overrides: Partial<Program> = {}): Program {
     description: 'Q3 platform rebuild',
     code: 'PH2',
     methodology: 'HYBRID',
+    effective_methodology: 'HYBRID',
+    inherited_methodology: 'HYBRID',
     iteration_label: null,
     inherited_iteration_label: 'Sprint',
     public_sharing: null,
@@ -89,6 +101,9 @@ describe('ProgramGeneralPage (settings)', () => {
     useProgram.mockReset();
     mutateAsync.mockReset();
     mutateAsync.mockResolvedValue(undefined);
+    useWorkspaceSettings.mockReturnValue({
+      data: { methodologyOverridePolicy: 'suggest' },
+    });
     // The settings save store is module-scoped; reset between tests so a prior
     // page mount cannot leak its registered handlers into the next test.
     useSettingsSaveStore.getState().reset();
@@ -101,7 +116,7 @@ describe('ProgramGeneralPage (settings)', () => {
     expect(screen.getByLabelText('Description')).toHaveValue('Q3 platform rebuild');
     expect(screen.getByLabelText('Program code')).toHaveValue('PH2');
     expect(screen.getByRole('button', { name: 'Auto', pressed: true })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Hybrid', pressed: true })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Hybrid', checked: true })).toBeInTheDocument();
   });
 
   it('re-seeds the form when the program in the route changes (no remount)', () => {
@@ -320,7 +335,7 @@ describe('ProgramGeneralPage (settings)', () => {
     expect(screen.getByLabelText('Program code')).toBeDisabled();
     expect(screen.getByLabelText('Description')).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Auto' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Hybrid' })).toBeDisabled();
+    expect(screen.getByRole('radio', { name: 'Hybrid' })).toBeDisabled();
     expect(screen.getByRole('button', { name: /Export to JSON/i })).toBeDisabled();
     // The manager picker drops its trigger entirely (rule 156 read-only render).
     expect(screen.queryByRole('button', { name: 'Change' })).not.toBeInTheDocument();
@@ -332,5 +347,33 @@ describe('ProgramGeneralPage (settings)', () => {
 
     expect(screen.getByLabelText('Program name')).not.toBeDisabled();
     expect(screen.getByRole('button', { name: 'Change' })).toBeEnabled();
+  });
+
+  // ----- Methodology cascade lock (ADR-0107, issue 955) ----------------------
+
+  it('locks the methodology picker (but not other fields) under a workspace INHERIT policy', () => {
+    // The program is an Admin (would normally edit), but the workspace requires
+    // every program to inherit its default — so only the methodology picker is
+    // read-only, and it shows the workspace-resolved value, not the program's
+    // own stored override.
+    useWorkspaceSettings.mockReturnValue({
+      data: { methodologyOverridePolicy: 'inherit' },
+    });
+    useProgram.mockReturnValue({
+      data: makeProgram({
+        my_role: 300,
+        methodology: 'AGILE',
+        effective_methodology: 'WATERFALL',
+      }),
+    });
+    renderPage();
+
+    // Methodology radios are locked and reflect the workspace default (WATERFALL),
+    // not the program's own AGILE override.
+    expect(screen.getByRole('radio', { name: 'Waterfall' })).toBeDisabled();
+    expect(screen.getByRole('radio', { name: 'Waterfall', checked: true })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Agile', checked: false })).toBeInTheDocument();
+    // Other fields remain editable for the Admin.
+    expect(screen.getByLabelText('Program name')).not.toBeDisabled();
   });
 });

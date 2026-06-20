@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import datetime
+import functools
 import logging
 import re
 import uuid
@@ -88,6 +89,7 @@ from trueppm_api.apps.projects.models import (
     RiskComment,
     RiskStatus,
     Sprint,
+    SprintScopeChange,
     SprintState,
     SprintTaskOutcome,
     Task,
@@ -3172,17 +3174,17 @@ class AcceptanceCriterionViewSet(IdempotencyMixin, viewsets.ModelViewSet[Accepta
         self._broadcast(criterion)
 
     def perform_update(self, serializer: BaseSerializer[AcceptanceCriterion]) -> None:
+        from trueppm_api.apps.projects.product_backlog_services import (
+            apply_acceptance_met_change,
+        )
+
         was_met = serializer.instance.met if serializer.instance else False
         criterion = serializer.save()
-        # Stamp / clear the review trail when met flips.
-        if criterion.met and not was_met:
-            criterion.met_by = self.request.user  # type: ignore[assignment]
-            criterion.met_at = timezone.now()
-            criterion.save(update_fields=["met_by", "met_at", "server_version"])
-        elif not criterion.met and was_met:
-            criterion.met_by = None
-            criterion.met_at = None
-            criterion.save(update_fields=["met_by", "met_at", "server_version"])
+        # Stamp / clear the review trail when met flips — via the shared attribution
+        # rule (ADR-0148) so the interactive and CI-ingestion paths can't diverge.
+        apply_acceptance_met_change(
+            criterion, was_met=was_met, actor=self.request.user, now=timezone.now()
+        )
         self._broadcast(criterion)
 
     def perform_destroy(self, instance: AcceptanceCriterion) -> None:
@@ -4772,6 +4774,76 @@ def _task_webhook_payload(task: Task, source: str = "unknown") -> dict:  # type:
     }
 
 
+def _sprint_base_webhook_payload(sprint: Sprint, *, source: str) -> dict:  # type: ignore[type-arg]
+    """Common sprint fields shared by the activate/closed webhook payloads (ADR-0147).
+
+    ``committed_*`` is the plan the team published when it pulled work in — not a
+    performance metric — so it is never privacy-gated. The completion snapshot
+    (velocity) is added only by :func:`_sprint_closed_webhook_payload`, behind the
+    ADR-0104 gate.
+    """
+    return {
+        "id": str(sprint.pk),
+        "project": str(sprint.project_id),
+        "name": sprint.name,
+        "goal": sprint.goal,
+        "state": sprint.state,
+        "start_date": str(sprint.start_date) if sprint.start_date else None,
+        "finish_date": str(sprint.finish_date) if sprint.finish_date else None,
+        "activated_at": sprint.activated_at.isoformat() if sprint.activated_at else None,
+        "committed_points": sprint.committed_points,
+        "committed_task_count": sprint.committed_task_count,
+        "source": source,
+    }
+
+
+def _sprint_closed_webhook_payload(sprint: Sprint, *, source: str) -> dict:  # type: ignore[type-arg]
+    """Payload for the ``sprint.closed`` event, with ADR-0147 velocity privacy.
+
+    The completion snapshot (``completed_points`` / ``completed_task_count`` /
+    ``goal_outcome``) *is* team velocity. A webhook consumer is external, so the
+    fields are emitted only when the team has shared the ``velocity`` signal outward
+    (``audience == PROGRAM_SHARED``, see
+    :func:`signal_privacy_services.velocity_shared_externally`). Otherwise they are
+    ``null`` and ``velocity_suppressed`` is ``True`` — the "suppress, don't drop the
+    keys" contract from ``suppress_velocity_summary`` so consumers keep a stable shape.
+    """
+    from trueppm_api.apps.projects.signal_privacy_services import velocity_shared_externally
+
+    payload = _sprint_base_webhook_payload(sprint, source=source)
+    payload["closed_at"] = sprint.closed_at.isoformat() if sprint.closed_at else None
+
+    shared = velocity_shared_externally(sprint.project)
+    payload["velocity_suppressed"] = not shared
+    payload["completed_points"] = sprint.completed_points if shared else None
+    payload["completed_task_count"] = sprint.completed_task_count if shared else None
+    payload["goal_outcome"] = sprint.goal_outcome if shared else None
+    return payload
+
+
+def _sprint_scope_change_webhook_payload(scope_change: SprintScopeChange, *, source: str) -> dict:  # type: ignore[type-arg]
+    """Payload for ``sprint.scope_changed`` — fired only on accept (ADR-0102/0147).
+
+    Carries no velocity/pulse signal, so no privacy gate applies. ``id`` is the
+    scope-change row id (the event is *about* the scope change), with the sprint,
+    task, and project carried alongside.
+    """
+    return {
+        "id": str(scope_change.pk),
+        "sprint": str(scope_change.sprint_id),
+        "project": str(scope_change.sprint.project_id),
+        "task": str(scope_change.task_id) if scope_change.task_id else None,
+        "item_name": scope_change.item_name,
+        "status": scope_change.status,
+        "goal_impact": scope_change.goal_impact,
+        # When the item was injected into the sprint. SprintScopeChange does not
+        # stamp the accept decision with its own timestamp (status is the audit),
+        # so the event carries the injection time rather than a synthetic one.
+        "added_at": scope_change.added_at.isoformat() if scope_change.added_at else None,
+        "source": source,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Board column configuration
 # ---------------------------------------------------------------------------
@@ -6239,6 +6311,13 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
                 lambda: broadcast_board_event(
                     project_id_str, "sprint_activated", {"id": sprint_id_str}
                 )
+            )
+            # ADR-0147: emit the sprint.activated webhook (first-party domain event).
+            # Payload is built now (the sprint row is loaded inside the transaction)
+            # and captured by value so the on_commit callback does no DB work.
+            activated_payload = _sprint_base_webhook_payload(sprint, source="api")
+            transaction.on_commit(
+                lambda: _dispatch_webhooks(project_id_str, "sprint.activated", activated_payload)
             )
             # ADR-0074: recompute the linked milestone's rollup so the Gantt
             # reflects the now-active sprint immediately. No-op when the
@@ -8646,6 +8725,152 @@ class TaskSyncView(IdempotencyMixin, APIView):
             # carries the same signal, but proxies and clients that switch on
             # the status code see the correct semantics.
             status=status.HTTP_201_CREATED if result.created else status.HTTP_200_OK,
+        )
+
+
+class AcceptanceResultIngestView(IdempotencyMixin, APIView):
+    """``POST /api/v1/projects/{project_id}/acceptance-results/`` — CI test ingest (ADR-0148).
+
+    Closes the XP acceptance-test-driven loop: a CI job that runs a story's
+    acceptance tests reports the verdicts here and the matching
+    ``AcceptanceCriterion.met`` flags flip, stamping the review trail to the human
+    who minted the token (``met_by``/``met_at``). Flipping the last unmet criterion
+    *satisfies* the Definition-of-Ready gate but does NOT auto-transition the task to
+    READY — the team keeps the deliberate Mark-ready step (the ``dor_ready`` flag in
+    the response tells CI the gate is now clear).
+
+    OSS boundary (ADR-0097 carve-out, rule 9): this reuses the EXISTING ADR-0068
+    ``ProjectApiTokenAuthentication`` — a single narrow authenticated endpoint, no
+    provider registry, no HMAC/OAuth, no conflict resolution, no reconciliation loop.
+    The general multi-provider bidirectional ingest hub remains Enterprise.
+
+    IDOR defense: ``IsTokenForProject`` verifies the token authorizes the URL project
+    (401 on mismatch). Criteria that belong to a *different* project than the URL are
+    never flipped — they are returned in ``unknown`` rather than touched, so a token
+    cannot reach across the project boundary by naming foreign criterion ids.
+    """
+
+    # Idempotent by construction — re-reporting the same verdict is a no-op flip
+    # (apply_acceptance_met_change returns False) — so the generic Idempotency-Key
+    # path is unnecessary and would key on a token principal rather than a JWT user.
+    idempotency_exempt = True
+
+    from trueppm_api.apps.projects.authentication import ProjectApiTokenAuthentication
+    from trueppm_api.apps.projects.throttles import AcceptanceResultThrottle
+
+    authentication_classes = [ProjectApiTokenAuthentication]
+    permission_classes = [IsAuthenticated, IsTokenForProject]
+    throttle_classes = [AcceptanceResultThrottle]
+
+    def post(self, request: Request, pk: str) -> Response:
+        from trueppm_api.apps.projects.models import AcceptanceCriterion, ApiToken
+        from trueppm_api.apps.projects.product_backlog_services import (
+            ac_counts,
+            apply_acceptance_met_change,
+            dor_blockers,
+        )
+        from trueppm_api.apps.projects.serializers import AcceptanceResultIngestSerializer
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        token = request.auth
+        if not isinstance(token, ApiToken):
+            # Unreachable — IsTokenForProject guarantees this; kept for type narrowing.
+            return Response(
+                {"detail": "Token authentication required."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        # IsTokenForProject has already validated the token authorizes this project.
+        target_project = get_object_or_404(Project, pk=pk, is_deleted=False)
+
+        serializer = AcceptanceResultIngestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        results: list[dict[str, Any]] = serializer.validated_data["results"]
+
+        requested_ids = [item["criterion_id"] for item in results]
+        # Scope the lookup to the URL project: a criterion in another project is
+        # treated as unknown, never flipped (cross-project write-IDOR defense).
+        criteria_by_id = {
+            c.pk: c
+            for c in AcceptanceCriterion.objects.select_related("task").filter(
+                pk__in=requested_ids,
+                task__project_id=target_project.pk,
+                is_deleted=False,
+                task__is_deleted=False,
+            )
+        }
+
+        actor = token.created_by
+        now = timezone.now()
+        updated = 0
+        unchanged = 0
+        unknown: list[str] = []
+        affected_tasks: dict[Any, Task] = {}
+
+        with transaction.atomic():
+            for item in results:
+                criterion = criteria_by_id.get(item["criterion_id"])
+                if criterion is None:
+                    unknown.append(str(item["criterion_id"]))
+                    continue
+                was_met = criterion.met
+                criterion.met = item["passed"]
+                changed = apply_acceptance_met_change(
+                    criterion, was_met=was_met, actor=actor, now=now
+                )
+                if changed:
+                    updated += 1
+                    affected_tasks[criterion.task_id] = criterion.task
+                else:
+                    unchanged += 1
+
+            # Broadcast one task_updated per affected task so connected clients
+            # refresh the DoR meter without a manual refetch (deferred to commit).
+            # functools.partial freezes the per-iteration task id (avoiding the
+            # late-binding closure trap) and lets the type checker infer the
+            # argument types from broadcast_board_event's signature.
+            project_id_str = str(target_project.pk)
+            for task_id in list(affected_tasks):
+                transaction.on_commit(
+                    functools.partial(
+                        broadcast_board_event,
+                        project_id_str,
+                        "task_updated",
+                        {"id": str(task_id)},
+                    )
+                )
+
+        # Report the post-flip DoR state per affected task so CI knows whether the
+        # gate cleared. Counts are recomputed from the now-current criteria rows.
+        # Re-fetch the affected tasks once with their criteria prefetched so the
+        # per-task ac_counts + dor_blockers calls below stay O(1) queries total
+        # rather than O(affected tasks) — the select_related("task") instances above
+        # carry no prefetched criteria, so a naive loop would re-query per task.
+        reported_tasks = (
+            Task.objects.filter(pk__in=list(affected_tasks))
+            .prefetch_related("acceptance_criteria")
+            .order_by("pk")
+        )
+        task_reports = []
+        for task in reported_tasks:
+            met, total = ac_counts(task)
+            task_reports.append(
+                {
+                    "task": str(task.pk),
+                    "dor_ready": not dor_blockers(task),
+                    "criteria_met": met,
+                    "criteria_total": total,
+                }
+            )
+
+        return Response(
+            {
+                "updated": updated,
+                "unchanged": unchanged,
+                "unknown": unknown,
+                "tasks": task_reports,
+            },
+            status=status.HTTP_200_OK,
         )
 
 

@@ -7,7 +7,7 @@ import trueppm_api.apps.workspace.models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("workspace", "0008_workspace_mc_history_attribution_audience_and_more"),
+        ("workspace", "0009_workspace_methodology_and_more"),
     ]
 
     operations = [

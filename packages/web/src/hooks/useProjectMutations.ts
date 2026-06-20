@@ -72,6 +72,13 @@ export interface UpdateProjectPayload {
   /** Default landing view (SCHEDULE | BOARD | TABLE | OVERVIEW). */
   default_view?: ProjectDefaultView;
   /**
+   * Per-project methodology override (ADR-0107, issue 955). Always a concrete
+   * value (no inherit sentinel — inheritance is governed by the workspace policy,
+   * not override-presence). Rejected with 403 server-side when the workspace
+   * locks overrides (INHERIT, or Enterprise ENFORCE). Admin+-only.
+   */
+  methodology?: Methodology;
+  /**
    * Iteration-container label override (ADR-0111/0116). Singular noun, ≤32 chars;
    * `null` clears the override so the project inherits the program/workspace default.
    * Admin+-only server-side (allowlist default in the serializer).

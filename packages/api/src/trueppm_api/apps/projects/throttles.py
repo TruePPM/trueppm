@@ -96,6 +96,51 @@ class TaskSyncThrottle(BaseThrottle):
         return getattr(self, "wait_seconds", None)
 
 
+class AcceptanceResultThrottle(BaseThrottle):
+    """Per-token rate limit for the inbound CI acceptance-result endpoint (ADR-0148).
+
+    Same window/limits as ``TaskSyncThrottle`` (100 req/min steady, 1000 req/min in
+    the first 60 minutes after the token was minted) so a CI matrix that fans out
+    on first integration gets headroom, then drops to steady-state. Keyed on the
+    token PK (not project_id) so a program-scoped token — whose ``project_id`` is
+    ``None`` — gets its own bucket rather than colliding with every other
+    program-scoped token on a shared ``None`` key. Fail-open on Redis error: DoS
+    protection must not itself become a DoS surface.
+    """
+
+    def allow_request(self, request: Request, view: APIView) -> bool:
+        from trueppm_api.apps.projects.models import ProjectApiToken
+
+        token = getattr(request, "auth", None)
+        if not isinstance(token, ProjectApiToken):
+            return True
+
+        limit = (
+            BACKFILL_LIMIT
+            if (timezone.now() - token.created_at) < BACKFILL_WINDOW
+            else STEADY_STATE_LIMIT
+        )
+        bucket_key = f"rate:acceptance_result:{token.pk}"
+
+        count: int
+        try:
+            client = _client()
+            count = int(client.incr(bucket_key))  # type: ignore[arg-type]
+            if count == 1:
+                client.expire(bucket_key, 60)
+        except redis.RedisError:
+            logger.exception("AcceptanceResultThrottle: Redis error, failing open")
+            return True
+
+        if count > limit:
+            self.wait_seconds = 60
+            return False
+        return True
+
+    def wait(self) -> float | None:
+        return getattr(self, "wait_seconds", None)
+
+
 class TokenIssuanceThrottle(BaseThrottle):
     """5 req/min per user on the token-issuance endpoint.
 

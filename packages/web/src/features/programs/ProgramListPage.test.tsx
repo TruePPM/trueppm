@@ -39,6 +39,8 @@ function makeProgram(overrides: Partial<Program> = {}): Program {
     description: 'Q3 rebuild',
     code: '',
     methodology: 'HYBRID',
+    effective_methodology: 'HYBRID',
+    inherited_methodology: 'HYBRID',
     iteration_label: null,
     inherited_iteration_label: 'Sprint',
     public_sharing: null,

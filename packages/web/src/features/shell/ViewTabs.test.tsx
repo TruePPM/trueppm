@@ -15,10 +15,12 @@ vi.mock('@/hooks/useCurrentUserRole', () => ({
 }));
 
 // Default: HYBRID methodology (all tabs visible). Methodology-filter tests
-// override via mockReturnValue.
+// override via mockReturnValue. ViewTabs reads the SERVER-RESOLVED
+// `effective_methodology` (ADR-0107, issue 955), so seed both — they match here
+// because no workspace lock is in play.
 vi.mock('@/hooks/useProject', () => ({
   useProject: vi.fn(() => ({
-    data: { id: 'proj-1', methodology: 'HYBRID' },
+    data: { id: 'proj-1', methodology: 'HYBRID', effective_methodology: 'HYBRID' },
     isLoading: false,
     error: null,
   })),
@@ -80,7 +82,7 @@ describe('ViewTabs', () => {
   it('hides the Backlog tab when methodology is WATERFALL (#1096)', () => {
     mockUseProjectId.mockReturnValue('proj-1');
     mockUseProject.mockReturnValueOnce({
-      data: { id: 'proj-1', methodology: 'WATERFALL' },
+      data: { id: 'proj-1', methodology: 'WATERFALL', effective_methodology: 'WATERFALL' },
       isLoading: false,
       error: null,
     });
@@ -98,7 +100,7 @@ describe('ViewTabs', () => {
   it('hides Sprints when methodology is WATERFALL', () => {
     mockUseProjectId.mockReturnValue('proj-1');
     mockUseProject.mockReturnValueOnce({
-      data: { id: 'proj-1', methodology: 'WATERFALL' },
+      data: { id: 'proj-1', methodology: 'WATERFALL', effective_methodology: 'WATERFALL' },
       isLoading: false,
       error: null,
     });
@@ -114,7 +116,7 @@ describe('ViewTabs', () => {
     // methodologies. AGILE now shows Grid (defaults to Flat mode internally).
     mockUseProjectId.mockReturnValue('proj-1');
     mockUseProject.mockReturnValueOnce({
-      data: { id: 'proj-1', methodology: 'AGILE' },
+      data: { id: 'proj-1', methodology: 'AGILE', effective_methodology: 'AGILE' },
       isLoading: false,
       error: null,
     });

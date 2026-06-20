@@ -18,11 +18,14 @@ Separated from the viewset so the logic is unit-testable and has one source of t
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from django.db import transaction
+from django.utils import timezone
 
 from trueppm_api.apps.projects.models import (
+    AcceptanceCriterion,
     DorState,
     PrioritizationModel,
     Project,
@@ -89,6 +92,38 @@ def dor_blockers(task: Task) -> list[str]:
     elif met < total:
         blockers.append("acceptance_criteria_unmet")
     return blockers
+
+
+def apply_acceptance_met_change(
+    criterion: AcceptanceCriterion,
+    *,
+    was_met: bool,
+    actor: Any,
+    now: datetime | None = None,
+) -> bool:
+    """Persist a ``met`` flip and (un)stamp the review trail — the single attribution rule.
+
+    The ONE writer of the ``met_by``/``met_at`` trail (ADR-0105 §2 / ADR-0148), shared by
+    the interactive ``AcceptanceCriterionViewSet`` and the CI ingestion endpoint so the
+    attribution rule is declared once and the two paths can never drift. The caller has
+    already set ``criterion.met`` to its new value; this persists it together with the
+    trail in a single ``save()`` (one ``server_version`` bump). ``actor`` is stamped as
+    ``met_by`` on a become-met flip (the human who minted the CI token, never the CI
+    system itself, mirroring ``ProjectApiTokenAuthentication``'s attribution); the trail
+    is cleared on a become-unmet flip. Idempotent: a no-op flip returns ``False`` and
+    writes nothing — so a CI job re-reporting the same result does not churn the version
+    or restamp attribution.
+    """
+    if criterion.met == was_met:
+        return False
+    if criterion.met:
+        criterion.met_by = actor
+        criterion.met_at = now or timezone.now()
+    else:
+        criterion.met_by = None
+        criterion.met_at = None
+    criterion.save(update_fields=["met", "met_by", "met_at", "server_version"])
+    return True
 
 
 class DorTransitionError(Exception):

@@ -1,4 +1,4 @@
-# ADR-0147: Workspace Logo Upload and Invite Resend
+# ADR-0149: Workspace Logo Upload and Invite Resend
 
 ## Status
 Accepted

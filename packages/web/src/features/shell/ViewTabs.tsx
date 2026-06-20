@@ -89,8 +89,12 @@ export function ViewTabs() {
   const currentView =
     (projectIdIndex >= 0 ? pathSegments[projectIdIndex + 1] : undefined) ?? 'overview';
 
-  // Default to HYBRID (all tabs visible) until the project loads.
-  const methodology = project.data?.methodology ?? 'HYBRID';
+  // Default to HYBRID (all tabs visible) until the project loads. Read the
+  // SERVER-RESOLVED methodology (ADR-0107, issue 955): project ?? program ??
+  // workspace, gated by the workspace override policy. Tab visibility follows the
+  // effective preset, not the raw per-project override, so a workspace INHERIT
+  // lock correctly hides the other methodology's chrome.
+  const methodology = project.data?.effective_methodology ?? 'HYBRID';
 
   // Role gate (pessimistic): the Team view is hidden while role is loading (null)
   // or for role < SCHEDULER. Direct URL access still works (PermissionDeniedNotice).
@@ -175,7 +179,8 @@ export function MethodWorkspaceLabel() {
 
   if (!projectId || onSettingsRoute) return null;
 
-  const methodology = project?.methodology ?? 'HYBRID';
+  // Show the server-resolved preset (ADR-0107, issue 955), matching the tab gate.
+  const methodology = project?.effective_methodology ?? 'HYBRID';
   return (
     <span className={`${GROUP_LABEL} hidden xl:inline`}>{METHOD_LABEL[methodology]} Workspace</span>
   );

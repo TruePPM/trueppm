@@ -525,7 +525,7 @@ class InviteAcceptView(IdempotencyMixin, APIView):
 
 
 class InviteResendThrottle(ScopedRateThrottle):
-    """Caps invite-resend frequency (ADR-0147) to bound email-bomb abuse.
+    """Caps invite-resend frequency (ADR-0149) to bound email-bomb abuse.
 
     Scoped per-admin via ``invite_resend`` (5/min). The bulk resend-all endpoint
     is one request → one bucket hit, so it cannot be looped to exceed the cap.
@@ -535,7 +535,7 @@ class InviteResendThrottle(ScopedRateThrottle):
 
 
 class WorkspaceInviteResendView(IdempotencyMixin, APIView):
-    """POST /api/v1/workspace/invites/{id}/resend/ — re-queue one invite (ADR-0147).
+    """POST /api/v1/workspace/invites/{id}/resend/ — re-queue one invite (ADR-0149).
 
     Admin only. Re-issues a fresh token (the old email link stops working) and puts
     the row back in the outbox for ``drain_invite_emails`` to pick up. Best-effort
@@ -590,7 +590,7 @@ class WorkspaceInviteResendAllView(IdempotencyMixin, APIView):
         return Response({"requeued": count}, status=status.HTTP_202_ACCEPTED)
 
 
-# Magic-byte signatures for the raster logo allowlist (ADR-0147). We sniff the
+# Magic-byte signatures for the raster logo allowlist (ADR-0149). We sniff the
 # leading bytes rather than trust the multipart Content-Type, and accept no SVG —
 # a publicly-served SVG is a stored-XSS vector.
 _LOGO_MAX_BYTES = 2 * 1024 * 1024  # 2 MB
@@ -615,7 +615,7 @@ class WorkspaceLogoView(APIView):
     GET is ``AllowAny`` — the logo is non-sensitive branding shown on public share
     pages, so serving it without auth avoids a JWT-in-``<img>`` problem. Write paths
     require workspace ADMIN+. Raster only (PNG/WebP); content type is decided by a
-    magic-byte sniff, not the client-declared Content-Type (ADR-0147).
+    magic-byte sniff, not the client-declared Content-Type (ADR-0149).
     """
 
     parser_classes = [MultiPartParser, FormParser]

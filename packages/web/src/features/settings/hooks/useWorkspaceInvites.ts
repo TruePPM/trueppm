@@ -44,7 +44,7 @@ export function useRevokeInvite() {
 }
 
 /**
- * Re-queue one pending/failed invite's email (#969, ADR-0147).
+ * Re-queue one pending/failed invite's email (#969, ADR-0149).
  *
  * The 202 is fire-and-forget — the email sends asynchronously via the outbox
  * drain — so success here means "accepted for re-send", not "delivered". The
@@ -64,7 +64,7 @@ export function useResendInvite() {
 }
 
 /**
- * Re-queue every pending/failed invite in one request (#969, ADR-0147).
+ * Re-queue every pending/failed invite in one request (#969, ADR-0149).
  *
  * One server transaction, one throttle bucket — cannot email-bomb. Returns the
  * count actually re-queued (invites already mid-send are skipped).

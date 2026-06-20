@@ -437,3 +437,27 @@ def get_shared_team_signals(project: Project) -> dict[str, str] | None:
         if policy.audience_of(signal_key) == SignalAudience.PROGRAM_SHARED
     }
     return shared or None
+
+
+def velocity_shared_externally(project: Project) -> bool:
+    """Whether velocity may travel to an *external* webhook consumer (ADR-0147).
+
+    A webhook recipient has no ``ProjectMembership`` and therefore no ladder tier —
+    the reader gate would deny it every signal, which would suppress velocity for
+    *every* webhook and defeat the legitimate "relay our cadence to our own
+    dashboard" use case. Instead an external consumer is mapped to the single
+    explicit outward-share rung: velocity (``completed_points`` / ``completed_task_count``
+    on ``sprint.closed``) leaves the team boundary **iff** the team has raised the
+    ``velocity`` signal's audience to ``PROGRAM_SHARED`` — the one rung reachable only
+    by a deliberate, team-owned ceiling+audience raise. This is the same authority
+    ``get_shared_team_signals`` consults, kept here so the webhook gate and the rollup
+    gate can never drift. Pure read; uses the resolved default (TEAM) when no policy
+    row exists, so the default suppresses.
+    """
+    policy = ProjectSignalPrivacyPolicy.objects.filter(project=project).first()
+    audience = (
+        policy.audience_of("velocity")
+        if policy is not None
+        else SIGNAL_DEFAULTS["velocity"]["audience"]
+    )
+    return audience == SignalAudience.PROGRAM_SHARED

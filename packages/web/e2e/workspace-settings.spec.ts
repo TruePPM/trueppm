@@ -440,7 +440,7 @@ test.describe('Workspace Members page', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Workspace logo upload (#969, ADR-0147) — General page
+// Workspace logo upload (#969, ADR-0149) — General page
 // ---------------------------------------------------------------------------
 
 // A 1×1 PNG — valid magic bytes, so the client decode resolves and no soft
@@ -557,7 +557,7 @@ test.describe('Workspace logo (#969)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Resend pending invite (#969, ADR-0147) — Members page
+// Resend pending invite (#969, ADR-0149) — Members page
 // ---------------------------------------------------------------------------
 
 test.describe('Resend invite (#969)', () => {

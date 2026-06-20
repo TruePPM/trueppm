@@ -40,8 +40,10 @@ export function BottomNav() {
   const pathSegments = location.pathname.split('/');
   const currentView = pathSegments[pathSegments.length - 1] ?? 'overview';
 
-  // Default to HYBRID (all tabs visible) until the project loads.
-  const methodology = project.data?.methodology ?? 'HYBRID';
+  // Default to HYBRID (all tabs visible) until the project loads. Read the
+  // server-resolved methodology (ADR-0107, issue 955) so the mobile nav mirrors
+  // ViewTabs — the effective preset gates which tabs show, not the raw override.
+  const methodology = project.data?.effective_methodology ?? 'HYBRID';
 
   // Sprints tab adopts the project's configured container label (ADR-0111, #862).
   const sprintsLabel = iterationLabelForms(project.data?.iteration_label).plural;

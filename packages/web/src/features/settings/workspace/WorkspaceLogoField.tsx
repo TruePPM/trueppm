@@ -24,7 +24,7 @@ interface Props {
 }
 
 /**
- * Wired "Workspace logo" control (#969, ADR-0147).
+ * Wired "Workspace logo" control (#969, ADR-0149).
  *
  * Shows the current logo (or a name-derived letter-mark when unset), an Upload/
  * Replace file picker that also accepts a drop onto the thumbnail, client-side

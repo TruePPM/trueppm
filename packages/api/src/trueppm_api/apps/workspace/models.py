@@ -28,9 +28,10 @@ from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
+from simple_history.models import HistoricalRecords
 
 from trueppm_api.apps.access.models import Role
-from trueppm_api.apps.projects.models import VersionedModel
+from trueppm_api.apps.projects.models import Methodology, VersionedModel
 
 # MCAttributionAudience lives in scheduling.models (the gate consumer); imported
 # here only as a choices set for the column. scheduling never imports workspace,
@@ -107,7 +108,7 @@ def _default_work_week() -> list[bool]:
 
 
 def _workspace_logo_upload_to(instance: Workspace, filename: str) -> str:
-    """Storage key for an uploaded workspace logo (ADR-0147).
+    """Storage key for an uploaded workspace logo (ADR-0149).
 
     A fresh UUID prefix per upload means a *Replace* never overwrites the prior
     file in place — the old blob is deleted explicitly on commit (avoiding a
@@ -220,8 +221,34 @@ class Workspace(models.Model):
         choices=TermOverridePolicy.choices,
         default=TermOverridePolicy.SUGGEST,
     )
+    # Workspace-wide default planning methodology (ADR-0107, issue 955) — the
+    # non-null root of the Workspace → Program → Project methodology inheritance
+    # chain (the "experience preset"). New projects pre-fill from this default;
+    # the *effective* methodology a project displays is resolved computed-on-read
+    # in ``apps.projects.methodology`` (project ?? program ?? workspace, gated by
+    # the policy below). Default HYBRID mirrors Project/Program (ADR-0041), so the
+    # migration is purely additive — every existing project keeps its own value.
+    methodology = models.CharField(
+        max_length=16,
+        choices=Methodology.choices,
+        default=Methodology.HYBRID,
+    )
+    # How the workspace default cascades to programs/projects (ADR-0107). Unlike
+    # iteration_label/sharing, methodology is NOT-NULL on every scope (no null
+    # "inherit" sentinel), so inheritance is POLICY-driven, not override-presence
+    # driven: INHERIT/active-ENFORCE → the workspace default wins and the
+    # per-scope picker is read-only; SUGGEST → each scope's own methodology is
+    # honored (default — preserves today's behavior where each project owns its
+    # methodology). ENFORCE is the Enterprise lock seam (trueppm-enterprise#144);
+    # OSS registers no enforcement provider, so ENFORCE degrades to SUGGEST (the
+    # methodology PATCH is allowed and the per-scope override wins).
+    methodology_override_policy = models.CharField(
+        max_length=16,
+        choices=TermOverridePolicy.choices,
+        default=TermOverridePolicy.SUGGEST,
+    )
 
-    # Workspace branding logo (ADR-0147, #969). Raster only (PNG/WebP) — SVG is
+    # Workspace branding logo (ADR-0149, #969). Raster only (PNG/WebP) — SVG is
     # rejected at the serializer because it can embed <script> and the logo is
     # served from a public (AllowAny) endpoint. A plain FileField, not ImageField,
     # so the app carries no Pillow dependency (matches the TaskAttachment precedent,
@@ -232,6 +259,12 @@ class Workspace(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    # Team-readable audit of singleton config changes (ADR-0107 §5). Workspace had
+    # no history table before; this captures who/when/old→new for the methodology
+    # default + override policy (and every other singleton field) via the existing
+    # ``history_record_created`` signal that enterprise consumes for retention.
+    history = HistoricalRecords()
 
     class Meta:
         db_table = "workspace_workspace"

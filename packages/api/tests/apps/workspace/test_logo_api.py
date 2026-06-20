@@ -1,4 +1,4 @@
-"""Tests for the Workspace logo API (#969, ADR-0147).
+"""Tests for the Workspace logo API (#969, ADR-0149).
 
 Raster-only (PNG/WebP) upload validated by magic bytes, served from a public GET
 endpoint, with admin-gated write paths and old-file cleanup on replace.

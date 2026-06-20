@@ -5911,6 +5911,35 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/acceptance-results/": {
+            "post": {
+                "operationId": "v1_projects_acceptance_results_create",
+                "description": "``POST /api/v1/projects/{project_id}/acceptance-results/`` — CI test ingest (ADR-0148).\n\nCloses the XP acceptance-test-driven loop: a CI job that runs a story's\nacceptance tests reports the verdicts here and the matching\n``AcceptanceCriterion.met`` flags flip, stamping the review trail to the human\nwho minted the token (``met_by``/``met_at``). Flipping the last unmet criterion\n*satisfies* the Definition-of-Ready gate but does NOT auto-transition the task to\nREADY — the team keeps the deliberate Mark-ready step (the ``dor_ready`` flag in\nthe response tells CI the gate is now clear).\n\nOSS boundary (ADR-0097 carve-out, rule 9): this reuses the EXISTING ADR-0068\n``ProjectApiTokenAuthentication`` — a single narrow authenticated endpoint, no\nprovider registry, no HMAC/OAuth, no conflict resolution, no reconciliation loop.\nThe general multi-provider bidirectional ingest hub remains Enterprise.\n\nIDOR defense: ``IsTokenForProject`` verifies the token authorizes the URL project\n(401 on mismatch). Criteria that belong to a *different* project than the URL are\nnever flipped — they are returned in ``unknown`` rather than touched, so a token\ncannot reach across the project boundary by naming foreign criterion ids.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/archive/": {
             "post": {
                 "operationId": "v1_projects_archive_create",
@@ -20058,7 +20087,7 @@
         "/api/v1/workspace/invites/{invite_id}/resend/": {
             "post": {
                 "operationId": "v1_workspace_invites_resend_create",
-                "description": "POST /api/v1/workspace/invites/{id}/resend/ — re-queue one invite (ADR-0147).\n\nAdmin only. Re-issues a fresh token (the old email link stops working) and puts\nthe row back in the outbox for ``drain_invite_emails`` to pick up. Best-effort\ndispatch → 202 ``{\"queued\": true}``. Only PENDING/FAILED invites are resendable;\naccepted/revoked/expired return 409.",
+                "description": "POST /api/v1/workspace/invites/{id}/resend/ — re-queue one invite (ADR-0149).\n\nAdmin only. Re-issues a fresh token (the old email link stops working) and puts\nthe row back in the outbox for ``drain_invite_emails`` to pick up. Best-effort\ndispatch → 202 ``{\"queued\": true}``. Only PENDING/FAILED invites are resendable;\naccepted/revoked/expired return 409.",
                 "parameters": [
                     {
                         "in": "path",
@@ -20174,7 +20203,7 @@
             },
             "post": {
                 "operationId": "v1_workspace_logo_create",
-                "description": "Workspace logo: POST upload, DELETE clear (admin), GET serve (public).\n\nGET is ``AllowAny`` — the logo is non-sensitive branding shown on public share\npages, so serving it without auth avoids a JWT-in-``<img>`` problem. Write paths\nrequire workspace ADMIN+. Raster only (PNG/WebP); content type is decided by a\nmagic-byte sniff, not the client-declared Content-Type (ADR-0147).",
+                "description": "Workspace logo: POST upload, DELETE clear (admin), GET serve (public).\n\nGET is ``AllowAny`` — the logo is non-sensitive branding shown on public share\npages, so serving it without auth avoids a JWT-in-``<img>`` problem. Write paths\nrequire workspace ADMIN+. Raster only (PNG/WebP); content type is decided by a\nmagic-byte sniff, not the client-declared Content-Type (ADR-0149).",
                 "tags": [
                     "v1"
                 ],
@@ -20216,7 +20245,7 @@
             },
             "delete": {
                 "operationId": "v1_workspace_logo_destroy",
-                "description": "Workspace logo: POST upload, DELETE clear (admin), GET serve (public).\n\nGET is ``AllowAny`` — the logo is non-sensitive branding shown on public share\npages, so serving it without auth avoids a JWT-in-``<img>`` problem. Write paths\nrequire workspace ADMIN+. Raster only (PNG/WebP); content type is decided by a\nmagic-byte sniff, not the client-declared Content-Type (ADR-0147).",
+                "description": "Workspace logo: POST upload, DELETE clear (admin), GET serve (public).\n\nGET is ``AllowAny`` — the logo is non-sensitive branding shown on public share\npages, so serving it without auth avoids a JWT-in-``<img>`` problem. Write paths\nrequire workspace ADMIN+. Raster only (PNG/WebP); content type is decided by a\nmagic-byte sniff, not the client-declared Content-Type (ADR-0149).",
                 "tags": [
                     "v1"
                 ],
@@ -21623,10 +21652,13 @@
                     "task.assigned",
                     "task.assignee_changed",
                     "task.mentioned",
-                    "task.due_date_changed"
+                    "task.due_date_changed",
+                    "sprint.activated",
+                    "sprint.closed",
+                    "sprint.scope_changed"
                 ],
                 "type": "string",
-                "description": "* `task.created` - Task Created\n* `task.updated` - Task Updated\n* `task.deleted` - Task Deleted\n* `dependency.created` - Dependency Created\n* `dependency.deleted` - Dependency Deleted\n* `schedule.recalculated` - Schedule Recalculated\n* `project.created` - Project Created\n* `task.assigned` - Task Assigned\n* `task.assignee_changed` - Task Assignee Changed\n* `task.mentioned` - Task Mentioned\n* `task.due_date_changed` - Task Due Date Changed"
+                "description": "* `task.created` - Task Created\n* `task.updated` - Task Updated\n* `task.deleted` - Task Deleted\n* `dependency.created` - Dependency Created\n* `dependency.deleted` - Dependency Deleted\n* `schedule.recalculated` - Schedule Recalculated\n* `project.created` - Project Created\n* `task.assigned` - Task Assigned\n* `task.assignee_changed` - Task Assignee Changed\n* `task.mentioned` - Task Mentioned\n* `task.due_date_changed` - Task Due Date Changed\n* `sprint.activated` - Sprint Activated\n* `sprint.closed` - Sprint Closed\n* `sprint.scope_changed` - Sprint Scope Changed"
             },
             "EventsEnum": {
                 "enum": [
@@ -21640,10 +21672,13 @@
                     "task.assigned",
                     "task.assignee_changed",
                     "task.mentioned",
-                    "task.due_date_changed"
+                    "task.due_date_changed",
+                    "sprint.activated",
+                    "sprint.closed",
+                    "sprint.scope_changed"
                 ],
                 "type": "string",
-                "description": "* `task.created` - Task Created\n* `task.updated` - Task Updated\n* `task.deleted` - Task Deleted\n* `dependency.created` - Dependency Created\n* `dependency.deleted` - Dependency Deleted\n* `schedule.recalculated` - Schedule Recalculated\n* `project.created` - Project Created\n* `task.assigned` - Task Assigned\n* `task.assignee_changed` - Task Assignee Changed\n* `task.mentioned` - Task Mentioned\n* `task.due_date_changed` - Task Due Date Changed"
+                "description": "* `task.created` - Task Created\n* `task.updated` - Task Updated\n* `task.deleted` - Task Deleted\n* `dependency.created` - Dependency Created\n* `dependency.deleted` - Dependency Deleted\n* `schedule.recalculated` - Schedule Recalculated\n* `project.created` - Project Created\n* `task.assigned` - Task Assigned\n* `task.assignee_changed` - Task Assignee Changed\n* `task.mentioned` - Task Mentioned\n* `task.due_date_changed` - Task Due Date Changed\n* `sprint.activated` - Sprint Activated\n* `sprint.closed` - Sprint Closed\n* `sprint.scope_changed` - Sprint Scope Changed"
             },
             "FailedTask": {
                 "type": "object",
@@ -25167,6 +25202,12 @@
                     },
                     "mc_history_override_policy": {
                         "$ref": "#/components/schemas/TermOverridePolicyEnum"
+                    },
+                    "methodology": {
+                        "$ref": "#/components/schemas/MethodologyEnum"
+                    },
+                    "methodology_override_policy": {
+                        "$ref": "#/components/schemas/TermOverridePolicyEnum"
                     }
                 }
             },
@@ -25322,6 +25363,14 @@
                     },
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"
+                    },
+                    "effective_methodology": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "inherited_methodology": {
+                        "type": "string",
+                        "readOnly": true
                     },
                     "iteration_label": {
                         "type": "string",
@@ -25490,6 +25539,7 @@
                     "effective_mc_history_attribution_audience",
                     "effective_mc_history_enabled",
                     "effective_mc_history_retention_cap",
+                    "effective_methodology",
                     "effective_public_sharing",
                     "id",
                     "inherited_allow_guests",
@@ -25497,6 +25547,7 @@
                     "inherited_mc_history_attribution_audience",
                     "inherited_mc_history_enabled",
                     "inherited_mc_history_retention_cap",
+                    "inherited_methodology",
                     "inherited_public_sharing",
                     "is_closed",
                     "is_sample",
@@ -25806,6 +25857,14 @@
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"
                     },
+                    "effective_methodology": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "inherited_methodology": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "prioritization_model": {
                         "$ref": "#/components/schemas/PrioritizationModelEnum"
                     },
@@ -25940,6 +25999,7 @@
                     "effective_mc_history_attribution_audience",
                     "effective_mc_history_enabled",
                     "effective_mc_history_retention_cap",
+                    "effective_methodology",
                     "effective_public_sharing",
                     "id",
                     "inherited_allow_guests",
@@ -25947,6 +26007,7 @@
                     "inherited_mc_history_attribution_audience",
                     "inherited_mc_history_enabled",
                     "inherited_mc_history_retention_cap",
+                    "inherited_methodology",
                     "inherited_public_sharing",
                     "is_archived",
                     "lead_detail",
@@ -26186,6 +26247,14 @@
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"
                     },
+                    "effective_methodology": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "inherited_methodology": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "prioritization_model": {
                         "$ref": "#/components/schemas/PrioritizationModelEnum"
                     },
@@ -26355,6 +26424,7 @@
                     "effective_mc_history_attribution_audience",
                     "effective_mc_history_enabled",
                     "effective_mc_history_retention_cap",
+                    "effective_methodology",
                     "effective_public_sharing",
                     "id",
                     "inherited_allow_guests",
@@ -26362,6 +26432,7 @@
                     "inherited_mc_history_attribution_audience",
                     "inherited_mc_history_enabled",
                     "inherited_mc_history_retention_cap",
+                    "inherited_methodology",
                     "inherited_public_sharing",
                     "is_archived",
                     "is_sample",
@@ -31102,6 +31173,12 @@
                         "$ref": "#/components/schemas/McHistoryAttributionAudienceEnum"
                     },
                     "mc_history_override_policy": {
+                        "$ref": "#/components/schemas/TermOverridePolicyEnum"
+                    },
+                    "methodology": {
+                        "$ref": "#/components/schemas/MethodologyEnum"
+                    },
+                    "methodology_override_policy": {
                         "$ref": "#/components/schemas/TermOverridePolicyEnum"
                     },
                     "logo_url": {

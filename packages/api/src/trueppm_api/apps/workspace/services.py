@@ -477,7 +477,7 @@ def create_invite(
     )
 
 
-# Statuses an admin may resend (ADR-0147). PENDING covers a lost/bounced live
+# Statuses an admin may resend (ADR-0149). PENDING covers a lost/bounced live
 # invite; FAILED is a send-exhausted invite — resend is its recovery path. An
 # ACCEPTED/REVOKED/EXPIRED invite is intentionally *not* revivable.
 RESENDABLE_INVITE_STATUSES = (InviteStatus.PENDING, InviteStatus.FAILED)
@@ -498,7 +498,7 @@ def _reissue_invite_token(invite: WorkspaceInvite) -> None:
     """Reset an (unsaved, locked) invite back into the drain-eligible queued shape.
 
     Regenerates the one-time token — so any link in a previously-sent email stops
-    working, which is the correct posture for a re-issue (ADR-0147) — and clears the
+    working, which is the correct posture for a re-issue (ADR-0149) — and clears the
     outbox columns (``email_pending`` on, ``email_sent_at``/``email_failed_at`` off,
     attempts zeroed) so the existing ``drain_invite_emails`` picks the row up on its
     next 30 s tick. ``created_at`` is unchanged, so the resend clears the drain's
@@ -532,7 +532,7 @@ def drain_invite_emails_soon() -> None:
     window, so it's drain-eligible immediately — this just shortens the wait from the
     30 s Beat cadence to "right after commit". Broker errors are swallowed: the
     periodic ``drain_invite_emails`` is the durability guarantee, this is only an
-    optimization (ADR-0147). Call inside ``transaction.on_commit``.
+    optimization (ADR-0149). Call inside ``transaction.on_commit``.
     """
     from trueppm_api.apps.workspace.tasks import drain_invite_emails
 
@@ -543,7 +543,7 @@ def drain_invite_emails_soon() -> None:
 
 
 def resend_invite(invite_id: _PK) -> WorkspaceInvite | None:
-    """Re-queue one resendable invite's email with a fresh token (ADR-0147).
+    """Re-queue one resendable invite's email with a fresh token (ADR-0149).
 
     Returns the invite on success, the unchanged invite when it is already in
     flight (idempotent no-op), or ``None`` when it does not exist or is not
@@ -565,7 +565,7 @@ def resend_all_pending(workspace: Workspace) -> int:
     """Re-queue every resendable invite in one transaction; return the count.
 
     Bundled into a single transaction so "Resend all" is one throttle bucket hit
-    (ADR-0147) and can never email-bomb regardless of how many invites are pending.
+    (ADR-0149) and can never email-bomb regardless of how many invites are pending.
     In-flight rows are skipped, so the returned count reflects only rows actually
     re-issued.
     """
@@ -587,7 +587,7 @@ def resend_all_pending(workspace: Workspace) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Workspace logo (ADR-0147, #969)
+# Workspace logo (ADR-0149, #969)
 # ---------------------------------------------------------------------------
 
 
@@ -618,7 +618,7 @@ def set_workspace_logo(*, file: Any, mime: str) -> Workspace:
     The validated content type is pinned in ``logo_mime`` so the public serve
     endpoint sets Content-Type from a trusted column rather than re-sniffing. The
     UUID-prefixed ``upload_to`` guarantees the new key differs from the old, so the
-    old blob is always safe to delete once the row commits (ADR-0147).
+    old blob is always safe to delete once the row commits (ADR-0149).
     """
     ws = Workspace.load()
     old_name = ws.logo.name
@@ -631,7 +631,7 @@ def set_workspace_logo(*, file: Any, mime: str) -> Workspace:
 
 
 def clear_workspace_logo() -> Workspace:
-    """Remove the workspace logo and delete its stored file on commit (ADR-0147)."""
+    """Remove the workspace logo and delete its stored file on commit (ADR-0149)."""
     ws = Workspace.load()
     old_name = ws.logo.name
     if old_name:

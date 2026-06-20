@@ -2242,6 +2242,10 @@ def accept_scope_change(scope_change: Any, by: Any) -> Any:
     The ONLY writer of ACCEPTED besides the bulk variant — no auto-accept path.
     """
     from trueppm_api.apps.projects.models import ScopeChangeStatus, SprintScopeChange, Task
+    from trueppm_api.apps.projects.views import (
+        _dispatch_webhooks,
+        _sprint_scope_change_webhook_payload,
+    )
     from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
     _assert_scope_gate(scope_change, by)
@@ -2265,15 +2269,21 @@ def accept_scope_change(scope_change: Any, by: Any) -> Any:
         project_id_str = str(task.project_id)
         sprint_id_str = str(sprint.pk)
         task_id_str = str(task.pk)
+        # ADR-0147: build the sprint.scope_changed webhook payload while the row is
+        # loaded inside the transaction, fired only here (accept), never on reject or
+        # silent injection. Carries no velocity signal, so no privacy gate applies.
+        scope_payload = _sprint_scope_change_webhook_payload(locked, source="api")
 
         def _on_commit(
             s: Any = sprint,
             pid: str = project_id_str,
             sid: str = sprint_id_str,
             tid: str = task_id_str,
+            payload: dict[str, Any] = scope_payload,
         ) -> None:
             upsert_burndown_for_sprint(s)
             broadcast_board_event(pid, "sprint_scope_changed", {"sprint_id": sid, "task_id": tid})
+            _dispatch_webhooks(pid, "sprint.scope_changed", payload)
 
         transaction.on_commit(_on_commit)
     return locked

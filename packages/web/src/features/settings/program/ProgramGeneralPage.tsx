@@ -7,6 +7,7 @@ import { DangerZoneLink } from '../components/DangerZoneLink';
 import { useDirtyForm } from '../hooks/useDirtyForm';
 import { useProgram } from '@/hooks/useProgram';
 import { useUpdateProgram } from '@/hooks/useProgramMutations';
+import { useWorkspaceSettings } from '../hooks/useWorkspaceSettings';
 import { InheritableIterationLabelField } from '../components/InheritableIterationLabelField';
 import { InheritableToggleField } from '../components/InheritableToggleField';
 import { InheritableNumberField } from '../components/InheritableNumberField';
@@ -65,6 +66,7 @@ const VISIBILITY_OPTIONS: Array<{ id: ProgramVisibility; label: string; hint: st
 export function ProgramGeneralPage() {
   const { programId } = useParams<{ programId: string }>();
   const { data: program } = useProgram(programId);
+  const { data: ws } = useWorkspaceSettings();
   const exportSeed = useExportProgramSeed();
   const updateProgram = useUpdateProgram();
 
@@ -323,6 +325,18 @@ export function ProgramGeneralPage() {
   // toggles already used this exact gate; it now governs every field.
   const canEdit = program?.my_role != null && program.my_role >= ROLE_ADMIN;
 
+  // The workspace locks methodology overrides under INHERIT (ADR-0107, issue 955).
+  // OSS never has an active Enterprise ENFORCE provider, so ENFORCE behaves like
+  // SUGGEST here; only INHERIT makes the program picker read-only. The server is
+  // the source of truth (a PATCH under lock is rejected 403) — this just spares a
+  // doomed save. Under the lock the displayed value is the workspace default
+  // (`effective_methodology`), not the program's stored override.
+  const methodologyLocked = ws?.methodologyOverridePolicy === 'inherit';
+  const methodologyEditable = canEdit && !methodologyLocked;
+  const methodologyShown = methodologyLocked
+    ? (program?.effective_methodology ?? methodology)
+    : methodology;
+
   return (
     <div>
       <SettingsPageTitle
@@ -459,26 +473,39 @@ export function ProgramGeneralPage() {
 
           <FieldRow
             label="Methodology"
-            hint="Default delivery model for new projects added to this program."
+            hint={
+              methodologyLocked
+                ? 'The workspace requires every program to use its default methodology. A workspace admin can relax this on the workspace Methodology page.'
+                : 'Default methodology for projects in this program — unless a project sets its own. Inherits the workspace default until you choose one.'
+            }
           >
-            <div className="flex gap-2">
-              {METHODOLOGY_OPTIONS.map((opt) => (
-                <button
-                  key={opt.id}
-                  type="button"
-                  onClick={() => setMethodology(opt.id)}
-                  aria-pressed={methodology === opt.id}
-                  className={[
-                    'px-3 py-1 rounded border text-[12px] font-medium transition-colors',
-                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-                    methodology === opt.id
-                      ? 'bg-brand-primary-light text-brand-primary border-brand-primary/40'
-                      : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-sunken',
-                  ].join(' ')}
-                >
-                  {opt.label}
-                </button>
-              ))}
+            <div className="flex gap-2" role="radiogroup" aria-label="Methodology">
+              {METHODOLOGY_OPTIONS.map((opt) => {
+                const isSelected = methodologyShown === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => {
+                      if (methodologyEditable) setMethodology(opt.id);
+                    }}
+                    disabled={!methodologyEditable}
+                    role="radio"
+                    aria-checked={isSelected}
+                    className={[
+                      'px-3 py-1 rounded border text-[12px] font-medium transition-colors',
+                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+                      !methodologyEditable ? 'cursor-not-allowed' : '',
+                      isSelected
+                        ? 'bg-brand-primary-light text-brand-primary border-brand-primary/40'
+                        : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-sunken',
+                      !methodologyEditable && !isSelected ? 'opacity-60' : '',
+                    ].join(' ')}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
             </div>
           </FieldRow>
 

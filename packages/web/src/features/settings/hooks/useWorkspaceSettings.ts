@@ -3,6 +3,8 @@ import { apiClient } from '@/api/client';
 import type {
   MCAttributionAudience,
   MCHistoryOverridePolicy,
+  MethodologyOverridePolicy,
+  ProgramMethodology,
   WorkspaceSettings,
 } from '@/api/types';
 
@@ -28,6 +30,8 @@ interface WorkspaceSettingsRaw {
   mc_history_retention_cap: number;
   mc_history_attribution_audience: MCAttributionAudience;
   mc_history_override_policy: MCHistoryOverridePolicy;
+  methodology: ProgramMethodology;
+  methodology_override_policy: MethodologyOverridePolicy;
   logo_url: string | null;
 }
 
@@ -50,6 +54,8 @@ function mapSettings(raw: WorkspaceSettingsRaw): WorkspaceSettings {
     mcHistoryRetentionCap: raw.mc_history_retention_cap,
     mcHistoryAttributionAudience: raw.mc_history_attribution_audience,
     mcHistoryOverridePolicy: raw.mc_history_override_policy,
+    methodology: raw.methodology,
+    methodologyOverridePolicy: raw.methodology_override_policy,
     logoUrl: raw.logo_url,
   };
 }

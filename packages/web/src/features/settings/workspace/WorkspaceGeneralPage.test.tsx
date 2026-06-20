@@ -25,6 +25,8 @@ const WS: WorkspaceSettings = {
   mcHistoryRetentionCap: 100,
   mcHistoryAttributionAudience: 'ADMIN_OWNER',
   mcHistoryOverridePolicy: 'allow',
+  methodology: 'HYBRID',
+  methodologyOverridePolicy: 'suggest',
   logoUrl: null,
 };
 

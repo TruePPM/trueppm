@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type { WorkspaceSettings } from '@/api/types';
 
-/** Raster types the server accepts (ADR-0147). SVG is rejected (stored-XSS). */
+/** Raster types the server accepts (ADR-0149). SVG is rejected (stored-XSS). */
 export const LOGO_ACCEPTED_TYPES = ['image/png', 'image/webp'] as const;
 export const LOGO_ACCEPT_ATTR = LOGO_ACCEPTED_TYPES.join(',');
 export const LOGO_MAX_BYTES = 2 * 1024 * 1024; // 2 MB — mirrors the server cap.
@@ -18,7 +18,7 @@ export interface LogoValidationResult {
 }
 
 /**
- * Client-side pre-flight on a chosen logo file (ADR-0147).
+ * Client-side pre-flight on a chosen logo file (ADR-0149).
  *
  * Returns an `error` (block the upload) for wrong type or oversize, a `warning`
  * (allow but advise) for under-minimum dimensions, or null when the file is fine.

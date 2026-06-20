@@ -90,7 +90,7 @@ class WorkspaceSettingsSerializer(serializers.ModelSerializer[Workspace]):
     # Read-only mirror of the ``Workspace.fiscal_year_start_display`` property —
     # ModelSerializer does not surface plain model properties automatically.
     fiscal_year_start_display = serializers.CharField(read_only=True)
-    # Public URL the top bar / settings page render in an <img> (ADR-0147, #969).
+    # Public URL the top bar / settings page render in an <img> (ADR-0149, #969).
     # Points at the AllowAny serve endpoint (the logo is non-sensitive branding,
     # and an <img> cannot send the JWT). ``null`` when no logo is set, so the UI
     # falls back to the letter-mark. The ``?v=`` cache-buster is the row's
@@ -126,6 +126,15 @@ class WorkspaceSettingsSerializer(serializers.ModelSerializer[Workspace]):
             "mc_history_retention_cap",
             "mc_history_attribution_audience",
             "mc_history_override_policy",
+            # Workspace-wide default planning methodology + cascade policy (ADR-0107,
+            # issue 955) — the non-null root of the Workspace → Program → Project
+            # methodology chain. methodology_override_policy governs whether
+            # programs/projects may override (SUGGEST = yes in OSS; INHERIT locks the
+            # affordance; ENFORCE = Enterprise hard lock, no-op in OSS).
+            "methodology",
+            "methodology_override_policy",
+            # Public serve-endpoint URL for the uploaded workspace logo (ADR-0149,
+            # #969), or null when unset. Read-only; mutated via /workspace/logo/.
             "logo_url",
         ]
         read_only_fields = ["subdomain", "fiscal_year_start_display", "logo_url"]

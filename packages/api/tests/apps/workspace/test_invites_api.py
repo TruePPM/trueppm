@@ -303,7 +303,7 @@ def test_drain_terminal_failure_clears_token(admin: object, monkeypatch: object)
     assert invite.email_token == ""  # raw token cleared even on terminal failure
 
 
-# --- resend (#969, ADR-0147) ------------------------------------------------
+# --- resend (#969, ADR-0149) ------------------------------------------------
 
 
 def _sent_invite(admin: object, email: str = "resend@x.io") -> WorkspaceInvite:
