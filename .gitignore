@@ -26,8 +26,12 @@ node_modules
 coverage/
 coverage.xml
 
-# uv lockfile — trueppm-scheduler is a library; lockfile not committed
+# uv lockfile. The scheduler is a published LIBRARY → no committed lock (it
+# declares version ranges and resolves at install). The api is an APPLICATION →
+# commit its lock for reproducible installs and a scannable dependency surface
+# (#904 supply-chain hardening). Keep the blanket ignore for everything else.
 uv.lock
+!packages/api/uv.lock
 
 # Docker
 *.override.yml
