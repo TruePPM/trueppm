@@ -22,14 +22,40 @@ from pathlib import Path
 # Anchor-relative dates (ADR-0114, seed v2). Every date is emitted as an offset
 # from the import-day anchor "A", so the demo always reads as a program in flight
 # rather than a fixed-date museum piece — the importer resolves "A" to today.
-# ANCHOR_OFFSET places "today" partway through the program: day-0 kickoff work is
-# ~120 days in the past, late GTM work is still ahead. The event-replay importer
-# then synthesizes the history (backdated status moves, burndown) up to "today".
-ANCHOR_OFFSET = 120
+# ANCHOR_OFFSET places "today" so the *active* work brackets it: Platform Core's
+# completed sprints sit in the recent past with the active sprints just behind
+# "today", and Migration Tooling's in-flight phase straddles it (its earlier
+# phases are done, the cutover is ahead). The event-replay importer then replays
+# the authored timeline — backdated status moves, reassignments, comments,
+# burndown — up to "today". Tuned from 120 to 90 so neither stream reads as a
+# museum piece (#1253).
+ANCHOR_OFFSET = 90
 
 
 def d(offset_days: int) -> str:
     return f"A{offset_days - ANCHOR_OFFSET:+d}"
+
+
+def ts(offset_days: int, hour: int = 10, minute: int = 0) -> str:
+    """An anchor-relative event timestamp (``A±NTHH:MM``); never weekend-snapped.
+
+    Keep ``offset_days <= ANCHOR_OFFSET`` so a beat is never forward-dated.
+    """
+    return f"{d(offset_days)}T{hour:02d}:{minute:02d}"
+
+
+def _ev(
+    at: str, action: str, target: str = "", actor: str = "", **extra: object
+) -> dict:
+    """One timeline event; ``target`` qualifies what is mutated, ``actor`` names
+    the account the backdated history row is attributed to."""
+    event: dict = {"at": at, "action": action}
+    if target:
+        event["target"] = target
+    if actor:
+        event["actor"] = actor
+    event.update(extra)
+    return event
 
 
 # --- people & capacity -----------------------------------------------------
@@ -317,7 +343,8 @@ def build_platform_core() -> dict:
             {
                 "slug": "pc-notif-throttle",
                 "title": "Notification provider rate limits",
-                "status": "RESOLVED",
+                # Starting state; risk.status walks it to RESOLVED (#1253).
+                "status": "OPEN",
                 "probability": 2,
                 "impact": 2,
                 "category": "TECHNICAL",
@@ -519,7 +546,8 @@ def build_migration_tooling() -> dict:
             {
                 "slug": "mt-mapping",
                 "title": "Field-mapping ambiguity in legacy schema",
-                "status": "MITIGATING",
+                # Starting state; risk.status walks it to MITIGATING (#1253).
+                "status": "OPEN",
                 "probability": 3,
                 "impact": 3,
                 "category": "TECHNICAL",
@@ -679,7 +707,9 @@ def build_gtm_readiness() -> dict:
             {
                 "slug": "gtm-analyst",
                 "title": "Analyst-briefing embargo conflict",
-                "status": "CLOSED",
+                # Starting state; risk.status walks it OPEN → MITIGATING → CLOSED
+                # as the embargo dates are aligned (#1253).
+                "status": "OPEN",
                 "probability": 2,
                 "impact": 2,
                 "category": "EXTERNAL",
@@ -705,6 +735,246 @@ def build_atlas() -> dict:
         }
     )
     gtm = build_gtm_readiness()
+
+    # --- event timeline ----------------------------------------------------
+    # The program's life across all three streams: a security-review bounce on
+    # SSO, sprint goal verdicts and a mid-sprint scope injection on the agile
+    # stream, an inspection-style rework and a reassignment on the waterfall
+    # stream, cross-stream coverage moves, and dated risk lifecycles (including
+    # program-level risks). Targets are project-qualified; offsets stay <= 90.
+    def pc_task(wbs: str) -> str:
+        return f"task:platform-core:{wbs}"
+
+    def pc_sprint(slug: str) -> str:
+        return f"sprint:platform-core:{slug}"
+
+    def mt_task(wbs: str) -> str:
+        return f"task:migration-tooling:{wbs}"
+
+    def gtm_task(wbs: str) -> str:
+        return f"task:gtm-readiness:{wbs}"
+
+    events: list[dict] = [
+        # --- Platform Core (agile) ---------------------------------------
+        # Four completed sprints, each opened and closed with an honest verdict
+        # (Sprint 3 hit its points but the team judged the goal only partially met).
+        _ev(ts(0, 9, 0), "sprint.activate", pc_sprint("pc-sprint-1"), "sam"),
+        # Hero: SSO login (1.1) is built, fails security review on a real CSRF
+        # hole, is reworked, and ships — a non-linear path, with the finding logged
+        # as the program security-audit risk.
+        _ev(
+            ts(1, 9, 0),
+            "task.comment",
+            pc_task("1.1"),
+            "mei",
+            body="Starting SSO — OIDC discovery and the login callback.",
+        ),
+        _ev(ts(2, 10, 0), "task.status", pc_task("1.1"), "mei", to="IN_PROGRESS"),
+        _ev(
+            ts(6, 15, 0),
+            "task.comment",
+            pc_task("1.1"),
+            "mei",
+            body="SSO login works against the IdP sandbox. PR up for review.",
+        ),
+        _ev(ts(6, 15, 30), "task.status", pc_task("1.1"), "mei", to="REVIEW"),
+        _ev(
+            ts(7, 11, 0),
+            "task.comment",
+            pc_task("1.1"),
+            "priya",
+            body="Security review: the state param isn't validated on the callback — "
+            "that's a login CSRF hole. Sending it back, and logging it as an "
+            "audit finding.",
+        ),
+        _ev(ts(7, 11, 30), "task.status", pc_task("1.1"), "priya", to="IN_PROGRESS"),
+        _ev(
+            ts(7, 12, 0),
+            "risk.status",
+            "risk:prog-security-audit",
+            "priya",
+            to="MITIGATING",
+        ),
+        _ev(ts(8, 10, 0), "risk.status", "risk:pc-sso-vendor", "mei", to="MITIGATING"),
+        _ev(
+            ts(10, 14, 0),
+            "task.comment",
+            pc_task("1.1"),
+            "mei",
+            body="Validated state and nonce on the callback and added a regression "
+            "test. Re-review please.",
+        ),
+        _ev(ts(10, 14, 30), "task.status", pc_task("1.1"), "mei", to="REVIEW"),
+        _ev(
+            ts(11, 16, 0),
+            "task.comment",
+            pc_task("1.1"),
+            "priya",
+            body="Solid now. Approving.",
+        ),
+        _ev(ts(11, 16, 30), "task.status", pc_task("1.1"), "priya", to="COMPLETE"),
+        _ev(
+            ts(13, 17, 0),
+            "sprint.close",
+            pc_sprint("pc-sprint-1"),
+            "sam",
+            goal_outcome="MET",
+        ),
+        _ev(ts(14, 9, 0), "sprint.activate", pc_sprint("pc-sprint-2"), "sam"),
+        _ev(
+            ts(27, 17, 0),
+            "sprint.close",
+            pc_sprint("pc-sprint-2"),
+            "sam",
+            goal_outcome="MET",
+        ),
+        _ev(ts(28, 9, 0), "sprint.activate", pc_sprint("pc-sprint-3"), "sam"),
+        _ev(
+            ts(41, 17, 0),
+            "sprint.close",
+            pc_sprint("pc-sprint-3"),
+            "sam",
+            goal_outcome="PARTIAL",
+        ),
+        _ev(ts(42, 9, 0), "sprint.activate", pc_sprint("pc-sprint-4"), "sam"),
+        _ev(
+            ts(55, 17, 0),
+            "sprint.close",
+            pc_sprint("pc-sprint-4"),
+            "sam",
+            goal_outcome="MET",
+        ),
+        # Notification-throttle risk surfaces and is resolved during Sprint 5.
+        _ev(
+            ts(58, 10, 0),
+            "risk.status",
+            "risk:pc-notif-throttle",
+            "tom",
+            to="MITIGATING",
+        ),
+        _ev(
+            ts(66, 10, 0), "risk.status", "risk:pc-notif-throttle", "tom", to="RESOLVED"
+        ),
+        # Active sprint: a coverage reassignment and a mid-sprint scope injection.
+        _ev(
+            ts(72, 9, 0),
+            "task.comment",
+            pc_task("2.1"),
+            "priya",
+            body="Omar's pulled onto the data-platform spike — moving Tenant model to Diego.",
+        ),
+        _ev(ts(72, 9, 5), "task.assign", pc_task("2.1"), "priya", assignee="diego"),
+        _ev(
+            ts(74, 9, 30),
+            "task.comment",
+            pc_task("3.4"),
+            "jordan",
+            body="Warehouse schema churn means we need an extra backfill this sprint — "
+            "pulling Backfill tool forward.",
+        ),
+        _ev(
+            ts(74, 9, 35),
+            "sprint.scope_inject",
+            pc_task("3.4"),
+            "jordan",
+            goal_impact=True,
+        ),
+        _ev(
+            ts(75, 11, 0),
+            "task.comment",
+            pc_task("3.4"),
+            "priya",
+            body="We'll protect the sprint goal by deferring a lower-priority story. "
+            "Accepting the injection.",
+        ),
+        _ev(
+            ts(75, 11, 5),
+            "sprint.scope_resolve",
+            pc_task("3.4"),
+            "priya",
+            to="ACCEPTED",
+        ),
+        _ev(
+            ts(75, 12, 0),
+            "risk.status",
+            "risk:pc-data-platform",
+            "priya",
+            to="MITIGATING",
+        ),
+        # --- Migration Tooling (waterfall) -------------------------------
+        # Hero: Schema transformer (2.2) fails review on a lossy enum mapping, is
+        # split and reconciled, and passes — the mapping risk moving to mitigated.
+        _ev(
+            ts(52, 9, 0),
+            "task.comment",
+            mt_task("2.2"),
+            "yuki",
+            body="Schema transformer scaffolded; wiring the field-mapping table.",
+        ),
+        _ev(ts(53, 10, 0), "task.status", mt_task("2.2"), "yuki", to="IN_PROGRESS"),
+        _ev(
+            ts(58, 15, 0),
+            "task.comment",
+            mt_task("2.2"),
+            "yuki",
+            body="Transform passes on the sample extract. Ready for review.",
+        ),
+        _ev(ts(58, 15, 30), "task.status", mt_task("2.2"), "yuki", to="REVIEW"),
+        _ev(
+            ts(59, 11, 0),
+            "task.comment",
+            mt_task("2.2"),
+            "omar",
+            body="Review: the account-type enum maps three legacy codes to one, which "
+            "silently drops a distinction Finance relies on. Sending it back.",
+        ),
+        _ev(ts(59, 11, 30), "task.status", mt_task("2.2"), "omar", to="IN_PROGRESS"),
+        _ev(ts(59, 12, 0), "risk.status", "risk:mt-mapping", "omar", to="MITIGATING"),
+        _ev(
+            ts(62, 14, 0),
+            "task.comment",
+            mt_task("2.2"),
+            "yuki",
+            body="Split the enum mapping and added a reconciliation check. Re-review.",
+        ),
+        _ev(ts(62, 14, 30), "task.status", mt_task("2.2"), "yuki", to="REVIEW"),
+        _ev(
+            ts(63, 16, 0),
+            "task.comment",
+            mt_task("2.2"),
+            "omar",
+            body="Reconciles now. Approved.",
+        ),
+        _ev(ts(63, 16, 30), "task.status", mt_task("2.2"), "omar", to="COMPLETE"),
+        # In-flight migrate phase: a reassignment to the data-platform specialist.
+        _ev(
+            ts(86, 9, 0),
+            "task.comment",
+            mt_task("3.3"),
+            "sam",
+            body="Delta sync needs deeper data-platform knowledge — moving it from "
+            "Raj to Omar.",
+        ),
+        _ev(ts(86, 9, 5), "task.assign", mt_task("3.3"), "sam", assignee="omar"),
+        # --- GTM Readiness (hybrid) + program risks ----------------------
+        _ev(
+            ts(2, 9, 0),
+            "task.comment",
+            gtm_task("1.2"),
+            "jordan",
+            body="Positioning is locked; the pricing review with Finance is the long "
+            "pole now.",
+        ),
+        _ev(ts(5, 10, 0), "risk.status", "risk:gtm-analyst", "ada", to="MITIGATING"),
+        _ev(ts(15, 10, 0), "risk.status", "risk:gtm-analyst", "ada", to="CLOSED"),
+        # The exec-sponsor transition plays out and is reconfirmed.
+        _ev(
+            ts(8, 9, 0), "risk.status", "risk:prog-exec-sponsor", "ada", to="MITIGATING"
+        ),
+        _ev(
+            ts(20, 9, 0), "risk.status", "risk:prog-exec-sponsor", "ada", to="RESOLVED"
+        ),
+    ]
 
     return {
         "schema_version": "2.0",
@@ -808,7 +1078,9 @@ def build_atlas() -> dict:
             {
                 "slug": "prog-exec-sponsor",
                 "title": "Executive sponsor transition mid-program",
-                "status": "RESOLVED",
+                # Starting state; risk.status walks it OPEN → MITIGATING →
+                # RESOLVED as the new sponsor is onboarded (#1253).
+                "status": "OPEN",
                 "probability": 2,
                 "impact": 4,
                 "category": "ORGANIZATIONAL",
@@ -819,6 +1091,7 @@ def build_atlas() -> dict:
             },
         ],
         "projects": [pc, mt, gtm],
+        "events": events,
     }
 
 

@@ -120,7 +120,7 @@
       "slug": "helios",
       "name": "Helios CRM",
       "methodology": "HYBRID",
-      "start_date": "A-90",
+      "start_date": "A-81",
       "calendar": "helios-core",
       "default_view": "OVERVIEW",
       "agile_features": true,
@@ -137,7 +137,7 @@
           "status": "COMPLETE",
           "percent_complete": 100.0,
           "duration": 6,
-          "planned_start": "A-90",
+          "planned_start": "A-81",
           "estimate": {
             "optimistic": 4,
             "most_likely": 6,
@@ -153,7 +153,7 @@
           "status": "COMPLETE",
           "percent_complete": 100.0,
           "duration": 5,
-          "planned_start": "A-84",
+          "planned_start": "A-75",
           "estimate": {
             "optimistic": 4,
             "most_likely": 5,
@@ -169,7 +169,7 @@
           "status": "COMPLETE",
           "percent_complete": 100.0,
           "duration": 7,
-          "planned_start": "A-79",
+          "planned_start": "A-70",
           "estimate": {
             "optimistic": 5,
             "most_likely": 7,
@@ -185,7 +185,7 @@
           "status": "COMPLETE",
           "percent_complete": 100.0,
           "duration": 5,
-          "planned_start": "A-72",
+          "planned_start": "A-63",
           "estimate": {
             "optimistic": 4,
             "most_likely": 5,
@@ -201,7 +201,7 @@
           "status": "COMPLETE",
           "percent_complete": 100.0,
           "duration": 6,
-          "planned_start": "A-67",
+          "planned_start": "A-58",
           "estimate": {
             "optimistic": 4,
             "most_likely": 6,
@@ -217,7 +217,7 @@
           "status": "COMPLETE",
           "percent_complete": 100.0,
           "duration": 4,
-          "planned_start": "A-61",
+          "planned_start": "A-52",
           "estimate": {
             "optimistic": 3,
             "most_likely": 4,
@@ -240,7 +240,7 @@
           "status": "IN_PROGRESS",
           "percent_complete": 40.0,
           "story_points": 5,
-          "assignee": "mei",
+          "assignee": "nadia",
           "sprint": "he-sprint-2",
           "delivery_mode": "scrum",
           "governance_class": "flow"
@@ -264,7 +264,7 @@
           "status": "COMPLETE",
           "percent_complete": 100.0,
           "story_points": 3,
-          "assignee": "mei",
+          "assignee": "nadia",
           "sprint": "he-sprint-1",
           "delivery_mode": "scrum",
           "governance_class": "flow"
@@ -288,7 +288,7 @@
           "status": "BACKLOG",
           "percent_complete": 0.0,
           "story_points": 8,
-          "assignee": "mei",
+          "assignee": "nadia",
           "sprint": "he-sprint-3",
           "delivery_mode": "scrum",
           "governance_class": "flow"
@@ -312,7 +312,7 @@
           "status": "IN_PROGRESS",
           "percent_complete": 40.0,
           "story_points": 5,
-          "assignee": "mei",
+          "assignee": "nadia",
           "sprint": "he-sprint-2",
           "delivery_mode": "scrum",
           "governance_class": "flow"
@@ -336,7 +336,7 @@
           "status": "COMPLETE",
           "percent_complete": 100.0,
           "story_points": 3,
-          "assignee": "mei",
+          "assignee": "nadia",
           "sprint": "he-sprint-1",
           "delivery_mode": "scrum",
           "governance_class": "flow"
@@ -360,7 +360,7 @@
           "status": "BACKLOG",
           "percent_complete": 0.0,
           "story_points": 8,
-          "assignee": "mei",
+          "assignee": "nadia",
           "sprint": "he-sprint-3",
           "delivery_mode": "scrum",
           "governance_class": "flow"
@@ -384,7 +384,7 @@
           "status": "IN_PROGRESS",
           "percent_complete": 40.0,
           "story_points": 5,
-          "assignee": "mei",
+          "assignee": "nadia",
           "sprint": "he-sprint-2",
           "delivery_mode": "scrum",
           "governance_class": "flow"
@@ -408,7 +408,7 @@
           "status": "COMPLETE",
           "percent_complete": 100.0,
           "story_points": 3,
-          "assignee": "mei",
+          "assignee": "nadia",
           "sprint": "he-sprint-1",
           "delivery_mode": "scrum",
           "governance_class": "flow"
@@ -432,7 +432,7 @@
           "status": "BACKLOG",
           "percent_complete": 0.0,
           "story_points": 8,
-          "assignee": "mei",
+          "assignee": "nadia",
           "sprint": "he-sprint-3",
           "delivery_mode": "scrum",
           "governance_class": "flow"
@@ -493,8 +493,8 @@
           "slug": "he-sprint-1",
           "name": "Build Sprint 1",
           "state": "COMPLETED",
-          "start_date": "A-30",
-          "finish_date": "A-17",
+          "start_date": "A-21",
+          "finish_date": "A-8",
           "committed_points": 30,
           "completed_points": 28,
           "capacity_points": 32
@@ -503,8 +503,8 @@
           "slug": "he-sprint-2",
           "name": "Build Sprint 2",
           "state": "ACTIVE",
-          "start_date": "A-16",
-          "finish_date": "A-3",
+          "start_date": "A-7",
+          "finish_date": "A+6",
           "committed_points": 32,
           "capacity_points": 32
         },
@@ -512,8 +512,8 @@
           "slug": "he-sprint-3",
           "name": "Build Sprint 3",
           "state": "PLANNED",
-          "start_date": "A-2",
-          "finish_date": "A+11",
+          "start_date": "A+7",
+          "finish_date": "A+20",
           "capacity_points": 32
         }
       ],
@@ -549,7 +549,7 @@
           "slug": "integration-defects",
           "title": "CRM integration mapping defects (realized)",
           "description": "Realized in the build phase: the integration suite found mapping defects.",
-          "status": "RESOLVED",
+          "status": "OPEN",
           "probability": 4,
           "impact": 4,
           "category": "TECHNICAL",
@@ -570,7 +570,7 @@
           "response": "MITIGATE",
           "owner": "jordan",
           "tasks": [
-            "2.12"
+            "2.16"
           ]
         },
         {
@@ -587,6 +587,175 @@
           ]
         }
       ]
+    }
+  ],
+  "events": [
+    {
+      "at": "A-6T09:00",
+      "action": "task.comment",
+      "target": "task:helios:2.17",
+      "actor": "ivan",
+      "body": "The data model from planning (1.5) is the contract for the migration run — freezing it before Sprint 3 picks this up."
+    },
+    {
+      "at": "A-21T09:00",
+      "action": "sprint.activate",
+      "target": "sprint:helios:he-sprint-1",
+      "actor": "jordan"
+    },
+    {
+      "at": "A-20T09:00",
+      "action": "task.comment",
+      "target": "task:helios:2.3",
+      "actor": "nadia",
+      "body": "Starting the lead pipeline — stages, transitions, and the rollup."
+    },
+    {
+      "at": "A-19T10:00",
+      "action": "task.status",
+      "target": "task:helios:2.3",
+      "actor": "nadia",
+      "to": "IN_PROGRESS"
+    },
+    {
+      "at": "A-15T15:00",
+      "action": "task.comment",
+      "target": "task:helios:2.3",
+      "actor": "nadia",
+      "body": "Pipeline and stage automation done. PR up."
+    },
+    {
+      "at": "A-15T15:30",
+      "action": "task.status",
+      "target": "task:helios:2.3",
+      "actor": "nadia",
+      "to": "REVIEW"
+    },
+    {
+      "at": "A-14T11:00",
+      "action": "task.comment",
+      "target": "task:helios:2.3",
+      "actor": "mei",
+      "body": "Review: stage transitions don't fire the activity hook, so the timeline misses them. Sending it back."
+    },
+    {
+      "at": "A-14T11:30",
+      "action": "task.status",
+      "target": "task:helios:2.3",
+      "actor": "mei",
+      "to": "IN_PROGRESS"
+    },
+    {
+      "at": "A-11T14:00",
+      "action": "task.comment",
+      "target": "task:helios:2.3",
+      "actor": "nadia",
+      "body": "Wired stage transitions into the activity stream. Re-review please."
+    },
+    {
+      "at": "A-11T14:30",
+      "action": "task.status",
+      "target": "task:helios:2.3",
+      "actor": "nadia",
+      "to": "REVIEW"
+    },
+    {
+      "at": "A-10T16:00",
+      "action": "task.comment",
+      "target": "task:helios:2.3",
+      "actor": "mei",
+      "body": "Looks good now. Merged."
+    },
+    {
+      "at": "A-10T16:30",
+      "action": "task.status",
+      "target": "task:helios:2.3",
+      "actor": "mei",
+      "to": "COMPLETE"
+    },
+    {
+      "at": "A-17T10:00",
+      "action": "risk.status",
+      "target": "risk:integration-defects",
+      "actor": "mei",
+      "to": "MITIGATING"
+    },
+    {
+      "at": "A-9T16:00",
+      "action": "risk.status",
+      "target": "risk:integration-defects",
+      "actor": "mei",
+      "to": "RESOLVED"
+    },
+    {
+      "at": "A-8T17:00",
+      "action": "sprint.close",
+      "target": "sprint:helios:he-sprint-1",
+      "actor": "jordan",
+      "goal_outcome": "MET"
+    },
+    {
+      "at": "A-3T09:00",
+      "action": "task.comment",
+      "target": "task:helios:2.7",
+      "actor": "ivan",
+      "body": "Nadia's carrying three active stories — moving Activity timeline to Mei to keep the sprint flowing."
+    },
+    {
+      "at": "A-3T09:05",
+      "action": "task.assign",
+      "target": "task:helios:2.7",
+      "actor": "ivan",
+      "assignee": "mei"
+    },
+    {
+      "at": "A-5T09:00",
+      "action": "task.comment",
+      "target": "task:helios:2.16",
+      "actor": "jordan",
+      "body": "Sales is asking for Search & filters now — pulling it into the sprint."
+    },
+    {
+      "at": "A-5T09:05",
+      "action": "sprint.scope_inject",
+      "target": "task:helios:2.16",
+      "actor": "jordan",
+      "goal_impact": true
+    },
+    {
+      "at": "A-4T10:00",
+      "action": "task.status",
+      "target": "task:helios:2.16",
+      "actor": "mei",
+      "to": "IN_PROGRESS"
+    },
+    {
+      "at": "A-2T15:00",
+      "action": "task.comment",
+      "target": "task:helios:2.16",
+      "actor": "ivan",
+      "body": "This pushes us well past capacity and risks the sprint goal. Deferring it to the next release."
+    },
+    {
+      "at": "A-2T15:05",
+      "action": "sprint.scope_resolve",
+      "target": "task:helios:2.16",
+      "actor": "ivan",
+      "to": "REJECTED"
+    },
+    {
+      "at": "A-2T15:10",
+      "action": "task.status",
+      "target": "task:helios:2.16",
+      "actor": "mei",
+      "to": "BACKLOG"
+    },
+    {
+      "at": "A-2T15:30",
+      "action": "risk.status",
+      "target": "risk:scope-injection",
+      "actor": "jordan",
+      "to": "MITIGATING"
     }
   ]
 }

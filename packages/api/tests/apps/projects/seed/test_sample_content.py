@@ -34,9 +34,16 @@ SAMPLES = [
 
 ALL_ROLES = {"OWNER", "ADMIN", "SCHEDULER", "MEMBER", "VIEWER"}
 
+# Samples that run sprints — they must exercise the sprint scope/goal vocabulary.
+AGILE_SAMPLES = ["aurora-mobile-app", "helios-crm-replacement", "atlas-platform-launch"]
+
 
 def _load(stem: str) -> dict:
     return json.loads((_SEEDS_DIR / f"{stem}.json").read_text(encoding="utf-8"))
+
+
+def _events(doc: dict) -> list[dict]:
+    return doc.get("events", [])
 
 
 def _risks(doc: dict) -> list[dict]:
@@ -90,3 +97,39 @@ def test_non_default_calendar_attached_to_a_resource(stem: str) -> None:
     assert non_default, f"{stem}: no non-default working calendar"
     on_resource = {r.get("calendar") for r in doc.get("resources", [])}
     assert non_default & on_resource, f"{stem}: non-default calendar not attached to a resource"
+
+
+@pytest.mark.parametrize("stem,_min,_max", SAMPLES)
+def test_sample_authors_an_event_timeline(stem: str, _min: int, _max: int) -> None:
+    # Every sample tells a *life*, not a snapshot: dated reassignments, comments,
+    # status moves, and risk-status lifecycles are all authored (#1253), not left
+    # to the synthesizer (which only walks status forward by the final assignee).
+    actions = {e["action"] for e in _events(_load(stem))}
+    required = {"task.assign", "task.comment", "task.status", "risk.status"}
+    missing = required - actions
+    assert not missing, f"{stem}: event timeline missing {sorted(missing)}"
+
+
+@pytest.mark.parametrize("stem", AGILE_SAMPLES)
+def test_agile_sample_exercises_scope_and_goal_outcomes(stem: str) -> None:
+    events = _events(_load(stem))
+    actions = {e["action"] for e in events}
+    assert {"sprint.scope_inject", "sprint.scope_resolve"} <= actions, (
+        f"{stem}: no mid-sprint scope injection + resolution"
+    )
+    closes = [e for e in events if e["action"] == "sprint.close"]
+    assert closes, f"{stem}: no authored sprint close"
+    assert all(e.get("goal_outcome") for e in closes), (
+        f"{stem}: a closed sprint carries no goal_outcome"
+    )
+
+
+def test_an_agile_sample_rejects_an_injection() -> None:
+    # The scope audit isn't always a rubber stamp: at least one sample shows a
+    # mid-sprint injection that the team *rejects* and defers (Helios).
+    rejected = []
+    for stem in AGILE_SAMPLES:
+        for e in _events(_load(stem)):
+            if e["action"] == "sprint.scope_resolve" and e.get("to") == "REJECTED":
+                rejected.append(stem)
+    assert rejected, "no sample demonstrates a rejected mid-sprint injection"

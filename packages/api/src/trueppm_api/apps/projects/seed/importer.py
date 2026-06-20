@@ -614,7 +614,7 @@ class _SeedImporter:
         self, project: Project, risks: list[dict[str, Any]], enclosing_project: str | None
     ) -> None:
         for data in risks:
-            risk = Risk.objects.create(
+            risk = Risk(
                 project=project,
                 title=data["title"],
                 description=data.get("description", ""),
@@ -631,6 +631,11 @@ class _SeedImporter:
                 notes=data.get("notes", ""),
                 owner=self.users.get(data["owner"]) if data.get("owner") else None,
             )
+            # Backdate the creation history row to the project start under replay
+            # (risks are identified at kickoff), so a risk that the events timeline
+            # walks through a status lifecycle reads chronologically — the "opened"
+            # row precedes its dated transitions rather than landing at import time.
+            self._save_new(risk, project.start_date)
             # Slug map lets risk.status replay beats resolve their target.
             if data.get("slug"):
                 self.risks_by_slug[data["slug"]] = risk

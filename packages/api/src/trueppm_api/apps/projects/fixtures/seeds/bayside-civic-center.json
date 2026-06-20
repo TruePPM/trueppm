@@ -895,7 +895,7 @@
           "slug": "permit-delay",
           "title": "Building permit approval slips",
           "description": "The municipal permit office is running 3 weeks behind; gates site prep sign-off.",
-          "status": "MITIGATING",
+          "status": "OPEN",
           "probability": 3,
           "impact": 5,
           "category": "EXTERNAL",
@@ -921,7 +921,7 @@
         {
           "slug": "soil-conditions",
           "title": "Unexpected soil conditions at excavation",
-          "status": "CLOSED",
+          "status": "OPEN",
           "probability": 2,
           "impact": 4,
           "category": "TECHNICAL",
@@ -975,7 +975,7 @@
         {
           "slug": "crane-availability",
           "title": "Tower crane scheduling conflict",
-          "status": "RESOLVED",
+          "status": "OPEN",
           "probability": 2,
           "impact": 3,
           "category": "ORGANIZATIONAL",
@@ -1000,6 +1000,162 @@
           ]
         }
       ]
+    }
+  ],
+  "events": [
+    {
+      "at": "A-68T09:00",
+      "action": "task.comment",
+      "target": "task:bayside:1.4",
+      "actor": "tom",
+      "body": "Survey package is ready, but the municipal permit is still in review — that's gating the site-prep sign-off."
+    },
+    {
+      "at": "A-66T10:00",
+      "action": "risk.status",
+      "target": "risk:permit-delay",
+      "actor": "sam",
+      "to": "MITIGATING"
+    },
+    {
+      "at": "A-59T09:00",
+      "action": "task.comment",
+      "target": "task:bayside:2.1",
+      "actor": "tom",
+      "body": "Hit a soft layer at the east footing — ordering a geotech survey before we set rebar."
+    },
+    {
+      "at": "A-59T09:30",
+      "action": "risk.status",
+      "target": "risk:soil-conditions",
+      "actor": "tom",
+      "to": "MITIGATING"
+    },
+    {
+      "at": "A-52T14:00",
+      "action": "risk.status",
+      "target": "risk:soil-conditions",
+      "actor": "tom",
+      "to": "CLOSED"
+    },
+    {
+      "at": "A-50T08:00",
+      "action": "task.comment",
+      "target": "task:bayside:2.2",
+      "actor": "diego",
+      "body": "Rebar cage and formwork up for the east footing."
+    },
+    {
+      "at": "A-50T09:00",
+      "action": "task.status",
+      "target": "task:bayside:2.2",
+      "actor": "diego",
+      "to": "IN_PROGRESS"
+    },
+    {
+      "at": "A-47T15:00",
+      "action": "task.comment",
+      "target": "task:bayside:2.2",
+      "actor": "diego",
+      "body": "Tied and shimmed. Calling for inspection."
+    },
+    {
+      "at": "A-47T15:30",
+      "action": "task.status",
+      "target": "task:bayside:2.2",
+      "actor": "diego",
+      "to": "REVIEW"
+    },
+    {
+      "at": "A-46T10:00",
+      "action": "task.comment",
+      "target": "task:bayside:2.2",
+      "actor": "omar",
+      "body": "Inspection: bar spacing on the north face is out of tolerance per the spec. Failing it — needs a re-tie."
+    },
+    {
+      "at": "A-46T10:30",
+      "action": "task.status",
+      "target": "task:bayside:2.2",
+      "actor": "omar",
+      "to": "IN_PROGRESS"
+    },
+    {
+      "at": "A-44T14:00",
+      "action": "task.comment",
+      "target": "task:bayside:2.2",
+      "actor": "diego",
+      "body": "Re-tied to spec and re-shot the spacing. Ready for re-inspection."
+    },
+    {
+      "at": "A-44T14:30",
+      "action": "task.status",
+      "target": "task:bayside:2.2",
+      "actor": "diego",
+      "to": "REVIEW"
+    },
+    {
+      "at": "A-43T09:00",
+      "action": "task.comment",
+      "target": "task:bayside:2.2",
+      "actor": "omar",
+      "body": "Re-inspection passed. Cleared to pour."
+    },
+    {
+      "at": "A-43T09:30",
+      "action": "task.status",
+      "target": "task:bayside:2.2",
+      "actor": "omar",
+      "to": "COMPLETE"
+    },
+    {
+      "at": "A-40T07:00",
+      "action": "task.comment",
+      "target": "task:bayside:2.3",
+      "actor": "diego",
+      "body": "Rain moving in for the pour window — coordinating to pour ahead of the front so we don't lose the day."
+    },
+    {
+      "at": "A-34T08:00",
+      "action": "task.comment",
+      "target": "task:bayside:2.4",
+      "actor": "diego",
+      "body": "The pours belong with the concrete crew — moving the west pour to Tom."
+    },
+    {
+      "at": "A-34T08:05",
+      "action": "task.assign",
+      "target": "task:bayside:2.4",
+      "actor": "diego",
+      "assignee": "tom"
+    },
+    {
+      "at": "A-20T09:00",
+      "action": "risk.status",
+      "target": "risk:crane-availability",
+      "actor": "tom",
+      "to": "MITIGATING"
+    },
+    {
+      "at": "A-12T09:00",
+      "action": "risk.status",
+      "target": "risk:crane-availability",
+      "actor": "tom",
+      "to": "RESOLVED"
+    },
+    {
+      "at": "A-16T09:00",
+      "action": "task.comment",
+      "target": "task:bayside:3.1",
+      "actor": "diego",
+      "body": "Steel is going up. Owner is still weighing a mezzanine design change — holding the final connections until it's resolved."
+    },
+    {
+      "at": "A-14T11:00",
+      "action": "risk.status",
+      "target": "risk:design-change",
+      "actor": "diego",
+      "to": "MITIGATING"
     }
   ]
 }

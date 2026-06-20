@@ -25,10 +25,19 @@ not a snapshot.** Dates are anchor-relative, so a freshly loaded demo always
 reads as current rather than aging into a fixed-date museum piece. And an event
 timeline is replayed with backdated history, so:
 
-- tasks show **dated status transitions by named people** in their History tab,
-- closed sprints show **real burndown curves** and a **velocity trend with a
-  spread**, and
+- tasks show **dated status transitions, reassignments, and comments by named
+  people** in their History tab — including the occasional review bounce-back,
+- closed sprints show **real burndown curves**, a **velocity trend with a
+  spread**, and an honest **goal verdict**,
+- mid-sprint scope changes and **risk-status lifecycles** are recorded as dated,
+  attributed history, and
 - completed work carries actuals you can compare against the **baseline**.
+
+:::tip[Evaluating TruePPM?]
+The [Evaluation guide](/getting-started/evaluation-guide/) maps every 0.3
+capability to a sample, a persona login, the exact screen, and what you should
+see — a ~30-minute walkthrough.
+:::
 
 ## Load the demo data
 
