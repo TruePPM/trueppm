@@ -1,4 +1,4 @@
-"""Tests for project-grain forecast snapshot capture (ADR-0152, #388).
+"""Tests for project-grain forecast snapshot capture (ADR-0153, #388).
 
 Covers: the model, the capture service (Task aggregates + best-effort MonteCarloRun
 join + dedup), the best-effort wrapper, the daily floor backstop, the tiered
@@ -206,9 +206,7 @@ class TestCapture:
         def boom(*_a: object, **_k: object) -> None:
             raise RuntimeError("db gone")
 
-        monkeypatch.setattr(
-            "trueppm_api.apps.scheduling.services.capture_forecast_snapshot", boom
-        )
+        monkeypatch.setattr("trueppm_api.apps.scheduling.services.capture_forecast_snapshot", boom)
         # Must not raise — recompute on_commit relies on this being non-fatal.
         safe_capture_forecast_snapshot(project.pk, ForecastSnapshotTrigger.RECOMPUTE)
         assert ProjectForecastSnapshot.objects.filter(project=project).count() == 0
@@ -325,9 +323,7 @@ class TestEndpoint:
         assert results[1]["id"] == str(old.id)
         assert results[0]["cpm_finish"] == "2026-08-01"
 
-    def test_empty_returns_empty_results(
-        self, member_client: APIClient, project: Project
-    ) -> None:
+    def test_empty_returns_empty_results(self, member_client: APIClient, project: Project) -> None:
         res = member_client.get(url(project.pk))
         assert res.status_code == 200
         assert res.json()["results"] == []
@@ -349,9 +345,7 @@ class TestEndpoint:
         # Only the rows at −5 d and −10 d are at/before the bound.
         assert res.json()["count"] == 2
 
-    def test_non_member_forbidden_idor(
-        self, outsider: object, project: Project
-    ) -> None:
+    def test_non_member_forbidden_idor(self, outsider: object, project: Project) -> None:
         ProjectForecastSnapshot.objects.create(project=project)
         c = APIClient()
         c.force_authenticate(user=outsider)
@@ -360,9 +354,7 @@ class TestEndpoint:
     def test_unauthenticated_401(self, project: Project) -> None:
         assert APIClient().get(url(project.pk)).status_code == 401
 
-    def test_archived_project_still_readable(
-        self, member: object, calendar: Calendar
-    ) -> None:
+    def test_archived_project_still_readable(self, member: object, calendar: Calendar) -> None:
         # Archived projects are hard read-only, not hidden — forecast history must
         # stay visible (IsProjectNotArchived passes SAFE_METHODS). A member can read
         # the captured drift even after the project is archived.
