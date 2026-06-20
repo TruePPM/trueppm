@@ -74,6 +74,12 @@ const SEED_PROJECT = {
   inherited_mc_history_enabled: true,
   inherited_mc_history_retention_cap: 100,
   inherited_mc_history_attribution_audience: 'ADMIN_OWNER',
+  attachments_enabled: null,
+  allowed_attachment_types: null,
+  effective_attachments_enabled: true,
+  effective_allowed_attachment_types: ['application/pdf'],
+  inherited_attachments_enabled: true,
+  inherited_allowed_attachment_types: ['application/pdf'],
 };
 
 let mutateAsync: ReturnType<typeof vi.fn>;

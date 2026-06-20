@@ -32,6 +32,9 @@ interface WorkspaceSettingsRaw {
   mc_history_override_policy: MCHistoryOverridePolicy;
   methodology: ProgramMethodology;
   methodology_override_policy: MethodologyOverridePolicy;
+  attachments_enabled: boolean;
+  allowed_attachment_types: string[];
+  attachments_override_policy: 'inherit' | 'suggest' | 'enforce';
   logo_url: string | null;
 }
 
@@ -56,6 +59,9 @@ function mapSettings(raw: WorkspaceSettingsRaw): WorkspaceSettings {
     mcHistoryOverridePolicy: raw.mc_history_override_policy,
     methodology: raw.methodology,
     methodologyOverridePolicy: raw.methodology_override_policy,
+    attachmentsEnabled: raw.attachments_enabled,
+    allowedAttachmentTypes: raw.allowed_attachment_types,
+    attachmentsOverridePolicy: raw.attachments_override_policy,
     logoUrl: raw.logo_url,
   };
 }

@@ -27,6 +27,9 @@ const WS: WorkspaceSettings = {
   mcHistoryOverridePolicy: 'allow',
   methodology: 'HYBRID',
   methodologyOverridePolicy: 'suggest',
+  attachmentsEnabled: true,
+  allowedAttachmentTypes: ['application/pdf'],
+  attachmentsOverridePolicy: 'suggest',
   logoUrl: null,
 };
 

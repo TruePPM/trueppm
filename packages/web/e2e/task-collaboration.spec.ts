@@ -52,6 +52,18 @@ const FIXTURE_PROJECT = {
   start_date: '2026-01-01',
   calendar: 'default',
   estimation_mode: 'open',
+  // Resolved attachment policy (ADR-0153, #976) — the drawer gates the add-control
+  // and mirrors the allow-list from these. Uploads enabled with the system seed set.
+  effective_attachments_enabled: true,
+  effective_allowed_attachment_types: [
+    'application/pdf',
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'text/csv',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  ],
 };
 
 const FIXTURE_USER = {

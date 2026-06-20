@@ -126,6 +126,27 @@ scope) and writable by an Owner/Admin; the resolved fields `effective_public_sha
 `inherited_public_sharing`, `effective_allow_guests`, and `inherited_allow_guests` are
 read-only. See [Sharing & Access Inheritance](/administration/sharing-and-access/).
 
+Projects and programs also carry the inheritable **attachment policy** (the same
+Workspace → Program → Project chain). The override fields are writable by an
+Owner/Admin:
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `attachments_enabled` | `boolean \| null` | Whether file uploads are permitted. `null` = inherit from the parent scope. |
+| `allowed_attachment_types` | `string[] \| null` | MIME allow-list (tri-state): `null` = inherit, `[]` = explicitly allow nothing, `[...]` = an explicit set. |
+
+The resolved fields `effective_attachments_enabled`,
+`inherited_attachments_enabled`, `effective_allowed_attachment_types`, and
+`inherited_allowed_attachment_types` are read-only. `effective_*` is the value in
+force after inheritance; `inherited_*` is what the parent scope would supply
+(what `effective_*` falls back to when the override is `null`).
+
+Writing a MIME type that is permanently security-denied (`text/html`,
+`image/svg+xml`, `application/xhtml+xml`) into `allowed_attachment_types` returns
+`400` — these can never be allowed, at any scope. An empty list is accepted. See
+[Task collaboration](/features/task-collaboration/) for how the resolved policy
+governs uploads.
+
 ### Project members
 
 | Method | Path | Description |
@@ -197,6 +218,30 @@ implementation is not yet available.
 | DELETE | `/api/v1/tasks/{id}/` | Soft-delete (cascades to edges) |
 
 CPM fields (`early_start`, `early_finish`, `late_start`, `late_finish`, `total_float`, `is_critical`) are read-only — set by the auto-scheduler.
+
+### Task attachments
+
+Each attachment is **either** an uploaded file **or** an external URL — never both.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/projects/{id}/tasks/{task_id}/attachments/` | List (Viewer+) |
+| POST | `/api/v1/projects/{id}/tasks/{task_id}/attachments/` | Add (Member+); multipart `file` **xor** `external_url` |
+| GET | `/api/v1/projects/{id}/tasks/{task_id}/attachments/{att_id}/` | Retrieve (Viewer+) |
+| DELETE | `/api/v1/projects/{id}/tasks/{task_id}/attachments/{att_id}/` | Soft-delete (uploader or Admin+) |
+| GET | `/api/v1/projects/{id}/tasks/{task_id}/attachments/{att_id}/signed-url/` | Issue a short-lived download URL (file attachments only) |
+
+**File uploads** are governed by the project's resolved attachment policy
+(`effective_attachments_enabled` / `effective_allowed_attachment_types` on the
+project — see [Projects](#projects)):
+
+- If the resolved `attachments_enabled` is `false`, a **file** upload returns
+  `403`. External-URL attachments are **not** affected by `attachments_enabled`.
+- The uploaded file's MIME type must be in the project's *resolved* allow-list
+  (not a fixed list). A disallowed type returns `400` with code
+  `attachment_unsupported_mime`. The declared MIME is also content-sniffed, so a
+  payload that masquerades as an allowed type is rejected.
+- External-URL attachments must use an `http(s)` scheme.
 
 ### Sprint–milestone binding
 
@@ -290,6 +335,21 @@ The workspace config includes `public_sharing` and `allow_guests` (the inheritan
 defaults for all programs and projects) and `public_sharing_override_policy`
 (`suggest`/`enforce`). `enforce` is an Enterprise-only lock and degrades to `suggest` in
 the community edition. See [Sharing & Access Inheritance](/administration/sharing-and-access/).
+
+The workspace config also carries the **attachment policy** root — the non-null
+top of the Workspace → Program → Project inheritance chain (lower scopes leave
+their override `null` to inherit these):
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `attachments_enabled` | `boolean` | Whether task **file** uploads are permitted by default (external links are unaffected). |
+| `allowed_attachment_types` | `string[]` | MIME allow-list (seeded from the system default). An empty list is a deliberate "no file types allowed" policy. |
+| `attachments_override_policy` | `string` | `inherit` / `suggest` / `enforce` (default `suggest`). `enforce` is an Enterprise lock and is a no-op in the community edition. |
+
+These three fields are writable by a Workspace Admin+. Writing a permanently
+security-denied MIME type (`text/html`, `image/svg+xml`,
+`application/xhtml+xml`) into `allowed_attachment_types` returns `400` — these
+can never be allowed.
 
 ### Workspace members
 

@@ -93,6 +93,13 @@ export interface UpdateProjectPayload {
   mc_history_enabled?: boolean | null;
   mc_history_retention_cap?: number | null;
   mc_history_attribution_audience?: MCAttributionAudience | null;
+  /** Attachment-policy overrides (ADR-0153, issue 976). `attachments_enabled`: `null`
+   *  clears the override so the project inherits the program/workspace value.
+   *  `allowed_attachment_types` is tri-state: `null` = inherit, `[]` = explicit
+   *  empty, `[...]` = explicit allow-list. Admin+-only server-side; the security
+   *  denylist is rejected on write. */
+  attachments_enabled?: boolean | null;
+  allowed_attachment_types?: string[] | null;
   /** Calendar UUID or null to inherit from the workspace. */
   calendar?: string | null;
   /** Project lead — user id, or null to unassign. Admin+-only and must already
