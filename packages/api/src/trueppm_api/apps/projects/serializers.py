@@ -1871,6 +1871,10 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             has_wbs_children = (
                 _Task.objects.filter(project_id=self.instance.project_id, is_deleted=False)
                 .annotate(
+                    # Parameterized ltree query (%s placeholder) — no string
+                    # interpolation of user input; the ltree operator can't be
+                    # expressed in the ORM.
+                    # nosemgrep: avoid-raw-sql
                     _is_descendant=RawSQL(
                         "wbs_path ~ (%s || '.*{1,}')::lquery",
                         [str(self.instance.wbs_path)],
@@ -5190,11 +5194,14 @@ class TaskCommentSerializer(serializers.ModelSerializer[TaskComment]):
     def get_acknowledged_count(self, obj: TaskComment) -> int:
         # Read the prefetch cache populated by TaskCommentViewSet.get_queryset()
         # (.prefetch_related("acknowledgements")) instead of issuing a new COUNT
-        # query per comment row.
+        # query per comment row. len() on the prefetched cache is deliberate here;
+        # .count() would defeat the prefetch with a per-row query (N+1).
+        # nosemgrep: len-all-count
         return len(obj.acknowledgements.all())
 
     def get_reaction_count(self, obj: TaskComment) -> int:
-        # Same: read the prefetch cache for "reactions".
+        # Same: read the prefetch cache for "reactions" (len() deliberate — see above).
+        # nosemgrep: len-all-count
         return len(obj.reactions.all())
 
     def get_has_my_acknowledgement(self, obj: TaskComment) -> bool:

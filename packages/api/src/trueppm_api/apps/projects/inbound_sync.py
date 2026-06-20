@@ -80,6 +80,9 @@ def _resolve_status(payload_status: str | None, token: ProjectApiToken) -> str:
     # TaskStatus, fall back to BACKLOG rather than raise — the inbound caller
     # should not be punished for a token-config bug they can't see.
     if candidate not in TaskStatus.values:
+        # No secret logged: token.token_prefix is the short non-secret identifier
+        # prefix (the full token value is never read here), plus status strings.
+        # nosemgrep: python-logger-credential-disclosure
         logger.warning(
             "inbound_sync: token %s mapped status %r to invalid TaskStatus %r",
             token.token_prefix,

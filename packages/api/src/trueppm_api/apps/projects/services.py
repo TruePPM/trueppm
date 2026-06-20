@@ -505,8 +505,11 @@ def sprint_health(project_id: str | uuid.UUID) -> dict[str, Any]:
         .annotate(
             # nosec B611 — static SQL literals (no user input), empty params list;
             # the ltree expressions can't be expressed in the ORM. Bandit flags any RawSQL.
+            # nosemgrep: avoid-raw-sql
             _has_child=RawSQL(has_child_sql, [], output_field=BooleanField()),  # nosec B611
+            # nosemgrep: avoid-raw-sql
             _depth=RawSQL(depth_sql, [], output_field=IntegerField()),  # nosec B611
+            # nosemgrep: avoid-raw-sql
             _l1=RawSQL(l1_sql, [], output_field=TextField()),  # nosec B611
         )
         .values("is_milestone", "sprint_id", "_has_child", "_depth", "_l1")
@@ -2882,9 +2885,14 @@ def compute_scope_rollup(task: Any) -> dict[str, Any]:
         leaf_ids = list(
             Task.objects.filter(project_id=task.project_id, is_deleted=False)
             .annotate(
+                # Parameterized ltree subtree match (%s) — no user input is
+                # string-interpolated; ltree operators aren't ORM-expressible.
+                # nosemgrep: avoid-raw-sql
                 _in_subtree=RawSQL(
                     "wbs_path <@ %s::ltree", [str(task.wbs_path)], output_field=BooleanField()
                 ),
+                # Static SQL literal, empty params list (no user input).
+                # nosemgrep: avoid-raw-sql
                 _has_child=RawSQL(
                     "EXISTS(SELECT 1 FROM projects_task gc"
                     " WHERE gc.project_id = projects_task.project_id"

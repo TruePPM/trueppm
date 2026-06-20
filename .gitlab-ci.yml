@@ -1900,9 +1900,10 @@ security:semgrep:
   # (api, scheduler). Complements bandit (Python-only) and the SCA scanners
   # (security:osv) / IaC scanner (security:trivy:config).
   #
-  # Gates on ERROR severity (high-confidence security findings) — currently
-  # clean. WARNING-level best-practice findings are tracked for triage in #1154;
-  # once cleared, drop --severity ERROR to harden the gate to WARNING too.
+  # Gates on ERROR + WARNING severity. The WARNING-level best-practice findings
+  # were triaged in #1154 (fixed or inline-justified with `# nosemgrep`), so the
+  # gate now fails on WARNING too. INFO-level findings stay un-gated (out of
+  # scope for #1154) — hence the explicit severity list rather than the default.
   #
   # Rules are pulled from the Semgrep registry (p/ packs); no Semgrep AppSec
   # Platform account or token is used — this is a self-contained, local-rules run.
@@ -1924,7 +1925,7 @@ security:semgrep:
   script:
     - semgrep scan
         --config p/default --config p/django --config p/react
-        --severity ERROR --error --metrics off
+        --severity ERROR --severity WARNING --error --metrics off
         --exclude 'node_modules' --exclude 'dist'
         --exclude '*.test.ts' --exclude '*.test.tsx' --exclude 'e2e' --exclude 'tests'
         packages/web/src packages/api/src packages/scheduler/src

@@ -78,6 +78,11 @@ class Command(BaseCommand):
             email=email,
             defaults={"username": username},
         )
+        # Bootstrap-only: password is an operator-supplied env var or a
+        # cryptographically random token (above), not interactive signup input —
+        # AUTH_PASSWORD_VALIDATORS govern the registration path, not superuser
+        # provisioning.
+        # nosemgrep: unvalidated-password
         user.set_password(password)
         user.username = username
         user.is_staff = True
@@ -104,6 +109,9 @@ class Command(BaseCommand):
         except OSError as exc:
             # File write failed.  Fall back to management-command stdout only;
             # do NOT use logger.* (log aggregators capture WARNING+ lines).
+            # No secret logged: the only arg is the OSError; the password is
+            # surfaced solely on command stdout below, never via the logger.
+            # nosemgrep: python-logger-credential-disclosure
             logger.warning(
                 "create_admin: could not write password file (%s). "
                 "Credential printed to command stdout only.",
