@@ -361,3 +361,89 @@ class TestMonteCarloProgressAware:
         # 3 days → Wed 25-Mar. Were completion ignored (the old behavior), B would
         # be re-rolled from the planned schedule and finish far earlier.
         assert r.data["p50"] == r.data["p80"] == r.data["p95"] == "2026-03-25"
+
+
+# ---------------------------------------------------------------------------
+# build_sched_tasks — SUGGEST_APPROVE PERT withholding (#848 backfill)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestBuildSchedTasksSuggestApprove:
+    """The shared API→engine converter withholds pending three-point estimates
+    in SUGGEST_APPROVE mode (the gate that feeds Monte Carlo). The scheduler's
+    all-or-none rule means a single withheld value falls the task back to its
+    deterministic duration."""
+
+    def _pert_task(self, project: Project, status: str) -> Task:
+        from trueppm_api.apps.projects.models import EstimateStatus
+
+        return Task.objects.create(
+            project=project,
+            name="PERT",
+            duration=5,
+            optimistic_duration=3,
+            most_likely_duration=5,
+            pessimistic_duration=10,
+            estimate_status=getattr(EstimateStatus, status),
+        )
+
+    def test_withholds_pending_pert_in_suggest_approve(self, project: Project) -> None:
+        from datetime import timedelta
+
+        from trueppm_api.apps.scheduling.services import build_sched_tasks
+
+        task = self._pert_task(project, "PENDING")
+        [sched] = build_sched_tasks([task], suggest_approve=True)
+        assert sched.optimistic_duration is None
+        assert sched.most_likely_duration is None
+        assert sched.pessimistic_duration is None
+        # Falls back to the deterministic duration.
+        assert sched.duration == timedelta(days=5)
+
+    def test_keeps_accepted_pert_in_suggest_approve(self, project: Project) -> None:
+        from datetime import timedelta
+
+        from trueppm_api.apps.scheduling.services import build_sched_tasks
+
+        task = self._pert_task(project, "ACCEPTED")
+        [sched] = build_sched_tasks([task], suggest_approve=True)
+        assert sched.optimistic_duration == timedelta(days=3)
+        assert sched.most_likely_duration == timedelta(days=5)
+        assert sched.pessimistic_duration == timedelta(days=10)
+
+    def test_keeps_pending_pert_when_not_suggest_approve(self, project: Project) -> None:
+        from datetime import timedelta
+
+        from trueppm_api.apps.scheduling.services import build_sched_tasks
+
+        task = self._pert_task(project, "PENDING")
+        # OPEN / PM_ONLY modes never withhold (suggest_approve=False).
+        [sched] = build_sched_tasks([task], suggest_approve=False)
+        assert sched.most_likely_duration == timedelta(days=5)
+
+
+# ---------------------------------------------------------------------------
+# Monte Carlo endpoint — OverflowError defense-in-depth branch (#848 backfill)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_monte_carlo_overflow_error_returns_400(
+    member_client: APIClient, project: Project, pert_task: Task
+) -> None:
+    """A date-range OverflowError out of the engine must surface as 400, not 500.
+
+    OverflowError is not a ValueError, so it needs its own except arm. The
+    engine's span guard makes this unreachable in practice, hence the patch.
+    """
+    from unittest.mock import patch
+
+    with patch("trueppm_scheduler.engine.monte_carlo", side_effect=OverflowError("date overflow")):
+        r = member_client.post(
+            f"/api/v1/projects/{project.pk}/monte-carlo/",
+            {"n_simulations": 50},
+            format="json",
+        )
+    assert r.status_code == 400
+    assert "representable date range" in r.data["detail"]

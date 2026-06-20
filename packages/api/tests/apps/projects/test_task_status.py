@@ -654,3 +654,46 @@ def test_explicit_complete_status_overrides_auto_review_for_admin(
     assert r.status_code == 200
     task.refresh_from_db()
     assert task.status == TaskStatus.COMPLETE
+
+
+# ---------------------------------------------------------------------------
+# Readiness — 'baselined' branch (#848 backfill)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_readiness_baselined_when_baseline_start_annotated(project: Project, user: object) -> None:
+    """A task that appears in the active baseline reports readiness=baselined.
+
+    The viewset annotates ``baseline_start`` from the active baseline; the
+    serializer reads that annotation. We set it directly to test the branch
+    (serializers.get_readiness) in isolation from the annotation query.
+    """
+    from trueppm_api.apps.projects.serializers import TaskSerializer
+
+    task = Task.objects.create(
+        project=project,
+        name="Baselined",
+        duration=3,
+        assignee=user,
+        status=TaskStatus.IN_PROGRESS,
+    )
+    task.baseline_start = date(2026, 1, 5)
+    assert TaskSerializer().get_readiness(task) == "baselined"
+
+
+@pytest.mark.django_db
+def test_readiness_baselined_takes_precedence_over_idea(project: Project) -> None:
+    """'baselined' is the highest-specificity verdict — it wins even for an
+    unassigned BACKLOG task that would otherwise report 'idea'."""
+    from trueppm_api.apps.projects.serializers import TaskSerializer
+
+    task = Task.objects.create(
+        project=project,
+        name="Backlog but baselined",
+        duration=2,
+        status=TaskStatus.BACKLOG,
+    )
+    assert TaskSerializer().get_readiness(task) == "idea"
+    task.baseline_start = date(2026, 1, 5)
+    assert TaskSerializer().get_readiness(task) == "baselined"

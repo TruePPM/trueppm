@@ -7,6 +7,12 @@ import {
   drawActualDateBar,
   drawScheduleVarianceBadge,
   drawTimelineHeader,
+  drawRowBands,
+  drawGridLines,
+  drawTodayLine,
+  drawMilestone,
+  drawDragShadow,
+  drawResizeIndicator,
   MILESTONE_SIZE,
   GHOST_BAR_HEIGHT,
   BAR_HEIGHT,
@@ -1197,5 +1203,151 @@ describe('dependency arrows — cached layout + scroll re-projection (#1000)', (
     const { ctx, calls } = makeArrowCtxSpy();
     paintDependencyLayout(ctx, layout, 0, 0);
     expect(pointsFrom(calls)).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Draw primitives — backfill coverage (#848): row bands, grid, today line,
+// milestone diamond, drag shadow, resize indicator.
+// ---------------------------------------------------------------------------
+
+describe('draw primitives (#848 coverage)', () => {
+  const scales = buildScaleData('week', '2026-04-01', '2026-05-01');
+
+  // drawGridLines / drawTodayLine read ctx.canvas.width for viewport clipping;
+  // the bare spy has no canvas, so give it a generous one.
+  function makeBgCtx(width = 1_000_000) {
+    const { ctx, calls } = makeCtxSpy();
+    (ctx as unknown as { canvas: { width: number; height: number } }).canvas = {
+      width,
+      height: 4000,
+    };
+    return { ctx, calls };
+  }
+
+  describe('drawRowBands', () => {
+    it('shades only odd rows with a fillRect', () => {
+      const { ctx, calls } = makeCtxSpy();
+      drawRowBands(ctx, 0, 3, 0, 0, 1000);
+      const rects = calls.filter((c) => c.name === 'fillRect');
+      // rows 1 and 3 are odd → two alternating bands
+      expect(rects.length).toBe(2);
+      expect(rects[0].args[1]).toBeCloseTo(1 * ROW_HEIGHT + HEADER_HEIGHT);
+    });
+
+    it('draws nothing when the range contains no odd rows', () => {
+      const { ctx, calls } = makeCtxSpy();
+      drawRowBands(ctx, 0, 0, 0, 0, 1000);
+      expect(calls.filter((c) => c.name === 'fillRect').length).toBe(0);
+    });
+  });
+
+  describe('drawGridLines', () => {
+    it('strokes vertical day lines and horizontal row separators', () => {
+      const { ctx, calls } = makeBgCtx();
+      drawGridLines(ctx, scales, 0, 0, 600, 0, 3);
+      // Two stroke passes: the vertical grid and the horizontal separators.
+      expect(calls.filter((c) => c.name === 'stroke').length).toBeGreaterThanOrEqual(2);
+      expect(calls.filter((c) => c.name === 'lineTo').length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('drawTodayLine', () => {
+    it('strokes a single vertical line when today is within the visible range', () => {
+      // A wide range so "today" (whenever the suite runs) is always in view.
+      const wide = buildScaleData('month', '2024-01-01', '2030-01-01');
+      const { ctx, calls } = makeBgCtx();
+      drawTodayLine(ctx, wide, 0, 600);
+      expect(calls.filter((c) => c.name === 'stroke').length).toBe(1);
+      const moveTo = calls.find((c) => c.name === 'moveTo');
+      expect(moveTo).toBeDefined();
+      expect(moveTo!.args[1]).toBe(HEADER_HEIGHT);
+    });
+  });
+
+  describe('drawMilestone', () => {
+    function milestone(overrides: Partial<Task> = {}): Task {
+      return {
+        id: 'm1',
+        name: 'Go Live',
+        start: '2026-04-08',
+        plannedStart: '2026-04-08',
+        finish: '2026-04-08',
+        duration: 0,
+        progress: 0,
+        isSummary: false,
+        isMilestone: true,
+        isCritical: false,
+        parentId: null,
+        wbs: '1',
+        ...overrides,
+      } as unknown as Task;
+    }
+
+    it('draws a rotated diamond for a committed milestone', () => {
+      const { ctx, calls } = makeCtxSpy();
+      drawMilestone(ctx, milestone(), 0, scales, 0, false);
+      expect(calls.filter((c) => c.name === 'translate').length).toBe(1);
+      const rotate = calls.find((c) => c.name === 'rotate');
+      expect(rotate?.args[0]).toBeCloseTo(Math.PI / 4);
+      const rect = calls.find((c) => c.name === 'rect');
+      expect(rect?.args[2]).toBe(MILESTONE_SIZE);
+      expect(calls.filter((c) => c.name === 'fill').length).toBe(1);
+    });
+
+    it('adds a selection-ring stroke when selected', () => {
+      const { ctx, calls } = makeCtxSpy();
+      drawMilestone(ctx, milestone(), 0, scales, 0, true);
+      expect(calls.filter((c) => c.name === 'stroke').length).toBe(1);
+    });
+
+    it('skips uncommitted milestones (no plannedStart, no sprintId) — #332', () => {
+      const { ctx, calls } = makeCtxSpy();
+      drawMilestone(ctx, milestone({ plannedStart: undefined }), 0, scales, 0, false);
+      expect(calls.filter((c) => c.name === 'translate').length).toBe(0);
+      expect(calls.filter((c) => c.name === 'fill').length).toBe(0);
+    });
+  });
+
+  describe('drawDragShadow', () => {
+    function bar(): Task {
+      return {
+        id: 't1',
+        name: 'Task',
+        start: '2026-04-06',
+        finish: '2026-04-10',
+        duration: 5,
+        progress: 0,
+        isSummary: false,
+        isMilestone: false,
+        isCritical: false,
+        parentId: null,
+        wbs: '1',
+      } as unknown as Task;
+    }
+
+    it('draws a ghost roundRect with fill + stroke at the given x and row', () => {
+      const { ctx, calls } = makeCtxSpy();
+      drawDragShadow(ctx, bar(), 120, 2, scales);
+      const rr = calls.find((c) => c.name === 'roundRect');
+      expect(rr).toBeDefined();
+      expect(rr!.args[0]).toBe(120); // canvasX
+      expect(rr!.args[1]).toBeCloseTo(2 * ROW_HEIGHT + HEADER_HEIGHT + BAR_TOP_OFFSET);
+      expect(calls.filter((c) => c.name === 'fill').length).toBe(1);
+      expect(calls.filter((c) => c.name === 'stroke').length).toBe(1);
+    });
+  });
+
+  describe('drawResizeIndicator', () => {
+    it('strokes a 1px vertical line at barRight - 4 across the bar height', () => {
+      const { ctx, calls } = makeCtxSpy();
+      drawResizeIndicator(ctx, 200, 50);
+      const moveTo = calls.find((c) => c.name === 'moveTo');
+      const lineTo = calls.find((c) => c.name === 'lineTo');
+      expect(moveTo!.args[0]).toBe(200 - 4 + 0.5);
+      expect(moveTo!.args[1]).toBe(50);
+      expect(lineTo!.args[1]).toBe(50 + BAR_HEIGHT);
+      expect(calls.filter((c) => c.name === 'stroke').length).toBe(1);
+    });
   });
 });
