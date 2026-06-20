@@ -37,6 +37,7 @@ const WS: WorkspaceSettings = {
   mcHistoryOverridePolicy: 'allow',
   methodology: 'WATERFALL',
   methodologyOverridePolicy: 'suggest',
+  logoUrl: null,
 };
 
 function renderPage() {
