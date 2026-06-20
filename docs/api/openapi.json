@@ -8223,6 +8223,48 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/visit/": {
+            "post": {
+                "operationId": "v1_projects_visit_create",
+                "description": "Record that the current user just opened this project (ADR-0150, #1182).\n\nFire-and-forget from the web ``ProjectShell`` mount; feeds the real\nlast-visited landing default (``services.most_recent_project``). The write\nis server-side coalesced to at most once per minute per (user, project) —\na coalesced ping returns ``200 {\"recorded\": false}`` (a no-op, never a\n429: a dropped navigation ping is inconsequential). Any member (Viewer+)\nmay record their own visit; the upsert is scoped to ``request.user`` so a\nuser can never affect another user's visit row.",
+                "summary": "Record a last-visited ping for this project",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this project.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProjectVisitResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/workshop/current/": {
             "get": {
                 "operationId": "v1_projects_workshop_current_retrieve",
@@ -26898,6 +26940,17 @@
                 "required": [
                     "project",
                     "resource"
+                ]
+            },
+            "ProjectVisitResponse": {
+                "type": "object",
+                "properties": {
+                    "recorded": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "recorded"
                 ]
             },
             "PurgeRun": {

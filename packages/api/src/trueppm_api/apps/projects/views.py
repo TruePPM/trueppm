@@ -282,6 +282,12 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
             return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
         if self.action in ("product_backlog_auto_rank", "product_backlog_reorder"):
             return [IsAuthenticated(), IsProjectBacklogManager(), IsProjectNotArchived()]
+        # Recording a last-visited ping is any-member (Viewer+) and intentionally
+        # skips IsProjectNotArchived: a user opening an archived project is still a
+        # real visit (ADR-0150 D4). The resolver separately filters archived
+        # projects out of the landing result, so recording one is harmless.
+        if self.action == "visit":
+            return [IsAuthenticated(), IsProjectMember()]
         return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
 
     queryset = Project.objects.select_related("calendar", "lead", "program").order_by(
@@ -744,6 +750,37 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
             )
         serializer = self.get_serializer(project)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        summary="Record a last-visited ping for this project",
+        request=None,
+        responses={
+            200: inline_serializer(
+                name="ProjectVisitResponse",
+                fields={"recorded": serializers.BooleanField()},
+            )
+        },
+    )
+    @action(detail=True, methods=["post"], url_path="visit")
+    def visit(self, request: Request, pk: str | None = None) -> Response:
+        """Record that the current user just opened this project (ADR-0150, #1182).
+
+        Fire-and-forget from the web ``ProjectShell`` mount; feeds the real
+        last-visited landing default (``services.most_recent_project``). The write
+        is server-side coalesced to at most once per minute per (user, project) —
+        a coalesced ping returns ``200 {"recorded": false}`` (a no-op, never a
+        429: a dropped navigation ping is inconsequential). Any member (Viewer+)
+        may record their own visit; the upsert is scoped to ``request.user`` so a
+        user can never affect another user's visit row.
+        """
+        from trueppm_api.apps.profiles.services import record_project_visit
+        from trueppm_api.apps.projects.throttles import claim_visit_window
+
+        project = self.get_object()
+        if claim_visit_window(request.user.pk, project.pk):
+            record_project_visit(request.user, project)
+            return Response({"recorded": True}, status=status.HTTP_200_OK)
+        return Response({"recorded": False}, status=status.HTTP_200_OK)
 
     @extend_schema(
         summary="Transfer project ownership",

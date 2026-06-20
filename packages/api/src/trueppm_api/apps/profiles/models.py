@@ -69,3 +69,50 @@ class UserProfile(models.Model):
 
     def __str__(self) -> str:
         return f"UserProfile({self.user_id}, default_landing={self.default_landing})"
+
+
+class ProjectVisit(models.Model):
+    """Per-user "last visited" timestamp for a project (ADR-0150).
+
+    One row per ``(user, project)``, upserted on each visit, recording when the
+    user last opened the project. This replaces the membership-``server_version``
+    proxy that ``services.most_recent_project`` used to pick a PM's landing
+    project (ADR-0129 flagged the proxy as inadequate: a membership's version
+    advances on role edits, not on actual navigation).
+
+    Like :class:`UserProfile` this is private per-user navigation telemetry —
+    plain ``models.Model`` (no ``server_version``), never synced to mobile, never
+    broadcast. The upsert-in-place shape keeps the table bounded by the user's
+    membership count, and the ``(user, -visited_at)`` index serves both the
+    resolver's "my most recent project" lookup and a forward-compatible
+    "recently viewed projects" switcher without a schema change.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="project_visits",
+    )
+    project = models.ForeignKey(
+        "projects.Project",
+        on_delete=models.CASCADE,
+        related_name="visits",
+    )
+    visited_at = models.DateTimeField(help_text="When the user last opened this project.")
+
+    class Meta:
+        verbose_name = "project visit"
+        verbose_name_plural = "project visits"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "project"],
+                name="uq_project_visit_user_project",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["user", "-visited_at"], name="projectvisit_user_recent_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"ProjectVisit({self.user_id} → {self.project_id} @ {self.visited_at:%Y-%m-%d})"
