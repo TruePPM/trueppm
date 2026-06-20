@@ -9,7 +9,8 @@ import {
   useDeleteAttachment,
   useSignedDownloadUrl,
   MAX_ATTACHMENT_SIZE_BYTES,
-  ALLOWED_ATTACHMENT_MIMES,
+  isMimeAllowed,
+  normalizeMime,
 } from './useTaskAttachments';
 import type { TaskAttachment } from '@/types';
 
@@ -50,11 +51,30 @@ const baseAttachment: TaskAttachment = {
   deleted_at: null,
 };
 
-describe('locked constants', () => {
-  it('matches the server-side cap and MIME allow-list', () => {
+describe('locked size cap', () => {
+  it('matches the server-side cap', () => {
     expect(MAX_ATTACHMENT_SIZE_BYTES).toBe(100 * 1024 * 1024);
-    expect(ALLOWED_ATTACHMENT_MIMES.has('application/pdf')).toBe(true);
-    expect(ALLOWED_ATTACHMENT_MIMES.has('image/gif')).toBe(false);
+  });
+});
+
+describe('isMimeAllowed / normalizeMime (ADR-0153)', () => {
+  const allowed = ['application/pdf', 'text/csv'];
+
+  it('normalizes a MIME by dropping the charset suffix and lowercasing', () => {
+    expect(normalizeMime('TEXT/CSV; charset=utf-8')).toBe('text/csv');
+    expect(normalizeMime('  application/pdf  ')).toBe('application/pdf');
+    expect(normalizeMime('')).toBe('');
+  });
+
+  it('allows a MIME present in the resolved list (after normalization)', () => {
+    expect(isMimeAllowed('application/pdf', allowed)).toBe(true);
+    expect(isMimeAllowed('text/csv; charset=utf-8', allowed)).toBe(true);
+  });
+
+  it('rejects a MIME absent from the resolved list', () => {
+    expect(isMimeAllowed('image/gif', allowed)).toBe(false);
+    // An empty resolved list allows nothing.
+    expect(isMimeAllowed('application/pdf', [])).toBe(false);
   });
 });
 

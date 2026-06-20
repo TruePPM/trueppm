@@ -8,6 +8,7 @@ const useListMock = vi.hoisted(() => vi.fn());
 const useCreateMock = vi.hoisted(() => vi.fn());
 const useDeleteMock = vi.hoisted(() => vi.fn());
 const useSignedUrlMock = vi.hoisted(() => vi.fn());
+const useProjectMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/hooks/useTaskAttachments', async () => {
   const actual = await vi.importActual<typeof import('@/hooks/useTaskAttachments')>(
@@ -21,6 +22,17 @@ vi.mock('@/hooks/useTaskAttachments', async () => {
     useSignedDownloadUrl: useSignedUrlMock,
   };
 });
+
+// AttachmentSection reads the project's resolved attachment policy (ADR-0153,
+// #976). Default to uploads-on with a representative allow-list so existing
+// upload/list tests behave as before; per-test overrides exercise the
+// disabled / empty-allowlist states.
+vi.mock('@/hooks/useProject', () => ({ useProject: useProjectMock }));
+
+const ATTACHMENT_POLICY = {
+  effective_attachments_enabled: true,
+  effective_allowed_attachment_types: ['application/pdf', 'text/csv', 'image/png'],
+};
 
 function attachment(overrides: Partial<TaskAttachment> = {}): TaskAttachment {
   return {
@@ -46,6 +58,7 @@ beforeEach(() => {
   useCreateMock.mockReturnValue({ mutate: vi.fn(), isPending: false, isError: false });
   useDeleteMock.mockReturnValue({ mutate: vi.fn(), isPending: false, isError: false });
   useSignedUrlMock.mockReturnValue({ mutate: vi.fn(), isPending: false });
+  useProjectMock.mockReturnValue({ data: ATTACHMENT_POLICY });
 });
 
 afterEach(() => {
@@ -321,5 +334,64 @@ describe('AttachmentSection — role-gated write controls (#1046)', () => {
     render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
     expect(screen.getByText('+ Attach file')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Delete design.pdf/ })).toBeInTheDocument();
+  });
+});
+
+describe('AttachmentSection — policy-disabled state (#976)', () => {
+  it('replaces the add-controls with a muted note when uploads are disabled, keeping existing files', () => {
+    useProjectMock.mockReturnValue({
+      data: { effective_attachments_enabled: false, effective_allowed_attachment_types: [] },
+    });
+    useListMock.mockReturnValue({
+      attachments: [attachment({ file_name: 'kept.pdf' })],
+      isLoading: false,
+      error: null,
+    });
+    render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+
+    // Existing files still list + download.
+    expect(screen.getByText('kept.pdf')).toBeInTheDocument();
+    expect(screen.getByLabelText('Download kept.pdf')).toBeInTheDocument();
+    // Add affordances are gone, replaced by the disabled note.
+    expect(screen.queryByText('+ Attach file')).toBeNull();
+    expect(screen.queryByText('+ Pin link')).toBeNull();
+    const note = screen.getByRole('note');
+    expect(note.textContent).toMatch(/File attachments are disabled for this project/);
+  });
+
+  it('does not show the disabled note to a Viewer (who had no add-controls anyway)', () => {
+    useProjectMock.mockReturnValue({
+      data: { effective_attachments_enabled: false, effective_allowed_attachment_types: [] },
+    });
+    useListMock.mockReturnValue({
+      attachments: [attachment({ file_name: 'kept.pdf' })],
+      isLoading: false,
+      error: null,
+    });
+    render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_VIEWER} />);
+    expect(screen.getByText('kept.pdf')).toBeInTheDocument();
+    expect(screen.queryByRole('note')).toBeNull();
+  });
+
+  it('rejects an upload whose type is outside the resolved allow-list', () => {
+    const mutate = vi.fn();
+    useCreateMock.mockReturnValue({ mutate, isPending: false, isError: false });
+    useProjectMock.mockReturnValue({
+      data: {
+        effective_attachments_enabled: true,
+        // Only PDF is allowed — a PNG must be rejected client-side.
+        effective_allowed_attachment_types: ['application/pdf'],
+      },
+    });
+    useListMock.mockReturnValue({ attachments: [], isLoading: false, error: null });
+    const { container } = render(
+      <AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />,
+    );
+    const fileInput = container.querySelector<HTMLInputElement>('input[type="file"]')!;
+    fireEvent.change(fileInput, {
+      target: { files: [new File(['x'], 'pic.png', { type: 'image/png' })] },
+    });
+    expect(mutate).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert').textContent).toMatch(/not allowed/i);
   });
 });

@@ -111,6 +111,21 @@ def _default_work_week() -> list[bool]:
     return [True, True, True, True, True, False, False]
 
 
+def _default_allowed_attachment_types() -> list[str]:
+    """Workspace seed allow-list — the system default (ADR-0153, #976).
+
+    Sourced from the single canonical set so the column default and the
+    historic hardcoded gate cannot drift. A callable default (not a literal)
+    keeps the migration state stable and gives each row its own list; sorted so
+    the ArrayField has a deterministic order.
+    """
+    from trueppm_api.apps.projects.attachment_policy import (
+        SYSTEM_DEFAULT_ATTACHMENT_TYPES,
+    )
+
+    return sorted(SYSTEM_DEFAULT_ATTACHMENT_TYPES)
+
+
 def _workspace_logo_upload_to(instance: Workspace, filename: str) -> str:
     """Storage key for an uploaded workspace logo (ADR-0149).
 
@@ -267,6 +282,31 @@ class Workspace(models.Model):
     # OSS — the enforcement seam lives in ``apps.projects.task_duration_settings``,
     # which registers no provider in the community edition, so ENFORCE → SUGGEST).
     task_duration_change_percent_override_policy = models.CharField(
+        max_length=16,
+        choices=TermOverridePolicy.choices,
+        default=TermOverridePolicy.SUGGEST,
+    )
+
+    # Per-workspace attachment policy (ADR-0153, #976) — the non-null root of the
+    # Workspace → Program → Project inheritance chain. ``attachments_enabled``
+    # gates whether task FILE uploads are permitted (external links are a separate
+    # capability, unaffected). ``allowed_attachment_types`` is the MIME allow-list,
+    # seeded from the system default so the migration is purely additive and the
+    # pre-0150 behavior is reproduced exactly. Both resolve computed-on-read in
+    # ``apps.projects.attachment_policy``; clients read the serializer's
+    # ``effective_*``/``inherited_*`` fields. A non-overridable security denylist
+    # (text/html etc.) is subtracted on every read regardless of this value.
+    attachments_enabled = models.BooleanField(default=True)
+    allowed_attachment_types = ArrayField(
+        models.CharField(max_length=255),
+        default=_default_allowed_attachment_types,
+    )
+    # Whether programs/projects may override the attachment policy above
+    # (ADR-0153, mirroring public_sharing_override_policy). SUGGEST (OSS default) =
+    # downstream may narrow or widen freely; ENFORCE = Enterprise hard lock (no-op
+    # in OSS — stored but never enforced; the enforcement seam lives in
+    # ``apps.projects.attachment_policy``).
+    attachments_override_policy = models.CharField(
         max_length=16,
         choices=TermOverridePolicy.choices,
         default=TermOverridePolicy.SUGGEST,

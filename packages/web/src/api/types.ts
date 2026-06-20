@@ -169,6 +169,19 @@ export interface Program {
   inherited_mc_history_enabled: boolean;
   inherited_mc_history_retention_cap: number;
   inherited_mc_history_attribution_audience: MCAttributionAudience;
+  /**
+   * Attachment-policy overrides (ADR-0153, issue 976). `attachments_enabled`: null =
+   * inherit the workspace value. `allowed_attachment_types` is tri-state:
+   * null = inherit, [] = explicit empty, [...] = explicit allow-list.
+   */
+  attachments_enabled: boolean | null;
+  allowed_attachment_types: string[] | null;
+  /** Read-only server-resolved policy (program override ?? workspace, denylist subtracted). */
+  effective_attachments_enabled: boolean;
+  effective_allowed_attachment_types: string[];
+  /** Read-only values inherited if the override were cleared (the workspace value). */
+  inherited_attachments_enabled: boolean;
+  inherited_allowed_attachment_types: string[];
   /** PM health override; AUTO defers to the rollup. */
   health: ProgramHealth;
   /** Workspace or private listing scope. */
@@ -355,6 +368,16 @@ export interface WorkspaceSettings {
    *  to the default; `suggest` (OSS default) lets programs/projects override;
    *  `enforce` is the Enterprise hard lock (no-op in OSS — stored, never enforced). */
   methodologyOverridePolicy: MethodologyOverridePolicy;
+  /** Per-workspace attachment policy (ADR-0153, issue 976) — the non-null root of the
+   *  Workspace → Program → Project chain. `attachmentsEnabled` gates task file
+   *  uploads (external links are unaffected); `allowedAttachmentTypes` is the MIME
+   *  allow-list seeded from the system default (the security denylist is always
+   *  subtracted server-side). */
+  attachmentsEnabled: boolean;
+  allowedAttachmentTypes: string[];
+  /** `suggest`/`inherit` (OSS) let lower scopes override freely; `enforce` is the
+   *  Enterprise hard lock (stored, never enforced in OSS). */
+  attachmentsOverridePolicy: 'inherit' | 'suggest' | 'enforce';
   /** Read-only public serve URL for the uploaded workspace logo (#969, ADR-0149),
    *  or null when no logo is set. Carries a `?v=` cache-buster keyed to updated_at. */
   logoUrl: string | null;

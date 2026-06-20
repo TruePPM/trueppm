@@ -8,6 +8,7 @@ import { WorkspaceGroupsPage } from './WorkspaceGroupsPage';
 import { WorkspaceRolesPage } from './WorkspaceRolesPage';
 import { WorkspaceMethodologyPage } from './WorkspaceMethodologyPage';
 import { WorkspaceEmailPage } from './WorkspaceEmailPage';
+import { WorkspaceAttachmentsPage } from './WorkspaceAttachmentsPage';
 import { WorkspaceDangerPage } from './WorkspaceDangerPage';
 import {
   OverviewIcon,
@@ -15,6 +16,7 @@ import {
   WbsIcon,
   SprintIcon,
   SettingsIcon,
+  ExternalLinkIcon,
   WarningIcon,
 } from '@/components/Icons';
 
@@ -60,6 +62,7 @@ const NAV_GROUPS: SettingsNavGroup[] = [
     label: 'Delivery',
     items: [
       { id: 'methodology', label: 'Methodology defaults', icon: <NavIcon><SprintIcon aria-hidden="true" /></NavIcon> },
+      { id: 'attachments', label: 'Attachments',          icon: <NavIcon><ExternalLinkIcon aria-hidden="true" /></NavIcon> },
       { id: 'email',       label: 'Email & SMTP',         icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> },
     ],
   },
@@ -110,6 +113,7 @@ export function WorkspaceSettingsPage() {
       <SettingsSection id="groups"><WorkspaceGroupsPage /></SettingsSection>
       <SettingsSection id="roles"><WorkspaceRolesPage /></SettingsSection>
       <SettingsSection id="methodology"><WorkspaceMethodologyPage /></SettingsSection>
+      <SettingsSection id="attachments"><WorkspaceAttachmentsPage /></SettingsSection>
       <SettingsSection id="email"><WorkspaceEmailPage /></SettingsSection>
       <SettingsSection id="danger"><WorkspaceDangerPage /></SettingsSection>
     </SettingsShell>

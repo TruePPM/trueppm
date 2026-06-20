@@ -9398,13 +9398,40 @@ class TaskAttachmentViewSet(
             return [IsAuthenticated(), IsProjectMemberWrite(), IsProjectNotArchived()]
         return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
 
+    def get_serializer_context(self) -> dict[str, Any]:
+        """Inject the project into the serializer context on create so the
+        attachment MIME check enforces the *resolved* per-project allow-list
+        (ADR-0153, #976) instead of the system default. ``program`` is
+        select_related so the policy resolver's parent lookup is free."""
+        context: dict[str, Any] = super().get_serializer_context()
+        if self.action == "create":
+            project_pk = self.kwargs.get("project_pk")
+            if project_pk:
+                context["attachment_project"] = (
+                    Project.objects.filter(pk=project_pk).select_related("program").first()
+                )
+        return context
+
     def perform_create(self, serializer: BaseSerializer[TaskAttachment]) -> None:
+        from rest_framework.exceptions import PermissionDenied
+
+        from trueppm_api.apps.projects.attachment_policy import (
+            resolve_attachments_enabled,
+        )
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         project_pk = self.kwargs["project_pk"]
         task_pk = self.kwargs["task_pk"]
         task = get_object_or_404(Task, pk=task_pk, project_id=project_pk, is_deleted=False)
         self.check_object_permissions(self.request, task)
+
+        # ADR-0153 (#976): file uploads are gated by the resolved attachments_enabled
+        # policy (external links are a separate capability, unaffected). 403 not 400 —
+        # the project's policy forbids uploads here, it isn't a malformed request.
+        if serializer.validated_data.get("file"):
+            project = serializer.context.get("attachment_project")
+            if project is not None and not resolve_attachments_enabled(project):
+                raise PermissionDenied("File attachments are disabled for this project.")
 
         # Per-task count cap (ADR-0075 #12)
         if (

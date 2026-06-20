@@ -19,6 +19,10 @@ if TYPE_CHECKING:
     from trueppm_api.apps.workspace.models import Workspace
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
+from trueppm_api.apps.projects.attachment_policy import (
+    SYSTEM_ATTACHMENT_DENYLIST,
+    SYSTEM_DEFAULT_ATTACHMENT_TYPES,
+)
 from trueppm_api.apps.projects.models import (
     _VALID_EVM_MODES,
     _VALID_SORT_KEYS,
@@ -196,6 +200,15 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
     # own override were cleared (drives the settings "Inherit (X)" affordance).
     effective_task_duration_change_percent_policy = serializers.SerializerMethodField()
     inherited_task_duration_change_percent_policy = serializers.SerializerMethodField()
+    # Server-resolved attachment policy (ADR-0153, #976): project override ??
+    # program override ?? workspace value. Clients read the ``effective_*`` fields;
+    # ``inherited_*`` is what the project would show if its own override were cleared
+    # (drives the "Inherit" affordance). The security denylist is already applied to
+    # the resolved type list, so it can never surface a permanently-blocked type.
+    effective_attachments_enabled = serializers.SerializerMethodField()
+    inherited_attachments_enabled = serializers.SerializerMethodField()
+    effective_allowed_attachment_types = serializers.SerializerMethodField()
+    inherited_allowed_attachment_types = serializers.SerializerMethodField()
 
     class Meta:
         model = Project
@@ -262,6 +275,16 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "inherited_mc_history_retention_cap",
             "effective_mc_history_attribution_audience",
             "inherited_mc_history_attribution_audience",
+            # Attachment-policy overrides (ADR-0153, #976). Nullable: NULL = inherit
+            # program/workspace; allowed_attachment_types is tri-state (NULL/[]/[...]).
+            # Admin+-gated write by the allowlist default (not in
+            # _SCHEDULER_WRITABLE_FIELDS, so the validate() gate blocks Scheduler).
+            "attachments_enabled",
+            "allowed_attachment_types",
+            "effective_attachments_enabled",
+            "inherited_attachments_enabled",
+            "effective_allowed_attachment_types",
+            "inherited_allowed_attachment_types",
             "program",
             "member_count",
             "percent_complete",
@@ -291,6 +314,10 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "inherited_mc_history_retention_cap",
             "effective_mc_history_attribution_audience",
             "inherited_mc_history_attribution_audience",
+            "effective_attachments_enabled",
+            "inherited_attachments_enabled",
+            "effective_allowed_attachment_types",
+            "inherited_allowed_attachment_types",
             "is_archived",
             "archived_at",
             "archived_by",
@@ -299,7 +326,13 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         # empty string: a blank value matches no enum member and would silently
         # fall through to the most-restrictive ADMIN_OWNER. Reject "" with a 400
         # so the only ways to clear an override are null (inherit) or a real enum.
-        extra_kwargs = {"mc_history_attribution_audience": {"allow_blank": False}}
+        # allowed_attachment_types is tri-state (null=inherit, []=explicit empty
+        # override, [...]=explicit) — opt back into allow_empty so a "narrow to
+        # none" override (ADR-0153) isn't 400'd as an empty list by DRF's default.
+        extra_kwargs = {
+            "mc_history_attribution_audience": {"allow_blank": False},
+            "allowed_attachment_types": {"allow_empty": True},
+        }
 
     def get_member_count(self, obj: Project) -> int | None:
         """Active membership count — only annotated on the ungrouped list
@@ -549,6 +582,26 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
 
         return resolve_inherited_sharing(obj, "allow_guests", workspace=self._iteration_workspace())
 
+    def get_effective_attachments_enabled(self, obj: Project) -> bool:
+        from .attachment_policy import resolve_attachments_enabled
+
+        return resolve_attachments_enabled(obj, workspace=self._iteration_workspace())
+
+    def get_inherited_attachments_enabled(self, obj: Project) -> bool:
+        from .attachment_policy import resolve_inherited_attachments_enabled
+
+        return resolve_inherited_attachments_enabled(obj, workspace=self._iteration_workspace())
+
+    def get_effective_allowed_attachment_types(self, obj: Project) -> list[str]:
+        from .attachment_policy import resolve_effective_attachment_types
+
+        return resolve_effective_attachment_types(obj, workspace=self._iteration_workspace())
+
+    def get_inherited_allowed_attachment_types(self, obj: Project) -> list[str]:
+        from .attachment_policy import resolve_inherited_attachment_types
+
+        return resolve_inherited_attachment_types(obj, workspace=self._iteration_workspace())
+
     def get_effective_mc_history_enabled(self, obj: Project) -> bool:
         from trueppm_api.apps.scheduling.forecast_history_settings import (
             resolve_effective_mc_history,
@@ -730,6 +783,14 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
     inherited_mc_history_retention_cap = serializers.SerializerMethodField()
     effective_mc_history_attribution_audience = serializers.SerializerMethodField()
     inherited_mc_history_attribution_audience = serializers.SerializerMethodField()
+    # Server-resolved attachment policy (ADR-0153, #976): program override ??
+    # workspace value. Clients read the ``effective_*`` fields; ``inherited_*`` is
+    # the value the program shows when its own override is cleared. The security
+    # denylist is already applied to the resolved type list.
+    effective_attachments_enabled = serializers.SerializerMethodField()
+    inherited_attachments_enabled = serializers.SerializerMethodField()
+    effective_allowed_attachment_types = serializers.SerializerMethodField()
+    inherited_allowed_attachment_types = serializers.SerializerMethodField()
 
     class Meta:
         model = Program
@@ -772,6 +833,14 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             "inherited_mc_history_retention_cap",
             "effective_mc_history_attribution_audience",
             "inherited_mc_history_attribution_audience",
+            # Attachment-policy overrides (ADR-0153, #976). Nullable: NULL = inherit
+            # workspace; allowed_attachment_types is tri-state. Admin+-gated write.
+            "attachments_enabled",
+            "allowed_attachment_types",
+            "effective_attachments_enabled",
+            "inherited_attachments_enabled",
+            "effective_allowed_attachment_types",
+            "inherited_allowed_attachment_types",
             "health",
             "visibility",
             "color",
@@ -815,13 +884,22 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             "inherited_mc_history_retention_cap",
             "effective_mc_history_attribution_audience",
             "inherited_mc_history_attribution_audience",
+            "effective_attachments_enabled",
+            "inherited_attachments_enabled",
+            "effective_allowed_attachment_types",
+            "inherited_allowed_attachment_types",
             "is_closed",
             "closed_at",
             "closed_by",
         ]
         # See ProjectSerializer: the audience override is null=True (= inherit)
         # but "" must 400 rather than fall through to the restrictive default.
-        extra_kwargs = {"mc_history_attribution_audience": {"allow_blank": False}}
+        # allowed_attachment_types is tri-state — allow_empty so a "narrow to none"
+        # override (ADR-0153) isn't 400'd as an empty list by DRF's default.
+        extra_kwargs = {
+            "mc_history_attribution_audience": {"allow_blank": False},
+            "allowed_attachment_types": {"allow_empty": True},
+        }
 
     def get_my_role(self, obj: Program) -> int | None:
         # The viewset attaches ``_my_role`` to each instance (annotated on the
@@ -931,6 +1009,26 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
         from .sharing_settings import resolve_inherited_sharing
 
         return resolve_inherited_sharing(obj, "allow_guests", workspace=self._sharing_workspace())
+
+    def get_effective_attachments_enabled(self, obj: Program) -> bool:
+        from .attachment_policy import resolve_attachments_enabled
+
+        return resolve_attachments_enabled(obj, workspace=self._sharing_workspace())
+
+    def get_inherited_attachments_enabled(self, obj: Program) -> bool:
+        from .attachment_policy import resolve_inherited_attachments_enabled
+
+        return resolve_inherited_attachments_enabled(obj, workspace=self._sharing_workspace())
+
+    def get_effective_allowed_attachment_types(self, obj: Program) -> list[str]:
+        from .attachment_policy import resolve_effective_attachment_types
+
+        return resolve_effective_attachment_types(obj, workspace=self._sharing_workspace())
+
+    def get_inherited_allowed_attachment_types(self, obj: Program) -> list[str]:
+        from .attachment_policy import resolve_inherited_attachment_types
+
+        return resolve_inherited_attachment_types(obj, workspace=self._sharing_workspace())
 
     def get_effective_mc_history_enabled(self, obj: Program) -> bool:
         from trueppm_api.apps.scheduling.forecast_history_settings import (
@@ -5082,17 +5180,11 @@ class ApiTokenAuditEntrySerializer(serializers.ModelSerializer[ApiTokenAuditEntr
 
 # Locked constraints from ADR-0075 threat-model pass.
 MAX_ATTACHMENT_SIZE_BYTES = 100 * 1024 * 1024  # 100 MB (constraint #4)
-ALLOWED_ATTACHMENT_MIMES = frozenset(
-    {
-        "application/pdf",
-        "image/jpeg",
-        "image/png",
-        "image/webp",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "text/csv",
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    }
-)
+# The historic hardcoded allow-list is now the system *seed* default for the
+# inheritable attachment policy (ADR-0153, #976). Aliased from the single source
+# of truth so the Workspace column default and this gate can never drift. Used as
+# the fallback when no per-project policy is in the serializer context.
+ALLOWED_ATTACHMENT_MIMES = SYSTEM_DEFAULT_ATTACHMENT_TYPES
 MAX_COMMENT_BODY_CHARS = 10_000  # constraint #3
 COMMENT_EDIT_WINDOW_SECONDS = 15 * 60  # constraint #11
 ALLOWED_REACTION_EMOJI = frozenset({"👍"})  # 0.2 allow-list; expands in 0.3
@@ -5269,7 +5361,29 @@ class TaskAttachmentSerializer(serializers.ModelSerializer[TaskAttachment]):
             mime = getattr(file, "content_type", "") or ""
             # Strip any "; charset=..." trailer
             mime = mime.split(";", 1)[0].strip().lower()
-            if mime not in ALLOWED_ATTACHMENT_MIMES:
+            # Enforce the RESOLVED per-project allow-list (ADR-0153, #976) when the
+            # viewset injected the project into context; otherwise fall back to the
+            # system seed default. The security denylist (text/html etc.) is always
+            # applied inside ``is_attachment_mime_allowed`` regardless of scope.
+            project = self.context.get("attachment_project")
+            if project is not None:
+                from .attachment_policy import (
+                    is_attachment_mime_allowed,
+                    resolve_effective_attachment_types,
+                )
+
+                if not is_attachment_mime_allowed(project, mime):
+                    allowed = resolve_effective_attachment_types(project)
+                    raise serializers.ValidationError(
+                        f"File type {mime!r} is not allowed for this project."
+                        + (
+                            f" Allowed types: {', '.join(allowed)}."
+                            if allowed
+                            else " No file types are currently allowed."
+                        ),
+                        code="attachment_unsupported_mime",
+                    )
+            elif mime not in ALLOWED_ATTACHMENT_MIMES or mime in SYSTEM_ATTACHMENT_DENYLIST:
                 raise serializers.ValidationError(
                     f"File type {mime!r} is not allowed. Allowed types: "
                     "PDF, JPG, PNG, WebP, XLSX, CSV, DOCX.",

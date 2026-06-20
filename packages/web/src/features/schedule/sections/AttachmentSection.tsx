@@ -10,6 +10,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
 import { canEditTask } from '@/lib/roles';
+import { useProject } from '@/hooks/useProject';
 import {
   useCreateAttachment,
   useDeleteAttachment,
@@ -238,6 +239,20 @@ export function AttachmentSection({
   // only when it is absent (and it returns false while the role loads, so the
   // controls never flash).
   const canEdit = canEditCap ?? canEditTask(userRole);
+
+  // Resolved attachment policy for this project (ADR-0153, issue 976). When uploads
+  // are disabled we keep listing/downloading existing files but replace the
+  // add-controls with one muted note. The allow-list drives client-side type
+  // validation so the client mirrors the server policy instead of a static Set.
+  // Default to enabled / empty allow-list while the project loads — the server
+  // is authoritative either way, so a brief permissive flash never lets a
+  // disallowed upload through (it 400s server-side).
+  const { data: project } = useProject(projectId);
+  const attachmentsEnabled = project?.effective_attachments_enabled ?? true;
+  const allowedMimes = useMemo(
+    () => project?.effective_allowed_attachment_types ?? [],
+    [project?.effective_allowed_attachment_types],
+  );
   const createAttachment = useCreateAttachment();
   const [linkModalOpen, setLinkModalOpen] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -275,7 +290,7 @@ export function AttachmentSection({
   );
 
   function uploadFile(file: File) {
-    const err = validateFileForUpload(file);
+    const err = validateFileForUpload(file, allowedMimes);
     if (err) {
       setUploadError(err);
       return;
@@ -309,7 +324,13 @@ export function AttachmentSection({
     );
   }
 
-  const showAddControls = !isLoading && !error && canEdit;
+  // Add-controls require edit rights AND the project's resolved policy allowing
+  // uploads (ADR-0153, issue 976). When uploads are off, existing files still
+  // list/download — only the add affordances are replaced with a muted note.
+  const showAddControls = !isLoading && !error && canEdit && attachmentsEnabled;
+  // Show the "disabled" note only to users who would otherwise see the controls
+  // (canEdit) — a Viewer never had add-controls, so the note would be noise.
+  const showDisabledNote = !isLoading && !error && canEdit && !attachmentsEnabled;
 
   return (
     <div className="flex flex-col gap-2">
@@ -321,6 +342,7 @@ export function AttachmentSection({
           disabled={uploadBlocked}
           onFile={uploadFile}
           onError={setUploadError}
+          allowedMimes={allowedMimes}
         />
       )}
 
@@ -356,6 +378,12 @@ export function AttachmentSection({
             />
           ))}
         </ul>
+      )}
+
+      {showDisabledNote && (
+        <p role="note" className="text-xs text-neutral-text-secondary mt-1">
+          <span aria-hidden="true">🚫</span> File attachments are disabled for this project.
+        </p>
       )}
 
       {showAddControls && (

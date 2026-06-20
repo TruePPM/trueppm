@@ -140,11 +140,25 @@ class WorkspaceSettingsSerializer(serializers.ModelSerializer[Workspace]):
             # ENFORCE = Enterprise hard lock, no-op in OSS).
             "task_duration_change_percent_policy",
             "task_duration_change_percent_override_policy",
+            # Per-workspace attachment policy (ADR-0153, #976) — the non-null root of
+            # the Workspace → Program → Project chain. attachments_enabled gates task
+            # file uploads (external links unaffected); allowed_attachment_types is the
+            # MIME allow-list seeded from the system default. attachments_override_policy
+            # gates whether programs/projects may override (SUGGEST = yes in OSS;
+            # ENFORCE = Enterprise lock, no-op in OSS).
+            "attachments_enabled",
+            "allowed_attachment_types",
+            "attachments_override_policy",
             # Public serve-endpoint URL for the uploaded workspace logo (ADR-0149,
             # #969), or null when unset. Read-only; mutated via /workspace/logo/.
             "logo_url",
         ]
         read_only_fields = ["subdomain", "fiscal_year_start_display", "logo_url"]
+        # An empty allow-list is a deliberate "no file types allowed" workspace
+        # policy (ADR-0153, #976) — DRF maps the model ArrayField to allow_empty=
+        # False by default, which would 400 a legitimate ``[]`` before
+        # validate_allowed_attachment_types runs, so opt back in.
+        extra_kwargs = {"allowed_attachment_types": {"allow_empty": True}}
 
     def get_logo_url(self, obj: Workspace) -> str | None:
         """Public serve-endpoint URL for the workspace logo, or ``None`` if unset."""
@@ -170,6 +184,32 @@ class WorkspaceSettingsSerializer(serializers.ModelSerializer[Workspace]):
         if len(value) != 7:
             raise serializers.ValidationError("work_week must have exactly 7 entries (Mon-Sun).")
         return value
+
+    def validate_allowed_attachment_types(self, value: list[str]) -> list[str]:
+        """Normalize the workspace allow-list and reject security-denied types (ADR-0153).
+
+        The workspace is the non-null root of the chain. Entries are lowercased
+        and de-duplicated (deterministic order); a permanently-denied type
+        (text/html etc.) is rejected outright rather than silently dropped, so an
+        admin gets a clear error instead of a value that vanishes on the next read.
+        An empty list is a valid (deliberate) "no types allowed" workspace policy.
+        """
+        from trueppm_api.apps.projects.attachment_policy import (
+            SYSTEM_ATTACHMENT_DENYLIST,
+        )
+
+        normalized: list[str] = []
+        for raw in value:
+            mime = (raw or "").split(";", 1)[0].strip().lower()
+            if not mime:
+                continue
+            if mime in SYSTEM_ATTACHMENT_DENYLIST:
+                raise serializers.ValidationError(
+                    f"{mime!r} is blocked for security and cannot be allowed."
+                )
+            if mime not in normalized:
+                normalized.append(mime)
+        return sorted(normalized)
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         """Reject a fiscal day that cannot exist in the chosen month (#756).

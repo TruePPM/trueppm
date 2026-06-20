@@ -99,6 +99,25 @@ export interface ApiProjectDetail {
   inherited_mc_history_enabled: boolean;
   inherited_mc_history_retention_cap: number;
   inherited_mc_history_attribution_audience: MCAttributionAudience;
+  /**
+   * Attachment-policy overrides (ADR-0153, issue 976). `attachments_enabled`: null =
+   * inherit the program/workspace value. `allowed_attachment_types` is tri-state:
+   * null = inherit, [] = explicit empty (uploads on but nothing allowed),
+   * [...] = explicit allow-list. The security denylist is subtracted server-side.
+   */
+  attachments_enabled: boolean | null;
+  allowed_attachment_types: string[] | null;
+  /**
+   * Read-only server-resolved policy (project ?? program ?? workspace, denylist
+   * subtracted). `effective_attachments_enabled` gates task file uploads;
+   * `effective_allowed_attachment_types` is the MIME allow-list the task drawer
+   * enforces client-side (mirroring the server).
+   */
+  effective_attachments_enabled: boolean;
+  effective_allowed_attachment_types: string[];
+  /** Read-only values inherited if the override were cleared (program ?? workspace). */
+  inherited_attachments_enabled: boolean;
+  inherited_allowed_attachment_types: string[];
   /** Lifecycle (#530) — archived projects are hard read-only across all writes. */
   is_archived: boolean;
   archived_at: string | null;

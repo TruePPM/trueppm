@@ -358,6 +358,7 @@ export const router = createBrowserRouter([
               { path: 'settings/signal-privacy', element: <SectionRedirect base="/projects/:projectId/settings" anchor="signal-privacy" /> },
               { path: 'settings/workflow', element: <SectionRedirect base="/projects/:projectId/settings" anchor="workflow" /> },
               { path: 'settings/guardrails', element: <SectionRedirect base="/projects/:projectId/settings" anchor="guardrails" /> },
+              { path: 'settings/attachments', element: <SectionRedirect base="/projects/:projectId/settings" anchor="attachments" /> },
               { path: 'settings/integrations', element: <SectionRedirect base="/projects/:projectId/settings" anchor="integrations" /> },
               { path: 'settings/notifications', element: <SectionRedirect base="/projects/:projectId/settings" anchor="notifications" /> },
               { path: 'settings/lifecycle', element: <SectionRedirect base="/projects/:projectId/settings" anchor="lifecycle" /> },
@@ -498,6 +499,7 @@ export const router = createBrowserRouter([
               { path: 'settings/rollup', element: <SectionRedirect base="/programs/:programId/settings" anchor="rollup" /> },
               { path: 'settings/cadence', element: <SectionRedirect base="/programs/:programId/settings" anchor="cadence" /> },
               { path: 'settings/risk', element: <SectionRedirect base="/programs/:programId/settings" anchor="risk" /> },
+              { path: 'settings/attachments', element: <SectionRedirect base="/programs/:programId/settings" anchor="attachments" /> },
               { path: 'settings/integrations', element: <SectionRedirect base="/programs/:programId/settings" anchor="integrations" /> },
               { path: 'settings/lifecycle', element: <SectionRedirect base="/programs/:programId/settings" anchor="lifecycle" /> },
             ],
@@ -522,6 +524,7 @@ export const router = createBrowserRouter([
           { path: 'settings/groups', element: <SectionRedirect base="/settings" anchor="groups" /> },
           { path: 'settings/roles', element: <SectionRedirect base="/settings" anchor="roles" /> },
           { path: 'settings/methodology', element: <SectionRedirect base="/settings" anchor="methodology" /> },
+          { path: 'settings/attachments', element: <SectionRedirect base="/settings" anchor="attachments" /> },
           { path: 'settings/email', element: <SectionRedirect base="/settings" anchor="email" /> },
           { path: 'settings/danger', element: <SectionRedirect base="/settings" anchor="danger" /> },
           // OSS-removed Connections routes (ADR-0076) — kept as redirect shims.
