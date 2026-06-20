@@ -37,6 +37,7 @@ const RAW_SETTINGS = {
   mc_history_override_policy: 'allow',
   methodology: 'HYBRID',
   methodology_override_policy: 'suggest',
+  logo_url: '/api/v1/workspace/logo/?v=1700000000',
 };
 
 const EXPECTED: WorkspaceSettings = {
@@ -58,6 +59,7 @@ const EXPECTED: WorkspaceSettings = {
   mcHistoryOverridePolicy: 'allow',
   methodology: 'HYBRID',
   methodologyOverridePolicy: 'suggest',
+  logoUrl: '/api/v1/workspace/logo/?v=1700000000',
 };
 
 function makeWrapper() {

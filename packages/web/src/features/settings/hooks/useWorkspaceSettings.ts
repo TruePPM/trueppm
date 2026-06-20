@@ -32,6 +32,7 @@ interface WorkspaceSettingsRaw {
   mc_history_override_policy: MCHistoryOverridePolicy;
   methodology: ProgramMethodology;
   methodology_override_policy: MethodologyOverridePolicy;
+  logo_url: string | null;
 }
 
 /** Maps snake_case wire shape to the camelCase interface consumed by pages. */
@@ -55,6 +56,7 @@ function mapSettings(raw: WorkspaceSettingsRaw): WorkspaceSettings {
     mcHistoryOverridePolicy: raw.mc_history_override_policy,
     methodology: raw.methodology,
     methodologyOverridePolicy: raw.methodology_override_policy,
+    logoUrl: raw.logo_url,
   };
 }
 

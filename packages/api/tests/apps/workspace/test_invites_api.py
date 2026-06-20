@@ -301,3 +301,125 @@ def test_drain_terminal_failure_clears_token(admin: object, monkeypatch: object)
     assert invite.status == InviteStatus.FAILED
     assert invite.email_pending is False
     assert invite.email_token == ""  # raw token cleared even on terminal failure
+
+
+# --- resend (#969, ADR-0149) ------------------------------------------------
+
+
+def _sent_invite(admin: object, email: str = "resend@x.io") -> WorkspaceInvite:
+    """A create-then-drained invite: PENDING, already sent, token cleared."""
+    invite = services.create_invite(
+        workspace=Workspace.load(), email=email, role=WorkspaceRole.MEMBER, invited_by=admin
+    )
+    WorkspaceInvite.objects.filter(pk=invite.pk).update(
+        created_at=timezone.now() - timedelta(minutes=10)
+    )
+    _do_drain_invite_emails()
+    invite.refresh_from_db()
+    assert invite.email_sent_at is not None
+    assert invite.email_token == ""
+    return invite
+
+
+@pytest.mark.django_db
+def test_resend_reissues_token_and_requeues(admin: object) -> None:
+    invite = _sent_invite(admin)
+    old_hash = invite.token_hash
+
+    resp = _client(admin).post(f"{LIST_URL}{invite.pk}/resend/")
+    assert resp.status_code == 202
+    assert resp.data == {"queued": True}
+
+    invite.refresh_from_db()
+    # Re-issued: fresh token (old link dies), back in the outbox, attempts reset.
+    assert invite.token_hash != old_hash
+    assert invite.email_token  # a fresh raw token is queued for the drain
+    assert invite.email_pending is True
+    assert invite.email_sent_at is None
+    assert invite.email_attempts == 0
+    assert invite.status == InviteStatus.PENDING
+
+
+@pytest.mark.django_db
+def test_resend_then_drain_sends_again(admin: object) -> None:
+    invite = _sent_invite(admin)
+    mail.outbox.clear()
+    _client(admin).post(f"{LIST_URL}{invite.pk}/resend/")
+    # created_at is unchanged (old), so the resend clears the orphan window at once.
+    _do_drain_invite_emails()
+    invite.refresh_from_db()
+    assert invite.email_pending is False
+    assert invite.email_sent_at is not None
+    assert len(mail.outbox) == 1
+
+
+@pytest.mark.django_db
+def test_resend_in_flight_is_noop(admin: object) -> None:
+    """A freshly-created (not-yet-sent) invite must not have its token re-issued."""
+    invite = services.create_invite(
+        workspace=Workspace.load(),
+        email="inflight@x.io",
+        role=WorkspaceRole.MEMBER,
+        invited_by=admin,
+    )
+    original_token = invite.email_token
+
+    resp = _client(admin).post(f"{LIST_URL}{invite.pk}/resend/")
+    assert resp.status_code == 202
+    invite.refresh_from_db()
+    assert invite.email_token == original_token  # untouched — drain will send this one
+
+
+@pytest.mark.django_db
+def test_resend_accepted_invite_is_409(admin: object) -> None:
+    invite = services.create_invite(
+        workspace=Workspace.load(), email="done@x.io", role=WorkspaceRole.MEMBER, invited_by=admin
+    )
+    WorkspaceInvite.objects.filter(pk=invite.pk).update(status=InviteStatus.ACCEPTED)
+    resp = _client(admin).post(f"{LIST_URL}{invite.pk}/resend/")
+    assert resp.status_code == 409
+
+
+@pytest.mark.django_db
+def test_resend_unknown_invite_is_404(admin: object) -> None:
+    resp = _client(admin).post(f"{LIST_URL}00000000-0000-0000-0000-000000000000/resend/")
+    assert resp.status_code == 404
+
+
+@pytest.mark.django_db
+def test_resend_requires_admin(db: object, admin: object) -> None:
+    invite = _sent_invite(admin)
+    member = User.objects.create_user(username="plain", password="pw")
+    resp = _client(member).post(f"{LIST_URL}{invite.pk}/resend/")
+    assert resp.status_code == 403
+
+
+@pytest.mark.django_db
+def test_resend_failed_invite_is_resendable(admin: object) -> None:
+    invite = _sent_invite(admin, email="failed@x.io")
+    WorkspaceInvite.objects.filter(pk=invite.pk).update(status=InviteStatus.FAILED)
+    resp = _client(admin).post(f"{LIST_URL}{invite.pk}/resend/")
+    assert resp.status_code == 202
+    invite.refresh_from_db()
+    assert invite.status == InviteStatus.PENDING
+
+
+@pytest.mark.django_db
+def test_resend_all_requeues_every_pending(admin: object) -> None:
+    a = _sent_invite(admin, email="a@x.io")
+    b = _sent_invite(admin, email="b@x.io")
+    resp = _client(admin).post(f"{LIST_URL}resend-all/")
+    assert resp.status_code == 202
+    assert resp.data == {"requeued": 2}
+    for inv in (a, b):
+        inv.refresh_from_db()
+        assert inv.email_pending is True
+        assert inv.email_sent_at is None
+
+
+@pytest.mark.django_db
+def test_resend_all_requires_admin(db: object, admin: object) -> None:
+    _sent_invite(admin)
+    member = User.objects.create_user(username="plain2", password="pw")
+    resp = _client(member).post(f"{LIST_URL}resend-all/")
+    assert resp.status_code == 403

@@ -477,6 +477,171 @@ def create_invite(
     )
 
 
+# Statuses an admin may resend (ADR-0149). PENDING covers a lost/bounced live
+# invite; FAILED is a send-exhausted invite — resend is its recovery path. An
+# ACCEPTED/REVOKED/EXPIRED invite is intentionally *not* revivable.
+RESENDABLE_INVITE_STATUSES = (InviteStatus.PENDING, InviteStatus.FAILED)
+
+_RESEND_UPDATE_FIELDS = [
+    "token_hash",
+    "email_token",
+    "status",
+    "expires_at",
+    "email_pending",
+    "email_sent_at",
+    "email_failed_at",
+    "email_attempts",
+]
+
+
+def _reissue_invite_token(invite: WorkspaceInvite) -> None:
+    """Reset an (unsaved, locked) invite back into the drain-eligible queued shape.
+
+    Regenerates the one-time token — so any link in a previously-sent email stops
+    working, which is the correct posture for a re-issue (ADR-0149) — and clears the
+    outbox columns (``email_pending`` on, ``email_sent_at``/``email_failed_at`` off,
+    attempts zeroed) so the existing ``drain_invite_emails`` picks the row up on its
+    next 30 s tick. ``created_at`` is unchanged, so the resend clears the drain's
+    5-min orphan window immediately (unlike a fresh create).
+    """
+    raw_token = secrets.token_urlsafe(32)
+    invite.token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+    invite.email_token = raw_token
+    invite.status = InviteStatus.PENDING
+    invite.expires_at = WorkspaceInvite.default_expiry()
+    invite.email_pending = True
+    invite.email_sent_at = None
+    invite.email_failed_at = None
+    invite.email_attempts = 0
+
+
+def _is_in_flight(invite: WorkspaceInvite) -> bool:
+    """True if a send is already queued and not yet sent (idempotent-resend guard).
+
+    A double-click on Resend (or a created-but-not-yet-drained invite) must not
+    re-issue a token the drain is about to send with the *current* token, so resend
+    is a no-op for these rows.
+    """
+    return invite.email_pending and invite.email_sent_at is None
+
+
+def drain_invite_emails_soon() -> None:
+    """Best-effort nudge the invite-email drain to run now instead of next tick.
+
+    A resend re-queues a row whose ``created_at`` is already past the 5-min orphan
+    window, so it's drain-eligible immediately — this just shortens the wait from the
+    30 s Beat cadence to "right after commit". Broker errors are swallowed: the
+    periodic ``drain_invite_emails`` is the durability guarantee, this is only an
+    optimization (ADR-0149). Call inside ``transaction.on_commit``.
+    """
+    from trueppm_api.apps.workspace.tasks import drain_invite_emails
+
+    try:
+        drain_invite_emails.delay()
+    except Exception:  # pragma: no cover - broker-down path, periodic drain recovers
+        logger.warning("broker unavailable; periodic drain_invite_emails will send resends")
+
+
+def resend_invite(invite_id: _PK) -> WorkspaceInvite | None:
+    """Re-queue one resendable invite's email with a fresh token (ADR-0149).
+
+    Returns the invite on success, the unchanged invite when it is already in
+    flight (idempotent no-op), or ``None`` when it does not exist or is not
+    resendable (accepted/revoked/expired) — the view maps ``None`` to 409/404.
+    Locks the row so a concurrent double-submit re-issues at most once.
+    """
+    with transaction.atomic():
+        invite = WorkspaceInvite.objects.select_for_update().filter(pk=invite_id).first()
+        if invite is None or invite.status not in RESENDABLE_INVITE_STATUSES:
+            return None
+        if _is_in_flight(invite):
+            return invite
+        _reissue_invite_token(invite)
+        invite.save(update_fields=_RESEND_UPDATE_FIELDS)
+    return invite
+
+
+def resend_all_pending(workspace: Workspace) -> int:
+    """Re-queue every resendable invite in one transaction; return the count.
+
+    Bundled into a single transaction so "Resend all" is one throttle bucket hit
+    (ADR-0149) and can never email-bomb regardless of how many invites are pending.
+    In-flight rows are skipped, so the returned count reflects only rows actually
+    re-issued.
+    """
+    count = 0
+    with transaction.atomic():
+        invites = list(
+            WorkspaceInvite.objects.select_for_update().filter(
+                workspace=workspace,
+                status__in=RESENDABLE_INVITE_STATUSES,
+            )
+        )
+        for invite in invites:
+            if _is_in_flight(invite):
+                continue
+            _reissue_invite_token(invite)
+            invite.save(update_fields=_RESEND_UPDATE_FIELDS)
+            count += 1
+    return count
+
+
+# ---------------------------------------------------------------------------
+# Workspace logo (ADR-0149, #969)
+# ---------------------------------------------------------------------------
+
+
+def _delete_storage_file_on_commit(name: str) -> None:
+    """Best-effort delete of a storage blob after the current transaction commits.
+
+    Deferred to ``on_commit`` so a rolled-back logo write never orphans the *new*
+    file by deleting the *old* one prematurely; storage drift (already gone) is
+    logged, not raised.
+    """
+    if not name:
+        return
+
+    def _delete() -> None:
+        from django.core.files.storage import default_storage
+
+        try:
+            default_storage.delete(name)
+        except OSError:  # pragma: no cover - storage drift, nothing to clean up
+            logger.warning("could not delete old workspace logo file %s", name)
+
+    transaction.on_commit(_delete)
+
+
+def set_workspace_logo(*, file: Any, mime: str) -> Workspace:
+    """Store a new workspace logo, deleting the previously-stored file on commit.
+
+    The validated content type is pinned in ``logo_mime`` so the public serve
+    endpoint sets Content-Type from a trusted column rather than re-sniffing. The
+    UUID-prefixed ``upload_to`` guarantees the new key differs from the old, so the
+    old blob is always safe to delete once the row commits (ADR-0149).
+    """
+    ws = Workspace.load()
+    old_name = ws.logo.name
+    ws.logo = file
+    ws.logo_mime = mime
+    ws.save(update_fields=["logo", "logo_mime", "updated_at"])
+    if old_name and old_name != ws.logo.name:
+        _delete_storage_file_on_commit(old_name)
+    return ws
+
+
+def clear_workspace_logo() -> Workspace:
+    """Remove the workspace logo and delete its stored file on commit (ADR-0149)."""
+    ws = Workspace.load()
+    old_name = ws.logo.name
+    if old_name:
+        ws.logo = ""
+        ws.logo_mime = ""
+        ws.save(update_fields=["logo", "logo_mime", "updated_at"])
+        _delete_storage_file_on_commit(old_name)
+    return ws
+
+
 def accept_invite(*, token: str, username: str = "", password: str = "") -> Any:
     """Provision (or link) a user and create their workspace membership.
 

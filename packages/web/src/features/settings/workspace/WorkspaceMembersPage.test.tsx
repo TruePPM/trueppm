@@ -339,12 +339,9 @@ describe('WorkspaceMembersPage — Export CSV (issue 969)', () => {
   });
 });
 
-describe('WorkspaceMembersPage — Resend deferred (issue 969)', () => {
+describe('WorkspaceMembersPage — Resend invite (issue 969)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-  });
-
-  it('disables Resend on pending invites until the resend endpoint ships', async () => {
     getMock.mockImplementation((url: string) => {
       if (url.includes('/workspace/members/')) return Promise.resolve({ data: MEMBERS });
       if (url.includes('/workspace/invites/'))
@@ -355,13 +352,41 @@ describe('WorkspaceMembersPage — Resend deferred (issue 969)', () => {
         });
       return Promise.resolve({ data: [] });
     });
+  });
+
+  it('posts to the per-invite resend endpoint and swaps the button for a Sent cue', async () => {
+    const user = userEvent.setup();
+    postMock.mockResolvedValue({ data: { queued: true } });
     render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
-    const resendBtn = await screen.findByRole('button', { name: 'Resend' });
-    expect(resendBtn).toBeDisabled();
-    expect(resendBtn).toHaveAttribute('title', expect.stringContaining('#969'));
-    // The bulk "Resend all" affordance is disabled too (was a dead <span>).
-    expect(screen.getByRole('button', { name: /Resend all/i })).toBeDisabled();
-    // The adjacent Revoke action stays live — only Resend is unwired.
-    expect(screen.getByRole('button', { name: /Revoke invite for pending@truescope.io/i })).toBeEnabled();
+
+    const resendBtn = await screen.findByRole('button', {
+      name: /Resend invite to pending@truescope.io/i,
+    });
+    expect(resendBtn).toBeEnabled();
+    await user.click(resendBtn);
+
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith('/workspace/invites/inv1/resend/'),
+    );
+    // Fire-and-forget 202 → the row swaps to a reassuring "Sent ✓" cue.
+    expect(await screen.findByText('Sent ✓')).toBeInTheDocument();
+    // The adjacent Revoke action stays live.
+    expect(
+      screen.getByRole('button', { name: /Revoke invite for pending@truescope.io/i }),
+    ).toBeEnabled();
+  });
+
+  it('posts to the bulk resend-all endpoint when "Resend all" is clicked', async () => {
+    const user = userEvent.setup();
+    postMock.mockResolvedValue({ data: { requeued: 1 } });
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+
+    const resendAll = await screen.findByRole('button', { name: /Resend all/i });
+    expect(resendAll).toBeEnabled();
+    await user.click(resendAll);
+
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith('/workspace/invites/resend-all/'),
+    );
   });
 });

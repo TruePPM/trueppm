@@ -355,6 +355,9 @@ export interface WorkspaceSettings {
    *  to the default; `suggest` (OSS default) lets programs/projects override;
    *  `enforce` is the Enterprise hard lock (no-op in OSS — stored, never enforced). */
   methodologyOverridePolicy: MethodologyOverridePolicy;
+  /** Read-only public serve URL for the uploaded workspace logo (#969, ADR-0149),
+   *  or null when no logo is set. Carries a `?v=` cache-buster keyed to updated_at. */
+  logoUrl: string | null;
 }
 
 /**

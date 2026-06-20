@@ -9,11 +9,12 @@ import type {
 } from '@/api/types';
 
 /**
- * Subset of WorkspaceSettings accepted by PATCH /workspace/. `subdomain` and
- * `fiscalYearStartDisplay` are omitted (both read-only).
+ * Subset of WorkspaceSettings accepted by PATCH /workspace/. `subdomain`,
+ * `fiscalYearStartDisplay`, and `logoUrl` are omitted (all read-only; the logo
+ * is mutated via the dedicated /workspace/logo/ endpoint, not this PATCH).
  */
 export type WorkspaceSettingsPatch = Partial<
-  Omit<WorkspaceSettings, 'subdomain' | 'fiscalYearStartDisplay'>
+  Omit<WorkspaceSettings, 'subdomain' | 'fiscalYearStartDisplay' | 'logoUrl'>
 >;
 
 /** snake_case body sent to the API. `fiscal_year_start_display` is read-only. */

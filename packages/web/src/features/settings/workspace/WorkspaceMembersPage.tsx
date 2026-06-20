@@ -5,7 +5,13 @@ import {
   useUpdateWorkspaceMember,
   useRemoveWorkspaceMember,
 } from '../hooks/useUpdateWorkspaceMember';
-import { useCreateInvite, useRevokeInvite } from '../hooks/useWorkspaceInvites';
+import {
+  useCreateInvite,
+  useRevokeInvite,
+  useResendInvite,
+  useResendAllInvites,
+} from '../hooks/useWorkspaceInvites';
+import { toast } from '@/components/Toast';
 import { filterMembers } from './filterMembers';
 
 const ROLE_PALETTE: Record<string, { bg: string; text: string }> = {
@@ -245,6 +251,8 @@ export function WorkspaceMembersPage() {
   const removeMember = useRemoveWorkspaceMember();
   const createInvite = useCreateInvite();
   const revokeInvite = useRevokeInvite();
+  const resendInvite = useResendInvite();
+  const resendAll = useResendAllInvites();
 
   const [query, setQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<string | null>(null);
@@ -257,6 +265,9 @@ export function WorkspaceMembersPage() {
   const [inviteError, setInviteError] = useState(false);
   // The pending-invite id whose most recent revoke failed.
   const [errorInviteId, setErrorInviteId] = useState<string | null>(null);
+  // Invite ids re-queued this session — drives the transient "Sent ✓" row cue
+  // (the 202 is fire-and-forget, so this is the only success signal the admin gets).
+  const [resentInviteIds, setResentInviteIds] = useState<Set<string>>(() => new Set());
 
   const searchInputId = useId();
   const roleSelectId = useId();
@@ -300,6 +311,45 @@ export function WorkspaceMembersPage() {
     revokeInvite.mutateAsync(inviteId).then(
       () => setErrorInviteId((prev) => (prev === inviteId ? null : prev)),
       () => setErrorInviteId(inviteId),
+    );
+  }
+
+  function markResent(inviteId: string) {
+    setErrorInviteId((prev) => (prev === inviteId ? null : prev));
+    setResentInviteIds((prev) => new Set(prev).add(inviteId));
+  }
+
+  function handleResend(inviteId: string, email: string) {
+    resendInvite.mutateAsync(inviteId).then(
+      () => {
+        markResent(inviteId);
+        toast.success(`Invite re-sent to ${email}.`);
+      },
+      (err) => {
+        setErrorInviteId(inviteId);
+        const status = (err as { response?: { status?: number } })?.response?.status;
+        if (status === 429) toast.error('Too many resends — wait a minute and try again.');
+        else if (status === 409) toast.error('This invite can no longer be resent.');
+        else toast.error('Could not resend the invite. Please try again.');
+      },
+    );
+  }
+
+  function handleResendAll() {
+    resendAll.mutateAsync().then(
+      (count) => {
+        setResentInviteIds(new Set(pendingInvites.map((p) => p.id)));
+        toast.success(
+          count > 0
+            ? `Re-sent ${count} invite${count === 1 ? '' : 's'}.`
+            : 'All pending invites are already sending.',
+        );
+      },
+      (err) => {
+        const status = (err as { response?: { status?: number } })?.response?.status;
+        if (status === 429) toast.error('Too many resends — wait a minute and try again.');
+        else toast.error('Could not resend invites. Please try again.');
+      },
     );
   }
 
@@ -474,14 +524,15 @@ export function WorkspaceMembersPage() {
               {pendingInvites.length} pending invites
             </span>
             <div className="flex-1" />
-            {/* Bulk resend not wired yet — disabled until it ships (#969), same as per-row Resend. */}
+            {/* One request re-queues every pending invite (#969) — server bundles it
+                into a single throttle bucket, so this cannot email-bomb. */}
             <button
               type="button"
-              disabled
-              title="Resending invites isn't available yet — tracked in #969"
-              className="text-[12px] text-brand-accent-dark font-semibold rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:text-neutral-text-secondary disabled:cursor-not-allowed"
+              onClick={handleResendAll}
+              disabled={resendAll.isPending}
+              className="text-[12px] text-brand-accent-dark font-semibold rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:text-neutral-text-secondary disabled:cursor-not-allowed hover:underline"
             >
-              Resend all →
+              {resendAll.isPending ? 'Resending…' : 'Resend all →'}
             </button>
           </div>
         </div>
@@ -569,16 +620,25 @@ export function WorkspaceMembersPage() {
                   <span className="text-[11px]">Sent {p.sentAt}</span>
                   <span className="text-[11px]">by {p.sentBy}</span>
                   <span className="flex flex-col items-end gap-0.5">
-                    <span className="flex justify-end gap-1">
-                      {/* Resend-invite not wired yet — disabled until it ships (#969). */}
-                      <button
-                        type="button"
-                        disabled
-                        title="Resending invites isn't available yet — tracked in #969"
-                        className="text-[11px] text-brand-primary font-semibold hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded disabled:text-neutral-text-secondary disabled:cursor-not-allowed disabled:no-underline disabled:hover:no-underline"
-                      >
-                        Resend
-                      </button>
+                    <span className="flex items-center justify-end gap-1">
+                      {resentInviteIds.has(p.id) ? (
+                        // A resend re-issues the token, so any earlier link the
+                        // recipient holds stops working — the cue is intentionally
+                        // reassuring ("Sent ✓") rather than warning about that.
+                        <span className="text-[11px] text-semantic-on-track font-semibold">
+                          Sent ✓
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleResend(p.id, p.email)}
+                          disabled={resendInvite.isPending}
+                          aria-label={`Resend invite to ${p.email}`}
+                          className="text-[11px] text-brand-primary font-semibold hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded disabled:text-neutral-text-secondary disabled:cursor-not-allowed disabled:no-underline"
+                        >
+                          Resend
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => handleRevoke(p.id)}
@@ -590,7 +650,7 @@ export function WorkspaceMembersPage() {
                     </span>
                     {errorInviteId === p.id && (
                       <span role="alert" className="text-semantic-critical text-[11px]">
-                        Could not revoke. Try again.
+                        Could not complete. Try again.
                       </span>
                     )}
                   </span>

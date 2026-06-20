@@ -61,6 +61,8 @@ packages/web/playwright-report/
 # Local dev attachment + media blobs (Closes #817)
 packages/api/attachments/
 packages/api/media/
+# Workspace logo blobs (#969) — local-disk storage root; prod uses object storage
+packages/api/branding/
 
 # Workspace export test/runtime artifacts (written by export tests; never committed)
 packages/api/workspace-exports/

@@ -27,6 +27,7 @@ const WS: WorkspaceSettings = {
   mcHistoryOverridePolicy: 'allow',
   methodology: 'HYBRID',
   methodologyOverridePolicy: 'suggest',
+  logoUrl: null,
 };
 
 vi.mock('../hooks/useWorkspaceSettings', () => ({
@@ -38,6 +39,18 @@ vi.mock('../hooks/useUpdateWorkspaceSettings', () => ({
 vi.mock('../hooks/useDirtyForm', () => ({
   useDirtyForm: () => undefined,
 }));
+// Logo control (#969) is hook-backed via react-query mutations; stub them so the
+// page renders without a QueryClientProvider.
+vi.mock('../hooks/useWorkspaceLogo', async () => {
+  const actual = await vi.importActual<typeof import('../hooks/useWorkspaceLogo')>(
+    '../hooks/useWorkspaceLogo',
+  );
+  return {
+    ...actual,
+    useUploadWorkspaceLogo: () => ({ mutateAsync: vi.fn(), isPending: false }),
+    useDeleteWorkspaceLogo: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  };
+});
 // EnterpriseBadge reads the edition — community so the upsell badge renders.
 vi.mock('@/hooks/useEdition', () => ({
   useEdition: vi.fn(() => ({ edition: 'community', isLoading: false })),
@@ -65,14 +78,15 @@ describe('WorkspaceGeneralPage — unwired buttons (#969, #641, Enterprise)', ()
     expect(ee).toHaveAttribute('href', 'https://trueppm.com/enterprise');
   });
 
-  it('disables the unwired OSS buttons (logo replace + add calendar) with the #969 reference', () => {
+  it('wires the logo Upload control and keeps the deferred calendar stub disabled', () => {
     renderPage();
-    const replace = screen.getByRole('button', { name: 'Replace' });
+    // Logo is wired now (#969): with no logo set the picker reads "Upload" and is
+    // enabled. The holiday-calendar stub stays disabled (deferred to #906).
+    const upload = screen.getByRole('button', { name: 'Upload' });
+    expect(upload).toBeEnabled();
     const addCalendar = screen.getByRole('button', { name: '+ Add calendar' });
-    expect(replace).toBeDisabled();
     expect(addCalendar).toBeDisabled();
-    expect(replace).toHaveAttribute('title', expect.stringContaining('#969'));
-    expect(addCalendar).toHaveAttribute('title', expect.stringContaining('#969'));
+    expect(addCalendar).toHaveAttribute('title', expect.stringContaining('#906'));
   });
 
   it('points the danger zone at the in-page Archive / Delete section (#641 wired, #1248 anchored)', () => {
