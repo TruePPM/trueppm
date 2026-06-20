@@ -6514,7 +6514,7 @@
         "/api/v1/projects/{id}/forecast-snapshots/": {
             "get": {
                 "operationId": "v1_projects_forecast_snapshots_list",
-                "description": "Project-grain forecast snapshot history (ADR-0152, #388).\n\nReturns the project's forecast snapshots newest-first (paginated), the\npersisted record of how the CPM finish and Monte Carlo percentiles drifted\nover time. Read-only — rows are server-generated on recompute and by the daily\nfloor; there is no write surface. ``?since=``/``?until=`` bound the window by\n``captured_at`` (ISO datetime, or a bare date interpreted as midnight UTC).\n\nPermission: Member (any role ≥ Viewer), the project-read gate — consistent\nwith the Monte Carlo history read.",
+                "description": "Project-grain forecast snapshot history (ADR-0153, #388).\n\nReturns the project's forecast snapshots newest-first (paginated), the\npersisted record of how the CPM finish and Monte Carlo percentiles drifted\nover time. Read-only — rows are server-generated on recompute and by the daily\nfloor; there is no write surface. ``?since=``/``?until=`` bound the window by\n``captured_at`` (ISO datetime, or a bare date interpreted as midnight UTC).\n\nPermission: Member (any role ≥ Viewer), the project-read gate — consistent\nwith the Monte Carlo history read.",
                 "parameters": [
                     {
                         "in": "path",
@@ -27032,7 +27032,7 @@
             },
             "ProjectForecastSnapshot": {
                 "type": "object",
-                "description": "Read-only serializer for a project-grain forecast snapshot (ADR-0152, #388).\n\nServer-generated history; the endpoint is list-only, so every field is\nread-only and there is no create/update path.",
+                "description": "Read-only serializer for a project-grain forecast snapshot (ADR-0153, #388).\n\nServer-generated history; the endpoint is list-only, so every field is\nread-only and there is no create/update path.",
                 "properties": {
                     "id": {
                         "type": "string",
