@@ -604,7 +604,7 @@ def test_project_patch_explicit_empty_override(calendar: Calendar) -> None:
 
 @pytest.mark.django_db
 def test_project_patch_rejects_denied_mime(calendar: Calendar) -> None:
-    """A child override PATCH cannot store a security-denied type (ADR-0150) — the
+    """A child override PATCH cannot store a security-denied type (ADR-0153) — the
     write-side mirror of the read-side floor, matching the Workspace validator."""
     p = _project(calendar)
     client = _client_for_project(p, Role.ADMIN, "u_proj_denied")

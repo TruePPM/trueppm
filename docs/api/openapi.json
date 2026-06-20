@@ -24366,6 +24366,19 @@
                             }
                         ]
                     },
+                    "attachments_enabled": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "allowed_attachment_types": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 255
+                        },
+                        "nullable": true
+                    },
                     "health": {
                         "$ref": "#/components/schemas/HealthEnum"
                     },
@@ -24547,6 +24560,19 @@
                                 "$ref": "#/components/schemas/NullEnum"
                             }
                         ]
+                    },
+                    "attachments_enabled": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "allowed_attachment_types": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 255
+                        },
+                        "nullable": true
                     },
                     "program": {
                         "type": "string",
@@ -25384,6 +25410,20 @@
                     },
                     "task_duration_change_percent_override_policy": {
                         "$ref": "#/components/schemas/TermOverridePolicyEnum"
+                    },
+                    "attachments_enabled": {
+                        "type": "boolean"
+                    },
+                    "allowed_attachment_types": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 255
+                        }
+                    },
+                    "attachments_override_policy": {
+                        "$ref": "#/components/schemas/TermOverridePolicyEnum"
                     }
                 }
             },
@@ -25649,6 +25689,40 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "attachments_enabled": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "allowed_attachment_types": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "maxLength": 255
+                        },
+                        "nullable": true
+                    },
+                    "effective_attachments_enabled": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "inherited_attachments_enabled": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "effective_allowed_attachment_types": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "readOnly": true
+                    },
+                    "inherited_allowed_attachment_types": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "readOnly": true
+                    },
                     "health": {
                         "$ref": "#/components/schemas/HealthEnum"
                     },
@@ -25734,6 +25808,8 @@
                     "created_at",
                     "created_by",
                     "effective_allow_guests",
+                    "effective_allowed_attachment_types",
+                    "effective_attachments_enabled",
                     "effective_mc_history_attribution_audience",
                     "effective_mc_history_enabled",
                     "effective_mc_history_retention_cap",
@@ -25742,6 +25818,8 @@
                     "effective_task_duration_change_percent_policy",
                     "id",
                     "inherited_allow_guests",
+                    "inherited_allowed_attachment_types",
+                    "inherited_attachments_enabled",
                     "inherited_iteration_label",
                     "inherited_mc_history_attribution_audience",
                     "inherited_mc_history_enabled",
@@ -25938,6 +26016,19 @@
                                 "$ref": "#/components/schemas/NullEnum"
                             }
                         ]
+                    },
+                    "attachments_enabled": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "allowed_attachment_types": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 255
+                        },
+                        "nullable": true
                     },
                     "health": {
                         "$ref": "#/components/schemas/HealthEnum"
@@ -26187,6 +26278,40 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "attachments_enabled": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "allowed_attachment_types": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "maxLength": 255
+                        },
+                        "nullable": true
+                    },
+                    "effective_attachments_enabled": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "inherited_attachments_enabled": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "effective_allowed_attachment_types": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "readOnly": true
+                    },
+                    "inherited_allowed_attachment_types": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "readOnly": true
+                    },
                     "program": {
                         "type": "string",
                         "format": "uuid",
@@ -26231,6 +26356,8 @@
                     "archived_at",
                     "archived_by",
                     "effective_allow_guests",
+                    "effective_allowed_attachment_types",
+                    "effective_attachments_enabled",
                     "effective_iteration_label",
                     "effective_mc_history_attribution_audience",
                     "effective_mc_history_enabled",
@@ -26240,6 +26367,8 @@
                     "effective_task_duration_change_percent_policy",
                     "id",
                     "inherited_allow_guests",
+                    "inherited_allowed_attachment_types",
+                    "inherited_attachments_enabled",
                     "inherited_iteration_label",
                     "inherited_mc_history_attribution_audience",
                     "inherited_mc_history_enabled",
@@ -26601,6 +26730,40 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "attachments_enabled": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "allowed_attachment_types": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "maxLength": 255
+                        },
+                        "nullable": true
+                    },
+                    "effective_attachments_enabled": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "inherited_attachments_enabled": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "effective_allowed_attachment_types": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "readOnly": true
+                    },
+                    "inherited_allowed_attachment_types": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "readOnly": true
+                    },
                     "program": {
                         "type": "string",
                         "format": "uuid",
@@ -26680,6 +26843,8 @@
                     "archived_at",
                     "archived_by",
                     "effective_allow_guests",
+                    "effective_allowed_attachment_types",
+                    "effective_attachments_enabled",
                     "effective_iteration_label",
                     "effective_mc_history_attribution_audience",
                     "effective_mc_history_enabled",
@@ -26689,6 +26854,8 @@
                     "effective_task_duration_change_percent_policy",
                     "id",
                     "inherited_allow_guests",
+                    "inherited_allowed_attachment_types",
+                    "inherited_attachments_enabled",
                     "inherited_iteration_label",
                     "inherited_mc_history_attribution_audience",
                     "inherited_mc_history_enabled",
@@ -27018,6 +27185,19 @@
                                 "$ref": "#/components/schemas/NullEnum"
                             }
                         ]
+                    },
+                    "attachments_enabled": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "allowed_attachment_types": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 255
+                        },
+                        "nullable": true
                     },
                     "program": {
                         "type": "string",
@@ -31535,6 +31715,19 @@
                         "$ref": "#/components/schemas/TaskDurationChangePercentPolicyEnum"
                     },
                     "task_duration_change_percent_override_policy": {
+                        "$ref": "#/components/schemas/TermOverridePolicyEnum"
+                    },
+                    "attachments_enabled": {
+                        "type": "boolean"
+                    },
+                    "allowed_attachment_types": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "maxLength": 255
+                        }
+                    },
+                    "attachments_override_policy": {
                         "$ref": "#/components/schemas/TermOverridePolicyEnum"
                     },
                     "logo_url": {

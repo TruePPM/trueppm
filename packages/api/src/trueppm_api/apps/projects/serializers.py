@@ -603,7 +603,7 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         return resolve_inherited_attachment_types(obj, workspace=self._iteration_workspace())
 
     def validate_allowed_attachment_types(self, value: list[str] | None) -> list[str] | None:
-        """Normalize + reject security-denied types on the project override (ADR-0150).
+        """Normalize + reject security-denied types on the project override (ADR-0153).
 
         ``None`` = inherit (unchanged); ``[]`` = explicit empty override. Mirrors the
         Workspace root validator so a denied type can't be stored on a child scope.
@@ -1048,7 +1048,7 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
         return resolve_inherited_attachment_types(obj, workspace=self._sharing_workspace())
 
     def validate_allowed_attachment_types(self, value: list[str] | None) -> list[str] | None:
-        """Normalize + reject security-denied types on the program override (ADR-0150).
+        """Normalize + reject security-denied types on the program override (ADR-0153).
 
         ``None`` = inherit (unchanged); ``[]`` = explicit empty override. Mirrors the
         Workspace root validator so a denied type can't be stored on a child scope.

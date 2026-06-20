@@ -109,7 +109,7 @@ const DEFAULT_PROJECT: ProjectFixture = {
   description: '',
   start_date: '2026-01-01',
   calendar: 'default',
-  // Resolved attachment policy (ADR-0150, #976) — the task drawer reads these to
+  // Resolved attachment policy (ADR-0153, #976) — the task drawer reads these to
   // gate the "+ Attach file" control and mirror the allowed-type set. Default to
   // uploads-enabled with the system seed allow-list so existing upload specs pass;
   // specs exercising the disabled state override `projects`.

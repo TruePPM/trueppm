@@ -8,7 +8,10 @@ import trueppm_api.apps.workspace.models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("workspace", "0011_historicalworkspace_task_duration_change_percent_override_policy_and_more"),
+        (
+            "workspace",
+            "0011_historicalworkspace_task_duration_change_percent_override_policy_and_more",
+        ),
     ]
 
     operations = [
