@@ -12,8 +12,11 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import type { ExternalLinkStatus } from '@/lib/linkStatus';
 
-export type ExternalLinkStatus = 'open' | 'draft' | 'merged' | 'closed' | 'unknown';
+// Re-exported from the canonical module (issue 767, ADR-0155) so existing importers
+// of `ExternalLinkStatus` from this hook keep working.
+export type { ExternalLinkStatus };
 
 /** A git/PM link on a task. `provider` is server-resolved (may be an Enterprise key). */
 export interface TaskExternalLink {

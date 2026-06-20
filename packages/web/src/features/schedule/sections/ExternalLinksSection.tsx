@@ -26,7 +26,13 @@ import {
   useUpdateTaskLink,
   useTaskLinks,
 } from '@/hooks/useTaskLinks';
-import type { ExternalLinkStatus, TaskExternalLink } from '@/hooks/useTaskLinks';
+import type { TaskExternalLink } from '@/hooks/useTaskLinks';
+import {
+  LINK_STATUS_DOT_CLASS,
+  LINK_STATUS_LABEL,
+  LINK_STATUS_TEXT_CLASS,
+} from '@/lib/linkStatus';
+import type { ExternalLinkStatus } from '@/lib/linkStatus';
 
 /** Provider glyph — Unicode for zero icon-library cost (matches AttachmentSection). */
 function providerIcon(provider: string): string {
@@ -35,29 +41,11 @@ function providerIcon(provider: string): string {
   return '🔗';
 }
 
-interface BadgeStyle {
-  label: string;
-  text: string;
-  dot: string;
-}
-
-/**
- * Visual per status. Color is never the only signal — the uppercase label is
- * always present (WCAG 1.4.1). No `info`/purple token exists in the design
- * system, so MERGED maps to brand-primary (the "landed/positive-terminal"
- * color) and DRAFT to at-risk (orange).
- */
-const BADGE_STYLES: Record<ExternalLinkStatus, BadgeStyle> = {
-  open: { label: 'OPEN', text: 'text-semantic-on-track', dot: 'bg-semantic-on-track' },
-  draft: { label: 'DRAFT', text: 'text-semantic-at-risk', dot: 'bg-semantic-at-risk opacity-60' },
-  merged: { label: 'MERGED', text: 'text-brand-primary', dot: 'bg-brand-primary' },
-  closed: { label: 'CLOSED', text: 'text-semantic-critical', dot: 'bg-semantic-critical' },
-  unknown: {
-    label: 'UNKNOWN',
-    text: 'text-neutral-text-secondary',
-    dot: 'border border-neutral-border',
-  },
-};
+// Color/label tokens come from the shared linkStatus module (issue 767, ADR-0155) so the
+// per-link badge here, the at-a-glance list-row glyph, and the Gantt dot stay in
+// lockstep. Color is never the only signal — the uppercase label is always present
+// (WCAG 1.4.1). No `info`/purple token exists, so MERGED maps to brand-primary (the
+// "landed/positive-terminal" color) and DRAFT to at-risk (orange).
 
 interface StatusBadgeProps {
   status: ExternalLinkStatus;
@@ -67,15 +55,14 @@ interface StatusBadgeProps {
 
 /** Colored-dot + uppercase-label status pill (mirrors the Connected Accounts pill). */
 export function StatusBadge({ status, provider }: StatusBadgeProps) {
-  const style = BADGE_STYLES[status];
   const isGenericUnknown = provider === 'generic' && status === 'unknown';
-  const label = isGenericUnknown ? '—' : style.label;
+  const label = isGenericUnknown ? '—' : LINK_STATUS_LABEL[status];
   return (
     <span
-      className={`inline-flex items-center gap-1 text-[11px] font-medium uppercase tracking-wide ${style.text}`}
+      className={`inline-flex items-center gap-1 text-[11px] font-medium uppercase tracking-wide ${LINK_STATUS_TEXT_CLASS[status]}`}
       aria-label={`Status: ${isGenericUnknown ? 'not applicable' : status}`}
     >
-      <span aria-hidden="true" className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
+      <span aria-hidden="true" className={`w-1.5 h-1.5 rounded-full ${LINK_STATUS_DOT_CLASS[status]}`} />
       {label}
     </span>
   );

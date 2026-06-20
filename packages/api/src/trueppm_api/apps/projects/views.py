@@ -16,17 +16,20 @@ from django.db import models as db_models
 from django.db.models import (
     Avg,
     BooleanField,
+    Case,
     Count,
     Exists,
     ExpressionWrapper,
     F,
     IntegerField,
     Max,
+    Min,
     OuterRef,
     Q,
     QuerySet,
     Subquery,
     Sum,
+    When,
 )
 from django.db.models.expressions import RawSQL
 from django.shortcuts import get_object_or_404
@@ -69,6 +72,7 @@ from trueppm_api.apps.access.permissions import (
 )
 from trueppm_api.apps.access.services import transfer_project_ownership
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
+from trueppm_api.apps.integrations.registry import LINK_STATUS_RANK, LINK_STATUS_UNKNOWN
 from trueppm_api.apps.projects.models import (
     AcceptanceCriterion,
     ApiToken,
@@ -1944,6 +1948,34 @@ def annotate_tasks_queryset(
         latest_note_at=Max(
             "notes_log__created_at",
             filter=Q(notes_log__is_deleted=False),
+        ),
+    )
+
+    # External-link summary (#767, ADR-0155): the count of a task's non-deleted
+    # external links and the *worst* link status across them, for the at-a-glance
+    # glyph on the task-list row and the Gantt bar. Two filtered aggregates over the
+    # `links` relation (integrations.TaskLink, related_name="links"):
+    #   external_link_count      — distinct count of non-deleted links.
+    #   external_link_worst_rank — Min of the canonical rank (LINK_STATUS_RANK,
+    #                              most-attention-first); the serializer maps it back
+    #                              to a status string and null when count is 0.
+    # `distinct=True` keeps the count correct under the other multi-relation joins on
+    # this queryset; `Min` is multiplication-invariant so the worst rank is correct
+    # regardless of join fan-out (same reason linked_risks_max_severity uses a bare
+    # filtered Max above). No N+1.
+    live_link_filter = Q(links__is_deleted=False)
+    qs = qs.annotate(
+        external_link_count=Count("links", filter=live_link_filter, distinct=True),
+        external_link_worst_rank=Min(
+            Case(
+                *(
+                    When(links__status=status_value, then=rank)
+                    for status_value, rank in LINK_STATUS_RANK.items()
+                ),
+                default=LINK_STATUS_RANK[LINK_STATUS_UNKNOWN],
+                output_field=IntegerField(),
+            ),
+            filter=live_link_filter,
         ),
     )
 

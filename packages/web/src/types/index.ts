@@ -1,6 +1,11 @@
 // Hand-authored domain types not covered by the OpenAPI-generated output.
 // Update when API schema changes, then verify against generated src/api/types.ts.
 
+import type { ExternalLinkStatus } from '@/lib/linkStatus';
+
+// Re-export so consumers can pull the union from '@/types' alongside Task.
+export type { ExternalLinkStatus };
+
 export type HealthState = 'on-track' | 'at-risk' | 'critical' | 'unknown';
 
 export type BarType = 'normal' | 'critical' | 'complete' | 'summary' | 'milestone' | 'baseline';
@@ -158,6 +163,12 @@ export interface Task {
   linkedRisksCount?: number;
   /** Max(probability * impact) across active linked risks; null when none. */
   linkedRisksMaxSeverity?: number | null;
+  /**
+   * At-a-glance external-link rollup (issue 767, ADR-0155): count of the task's live
+   * external links and the worst status across them (null when count is 0).
+   * Absent on tasks serialized off the annotated list queryset.
+   */
+  externalLinkSummary?: { count: number; worstStatus: ExternalLinkStatus | null };
   /**
    * Server-owned per-task Schedule Performance Index = earned% / planned% from the
    * active baseline (#990, ADR-0115). Null when no active baseline is annotated or
