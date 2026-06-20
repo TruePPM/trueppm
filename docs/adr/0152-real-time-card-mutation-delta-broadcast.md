@@ -106,6 +106,16 @@ do **not** introduce a global `post_save` broadcaster.
   to invalidate). Mobile is unaffected: it reconciles via the sync delta on reconnect
   and ignores extra payload keys.
 
+### Known limitation (accepted)
+`changed_fields` carries field **names** to every project Member (the WS group is
+already gated to Member+ at connect). A Member who cannot see a gated field's *value*
+(e.g. `story_points` below the velocity audience) can still infer from
+`changed_fields` that that field *changed* — the name, never the value. This is a
+minimal metadata inference within an already-trusted audience, accepted as the
+single-fanout tradeoff. Filtering `changed_fields` per-recipient would require the
+per-connection fanout deferred above; it should land together with the targeted
+single-task refetch follow-up.
+
 ## Implementation Notes
 - P3M layer: Programs and Projects → **OSS**.
 - Affected packages: `api` (sync/broadcast helper, projects views/services), `web`
