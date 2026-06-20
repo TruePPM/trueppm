@@ -133,6 +133,13 @@ class WorkspaceSettingsSerializer(serializers.ModelSerializer[Workspace]):
             # affordance; ENFORCE = Enterprise hard lock, no-op in OSS).
             "methodology",
             "methodology_override_policy",
+            # Workspace-wide default for what happens to a task's percent-complete when
+            # its duration changes (ADR-0151, #414) — the non-null root of the
+            # Workspace → Program → Project chain. task_duration_change_percent_override_policy
+            # gates whether programs/projects may override (SUGGEST = yes in OSS;
+            # ENFORCE = Enterprise hard lock, no-op in OSS).
+            "task_duration_change_percent_policy",
+            "task_duration_change_percent_override_policy",
             # Public serve-endpoint URL for the uploaded workspace logo (ADR-0149,
             # #969), or null when unset. Read-only; mutated via /workspace/logo/.
             "logo_url",

@@ -2458,6 +2458,18 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
             transaction.on_commit(
                 lambda: broadcast_board_event(project_id, "project_updated", {"id": project_id})
             )
+        # ADR-0151 (#414): a user edit changed this task's duration on a task with
+        # progress. Broadcast the WS-only task_duration_changed event so the desktop
+        # client can render the inline "Recalc %?" / confirm affordance without a
+        # refetch. WS-only (no webhook): external consumers already see the new
+        # duration via task.updated, and the OSS webhook set is at its cap (ADR-0147).
+        # The event row is already persisted by the serializer; this is the live hint.
+        duration_event: dict[str, Any] | None = getattr(instance, "_duration_change_event", None)
+        if duration_event is not None:
+            event_payload = duration_event
+            transaction.on_commit(
+                lambda: broadcast_board_event(project_id, "task_duration_changed", event_payload)
+            )
         # Capture the calling surface from X-Source header so downstream consumers
         # (webhooks, future audit views) can distinguish a status flip from /me/work
         # vs the schedule canvas vs the board — Morgan's sprint-sovereignty concern
@@ -2709,6 +2721,28 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
 
         task = self.get_object()
         return Response(compute_scope_rollup(task), status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["get"], url_path="duration-events")
+    def duration_events(self, request: Request, **kwargs: Any) -> Response:
+        """Duration-change audit events for a task, newest first (ADR-0151, #414).
+
+        Detail-scoped read of the task's ``TaskDurationChangeEvent`` rows — old/new
+        duration, the percent-complete policy applied, the actor, and the active
+        sprint (if any) at change time. Any project member may read (same gate as
+        ``scope``). IDOR-safe: ``ProjectScopedViewSet`` restricts the queryset to the
+        caller's projects, so ``get_object`` 404s on a foreign task. Paginated
+        newest-first; ``select_related`` keeps actor-name rendering off the N+1 path.
+        """
+        from trueppm_api.apps.projects.serializers import TaskDurationChangeEventSerializer
+
+        task = self.get_object()
+        events = task.duration_change_events.select_related("actor", "sprint").all()
+        page = self.paginate_queryset(events)
+        if page is not None:
+            serializer = TaskDurationChangeEventSerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        serializer = TaskDurationChangeEventSerializer(events, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     @extend_schema(
         summary="Full-text search board cards by title and description (#323)",

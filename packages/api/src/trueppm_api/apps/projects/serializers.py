@@ -39,6 +39,8 @@ from trueppm_api.apps.projects.models import (
     CommentReaction,
     CustomFieldType,
     Dependency,
+    DurationChangePercentPolicy,
+    DurationChangeSource,
     EstimateStatus,
     EstimationMode,
     ForecastSnapshot,
@@ -61,6 +63,7 @@ from trueppm_api.apps.projects.models import (
     Task,
     TaskAttachment,
     TaskComment,
+    TaskDurationChangeEvent,
     TaskNote,
     TaskRecurrenceRule,
     TaskStatus,
@@ -187,6 +190,12 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
     # from workspace (X)" affordance and the policy-driven read-only treatment.
     effective_methodology = serializers.SerializerMethodField()
     inherited_methodology = serializers.SerializerMethodField()
+    # Server-resolved duration-change percent policy (ADR-0151, #414): project ??
+    # program ?? workspace. Clients read the ``effective_*`` field, never the raw
+    # nullable override; ``inherited_*`` is what the project would resolve to if its
+    # own override were cleared (drives the settings "Inherit (X)" affordance).
+    effective_task_duration_change_percent_policy = serializers.SerializerMethodField()
+    inherited_task_duration_change_percent_policy = serializers.SerializerMethodField()
 
     class Meta:
         model = Project
@@ -214,6 +223,12 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             # for tab visibility — and the value inherited if the override were ignored.
             "effective_methodology",
             "inherited_methodology",
+            # Duration-change percent policy OVERRIDE (ADR-0151, #414). Nullable: NULL
+            # = inherit program/workspace. Admin+-gated write by the allowlist default
+            # (not in _SCHEDULER_WRITABLE_FIELDS, so the validate() gate blocks Scheduler).
+            "task_duration_change_percent_policy",
+            "effective_task_duration_change_percent_policy",
+            "inherited_task_duration_change_percent_policy",
             # Product-backlog prioritization model (ADR-0105 §3). Admin+-gated write,
             # enforced in ProjectViewSet alongside estimation_mode.
             "prioritization_model",
@@ -264,6 +279,8 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "inherited_iteration_label",
             "effective_methodology",
             "inherited_methodology",
+            "effective_task_duration_change_percent_policy",
+            "inherited_task_duration_change_percent_policy",
             "effective_public_sharing",
             "inherited_public_sharing",
             "effective_allow_guests",
@@ -498,6 +515,16 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
 
         return resolve_inherited_methodology(obj, workspace=self._iteration_workspace())
 
+    def get_effective_task_duration_change_percent_policy(self, obj: Project) -> str:
+        from .task_duration_settings import resolve_effective_duration_policy
+
+        return resolve_effective_duration_policy(obj, workspace=self._iteration_workspace())
+
+    def get_inherited_task_duration_change_percent_policy(self, obj: Project) -> str:
+        from .task_duration_settings import resolve_inherited_duration_policy
+
+        return resolve_inherited_duration_policy(obj, workspace=self._iteration_workspace())
+
     def get_effective_public_sharing(self, obj: Project) -> bool:
         from .sharing_settings import resolve_effective_sharing
 
@@ -681,6 +708,11 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
     # default the program shows under an active lock or when its own value is ignored.
     effective_methodology = serializers.SerializerMethodField()
     inherited_methodology = serializers.SerializerMethodField()
+    # Server-resolved duration-change percent policy (ADR-0151, #414): program ??
+    # workspace. Clients read ``effective_*``; ``inherited_*`` is the workspace value
+    # the program shows when its own override is cleared.
+    effective_task_duration_change_percent_policy = serializers.SerializerMethodField()
+    inherited_task_duration_change_percent_policy = serializers.SerializerMethodField()
     # Server-resolved sharing settings (ADR-0135, #978): program override ?? workspace
     # value. Clients read ``effective_*``; ``inherited_*`` is the workspace value the
     # program shows when its own override is cleared (drives the "Inherit (On/Off)" chip).
@@ -712,6 +744,11 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             # program's own value is ignored (ADR-0107).
             "effective_methodology",
             "inherited_methodology",
+            # Duration-change percent policy override (ADR-0151, #414). Nullable: NULL
+            # = inherit workspace. Admin+-gated write (program viewset gates at ADMIN).
+            "task_duration_change_percent_policy",
+            "effective_task_duration_change_percent_policy",
+            "inherited_task_duration_change_percent_policy",
             # Iteration-container label override for the program (ADR-0116, #1106).
             # Nullable: NULL = inherit the workspace default.
             "iteration_label",
@@ -766,6 +803,8 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             "member_count",
             "effective_methodology",
             "inherited_methodology",
+            "effective_task_duration_change_percent_policy",
+            "inherited_task_duration_change_percent_policy",
             "effective_public_sharing",
             "inherited_public_sharing",
             "effective_allow_guests",
@@ -850,6 +889,16 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
         from .methodology import resolve_inherited_methodology
 
         return resolve_inherited_methodology(obj, workspace=self._sharing_workspace())
+
+    def get_effective_task_duration_change_percent_policy(self, obj: Program) -> str:
+        from .task_duration_settings import resolve_effective_duration_policy
+
+        return resolve_effective_duration_policy(obj, workspace=self._sharing_workspace())
+
+    def get_inherited_task_duration_change_percent_policy(self, obj: Program) -> str:
+        from .task_duration_settings import resolve_inherited_duration_policy
+
+        return resolve_inherited_duration_policy(obj, workspace=self._sharing_workspace())
 
     def _sharing_workspace(self) -> Workspace:
         """Load the Workspace singleton once per serializer instance so a list of
@@ -2590,7 +2639,129 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                 # OPEN or PM_ONLY: clear status tracking — not applicable.
                 validated_data["estimate_status"] = None
 
+        # ADR-0151 (#414): apply the percent-complete policy when this edit changes
+        # the task's duration, and record an audit event. Runs last so it sees the
+        # final validated_data (e.g. a milestone's duration already zeroed) and can
+        # set percent_complete before super().update() persists it.
+        self._apply_duration_change_policy(instance, validated_data)
+
         return super().update(instance, validated_data)
+
+    def _apply_duration_change_policy(self, instance: Task, validated_data: dict[str, Any]) -> None:
+        """Apply the duration-change percent policy and record an audit event (ADR-0151).
+
+        Fires only when a user edit actually changes ``duration`` on a non-milestone
+        task that has progress (``percent_complete > 0``). Summary tasks are excluded
+        implicitly: ``validate`` rejects setting their ``%``, so their stored value is
+        0 and the ``> 0`` guard skips them. The CPM cascade path is deliberately not
+        touched — it moves dates, not planned durations (ADR-0151 §5).
+
+        - ``keep`` (default): leave ``%`` untouched — the PM-entered value is source
+          of truth.
+        - ``prorate``: scale ``% = round(old% * old_dur / new_dur, 1)`` clamped to
+          [0,100], unless the same payload set ``%`` explicitly (the caller wins).
+        - ``confirm``: keep ``%`` server-side; the client offers an inline re-estimate.
+
+        Records exactly one :class:`~.models.TaskDurationChangeEvent` and stashes a
+        marker the viewset reads to broadcast ``task_duration_changed`` on commit.
+        """
+        if "duration" not in validated_data or instance.is_milestone:
+            return
+        new_duration = validated_data["duration"]
+        old_duration = instance.duration
+        old_pct = instance.percent_complete or 0.0
+        if new_duration == old_duration or old_pct <= 0:
+            return
+
+        from .task_duration_settings import resolve_effective_duration_policy
+
+        policy = resolve_effective_duration_policy(instance.project)
+
+        percent_after: float | None = None
+        if (
+            policy == DurationChangePercentPolicy.PRORATE
+            and new_duration > 0
+            and "percent_complete" not in validated_data
+        ):
+            prorated = round(old_pct * old_duration / new_duration, 1)
+            prorated = max(0.0, min(100.0, prorated))
+            validated_data["percent_complete"] = prorated
+            percent_after = prorated
+        # keep / confirm leave % untouched server-side (confirm defers to the client).
+
+        request = self.context.get("request")
+        actor = None
+        if request is not None:
+            user = getattr(request, "user", None)
+            if user is not None and getattr(user, "is_authenticated", False):
+                actor = user
+
+        # Record the sprint only when the task is in an *active* sprint, so the
+        # event can surface on the live burndown / changes log (ADR-0151 §6).
+        sprint = None
+        if instance.sprint_id:
+            candidate = instance.sprint
+            if candidate is not None and candidate.state == SprintState.ACTIVE:
+                sprint = candidate
+
+        TaskDurationChangeEvent.objects.create(
+            task=instance,
+            actor=actor,
+            old_duration=old_duration,
+            new_duration=new_duration,
+            percent_complete_at_change=old_pct,
+            percent_complete_after=percent_after,
+            policy_applied=policy,
+            source=DurationChangeSource.USER_EDIT,
+            sprint=sprint,
+        )
+
+        # Dynamic marker the viewset reads to broadcast task_duration_changed.
+        instance._duration_change_event = {  # type: ignore[attr-defined]
+            "task_id": str(instance.pk),
+            "old_duration": old_duration,
+            "new_duration": new_duration,
+            "percent_complete_at_change": old_pct,
+            "percent_complete_after": percent_after,
+            "policy_applied": str(policy),
+        }
+
+
+class TaskDurationChangeEventSerializer(serializers.ModelSerializer[TaskDurationChangeEvent]):
+    """Read serializer for a task's duration-change audit events (ADR-0151, #414).
+
+    Powers ``GET /api/v1/tasks/{id}/duration-events/`` and is the API surface the
+    deferred desktop affordance and the future activity timeline (ADR-0096) read.
+    ``actor_name`` is denormalized so a client can render attribution without a
+    second round trip; ``null`` for automated (non-user) events.
+    """
+
+    actor_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TaskDurationChangeEvent
+        fields = [
+            "id",
+            "task",
+            "actor",
+            "actor_name",
+            "old_duration",
+            "new_duration",
+            "percent_complete_at_change",
+            "percent_complete_after",
+            "policy_applied",
+            "source",
+            "sprint",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+    def get_actor_name(self, obj: TaskDurationChangeEvent) -> str | None:
+        """Display name of the actor, or ``None`` for automated events."""
+        if obj.actor is None:
+            return None
+        name: str = obj.actor.get_full_name() or obj.actor.get_username()
+        return name
 
 
 class TaskReorderSerializer(serializers.Serializer[Any]):

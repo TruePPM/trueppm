@@ -18378,6 +18378,47 @@
                 }
             }
         },
+        "/api/v1/tasks/{id}/duration-events/": {
+            "get": {
+                "operationId": "v1_tasks_duration_events_retrieve",
+                "description": "Duration-change audit events for a task, newest first (ADR-0151, #414).\n\nDetail-scoped read of the task's ``TaskDurationChangeEvent`` rows — old/new\nduration, the percent-complete policy applied, the actor, and the active\nsprint (if any) at change time. Any project member may read (same gate as\n``scope``). IDOR-safe: ``ProjectScopedViewSet`` restricts the queryset to the\ncaller's projects, so ``get_object`` 404s on a foreign task. Paginated\nnewest-first; ``select_related`` keeps actor-name rendering off the N+1 path.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Task"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/tasks/{id}/scope/": {
             "get": {
                 "operationId": "v1_tasks_scope_retrieve",
@@ -24235,6 +24276,20 @@
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"
                     },
+                    "task_duration_change_percent_policy": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/TaskDurationChangePercentPolicyEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
                     "iteration_label": {
                         "type": "string",
                         "nullable": true,
@@ -24399,6 +24454,20 @@
                     },
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"
+                    },
+                    "task_duration_change_percent_policy": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/TaskDurationChangePercentPolicyEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
                     },
                     "prioritization_model": {
                         "$ref": "#/components/schemas/PrioritizationModelEnum"
@@ -25267,6 +25336,12 @@
                     },
                     "methodology_override_policy": {
                         "$ref": "#/components/schemas/TermOverridePolicyEnum"
+                    },
+                    "task_duration_change_percent_policy": {
+                        "$ref": "#/components/schemas/TaskDurationChangePercentPolicyEnum"
+                    },
+                    "task_duration_change_percent_override_policy": {
+                        "$ref": "#/components/schemas/TermOverridePolicyEnum"
                     }
                 }
             },
@@ -25428,6 +25503,28 @@
                         "readOnly": true
                     },
                     "inherited_methodology": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "task_duration_change_percent_policy": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/TaskDurationChangePercentPolicyEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "effective_task_duration_change_percent_policy": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "inherited_task_duration_change_percent_policy": {
                         "type": "string",
                         "readOnly": true
                     },
@@ -25600,6 +25697,7 @@
                     "effective_mc_history_retention_cap",
                     "effective_methodology",
                     "effective_public_sharing",
+                    "effective_task_duration_change_percent_policy",
                     "id",
                     "inherited_allow_guests",
                     "inherited_iteration_label",
@@ -25608,6 +25706,7 @@
                     "inherited_mc_history_retention_cap",
                     "inherited_methodology",
                     "inherited_public_sharing",
+                    "inherited_task_duration_change_percent_policy",
                     "is_closed",
                     "is_sample",
                     "lead_detail",
@@ -25749,6 +25848,20 @@
                     },
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"
+                    },
+                    "task_duration_change_percent_policy": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/TaskDurationChangePercentPolicyEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
                     },
                     "iteration_label": {
                         "type": "string",
@@ -25924,6 +26037,28 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "task_duration_change_percent_policy": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/TaskDurationChangePercentPolicyEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "effective_task_duration_change_percent_policy": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "inherited_task_duration_change_percent_policy": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "prioritization_model": {
                         "$ref": "#/components/schemas/PrioritizationModelEnum"
                     },
@@ -26060,6 +26195,7 @@
                     "effective_mc_history_retention_cap",
                     "effective_methodology",
                     "effective_public_sharing",
+                    "effective_task_duration_change_percent_policy",
                     "id",
                     "inherited_allow_guests",
                     "inherited_iteration_label",
@@ -26068,6 +26204,7 @@
                     "inherited_mc_history_retention_cap",
                     "inherited_methodology",
                     "inherited_public_sharing",
+                    "inherited_task_duration_change_percent_policy",
                     "is_archived",
                     "lead_detail",
                     "member_count",
@@ -26314,6 +26451,28 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "task_duration_change_percent_policy": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/TaskDurationChangePercentPolicyEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "effective_task_duration_change_percent_policy": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "inherited_task_duration_change_percent_policy": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "prioritization_model": {
                         "$ref": "#/components/schemas/PrioritizationModelEnum"
                     },
@@ -26485,6 +26644,7 @@
                     "effective_mc_history_retention_cap",
                     "effective_methodology",
                     "effective_public_sharing",
+                    "effective_task_duration_change_percent_policy",
                     "id",
                     "inherited_allow_guests",
                     "inherited_iteration_label",
@@ -26493,6 +26653,7 @@
                     "inherited_mc_history_retention_cap",
                     "inherited_methodology",
                     "inherited_public_sharing",
+                    "inherited_task_duration_change_percent_policy",
                     "is_archived",
                     "is_sample",
                     "lead_detail",
@@ -26764,6 +26925,20 @@
                     },
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"
+                    },
+                    "task_duration_change_percent_policy": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/TaskDurationChangePercentPolicyEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
                     },
                     "prioritization_model": {
                         "$ref": "#/components/schemas/PrioritizationModelEnum"
@@ -29518,6 +29693,15 @@
                     "body"
                 ]
             },
+            "TaskDurationChangePercentPolicyEnum": {
+                "enum": [
+                    "keep",
+                    "prorate",
+                    "confirm"
+                ],
+                "type": "string",
+                "description": "* `keep` - Keep percent-complete\n* `prorate` - Prorate percent-complete\n* `confirm` - Confirm percent-complete (client prompt)"
+            },
             "TaskLink": {
                 "type": "object",
                 "description": "A git/PM link on a task (ADR-0049 §3, #637; redesign #970).\n\nClient-writable: ``url``, ``custom_title``, ``labels``, ``display_order``.\n``provider`` is resolved server-side from the URL + the user's connected\nhosts, and ``status``/``title``/``fetched_at`` are populated by the refresh\nendpoint — never trusted from the client. ``server_version`` is exposed so\noffline clients can reconcile against the sync delta.",
@@ -31292,6 +31476,12 @@
                         "$ref": "#/components/schemas/MethodologyEnum"
                     },
                     "methodology_override_policy": {
+                        "$ref": "#/components/schemas/TermOverridePolicyEnum"
+                    },
+                    "task_duration_change_percent_policy": {
+                        "$ref": "#/components/schemas/TaskDurationChangePercentPolicyEnum"
+                    },
+                    "task_duration_change_percent_override_policy": {
                         "$ref": "#/components/schemas/TermOverridePolicyEnum"
                     },
                     "logo_url": {
