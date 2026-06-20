@@ -174,6 +174,9 @@ def warn_if_legacy(result: WsAuthResult, *, consumer: str, project_pk: str) -> N
     still on the legacy path before it is removed next release.
     """
     if result.via == "token":
+        # No secret logged: args are the consumer, project pk and user pk. The
+        # literal "token" is the deprecated query-param's *name*, never its value.
+        # nosemgrep: python-logger-credential-disclosure
         logger.warning(
             "Deprecated WebSocket auth: %s connected via ?token= (project %s, "
             "user %s). Migrate to POST /api/v1/ws/ticket/ (ADR-0141); the token "

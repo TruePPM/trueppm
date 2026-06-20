@@ -75,8 +75,11 @@ ALLOWED_HOSTS = ["*"]
 INTEGRATION_ENCRYPTION_KEY = "cNHot7PnbAHGIuY4zUht8FwB5wYGv06O7ppzGyhzR84="
 
 # In dev, allow unauthenticated access to the API for ease of local testing.
-REST_FRAMEWORK = {
-    **REST_FRAMEWORK,
+# Throttle classes/rates are inherited from base settings via the spread below;
+# this dev-only module merely relaxes the permission classes. Fenced by
+# _assert_dev_environment_safe — never loaded in staging or production.
+REST_FRAMEWORK = {  # nosemgrep: missing-throttle-config
+    **REST_FRAMEWORK,  # nosemgrep: missing-throttle-config
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.AllowAny"],
 }
 

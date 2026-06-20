@@ -1768,7 +1768,11 @@ def annotate_tasks_queryset(
     # percent_complete_rollup = duration-weighted average of direct children's
     #   percent_complete (NULL for leaf tasks, avoids per-row raw query in serializer).
     # Uses ltree operators via RawSQL for PostgreSQL-native performance.
+    # All three RawSQL annotations below are static SQL literals with empty params
+    # lists (no user input interpolated); the ltree/CTE expressions can't be
+    # expressed in the ORM.
     qs = qs.annotate(
+        # nosemgrep: avoid-raw-sql
         is_summary=RawSQL(
             "EXISTS("
             "  SELECT 1 FROM projects_task c"
@@ -1782,6 +1786,7 @@ def annotate_tasks_queryset(
             [],
             output_field=BooleanField(),
         ),
+        # nosemgrep: avoid-raw-sql
         parent_id=RawSQL(
             "("
             "  SELECT p.id FROM projects_task p"
@@ -1817,6 +1822,7 @@ def annotate_tasks_queryset(
         # Leaf selection: all descendants at any depth ('.*{1,}') minus any that
         # themselves have children (non-leaf), so only leaves contribute — fixes the
         # 3-level grandparent-reads-zero case (intermediate summaries aren't persisted).
+        # nosemgrep: avoid-raw-sql
         percent_complete_rollup=RawSQL(
             "("
             "  SELECT CASE WHEN SUM(w.weight) > 0"

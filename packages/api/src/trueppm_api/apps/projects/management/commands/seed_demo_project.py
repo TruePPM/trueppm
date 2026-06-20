@@ -185,6 +185,10 @@ class Command(BaseCommand):
                     "last_name": spec["last"],
                 },
             )
+            # Demo-seed fixture: a fixed, well-known throwaway password for local
+            # demo accounts, not an interactive-signup path — password validators
+            # do not apply.
+            # nosemgrep: unvalidated-password
             user.set_password(DEMO_PASSWORD)
             user.save(update_fields=["password"])
             out[spec["username"]] = user

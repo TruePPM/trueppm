@@ -47,6 +47,10 @@ class Command(BaseCommand):
             email=_EMAIL,
             defaults={"username": _EMAIL},
         )
+        # CI integration fixture: a fixed test password for a throwaway account,
+        # not an interactive-signup path — password validators do not apply (same
+        # for the two member fixtures below).
+        # nosemgrep: unvalidated-password
         user.set_password(_PASSWORD)
         user.save(update_fields=["password"])
 
@@ -77,6 +81,7 @@ class Command(BaseCommand):
             email=_MEMBER_EMAIL,
             defaults={"username": _MEMBER_EMAIL},
         )
+        # nosemgrep: unvalidated-password
         ci_member.set_password(_PASSWORD)
         ci_member.save(update_fields=["password"])
         ProjectMembership.objects.create(project=project, user=ci_member, role=Role.MEMBER)
@@ -87,6 +92,7 @@ class Command(BaseCommand):
             email=_NONMEMBER_EMAIL,
             defaults={"username": _NONMEMBER_EMAIL},
         )
+        # nosemgrep: unvalidated-password
         ci_nonmember.set_password(_PASSWORD)
         ci_nonmember.save(update_fields=["password"])
 
