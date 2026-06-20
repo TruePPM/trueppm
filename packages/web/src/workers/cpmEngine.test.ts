@@ -155,4 +155,23 @@ describe('runCpmForwardPass', () => {
     expect(c.earlyStart).toBe('2025-01-17');
     expect(c.earlyFinish).toBe('2025-01-18');
   });
+
+  it('propagates SF dependency correctly', () => {
+    // A (5d) → SF → B (3d): B finishes no earlier than A starts.
+    // Drag A to Jan 13 → A starts Jan 13 → B.earlyStart = A.start - B.dur + 1
+    // = Jan 13 - 3 + 1 = Jan 11 → B finishes Jan 13.
+    const tasks: CpmTask[] = [
+      task('A', '2025-01-06', '2025-01-10'),
+      task('B', '2025-01-06', '2025-01-08'), // 3 days, starts before the constraint
+    ];
+    const { results } = runCpmForwardPass(
+      tasks,
+      [edge('A', 'B', 'SF')],
+      'A',
+      '2025-01-13',
+    );
+    const b = results.find((r) => r.taskId === 'B')!;
+    expect(b.earlyStart).toBe('2025-01-11');
+    expect(b.earlyFinish).toBe('2025-01-13');
+  });
 });
