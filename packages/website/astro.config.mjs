@@ -104,6 +104,7 @@ export default defineConfig({
             { slug: "administration/msproject-configuration" },
             { slug: "administration/workspace-settings" },
             { slug: "administration/sharing-and-access" },
+            { slug: "administration/attachment-policy" },
           ],
         },
         // --- Feature reference (sub-grouped) ---

@@ -148,9 +148,10 @@ export function InheritableMultiSelectField({
             onChange={(next) => onChange(next)}
             groups={groups}
             deniedTypes={deniedTypes}
+            ariaLabel={ariaLabel}
           />
           {delta && (
-            <p className="text-[12px] text-neutral-text-secondary">
+            <p className="text-[12px] text-neutral-text-secondary" role="status" aria-live="polite">
               {delta.kind === 'same' && 'Same as parent.'}
               {delta.kind === 'narrower' &&
                 `Narrower than parent (removed: ${delta.mimes.map(labelForMime).join(', ')}).`}

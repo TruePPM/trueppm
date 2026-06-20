@@ -602,6 +602,36 @@ def test_project_patch_explicit_empty_override(calendar: Calendar) -> None:
     assert resp.data["effective_allowed_attachment_types"] == ["application/pdf", "text/csv"]
 
 
+@pytest.mark.django_db
+def test_project_patch_rejects_denied_mime(calendar: Calendar) -> None:
+    """A child override PATCH cannot store a security-denied type (ADR-0150) — the
+    write-side mirror of the read-side floor, matching the Workspace validator."""
+    p = _project(calendar)
+    client = _client_for_project(p, Role.ADMIN, "u_proj_denied")
+    resp = client.patch(
+        f"/api/v1/projects/{p.pk}/",
+        {"allowed_attachment_types": ["application/pdf", "image/svg+xml"]},
+        format="json",
+    )
+    assert resp.status_code == 400
+    assert "allowed_attachment_types" in resp.data
+
+
+@pytest.mark.django_db
+def test_project_patch_normalizes_types(calendar: Calendar) -> None:
+    """Child override entries are lowercased, charset-stripped, deduped, sorted so
+    they match the normalized MIME compared at upload time."""
+    p = _project(calendar)
+    client = _client_for_project(p, Role.ADMIN, "u_proj_norm")
+    resp = client.patch(
+        f"/api/v1/projects/{p.pk}/",
+        {"allowed_attachment_types": ["APPLICATION/PDF", "text/csv; charset=utf-8", "text/csv"]},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.content
+    assert resp.data["allowed_attachment_types"] == ["application/pdf", "text/csv"]
+
+
 # ===========================================================================
 # 7. Workspace settings PATCH — normalize / dedupe / reject denied MIME
 # ===========================================================================

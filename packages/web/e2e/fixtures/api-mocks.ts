@@ -109,6 +109,20 @@ const DEFAULT_PROJECT: ProjectFixture = {
   description: '',
   start_date: '2026-01-01',
   calendar: 'default',
+  // Resolved attachment policy (ADR-0150, #976) — the task drawer reads these to
+  // gate the "+ Attach file" control and mirror the allowed-type set. Default to
+  // uploads-enabled with the system seed allow-list so existing upload specs pass;
+  // specs exercising the disabled state override `projects`.
+  effective_attachments_enabled: true,
+  effective_allowed_attachment_types: [
+    'application/pdf',
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'text/csv',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  ],
 };
 
 const DEFAULT_USER: UserFixture = {

@@ -602,6 +602,23 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
 
         return resolve_inherited_attachment_types(obj, workspace=self._iteration_workspace())
 
+    def validate_allowed_attachment_types(self, value: list[str] | None) -> list[str] | None:
+        """Normalize + reject security-denied types on the project override (ADR-0150).
+
+        ``None`` = inherit (unchanged); ``[]`` = explicit empty override. Mirrors the
+        Workspace root validator so a denied type can't be stored on a child scope.
+        """
+        if value is None:
+            return None
+        from .attachment_policy import DeniedAttachmentType, clean_attachment_type_list
+
+        try:
+            return clean_attachment_type_list(value)
+        except DeniedAttachmentType as exc:
+            raise serializers.ValidationError(
+                f"{exc.args[0]!r} is blocked for security and cannot be allowed."
+            ) from exc
+
     def get_effective_mc_history_enabled(self, obj: Project) -> bool:
         from trueppm_api.apps.scheduling.forecast_history_settings import (
             resolve_effective_mc_history,
@@ -1029,6 +1046,23 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
         from .attachment_policy import resolve_inherited_attachment_types
 
         return resolve_inherited_attachment_types(obj, workspace=self._sharing_workspace())
+
+    def validate_allowed_attachment_types(self, value: list[str] | None) -> list[str] | None:
+        """Normalize + reject security-denied types on the program override (ADR-0150).
+
+        ``None`` = inherit (unchanged); ``[]`` = explicit empty override. Mirrors the
+        Workspace root validator so a denied type can't be stored on a child scope.
+        """
+        if value is None:
+            return None
+        from .attachment_policy import DeniedAttachmentType, clean_attachment_type_list
+
+        try:
+            return clean_attachment_type_list(value)
+        except DeniedAttachmentType as exc:
+            raise serializers.ValidationError(
+                f"{exc.args[0]!r} is blocked for security and cannot be allowed."
+            ) from exc
 
     def get_effective_mc_history_enabled(self, obj: Program) -> bool:
         from trueppm_api.apps.scheduling.forecast_history_settings import (

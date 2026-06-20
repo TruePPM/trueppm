@@ -112,6 +112,35 @@ def _apply_denylist(types: Iterable[str]) -> list[str]:
     return sorted({t for t in types} - SYSTEM_ATTACHMENT_DENYLIST)
 
 
+class DeniedAttachmentType(ValueError):
+    """Raised by :func:`clean_attachment_type_list` for a security-denied MIME.
+
+    The offending (normalized) MIME is the first arg, so serializers can surface a
+    clear 400 instead of silently storing a value the resolver would strip on read.
+    """
+
+
+def clean_attachment_type_list(value: Iterable[str]) -> list[str]:
+    """Normalize a write-side allow-list: lowercase, strip ``; charset=`` trailers,
+    drop blanks, de-duplicate, and return sorted.
+
+    Rejects any security-denied type by raising :class:`DeniedAttachmentType` — the
+    write-side mirror of the read-side denylist floor, so a denied MIME never lands
+    in a stored override (which would otherwise vanish on the next resolved read).
+    Shared by the Workspace, Program, and Project settings serializers.
+    """
+    cleaned: list[str] = []
+    for raw in value:
+        mime = (raw or "").split(";", 1)[0].strip().lower()
+        if not mime:
+            continue
+        if mime in SYSTEM_ATTACHMENT_DENYLIST:
+            raise DeniedAttachmentType(mime)
+        if mime not in cleaned:
+            cleaned.append(mime)
+    return sorted(cleaned)
+
+
 def _program_of(obj: Program | Project) -> Program | None:
     """The program scope above ``obj`` (a Project's program), or None."""
     from trueppm_api.apps.projects.models import Program

@@ -101,6 +101,7 @@ export function WorkspaceAttachmentsPage() {
               onChange={setAllowedTypes}
               groups={ATTACHMENT_TYPE_CATALOG}
               deniedTypes={DENIED_ATTACHMENT_TYPES}
+              ariaLabel="Allowed file types"
             />
             {showEmptyAllowlistWarning && (
               <p

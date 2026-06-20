@@ -195,21 +195,16 @@ class WorkspaceSettingsSerializer(serializers.ModelSerializer[Workspace]):
         An empty list is a valid (deliberate) "no types allowed" workspace policy.
         """
         from trueppm_api.apps.projects.attachment_policy import (
-            SYSTEM_ATTACHMENT_DENYLIST,
+            DeniedAttachmentType,
+            clean_attachment_type_list,
         )
 
-        normalized: list[str] = []
-        for raw in value:
-            mime = (raw or "").split(";", 1)[0].strip().lower()
-            if not mime:
-                continue
-            if mime in SYSTEM_ATTACHMENT_DENYLIST:
-                raise serializers.ValidationError(
-                    f"{mime!r} is blocked for security and cannot be allowed."
-                )
-            if mime not in normalized:
-                normalized.append(mime)
-        return sorted(normalized)
+        try:
+            return clean_attachment_type_list(value)
+        except DeniedAttachmentType as exc:
+            raise serializers.ValidationError(
+                f"{exc.args[0]!r} is blocked for security and cannot be allowed."
+            ) from exc
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         """Reject a fiscal day that cannot exist in the chosen month (#756).

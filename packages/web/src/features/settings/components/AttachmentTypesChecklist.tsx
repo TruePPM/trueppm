@@ -18,6 +18,8 @@ export interface AttachmentTypesChecklistProps {
   groups?: readonly AttachmentTypeOption[];
   /** Permanently-blocked types rendered as disabled rows. Defaults to the denylist. */
   deniedTypes?: readonly DeniedAttachmentType[];
+  /** Accessible name for the whole checklist region (the multi-fieldset group). */
+  ariaLabel?: string;
 }
 
 /** Lock glyph for the "Always blocked" rows — decorative; the helper text carries the meaning. */
@@ -50,9 +52,11 @@ export function AttachmentTypesChecklist({
   disabled = false,
   groups = ATTACHMENT_TYPE_CATALOG,
   deniedTypes = DENIED_ATTACHMENT_TYPES,
+  ariaLabel,
 }: AttachmentTypesChecklistProps) {
   const idPrefix = useId();
   const checked = useMemo(() => new Set(value), [value]);
+  const deniedReasonId = `${idPrefix}-denied-reason`;
 
   const byGroup = useMemo(() => {
     const map = new Map<string, AttachmentTypeOption[]>();
@@ -90,14 +94,17 @@ export function AttachmentTypesChecklist({
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div
+      className="flex flex-col gap-4"
+      {...(ariaLabel ? { role: 'group', 'aria-label': ariaLabel } : {})}
+    >
       {byGroup.map(([group, opts]) => {
         const checkedCount = opts.filter((o) => checked.has(o.mime)).length;
         const allChecked = checkedCount === opts.length;
         const someChecked = checkedCount > 0 && !allChecked;
         const legendId = `${idPrefix}-${group}-legend`;
         return (
-          <fieldset key={group} className="m-0 p-0 border-0" aria-describedby={legendId}>
+          <fieldset key={group} className="m-0 p-0 border-0" aria-labelledby={legendId}>
             <legend className="contents">
               <label className="flex items-center gap-2 py-2.5 md:py-1.5 min-h-11 md:min-h-0 cursor-pointer">
                 <input
@@ -161,8 +168,10 @@ export function AttachmentTypesChecklist({
               <div
                 key={opt.mime}
                 // NOT a real input — a permanently-blocked type can never become
-                // part of `value`. Rendered for transparency only.
+                // part of `value`. Rendered for transparency only; the reason is
+                // tied via aria-describedby so SR users hear *why* it's disabled.
                 aria-disabled="true"
+                aria-describedby={deniedReasonId}
                 className="flex items-center gap-2 py-2.5 md:py-1 min-h-11 md:min-h-0 text-neutral-text-disabled"
               >
                 <span className="shrink-0" aria-hidden="true">
@@ -172,7 +181,7 @@ export function AttachmentTypesChecklist({
               </div>
             ))}
           </div>
-          <p className="text-[12px] text-neutral-text-secondary mt-1 pl-6">
+          <p id={deniedReasonId} className="text-[12px] text-neutral-text-secondary mt-1 pl-6">
             Blocked for security and can&apos;t be enabled.
           </p>
         </fieldset>

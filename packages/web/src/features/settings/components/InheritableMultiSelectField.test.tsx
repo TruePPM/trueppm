@@ -1,3 +1,4 @@
+import type { ComponentProps } from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { InheritableMultiSelectField } from './InheritableMultiSelectField';
@@ -10,7 +11,7 @@ const GROUPS = [
 const DENIED = [{ mime: 'text/html', label: 'HTML' }];
 
 function renderField(
-  props: Partial<React.ComponentProps<typeof InheritableMultiSelectField>> = {},
+  props: Partial<ComponentProps<typeof InheritableMultiSelectField>> = {},
 ) {
   const onChange = vi.fn();
   render(
