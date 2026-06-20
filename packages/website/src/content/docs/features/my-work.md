@@ -87,10 +87,12 @@ The PM-facing "My Tasks" view inside each project is a different surface. It sho
 When you open TruePPM (or navigate to the app root), the app routes you to a screen based on your role instead of always dropping you on a project's Overview page.
 
 - **Contributors** — anyone whose highest role across all projects is Team Member or Viewer — land on **My Work** automatically.
-- **Project managers** — anyone who holds Scheduler, Admin, or Owner on at least one project — land on the **Overview of their most recently active project**.
+- **Project managers** — anyone who holds Scheduler, Admin, or Owner on at least one project — land on the **Overview of the project they most recently opened**.
 - **Users with no projects** land on My Work's onboarding empty state, which prompts you to join or create a project.
 
 A brief, dismissible hint explains why you landed where you did and links directly to the preference if you want to change it.
+
+"Most recently opened" is tracked per user from the projects you actually visit — open a project and it becomes your landing default next time. Until you've opened one, TruePPM falls back to your most recently joined project. Visits are private to you; opening a project never changes where anyone else lands.
 
 ### Changing your default home screen
 
@@ -100,7 +102,7 @@ Go to **Preferences → General** (`/me/settings/general`). The **Default home s
 |--------|-------------|
 | **Automatic** | Follows your role as described above. Updates if your highest role changes — promote to Scheduler and the app starts opening on a project Overview. |
 | **My Work** | Always open on My Work, regardless of your role. |
-| **Project Overview** | Always open on the most recently active project's Overview. |
+| **Project Overview** | Always open on the Overview of the project you most recently opened. |
 
 A **first-login prompt** on My Work lets you make the same choice without hunting through Settings.
 

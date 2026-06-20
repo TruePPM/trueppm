@@ -141,6 +141,31 @@ class AcceptanceResultThrottle(BaseThrottle):
         return getattr(self, "wait_seconds", None)
 
 
+def claim_visit_window(user_pk: object, project_pk: object, ttl: int = 60) -> bool:
+    """Server-side coalesce for last-visited recording (ADR-0150 D3).
+
+    Returns ``True`` if this is the first visit-ping for ``(user, project)`` in
+    the current ``ttl``-second window — the caller should perform the upsert.
+    Returns ``False`` if a recent ping already claimed the window, so the caller
+    skips the write and returns a ``200`` no-op (a coalesced ping is *not* an
+    error — never surface 429 for an inconsequential navigation ping).
+
+    Fails *open* (returns ``True``) on any Redis error: a throttle outage must
+    never drop real last-visited data — at worst we do an extra cheap upsert.
+    Uses ``SET NX EX`` so the claim is atomic.
+    """
+
+    bucket_key = f"rate:project_visit:{user_pk}:{project_pk}"
+    try:
+        client = _client()
+        # SET key 1 NX EX ttl → returns True only if the key did not exist.
+        claimed = client.set(bucket_key, 1, nx=True, ex=ttl)
+    except redis.RedisError:
+        logger.exception("claim_visit_window: Redis error, failing open (recording visit)")
+        return True
+    return bool(claimed)
+
+
 class TokenIssuanceThrottle(BaseThrottle):
     """5 req/min per user on the token-issuance endpoint.
 

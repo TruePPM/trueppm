@@ -32,7 +32,7 @@ from django.conf import settings
 from django.db.models import Max
 
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
-from trueppm_api.apps.profiles.models import DefaultLanding, UserProfile
+from trueppm_api.apps.profiles.models import DefaultLanding, ProjectVisit, UserProfile
 
 logger = logging.getLogger(__name__)
 
@@ -109,13 +109,44 @@ def _overview_path(project_id: Any) -> str:
 
 
 def most_recent_project(user: Any) -> Any | None:
-    """Best-effort "most recently active project" for a PM-type user.
+    """The user's most recently *visited* accessible project (ADR-0150).
 
-    There is no per-user last-visited tracking today, so this uses the
-    highest-``server_version`` active membership (a proxy for "most recently
-    touched") and falls back to the alphabetically-first project. Good enough for
-    a *default* the user can override; real last-visited telemetry is a tracked
-    follow-up. Returns the ``Project`` or None.
+    Reads real last-visited telemetry from :class:`ProjectVisit` — the project
+    the user most recently opened, filtered to ones they still belong to and that
+    are not archived/deleted. One indexed query (``(user, -visited_at)``) on the
+    ``/auth/me/`` hot path.
+
+    Falls back to ``_most_recent_project_proxy`` (the highest-``server_version``
+    membership, ADR-0129) when the user has no usable visit row yet — fresh users
+    and existing users on their first navigation after this shipped. Returns the
+    ``Project`` or None.
+    """
+
+    visit = (
+        ProjectVisit.objects.filter(
+            user=user,
+            project__is_deleted=False,
+            project__is_archived=False,
+            # Only count visits to projects the user still has access to — a
+            # membership may have been revoked since the visit was recorded.
+            project__memberships__user=user,
+            project__memberships__is_deleted=False,
+        )
+        .select_related("project")
+        .order_by("-visited_at")
+        .first()
+    )
+    if visit is not None:
+        return visit.project
+    return _most_recent_project_proxy(user)
+
+
+def _most_recent_project_proxy(user: Any) -> Any | None:
+    """Pre-telemetry fallback: highest-``server_version`` active membership.
+
+    The ADR-0129 proxy — a stand-in for "most recently touched" used only until
+    the user has a real :class:`ProjectVisit` row. Falls back to the
+    alphabetically-first accessible project.
     """
 
     membership = (
@@ -126,6 +157,28 @@ def most_recent_project(user: Any) -> Any | None:
         .first()
     )
     return membership.project if membership is not None else None
+
+
+def record_project_visit(user: Any, project: Any) -> None:
+    """Upsert the user's last-visited timestamp for ``project`` (ADR-0150).
+
+    Idempotent: keyed on the ``(user, project)`` unique constraint, so a repeat
+    call only advances ``visited_at`` (last-writer-wins, the desired semantic).
+    Best-effort — callers fire this fire-and-forget; it never raises into the
+    request path on a benign race.
+    """
+
+    from django.db import IntegrityError
+    from django.utils import timezone
+
+    try:
+        ProjectVisit.objects.update_or_create(
+            user=user,
+            project=project,
+            defaults={"visited_at": timezone.now()},
+        )
+    except IntegrityError:  # pragma: no cover - concurrent first-write race; the row now exists
+        ProjectVisit.objects.filter(user=user, project=project).update(visited_at=timezone.now())
 
 
 def _max_project_role(user: Any) -> int | None:

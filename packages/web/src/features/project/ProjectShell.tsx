@@ -3,6 +3,7 @@ import { Outlet } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
 import { useProjectWebSocket } from '@/hooks/useProjectWebSocket';
+import { useRecordProjectVisit } from '@/hooks/useRecordProjectVisit';
 import { useSchedulerStore } from '@/stores/schedulerStore';
 import { ProjectNotFound } from './ProjectNotFound';
 import { ProjectSampleIndicator } from './ProjectSampleIndicator';
@@ -19,6 +20,10 @@ export function ProjectShell() {
   const projectId = useProjectId() ?? null;
 
   useProjectWebSocket(projectId);
+
+  // Record a real last-visited ping so the app's landing default lands the user
+  // on the project they actually last opened (ADR-0150). Fire-and-forget.
+  useRecordProjectVisit(projectId);
 
   // Gate every project route on the project record: a deleted (or missing)
   // project 404s server-side (#1111), and we surface that as a single honest
