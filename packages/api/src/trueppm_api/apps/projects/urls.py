@@ -20,6 +20,7 @@ from trueppm_api.apps.projects.signal_privacy_views import (
 )
 from trueppm_api.apps.projects.views import (
     AcceptanceCriterionViewSet,
+    AcceptanceResultIngestView,
     ApiTokenAuditView,
     BaselineActivateView,
     BaselineViewSet,
@@ -523,6 +524,12 @@ urlpatterns = [
         "projects/<pk>/task-sync/",
         TaskSyncView.as_view(),
         name="project-task-sync",
+    ),
+    # Inbound CI acceptance-result ingestion — ADR-0148 (issue #1075)
+    path(
+        "projects/<pk>/acceptance-results/",
+        AcceptanceResultIngestView.as_view(),
+        name="project-acceptance-results",
     ),
     path(
         "projects/<project_pk>/api-tokens/",

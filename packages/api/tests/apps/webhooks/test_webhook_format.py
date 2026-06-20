@@ -69,13 +69,14 @@ def admin_client(user: object, project: Project) -> APIClient:
 
 
 def test_event_type_cap() -> None:
-    """The OSS webhook event set is capped at 11 — a 12th requires its own ADR.
+    """The OSS webhook event set is capped at 14 — a 15th requires its own ADR.
 
     If this fails because someone added a new WebhookEventType, do not just bump
     the number: the cap is the gate against per-customer event proliferation
     (the Enterprise upsell). Adding an event is a deliberate ADR-0083 decision.
+    The agile trio (sprint.*) was added under ADR-0147, raising the cap 11→14.
     """
-    assert len(ALL_WEBHOOK_EVENTS) == OSS_WEBHOOK_EVENT_CAP == 11
+    assert len(ALL_WEBHOOK_EVENTS) == OSS_WEBHOOK_EVENT_CAP == 14
     assert set(ALL_WEBHOOK_EVENTS) == {
         "task.created",
         "task.updated",
@@ -88,6 +89,9 @@ def test_event_type_cap() -> None:
         "task.assignee_changed",
         "task.mentioned",
         "task.due_date_changed",
+        "sprint.activated",
+        "sprint.closed",
+        "sprint.scope_changed",
     }
 
 
