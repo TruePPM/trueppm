@@ -3470,6 +3470,26 @@ class RiskSerializer(serializers.ModelSerializer[Risk]):
         ]
 
 
+class RiskImportIssueSerializer(serializers.Serializer[Any]):
+    """One per-row problem from a CSV import — a skipped error or a coercion warning."""
+
+    row = serializers.IntegerField(help_text="Spreadsheet line (header is row 1).")
+    field = serializers.CharField(help_text="The column the problem relates to.")
+    message = serializers.CharField()
+
+
+class RiskImportResultSerializer(serializers.Serializer[Any]):
+    """Outcome of a risk CSV import (issue 223): counts plus per-row diagnostics."""
+
+    imported = serializers.IntegerField(help_text="Risks created.")
+    skipped = serializers.IntegerField(help_text="Rows dropped due to an error.")
+    # `errors` shadows Serializer.errors (the validation-error property); this
+    # serializer is output-only (used for the response schema, never to validate),
+    # so the declared field is what we want. The ignore is the type clash only.
+    errors = RiskImportIssueSerializer(many=True)  # type: ignore[assignment]
+    warnings = RiskImportIssueSerializer(many=True)
+
+
 class RiskCommentAuthorSerializer(serializers.Serializer[Any]):
     """Minimal author representation embedded in RiskCommentSerializer."""
 

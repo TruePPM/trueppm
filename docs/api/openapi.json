@@ -10241,7 +10241,7 @@
         "/api/v1/projects/{project_pk}/risks/": {
             "get": {
                 "operationId": "v1_projects_risks_list",
-                "description": "CRUD for risks within a project.\n\nPermission matrix:\n  list / retrieve         — Viewer+ (IsProjectMember)\n  create / update         — Team Member+ (IsProjectMemberWrite)\n  destroy                 — Project Owner only (IsProjectOwner)\n\nSeverity (probability × impact) is annotated on the queryset so\nOrderingFilter can sort by it without a Python round-trip.",
+                "description": "CRUD for risks within a project.\n\nPermission matrix:\n  list / retrieve         — Viewer+ (IsProjectMember)\n  create / update         — Team Member+ (IsProjectMemberWrite)\n  import (CSV)            — Team Member+ (IsProjectMemberWrite, default branch)\n  destroy                 — Project Owner only (IsProjectOwner)\n\nSeverity (probability × impact) is annotated on the queryset so\nOrderingFilter can sort by it without a Python round-trip.",
                 "parameters": [
                     {
                         "name": "ordering",
@@ -10306,7 +10306,7 @@
             },
             "post": {
                 "operationId": "v1_projects_risks_create",
-                "description": "CRUD for risks within a project.\n\nPermission matrix:\n  list / retrieve         — Viewer+ (IsProjectMember)\n  create / update         — Team Member+ (IsProjectMemberWrite)\n  destroy                 — Project Owner only (IsProjectOwner)\n\nSeverity (probability × impact) is annotated on the queryset so\nOrderingFilter can sort by it without a Python round-trip.",
+                "description": "CRUD for risks within a project.\n\nPermission matrix:\n  list / retrieve         — Viewer+ (IsProjectMember)\n  create / update         — Team Member+ (IsProjectMemberWrite)\n  import (CSV)            — Team Member+ (IsProjectMemberWrite, default branch)\n  destroy                 — Project Owner only (IsProjectOwner)\n\nSeverity (probability × impact) is annotated on the queryset so\nOrderingFilter can sort by it without a Python round-trip.",
                 "parameters": [
                     {
                         "in": "path",
@@ -10366,7 +10366,7 @@
         "/api/v1/projects/{project_pk}/risks/{id}/": {
             "get": {
                 "operationId": "v1_projects_risks_retrieve",
-                "description": "CRUD for risks within a project.\n\nPermission matrix:\n  list / retrieve         — Viewer+ (IsProjectMember)\n  create / update         — Team Member+ (IsProjectMemberWrite)\n  destroy                 — Project Owner only (IsProjectOwner)\n\nSeverity (probability × impact) is annotated on the queryset so\nOrderingFilter can sort by it without a Python round-trip.",
+                "description": "CRUD for risks within a project.\n\nPermission matrix:\n  list / retrieve         — Viewer+ (IsProjectMember)\n  create / update         — Team Member+ (IsProjectMemberWrite)\n  import (CSV)            — Team Member+ (IsProjectMemberWrite, default branch)\n  destroy                 — Project Owner only (IsProjectOwner)\n\nSeverity (probability × impact) is annotated on the queryset so\nOrderingFilter can sort by it without a Python round-trip.",
                 "parameters": [
                     {
                         "in": "path",
@@ -10414,7 +10414,7 @@
             },
             "put": {
                 "operationId": "v1_projects_risks_update",
-                "description": "CRUD for risks within a project.\n\nPermission matrix:\n  list / retrieve         — Viewer+ (IsProjectMember)\n  create / update         — Team Member+ (IsProjectMemberWrite)\n  destroy                 — Project Owner only (IsProjectOwner)\n\nSeverity (probability × impact) is annotated on the queryset so\nOrderingFilter can sort by it without a Python round-trip.",
+                "description": "CRUD for risks within a project.\n\nPermission matrix:\n  list / retrieve         — Viewer+ (IsProjectMember)\n  create / update         — Team Member+ (IsProjectMemberWrite)\n  import (CSV)            — Team Member+ (IsProjectMemberWrite, default branch)\n  destroy                 — Project Owner only (IsProjectOwner)\n\nSeverity (probability × impact) is annotated on the queryset so\nOrderingFilter can sort by it without a Python round-trip.",
                 "parameters": [
                     {
                         "in": "path",
@@ -10482,7 +10482,7 @@
             },
             "patch": {
                 "operationId": "v1_projects_risks_partial_update",
-                "description": "CRUD for risks within a project.\n\nPermission matrix:\n  list / retrieve         — Viewer+ (IsProjectMember)\n  create / update         — Team Member+ (IsProjectMemberWrite)\n  destroy                 — Project Owner only (IsProjectOwner)\n\nSeverity (probability × impact) is annotated on the queryset so\nOrderingFilter can sort by it without a Python round-trip.",
+                "description": "CRUD for risks within a project.\n\nPermission matrix:\n  list / retrieve         — Viewer+ (IsProjectMember)\n  create / update         — Team Member+ (IsProjectMemberWrite)\n  import (CSV)            — Team Member+ (IsProjectMemberWrite, default branch)\n  destroy                 — Project Owner only (IsProjectOwner)\n\nSeverity (probability × impact) is annotated on the queryset so\nOrderingFilter can sort by it without a Python round-trip.",
                 "parameters": [
                     {
                         "in": "path",
@@ -10549,7 +10549,7 @@
             },
             "delete": {
                 "operationId": "v1_projects_risks_destroy",
-                "description": "CRUD for risks within a project.\n\nPermission matrix:\n  list / retrieve         — Viewer+ (IsProjectMember)\n  create / update         — Team Member+ (IsProjectMemberWrite)\n  destroy                 — Project Owner only (IsProjectOwner)\n\nSeverity (probability × impact) is annotated on the queryset so\nOrderingFilter can sort by it without a Python round-trip.",
+                "description": "CRUD for risks within a project.\n\nPermission matrix:\n  list / retrieve         — Viewer+ (IsProjectMember)\n  create / update         — Team Member+ (IsProjectMemberWrite)\n  import (CSV)            — Team Member+ (IsProjectMemberWrite, default branch)\n  destroy                 — Project Owner only (IsProjectOwner)\n\nSeverity (probability × impact) is annotated on the queryset so\nOrderingFilter can sort by it without a Python round-trip.",
                 "parameters": [
                     {
                         "in": "path",
@@ -10722,6 +10722,65 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/RiskComment"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{project_pk}/risks/import/": {
+            "post": {
+                "operationId": "v1_projects_risks_import_create",
+                "description": "Bulk-create risks from an uploaded CSV (issue 223, ADR-0043 addendum).\n\nThe symmetric counterpart of the #222 export — a file from \"Export CSV\"\nround-trips back in. Valid rows are created atomically; invalid rows are\nskipped and reported per-row so the user can fix and re-upload. A single\n``risks_imported`` board event is broadcast on commit (not one per row).",
+                "summary": "Import risks from CSV",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "file": {
+                                        "type": "string",
+                                        "format": "binary"
+                                    }
+                                },
+                                "required": [
+                                    "file"
+                                ]
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RiskImportResult"
                                 }
                             }
                         },
@@ -27732,6 +27791,60 @@
                 },
                 "required": [
                     "message"
+                ]
+            },
+            "RiskImportIssue": {
+                "type": "object",
+                "description": "One per-row problem from a CSV import — a skipped error or a coercion warning.",
+                "properties": {
+                    "row": {
+                        "type": "integer",
+                        "description": "Spreadsheet line (header is row 1)."
+                    },
+                    "field": {
+                        "type": "string",
+                        "description": "The column the problem relates to."
+                    },
+                    "message": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "field",
+                    "message",
+                    "row"
+                ]
+            },
+            "RiskImportResult": {
+                "type": "object",
+                "description": "Outcome of a risk CSV import (issue 223): counts plus per-row diagnostics.",
+                "properties": {
+                    "imported": {
+                        "type": "integer",
+                        "description": "Risks created."
+                    },
+                    "skipped": {
+                        "type": "integer",
+                        "description": "Rows dropped due to an error."
+                    },
+                    "errors": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/RiskImportIssue"
+                        }
+                    },
+                    "warnings": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/RiskImportIssue"
+                        }
+                    }
+                },
+                "required": [
+                    "errors",
+                    "imported",
+                    "skipped",
+                    "warnings"
                 ]
             },
             "RiskRequest": {

@@ -87,14 +87,34 @@ A risk can be linked to one or more tasks to indicate which tasks are exposed to
 
 Every risk receives a project-scoped short ID (e.g. `R-00000003`) that shares the same counter as tasks. Short IDs appear in the risk drawer header, comments, and audit logs.
 
+## Import and export
+
+Export the full register to CSV from the **Export CSV** toolbar action. The file carries every column shown in the table: ID, title, status, category, response, probability, impact, severity, owner, mitigation due date, trigger, contingency, and description.
+
+:::note[0.3]
+Risk-register CSV import lands in 0.3.
+:::
+
+The symmetric **Import CSV** action (Member and above) seeds or tops up a register from a spreadsheet — it sits next to **Export CSV** on the toolbar and on an empty register, so a new project can be populated from a file. Upload a CSV with a **Title** column; every other column is optional and matches the export header, so a file exported from one project imports cleanly into another. The ID and severity columns are ignored on import (severity is always derived, and IDs are assigned per project).
+
+Import is **partial by design** — one valid row never blocks another:
+
+- Valid rows are created; invalid rows are skipped and reported with the offending row number, field, and reason.
+- Probability and impact must be whole numbers 1–5; a blank value defaults to 1.
+- An unrecognized status, category, or response is coerced to the default and flagged as a warning rather than failing the row.
+- The **Owner** column is matched against project members by email or username. A value matching no member leaves the risk unassigned and adds a warning — risks are never assigned to people outside the project.
+
+A single import is capped at **2 MB** and **500 rows**. The result summary shows how many risks were imported and how many were skipped, with the full error and warning lists, so you can correct the source file and re-import.
+
 ## Permissions
 
 | Action | Minimum role |
 |--------|-------------|
 | View risks | Viewer |
 | Create / edit / delete risks | Member |
+| Import risks from CSV | Member |
 | Add risk comments | Member |
 
 ## Real-time
 
-Creating, updating, or deleting a risk broadcasts a `risk_created` / `risk_updated` / `risk_deleted` WebSocket event to all connected project members. Board cards and task drawers update without a page refresh.
+Creating, updating, or deleting a risk broadcasts a `risk_created` / `risk_updated` / `risk_deleted` WebSocket event to all connected project members. Board cards and task drawers update without a page refresh. A CSV import emits a single batched `risks_imported` event after the rows commit, so collaborators see the whole import in one refresh rather than one event per row.

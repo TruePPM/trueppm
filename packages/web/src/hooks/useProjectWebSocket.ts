@@ -296,10 +296,13 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
       }
 
       // --- Risk events ---
+      // `risks_imported` is the single batched event from a CSV import (issue 223) —
+      // one refetch covers the whole batch rather than one per created risk.
       else if (
         event_type === 'risk_created' ||
         event_type === 'risk_updated' ||
-        event_type === 'risk_deleted'
+        event_type === 'risk_deleted' ||
+        event_type === 'risks_imported'
       ) {
         void queryClient.invalidateQueries({ queryKey: ['risks', projectIdRef.current] });
       }

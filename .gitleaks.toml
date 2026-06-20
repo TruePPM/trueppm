@@ -1,0 +1,53 @@
+# gitleaks configuration for TruePPM (#1251).
+#
+# We extend the upstream default ruleset (the maintained set of provider/key
+# patterns) and add ONLY a small, documented allowlist for values that look
+# secret-shaped but are never real credentials. Each entry carries the reason it
+# is safe so the allowlist stays auditable and does not quietly mask a real leak.
+#
+# Run locally:  gitleaks dir . --config .gitleaks.toml
+title = "TruePPM gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "TruePPM false-positive allowlist — format examples and dev/test fixtures, never real secrets"
+
+# Path-scoped: files that structurally contain high-entropy strings which are
+# integrity hashes / generated artifacts / documented examples, not secrets.
+paths = [
+  # npm + Cargo lockfiles carry sha512-/checksum integrity values on every dep.
+  '''(^|/)package-lock\.json$''',
+  '''(^|/)Cargo\.lock$''',
+  # Generated OpenAPI schema (no secrets; large, full of opaque identifiers).
+  '''(^|/)openapi\.json$''',
+  # Example env files exist precisely to show placeholder values.
+  '''\.env\.example$''',
+  # API docs page whose body shows a literal example Idempotency-Key (a plain
+  # UUID), which the generic-api-key rule flags. It is documentation, not a key.
+  '''(^|/)idempotency\.md$''',
+]
+
+# Value-scoped: strings that match a secret-shaped pattern but are not secrets.
+regexes = [
+  # ProjectApiToken format illustration (ADR-0068): `tppm_` + 64 hex chars.
+  # Real tokens are only ever persisted as SHA-256 hashes and shown to the user
+  # exactly once at mint time; the literal form appears solely in docs and test
+  # fixtures as a format example, so allowlisting the *shape* cannot mask a real
+  # credential (a real one is never committed).
+  '''tppm_[0-9a-fA-F]{64}''',
+  # Runtime entropy generation — these are code that MINTS a secret at runtime,
+  # not a committed secret value.
+  '''secrets\.token_(urlsafe|hex|bytes)\(''',
+  # Deterministic dev/pytest Fernet key (settings/dev.py + test_prod_settings.py).
+  # Explicitly fenced to non-prod by _assert_dev_environment_safe; production
+  # reads INTEGRATION_ENCRYPTION_KEY from a Kubernetes Secret and never falls
+  # through to this default. Safe to allowlist by value because it must never be
+  # a production key.
+  '''cNHot7PnbAHGIuY4zUht8FwB5wYGv06O7ppzGyhzR84=''',
+  # Fake GitLab PAT used as encrypt/decrypt round-trip plaintext in
+  # test_encryption.py — a literal "fake-token", not a credential. Matched on
+  # the fixture prefix because the gitlab-pat rule truncates its capture.
+  '''glpat-abc123-this-is-a-fak''',
+]

@@ -4,7 +4,10 @@
 
 **Please do not report security vulnerabilities through public GitLab issues.**
 
-Report vulnerabilities privately by emailing **security@trueppm.com**.
+Report vulnerabilities privately through either channel:
+
+- **Email** — **security@trueppm.com** (preferred).
+- **Confidential GitLab issue** — open an issue in [`trueppm/trueppm`](https://gitlab.com/trueppm/trueppm/-/issues/new) and tick **"This issue is confidential"** so it is visible only to project members. Use this if you cannot send email or want the discussion tracked in GitLab.
 
 Include:
 - Description of the vulnerability and its potential impact
@@ -48,6 +51,24 @@ TruePPM follows **coordinated disclosure**:
 In scope: the TruePPM API (`packages/api`), web frontend (`packages/web`), scheduling engine (`packages/scheduler`), Helm chart (`packages/helm`), and the Docker Compose production stack.
 
 Out of scope: the documentation website itself (`packages/website`), third-party dependencies (report those upstream), and findings that require physical access to the host.
+
+## Automated security checks
+
+Every merge request and every push to `main` runs a layered set of automated,
+merge-blocking checks so security regressions are caught before release:
+
+| Check | Tool | What it catches |
+|-------|------|-----------------|
+| Secret scanning | gitleaks | Hardcoded credentials, keys, and tokens (also a pre-commit hook) |
+| Static analysis (SAST) | bandit, semgrep | Insecure Python/JS/TS/Django patterns |
+| Dependency CVEs (SCA) | pip-audit, osv-scanner, cargo-deny | Known-vulnerable Python, npm, and Rust dependencies |
+| Container / IaC | trivy | Dockerfile and Helm misconfigurations; image CVEs before push |
+| License compliance | pip-licenses, license-checker, cargo-deny | Copyleft licenses incompatible with the Apache-2.0 core |
+
+These are enforcement gates, not advisories: a pipeline that surfaces an
+unignored finding blocks the merge. Suppressions are scoped and documented in
+the relevant config (`.gitleaks.toml`, `osv-scanner.toml`, `.trivyignore.yaml`,
+`deny.toml`) so they stay auditable rather than silently masking findings.
 
 ## Acknowledgements
 

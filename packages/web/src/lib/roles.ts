@@ -43,3 +43,14 @@ export const ROLE_OWNER = 400;
 export function canEditTask(role: number | null | undefined): boolean {
   return role != null && role >= ROLE_MEMBER;
 }
+
+/**
+ * True iff a viewer with this project role may write risks — create, edit, and
+ * import via CSV (issue 223). Member+ qualifies; Viewers do not. Mirrors the server
+ * gate (IsProjectMemberWrite on the risk import action). `null`/`undefined`
+ * returns `false` so the Import affordance never flashes before the role
+ * resolves; the server still enforces, this is only the UX gate.
+ */
+export function canEditRisk(role: number | null | undefined): boolean {
+  return role != null && role >= ROLE_MEMBER;
+}

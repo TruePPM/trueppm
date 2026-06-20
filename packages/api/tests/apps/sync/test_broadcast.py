@@ -163,6 +163,7 @@ FROZEN_WS_EVENT_TYPES = frozenset(
         "risk_created",
         "risk_deleted",
         "risk_updated",
+        "risks_imported",
         "roster_changed",
         "sprint_activated",
         "sprint_cancelled",
