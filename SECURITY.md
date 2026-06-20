@@ -4,7 +4,10 @@
 
 **Please do not report security vulnerabilities through public GitLab issues.**
 
-Report vulnerabilities privately by emailing **security@trueppm.com**.
+Report vulnerabilities privately through either channel:
+
+- **Email** — **security@trueppm.com** (preferred).
+- **Confidential GitLab issue** — open an issue in [`trueppm/trueppm`](https://gitlab.com/trueppm/trueppm/-/issues/new) and tick **"This issue is confidential"** so it is visible only to project members. Use this if you cannot send email or want the discussion tracked in GitLab.
 
 Include:
 - Description of the vulnerability and its potential impact
