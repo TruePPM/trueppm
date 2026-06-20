@@ -1602,6 +1602,13 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         read_only=True, allow_null=True, default=None
     )
 
+    # External-link summary (#767, ADR-0153): {count, worst_status} for the
+    # at-a-glance link glyph on the task-list row / Gantt bar. Assembled from the
+    # `external_link_count` / `external_link_worst_rank` annotations applied by
+    # annotate_tasks_queryset(). worst_status is null when count is 0 (or when the
+    # instance was serialized off the annotated queryset, e.g. a nested/test path).
+    external_link_summary = serializers.SerializerMethodField()
+
     # Per-task Schedule Performance Index (#990 / API-first #986). Server-owned so
     # a headless/MCP client reads the schedule-health verdict instead of the web
     # re-deriving earned% / planned% from baseline dates. ``spi`` is the ratio
@@ -1743,6 +1750,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "is_impediment",
             "linked_risks_count",
             "linked_risks_max_severity",
+            "external_link_summary",
             "status_changed_at",
             "priority_rank",
             "assignee_is_overallocated",
@@ -1818,6 +1826,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "is_impediment",
             "linked_risks_count",
             "linked_risks_max_severity",
+            "external_link_summary",
             "status_changed_at",
             "assignee_is_overallocated",
             # ADR-0102: only the accept/reject services may change this — never a
@@ -2380,6 +2389,24 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         if actual and baseline:
             return (actual - baseline).days
         return None
+
+    def get_external_link_summary(self, obj: Task) -> dict[str, object]:
+        """Assemble {count, worst_status} for the at-a-glance link glyph (#767).
+
+        Reads the ``external_link_count`` / ``external_link_worst_rank`` annotations
+        from annotate_tasks_queryset() and maps the worst rank back to a status
+        string via :data:`LINK_STATUS_BY_RANK`. ``worst_status`` is null when the
+        task has no live links (count 0, or the instance lacks the annotation, e.g.
+        a nested/test serialization that bypassed the viewset).
+        """
+        from trueppm_api.apps.integrations.registry import LINK_STATUS_BY_RANK
+
+        count = getattr(obj, "external_link_count", 0) or 0
+        worst_rank = getattr(obj, "external_link_worst_rank", None)
+        worst_status = (
+            LINK_STATUS_BY_RANK.get(worst_rank) if count and worst_rank is not None else None
+        )
+        return {"count": count, "worst_status": worst_status}
 
     def get_spi(self, obj: Task) -> float | None:
         """Per-task Schedule Performance Index = earned% / planned% (#990).

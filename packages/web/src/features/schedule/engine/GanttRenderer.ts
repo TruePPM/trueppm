@@ -16,7 +16,7 @@
  *   arrows (no critical-red), summary rollups excluded as endpoints. SS/FF/SF Bézier.
  */
 
-import type { Task, TaskLink } from '@/types';
+import type { ExternalLinkStatus, Task, TaskLink } from '@/types';
 import type { FiscalConfig, GanttScaleData } from './GanttScaleData';
 import {
   CALENDAR_QUARTERS,
@@ -97,6 +97,15 @@ export const COLOR = {
   // (the dark palette flips these to ink — see COLOR_DARK, issue #1032).
   chipTextOnCritical: '#FFFFFF',  // semantic-on-critical
   chipTextOnSurface:  '#FFFFFF',  // semantic-on-surface
+  // External-link worst-status dot (#767, ADR-0153). Darker 600/700 stops so the
+  // solid fill reads on the white surface (brand §15 — strong fill, never
+  // white-on-color; the dot carries no text). Same hue mapping as the DOM badge:
+  // closed=critical, draft=at-risk, open=on-track, merged=brand-sage, unknown=neutral.
+  linkClosed:     '#B91C1C',   // semantic-critical (red-700)
+  linkDraft:      '#C2410C',   // semantic-at-risk (orange-700)
+  linkOpen:       '#15803D',   // semantic-on-track (green-700)
+  linkMerged:     '#3E8C6D',   // brand-primary (sage-600)
+  linkUnknown:    '#9CA3AF',   // neutral (gray-400) — drawn as a hollow ring
 } as const;
 
 /** Semantic type for the color palette. Both COLOR and COLOR_DARK satisfy this. */
@@ -130,6 +139,13 @@ export const COLOR_DARK: ColorPalette = {
   // 500/600 stops.
   chipTextOnCritical: '#1A1917',
   chipTextOnSurface:  '#1A1917',
+  // Link worst-status dot on the dark surface — the lighter 400 stops read on
+  // navy (mirrors the bar-fill light/dark flip above; #767, ADR-0153).
+  linkClosed:     '#F87171',   // red-400
+  linkDraft:      '#FB923C',   // orange-400
+  linkOpen:       '#4ADE80',   // green-400
+  linkMerged:     '#66B998',   // sage-400
+  linkUnknown:    '#94A3B8',   // slate-400 — drawn as a hollow ring
 };
 
 // Active palette — swapped by GanttEngineImpl before each paint pass.
@@ -578,6 +594,68 @@ function drawTaskBarChip(
  *   responsible for invoking {@link drawTaskBarLabel} after dependency
  *   arrows so labels render on top of crossing arrow lines.
  */
+// External-link worst-status dot (#767, ADR-0153). Sits in the label gutter just
+// right of the bar, Day/Week zoom only; the label start shifts right by the gutter
+// when present so the two never collide.
+const LINK_DOT_GAP = 3;
+const LINK_DOT_DIAMETER = 8;
+const LINK_DOT_RADIUS = LINK_DOT_DIAMETER / 2;
+// Horizontal offset for the label start when a dot is drawn: gap + dot + gap.
+const LINK_DOT_LABEL_OFFSET = LINK_DOT_GAP + LINK_DOT_DIAMETER + LINK_DOT_GAP;
+
+/** True when this bar should carry an external-link status dot (Day/Week, has live links). */
+function hasLinkStatusDot(task: Task, scales: GanttScaleData): boolean {
+  return (
+    (scales.zoomLevel === 'day' || scales.zoomLevel === 'week') &&
+    !task.isSummary &&
+    !task.isMilestone &&
+    !!task.externalLinkSummary &&
+    task.externalLinkSummary.count > 0
+  );
+}
+
+const LINK_DOT_FILL: Record<ExternalLinkStatus, string> = {
+  // Looked up off the active palette at draw time so light/dark stays correct.
+  closed: 'linkClosed',
+  draft: 'linkDraft',
+  open: 'linkOpen',
+  merged: 'linkMerged',
+  unknown: 'linkUnknown',
+};
+
+/**
+ * Draw the worst-link-status dot at the bar's right edge (#767). `unknown` (or a
+ * missing status with a positive count) renders as a hollow neutral ring so it
+ * reads differently from "no links" (no dot at all). aria-hidden by nature
+ * (canvas); the accessible text lives on the task-list row.
+ */
+function drawLinkStatusDot(
+  ctx: CanvasRenderingContext2D,
+  task: Task,
+  barRight: number,
+  barTop: number,
+): void {
+  const summary = task.externalLinkSummary;
+  if (!summary || summary.count <= 0) return;
+  const status: ExternalLinkStatus = summary.worstStatus ?? 'unknown';
+  const cx = barRight + LINK_DOT_GAP + LINK_DOT_RADIUS;
+  const cy = barTop + BAR_HEIGHT / 2;
+  const color = _palette[LINK_DOT_FILL[status] as keyof ColorPalette];
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, LINK_DOT_RADIUS, 0, Math.PI * 2);
+  if (status === 'unknown') {
+    // Hollow ring — distinguishes "links present, no status" from "no links".
+    ctx.lineWidth = 1.25;
+    ctx.strokeStyle = color;
+    ctx.stroke();
+  } else {
+    ctx.fillStyle = color;
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
 export function drawTaskBar(
   ctx: CanvasRenderingContext2D,
   task: Task,
@@ -653,6 +731,13 @@ export function drawTaskBar(
 
   ctx.restore();
 
+  // External-link worst-status dot in the label gutter (#767, ADR-0153). Drawn
+  // after the bar (outside its body, so it never overlays the critical-path fill)
+  // and before the label (which shifts right to make room — see drawTaskBarLabel).
+  if (hasLinkStatusDot(task, scales)) {
+    drawLinkStatusDot(ctx, task, barRight, barTop);
+  }
+
   if (!skipLabel) {
     drawTaskBarLabel(ctx, task, rowIndex, scales, scrollLeft, viewportWidth);
   }
@@ -691,7 +776,8 @@ export function drawTaskBarLabel(
   ctx.textBaseline = 'middle';
   const nameY = barTop + BAR_HEIGHT / 2;
   const nameWidth = ctx.measureText(task.name).width;
-  const rightOfBar = barRight + 4;
+  // Shift the label right past the external-link dot when one is drawn (#767).
+  const rightOfBar = barRight + (hasLinkStatusDot(task, scales) ? LINK_DOT_LABEL_OFFSET : 4);
   const nameRight = rightOfBar + nameWidth;
 
   if (nameRight <= viewportWidth - 8) {

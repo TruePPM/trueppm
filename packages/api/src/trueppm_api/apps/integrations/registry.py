@@ -44,6 +44,23 @@ LINK_STATUS_CHOICES: tuple[tuple[str, str], ...] = tuple(
     (value, value) for value in LINK_STATUS_VALUES
 )
 
+# Worst-status precedence for at-a-glance link-status rollups (#767, ADR-0153).
+# Most-attention-first: the *worst* status across a task's links is the one with
+# the **minimum** rank present. The ordering mirrors the existing detail-drawer
+# badge color severity (critical → at-risk → on-track → success → neutral) so the
+# list/Gantt glyphs read the same as the per-link badges. The same ordering is
+# duplicated in packages/web/src/lib/linkStatus.ts; a unit test in each language
+# pins it so the two cannot drift.
+LINK_STATUS_RANK: dict[str, int] = {
+    LINK_STATUS_CLOSED: 0,
+    LINK_STATUS_DRAFT: 1,
+    LINK_STATUS_OPEN: 2,
+    LINK_STATUS_MERGED: 3,
+    LINK_STATUS_UNKNOWN: 4,
+}
+# Inverse map: an aggregated ``Min(rank)`` over a task's links maps back to a value.
+LINK_STATUS_BY_RANK: dict[int, str] = {rank: status for status, rank in LINK_STATUS_RANK.items()}
+
 
 @dataclass(frozen=True)
 class LinkMetadata:

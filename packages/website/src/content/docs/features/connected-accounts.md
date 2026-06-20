@@ -127,6 +127,29 @@ resolves an MR, PR, or issue and shows its current status badge.
   credential and have no live status.
 - **Remove** — delete a link with an inline confirm.
 
+### At-a-glance status on the schedule
+
+From 0.3, you will not need to open the drawer to see whether a task's work is
+landing. The schedule will surface each task's **worst** external-link status in
+two read-only places:
+
+- **Task list row** — a link glyph and count, immediately left of the assignee
+  avatars, tinted by the most-attention status. The tint follows the same colors
+  as the drawer badges: **closed** (red) outranks **draft** (amber), then **open**
+  (green), then **merged** (sage), then **unknown** (neutral). Color is never the
+  only signal — the count and an accessible label ("3 external links, worst
+  status: closed") carry the same information for screen readers and color-blind
+  users. The glyph is hidden on summary and milestone rows and on tasks with no
+  live links.
+- **Gantt bar** — a small worst-status dot at the right edge of each bar, shown at
+  Day and Week zoom only (it is omitted at Month and coarser zooms, and on
+  summary/milestone bars).
+
+Both indicators are computed server-side from the same per-link statuses shown in
+the drawer, so they stay in sync with a refresh and add no extra requests when the
+schedule loads. Soft-deleted links are excluded from the count and the worst-status
+roll-up.
+
 ### API
 
 | Action | Endpoint | Min role |
@@ -148,3 +171,5 @@ changes reach the mobile client through the project sync delta.
 - **ADR-0050** — Task Detail Drawer Section Extension Points (where
   `task_detail.external_links` registers)
 - **ADR-0076** — Integration Management Surface Boundary
+- **ADR-0153** — At-a-glance external-link status indicators (the schedule
+  list/Gantt roll-up)

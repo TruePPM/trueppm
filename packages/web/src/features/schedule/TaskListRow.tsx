@@ -24,6 +24,8 @@ import { GuardrailNotice } from './sections/GuardrailNotice';
 import { GuardrailBlock } from './sections/GuardrailBlock';
 import { useDragStore } from '@/stores/dragStore';
 import { AssigneeChips } from './AssigneeChips';
+import { LinkIcon } from '@/components/Icons';
+import { LINK_STATUS_TEXT_CLASS } from '@/lib/linkStatus';
 import {
   useBuildMode,
   EditableCell,
@@ -856,6 +858,39 @@ function TaskListRowInner({
                 <span>missing dates</span>
               </span>
             )}
+            {/* At-a-glance external-link status (#767, ADR-0153): link glyph + count,
+                tinted by the worst link status, immediately left of the assignee chips.
+                Hidden for summary/milestone tasks and when the task has no live links. */}
+            {!task.isSummary &&
+              !task.isMilestone &&
+              task.externalLinkSummary &&
+              task.externalLinkSummary.count > 0 && (
+                <span
+                  className={`inline-flex shrink-0 items-center gap-0.5 text-xs font-medium ${
+                    task.externalLinkSummary.worstStatus
+                      ? LINK_STATUS_TEXT_CLASS[task.externalLinkSummary.worstStatus]
+                      : 'text-neutral-text-secondary'
+                  }`}
+                  title={`${task.externalLinkSummary.count} link${
+                    task.externalLinkSummary.count === 1 ? '' : 's'
+                  }${
+                    task.externalLinkSummary.worstStatus
+                      ? ` · worst status: ${task.externalLinkSummary.worstStatus}`
+                      : ''
+                  }`}
+                  aria-label={`${task.externalLinkSummary.count} external link${
+                    task.externalLinkSummary.count === 1 ? '' : 's'
+                  }${
+                    task.externalLinkSummary.worstStatus
+                      ? `, worst status: ${task.externalLinkSummary.worstStatus}`
+                      : ''
+                  }`}
+                  data-testid="link-status-chip"
+                >
+                  <LinkIcon className="w-3 h-3" aria-hidden="true" />
+                  <span>{task.externalLinkSummary.count}</span>
+                </span>
+              )}
             {/* Dep chips — shown when task is selected in focus mode; replaces assignee chips */}
             {isSelected && depChips ? (
               <span

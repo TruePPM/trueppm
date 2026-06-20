@@ -15,6 +15,7 @@ import type {
   DorState,
 } from '@/types';
 import type { PaginatedResponse } from '@/api/types';
+import type { ExternalLinkStatus } from '@/lib/linkStatus';
 import { computeWbsCodes } from '@/utils/computeWbsCodes';
 import { useWsConnectionStore } from '@/stores/wsConnectionStore';
 
@@ -76,6 +77,9 @@ export interface ApiTask {
   blocked_age_seconds?: number | null;
   linked_risks_count?: number;
   linked_risks_max_severity?: number | null;
+  // At-a-glance external-link summary (#767, ADR-0153). worst_status is null when
+  // count is 0. snake_case on the wire (TaskSerializer does not camelCase).
+  external_link_summary?: { count: number; worst_status: ExternalLinkStatus | null };
   // Board batch 5 (issue #105) — entry stamps, priority rank, readiness.
   status_changed_at?: string | null;
   priority_rank?: number | null;
@@ -301,6 +305,12 @@ export function mapTask(t: ApiTask): Task {
     blockedAgeSeconds: t.blocked_age_seconds ?? null,
     linkedRisksCount: t.linked_risks_count ?? 0,
     linkedRisksMaxSeverity: t.linked_risks_max_severity ?? null,
+    externalLinkSummary: t.external_link_summary
+      ? {
+          count: t.external_link_summary.count ?? 0,
+          worstStatus: t.external_link_summary.worst_status ?? null,
+        }
+      : undefined,
     statusEnteredAt: t.status_changed_at ?? undefined,
     priorityRank: t.priority_rank ?? undefined,
     readiness: (t.readiness as TaskReadiness | undefined) ?? undefined,
