@@ -194,7 +194,9 @@ export function ViewsMenu() {
 
   if (!projectId || onSettingsRoute) return null;
 
-  const methodology: Methodology = project?.methodology ?? 'HYBRID';
+  // Server-resolved methodology (ADR-0107, issue 955): the effective preset, not
+  // the raw per-project override, gates which views appear in the menu.
+  const methodology: Methodology = project?.effective_methodology ?? 'HYBRID';
   const methodLabel = METHOD_LABEL[methodology];
   const roleAllows = (view: string) =>
     view !== 'resources' || (role !== null && role >= ROLE_SCHEDULER);

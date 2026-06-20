@@ -22,6 +22,8 @@ function agileProjectClient(): QueryClient {
     estimation_mode: 'open',
     agile_features: true,
     methodology: 'AGILE',
+    effective_methodology: 'AGILE',
+    inherited_methodology: 'AGILE',
     code: '',
     health: 'AUTO',
     visibility: 'WORKSPACE',

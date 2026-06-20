@@ -262,18 +262,17 @@ test.describe('Settings save contract (#536)', () => {
     await expect(page).not.toHaveURL(new RegExp(`/projects/${PROJECT_ID}/settings`));
   });
 
-  test('legacy /settings/methodology redirects to the anchored section (preview state)', async ({
-    page,
-  }) => {
+  test('stub pages signal preview state for an unwired API', async ({ page }) => {
     await setup(page);
-    // Old per-section path still works — it redirects to …/settings#methodology
-    // on the consolidated page, where the methodology section is mounted.
-    await page.goto(`/projects/${PROJECT_ID}/settings/methodology`);
-    await expect(page).toHaveURL(/#methodology$/);
-    // Methodology section is apiReady=false — its choice buttons are disabled.
-    // Scope to the methodology section: other sections also reference methodology.
-    const methodologySection = page.locator('[data-settings-section="methodology"]');
-    const inheritBtn = methodologySection.getByRole('button', { name: /inherit from workspace/i });
-    await expect(inheritBtn).toBeDisabled();
+    // Workspace Roles & permissions is still a stub (RBAC-matrix write path is
+    // tracked in #510). The Methodology pages, formerly stubs, are now wired by
+    // the cascade (issue 955 / issue 1169), so the preview signal moved here.
+    // The matrix body is wrapped in a `<fieldset disabled>` (read-only preview)
+    // and the page carries the stub banner; assert the banner as the canonical
+    // preview signal. Scope to the section — the consolidated page (#1248) mounts
+    // every section at once.
+    await page.goto('/settings/roles');
+    const roles = page.locator('[data-settings-section="roles"]');
+    await expect(roles.getByTestId('stub-page-banner')).toBeVisible();
   });
 });

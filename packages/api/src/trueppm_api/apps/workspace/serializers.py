@@ -120,6 +120,13 @@ class WorkspaceSettingsSerializer(serializers.ModelSerializer[Workspace]):
             "mc_history_retention_cap",
             "mc_history_attribution_audience",
             "mc_history_override_policy",
+            # Workspace-wide default planning methodology + cascade policy (ADR-0107,
+            # issue 955) — the non-null root of the Workspace → Program → Project
+            # methodology chain. methodology_override_policy governs whether
+            # programs/projects may override (SUGGEST = yes in OSS; INHERIT locks the
+            # affordance; ENFORCE = Enterprise hard lock, no-op in OSS).
+            "methodology",
+            "methodology_override_policy",
         ]
         read_only_fields = ["subdomain", "fiscal_year_start_display"]
 

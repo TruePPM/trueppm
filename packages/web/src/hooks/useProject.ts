@@ -25,7 +25,26 @@ export interface ApiProjectDetail {
   calendar: string | null;
   estimation_mode: string;
   agile_features: boolean;
+  /**
+   * Raw per-project methodology OVERRIDE (ADR-0107, issue 955). Always non-null
+   * (no inherit sentinel). Display/edit only on the settings picker — never read
+   * this for tab-gating; read `effective_methodology` so the resolved workspace →
+   * program → project preset drives visibility.
+   */
   methodology: Methodology;
+  /**
+   * Server-resolved methodology (ADR-0107, issue 955): project ?? program ??
+   * workspace, gated by the workspace override policy. The shell tab-gate reads
+   * THIS, not the raw override. Under an active workspace lock (INHERIT, or
+   * Enterprise ENFORCE) this is the workspace default regardless of the override.
+   */
+  effective_methodology: Methodology;
+  /**
+   * Methodology this project would show if its own override were ignored
+   * (program ?? workspace). Drives the settings "Inherited from workspace (X)"
+   * affordance and the policy-driven read-only treatment.
+   */
+  inherited_methodology: Methodology;
   /** Optional short code (uppercase A-Z, 0-9, hyphen; ≤12 chars). Empty when unset. */
   code: string;
   /** PM health override; AUTO defers to the (future) rollup. */

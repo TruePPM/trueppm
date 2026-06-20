@@ -25017,6 +25017,12 @@
                     },
                     "mc_history_override_policy": {
                         "$ref": "#/components/schemas/TermOverridePolicyEnum"
+                    },
+                    "methodology": {
+                        "$ref": "#/components/schemas/MethodologyEnum"
+                    },
+                    "methodology_override_policy": {
+                        "$ref": "#/components/schemas/TermOverridePolicyEnum"
                     }
                 }
             },
@@ -25172,6 +25178,14 @@
                     },
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"
+                    },
+                    "effective_methodology": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "inherited_methodology": {
+                        "type": "string",
+                        "readOnly": true
                     },
                     "iteration_label": {
                         "type": "string",
@@ -25340,6 +25354,7 @@
                     "effective_mc_history_attribution_audience",
                     "effective_mc_history_enabled",
                     "effective_mc_history_retention_cap",
+                    "effective_methodology",
                     "effective_public_sharing",
                     "id",
                     "inherited_allow_guests",
@@ -25347,6 +25362,7 @@
                     "inherited_mc_history_attribution_audience",
                     "inherited_mc_history_enabled",
                     "inherited_mc_history_retention_cap",
+                    "inherited_methodology",
                     "inherited_public_sharing",
                     "is_closed",
                     "is_sample",
@@ -25656,6 +25672,14 @@
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"
                     },
+                    "effective_methodology": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "inherited_methodology": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "prioritization_model": {
                         "$ref": "#/components/schemas/PrioritizationModelEnum"
                     },
@@ -25790,6 +25814,7 @@
                     "effective_mc_history_attribution_audience",
                     "effective_mc_history_enabled",
                     "effective_mc_history_retention_cap",
+                    "effective_methodology",
                     "effective_public_sharing",
                     "id",
                     "inherited_allow_guests",
@@ -25797,6 +25822,7 @@
                     "inherited_mc_history_attribution_audience",
                     "inherited_mc_history_enabled",
                     "inherited_mc_history_retention_cap",
+                    "inherited_methodology",
                     "inherited_public_sharing",
                     "is_archived",
                     "lead_detail",
@@ -26036,6 +26062,14 @@
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"
                     },
+                    "effective_methodology": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "inherited_methodology": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "prioritization_model": {
                         "$ref": "#/components/schemas/PrioritizationModelEnum"
                     },
@@ -26205,6 +26239,7 @@
                     "effective_mc_history_attribution_audience",
                     "effective_mc_history_enabled",
                     "effective_mc_history_retention_cap",
+                    "effective_methodology",
                     "effective_public_sharing",
                     "id",
                     "inherited_allow_guests",
@@ -26212,6 +26247,7 @@
                     "inherited_mc_history_attribution_audience",
                     "inherited_mc_history_enabled",
                     "inherited_mc_history_retention_cap",
+                    "inherited_methodology",
                     "inherited_public_sharing",
                     "is_archived",
                     "is_sample",
@@ -30952,6 +30988,12 @@
                         "$ref": "#/components/schemas/McHistoryAttributionAudienceEnum"
                     },
                     "mc_history_override_policy": {
+                        "$ref": "#/components/schemas/TermOverridePolicyEnum"
+                    },
+                    "methodology": {
+                        "$ref": "#/components/schemas/MethodologyEnum"
+                    },
+                    "methodology_override_policy": {
                         "$ref": "#/components/schemas/TermOverridePolicyEnum"
                     }
                 },
