@@ -8,6 +8,7 @@ that was subsequently rolled back.
 from __future__ import annotations
 
 import logging
+from datetime import UTC
 from typing import Any
 
 from asgiref.sync import async_to_sync
@@ -33,6 +34,50 @@ def _board_message(event_type: str, payload: dict[str, Any]) -> dict[str, Any]:
         "event_type": event_type,
         "payload": payload,
     }
+
+
+def broadcast_task_updated(
+    project_id: str,
+    *,
+    task_id: str,
+    changed_fields: list[str],
+    version: int | None,
+    actor_id: str | None,
+) -> None:
+    """Broadcast a field-level ``task_updated`` delta (ADR-0152, #327).
+
+    Assembles the standard mutation-delta payload so every task-mutation call site
+    emits the same shape: collaborators learn *which* fields changed, at what
+    ``server_version``, and *who* changed them — without the field *values* ever
+    crossing the wire. Values are deliberately omitted because task fields are
+    role-gated (ADR-0104 nulls ``story_points`` below the velocity audience, cost
+    fields are gated, etc.); a client that needs the new values re-reads the task
+    through the serializer, which re-applies per-user gating. ``actor_id`` lets the
+    originating client suppress its own echo and avoid clobbering an in-flight
+    optimistic update.
+
+    Like :func:`broadcast_board_event`, this is best-effort and must be wrapped in
+    ``transaction.on_commit`` by the caller. The ``id`` key is retained for
+    backward compatibility with consumers that only read it.
+    """
+    broadcast_board_event(
+        project_id,
+        "task_updated",
+        {
+            "id": task_id,
+            "changed_fields": sorted(changed_fields),
+            "version": version,
+            "actor_id": actor_id,
+            "ts": _utcnow_iso(),
+        },
+    )
+
+
+def _utcnow_iso() -> str:
+    """Current UTC time as an ISO-8601 string (factored out for test stubbing)."""
+    from datetime import datetime
+
+    return datetime.now(UTC).isoformat()
 
 
 def broadcast_board_event(

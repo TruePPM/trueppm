@@ -72,16 +72,21 @@ do **not** introduce a global `post_save` broadcaster.
    the old values). Non-serializer paths (retro pull, product-backlog reorder, sync
    upload) pass the specific field(s) they mutate (e.g. `["sprint"]`, `["order"]`).
 
-4. **Web: self-echo suppression + targeted refetch.**
-   - The hook is given the current user id; on `task_updated` where
-     `actor_id === currentUserId`, **skip** (the optimistic update already applied).
-   - Otherwise, **version guard**: if the cached task's `server_version >= version`,
-     skip (stale/duplicate event).
-   - Otherwise refetch **only that task** (`GET …/tasks/{id}/`) and `setQueryData`
-     it into the `['tasks', projectId]` cache — no full-list invalidate. The
-     single-task read passes through the serializer, so role-gated fields stay gated.
-   - Fallback: if the task is not already in cache (e.g. moved into a visible filter),
-     fall back to the existing coalesced list invalidate.
+4. **Web: self-echo suppression + version guard (this ADR); targeted splice (follow-up).**
+   - The hook reads the current user id (from the `useCurrentUser` cache); on
+     `task_updated` where `actor_id === currentUserId`, **skip** — the originating
+     client already applied the optimistic update, so it must not re-fetch and clobber
+     its own in-flight edit. This is the core correctness win.
+   - **Version guard**: ignore an event whose `version` is not newer than any version
+     already observed for that task — de-dupes replayed/duplicate broadcasts.
+   - For a genuine remote event the hook keeps the existing **coalesced
+     `['tasks', projectId]` invalidate** (`scheduleInvalidate`). The re-fetch passes
+     through the serializer, so role-gated fields (ADR-0104) stay gated — which is
+     precisely why we do not splice broadcast *values*.
+   - **Follow-up (not this ADR):** replace the list invalidate with a single-task
+     refetch (`GET …/tasks/{id}/`) + `setQueryData` splice for the per-keystroke perf
+     win. Deferred to keep this change low-risk; the names-only payload already carries
+     everything that optimization needs.
 
 ## Alternatives Considered
 | Option | Pros | Cons |
