@@ -166,6 +166,45 @@ each retained row can hold a multi-megabyte base64 blob; a team running monthly 
 with the purge disabled will accumulate gigabytes of dead rows. If you disable a purge,
 pair it with an external archival or `VACUUM`/retention policy at the PostgreSQL layer.
 
+## Forecast snapshots
+
+:::note[Ships in 0.3]
+Project forecast-snapshot capture lands in **TruePPM 0.3** (currently underway). The
+behavior described here is not in `main`'s tagged 0.2 line yet.
+:::
+
+Every time the scheduler recomputes a project, TruePPM will record a
+`ProjectForecastSnapshot` — the CPM finish date, total float, Monte Carlo P50/P80/P95, and
+task counts at that moment — so a PM can see how the project's finish date has drifted over
+time. A nightly **floor** task (`scheduling.capture_daily_forecast_floor`, 00:30 UTC)
+guarantees at least one snapshot per active project per day even on quiet days, and also
+backfills any recompute capture missed by a broker blip. Capture is **best-effort and
+post-commit** — a capture failure never blocks or rolls back the recompute.
+
+Unlike the outbox tables above, forecast snapshots are bounded by a **tiered retention
+curve** rather than a single age cutoff, because the long tail of monthly points is what
+makes a multi-year drift chart useful:
+
+| `FORECAST_SNAPSHOT_RETENTION` key | Default | Effect |
+|---|---|---|
+| `daily_days` | `90` | Keep **every** snapshot younger than this |
+| `weekly_days` | `365` | Between `daily_days` and here, keep **one per ISO week** (the newest) |
+| _beyond `weekly_days`_ | — | Keep **one per calendar month** (the newest), kept forever |
+
+The prune runs nightly via the `scheduling.prune_forecast_snapshots` Beat task (04:15 UTC)
+and is also exposed as the [`prune_forecast_snapshots` management
+command](/administration/management-commands/#maintenance-commands) for on-demand runs. To
+change the curve deployment-wide, override `FORECAST_SNAPSHOT_RETENTION` in a settings
+module layered on `trueppm_api.settings.prod`:
+
+```python
+# Keep daily points for 6 months, then weekly to 2 years, then monthly forever.
+FORECAST_SNAPSHOT_RETENTION = {"daily_days": 180, "weekly_days": 730}
+```
+
+History is read-only at `GET /api/v1/projects/{id}/forecast-snapshots/` (any project
+member). Snapshots are server-generated; there is no write surface.
+
 :::note[Enterprise]
 **Compliance-grade retention is an Enterprise feature.** This page covers basic operational
 purge. Compliance-grade retention governance — locked SOC 2/HIPAA floors ("cannot lower

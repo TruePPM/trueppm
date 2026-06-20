@@ -322,3 +322,85 @@ class MonteCarloRun(models.Model):
 
     def __str__(self) -> str:
         return f"MonteCarloRun(project={self.project_id} @ {self.taken_at:%Y-%m-%d})"
+
+
+class ForecastSnapshotTrigger(models.TextChoices):
+    """What caused a ``ProjectForecastSnapshot`` to be captured."""
+
+    RECOMPUTE = "recompute", "Recompute"
+    SCHEDULED = "scheduled", "Scheduled"
+    MANUAL = "manual", "Manual"
+
+
+class ProjectForecastSnapshot(models.Model):
+    """One project-grain forecast point-in-time, captured on each recompute (ADR-0154, #388).
+
+    The continuous record of how a project's *whole-project* forecast drifts over
+    time — "we were saying end of June a month ago, now we're saying end of August".
+    Written best-effort after every CPM recompute (plus a daily floor) so ~30 days of
+    real history accrue before the forecast-trend chart (#368) and history-aware
+    sample loader (#376) consume it.
+
+    Distinct from the two adjacent forecast-history models, and deliberately not a
+    merge of either:
+
+    * ``projects.ForecastSnapshot`` (ADR-0106 §5) is *milestone*-grain,
+      latest-per-milestone, and carries a velocity-privacy band — a different read
+      contract. (Its FK already owns ``related_name="forecast_snapshots"`` on
+      Project, which is why this model uses ``project_forecast_snapshots``.)
+    * ``MonteCarloRun`` (ADR-0109) is written only when a user *explicitly* runs
+      Monte Carlo and is capped to the newest N runs — it never captures CPM-finish
+      drift on a project that has never been simulated, and its flat cap drops the
+      long tail the trend chart needs.
+
+    This model is CPM-primary: ``cpm_finish``/``total_float_days`` come from the
+    just-recomputed schedule, while the Monte Carlo percentiles are copied
+    best-effort from the project's most-recent ``MonteCarloRun`` (so the MC line
+    stays flat — truthfully — until someone reruns MC).
+
+    A plain ``models.Model`` (not a ``VersionedModel``) with no ``server_version``
+    and not on the mobile sync surface — consistent with ``MonteCarloRun`` /
+    ``ForecastSnapshot``; this is a high-churn, server-generated, online-read-only
+    history table with no mobile consumer (ADR-0154 §2).
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(
+        "projects.Project",
+        on_delete=models.CASCADE,
+        related_name="project_forecast_snapshots",
+    )
+    captured_at = models.DateTimeField(auto_now_add=True)
+    triggered_by = models.CharField(
+        max_length=16,
+        choices=ForecastSnapshotTrigger.choices,
+        default=ForecastSnapshotTrigger.RECOMPUTE,
+    )
+    # Deterministic CPM spine at capture time: the project's latest task finish.
+    # Nullable — a project with no scheduled tasks has no finish to anchor on.
+    cpm_finish = models.DateField(null=True, blank=True)
+    # The tightest total float (minimum across non-deleted tasks): 0 on an
+    # unconstrained critical path, negative when a deadline/constraint is breached —
+    # so drift in schedule *pressure* is visible, not just the finish date.
+    total_float_days = models.IntegerField(null=True, blank=True)
+    # Probabilistic finish-date percentiles, copied best-effort from the project's
+    # most-recent MonteCarloRun at capture time. Null when MC has never run; may
+    # predate this capture (no newer probabilistic data exists to report).
+    mc_p50_finish = models.DateField(null=True, blank=True)
+    mc_p80_finish = models.DateField(null=True, blank=True)
+    mc_p95_finish = models.DateField(null=True, blank=True)
+    mc_iterations = models.PositiveIntegerField(null=True, blank=True)
+    # Schedule shape at capture time — context for interpreting the forecast.
+    task_count = models.PositiveIntegerField(default=0)
+    completed_task_count = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        db_table = "scheduling_projectforecastsnapshot"
+        ordering = ["-captured_at"]
+        indexes = [
+            # Newest-first history read + the per-project tiered prune scan.
+            models.Index(fields=["project", "-captured_at"], name="projfcast_proj_recent_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"ProjectForecastSnapshot(project={self.project_id} @ {self.captured_at:%Y-%m-%d})"

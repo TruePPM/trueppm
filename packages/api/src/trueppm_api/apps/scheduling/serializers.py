@@ -6,7 +6,37 @@ from typing import Any
 
 from rest_framework import serializers
 
-from trueppm_api.apps.scheduling.models import FailedTask, MonteCarloRun, VelocitySuggestion
+from trueppm_api.apps.scheduling.models import (
+    FailedTask,
+    MonteCarloRun,
+    ProjectForecastSnapshot,
+    VelocitySuggestion,
+)
+
+
+class ProjectForecastSnapshotSerializer(serializers.ModelSerializer[ProjectForecastSnapshot]):
+    """Read-only serializer for a project-grain forecast snapshot (ADR-0154, #388).
+
+    Server-generated history; the endpoint is list-only, so every field is
+    read-only and there is no create/update path.
+    """
+
+    class Meta:
+        model = ProjectForecastSnapshot
+        fields = [
+            "id",
+            "captured_at",
+            "triggered_by",
+            "cpm_finish",
+            "total_float_days",
+            "mc_p50_finish",
+            "mc_p80_finish",
+            "mc_p95_finish",
+            "mc_iterations",
+            "task_count",
+            "completed_task_count",
+        ]
+        read_only_fields = fields
 
 
 class FailedTaskSerializer(serializers.ModelSerializer[FailedTask]):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import timedelta
 
 import redis as redis_lib
@@ -290,6 +291,140 @@ def _do_monte_carlo_run_purge() -> None:
 
     if total_deleted:
         logger.info("purge_old_monte_carlo_runs: deleted %d row(s)", total_deleted)
+
+
+@idempotent_task(
+    lock_key_template="capture_daily_forecast_floor",
+    lock_ttl=120,
+    on_contention="skip",
+    soft_time_limit=110,
+    time_limit=150,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    name="scheduling.capture_daily_forecast_floor",
+)
+def capture_daily_forecast_floor(self: object) -> None:
+    """Guarantee ≥1 forecast snapshot per active project per day (ADR-0154, #388).
+
+    Runs nightly at 00:30 UTC via Celery Beat. Captures a ``scheduled`` snapshot
+    for every non-deleted, non-archived project that has no snapshot in the last
+    24 h — covering quiet days with no recompute, and acting as the durability
+    backstop that backfills any ``recompute`` capture missed by a broker blip or a
+    worker death between commit and on_commit. Idempotent: a project already
+    covered in the window is skipped.
+    """
+    _do_daily_forecast_floor()
+
+
+def _do_daily_forecast_floor() -> None:
+    """Business logic for capture_daily_forecast_floor — extracted for testability."""
+    from django.utils import timezone
+
+    from trueppm_api.apps.projects.models import Project
+    from trueppm_api.apps.scheduling.models import ForecastSnapshotTrigger, ProjectForecastSnapshot
+    from trueppm_api.apps.scheduling.services import safe_capture_forecast_snapshot
+
+    cutoff = timezone.now() - timedelta(hours=24)
+    # Projects already covered in the window — skip them with a single query rather
+    # than letting the capture-path dedup absorb each one (dedup only skips when the
+    # forecast is *unchanged*; the floor's intent is one row/day regardless).
+    covered = set(
+        ProjectForecastSnapshot.objects.filter(captured_at__gte=cutoff)
+        .values_list("project_id", flat=True)
+        .distinct()
+    )
+    project_ids = Project.objects.filter(is_deleted=False, is_archived=False).values_list(
+        "id", flat=True
+    )
+    captured = 0
+    for project_id in project_ids:
+        if project_id in covered:
+            continue
+        safe_capture_forecast_snapshot(project_id, ForecastSnapshotTrigger.SCHEDULED)
+        captured += 1
+    if captured:
+        logger.info("capture_daily_forecast_floor: captured %d snapshot(s)", captured)
+
+
+@idempotent_task(
+    lock_key_template="prune_forecast_snapshots",
+    lock_ttl=120,
+    on_contention="skip",
+    soft_time_limit=110,
+    time_limit=150,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    name="scheduling.prune_forecast_snapshots",
+)
+def prune_forecast_snapshots(self: object) -> None:
+    """Apply the tiered retention curve to project forecast snapshots (ADR-0154, #388).
+
+    Runs nightly at 04:15 UTC via Celery Beat. Per ``settings.FORECAST_SNAPSHOT_RETENTION``:
+    keep all rows younger than ``daily_days`` (default 90); keep one-per-ISO-week up
+    to ``weekly_days`` (default 365); keep one-per-calendar-month beyond that (kept
+    forever). The same logic is exposed as the ``prune_forecast_snapshots`` management
+    command. Idempotent: re-running deletes nothing new.
+    """
+    _do_prune_forecast_snapshots()
+
+
+def _do_prune_forecast_snapshots() -> int:
+    """Business logic for prune_forecast_snapshots — extracted for testability.
+
+    Returns the number of rows deleted. Scans each project's snapshots newest-first
+    and keeps the first (newest) row in each retention bucket, so the freshest
+    representative per day/week/month survives.
+    """
+    from django.conf import settings
+    from django.utils import timezone
+
+    from trueppm_api.apps.scheduling.models import ProjectForecastSnapshot
+
+    policy = getattr(settings, "FORECAST_SNAPSHOT_RETENTION", {})
+    daily_days = int(policy.get("daily_days", 90))
+    weekly_days = int(policy.get("weekly_days", 365))
+
+    now = timezone.now()
+    daily_cutoff = now - timedelta(days=daily_days)
+    weekly_cutoff = now - timedelta(days=weekly_days)
+
+    project_ids = ProjectForecastSnapshot.objects.values_list("project_id", flat=True).distinct()
+
+    total_deleted = 0
+    for project_id in list(project_ids):
+        rows = (
+            ProjectForecastSnapshot.objects.filter(project_id=project_id)
+            .order_by("-captured_at")
+            .values_list("id", "captured_at")
+        )
+        keep: set[uuid.UUID] = set()
+        seen_weeks: set[tuple[int, int]] = set()
+        seen_months: set[tuple[int, int]] = set()
+        for row_id, captured_at in rows:
+            if captured_at >= daily_cutoff:
+                keep.add(row_id)  # Recent tier: keep every row.
+            elif captured_at >= weekly_cutoff:
+                iso = captured_at.isocalendar()
+                key = (iso[0], iso[1])
+                if key not in seen_weeks:
+                    seen_weeks.add(key)
+                    keep.add(row_id)  # Newest row in this ISO week.
+            else:
+                key = (captured_at.year, captured_at.month)
+                if key not in seen_months:
+                    seen_months.add(key)
+                    keep.add(row_id)  # Newest row in this calendar month.
+
+        deleted, _ = (
+            ProjectForecastSnapshot.objects.filter(project_id=project_id)
+            .exclude(id__in=keep)
+            .delete()
+        )
+        total_deleted += deleted
+
+    if total_deleted:
+        logger.info("prune_forecast_snapshots: deleted %d row(s)", total_deleted)
+    return total_deleted
 
 
 def _dead_letter_current(task: object, project_id: str, exc: BaseException) -> None:
@@ -698,6 +833,18 @@ def _run_schedule(
 
         transaction.on_commit(_broadcast_cpm_complete)
         transaction.on_commit(_broadcast_dates)
+
+        # Capture a project-grain forecast snapshot for drift history (ADR-0154,
+        # #388). Strictly post-commit and best-effort: a capture failure must never
+        # roll back the CPM write above. Any miss is backfilled by the daily-floor
+        # task, so we do not need an outbox here.
+        def _capture_forecast(pid: str = project_id) -> None:
+            from trueppm_api.apps.scheduling.models import ForecastSnapshotTrigger
+            from trueppm_api.apps.scheduling.services import safe_capture_forecast_snapshot
+
+            safe_capture_forecast_snapshot(pid, ForecastSnapshotTrigger.RECOMPUTE)
+
+        transaction.on_commit(_capture_forecast)
 
     logger.info(
         "recalculate_schedule: updated %d tasks for project %s (finish=%s)",

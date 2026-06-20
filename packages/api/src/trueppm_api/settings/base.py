@@ -212,6 +212,21 @@ CELERY_BEAT_SCHEDULE = {
         # 02:20 UTC — right after the schedule-requests purge.
         "schedule": crontab(hour=2, minute=20),
     },
+    # Daily forecast-snapshot floor: guarantees ≥1 ProjectForecastSnapshot per
+    # active project per day and backfills any recompute capture missed by a broker
+    # blip / worker death (ADR-0154, #388). The durability backstop for capture.
+    "capture-daily-forecast-floor": {
+        "task": "scheduling.capture_daily_forecast_floor",
+        # 00:30 UTC — early, before the nightly purges, so every project has a row.
+        "schedule": crontab(hour=0, minute=30),
+    },
+    # Nightly cleanup: applies the tiered retention curve to project forecast
+    # snapshots — all <90 d, weekly to 1 y, monthly forever (ADR-0154, #388).
+    "prune-forecast-snapshots-nightly": {
+        "task": "scheduling.prune_forecast_snapshots",
+        # 04:15 UTC — after the other nightly purge jobs.
+        "schedule": crontab(hour=4, minute=15),
+    },
     # Webhook delivery drain: re-enqueues stranded PENDING deliveries whose
     # initial .delay() call was lost (e.g. broker down at creation time).
     "drain-webhook-queue": {
@@ -493,6 +508,16 @@ MC_DISTRIBUTION_MAX_BYTES: int = 32_768
 # read so an operator (or future Enterprise override) cannot configure an
 # unbounded per-project history that the nightly purge would never trim.
 MC_HISTORY_HARD_CAP: int = 500
+
+# Tiered retention curve for project-grain forecast snapshots (ADR-0154, #388).
+# The nightly prune keeps every snapshot younger than ``daily_days``, then thins to
+# one-per-ISO-week up to ``weekly_days``, then one-per-calendar-month beyond that
+# (kept forever — the cold tail is ~12 rows/project/year). Operators can tune the
+# two windows; the per-period keeper is always the newest row in that bucket.
+FORECAST_SNAPSHOT_RETENTION: dict[str, int] = {
+    "daily_days": 90,
+    "weekly_days": 365,
+}
 
 # ---------------------------------------------------------------------------
 # Upload caps (ADR-0075, task attachments)

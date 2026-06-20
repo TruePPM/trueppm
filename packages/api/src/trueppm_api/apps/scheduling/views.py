@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import date as _date
+from datetime import datetime as _datetime
 from datetime import timedelta
 from typing import Any, cast
 
@@ -13,7 +14,7 @@ from django.core.cache import cache
 from django.db import models, transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from django.utils.dateparse import parse_datetime
+from django.utils.dateparse import parse_date, parse_datetime
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
@@ -24,6 +25,7 @@ from drf_spectacular.utils import (
 )
 from rest_framework import status
 from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.generics import ListAPIView
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.request import Request
@@ -48,12 +50,14 @@ from trueppm_api.apps.scheduling.models import (
     FailedTask,
     FailedTaskStatus,
     MonteCarloRun,
+    ProjectForecastSnapshot,
     ScheduleRequestReason,
     VelocitySuggestion,
 )
 from trueppm_api.apps.scheduling.serializers import (
     FailedTaskSerializer,
     MonteCarloRunSerializer,
+    ProjectForecastSnapshotSerializer,
     VelocitySuggestionSerializer,
 )
 from trueppm_api.apps.scheduling.services import (
@@ -629,6 +633,67 @@ class MonteCarloHistoryView(APIView):
             },
         ).data
         return Response({"results": data, "cap": cap, "enabled": True})
+
+
+@extend_schema(
+    parameters=[
+        OpenApiParameter(
+            "since",
+            OpenApiTypes.DATETIME,
+            description="Only snapshots captured at or after this ISO datetime (or date).",
+        ),
+        OpenApiParameter(
+            "until",
+            OpenApiTypes.DATETIME,
+            description="Only snapshots captured at or before this ISO datetime (or date).",
+        ),
+    ],
+    responses={200: ProjectForecastSnapshotSerializer(many=True)},
+)
+class ForecastSnapshotListView(ListAPIView[ProjectForecastSnapshot]):
+    """Project-grain forecast snapshot history (ADR-0154, #388).
+
+    Returns the project's forecast snapshots newest-first (paginated), the
+    persisted record of how the CPM finish and Monte Carlo percentiles drifted
+    over time. Read-only — rows are server-generated on recompute and by the daily
+    floor; there is no write surface. ``?since=``/``?until=`` bound the window by
+    ``captured_at`` (ISO datetime, or a bare date interpreted as midnight UTC).
+
+    Permission: Member (any role ≥ Viewer), the project-read gate — consistent
+    with the Monte Carlo history read.
+    """
+
+    serializer_class = ProjectForecastSnapshotSerializer
+    permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
+
+    def get_queryset(self) -> models.QuerySet[ProjectForecastSnapshot]:
+        """Project-scoped, optionally date-bounded, newest-first."""
+        project = get_object_or_404(Project, pk=self.kwargs["pk"], is_deleted=False)
+        # IsProjectMember/IsProjectNotArchived are object-level — this list view has
+        # no get_object(), so enforce them explicitly against the resolved project.
+        self.check_object_permissions(self.request, project)
+
+        qs = ProjectForecastSnapshot.objects.filter(project_id=project.pk).order_by("-captured_at")
+        since = self._parse_bound(self.request.query_params.get("since"))
+        until = self._parse_bound(self.request.query_params.get("until"))
+        if since is not None:
+            qs = qs.filter(captured_at__gte=since)
+        if until is not None:
+            qs = qs.filter(captured_at__lte=until)
+        return qs
+
+    @staticmethod
+    def _parse_bound(raw: str | None) -> Any:
+        """Parse an ISO datetime, falling back to a bare date (midnight UTC)."""
+        if not raw:
+            return None
+        dt = parse_datetime(raw)
+        if dt is not None:
+            return dt
+        d = parse_date(raw)
+        if d is None:
+            return None
+        return timezone.make_aware(_datetime(d.year, d.month, d.day))
 
 
 @extend_schema_view(
