@@ -21,14 +21,43 @@ from pathlib import Path
 
 # Anchor-relative dates (ADR-0114, seed v2). Dates are emitted as offsets from
 # the import-day anchor "A" so each demo always reads as a program in flight; the
-# event-replay importer synthesizes the backdated history (status moves, burndown,
-# velocity) up to "today". ANCHOR_OFFSET places "today" ~90 days in: early work is
-# done, later work is still ahead. These samples span ~100 days.
+# event-replay importer replays the authored event timeline (and synthesizes the
+# unauthored fill) so the backdated history — status moves, reassignments,
+# comments, burndown, velocity — reads up to "today". A per-sample anchor places
+# "today" so the *active* work straddles it: completed sprints/phases sit in the
+# recent past, the in-flight sprint/phase brackets today, and planned work is
+# ahead. A sample whose "active" sprint resolves entirely into the past reads as
+# a museum piece, not a live program — the anchor is tuned to avoid that (#1253).
 ANCHOR_OFFSET = 90
 
 
-def d(offset: int) -> str:
-    return f"A{offset - ANCHOR_OFFSET:+d}"
+def d(offset: int, anchor: int = ANCHOR_OFFSET) -> str:
+    return f"A{offset - anchor:+d}"
+
+
+def ts(
+    offset: int, hour: int = 10, minute: int = 0, anchor: int = ANCHOR_OFFSET
+) -> str:
+    """An anchor-relative event timestamp (``A±NTHH:MM``); never weekend-snapped.
+
+    Keep ``offset <= anchor`` so a beat never lands in the future relative to the
+    import-day "today" — backdated history only, never forward-dated.
+    """
+    return f"{d(offset, anchor)}T{hour:02d}:{minute:02d}"
+
+
+def _ev(
+    at: str, action: str, target: str = "", actor: str = "", **extra: object
+) -> dict:
+    """One timeline event. ``target`` qualifies what is mutated; ``actor`` is the
+    account slug whose name the backdated history row is attributed to."""
+    event: dict = {"at": at, "action": action}
+    if target:
+        event["target"] = target
+    if actor:
+        event["actor"] = actor
+    event.update(extra)
+    return event
 
 
 def three_point(ml: int) -> dict:
@@ -74,17 +103,31 @@ def build_aurora() -> dict:
     ]
     devs = ["mei", "diego", "nadia", "tom"]
 
+    # Anchor placed inside the active sprint (#1253): two completed sprints in the
+    # recent past, Sprint 3 bracketing "today", Sprint 4 ahead. 14-day sprints, so
+    # Sprint 3 starts on day 28 and "today" at day 35 lands a week into it.
+    anchor = 35
+
+    def D(offset: int) -> str:
+        return d(offset, anchor)
+
+    def T(offset: int, hour: int = 10, minute: int = 0) -> str:
+        return ts(offset, hour, minute, anchor)
+
     sprints = []
     states = ["COMPLETED", "COMPLETED", "ACTIVE", "PLANNED"]
-    completed = [22, 27, None, None]
+    # A realistic ramp: the team under-delivered its first sprint (20 of 26
+    # committed → goal partially met) then found its stride (27). The closed
+    # sprints carry an honest goal_outcome, set on the authored sprint.close beats.
+    completed = [20, 27, None, None]
     for i, (state, vel) in enumerate(zip(states, completed)):
         sp = {
             "slug": f"au-sprint-{i + 1}",
             "name": f"Sprint {i + 1}",
             "goal": f"Mobile increment {i + 1}.",
             "state": state,
-            "start_date": d(i * 14),
-            "finish_date": d(i * 14 + 13),
+            "start_date": D(i * 14),
+            "finish_date": D(i * 14 + 13),
             "capacity_points": 28,
         }
         if state in ("COMPLETED", "ACTIVE"):
@@ -147,13 +190,171 @@ def build_aurora() -> dict:
                     "BACKLOG": 0.0,
                 }[status],
                 "story_points": points[i % len(points)],
-                "assignee": devs[i % len(devs)],
+                # Spread each sprint's stories across the whole team rather than
+                # one dev per sprint (i // 4 advances once per sprint-row, so the
+                # four devs round-robin *within* every sprint). The event timeline
+                # then reassigns a few of these as the program plays out.
+                "assignee": devs[(i // len(devs)) % len(devs)],
                 "sprint": f"au-sprint-{sprint_idx + 1}",
                 "delivery_mode": "scrum",
                 "governance_class": "flow",
                 "dor": "ready" if state != "PLANNED" else "idea",
             }
         )
+
+    # --- event timeline ----------------------------------------------------
+    # Authored beats layer the human story on top of the synthesizer's status
+    # fill: dated reassignments, review rework, standup comments, a mid-sprint
+    # scope injection, sprint goal verdicts, and risk-status lifecycles. Targets
+    # are project-qualified (``task:aurora:<wbs>``). Offsets stay <= the anchor
+    # (35) so nothing is forward-dated.
+    def task(wbs: str) -> str:
+        return f"task:aurora:{wbs}"
+
+    def sprint(slug: str) -> str:
+        return f"sprint:aurora:{slug}"
+
+    events: list[dict] = [
+        # Sprint 1 — activate, run, and close with an honest "partially met".
+        _ev(T(0, 9, 0), "sprint.activate", sprint("au-sprint-1"), "sam"),
+        # Hero: Onboarding flow (wbs 1, Mei) takes a non-linear path the linear
+        # synthesizer can't produce — built, reviewed, bounced for a real defect,
+        # reworked, re-reviewed, shipped. Tom reviews without taking ownership.
+        _ev(
+            T(1, 9, 30),
+            "task.comment",
+            task("1"),
+            "mei",
+            body="Starting onboarding — carousel plus the first-run empty state.",
+        ),
+        _ev(T(2, 10, 0), "task.status", task("1"), "mei", to="IN_PROGRESS"),
+        _ev(
+            T(5, 15, 0),
+            "task.comment",
+            task("1"),
+            "mei",
+            body="PR up for review (!142). First-run flow is feature-complete.",
+        ),
+        _ev(T(5, 15, 30), "task.status", task("1"), "mei", to="REVIEW"),
+        _ev(
+            T(6, 11, 0),
+            "task.comment",
+            task("1"),
+            "tom",
+            body="Review: the skip button doesn't persist the 'seen' flag on a cold "
+            "start, so onboarding re-shows. Sending it back.",
+        ),
+        _ev(T(6, 11, 30), "task.status", task("1"), "tom", to="IN_PROGRESS"),
+        _ev(
+            T(8, 14, 0),
+            "task.comment",
+            task("1"),
+            "mei",
+            body="Fixed — onboarding-complete now persists to secure storage. "
+            "Re-requesting review.",
+        ),
+        _ev(T(8, 14, 30), "task.status", task("1"), "mei", to="REVIEW"),
+        _ev(
+            T(9, 16, 0),
+            "task.comment",
+            task("1"),
+            "tom",
+            body="QA pass on iOS and Android. Merging.",
+        ),
+        _ev(T(9, 16, 30), "task.status", task("1"), "tom", to="COMPLETE"),
+        # Reassignment: Biometric login (wbs 5) started with Diego, but the
+        # secure-enclave expertise sits with Mei — the key-person risk in action.
+        _ev(
+            T(2, 9, 0),
+            "task.comment",
+            task("5"),
+            "diego",
+            body="Spiking biometric auth; the secure-enclave path is unfamiliar to me.",
+        ),
+        _ev(
+            T(4, 13, 0),
+            "task.comment",
+            task("5"),
+            "priya",
+            body="Biometric know-how is concentrated in Mei — reassigning so we don't "
+            "bottleneck a launch-critical story on a single spike.",
+        ),
+        _ev(T(4, 13, 5), "task.assign", task("5"), "priya", assignee="mei"),
+        _ev(
+            T(7, 10, 0),
+            "task.comment",
+            task("5"),
+            "mei",
+            body="Took over biometrics — Face ID and fingerprint enrolled behind a flag.",
+        ),
+        _ev(
+            T(13, 17, 0),
+            "sprint.close",
+            sprint("au-sprint-1"),
+            "sam",
+            goal_outcome="PARTIAL",
+        ),
+        # Sprint 2 — vendor outage and a coverage reassignment while Mei is out.
+        _ev(T(14, 9, 0), "sprint.activate", sprint("au-sprint-2"), "sam"),
+        _ev(
+            T(16, 9, 0),
+            "task.comment",
+            task("2"),
+            "mei",
+            body="Push vendor had an overnight outage — integration tests are flaky. "
+            "Watching their status page before I trust the happy path.",
+        ),
+        _ev(T(16, 12, 0), "risk.status", "risk:external-api", "sam", to="MITIGATING"),
+        _ev(
+            T(19, 10, 0),
+            "task.comment",
+            task("2"),
+            "sam",
+            body="Mei is out for two days — Nadia to cover push notifications so the "
+            "increment goal holds.",
+        ),
+        _ev(T(19, 10, 5), "task.assign", task("2"), "sam", assignee="nadia"),
+        _ev(
+            T(23, 14, 0),
+            "task.comment",
+            task("2"),
+            "nadia",
+            body="Vendor is back; added retry with backoff so a future outage degrades "
+            "gracefully instead of failing sends. Handing back to Mei.",
+        ),
+        _ev(T(23, 14, 5), "task.assign", task("2"), "nadia", assignee="mei"),
+        # Store-review risk resolves over the sprint as the checklist lands.
+        _ev(T(15, 11, 0), "risk.status", "risk:store-review", "sam", to="MITIGATING"),
+        _ev(T(26, 16, 0), "risk.status", "risk:store-review", "sam", to="RESOLVED"),
+        _ev(
+            T(27, 17, 0),
+            "sprint.close",
+            sprint("au-sprint-2"),
+            "sam",
+            goal_outcome="MET",
+        ),
+        # Sprint 3 (active) — a mid-sprint scope injection the PO pulls in and the
+        # team accepts after protecting the goal. Wires the SprintScopeChange audit.
+        _ev(
+            T(30, 9, 30),
+            "task.comment",
+            task("19"),
+            "priya",
+            body="Marketing needs the widget gallery in this increment for launch — "
+            "pulling it into the sprint.",
+        ),
+        _ev(T(30, 9, 35), "sprint.scope_inject", task("19"), "priya", goal_impact=True),
+        _ev(
+            T(31, 11, 0),
+            "task.comment",
+            task("19"),
+            "sam",
+            body="Talked it through at standup — we'll drop a lower-priority story to "
+            "protect the goal. Accepting the injection.",
+        ),
+        _ev(T(31, 11, 5), "sprint.scope_resolve", task("19"), "sam", to="ACCEPTED"),
+        _ev(T(31, 12, 0), "risk.status", "risk:scope-creep", "priya", to="MITIGATING"),
+    ]
 
     return {
         "schema_version": "2.0",
@@ -202,7 +403,7 @@ def build_aurora() -> dict:
                 "slug": "aurora",
                 "name": "Aurora App",
                 "methodology": "AGILE",
-                "start_date": d(0),
+                "start_date": D(0),
                 "calendar": "aurora-core",
                 "default_view": "BOARD",
                 "agile_features": True,
@@ -254,7 +455,10 @@ def build_aurora() -> dict:
                     {
                         "slug": "store-review",
                         "title": "App-store review rejection delays release",
-                        "status": "RESOLVED",
+                        # Declared at its starting state; the risk.status timeline
+                        # walks it OPEN → MITIGATING → RESOLVED so its History reads
+                        # as a lifecycle, not a single frozen verdict (#1253).
+                        "status": "OPEN",
                         "probability": 2,
                         "impact": 3,
                         "category": "EXTERNAL",
@@ -266,6 +470,7 @@ def build_aurora() -> dict:
                 ],
             }
         ],
+        "events": events,
     }
 
 
@@ -391,6 +596,126 @@ def build_bayside() -> dict:
                     }
                 )
             cursor += max(ml, 1)
+
+    # --- event timeline ----------------------------------------------------
+    # Waterfall history: an inspection-fail-and-rework loop the synthesizer can't
+    # produce, a crew reassignment, permit/weather field notes, and dated risk
+    # lifecycles. Offsets are in days from project start (planned_start is
+    # ``d(cursor*2)``); all stay <= the anchor (90 = "today").
+    def task(wbs: str) -> str:
+        return f"task:bayside:{wbs}"
+
+    events: list[dict] = [
+        # Permit gates the site-prep sign-off (1.4) — a field note plus the risk
+        # moving from identified to actively mitigated.
+        _ev(
+            ts(22, 9, 0),
+            "task.comment",
+            task("1.4"),
+            "tom",
+            body="Survey package is ready, but the municipal permit is still in "
+            "review — that's gating the site-prep sign-off.",
+        ),
+        _ev(ts(24, 10, 0), "risk.status", "risk:permit-delay", "sam", to="MITIGATING"),
+        # Soil risk surfaces and is closed out by the geotech survey during excavation.
+        _ev(
+            ts(31, 9, 0),
+            "task.comment",
+            task("2.1"),
+            "tom",
+            body="Hit a soft layer at the east footing — ordering a geotech survey "
+            "before we set rebar.",
+        ),
+        _ev(
+            ts(31, 9, 30), "risk.status", "risk:soil-conditions", "tom", to="MITIGATING"
+        ),
+        _ev(ts(38, 14, 0), "risk.status", "risk:soil-conditions", "tom", to="CLOSED"),
+        # Hero: Rebar & formwork (2.2) fails inspection on bar spacing, is re-tied,
+        # and passes re-inspection — a non-linear Review → rework → Review path.
+        _ev(
+            ts(40, 8, 0),
+            "task.comment",
+            task("2.2"),
+            "diego",
+            body="Rebar cage and formwork up for the east footing.",
+        ),
+        _ev(ts(40, 9, 0), "task.status", task("2.2"), "diego", to="IN_PROGRESS"),
+        _ev(
+            ts(43, 15, 0),
+            "task.comment",
+            task("2.2"),
+            "diego",
+            body="Tied and shimmed. Calling for inspection.",
+        ),
+        _ev(ts(43, 15, 30), "task.status", task("2.2"), "diego", to="REVIEW"),
+        _ev(
+            ts(44, 10, 0),
+            "task.comment",
+            task("2.2"),
+            "omar",
+            body="Inspection: bar spacing on the north face is out of tolerance per "
+            "the spec. Failing it — needs a re-tie.",
+        ),
+        _ev(ts(44, 10, 30), "task.status", task("2.2"), "omar", to="IN_PROGRESS"),
+        _ev(
+            ts(46, 14, 0),
+            "task.comment",
+            task("2.2"),
+            "diego",
+            body="Re-tied to spec and re-shot the spacing. Ready for re-inspection.",
+        ),
+        _ev(ts(46, 14, 30), "task.status", task("2.2"), "diego", to="REVIEW"),
+        _ev(
+            ts(47, 9, 0),
+            "task.comment",
+            task("2.2"),
+            "omar",
+            body="Re-inspection passed. Cleared to pour.",
+        ),
+        _ev(ts(47, 9, 30), "task.status", task("2.2"), "omar", to="COMPLETE"),
+        # Weather note on the pour window.
+        _ev(
+            ts(50, 7, 0),
+            "task.comment",
+            task("2.3"),
+            "diego",
+            body="Rain moving in for the pour window — coordinating to pour ahead of "
+            "the front so we don't lose the day.",
+        ),
+        # Reassignment: the west pour was booked to the MEP lead by mistake; it
+        # belongs to the concrete foreman.
+        _ev(
+            ts(56, 8, 0),
+            "task.comment",
+            task("2.4"),
+            "diego",
+            body="The pours belong with the concrete crew — moving the west pour to Tom.",
+        ),
+        _ev(ts(56, 8, 5), "task.assign", task("2.4"), "diego", assignee="tom"),
+        # Crane risk booked and resolved ahead of the structural phase.
+        _ev(
+            ts(70, 9, 0),
+            "risk.status",
+            "risk:crane-availability",
+            "tom",
+            to="MITIGATING",
+        ),
+        _ev(
+            ts(78, 9, 0), "risk.status", "risk:crane-availability", "tom", to="RESOLVED"
+        ),
+        # In-flight framing phase: steel up, owner change-order in play.
+        _ev(
+            ts(74, 9, 0),
+            "task.comment",
+            task("3.1"),
+            "diego",
+            body="Steel is going up. Owner is still weighing a mezzanine design "
+            "change — holding the final connections until it's resolved.",
+        ),
+        _ev(
+            ts(76, 11, 0), "risk.status", "risk:design-change", "diego", to="MITIGATING"
+        ),
+    ]
 
     return {
         "schema_version": "2.0",
@@ -556,7 +881,8 @@ def build_bayside() -> dict:
                         "slug": "permit-delay",
                         "title": "Building permit approval slips",
                         "description": "The municipal permit office is running 3 weeks behind; gates site prep sign-off.",
-                        "status": "MITIGATING",
+                        # Starting state; risk.status walks it to MITIGATING (#1253).
+                        "status": "OPEN",
                         "probability": 3,
                         "impact": 5,
                         "category": "EXTERNAL",
@@ -578,7 +904,9 @@ def build_bayside() -> dict:
                     {
                         "slug": "soil-conditions",
                         "title": "Unexpected soil conditions at excavation",
-                        "status": "CLOSED",
+                        # Starting state; risk.status walks it OPEN → MITIGATING →
+                        # CLOSED as the geotech survey clears it (#1253).
+                        "status": "OPEN",
                         "probability": 2,
                         "impact": 4,
                         "category": "TECHNICAL",
@@ -624,7 +952,9 @@ def build_bayside() -> dict:
                     {
                         "slug": "crane-availability",
                         "title": "Tower crane scheduling conflict",
-                        "status": "RESOLVED",
+                        # Starting state; risk.status walks it OPEN → MITIGATING →
+                        # RESOLVED as the crane window is booked (#1253).
+                        "status": "OPEN",
                         "probability": 2,
                         "impact": 3,
                         "category": "ORGANIZATIONAL",
@@ -647,6 +977,7 @@ def build_bayside() -> dict:
                 ],
             }
         ],
+        "events": events,
     }
 
 
@@ -658,6 +989,17 @@ def build_bayside() -> dict:
 def build_helios() -> dict:
     ns = "helios"
     tasks, deps = [], []
+
+    # Anchor placed inside the active build sprint (#1253): the planning phase and
+    # Build Sprint 1 sit in the past, Build Sprint 2 (days 74-87) brackets "today"
+    # at day 81, and Build Sprint 3 is ahead.
+    anchor = 81
+
+    def D(offset: int) -> str:
+        return d(offset, anchor)
+
+    def T(offset: int, hour: int = 10, minute: int = 0) -> str:
+        return ts(offset, hour, minute, anchor)
 
     # Planning phase (waterfall) — already COMPLETE.
     planning = [
@@ -687,7 +1029,7 @@ def build_helios() -> dict:
                 "status": "COMPLETE",
                 "percent_complete": 100.0,
                 "duration": ml,
-                "planned_start": d(cursor),
+                "planned_start": D(cursor),
                 "estimate": three_point(ml),
                 "governance_class": "gated",
                 "delivery_mode": "waterfall",
@@ -735,8 +1077,8 @@ def build_helios() -> dict:
             "slug": "he-sprint-1",
             "name": "Build Sprint 1",
             "state": "COMPLETED",
-            "start_date": d(60),
-            "finish_date": d(73),
+            "start_date": D(60),
+            "finish_date": D(73),
             "committed_points": 30,
             "completed_points": 28,
             "capacity_points": 32,
@@ -745,8 +1087,8 @@ def build_helios() -> dict:
             "slug": "he-sprint-2",
             "name": "Build Sprint 2",
             "state": "ACTIVE",
-            "start_date": d(74),
-            "finish_date": d(87),
+            "start_date": D(74),
+            "finish_date": D(87),
             "committed_points": 32,
             "capacity_points": 32,
         },
@@ -754,8 +1096,8 @@ def build_helios() -> dict:
             "slug": "he-sprint-3",
             "name": "Build Sprint 3",
             "state": "PLANNED",
-            "start_date": d(88),
-            "finish_date": d(101),
+            "start_date": D(88),
+            "finish_date": D(101),
             "capacity_points": 32,
         },
     ]
@@ -779,7 +1121,9 @@ def build_helios() -> dict:
                 "BACKLOG": 0.0,
             }[status],
             "story_points": [3, 5, 8][i % 3],
-            "assignee": "mei",
+            # Two engineers share the build; the timeline then load-balances a
+            # couple of stories between them as sprints fill up.
+            "assignee": ["mei", "nadia"][i % 2],
             "sprint": f"he-sprint-{sidx + 1}",
             "delivery_mode": "scrum",
             "governance_class": "flow",
@@ -787,6 +1131,134 @@ def build_helios() -> dict:
         tasks.append(story)
     # cross-phase dependency: the data-migration story depends on the planning data-model task
     deps.append({"predecessor": "1.5", "successor": "2.17", "dep_type": "FS", "lag": 0})
+
+    # --- event timeline ----------------------------------------------------
+    # Hybrid history: the finished waterfall plan hands off to the agile build, a
+    # build story takes a non-linear review path, the two engineers load-balance,
+    # a mid-sprint injection is *rejected* (deferred to a later release), and the
+    # build-phase risks resolve as defects are found and fixed. ``anchor`` = 81.
+    def task(wbs: str) -> str:
+        return f"task:helios:{wbs}"
+
+    def sprint(slug: str) -> str:
+        return f"sprint:helios:{slug}"
+
+    events: list[dict] = [
+        # The plan-to-build bridge: the data model from planning is the contract
+        # the migration story will build against.
+        _ev(
+            T(75, 9, 0),
+            "task.comment",
+            task("2.17"),
+            "ivan",
+            body="The data model from planning (1.5) is the contract for the migration "
+            "run — freezing it before Sprint 3 picks this up.",
+        ),
+        # Build Sprint 1 — activate, a hero story with a real review bounce, close.
+        _ev(T(60, 9, 0), "sprint.activate", sprint("he-sprint-1"), "jordan"),
+        _ev(
+            T(61, 9, 0),
+            "task.comment",
+            task("2.3"),
+            "nadia",
+            body="Starting the lead pipeline — stages, transitions, and the rollup.",
+        ),
+        _ev(T(62, 10, 0), "task.status", task("2.3"), "nadia", to="IN_PROGRESS"),
+        _ev(
+            T(66, 15, 0),
+            "task.comment",
+            task("2.3"),
+            "nadia",
+            body="Pipeline and stage automation done. PR up.",
+        ),
+        _ev(T(66, 15, 30), "task.status", task("2.3"), "nadia", to="REVIEW"),
+        _ev(
+            T(67, 11, 0),
+            "task.comment",
+            task("2.3"),
+            "mei",
+            body="Review: stage transitions don't fire the activity hook, so the "
+            "timeline misses them. Sending it back.",
+        ),
+        _ev(T(67, 11, 30), "task.status", task("2.3"), "mei", to="IN_PROGRESS"),
+        _ev(
+            T(70, 14, 0),
+            "task.comment",
+            task("2.3"),
+            "nadia",
+            body="Wired stage transitions into the activity stream. Re-review please.",
+        ),
+        _ev(T(70, 14, 30), "task.status", task("2.3"), "nadia", to="REVIEW"),
+        _ev(
+            T(71, 16, 0),
+            "task.comment",
+            task("2.3"),
+            "mei",
+            body="Looks good now. Merged.",
+        ),
+        _ev(T(71, 16, 30), "task.status", task("2.3"), "mei", to="COMPLETE"),
+        # Integration defects: found and fixed during the sprint (the realized risk).
+        _ev(
+            T(64, 10, 0),
+            "risk.status",
+            "risk:integration-defects",
+            "mei",
+            to="MITIGATING",
+        ),
+        _ev(
+            T(72, 16, 0),
+            "risk.status",
+            "risk:integration-defects",
+            "mei",
+            to="RESOLVED",
+        ),
+        _ev(
+            T(73, 17, 0),
+            "sprint.close",
+            sprint("he-sprint-1"),
+            "jordan",
+            goal_outcome="MET",
+        ),
+        # Build Sprint 2 (active) — a load-balancing reassignment and a *rejected*
+        # mid-sprint injection that the team defers to protect the goal.
+        _ev(
+            T(78, 9, 0),
+            "task.comment",
+            task("2.7"),
+            "ivan",
+            body="Nadia's carrying three active stories — moving Activity timeline to "
+            "Mei to keep the sprint flowing.",
+        ),
+        _ev(T(78, 9, 5), "task.assign", task("2.7"), "ivan", assignee="mei"),
+        _ev(
+            T(76, 9, 0),
+            "task.comment",
+            task("2.16"),
+            "jordan",
+            body="Sales is asking for Search & filters now — pulling it into the sprint.",
+        ),
+        _ev(
+            T(76, 9, 5), "sprint.scope_inject", task("2.16"), "jordan", goal_impact=True
+        ),
+        _ev(T(77, 10, 0), "task.status", task("2.16"), "mei", to="IN_PROGRESS"),
+        _ev(
+            T(79, 15, 0),
+            "task.comment",
+            task("2.16"),
+            "ivan",
+            body="This pushes us well past capacity and risks the sprint goal. "
+            "Deferring it to the next release.",
+        ),
+        _ev(T(79, 15, 5), "sprint.scope_resolve", task("2.16"), "ivan", to="REJECTED"),
+        _ev(T(79, 15, 10), "task.status", task("2.16"), "mei", to="BACKLOG"),
+        _ev(
+            T(79, 15, 30),
+            "risk.status",
+            "risk:scope-injection",
+            "jordan",
+            to="MITIGATING",
+        ),
+    ]
 
     return {
         "schema_version": "2.0",
@@ -878,7 +1350,7 @@ def build_helios() -> dict:
                 "slug": "helios",
                 "name": "Helios CRM",
                 "methodology": "HYBRID",
-                "start_date": d(0),
+                "start_date": D(0),
                 "calendar": "helios-core",
                 "default_view": "OVERVIEW",
                 "agile_features": True,
@@ -912,7 +1384,9 @@ def build_helios() -> dict:
                         "slug": "integration-defects",
                         "title": "CRM integration mapping defects (realized)",
                         "description": "Realized in the build phase: the integration suite found mapping defects.",
-                        "status": "RESOLVED",
+                        # Starting state; risk.status walks it OPEN → MITIGATING →
+                        # RESOLVED as the defects are found and fixed mid-sprint.
+                        "status": "OPEN",
                         "probability": 4,
                         "impact": 4,
                         "category": "TECHNICAL",
@@ -930,7 +1404,7 @@ def build_helios() -> dict:
                         "category": "PROJECT_MANAGEMENT",
                         "response": "MITIGATE",
                         "owner": "jordan",
-                        "tasks": ["2.12"],
+                        "tasks": ["2.16"],
                     },
                     {
                         "slug": "team-ramp",
@@ -946,6 +1420,7 @@ def build_helios() -> dict:
                 ],
             }
         ],
+        "events": events,
     }
 
 
