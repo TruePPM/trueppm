@@ -391,6 +391,75 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
     expect(depsCalls).toBe(1);
     expect(tasksCalls).toBe(1);
   });
+
+  // --- ADR-0152 (#327): task_updated delta — self-echo + version dedup ---
+
+  function dispatchTaskUpdated(payload: Record<string, unknown>) {
+    act(() => {
+      MockWebSocket.instances[0].dispatch('message', {
+        data: JSON.stringify({ event_type: 'task_updated', payload }),
+      });
+    });
+  }
+
+  function tasksInvalidationCount(calls: unknown[][]): number {
+    return calls.filter((call) => {
+      const arg = call[0] as { queryKey?: unknown[] } | undefined;
+      return Array.isArray(arg?.queryKey) && arg.queryKey[0] === 'tasks';
+    }).length;
+  }
+
+  it('suppresses a self-echo task_updated (actor is the current user)', () => {
+    qc.setQueryData(['current-user'], { id: 'me' });
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatchTaskUpdated({ id: 't1', actor_id: 'me', version: 5, changed_fields: ['status'] });
+    flushDebounce();
+
+    // The originating client already applied its optimistic update — no refetch.
+    expect(tasksInvalidationCount(invalidateSpy.mock.calls)).toBe(0);
+  });
+
+  it('invalidates tasks on a remote-actor task_updated', () => {
+    qc.setQueryData(['current-user'], { id: 'me' });
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatchTaskUpdated({
+      id: 't1',
+      actor_id: 'someone-else',
+      version: 5,
+      changed_fields: ['status'],
+    });
+    flushDebounce();
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
+  });
+
+  it('ignores a duplicate/replayed task_updated at a version already observed', () => {
+    qc.setQueryData(['current-user'], { id: 'me' });
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatchTaskUpdated({
+      id: 't1',
+      actor_id: 'someone-else',
+      version: 7,
+      changed_fields: ['status'],
+    });
+    flushDebounce();
+    dispatchTaskUpdated({
+      id: 't1',
+      actor_id: 'someone-else',
+      version: 7,
+      changed_fields: ['status'],
+    });
+    flushDebounce();
+
+    // First event invalidates; the replay at the same version is a no-op.
+    expect(tasksInvalidationCount(invalidateSpy.mock.calls)).toBe(1);
+  });
 });
 
 describe('useProjectWebSocket — auth close-code handling (#352)', () => {

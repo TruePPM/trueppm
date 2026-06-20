@@ -126,6 +126,27 @@ than rely on having seen every event. Event payloads are intentionally minimal
 (usually `{ "id": "<uuid>" }` or a small id set) — fetch the resource for the
 full state.
 
+The `task_updated` event carries a richer **field-level delta** (ADR-0152):
+
+```json
+{
+  "id": "<task uuid>",
+  "changed_fields": ["status", "assignee"],
+  "version": 42,
+  "actor_id": "<user uuid or null>",
+  "ts": "2026-06-20T16:00:00Z"
+}
+```
+
+`changed_fields` lists the names of the fields that changed — **never their
+values**, because task fields are role-gated (e.g. `story_points` is nulled below
+the velocity audience); a client that needs the new values re-reads the task
+through the serializer, which re-applies per-user gating. `version` is the
+post-commit `server_version` (clients ignore an event whose version they have
+already applied), and `actor_id` lets the originating client suppress its own echo
+rather than re-fetching over its optimistic update. The `id` key is retained for
+backward compatibility.
+
 ## WebSocket ↔ webhook event taxonomy
 
 The *same* domain event uses two different naming conventions depending on the

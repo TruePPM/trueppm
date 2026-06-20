@@ -10,7 +10,9 @@
  *   cpm_complete      → schedulerStore.setCpmComplete() + shellStats (compat broadcast; tasks cache owned by task_dates_updated)
  *   task_dates_updated → splice per-task CPM date deltas into the tasks cache; truncated payload → invalidate (ADR-0091)
  *   cpm_error         → schedulerStore.setCpmError(), setRecalculating(false)
- *   task_created / task_updated / task_deleted → invalidate tasks
+ *   task_created / task_deleted → invalidate tasks
+ *   task_updated → invalidate tasks, unless self-echo (actor_id === current user) or a
+ *                  duplicate/replayed version (ADR-0152, #327)
  *   tasks_reordered / tasks_restructured / tasks_bulk_mutated → invalidate tasks
  *   dependency_created / dependency_updated / dependency_deleted → invalidate dependencies + tasks
  *   baseline_created / baseline_activated / baseline_deleted → invalidate baselines + tasks
@@ -94,6 +96,10 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
   // single invalidation per key once the burst goes quiet (#773).
   const pendingInvalidationsRef = useRef<Set<'tasks' | 'dependencies'>>(new Set());
   const invalidateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // ADR-0152 (#327): highest task_updated server_version observed per task, so a
+  // duplicate or out-of-order replayed delta is ignored rather than triggering a
+  // redundant refetch.
+  const seenTaskVersionsRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
     mountedRef.current = true;
@@ -247,11 +253,37 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
       }
 
       // --- Mutation events ---
-      else if (
-        event_type === 'task_created' ||
-        event_type === 'task_updated' ||
-        event_type === 'task_deleted'
-      ) {
+      else if (event_type === 'task_updated') {
+        // ADR-0152 (#327): the enriched task_updated delta lets us avoid two
+        // wasteful refetches.
+        //  1. Self-echo: the originating client already applied its optimistic
+        //     update; re-fetching here would clobber an in-flight edit and flicker.
+        //  2. Duplicate/replayed events: ignore a version we've already observed
+        //     for this task.
+        // Either way the values themselves are role-gated (ADR-0104), so a genuine
+        // remote change still goes through the coalesced list invalidate, which
+        // re-reads via the serializer and keeps gating intact.
+        const taskId = typeof payload.id === 'string' ? payload.id : null;
+        const actorId = typeof payload.actor_id === 'string' ? payload.actor_id : null;
+        const version = typeof payload.version === 'number' ? payload.version : null;
+        const currentUserId =
+          queryClient.getQueryData<{ id: string }>(['current-user'])?.id ?? null;
+
+        const isSelfEcho = actorId !== null && actorId === currentUserId;
+        let isDuplicate = false;
+        if (taskId !== null && version !== null) {
+          const seen = seenTaskVersionsRef.current.get(taskId);
+          if (seen !== undefined && version <= seen) {
+            isDuplicate = true;
+          } else {
+            seenTaskVersionsRef.current.set(taskId, version);
+          }
+        }
+
+        if (!isSelfEcho && !isDuplicate) {
+          scheduleInvalidate('tasks');
+        }
+      } else if (event_type === 'task_created' || event_type === 'task_deleted') {
         scheduleInvalidate('tasks');
       } else if (
         event_type === 'dependency_created' ||

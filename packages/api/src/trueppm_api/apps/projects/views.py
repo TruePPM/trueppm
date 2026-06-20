@@ -2453,9 +2453,23 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         if not changed_fields or not changed_fields <= _NON_SCHEDULE_TASK_FIELDS:
             transaction.on_commit(lambda: _enqueue_recalculate(project_id))
         # The board broadcast always fires — collaborators must see a progress or
-        # name change land even though it doesn't move the schedule.
+        # name change land even though it doesn't move the schedule. ADR-0152 (#327):
+        # carry the field-level delta (names only — never gated values), the
+        # post-commit server_version, and the actor so the originating client can
+        # suppress its own echo instead of re-fetching over its optimistic update.
+        from trueppm_api.apps.sync.broadcast import broadcast_task_updated
+
+        delta_fields = sorted(changed_fields)
+        version = instance.server_version
+        actor_id = str(self.request.user.pk) if self.request.user.is_authenticated else None
         transaction.on_commit(
-            lambda: broadcast_board_event(project_id, "task_updated", {"id": task_id})
+            lambda: broadcast_task_updated(
+                project_id,
+                task_id=task_id,
+                changed_fields=delta_fields,
+                version=version,
+                actor_id=actor_id,
+            )
         )
         # #867: this edit pulled the project start earlier (auto-shift in
         # TaskSerializer.update). Broadcast the project change in the same batch
