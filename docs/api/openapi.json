@@ -20203,7 +20203,7 @@
             },
             "post": {
                 "operationId": "v1_workspace_logo_create",
-                "description": "Workspace logo: POST upload, DELETE clear (admin), GET serve (public).\n\nGET is ``AllowAny`` — the logo is non-sensitive branding shown on public share\npages, so serving it without auth avoids a JWT-in-``<img>`` problem. Write paths\nrequire workspace ADMIN+. Raster only (PNG/WebP); content type is decided by a\nmagic-byte sniff, not the client-declared Content-Type (ADR-0149).",
+                "description": "Workspace logo: POST upload, DELETE clear (admin), GET serve (public).\n\nGET is ``AllowAny`` — the logo is non-sensitive branding shown on public share\npages, so serving it without auth avoids a JWT-in-``<img>`` problem. Write paths\nrequire workspace ADMIN+. Raster only (PNG/WebP); content type is decided by a\nmagic-byte sniff, not the client-declared Content-Type (ADR-0149).\n\nCarries ``IdempotencyMixin`` like every other unsafe workspace view: the mixin\nonly intercepts unsafe methods bearing an Idempotency-Key, so the public GET\nsurface is unaffected.",
                 "tags": [
                     "v1"
                 ],
@@ -20245,7 +20245,7 @@
             },
             "delete": {
                 "operationId": "v1_workspace_logo_destroy",
-                "description": "Workspace logo: POST upload, DELETE clear (admin), GET serve (public).\n\nGET is ``AllowAny`` — the logo is non-sensitive branding shown on public share\npages, so serving it without auth avoids a JWT-in-``<img>`` problem. Write paths\nrequire workspace ADMIN+. Raster only (PNG/WebP); content type is decided by a\nmagic-byte sniff, not the client-declared Content-Type (ADR-0149).",
+                "description": "Workspace logo: POST upload, DELETE clear (admin), GET serve (public).\n\nGET is ``AllowAny`` — the logo is non-sensitive branding shown on public share\npages, so serving it without auth avoids a JWT-in-``<img>`` problem. Write paths\nrequire workspace ADMIN+. Raster only (PNG/WebP); content type is decided by a\nmagic-byte sniff, not the client-declared Content-Type (ADR-0149).\n\nCarries ``IdempotencyMixin`` like every other unsafe workspace view: the mixin\nonly intercepts unsafe methods bearing an Idempotency-Key, so the public GET\nsurface is unaffected.",
                 "tags": [
                     "v1"
                 ],

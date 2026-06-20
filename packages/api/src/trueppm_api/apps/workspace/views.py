@@ -609,13 +609,17 @@ def _sniff_logo_mime(head: bytes) -> str | None:
     return None
 
 
-class WorkspaceLogoView(APIView):
+class WorkspaceLogoView(IdempotencyMixin, APIView):
     """Workspace logo: POST upload, DELETE clear (admin), GET serve (public).
 
     GET is ``AllowAny`` — the logo is non-sensitive branding shown on public share
     pages, so serving it without auth avoids a JWT-in-``<img>`` problem. Write paths
     require workspace ADMIN+. Raster only (PNG/WebP); content type is decided by a
     magic-byte sniff, not the client-declared Content-Type (ADR-0149).
+
+    Carries ``IdempotencyMixin`` like every other unsafe workspace view: the mixin
+    only intercepts unsafe methods bearing an Idempotency-Key, so the public GET
+    surface is unaffected.
     """
 
     parser_classes = [MultiPartParser, FormParser]
