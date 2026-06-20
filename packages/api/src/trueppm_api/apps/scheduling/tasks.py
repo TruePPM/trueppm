@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import timedelta
 
 import redis as redis_lib
@@ -396,7 +397,7 @@ def _do_prune_forecast_snapshots() -> int:
             .order_by("-captured_at")
             .values_list("id", "captured_at")
         )
-        keep: set[object] = set()
+        keep: set[uuid.UUID] = set()
         seen_weeks: set[tuple[int, int]] = set()
         seen_months: set[tuple[int, int]] = set()
         for row_id, captured_at in rows:
