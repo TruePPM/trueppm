@@ -160,3 +160,95 @@ purely client-side derived state — no new API field.
 
 Tracking: implemented in #221 (risk framework fields), #222 (CSV/PDF export), and #223
 (CSV import).
+
+---
+
+## Addendum (#223): CSV Import — the symmetric round-trip
+
+### Context
+
+#222 shipped client-side CSV **export**; #223 is its server-side **import** counterpart,
+covering two cases: (1) onboarding an existing register from Excel/Sheets, and (2) the
+round-trip — export, edit offline, re-import. The original issue sketched an extended
+column set (residual probability/impact, cost impact, schedule impact, contingency
+reserve as a USD decimal); none of those fields exist on the `Risk` model, and the issue
+itself mandates the format "match the export from #222 exactly." The import is therefore
+implemented against the **actual ADR-0043 export columns** — the extended set is out of
+scope and would require a separate data-model ADR.
+
+### Decision
+
+1. **Column set = the export's columns.** Accepted headers (case-insensitive, unknown
+   columns ignored): `Title` (required), `Description`, `Status`, `Category`, `Response`,
+   `P`/`Probability`, `I`/`Impact`, `Owner`, `Mitigation Due Date`, `Trigger`,
+   `Contingency`. `ID`/`Severity` are read-only export artifacts — accepted but ignored on
+   import (severity is computed; import is additive so the display ID is not used to match).
+
+2. **Enum columns accept human labels or raw values.** `Status`/`Category`/`Response`
+   reverse-map the export's display labels ("Open", "Project Management", "Mitigate") back
+   to enum values, case-insensitively, and also accept the raw enum ("OPEN"). Unrecognised
+   `Status` defaults to `OPEN` (per issue); unrecognised `Category`/`Response` → row error.
+
+3. **Owner matching accepts UUID **or** email **or** username**, scoped to project
+   members only (security: import cannot assign a non-member). This makes the literal
+   round-trip work (the export currently emits the owner UUID) *and* supports human-edited
+   onboarding CSVs (email/username). An unmatched owner leaves the field blank and emits a
+   **warning** (not an error) — the risk still imports. (Follow-up: #222's export emits the
+   owner UUID rather than a human-readable handle; making it emit username is a separate
+   small export improvement, not in #223's scope.)
+
+4. **Partial success.** Each row is validated independently; rows with errors are skipped
+   and reported in `errors[]` ({row, field, message}); valid rows are always imported.
+   Non-fatal coercions (unmatched owner, defaulted status) are reported in `warnings[]`.
+
+5. **Atomicity.** The *valid* set is created inside a single `transaction.atomic()` — all
+   valid rows commit together or none do (a DB error rolls the whole batch back and returns
+   500 with nothing partially written). Per-row validation runs before the transaction, so
+   skipped rows never enter it. Rows are created via `Risk.objects.create()` (not
+   `bulk_create`) so `short_id` and `server_version` invariants hold.
+
+6. **Batched broadcast.** A single `risks_imported` WS event (`{count, ids}`) is emitted
+   via `transaction.on_commit`, not one event per risk — avoids flooding the board channel
+   on a 500-row import. Best-effort, no outbox (clients reconcile via the sync delta).
+
+7. **Limits.** Max 2 MB file, max 500 data rows → `400` with a clear message before any row
+   is parsed. Only `text/csv`-shaped uploads accepted; a missing `file` field → `400`.
+
+8. **Parser placement.** Pure parsing/validation lives in a new
+   `apps/projects/risk_import.py` module (no Django request objects), leaving the
+   `RiskViewSet.import_csv` action a thin orchestrator. This keeps the `projects/views.py`
+   footprint to one self-contained method and the logic unit-testable in isolation.
+
+### RBAC
+
+`POST /api/projects/{id}/risks/import/` requires **Team Member+** (`IsProjectMemberWrite`),
+matching `Risk` create — the same write authority, exercised in bulk. Viewer is denied.
+
+### Implementation Notes (addendum)
+
+- **Affected packages**: api, web
+- **Migration required**: **no** — import reuses existing `Risk` fields; no schema change.
+- **API changes**: yes — one new action `POST /projects/{id}/risks/import/`
+  (multipart/form-data, `file` field); OpenAPI regeneration required.
+- **OSS or Enterprise**: OSS (`trueppm-suite`) — single-project, Programs and Projects layer.
+
+### Durable Execution (addendum)
+
+1. **Broker-down behaviour**: N/A — no Celery dispatch. The only side effect is a
+   best-effort `risks_imported` broadcast wrapped in `on_commit`, safe to lose (clients
+   reconcile on the next sync delta; persisted rows are durable before the broadcast).
+2. **Drain task**: N/A — no async work category introduced.
+3. **Orphan window**: N/A — no outbox rows.
+4. **Service layer**: parsing/validation in `apps/projects/risk_import.py::parse_risk_csv`;
+   persistence + broadcast in the synchronous `RiskViewSet.import_csv` action. No CPM
+   recompute (risks do not feed the schedule).
+5. **API response**: synchronous `200` with `{imported, skipped, errors, warnings}`; file-
+   level rejections (too big / too many rows / not a CSV / missing file) return `400`.
+6. **Outbox cleanup**: N/A — no outbox rows.
+7. **Idempotency**: **not idempotent by design** — import is additive (no upsert, no
+   delete), so re-uploading the same CSV creates duplicate risks. This is intentional
+   (issue: "additive — no upsert"); the result summary makes the count visible to the user,
+   who controls whether to re-upload. The display `ID` column is deliberately not used as a
+   match key.
+8. **Dead-letter / failure handling**: N/A — synchronous. A mid-batch DB error rolls back
+   the entire valid set (atomic) and returns 500; the user simply retries.

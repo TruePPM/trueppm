@@ -42,6 +42,7 @@ from drf_spectacular.utils import (
 )
 from rest_framework import filters, generics, mixins, pagination, serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -132,6 +133,7 @@ from trueppm_api.apps.projects.serializers import (
     RetroActionItemSerializer,
     RetroBoardItemSerializer,
     RiskCommentSerializer,
+    RiskImportResultSerializer,
     RiskSerializer,
     SignedDownloadUrlSerializer,
     SprintBurnSnapshotSerializer,
@@ -4521,6 +4523,7 @@ class RiskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Risk]):
     Permission matrix:
       list / retrieve         — Viewer+ (IsProjectMember)
       create / update         — Team Member+ (IsProjectMemberWrite)
+      import (CSV)            — Team Member+ (IsProjectMemberWrite, default branch)
       destroy                 — Project Owner only (IsProjectOwner)
 
     Severity (probability × impact) is annotated on the queryset so
@@ -4603,6 +4606,112 @@ class RiskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Risk]):
         instance.soft_delete()
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "risk_deleted", {"id": risk_id})
+        )
+
+    @extend_schema(
+        summary="Import risks from CSV",
+        request={
+            "multipart/form-data": {
+                "type": "object",
+                "properties": {"file": {"type": "string", "format": "binary"}},
+                "required": ["file"],
+            }
+        },
+        responses={200: RiskImportResultSerializer},
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="import",
+        parser_classes=[MultiPartParser, FormParser],
+    )
+    def import_csv(self, request: Request, project_pk: str | None = None) -> Response:
+        """Bulk-create risks from an uploaded CSV (issue 223, ADR-0043 addendum).
+
+        The symmetric counterpart of the #222 export — a file from "Export CSV"
+        round-trips back in. Valid rows are created atomically; invalid rows are
+        skipped and reported per-row so the user can fix and re-upload. A single
+        ``risks_imported`` board event is broadcast on commit (not one per row).
+        """
+        from dataclasses import asdict
+
+        from trueppm_api.apps.projects.risk_import import (
+            MAX_BYTES,
+            RiskImportError,
+            build_owner_index,
+            parse_risk_csv,
+        )
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        project = get_object_or_404(Project, pk=project_pk, is_deleted=False)
+        # @action does not trigger has_object_permission — enforce Member+ here
+        # the same way perform_create does for the standard POST path.
+        self.check_object_permissions(request, project)
+
+        upload = request.FILES.get("file")
+        if upload is None:
+            return Response(
+                {"detail": "No file uploaded. Attach a CSV in the 'file' field."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if upload.size is not None and upload.size > MAX_BYTES:
+            return Response(
+                {"detail": f"File too large (limit {MAX_BYTES // (1024 * 1024)} MB)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        owner_index = build_owner_index(str(project.pk))
+        try:
+            plan = parse_risk_csv(upload.read(), owner_index)
+        except RiskImportError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        # IsAuthenticated + IsProjectMemberWrite guarantee a real user here; the
+        # guard narrows the type for the create() calls below (created_by FK).
+        creator = request.user
+        if not creator.is_authenticated:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+
+        # Create via the model's normal save() path (not bulk_create) so each
+        # risk gets its short_id / server_version / sync invariants. Bounded by
+        # MAX_ROWS, so the per-row query cost is acceptable for a one-time import.
+        created_ids: list[str] = []
+        with transaction.atomic():
+            for draft in plan.drafts:
+                risk = Risk.objects.create(
+                    project=project,
+                    created_by=creator,
+                    title=draft.title,
+                    description=draft.description,
+                    status=draft.status,
+                    probability=draft.probability,
+                    impact=draft.impact,
+                    category=draft.category,
+                    response=draft.response,
+                    mitigation_due_date=draft.mitigation_due_date,
+                    trigger=draft.trigger,
+                    contingency=draft.contingency,
+                    owner=draft.owner,
+                )
+                created_ids.append(str(risk.pk))
+
+        if created_ids:
+            project_id = str(project.pk)
+            ids = created_ids
+            transaction.on_commit(
+                lambda: broadcast_board_event(
+                    project_id, "risks_imported", {"count": len(ids), "ids": ids}
+                )
+            )
+
+        return Response(
+            {
+                "imported": len(created_ids),
+                "skipped": plan.skipped,
+                "errors": [asdict(issue) for issue in plan.errors],
+                "warnings": [asdict(issue) for issue in plan.warnings],
+            },
+            status=status.HTTP_200_OK,
         )
 
 
