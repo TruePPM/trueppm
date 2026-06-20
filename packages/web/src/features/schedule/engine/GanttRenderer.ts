@@ -97,7 +97,7 @@ export const COLOR = {
   // (the dark palette flips these to ink — see COLOR_DARK, issue #1032).
   chipTextOnCritical: '#FFFFFF',  // semantic-on-critical
   chipTextOnSurface:  '#FFFFFF',  // semantic-on-surface
-  // External-link worst-status dot (issue 767, ADR-0154). Only the two hues the
+  // External-link worst-status dot (issue 767, ADR-0155). Only the two hues the
   // bar palette lacks live here; closed/merged/unknown reuse the bar stops
   // (barCritical/barComplete/textSecondary) via LINK_DOT_FILL — same hue mapping
   // as the DOM badge. Darker 600/700 stops so the solid fill reads on the white
@@ -138,7 +138,7 @@ export const COLOR_DARK: ColorPalette = {
   chipTextOnCritical: '#1A1917',
   chipTextOnSurface:  '#1A1917',
   // Link worst-status dot on the dark surface — the lighter 400 stops read on
-  // navy (mirrors the bar-fill light/dark flip above; issue 767, ADR-0154).
+  // navy (mirrors the bar-fill light/dark flip above; issue 767, ADR-0155).
   linkDraft:      '#FB923C',   // orange-400
   linkOpen:       '#4ADE80',   // green-400
 };
@@ -589,7 +589,7 @@ function drawTaskBarChip(
  *   responsible for invoking {@link drawTaskBarLabel} after dependency
  *   arrows so labels render on top of crossing arrow lines.
  */
-// External-link worst-status dot (issue 767, ADR-0154). Sits in the label gutter just
+// External-link worst-status dot (issue 767, ADR-0155). Sits in the label gutter just
 // right of the bar, Day/Week zoom only; the label start shifts right by the gutter
 // when present so the two never collide.
 const LINK_DOT_GAP = 3;
@@ -729,7 +729,7 @@ export function drawTaskBar(
 
   ctx.restore();
 
-  // External-link worst-status dot in the label gutter (issue 767, ADR-0154). Drawn
+  // External-link worst-status dot in the label gutter (issue 767, ADR-0155). Drawn
   // after the bar (outside its body, so it never overlays the critical-path fill)
   // and before the label (which shifts right to make room — see drawTaskBarLabel).
   if (hasLinkStatusDot(task, scales)) {

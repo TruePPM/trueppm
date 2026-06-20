@@ -14,7 +14,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type { ExternalLinkStatus } from '@/lib/linkStatus';
 
-// Re-exported from the canonical module (issue 767, ADR-0154) so existing importers
+// Re-exported from the canonical module (issue 767, ADR-0155) so existing importers
 // of `ExternalLinkStatus` from this hook keep working.
 export type { ExternalLinkStatus };
 

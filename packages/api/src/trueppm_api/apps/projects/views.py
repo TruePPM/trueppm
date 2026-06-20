@@ -1951,7 +1951,7 @@ def annotate_tasks_queryset(
         ),
     )
 
-    # External-link summary (#767, ADR-0154): the count of a task's non-deleted
+    # External-link summary (#767, ADR-0155): the count of a task's non-deleted
     # external links and the *worst* link status across them, for the at-a-glance
     # glyph on the task-list row and the Gantt bar. Two filtered aggregates over the
     # `links` relation (integrations.TaskLink, related_name="links"):
@@ -9433,7 +9433,7 @@ class TaskAttachmentViewSet(
     def get_serializer_context(self) -> dict[str, Any]:
         """Inject the project into the serializer context on create so the
         attachment MIME check enforces the *resolved* per-project allow-list
-        (ADR-0154, #976) instead of the system default. ``program`` is
+        (ADR-0153, #976) instead of the system default. ``program`` is
         select_related so the policy resolver's parent lookup is free."""
         # DRF types the base return as Mapping; copy into a mutable dict so the
         # injection below type-checks and never aliases the base context.
@@ -9459,7 +9459,7 @@ class TaskAttachmentViewSet(
         task = get_object_or_404(Task, pk=task_pk, project_id=project_pk, is_deleted=False)
         self.check_object_permissions(self.request, task)
 
-        # ADR-0154 (#976): file uploads are gated by the resolved attachments_enabled
+        # ADR-0153 (#976): file uploads are gated by the resolved attachments_enabled
         # policy (external links are a separate capability, unaffected). 403 not 400 —
         # the project's policy forbids uploads here, it isn't a malformed request.
         if serializer.validated_data.get("file"):

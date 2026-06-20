@@ -200,7 +200,7 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
     # own override were cleared (drives the settings "Inherit (X)" affordance).
     effective_task_duration_change_percent_policy = serializers.SerializerMethodField()
     inherited_task_duration_change_percent_policy = serializers.SerializerMethodField()
-    # Server-resolved attachment policy (ADR-0154, #976): project override ??
+    # Server-resolved attachment policy (ADR-0153, #976): project override ??
     # program override ?? workspace value. Clients read the ``effective_*`` fields;
     # ``inherited_*`` is what the project would show if its own override were cleared
     # (drives the "Inherit" affordance). The security denylist is already applied to
@@ -275,7 +275,7 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "inherited_mc_history_retention_cap",
             "effective_mc_history_attribution_audience",
             "inherited_mc_history_attribution_audience",
-            # Attachment-policy overrides (ADR-0154, #976). Nullable: NULL = inherit
+            # Attachment-policy overrides (ADR-0153, #976). Nullable: NULL = inherit
             # program/workspace; allowed_attachment_types is tri-state (NULL/[]/[...]).
             # Admin+-gated write by the allowlist default (not in
             # _SCHEDULER_WRITABLE_FIELDS, so the validate() gate blocks Scheduler).
@@ -328,7 +328,7 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         # so the only ways to clear an override are null (inherit) or a real enum.
         # allowed_attachment_types is tri-state (null=inherit, []=explicit empty
         # override, [...]=explicit) — opt back into allow_empty so a "narrow to
-        # none" override (ADR-0154) isn't 400'd as an empty list by DRF's default.
+        # none" override (ADR-0153) isn't 400'd as an empty list by DRF's default.
         extra_kwargs = {
             "mc_history_attribution_audience": {"allow_blank": False},
             "allowed_attachment_types": {"allow_empty": True},
@@ -603,7 +603,7 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         return resolve_inherited_attachment_types(obj, workspace=self._iteration_workspace())
 
     def validate_allowed_attachment_types(self, value: list[str] | None) -> list[str] | None:
-        """Normalize + reject security-denied types on the project override (ADR-0154).
+        """Normalize + reject security-denied types on the project override (ADR-0153).
 
         ``None`` = inherit (unchanged); ``[]`` = explicit empty override. Mirrors the
         Workspace root validator so a denied type can't be stored on a child scope.
@@ -800,7 +800,7 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
     inherited_mc_history_retention_cap = serializers.SerializerMethodField()
     effective_mc_history_attribution_audience = serializers.SerializerMethodField()
     inherited_mc_history_attribution_audience = serializers.SerializerMethodField()
-    # Server-resolved attachment policy (ADR-0154, #976): program override ??
+    # Server-resolved attachment policy (ADR-0153, #976): program override ??
     # workspace value. Clients read the ``effective_*`` fields; ``inherited_*`` is
     # the value the program shows when its own override is cleared. The security
     # denylist is already applied to the resolved type list.
@@ -850,7 +850,7 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             "inherited_mc_history_retention_cap",
             "effective_mc_history_attribution_audience",
             "inherited_mc_history_attribution_audience",
-            # Attachment-policy overrides (ADR-0154, #976). Nullable: NULL = inherit
+            # Attachment-policy overrides (ADR-0153, #976). Nullable: NULL = inherit
             # workspace; allowed_attachment_types is tri-state. Admin+-gated write.
             "attachments_enabled",
             "allowed_attachment_types",
@@ -912,7 +912,7 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
         # See ProjectSerializer: the audience override is null=True (= inherit)
         # but "" must 400 rather than fall through to the restrictive default.
         # allowed_attachment_types is tri-state — allow_empty so a "narrow to none"
-        # override (ADR-0154) isn't 400'd as an empty list by DRF's default.
+        # override (ADR-0153) isn't 400'd as an empty list by DRF's default.
         extra_kwargs = {
             "mc_history_attribution_audience": {"allow_blank": False},
             "allowed_attachment_types": {"allow_empty": True},
@@ -1048,7 +1048,7 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
         return resolve_inherited_attachment_types(obj, workspace=self._sharing_workspace())
 
     def validate_allowed_attachment_types(self, value: list[str] | None) -> list[str] | None:
-        """Normalize + reject security-denied types on the program override (ADR-0154).
+        """Normalize + reject security-denied types on the program override (ADR-0153).
 
         ``None`` = inherit (unchanged); ``[]`` = explicit empty override. Mirrors the
         Workspace root validator so a denied type can't be stored on a child scope.
@@ -1602,7 +1602,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         read_only=True, allow_null=True, default=None
     )
 
-    # External-link summary (#767, ADR-0154): {count, worst_status} for the
+    # External-link summary (#767, ADR-0155): {count, worst_status} for the
     # at-a-glance link glyph on the task-list row / Gantt bar. Assembled from the
     # `external_link_count` / `external_link_worst_rank` annotations applied by
     # annotate_tasks_queryset(). worst_status is null when count is 0 (or when the
@@ -5242,7 +5242,7 @@ class ApiTokenAuditEntrySerializer(serializers.ModelSerializer[ApiTokenAuditEntr
 # Locked constraints from ADR-0075 threat-model pass.
 MAX_ATTACHMENT_SIZE_BYTES = 100 * 1024 * 1024  # 100 MB (constraint #4)
 # The historic hardcoded allow-list is now the system *seed* default for the
-# inheritable attachment policy (ADR-0154, #976). Aliased from the single source
+# inheritable attachment policy (ADR-0153, #976). Aliased from the single source
 # of truth so the Workspace column default and this gate can never drift. Used as
 # the fallback when no per-project policy is in the serializer context.
 ALLOWED_ATTACHMENT_MIMES = SYSTEM_DEFAULT_ATTACHMENT_TYPES
@@ -5422,7 +5422,7 @@ class TaskAttachmentSerializer(serializers.ModelSerializer[TaskAttachment]):
             mime = getattr(file, "content_type", "") or ""
             # Strip any "; charset=..." trailer
             mime = mime.split(";", 1)[0].strip().lower()
-            # Enforce the RESOLVED per-project allow-list (ADR-0154, #976) when the
+            # Enforce the RESOLVED per-project allow-list (ADR-0153, #976) when the
             # viewset injected the project into context; otherwise fall back to the
             # system seed default. The security denylist (text/html etc.) is always
             # applied inside ``is_attachment_mime_allowed`` regardless of scope.

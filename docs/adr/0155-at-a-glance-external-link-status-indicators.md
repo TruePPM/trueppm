@@ -1,4 +1,4 @@
-# ADR-0153: At-a-glance external-link-status indicators (task list + Gantt)
+# ADR-0155: At-a-glance external-link-status indicators (task list + Gantt)
 
 ## Status
 Accepted

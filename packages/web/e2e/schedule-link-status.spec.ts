@@ -1,5 +1,5 @@
 /**
- * At-a-glance external-link status on the schedule task-list row (#767, ADR-0154).
+ * At-a-glance external-link status on the schedule task-list row (#767, ADR-0155).
  *
  * The row glyph + count is tinted by the worst external-link status and is hidden
  * for summary/milestone tasks and tasks with no live links. Backed by the
