@@ -7,6 +7,7 @@ import { useDirtyForm } from '../hooks/useDirtyForm';
 import { FiscalYearStartField } from '../components/FiscalYearStartField';
 import { EnterpriseBadge } from '../components/EnterpriseBadge';
 import { IterationLabelField } from '../project/IterationLabelField';
+import { WorkspaceLogoField } from './WorkspaceLogoField';
 import { Toggle } from '../components/Toggle';
 import {
   MC_ATTRIBUTION_OPTIONS,
@@ -290,22 +291,8 @@ export function WorkspaceGeneralPage() {
           </div>
         </FieldRow>
 
-        <FieldRow label="Workspace logo" hint="Square. SVG or PNG. 256×256 minimum.">
-          <div className="flex items-center gap-3">
-            <span className="w-14 h-14 rounded-lg bg-brand-primary inline-flex items-center justify-center text-white text-xl font-bold shrink-0">
-              tS
-            </span>
-            {/* Logo upload not wired yet — disabled until the endpoint ships (#969). */}
-            <button
-              type="button"
-              disabled
-              title="Logo upload isn't available yet — tracked in #969"
-              className="px-3 py-1.5 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
-            >
-              Replace
-            </button>
-            <span className="text-[11px] text-neutral-text-secondary">logo.svg · 12 KB</span>
-          </div>
+        <FieldRow label="Workspace logo" hint="Square PNG or WebP. 256×256 minimum. Max 2 MB.">
+          <WorkspaceLogoField logoUrl={ws.logoUrl} name={ws.name} />
         </FieldRow>
 
         <FieldRow
@@ -435,11 +422,12 @@ export function WorkspaceGeneralPage() {
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-brand-primary-light text-brand-primary text-[12px] font-medium">
               US federal · 2026
             </span>
-            {/* Holiday-calendar management not wired yet — disabled until it ships (#969). */}
+            {/* Holiday-calendar management depends on composable calendars (#906);
+                deferred out of #969 until that ships. */}
             <button
               type="button"
               disabled
-              title="Adding a holiday calendar isn't available yet — tracked in #969"
+              title="Adding a holiday calendar isn't available yet — tracked in #906"
               className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-neutral-border text-[12px] text-neutral-text-secondary hover:text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
             >
               + Add calendar

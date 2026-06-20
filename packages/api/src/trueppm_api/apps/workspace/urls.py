@@ -16,6 +16,9 @@ from trueppm_api.apps.workspace.views import (
     WorkspaceExportView,
     WorkspaceInviteDetailView,
     WorkspaceInviteListView,
+    WorkspaceInviteResendAllView,
+    WorkspaceInviteResendView,
+    WorkspaceLogoView,
     WorkspaceMemberDetailView,
     WorkspaceMemberListView,
     WorkspaceSettingsView,
@@ -24,6 +27,8 @@ from trueppm_api.apps.workspace.views import (
 urlpatterns = [
     # #517 — General settings (singleton); DELETE = hard delete (#641, ADR-0092)
     path("workspace/", WorkspaceSettingsView.as_view(), name="workspace-settings"),
+    # #969 — Workspace logo (ADR-0147); GET public, POST/DELETE admin
+    path("workspace/logo/", WorkspaceLogoView.as_view(), name="workspace-logo"),
     # #641 — Lifecycle (ADR-0092)
     path(
         "workspace/transfer-ownership/",
@@ -54,6 +59,17 @@ urlpatterns = [
         "workspace/invites/accept/",
         InviteAcceptView.as_view(),
         name="workspace-invite-accept",
+    ),
+    # #969 — Resend invite emails (ADR-0147); bulk route before the uuid detail route
+    path(
+        "workspace/invites/resend-all/",
+        WorkspaceInviteResendAllView.as_view(),
+        name="workspace-invite-resend-all",
+    ),
+    path(
+        "workspace/invites/<uuid:invite_id>/resend/",
+        WorkspaceInviteResendView.as_view(),
+        name="workspace-invite-resend",
     ),
     path(
         "workspace/invites/<uuid:invite_id>/",

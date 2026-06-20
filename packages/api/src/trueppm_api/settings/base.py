@@ -564,6 +564,12 @@ REST_FRAMEWORK = {
         # covers aggressive reconnect storms without letting one account flood
         # Redis with 30-second ticket keys.
         "ws_ticket": "120/min",
+        # Invite-email resend (#969, ADR-0147). Each request re-issues a token and
+        # re-queues an email; 5/min per admin bounds email-bomb abuse while leaving
+        # ample room for a human clicking "Resend" on a handful of stuck invites.
+        # "Resend all" is one request → one bucket hit, so it cannot be looped past
+        # the cap.
+        "invite_resend": "5/min",
     },
 }
 

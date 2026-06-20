@@ -106,6 +106,20 @@ def _default_work_week() -> list[bool]:
     return [True, True, True, True, True, False, False]
 
 
+def _workspace_logo_upload_to(instance: Workspace, filename: str) -> str:
+    """Storage key for an uploaded workspace logo (ADR-0147).
+
+    A fresh UUID prefix per upload means a *Replace* never overwrites the prior
+    file in place — the old blob is deleted explicitly on commit (avoiding a
+    storage race) and the new URL cache-busts for free. Mirrors the
+    ``TaskAttachment`` ``upload_to`` precedent (ADR-0075).
+    """
+    suffix = ".webp" if filename.lower().endswith(".webp") else ".png"
+    # Stored under the shared local-dev branding root (gitignored, like
+    # ``attachments/`` and ``media/``); prod points STORAGES at object storage.
+    return f"branding/workspace-logo/{uuid.uuid4().hex}{suffix}"
+
+
 class TermOverridePolicy(models.TextChoices):
     """How a workspace terminology default cascades to programs/projects (ADR-0116).
 
@@ -206,6 +220,15 @@ class Workspace(models.Model):
         choices=TermOverridePolicy.choices,
         default=TermOverridePolicy.SUGGEST,
     )
+
+    # Workspace branding logo (ADR-0147, #969). Raster only (PNG/WebP) — SVG is
+    # rejected at the serializer because it can embed <script> and the logo is
+    # served from a public (AllowAny) endpoint. A plain FileField, not ImageField,
+    # so the app carries no Pillow dependency (matches the TaskAttachment precedent,
+    # ADR-0075); the validated content type is pinned in ``logo_mime`` so the serve
+    # endpoint sets Content-Type from a trusted source rather than sniffing on read.
+    logo = models.FileField(upload_to=_workspace_logo_upload_to, blank=True, default="")
+    logo_mime = models.CharField(max_length=64, blank=True, default="")
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

@@ -20,10 +20,11 @@ from django.utils import timezone
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.throttling import AnonRateThrottle
+from rest_framework.throttling import AnonRateThrottle, ScopedRateThrottle
 from rest_framework.views import APIView
 
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
@@ -521,6 +522,170 @@ class InviteAcceptView(IdempotencyMixin, APIView):
             # accept_invite makes for an overdue token under ATOMIC_REQUESTS.
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response({"detail": "Invitation accepted.", "username": user.username})
+
+
+class InviteResendThrottle(ScopedRateThrottle):
+    """Caps invite-resend frequency (ADR-0147) to bound email-bomb abuse.
+
+    Scoped per-admin via ``invite_resend`` (5/min). The bulk resend-all endpoint
+    is one request → one bucket hit, so it cannot be looped to exceed the cap.
+    """
+
+    scope = "invite_resend"
+
+
+class WorkspaceInviteResendView(IdempotencyMixin, APIView):
+    """POST /api/v1/workspace/invites/{id}/resend/ — re-queue one invite (ADR-0147).
+
+    Admin only. Re-issues a fresh token (the old email link stops working) and puts
+    the row back in the outbox for ``drain_invite_emails`` to pick up. Best-effort
+    dispatch → 202 ``{"queued": true}``. Only PENDING/FAILED invites are resendable;
+    accepted/revoked/expired return 409.
+    """
+
+    permission_classes = [IsAuthenticated, IsWorkspaceAdmin]
+    throttle_classes = [InviteResendThrottle]
+
+    @extend_schema(
+        request=None,
+        responses={
+            202: OpenApiResponse(description="Invite re-queued for sending."),
+            404: OpenApiResponse(description="Invite not found."),
+            409: OpenApiResponse(description="Invite is not in a resendable state."),
+        },
+    )
+    def post(self, request: Request, invite_id: str) -> Response:
+        if not WorkspaceInvite.objects.filter(pk=invite_id).exists():
+            raise Http404("Invite not found.")
+        invite = services.resend_invite(invite_id)
+        if invite is None:
+            # Exists (checked above) but not resendable → accepted/revoked/expired.
+            return Response(
+                {"detail": "This invite can no longer be resent."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        transaction.on_commit(services.drain_invite_emails_soon)
+        return Response({"queued": True}, status=status.HTTP_202_ACCEPTED)
+
+
+class WorkspaceInviteResendAllView(IdempotencyMixin, APIView):
+    """POST /api/v1/workspace/invites/resend-all/ — re-queue every pending invite.
+
+    Admin only. One transaction, one throttle bucket — emails everyone with a
+    resendable invite at once. Returns 202 ``{"requeued": n}`` (n excludes invites
+    already in flight).
+    """
+
+    permission_classes = [IsAuthenticated, IsWorkspaceAdmin]
+    throttle_classes = [InviteResendThrottle]
+
+    @extend_schema(
+        request=None,
+        responses={202: OpenApiResponse(description="Pending invites re-queued.")},
+    )
+    def post(self, request: Request) -> Response:
+        count = services.resend_all_pending(Workspace.load())
+        if count:
+            transaction.on_commit(services.drain_invite_emails_soon)
+        return Response({"requeued": count}, status=status.HTTP_202_ACCEPTED)
+
+
+# Magic-byte signatures for the raster logo allowlist (ADR-0147). We sniff the
+# leading bytes rather than trust the multipart Content-Type, and accept no SVG —
+# a publicly-served SVG is a stored-XSS vector.
+_LOGO_MAX_BYTES = 2 * 1024 * 1024  # 2 MB
+_LOGO_PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+_LOGO_MIME_PNG = "image/png"
+_LOGO_MIME_WEBP = "image/webp"
+
+
+def _sniff_logo_mime(head: bytes) -> str | None:
+    """Return the canonical MIME for a PNG/WebP byte head, or None if neither."""
+    if head.startswith(_LOGO_PNG_MAGIC):
+        return _LOGO_MIME_PNG
+    # WebP: 'RIFF' <4-byte size> 'WEBP'.
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return _LOGO_MIME_WEBP
+    return None
+
+
+class WorkspaceLogoView(APIView):
+    """Workspace logo: POST upload, DELETE clear (admin), GET serve (public).
+
+    GET is ``AllowAny`` — the logo is non-sensitive branding shown on public share
+    pages, so serving it without auth avoids a JWT-in-``<img>`` problem. Write paths
+    require workspace ADMIN+. Raster only (PNG/WebP); content type is decided by a
+    magic-byte sniff, not the client-declared Content-Type (ADR-0147).
+    """
+
+    parser_classes = [MultiPartParser, FormParser]
+
+    def get_permissions(self) -> list[Any]:
+        if self.request.method == "GET":
+            return [AllowAny()]
+        return [IsAuthenticated(), IsWorkspaceAdmin()]
+
+    def get_authenticators(self) -> list[Any]:
+        # Public GET must not 401 on an absent/invalid token; only the write paths
+        # authenticate. Mirrors InviteAcceptView's anonymous surface.
+        if getattr(self.request, "method", None) == "GET":
+            return []
+        return super().get_authenticators()
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(description="Logo image bytes."),
+            404: OpenApiResponse(description="No logo set."),
+        },
+        description="Serve the workspace logo (public). Returns 404 when unset.",
+    )
+    def get(self, request: Request) -> FileResponse:
+        workspace = Workspace.load()
+        if not workspace.logo:
+            raise Http404("No workspace logo set.")
+        content_type = workspace.logo_mime or _LOGO_MIME_PNG
+        response = FileResponse(workspace.logo.open("rb"), content_type=content_type)
+        # Branding is non-sensitive but still user-uploaded: force inline rendering,
+        # block content-type sniffing, and let caches hold it (busted via ?v= on the
+        # serializer URL when the logo changes).
+        response["Content-Disposition"] = "inline"
+        response["X-Content-Type-Options"] = "nosniff"
+        response["Cache-Control"] = "public, max-age=86400"
+        return response
+
+    @extend_schema(
+        request={
+            "multipart/form-data": {
+                "type": "object",
+                "properties": {"file": {"type": "string", "format": "binary"}},
+            }
+        },
+        responses={200: WorkspaceSettingsSerializer},
+    )
+    def post(self, request: Request) -> Response:
+        upload = request.FILES.get("file")
+        if upload is None:
+            raise ValidationError({"file": "No file was uploaded."})
+        if upload.size > _LOGO_MAX_BYTES:
+            return Response(
+                {"file": "Logo must be 2 MB or smaller."},
+                status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            )
+        head = upload.read(32)
+        upload.seek(0)
+        mime = _sniff_logo_mime(head)
+        if mime is None:
+            return Response(
+                {"file": "Logo must be a PNG or WebP image."},
+                status=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            )
+        workspace = services.set_workspace_logo(file=upload, mime=mime)
+        return Response(WorkspaceSettingsSerializer(workspace).data)
+
+    @extend_schema(responses={200: WorkspaceSettingsSerializer})
+    def delete(self, request: Request) -> Response:
+        workspace = services.clear_workspace_logo()
+        return Response(WorkspaceSettingsSerializer(workspace).data)
 
 
 # ---------------------------------------------------------------------------

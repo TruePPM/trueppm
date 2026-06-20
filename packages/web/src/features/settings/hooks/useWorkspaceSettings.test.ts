@@ -35,6 +35,7 @@ const RAW_SETTINGS = {
   mc_history_retention_cap: 100,
   mc_history_attribution_audience: 'ADMIN_OWNER',
   mc_history_override_policy: 'allow',
+  logo_url: '/api/v1/workspace/logo/?v=1700000000',
 };
 
 const EXPECTED: WorkspaceSettings = {
@@ -54,6 +55,7 @@ const EXPECTED: WorkspaceSettings = {
   mcHistoryRetentionCap: 100,
   mcHistoryAttributionAudience: 'ADMIN_OWNER',
   mcHistoryOverridePolicy: 'allow',
+  logoUrl: '/api/v1/workspace/logo/?v=1700000000',
 };
 
 function makeWrapper() {

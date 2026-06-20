@@ -7,6 +7,7 @@ import { useProject } from '@/hooks/useProject';
 import { useProgram } from '@/hooks/useProgram';
 import { useProjectPresence } from '@/hooks/useProjectPresence';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { useWorkspaceSettings } from '@/features/settings/hooks/useWorkspaceSettings';
 import { modifierKeyLabel } from '@/lib/platform';
 import { Breadcrumb, type BreadcrumbItem } from '@/components/Breadcrumb';
 import { ProgramIdentitySquare } from '@/features/programs/ProgramIdentitySquare';
@@ -65,7 +66,18 @@ export function TopBar({ onHamburgerClick }: Props) {
   const { user: currentUser } = useCurrentUser();
   const onlineUsers = useProjectPresence(projectId).filter((u) => u.user_id !== currentUser?.id);
 
-  const items: BreadcrumbItem[] = [{ label: 'Workspace', to: '/' }];
+  // Uploaded workspace logo (#969) brands the breadcrumb root. Falls back to no
+  // leading mark when unset — the product <Logo/> on the left rail is unaffected.
+  const { data: workspace } = useWorkspaceSettings();
+  const workspaceLogo = workspace?.logoUrl ? (
+    <img
+      src={workspace.logoUrl}
+      alt=""
+      className="w-4 h-4 rounded-sm object-contain shrink-0"
+    />
+  ) : undefined;
+
+  const items: BreadcrumbItem[] = [{ label: 'Workspace', to: '/', leading: workspaceLogo }];
   if (project) {
     if (program) {
       items.push({

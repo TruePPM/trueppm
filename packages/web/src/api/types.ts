@@ -332,6 +332,9 @@ export interface WorkspaceSettings {
   mcHistoryAttributionAudience: MCAttributionAudience;
   /** `allow` lets lower scopes override; `lock` is Enterprise-enforced (no-op in OSS). */
   mcHistoryOverridePolicy: MCHistoryOverridePolicy;
+  /** Read-only public serve URL for the uploaded workspace logo (#969, ADR-0147),
+   *  or null when no logo is set. Carries a `?v=` cache-buster keyed to updated_at. */
+  logoUrl: string | null;
 }
 
 /**

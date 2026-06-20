@@ -42,3 +42,42 @@ export function useRevokeInvite() {
     },
   });
 }
+
+/**
+ * Re-queue one pending/failed invite's email (#969, ADR-0147).
+ *
+ * The 202 is fire-and-forget — the email sends asynchronously via the outbox
+ * drain — so success here means "accepted for re-send", not "delivered". The
+ * resend re-issues the token, so any earlier link in the recipient's inbox stops
+ * working. Refresh the list so the bumped expiry shows.
+ */
+export function useResendInvite() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (inviteId: string) => {
+      await apiClient.post(`/workspace/invites/${inviteId}/resend/`);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['workspace-invites'] });
+    },
+  });
+}
+
+/**
+ * Re-queue every pending/failed invite in one request (#969, ADR-0147).
+ *
+ * One server transaction, one throttle bucket — cannot email-bomb. Returns the
+ * count actually re-queued (invites already mid-send are skipped).
+ */
+export function useResendAllInvites() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const res = await apiClient.post<{ requeued: number }>('/workspace/invites/resend-all/');
+      return res.data.requeued;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['workspace-invites'] });
+    },
+  });
+}

@@ -62,6 +62,37 @@ Schedule timeline a fiscal year that starts in April shows Q1 = Apr–Jun, label
 > (`"January 1"`, `"April"`, `"4/1"`, …) into the structured month/day pair;
 > anything unrecognized falls back to January 1 and is logged.
 
+### Workspace logo
+
+The **Workspace logo** control will let an Owner or Admin upload a square logo
+that surfaces in the top bar beside the workspace name. When no logo is set, the
+top bar falls back to a letter-mark derived from the workspace name. This ships
+in 0.3.
+
+- **Formats:** PNG or WebP only. SVG is rejected — an SVG can carry embedded
+  script, so accepting one would open a stored-XSS vector.
+- **Size:** 2 MB maximum. Larger files return `HTTP 413`.
+- **Dimensions:** at least 256×256 is recommended. The browser warns below that
+  size but still allows the upload; the server does not enforce a minimum.
+- **Validation:** the server identifies the image by its **magic bytes**, not the
+  declared `Content-Type`, so a mislabeled or disguised file is rejected with
+  `HTTP 415`.
+
+The logo is served from a **public** endpoint (`GET /api/v1/workspace/logo/`)
+with `X-Content-Type-Options: nosniff` and `Content-Disposition: inline` — branding
+is non-sensitive, and a public URL keeps it usable in an `<img>` tag without
+attaching a bearer token. Replacing the logo deletes the previous blob; **Remove**
+(`DELETE /api/v1/workspace/logo/`) clears it and restores the letter-mark.
+
+| Method | Path | Access | Description |
+|---|---|---|---|
+| `GET` | `/api/v1/workspace/logo/` | Public | Serve the current logo (`404` when unset). |
+| `POST` | `/api/v1/workspace/logo/` | Admin+ | Upload/replace the logo (multipart `file`). |
+| `DELETE` | `/api/v1/workspace/logo/` | Admin+ | Clear the logo. |
+
+The General settings response exposes `logo_url` (a cache-busting public URL) or
+`null` when no logo is set.
+
 ---
 
 ## Members (`/settings/members`)
@@ -146,8 +177,9 @@ Workspace Admins send email invitations to bring new users into the workspace.
    (only its SHA-256 hash is persisted).
 3. The `drain_invite_emails` Celery Beat task dispatches the email every 30 s
    (5-minute orphan window to avoid racing the create transaction). Email
-   delivery failures are retried up to 3 times; at exhaustion the invite
-   remains `pending` and the admin can re-send by revoking and re-creating.
+   delivery failures are retried up to 3 times; at exhaustion the invite is
+   marked `failed`, and an admin can re-send it (see [Resend an invite](#resend-an-invite))
+   without revoking and re-creating it.
 4. The recipient clicks the link to reach the accept flow. They `POST` to
    `/api/v1/workspace/invites/accept/` with `{token, username, password}`.
    This endpoint:
@@ -182,6 +214,28 @@ Invites expire **7 days** after creation. Statuses:
 
 Accepted, revoked, and expired invites older than 30 days are purged by a nightly
 `purge_stale_invites` Beat task.
+
+### Resend an invite
+
+A `pending` or `failed` invite can be re-sent without revoking and re-creating
+it. The Members page offers a per-row **Resend** action and a **Resend all**
+button that re-queues every outstanding invite in one request. This ships in 0.3.
+
+Resending **re-issues the token**: a fresh raw token is generated and emailed, so
+any earlier link the recipient still holds stops working. The invite's 7-day TTL
+is reset from the resend, and the email re-enters the same outbox drain described
+above. A resend on an invite whose email is still in flight is an idempotent
+no-op — it will not send twice.
+
+| Method | Path | Access | Description |
+|---|---|---|---|
+| `POST` | `/api/v1/workspace/invites/{id}/resend/` | Admin+ | Re-issue and re-queue one invite. Returns `202 {"queued": true}`. |
+| `POST` | `/api/v1/workspace/invites/resend-all/` | Admin+ | Re-queue every `pending`/`failed` invite. Returns `202 {"requeued": <count>}`. |
+
+Only `pending` and `failed` invites are resendable — resending an `accepted`,
+`revoked`, or `expired` invite returns `HTTP 409`. The per-invite endpoint is
+rate-limited to **5 requests/minute**; the bulk endpoint bundles every invite
+into a single throttle bucket so it cannot be used to flood recipients with email.
 
 ### Email transport
 

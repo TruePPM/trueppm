@@ -20055,6 +20055,45 @@
                 }
             }
         },
+        "/api/v1/workspace/invites/{invite_id}/resend/": {
+            "post": {
+                "operationId": "v1_workspace_invites_resend_create",
+                "description": "POST /api/v1/workspace/invites/{id}/resend/ — re-queue one invite (ADR-0147).\n\nAdmin only. Re-issues a fresh token (the old email link stops working) and puts\nthe row back in the outbox for ``drain_invite_emails`` to pick up. Best-effort\ndispatch → 202 ``{\"queued\": true}``. Only PENDING/FAILED invites are resendable;\naccepted/revoked/expired return 409.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "invite_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Invite re-queued for sending."
+                    },
+                    "404": {
+                        "description": "Invite not found."
+                    },
+                    "409": {
+                        "description": "Invite is not in a resendable state."
+                    }
+                }
+            }
+        },
         "/api/v1/workspace/invites/accept/": {
             "post": {
                 "operationId": "v1_workspace_invites_accept_create",
@@ -20088,6 +20127,117 @@
                 "responses": {
                     "200": {
                         "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/workspace/invites/resend-all/": {
+            "post": {
+                "operationId": "v1_workspace_invites_resend_all_create",
+                "description": "POST /api/v1/workspace/invites/resend-all/ — re-queue every pending invite.\n\nAdmin only. One transaction, one throttle bucket — emails everyone with a\nresendable invite at once. Returns 202 ``{\"requeued\": n}`` (n excludes invites\nalready in flight).",
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Pending invites re-queued."
+                    }
+                }
+            }
+        },
+        "/api/v1/workspace/logo/": {
+            "get": {
+                "operationId": "v1_workspace_logo_retrieve",
+                "description": "Serve the workspace logo (public). Returns 404 when unset.",
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Logo image bytes."
+                    },
+                    "404": {
+                        "description": "No logo set."
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_workspace_logo_create",
+                "description": "Workspace logo: POST upload, DELETE clear (admin), GET serve (public).\n\nGET is ``AllowAny`` — the logo is non-sensitive branding shown on public share\npages, so serving it without auth avoids a JWT-in-``<img>`` problem. Write paths\nrequire workspace ADMIN+. Raster only (PNG/WebP); content type is decided by a\nmagic-byte sniff, not the client-declared Content-Type (ADR-0147).",
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "file": {
+                                        "type": "string",
+                                        "format": "binary"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WorkspaceSettings"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "v1_workspace_logo_destroy",
+                "description": "Workspace logo: POST upload, DELETE clear (admin), GET serve (public).\n\nGET is ``AllowAny`` — the logo is non-sensitive branding shown on public share\npages, so serving it without auth avoids a JWT-in-``<img>`` problem. Write paths\nrequire workspace ADMIN+. Raster only (PNG/WebP); content type is decided by a\nmagic-byte sniff, not the client-declared Content-Type (ADR-0147).",
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WorkspaceSettings"
+                                }
+                            }
+                        },
+                        "description": ""
                     }
                 }
             }
@@ -30953,10 +31103,17 @@
                     },
                     "mc_history_override_policy": {
                         "$ref": "#/components/schemas/TermOverridePolicyEnum"
+                    },
+                    "logo_url": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Public serve-endpoint URL for the workspace logo, or ``None`` if unset.",
+                        "readOnly": true
                     }
                 },
                 "required": [
                     "fiscal_year_start_display",
+                    "logo_url",
                     "subdomain"
                 ]
             },

@@ -90,6 +90,12 @@ class WorkspaceSettingsSerializer(serializers.ModelSerializer[Workspace]):
     # Read-only mirror of the ``Workspace.fiscal_year_start_display`` property —
     # ModelSerializer does not surface plain model properties automatically.
     fiscal_year_start_display = serializers.CharField(read_only=True)
+    # Public URL the top bar / settings page render in an <img> (ADR-0147, #969).
+    # Points at the AllowAny serve endpoint (the logo is non-sensitive branding,
+    # and an <img> cannot send the JWT). ``null`` when no logo is set, so the UI
+    # falls back to the letter-mark. The ``?v=`` cache-buster is the row's
+    # updated_at epoch so a replace busts the browser/CDN cache.
+    logo_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Workspace
@@ -120,8 +126,16 @@ class WorkspaceSettingsSerializer(serializers.ModelSerializer[Workspace]):
             "mc_history_retention_cap",
             "mc_history_attribution_audience",
             "mc_history_override_policy",
+            "logo_url",
         ]
-        read_only_fields = ["subdomain", "fiscal_year_start_display"]
+        read_only_fields = ["subdomain", "fiscal_year_start_display", "logo_url"]
+
+    def get_logo_url(self, obj: Workspace) -> str | None:
+        """Public serve-endpoint URL for the workspace logo, or ``None`` if unset."""
+        if not obj.logo:
+            return None
+        version = int(obj.updated_at.timestamp()) if obj.updated_at else 0
+        return f"/api/v1/workspace/logo/?v={version}"
 
     def validate_iteration_label(self, value: str) -> str:
         """The workspace label is the non-null root — reject empty (ADR-0116).

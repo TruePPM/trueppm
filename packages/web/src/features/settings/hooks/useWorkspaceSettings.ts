@@ -28,6 +28,7 @@ interface WorkspaceSettingsRaw {
   mc_history_retention_cap: number;
   mc_history_attribution_audience: MCAttributionAudience;
   mc_history_override_policy: MCHistoryOverridePolicy;
+  logo_url: string | null;
 }
 
 /** Maps snake_case wire shape to the camelCase interface consumed by pages. */
@@ -49,6 +50,7 @@ function mapSettings(raw: WorkspaceSettingsRaw): WorkspaceSettings {
     mcHistoryRetentionCap: raw.mc_history_retention_cap,
     mcHistoryAttributionAudience: raw.mc_history_attribution_audience,
     mcHistoryOverridePolicy: raw.mc_history_override_policy,
+    logoUrl: raw.logo_url,
   };
 }
 

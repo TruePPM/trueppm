@@ -440,6 +440,196 @@ test.describe('Workspace Members page', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Workspace logo upload (#969, ADR-0147) — General page
+// ---------------------------------------------------------------------------
+
+// A 1×1 PNG — valid magic bytes, so the client decode resolves and no soft
+// dimension warning fires from the synchronous type/size pre-flight either way.
+const PNG_1x1 = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+  'base64',
+);
+
+test.describe('Workspace logo (#969)', () => {
+  test('golden path — Upload posts the file and the thumbnail swaps to the served logo', async ({
+    page,
+  }) => {
+    await setup(page);
+    let uploaded = false;
+    let postContentType: string | undefined;
+    await page.route('**/api/v1/workspace/', (r) => {
+      if (r.request().method() === 'POST') {
+        uploaded = true;
+        postContentType = r.request().headers()['content-type'];
+        return r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: pj({ ...WORKSPACE, logo_url: '/api/v1/workspace/logo/?v=2' }),
+        });
+      }
+      // After upload the settings refetch carries the logo_url so the picker
+      // flips Upload → Replace.
+      const body = uploaded ? { ...WORKSPACE, logo_url: '/api/v1/workspace/logo/?v=2' } : WORKSPACE;
+      return r.fulfill({ status: 200, contentType: 'application/json', body: pj(body) });
+    });
+    // The dedicated logo endpoint is what the FormData POST targets.
+    await page.route('**/api/v1/workspace/logo/', (r) => {
+      uploaded = true;
+      postContentType = r.request().headers()['content-type'];
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({ ...WORKSPACE, logo_url: '/api/v1/workspace/logo/?v=2' }),
+      });
+    });
+
+    await page.goto('/settings/general');
+
+    // Empty state: the picker reads "Upload".
+    await expect(page.getByRole('button', { name: 'Upload', exact: true })).toBeVisible();
+
+    await page.locator('input[type="file"]').setInputFiles({
+      name: 'logo.png',
+      mimeType: 'image/png',
+      buffer: PNG_1x1,
+    });
+
+    await expect.poll(() => uploaded).toBe(true);
+    expect(postContentType).toContain('multipart/form-data');
+    // Refetch flips the control to Replace and renders the served image.
+    await expect(page.getByRole('button', { name: 'Replace', exact: true })).toBeVisible();
+    await expect(page.getByRole('img', { name: 'Workspace logo' })).toBeVisible();
+  });
+
+  test('client pre-flight blocks a non-raster file before any request', async ({ page }) => {
+    await setup(page);
+    let posted = false;
+    await page.route('**/api/v1/workspace/logo/', (r) => {
+      posted = true;
+      return r.fulfill({ status: 200, contentType: 'application/json', body: pj(WORKSPACE) });
+    });
+    await page.route('**/api/v1/workspace/', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pj(WORKSPACE) }),
+    );
+
+    await page.goto('/settings/general');
+
+    // The accept attribute filters the OS picker, but a forced wrong type must
+    // still be rejected client-side with a toast and no network call.
+    await page.locator('input[type="file"]').setInputFiles({
+      name: 'logo.svg',
+      mimeType: 'image/svg+xml',
+      buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"></svg>'),
+    });
+
+    await expect(page.getByText('PNG or WebP only.')).toBeVisible();
+    expect(posted).toBe(false);
+  });
+
+  test('remove — inline confirm dispatches DELETE and falls back to the letter-mark', async ({
+    page,
+  }) => {
+    await setup(page);
+    let removed = false;
+    await page.route('**/api/v1/workspace/logo/', (r) => {
+      if (r.request().method() === 'DELETE') {
+        removed = true;
+        return r.fulfill({ status: 200, contentType: 'application/json', body: pj({ ...WORKSPACE, logo_url: null }) });
+      }
+      return r.fulfill({ status: 404, contentType: 'application/json', body: pj({}) });
+    });
+    await page.route('**/api/v1/workspace/', (r) => {
+      const body = removed ? WORKSPACE : { ...WORKSPACE, logo_url: '/api/v1/workspace/logo/?v=1' };
+      return r.fulfill({ status: 200, contentType: 'application/json', body: pj(body) });
+    });
+
+    await page.goto('/settings/general');
+
+    // Logo present → Remove visible; clicking it asks for inline confirmation.
+    await page.getByRole('button', { name: 'Remove', exact: true }).click();
+    await expect(page.getByText('Remove?')).toBeVisible();
+    await page.getByRole('button', { name: 'Yes, remove' }).click();
+
+    await expect.poll(() => removed).toBe(true);
+    // Refetch with no logo_url restores the Upload affordance.
+    await expect(page.getByRole('button', { name: 'Upload', exact: true })).toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Resend pending invite (#969, ADR-0147) — Members page
+// ---------------------------------------------------------------------------
+
+test.describe('Resend invite (#969)', () => {
+  test('per-row Resend posts to the invite resend endpoint and shows the Sent cue', async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.route('**/api/v1/workspace/members/', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pj([MEMBER]) }),
+    );
+    await page.route('**/api/v1/workspace/invites/', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pj([INVITE]) }),
+    );
+    let resendPosted = false;
+    await page.route('**/api/v1/workspace/invites/inv-1/resend/', (r) => {
+      resendPosted = r.request().method() === 'POST';
+      return r.fulfill({ status: 202, contentType: 'application/json', body: pj({ queued: true }) });
+    });
+
+    await page.goto('/settings/members');
+
+    await page.getByRole('button', { name: 'Resend invite to bob@example.com' }).click();
+
+    await expect.poll(() => resendPosted).toBe(true);
+    // The 202 is fire-and-forget; the admin's confirmation is the row cue.
+    await expect(page.getByText('Sent ✓')).toBeVisible();
+  });
+
+  test('bulk "Resend all" posts to the resend-all endpoint', async ({ page }) => {
+    await setup(page);
+    await page.route('**/api/v1/workspace/members/', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pj([MEMBER]) }),
+    );
+    await page.route('**/api/v1/workspace/invites/', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pj([INVITE]) }),
+    );
+    let resendAllPosted = false;
+    await page.route('**/api/v1/workspace/invites/resend-all/', (r) => {
+      resendAllPosted = r.request().method() === 'POST';
+      return r.fulfill({ status: 202, contentType: 'application/json', body: pj({ requeued: 1 }) });
+    });
+
+    await page.goto('/settings/members');
+
+    await page.getByRole('button', { name: 'Resend all →' }).click();
+
+    await expect.poll(() => resendAllPosted).toBe(true);
+  });
+
+  test('throttled per-row resend (429) surfaces a wait-a-minute toast', async ({ page }) => {
+    await setup(page);
+    await page.route('**/api/v1/workspace/members/', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pj([MEMBER]) }),
+    );
+    await page.route('**/api/v1/workspace/invites/', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pj([INVITE]) }),
+    );
+    await page.route('**/api/v1/workspace/invites/inv-1/resend/', (r) =>
+      r.fulfill({ status: 429, contentType: 'application/json', body: pj({ detail: 'throttled' }) }),
+    );
+
+    await page.goto('/settings/members');
+
+    await page.getByRole('button', { name: 'Resend invite to bob@example.com' }).click();
+
+    await expect(page.getByText(/Too many resends/i)).toBeVisible();
+    // The Sent cue must NOT appear on a throttled attempt.
+    await expect(page.getByText('Sent ✓')).toHaveCount(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Workspace Groups page
 // ---------------------------------------------------------------------------
 
