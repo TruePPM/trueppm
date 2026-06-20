@@ -31,7 +31,11 @@ from django.utils import timezone
 from simple_history.models import HistoricalRecords
 
 from trueppm_api.apps.access.models import Role
-from trueppm_api.apps.projects.models import Methodology, VersionedModel
+from trueppm_api.apps.projects.models import (
+    DurationChangePercentPolicy,
+    Methodology,
+    VersionedModel,
+)
 
 # MCAttributionAudience lives in scheduling.models (the gate consumer); imported
 # here only as a choices set for the column. scheduling never imports workspace,
@@ -243,6 +247,26 @@ class Workspace(models.Model):
     # OSS registers no enforcement provider, so ENFORCE degrades to SUGGEST (the
     # methodology PATCH is allowed and the per-scope override wins).
     methodology_override_policy = models.CharField(
+        max_length=16,
+        choices=TermOverridePolicy.choices,
+        default=TermOverridePolicy.SUGGEST,
+    )
+    # Workspace-wide default for how percent_complete reacts to a task duration
+    # change (ADR-0151, #414) — the non-null root of the Workspace → Program →
+    # Project inheritance chain. Default KEEP reproduces today's behavior exactly
+    # (the PM-entered % is left untouched), so the migration is purely additive.
+    # Resolved computed-on-read in ``apps.projects.task_duration_settings``.
+    task_duration_change_percent_policy = models.CharField(
+        max_length=16,
+        choices=DurationChangePercentPolicy.choices,
+        default=DurationChangePercentPolicy.KEEP,
+    )
+    # Whether programs/projects may override the policy above (ADR-0151, mirroring
+    # public_sharing_override_policy). SUGGEST (OSS default) = downstream may
+    # override freely; ENFORCE = Enterprise hard lock (stored but never enforced in
+    # OSS — the enforcement seam lives in ``apps.projects.task_duration_settings``,
+    # which registers no provider in the community edition, so ENFORCE → SUGGEST).
+    task_duration_change_percent_override_policy = models.CharField(
         max_length=16,
         choices=TermOverridePolicy.choices,
         default=TermOverridePolicy.SUGGEST,

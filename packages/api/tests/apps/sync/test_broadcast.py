@@ -184,6 +184,7 @@ FROZEN_WS_EVENT_TYPES = frozenset(
         "task_created",
         "task_dates_updated",
         "task_deleted",
+        "task_duration_changed",
         "task_link_created",
         "task_link_deleted",
         "task_link_updated",

@@ -230,6 +230,40 @@ class Methodology(models.TextChoices):
     HYBRID = "HYBRID", "Hybrid"
 
 
+class DurationChangePercentPolicy(models.TextChoices):
+    """How ``percent_complete`` reacts when a task's ``duration`` changes (ADR-0151, #414).
+
+    The non-null root of the Workspace → Program → Project inheritance chain;
+    resolved computed-on-read in ``apps.projects.task_duration_settings``.
+
+    - ``KEEP`` (default): the PM-entered ``%`` is the source of truth and is left
+      untouched — extending a 30%/5d task to 10d still reads 30%. This locks
+      today's de-facto behavior as an explicit decision.
+    - ``PRORATE``: scale ``%`` by the duration ratio so earned-value stays
+      proportional (``new% = old% * old_dur / new_dur``).
+    - ``CONFIRM``: the server keeps ``%`` and records the change; the *client*
+      offers an inline opt-in re-estimate. The server never auto-mutates, so the
+      contract is uniform across web/mobile/MCP (mobile treats CONFIRM as KEEP).
+    """
+
+    KEEP = "keep", "Keep percent-complete"
+    PRORATE = "prorate", "Prorate percent-complete"
+    CONFIRM = "confirm", "Confirm percent-complete (client prompt)"
+
+
+class DurationChangeSource(models.TextChoices):
+    """What triggered a :class:`TaskDurationChangeEvent` (ADR-0151).
+
+    Only ``USER_EDIT`` is emitted in 0.3 — a CPM cascade moves dates, not planned
+    durations, so it records no events (ADR-0151 §5). ``CPM_CASCADE`` is reserved
+    so a future engine that persists recomputed leaf durations via ``bulk_update``
+    can record them without a schema change.
+    """
+
+    USER_EDIT = "user_edit", "User edit"
+    CPM_CASCADE = "cpm_cascade", "CPM cascade"
+
+
 class Health(models.TextChoices):
     """User-visible health state for a Program or Project (issue #523).
 
@@ -382,6 +416,17 @@ class Program(VersionedModel):
     mc_history_attribution_audience = models.CharField(  # noqa: DJ001 — null = inherit
         max_length=16,
         choices=MCAttributionAudience.choices,
+        null=True,
+        blank=True,
+    )
+    # Per-scope duration-change percent policy override (ADR-0151, #414). NULL =
+    # inherit the workspace value; a non-null value overrides it for every project
+    # in this program whose own override is NULL. Resolved computed-on-read in
+    # ``apps.projects.task_duration_settings``. Not in ``_HISTORY_EXCLUDED_BASE``,
+    # so each admin override write is captured by HistoricalRecords (audit).
+    task_duration_change_percent_policy = models.CharField(  # noqa: DJ001 — null = inherit
+        max_length=16,
+        choices=DurationChangePercentPolicy.choices,
         null=True,
         blank=True,
     )
@@ -794,6 +839,18 @@ class Project(VersionedModel):
     mc_history_attribution_audience = models.CharField(  # noqa: DJ001 — null = inherit
         max_length=16,
         choices=MCAttributionAudience.choices,
+        null=True,
+        blank=True,
+    )
+    # Per-scope duration-change percent policy override (ADR-0151, #414). NULL =
+    # inherit from the program (or workspace, if the program also inherits);
+    # non-null = explicit override for this project. Resolved computed-on-read in
+    # ``apps.projects.task_duration_settings`` and surfaced via the serializer's
+    # ``effective_task_duration_change_percent_policy``. Captured by
+    # HistoricalRecords (not in ``_HISTORY_EXCLUDED_BASE``) so admin writes audit.
+    task_duration_change_percent_policy = models.CharField(  # noqa: DJ001 — null = inherit
+        max_length=16,
+        choices=DurationChangePercentPolicy.choices,
         null=True,
         blank=True,
     )
@@ -3726,6 +3783,81 @@ class ApiTokenAuditEntry(models.Model):
     def __str__(self) -> str:
         scope = f"program={self.program_id}" if self.program_id else f"project={self.project_id}"
         return f"ApiTokenAuditEntry({self.action} {self.token_prefix} {scope})"
+
+
+class TaskDurationChangeEvent(models.Model):
+    """Append-only audit of a duration change and its percent-complete outcome (ADR-0151, #414).
+
+    Plain ``models.Model`` (not ``VersionedModel``) — like ``ApiTokenAuditEntry``
+    these are audit rows, never synced to mobile. Exactly one row is written, in
+    the same transaction as the triggering task update, whenever a user edit
+    changes ``Task.duration`` on a task with ``percent_complete > 0``. The
+    effective :class:`DurationChangePercentPolicy` decides whether ``%`` was kept
+    (``percent_complete_after`` null) or prorated (``percent_complete_after`` set);
+    ``confirm`` keeps ``%`` server-side and defers the re-estimate to the client.
+
+    Feeds the ``task_duration_changed`` WS event and the
+    ``GET /api/v1/tasks/{id}/duration-events/`` read action; the future unified
+    activity timeline (ADR-0096) consumes the same rows.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    task = models.ForeignKey(
+        Task,
+        on_delete=models.CASCADE,
+        related_name="duration_change_events",
+    )
+    # SET_NULL (not CASCADE): the audit row must outlive the actor's account
+    # deletion. Null for non-user sources (reserved for cpm_cascade, ADR-0151 §5).
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        help_text="The user who changed the duration. NULL for automated sources.",
+    )
+    old_duration = models.IntegerField(help_text="Working-day duration before the change.")
+    new_duration = models.IntegerField(help_text="Working-day duration after the change.")
+    percent_complete_at_change = models.FloatField(
+        help_text="percent_complete immediately before the duration changed."
+    )
+    # Set only when the policy mutated % (prorate); null for keep/confirm so a
+    # reader distinguishes "policy changed the number" from "policy left it alone".
+    percent_complete_after = models.FloatField(null=True, blank=True)
+    policy_applied = models.CharField(
+        max_length=16,
+        choices=DurationChangePercentPolicy.choices,
+    )
+    source = models.CharField(
+        max_length=16,
+        choices=DurationChangeSource.choices,
+        default=DurationChangeSource.USER_EDIT,
+    )
+    # The active sprint the task was in at change time, for burndown / changes-log
+    # surfacing (ADR-0151 §6). SET_NULL so the row outlives the sprint; null when
+    # the task was not in an active sprint.
+    sprint = models.ForeignKey(
+        "projects.Sprint",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        db_table = "projects_task_duration_change_event"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["task", "-created_at"], name="task_dur_evt_task_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"TaskDurationChangeEvent(task={self.task_id} "
+            f"{self.old_duration}->{self.new_duration}d {self.policy_applied})"
+        )
 
 
 # ---------------------------------------------------------------------------

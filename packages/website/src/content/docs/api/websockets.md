@@ -87,8 +87,8 @@ invalidate the corresponding cache (the web client maps these to TanStack Query
 keys). The set is open-ended and grows as features land; current event types
 include:
 
-- **Tasks**: `task_created`, `task_updated`, `task_deleted`, `tasks_reordered`,
-  `tasks_restructured`, `tasks_bulk_mutated`
+- **Tasks**: `task_created`, `task_updated`, `task_deleted`, `task_duration_changed`,
+  `tasks_reordered`, `tasks_restructured`, `tasks_bulk_mutated`
 - **Dependencies**: `dependency_created`, `dependency_updated`, `dependency_deleted`
 - **Scheduling**: `cpm_complete`, `cpm_error`, `task_run_started`,
   `task_run_progress`, `task_run_completed`, `task_run_failed`, `task_run_cancelled`
@@ -172,6 +172,7 @@ adding it to that frozen set. Events with no webhook counterpart are marked
 | `task_created` | `task.created` |
 | `task_updated` | `task.updated` |
 | `task_deleted` | `task.deleted` |
+| `task_duration_changed` | **WS-only** |
 | `dependency_created` | `dependency.created` |
 | `dependency_deleted` | `dependency.deleted` |
 | `dependency_updated` | **WS-only** |
