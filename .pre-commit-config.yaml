@@ -37,6 +37,16 @@ repos:
         files: ^packages/api/src/.*\.py$
         pass_filenames: false
         stages: [pre-commit]
+      # Block hardcoded secrets before they enter a commit (#1251). Wrapper uses
+      # the system-installed gitleaks (brew install gitleaks) and no-ops with a
+      # warning if it is absent — the merge-blocking security:gitleaks CI job is
+      # the hard gate. Config: .gitleaks.toml (auto-discovered at repo root).
+      - id: gitleaks
+        name: detect hardcoded secrets (gitleaks)
+        entry: bash scripts/gitleaks-precommit.sh
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
   # Pre-push gate — checks that require the full codebase state and are NOT
   # covered by the per-file commit hooks above: web eslint and tsc (no
   # commit-time hook because cross-file TS errors need a project-wide pass),

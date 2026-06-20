@@ -68,6 +68,12 @@ else
   info "uv not found (optional) — https://docs.astral.sh/uv/"
 fi
 
+if command -v gitleaks &>/dev/null; then
+  ok "gitleaks installed (pre-commit secret scan)"
+else
+  info "gitleaks not found — run: brew install gitleaks (CI enforces it regardless)"
+fi
+
 # --- Environment files ---
 
 echo ""
