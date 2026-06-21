@@ -180,7 +180,7 @@ export function LaneMeta({
           )}
 
           {/* The add-task affordance is phase-authoring: it parents a new task
-              under this lane's summary. Assignee-grouped lanes (#324) pass no
+              under this lane's summary. Assignee-grouped lanes (324) pass no
               onAddTask — a lane id there is a resource, not a parent — so the
               button is suppressed rather than rendered dead. */}
           {onAddTask && (

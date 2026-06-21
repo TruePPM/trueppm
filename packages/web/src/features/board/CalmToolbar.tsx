@@ -241,7 +241,7 @@ export interface CalmToolbarProps {
   sprints: ApiSprint[];
   selectedSprintId: string | null;
   onSelectSprint: (id: string | null) => void;
-  // Group swimlanes by phase or assignee (issue #324). Persisted via
+  // Group swimlanes by phase or assignee (issue 324). Persisted via
   // useBoardToolbarPrefs; team grouping is a deferred follow-up.
   groupBy: BoardGroupMode;
   onGroupByChange: (g: BoardGroupMode) => void;

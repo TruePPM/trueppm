@@ -23,7 +23,7 @@ export type BacklogDensity = 'compact' | 'comfortable' | 'full';
  */
 export type BoardZoom = 'small' | 'normal' | 'large';
 /**
- * Board swimlane grouping mode (issue #324). Persisted per-user-per-device like
+ * Board swimlane grouping mode (issue 324). Persisted per-user-per-device like
  * zoom/density (not a saved-view config) — it's a personal lens on the board,
  * not shared board state. `assignee` groups cards by primary assignee; team
  * grouping is a deferred follow-up (needs a server-side team field).

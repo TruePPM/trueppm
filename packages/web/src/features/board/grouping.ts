@@ -1,5 +1,5 @@
 /**
- * Board swimlane grouping (issue #324).
+ * Board swimlane grouping (issue 324).
  *
  * The board can group its swimlanes two ways:
  *   - `phase`    — by WBS summary parent (the original `buildPhases` in BoardView)
@@ -10,7 +10,7 @@
  * Both modes produce the same `BoardLane` shape, so the lane render, the
  * per-status `phaseTaskMap`, and the drag handler are mode-agnostic.
  *
- * Team grouping and drag-to-reassign are deliberately out of scope — see #324:
+ * Team grouping and drag-to-reassign are deliberately out of scope — see 324:
  * team needs a `task.team` API field (it is derived via TeamMembership today),
  * and reassign-on-drag is a separate write-path design pass over the
  * multi-resource TaskResource endpoint.

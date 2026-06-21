@@ -566,7 +566,7 @@ interface PhaseLaneProps {
   collapsed: boolean;
   onToggleCollapse: () => void;
   onMenuMove: (task: Task, newStatus: TaskStatus) => void;
-  // Optional: assignee-grouped lanes (#324) pass none — a lane id there is a
+  // Optional: assignee-grouped lanes (324) pass none — a lane id there is a
   // resource, not a parent, so the add-task affordance is suppressed.
   onAddTask?: (phaseId: string, phaseName: string, isSynthetic?: boolean) => void;
   focusedCardId: string | null;
@@ -1345,7 +1345,7 @@ export function BoardView() {
   } = useBoardCollapsedLanes(projectId);
   const { density, setDensity, isMobile } = useBoardDensity();
   const toolbarPrefs = useBoardToolbarPrefs();
-  // Effective swimlane grouping (#324). Workshop mode authors WBS phase
+  // Effective swimlane grouping (324). Workshop mode authors WBS phase
   // structure, so it always groups by phase regardless of the saved preference.
   const groupMode: BoardGroupMode = workshopMode ? 'phase' : toolbarPrefs.groupBy;
   const { data: projectDetail } = useProject(projectId || null);
@@ -1414,9 +1414,9 @@ export function BoardView() {
   }, [tasks, selectedSprintId]);
 
   const phases = useMemo<Phase[]>(() => {
-    // Assignee grouping (#324): one lane per primary assignee + an Unassigned
+    // Assignee grouping (324): one lane per primary assignee + an Unassigned
     // lane. A pure client view over the same cards — no synthetic root/backlog
-    // injection (that is phase-mode promote-target plumbing, #386).
+    // injection (that is phase-mode promote-target plumbing, 386).
     if (groupMode === 'assignee') {
       return buildAssigneeLanes(committedTasks);
     }
@@ -1773,7 +1773,7 @@ export function BoardView() {
       if (!newStatus) return;
       const currentPhaseId = activeTask.parentId ?? 'root';
       const phaseChanged = workshopMode && newPhaseId !== currentPhaseId;
-      // Cross-lane drag under assignee grouping (#324): drag-to-reassign is a
+      // Cross-lane drag under assignee grouping (324): drag-to-reassign is a
       // deferred follow-up, so a drop into a different assignee lane never
       // changes the assignee. A status (column) change in the same drop still
       // applies; we append a hint pointing at the card's own assignee control.
@@ -2382,7 +2382,7 @@ export function BoardView() {
                     collapsed: collapsedIds.has(phase.id),
                     onToggleCollapse: () => toggleCollapse(phase.id),
                     onMenuMove: handleMenuMove,
-                    // Assignee lanes (#324) can't host a new task (a lane id is a
+                    // Assignee lanes (324) can't host a new task (a lane id is a
                     // resource, not a parent) — suppress the per-lane add button.
                     onAddTask: groupMode === 'assignee' ? undefined : handleAddTask,
                     focusedCardId,
