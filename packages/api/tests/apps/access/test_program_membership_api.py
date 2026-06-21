@@ -59,6 +59,10 @@ def _client(user: object) -> APIClient:
     return c
 
 
+def _make_user(username: str) -> object:
+    return User.objects.create_user(username=username, password="pw")
+
+
 # ---------------------------------------------------------------------------
 # List
 # ---------------------------------------------------------------------------
@@ -316,3 +320,157 @@ def test_transfer_program_sponsorship_stamps_both_rows(
     assert target.role == Role.OWNER
     assert owner_membership.role_changed_at is not None
     assert target.role_changed_at is not None
+
+
+# ---------------------------------------------------------------------------
+# role_title — freeform functional-role label (#565)
+# ---------------------------------------------------------------------------
+
+
+def _members_url(program: Program) -> str:
+    return f"/api/v1/programs/{program.pk}/members/"
+
+
+@pytest.mark.django_db
+def test_role_title_defaults_to_empty(program: Program, owner: object, member: object) -> None:
+    m = ProgramMembership.objects.create(program=program, user=member, role=Role.MEMBER)
+    assert m.role_title == ""
+    resp = _client(owner).get(_members_url(program))
+    row = next(r for r in resp.data if r["id"] == str(m.pk))
+    assert row["role_title"] == ""
+
+
+@pytest.mark.django_db
+def test_create_member_with_role_title(program: Program, owner: object, member: object) -> None:
+    resp = _client(owner).post(
+        _members_url(program),
+        {"user": str(member.pk), "role": Role.MEMBER, "role_title": "Product Owner"},
+        format="json",
+    )
+    assert resp.status_code == 201, resp.data
+    assert resp.data["role_title"] == "Product Owner"
+    # role_label (access-role display name) stays distinct from the freeform title.
+    assert resp.data["role_label"] == "Team Member"
+    assert ProgramMembership.objects.get(pk=resp.data["id"]).role_title == "Product Owner"
+
+
+@pytest.mark.django_db
+def test_owner_sets_role_title(program: Program, owner: object, member: object) -> None:
+    m = ProgramMembership.objects.create(program=program, user=member, role=Role.MEMBER)
+    resp = _client(owner).patch(
+        f"{_members_url(program)}{m.pk}/", {"role_title": "Tech Lead"}, format="json"
+    )
+    assert resp.status_code == 200, resp.data
+    m.refresh_from_db()
+    assert m.role_title == "Tech Lead"
+
+
+@pytest.mark.django_db
+def test_admin_can_set_role_title_only(program: Program, owner: object, admin_user: object) -> None:
+    """A role_title-only PATCH is benign metadata — allowed at Admin+ (#565)."""
+    ProgramMembership.objects.create(program=program, user=admin_user, role=Role.ADMIN)
+    target = ProgramMembership.objects.create(
+        program=program, user=_make_user("po-target"), role=Role.MEMBER
+    )
+    resp = _client(admin_user).patch(
+        f"{_members_url(program)}{target.pk}/", {"role_title": "Product Owner"}, format="json"
+    )
+    assert resp.status_code == 200, resp.data
+    target.refresh_from_db()
+    assert target.role_title == "Product Owner"
+
+
+@pytest.mark.django_db
+def test_admin_cannot_change_role_via_patch(
+    program: Program, owner: object, admin_user: object
+) -> None:
+    """Relaxing role_title to Admin must NOT open access-role changes to Admin (#565)."""
+    ProgramMembership.objects.create(program=program, user=admin_user, role=Role.ADMIN)
+    target = ProgramMembership.objects.create(
+        program=program, user=_make_user("role-target"), role=Role.MEMBER
+    )
+    resp = _client(admin_user).patch(
+        f"{_members_url(program)}{target.pk}/", {"role": Role.ADMIN}, format="json"
+    )
+    assert resp.status_code == 403
+    target.refresh_from_db()
+    assert target.role == Role.MEMBER
+
+
+@pytest.mark.django_db
+def test_admin_cannot_reassign_user_via_patch(
+    program: Program, owner: object, admin_user: object
+) -> None:
+    """The other privileged branch: reassigning the member identity stays Owner-only.
+
+    A payload carrying ``user`` is privileged even alongside a benign role_title, so
+    an Admin is rejected — guards the ``new_user`` arm of ``privileged_change`` (#565).
+    """
+    ProgramMembership.objects.create(program=program, user=admin_user, role=Role.ADMIN)
+    original = _make_user("orig-user")
+    target = ProgramMembership.objects.create(program=program, user=original, role=Role.MEMBER)
+    other = _make_user("reassign-target")
+    resp = _client(admin_user).patch(
+        f"{_members_url(program)}{target.pk}/",
+        {"user": str(other.pk), "role_title": "PO"},
+        format="json",
+    )
+    assert resp.status_code == 403
+    target.refresh_from_db()
+    assert target.user_id == original.pk
+    assert target.role_title == ""
+
+
+@pytest.mark.django_db
+def test_member_cannot_set_role_title(program: Program, member: object) -> None:
+    # The member must belong to the program (else the membership gate trips first);
+    # a plain Member is still below the Admin floor for a role_title edit.
+    ProgramMembership.objects.create(program=program, user=member, role=Role.MEMBER)
+    target = ProgramMembership.objects.create(
+        program=program, user=_make_user("rt-target"), role=Role.MEMBER
+    )
+    resp = _client(member).patch(
+        f"{_members_url(program)}{target.pk}/", {"role_title": "PO"}, format="json"
+    )
+    assert resp.status_code == 403
+
+
+@pytest.mark.django_db
+def test_role_title_blank_coerced_to_empty(program: Program, owner: object, member: object) -> None:
+    m = ProgramMembership.objects.create(
+        program=program, user=member, role=Role.MEMBER, role_title="Tech Lead"
+    )
+    resp = _client(owner).patch(
+        f"{_members_url(program)}{m.pk}/", {"role_title": "   "}, format="json"
+    )
+    assert resp.status_code == 200, resp.data
+    m.refresh_from_db()
+    assert m.role_title == ""
+
+
+@pytest.mark.django_db
+def test_role_title_max_length_enforced(program: Program, owner: object, member: object) -> None:
+    m = ProgramMembership.objects.create(program=program, user=member, role=Role.MEMBER)
+    resp = _client(owner).patch(
+        f"{_members_url(program)}{m.pk}/", {"role_title": "x" * 51}, format="json"
+    )
+    assert resp.status_code == 400
+
+
+@pytest.mark.django_db
+def test_role_title_only_patch_does_not_stamp_role_changed_at(
+    program: Program, owner: object, member: object
+) -> None:
+    """A role_title-only edit is not a role change — role_changed_at stays NULL (#565)."""
+    m = ProgramMembership.objects.create(program=program, user=member, role=Role.MEMBER)
+    assert m.role_changed_at is None
+    before = m.server_version
+    resp = _client(owner).patch(
+        f"{_members_url(program)}{m.pk}/", {"role_title": "Architect"}, format="json"
+    )
+    assert resp.status_code == 200, resp.data
+    m.refresh_from_db()
+    assert m.role_changed_at is None
+    # The write still bumps server_version so the change rides the offline-sync
+    # stream (this is the change-record mechanism for a VersionedModel).
+    assert m.server_version > before

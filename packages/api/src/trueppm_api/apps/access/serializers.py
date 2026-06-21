@@ -119,6 +119,10 @@ class ProgramMembershipReadSerializer(serializers.ModelSerializer[ProgramMembers
     """Response serializer for ProgramMembership — mirrors the project version."""
 
     user_detail = _UserSummarySerializer(source="user", read_only=True)
+    # ``role_label`` is the *access* role's display name (Owner/Admin/…), a
+    # computed mirror of the ``role`` ordinal — NOT the freeform functional title.
+    # The freeform PO/PM/Tech-Lead label is the distinct ``role_title`` field
+    # below (#565); the two never collide.
     role_label = serializers.SerializerMethodField()
 
     def get_role_label(self, obj: ProgramMembership) -> str:
@@ -134,6 +138,7 @@ class ProgramMembershipReadSerializer(serializers.ModelSerializer[ProgramMembers
             "user_detail",
             "role",
             "role_label",
+            "role_title",
             "joined_at",
             "role_changed_at",
         ]
@@ -150,17 +155,27 @@ class ProgramMembershipReadSerializer(serializers.ModelSerializer[ProgramMembers
 
 
 class ProgramMembershipWriteSerializer(serializers.ModelSerializer[ProgramMembership]):
-    """Write serializer — accepts user (UUID) and role; program is injected from URL."""
+    """Write serializer — accepts user (UUID), role, and the freeform role_title.
+
+    ``program`` is injected from the URL. ``role_title`` (#565) is optional; the
+    view gates *who* may set it (role/user reassignment stays Owner-only, while a
+    role_title-only PATCH is allowed at Admin+).
+    """
 
     class Meta:
         model = ProgramMembership
-        fields = ["user", "role"]
+        fields = ["user", "role", "role_title"]
 
     def validate_role(self, value: int) -> int:
         valid = {r.value for r in Role}
         if value not in valid:
             raise serializers.ValidationError(f"Invalid role. Choose from {sorted(valid)}.")
         return value
+
+    def validate_role_title(self, value: str | None) -> str:
+        # Collapse whitespace-only / empty submissions to "" so "unset" is a single
+        # canonical state (empty string, never NULL — per the model's DJ001 default).
+        return (value or "").strip()
 
 
 class UserSearchResultSerializer(serializers.Serializer[Any]):

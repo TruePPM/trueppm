@@ -293,3 +293,51 @@ receive the update without a refresh.
 
 Tracking (follow-up): the user-scoped sync endpoint for Program / ProgramMembership
 (target 0.4 mobile) is deferred — not yet filed.
+
+---
+
+## Addendum (2026-06-21, #565): role_title — freeform functional-role label
+
+VoC audit on MR !291 (Jordan, PO) asked for a way to record *"this member is the
+Product Owner vs. the PM"* — a hint distinct from the access role — so that #501
+(dual-level backlog) has a hook to hang its PO-vs-PM sovereignty pattern on
+(ADR-0073) without re-opening every membership row in a later migration.
+
+**Decision.** One additive field on `ProgramMembership`:
+`role_title = CharField(max_length=50, blank=True, default="")`.
+
+- **Named `role_title`, not `role_label`.** `ProgramMembershipReadSerializer`
+  already exposes `role_label` as a computed `SerializerMethodField` returning the
+  *access* role's display name (`Owner`/`Admin`/…). Re-using that name for the new
+  freeform field would shadow and break that contract. `role_title` is also more
+  accurate — "Product Owner" is a title, not the access label.
+- **Empty string is the single unset state** (not nullable — project DJ001
+  convention); the write serializer strips a whitespace-only submission to `""`.
+- **Not enforced.** Purely descriptive; #501 may later *read* it to surface a soft
+  "PO acknowledgment needed" cue, but this slice ships only the field.
+
+**RBAC.** Reassigning the access `role` or member identity stays **Owner-only**
+(the matrix above). A `role_title`-only PATCH is benign descriptive metadata, so
+it is allowed at **Admin+** — the view computes the required floor from whether the
+payload touches `role`/`user`. This honors the issue's "Owner/Admin can edit the
+label" intent without widening access-role control.
+
+**Audit.** The issue asked for `HistoricalProgramMembership` records, but
+`ProgramMembership` is a `VersionedModel` (offline-sync via `server_version`) and
+is **not** registered with django-simple-history, so that mechanism does not
+exist. A dedicated `workspace.AuditEvent` verb was considered and **deferred**: a
+new `AuditEventType` value forces an `AlterField` migration on
+`AuditEvent.event_type` (Django tracks `choices`), which would (a) make an
+access-app slice carry a cross-app `workspace` migration and (b) collide with the
+in-flight `workspace/0014` from #542. A `role_title` change instead rides the
+`server_version` bump on the membership row (the change-record mechanism this
+model actually uses). A formal audit verb can be appended cleanly once #542's
+`workspace/0014` has landed, if a compliance need arises.
+
+**Scope.** Backend slice only — model, serializer, RBAC, migration `access/0012`,
+tests. The ProgramInviteForm combobox and the ProgramMembersTab row/edit affordance
+are deferred to a web follow-up. No new ADR — this extends ADR-0070.
+
+### Durable Execution
+N/A — a synchronous field write on the existing membership CRUD endpoint. No async
+side effects, no Celery dispatch, no broker interaction, no outbox.

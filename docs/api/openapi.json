@@ -24714,7 +24714,7 @@
             },
             "PatchedProgramMembershipWriteRequest": {
                 "type": "object",
-                "description": "Write serializer — accepts user (UUID) and role; program is injected from URL.",
+                "description": "Write serializer — accepts user (UUID), role, and the freeform role_title.\n\n``program`` is injected from the URL. ``role_title`` (#565) is optional; the\nview gates *who* may set it (role/user reassignment stays Owner-only, while a\nrole_title-only PATCH is allowed at Admin+).",
                 "properties": {
                     "user": {
                         "type": "integer"
@@ -24727,6 +24727,10 @@
                         ],
                         "minimum": -2147483648,
                         "maximum": 2147483647
+                    },
+                    "role_title": {
+                        "type": "string",
+                        "maxLength": 50
                     }
                 }
             },
@@ -26332,6 +26336,10 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "role_title": {
+                        "type": "string",
+                        "maxLength": 50
+                    },
                     "joined_at": {
                         "type": "string",
                         "format": "date-time",
@@ -26358,7 +26366,7 @@
             },
             "ProgramMembershipWrite": {
                 "type": "object",
-                "description": "Write serializer — accepts user (UUID) and role; program is injected from URL.",
+                "description": "Write serializer — accepts user (UUID), role, and the freeform role_title.\n\n``program`` is injected from the URL. ``role_title`` (#565) is optional; the\nview gates *who* may set it (role/user reassignment stays Owner-only, while a\nrole_title-only PATCH is allowed at Admin+).",
                 "properties": {
                     "user": {
                         "type": "integer"
@@ -26371,6 +26379,10 @@
                         ],
                         "minimum": -2147483648,
                         "maximum": 2147483647
+                    },
+                    "role_title": {
+                        "type": "string",
+                        "maxLength": 50
                     }
                 },
                 "required": [
@@ -26380,7 +26392,7 @@
             },
             "ProgramMembershipWriteRequest": {
                 "type": "object",
-                "description": "Write serializer — accepts user (UUID) and role; program is injected from URL.",
+                "description": "Write serializer — accepts user (UUID), role, and the freeform role_title.\n\n``program`` is injected from the URL. ``role_title`` (#565) is optional; the\nview gates *who* may set it (role/user reassignment stays Owner-only, while a\nrole_title-only PATCH is allowed at Admin+).",
                 "properties": {
                     "user": {
                         "type": "integer"
@@ -26393,6 +26405,10 @@
                         ],
                         "minimum": -2147483648,
                         "maximum": 2147483647
+                    },
+                    "role_title": {
+                        "type": "string",
+                        "maxLength": 50
                     }
                 },
                 "required": [
