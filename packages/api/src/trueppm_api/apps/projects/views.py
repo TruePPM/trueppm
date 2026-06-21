@@ -7190,6 +7190,104 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         return Response({"updated": changed}, status=status.HTTP_200_OK)
 
     @extend_schema(
+        summary="Reorder a sprint's within-sprint execution order (#365)",
+        request=OpenApiTypes.OBJECT,
+        responses={200: OpenApiResponse(response=OpenApiTypes.OBJECT)},
+    )
+    @action(detail=True, methods=["post"], url_path="reorder")
+    def reorder(self, request: Request, pk: str | None = None) -> Response:
+        """Drag reorder of a sprint's execution order — writes ``sprint_rank`` only (#365).
+
+        The sprint-backlog counterpart to ``product-backlog/reorder`` (ADR-0105 §5): reordering
+        for execution writes ``sprint_rank`` and never disturbs the Product Owner's
+        ``priority_rank``, so the two backlogs are independently ordered.
+
+        Body: ``{"tasks": [{"id": "<uuid>", "server_version": <int>}, ...]}`` in target
+        execution order — the *complete* current sprint set. Writes dense ``sprint_rank`` 1..N,
+        optimistic-locked on ``server_version``. Returns ``200 {"updated": <count>}``; ``409``
+        with the offending ids if the sprint set changed under the client (a task pulled in,
+        carried out, or reordered concurrently) so the client refetches and replays; ``400`` on
+        a malformed body or a non-ACTIVE sprint. ``sprint_rank`` only exists for the live
+        execution order, which is seeded on activate and cleared on close, so reordering is
+        gated to ACTIVE sprints (Member+, via the viewset's write permission).
+        """
+        from trueppm_api.apps.projects.product_backlog_services import (
+            SprintReorderConflict,
+            reorder_sprint,
+        )
+
+        sprint = get_object_or_404(
+            Sprint.objects.select_related("project"), pk=pk, is_deleted=False
+        )
+        self.check_object_permissions(request, sprint)
+
+        # sprint_rank is the *live* execution order — seeded on activate, cleared on close.
+        # A PLANNED sprint hasn't been seeded (activate would overwrite a manual order from
+        # priority_rank); a COMPLETED/CANCELLED sprint has had its ranks cleared. So reordering
+        # is only meaningful for an ACTIVE sprint.
+        if sprint.state != SprintState.ACTIVE:
+            return Response(
+                {"detail": "Only an active sprint's execution order can be reordered."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        tasks_data = request.data.get("tasks")
+        if not isinstance(tasks_data, list) or not tasks_data:
+            return Response(
+                {"tasks": ["This field is required and must be a non-empty list."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # Bound the payload before the parse loop + select_for_update (DoS guard): a sprint
+        # holds at most a few dozen stories, so 2000 is generous headroom.
+        if len(tasks_data) > 2000:
+            return Response(
+                {"tasks": ["Too many entries to reorder in one request (max 2000)."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        invalid: list[str] = []
+        parsed: list[tuple[str, int]] = []
+        for entry in tasks_data:
+            if not isinstance(entry, dict):
+                invalid.append(repr(entry))
+                continue
+            tid = entry.get("id")
+            sv = entry.get("server_version")
+            # bool is an int subclass — exclude it so {"server_version": true} is rejected.
+            if not isinstance(tid, str) or not isinstance(sv, int) or isinstance(sv, bool):
+                invalid.append(repr(entry))
+                continue
+            try:
+                uuid.UUID(tid)
+            except ValueError:
+                invalid.append(tid)
+                continue
+            parsed.append((tid, sv))
+
+        if invalid:
+            bad = ", ".join(invalid)
+            return Response(
+                {"tasks": [f"Invalid entries (expected {{id, server_version}}): {bad}"]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        ids = [tid for tid, _ in parsed]
+        if len(set(ids)) != len(ids):
+            return Response(
+                {"tasks": ["Duplicate task ids in the ordered list."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            changed = reorder_sprint(sprint, parsed, request.user)
+        except SprintReorderConflict as exc:
+            return Response(
+                {"detail": "Sprint changed — reload and retry.", "conflicts": exc.ids},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response({"updated": changed}, status=status.HTTP_200_OK)
+
+    @extend_schema(
         summary="Get a sprint's capacity summary",
         responses={
             200: OpenApiResponse(

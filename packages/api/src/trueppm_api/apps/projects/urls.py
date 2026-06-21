@@ -322,6 +322,12 @@ urlpatterns = [
         SprintViewSet.as_view({"post": "demo_list_reorder"}),
         name="sprints-demo-list-reorder",
     ),
+    # In-sprint execution-order reorder — writes sprint_rank only (#365, ADR-0105 §5)
+    path(
+        "sprints/<pk>/reorder/",
+        SprintViewSet.as_view({"post": "reorder"}),
+        name="sprints-reorder",
+    ),
     path(
         "sprint-task-outcomes/<pk>/set-presenter/",
         SprintTaskOutcomeViewSet.as_view({"post": "set_presenter"}),

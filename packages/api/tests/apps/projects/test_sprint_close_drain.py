@@ -102,6 +102,48 @@ def test_close_sprint_completes_request(_broadcast: object, user: object, projec
 
 
 @patch("trueppm_api.apps.sync.broadcast.broadcast_board_event")
+def test_close_clears_sprint_rank_on_live_rows_and_preserves_in_history(
+    _broadcast: object, user: object, project: Project
+) -> None:
+    """#365: sprint close clears sprint_rank on every live row (the task returns to
+    the product backlog ordered by priority_rank), while the closing rank is preserved
+    on the HistoricalTask written by the clear save()."""
+    s = _make_active_sprint(project)
+    done = Task.objects.create(
+        project=project,
+        name="Done",
+        duration=1,
+        sprint=s,
+        story_points=5,
+        status=TaskStatus.COMPLETE,
+        sprint_rank=1,
+    )
+    carried = Task.objects.create(
+        project=project,
+        name="Carried",
+        duration=1,
+        sprint=s,
+        story_points=5,
+        status=TaskStatus.IN_PROGRESS,
+        sprint_rank=2,
+    )
+
+    req = SprintCloseRequest.objects.create(sprint=s, requested_by=user, carry_over_to="backlog")
+    close_sprint.run(str(req.id))
+
+    done.refresh_from_db()
+    carried.refresh_from_db()
+    # Live rows: sprint_rank cleared. The completed task stays in the sprint; the
+    # incomplete one is carried to the backlog — both lose their execution rank.
+    assert done.sprint_rank is None
+    assert carried.sprint_rank is None
+    assert carried.sprint_id is None
+    # The closing rank survives on history for forensic/HistoricalTask reads.
+    assert done.history.filter(sprint_rank=1).exists()
+    assert carried.history.filter(sprint_rank=2).exists()
+
+
+@patch("trueppm_api.apps.sync.broadcast.broadcast_board_event")
 def test_close_sprint_emits_schedule_request_with_sprint_closed_reason(
     _broadcast: object, project: Project
 ) -> None:
