@@ -150,6 +150,7 @@ FROZEN_WS_EVENT_TYPES = frozenset(
         "program_closed",
         "program_deleted",
         "program_reopened",
+        "program_split",
         "program_sponsorship_transferred",
         "project_archived",
         "project_created",
