@@ -281,6 +281,11 @@ export interface CalmToolbarProps {
   onEvmChange: (m: EvmMode) => void;
   onOpenColumns: () => void;
   onOpenCheatsheet: () => void;
+  // Export PDF (issue 326) — rasterizes the off-screen print layout BoardView
+  // mounts. Hidden at sm (a deck export is a desktop action) and disabled while
+  // a generation is in flight to prevent re-entrant rasterize calls.
+  onExportPdf: () => void;
+  exportingPdf: boolean;
   workshopMode: boolean;
   onWorkshopToggle: () => void;
   workshopDisabled: boolean;
@@ -640,6 +645,16 @@ export function CalmToolbar(props: CalmToolbarProps) {
               ⚙ Columns…
             </MoreItem>
             <MoreItem onClick={props.onOpenCheatsheet}>? Keyboard shortcuts</MoreItem>
+            {showQuietTogglesInline && (
+              <MoreItem
+                onClick={props.onExportPdf}
+                disabled={props.exportingPdf}
+                ariaBusy={props.exportingPdf}
+                ariaLabel="Export the board as a PDF"
+              >
+                {props.exportingPdf ? '⏳ Generating PDF…' : '⬇ Export PDF'}
+              </MoreItem>
+            )}
             <button
               ref={props.workshopButtonRef}
               type="button"
@@ -668,18 +683,24 @@ export function CalmToolbar(props: CalmToolbarProps) {
 function MoreItem({
   onClick,
   ariaLabel,
+  disabled,
+  ariaBusy,
   children,
 }: {
   onClick: () => void;
   ariaLabel?: string;
+  disabled?: boolean;
+  ariaBusy?: boolean;
   children: ReactNode;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
+      aria-busy={ariaBusy}
       aria-label={ariaLabel}
-      className="rounded-control px-2 py-1 text-left text-xs text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
+      className="rounded-control px-2 py-1 text-left text-xs text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-50"
     >
       {children}
     </button>

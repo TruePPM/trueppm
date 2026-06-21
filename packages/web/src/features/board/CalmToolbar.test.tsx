@@ -73,6 +73,8 @@ function Harness(overrides: Partial<CalmToolbarProps> = {}) {
     onEvmChange: vi.fn(),
     onOpenColumns: vi.fn(),
     onOpenCheatsheet: vi.fn(),
+    onExportPdf: vi.fn(),
+    exportingPdf: false,
     workshopMode: false,
     onWorkshopToggle: vi.fn(),
     workshopDisabled: false,
@@ -239,7 +241,26 @@ describe('CalmToolbar', () => {
     expect(screen.getByLabelText('EVM indicators')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Open board column settings' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '? Keyboard shortcuts' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Export the board as a PDF' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Start workshop session' })).toBeInTheDocument();
+  });
+
+  it('Export PDF item invokes onExportPdf', async () => {
+    const user = userEvent.setup();
+    const onExportPdf = vi.fn();
+    renderToolbar({ onExportPdf });
+    await user.click(screen.getByRole('button', { name: 'More board controls' }));
+    await user.click(screen.getByRole('button', { name: 'Export the board as a PDF' }));
+    expect(onExportPdf).toHaveBeenCalledTimes(1);
+  });
+
+  it('Export PDF item is disabled and aria-busy while a generation is in flight', async () => {
+    const user = userEvent.setup();
+    renderToolbar({ exportingPdf: true });
+    await user.click(screen.getByRole('button', { name: 'More board controls' }));
+    const item = screen.getByRole('button', { name: 'Export the board as a PDF' });
+    expect(item).toBeDisabled();
+    expect(item).toHaveAttribute('aria-busy', 'true');
   });
 
   it('More⋯ checkbox toggles reflect the current pref state', async () => {

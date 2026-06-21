@@ -51,7 +51,7 @@ The board toolbar (top of the board) groups its controls into these clusters:
 - **Zoom** — a **Small / Normal / Large** stepper that scales the board surface (see below)
 - **Quiet toggles** — **My tasks** (only tasks assigned to you), **At-risk**, and **Cost**
 - **Layout segmented control** — **Rail · Drawer · Queue** backlog layout variants
-- **More⋯ overflow** — collapse/expand all lanes, **WIP** limit chips, column **Tints**, **EVM** mode, and the **Columns** configuration panel
+- **More⋯ overflow** — collapse/expand all lanes, **WIP** limit chips, column **Tints**, **EVM** mode, the **Columns** configuration panel, and **Export PDF** (see below)
 
 ## Search
 
@@ -71,6 +71,20 @@ The **Zoom** stepper (Small / Normal / Large) scales the **board surface only** 
 - Use the **−** / **+** buttons, or focus the control and press the arrow keys.
 - Your choice is remembered per browser and survives a refresh.
 - Zoom is an **independent axis from Density**: Density controls per-card padding; zoom controls how much of the board fits on screen. The control is hidden on phones, where the [mobile layout](#mobile) governs sizing.
+
+## Export to PDF
+
+:::note[0.3]
+Board PDF export lands in 0.3.
+:::
+
+**Export PDF** in the More⋯ overflow will produce a boardroom-clean PDF of the board for a deck or a client who has no portal access — no screenshots, no copy-paste. The export is a faithful, static projection of what you currently see:
+
+- **Swimlanes and columns** mirror the on-screen layout: one block per phase, the same status columns.
+- **Cards** carry their title, assignee initials, due date, and key chips (critical-path marker, blocked, story points, milestone).
+- A **footer** stamps the project name, the generation timestamp, the exporting user, and the active filter / sprint context, so the artifact is self-describing.
+
+The export honors your **current view** — the selected sprint scope and any active filters (My tasks, At-risk, Tech debt, search) carry through, because the PDF renders the same filtered card set the live board draws. Tall boards paginate automatically. The whole document is generated **in your browser** — nothing is uploaded, so anyone who can view the board can export it. The action is hidden on phones; export from a desktop.
 
 ## Readiness states
 
