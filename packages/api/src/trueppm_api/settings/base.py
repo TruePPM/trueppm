@@ -625,6 +625,17 @@ ACCOUNT_EMAIL_VERIFICATION = "none"
 HISTORY_RETENTION_DAYS: int | None = env.int("HISTORY_RETENTION_DAYS", default=90)
 
 # ---------------------------------------------------------------------------
+# Signal-privacy ceiling-raise ratification (ADR-0104 Amendment A, #930)
+# ---------------------------------------------------------------------------
+
+# How long a team-ratification proposal to raise a signal's ceiling stays OPEN
+# before it lazily expires UNRATIFIED (the ceiling is left unchanged — silence is
+# never consent for widening a team signal's exposure). 72h is long enough for an
+# async team yet short enough not to stall a pending share. Evaluated lazily on
+# read/vote/propose; no Celery/Beat sweep is required.
+SIGNAL_CEILING_PROPOSAL_TTL_HOURS: int = env.int("SIGNAL_CEILING_PROPOSAL_TTL_HOURS", default=72)
+
+# ---------------------------------------------------------------------------
 # Task run retention (trueppm_api.apps.taskruns)
 # ---------------------------------------------------------------------------
 

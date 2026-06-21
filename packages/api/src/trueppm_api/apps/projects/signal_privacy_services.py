@@ -28,16 +28,24 @@ inverted statement and is corrected here and in the ADR.
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
+from django.conf import settings as django_settings
+from django.db import transaction
+from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from trueppm_api.apps.access.models import Role
 from trueppm_api.apps.access.permissions import _membership_role
 from trueppm_api.apps.projects.models import (
     SIGNAL_DEFAULTS,
+    CeilingRaiseStatus,
+    CeilingVoteChoice,
     ProjectSignalPrivacyPolicy,
     SignalAudience,
+    SignalCeilingRaiseProposal,
+    SignalCeilingRaiseVote,
     signal_audience_rank,
 )
 
@@ -274,8 +282,6 @@ def _emit_consent_changed(
     project_id: Any, signal_key: str, change: str, old: str, new: str
 ) -> None:
     """Fire the supply-only extension-point signal on commit (ADR-0104 §3)."""
-    from django.db import transaction
-
     from trueppm_api.apps.projects.signals import team_signal_consent_changed
 
     transaction.on_commit(
@@ -461,3 +467,340 @@ def velocity_shared_externally(project: Project) -> bool:
         else SIGNAL_DEFAULTS["velocity"]["audience"]
     )
     return audience == SignalAudience.PROGRAM_SHARED
+
+
+# ---------------------------------------------------------------------------
+# Ceiling-raise ratification (ADR-0104 Amendment A, #930)
+# ---------------------------------------------------------------------------
+#
+# Raising a ceiling authorizes *wider* upward exposure of a team signal, so it is the
+# team-owned act (ADR-0104 §1.1). It no longer applies immediately: a raise opens a
+# ratification proposal and the ceiling is applied only when a strict majority of the
+# current team roster approves. A lone facilitator can never widen exposure alone.
+# Lowering a ceiling and set-audience moves stay immediate single actions — tightening
+# is never gated heavier than loosening. Silence is never consent: an unratified
+# proposal expires with the ceiling unchanged (no auto-apply-on-timeout). There is no
+# management bypass — that would reopen the §2 back-door this whole model closes.
+
+
+class CeilingProposalConflict(Exception):
+    """A ceiling-proposal action conflicts with the proposal's current state.
+
+    A plain ``Exception`` (not an ``APIException``) so the view maps it to a structured
+    ``409 {code, detail}`` — mirroring ADR-0102's ``ScopeAcceptForbidden`` → structured
+    response pattern rather than DRF's default ``400`` for a ``ValidationError``.
+    """
+
+    def __init__(self, code: str, detail: str) -> None:
+        self.code = code
+        self.detail = detail
+        super().__init__(detail)
+
+
+def _is_real_user(actor: Any) -> bool:
+    """Whether ``actor`` is an authenticated user (not None / AnonymousUser)."""
+    return actor is not None and bool(getattr(actor, "is_authenticated", False))
+
+
+def _ceiling_proposal_ttl() -> timedelta:
+    """The OPEN-proposal lifetime (default 72h, settings-overridable; Amendment A.3).
+
+    Clamped to >= 1 hour so a misconfigured ``SIGNAL_CEILING_PROPOSAL_TTL_HOURS`` of 0
+    or negative can never mint a proposal that expires before anyone can vote on it.
+    """
+    hours = getattr(django_settings, "SIGNAL_CEILING_PROPOSAL_TTL_HOURS", 72)
+    return timedelta(hours=max(1, int(hours)))
+
+
+def ratification_threshold(eligible_count: int) -> int:
+    """Strict majority of the current roster — ``floor(n/2) + 1`` (Amendment A.2).
+
+    Yields 1->1, 2->2, 3->2, 4->3, 5->3. For any team of >=2 members the proposer's
+    own approval (1) never meets the bar, so a lone facilitator can never raise alone;
+    a 1-member team's sole member ratifies (there is no other member to consult). Not
+    unanimity and not whole-roster, so one disengaged member can never deadlock a raise.
+    """
+    if eligible_count <= 0:
+        return 1
+    return eligible_count // 2 + 1
+
+
+def _team_voter_ids(project_id: Any) -> set[Any]:
+    """The eligible-voter set: user ids on the project's default team (Amendment A.2)."""
+    from trueppm_api.apps.teams.services import team_member_user_ids
+
+    return team_member_user_ids(project_id)
+
+
+def _emit_proposal_changed(proposal: SignalCeilingRaiseProposal) -> None:
+    """Fire the supply-only proposal-lifecycle signal on commit (Amendment A.6)."""
+    from trueppm_api.apps.projects.signals import team_signal_ceiling_proposal_changed
+
+    project_id = str(proposal.project_id)
+    signal_key = proposal.signal_key
+    proposal_id = str(proposal.id)
+    status = proposal.status
+    transaction.on_commit(
+        lambda: team_signal_ceiling_proposal_changed.send(
+            sender=SignalCeilingRaiseProposal,
+            project_id=project_id,
+            signal_key=signal_key,
+            proposal_id=proposal_id,
+            status=status,
+        )
+    )
+
+
+def _resolve_proposal(
+    proposal: SignalCeilingRaiseProposal, new_status: str
+) -> SignalCeilingRaiseProposal:
+    """Move an OPEN proposal to a terminal state; apply the raise only on RATIFIED.
+
+    RATIFIED re-resolves the *current* ceiling and applies via ``raise_signal_ceiling``
+    only when ``to_ceiling`` is still strictly higher — so a team that already raised
+    the ceiling by other means never gets a surprise double-jump, and a ratification can
+    never *lower* a ceiling (Amendment A.4). Every terminal state emits the lifecycle
+    signal on commit. Must be called under a row lock on ``proposal``.
+    """
+    proposal.status = new_status
+    proposal.resolved_at = timezone.now()
+    proposal.save(update_fields=["status", "resolved_at"])
+    if new_status == CeilingRaiseStatus.RATIFIED:
+        policy = get_or_create_policy(proposal.project)
+        current = policy.ceiling_of(proposal.signal_key)
+        if signal_audience_rank(proposal.to_ceiling) > signal_audience_rank(current):
+            raise_signal_ceiling(
+                policy, proposal.signal_key, proposal.to_ceiling, actor=proposal.proposed_by
+            )
+    _emit_proposal_changed(proposal)
+    return proposal
+
+
+def _count_current_votes(
+    proposal: SignalCeilingRaiseProposal, voter_ids: set[Any]
+) -> tuple[int, int]:
+    """(approve, reject) counts restricted to *current* eligible members.
+
+    A member who has left the team no longer sways the tally, so the numbers always
+    reconcile with the roster the threshold is computed against.
+    """
+    approve = 0
+    reject = 0
+    for vote in proposal.votes.all():
+        if vote.voter_id not in voter_ids:
+            continue
+        if vote.choice == CeilingVoteChoice.APPROVE:
+            approve += 1
+        elif vote.choice == CeilingVoteChoice.REJECT:
+            reject += 1
+    return approve, reject
+
+
+def _tally_and_maybe_apply(proposal: SignalCeilingRaiseProposal) -> SignalCeilingRaiseProposal:
+    """Recompute the outcome from current votes + roster; resolve when decided.
+
+    Call under ``select_for_update`` on the proposal. Idempotent: a no-op once the
+    proposal has left OPEN. Expiry is evaluated first (lazy, Amendment A.3).
+    """
+    if proposal.status != CeilingRaiseStatus.OPEN:
+        return proposal
+    if timezone.now() >= proposal.expires_at:
+        return _resolve_proposal(proposal, CeilingRaiseStatus.EXPIRED)
+    voter_ids = _team_voter_ids(proposal.project_id)
+    eligible = len(voter_ids)
+    threshold = ratification_threshold(eligible)
+    approve, reject = _count_current_votes(proposal, voter_ids)
+    if approve >= threshold:
+        return _resolve_proposal(proposal, CeilingRaiseStatus.RATIFIED)
+    # Approval can no longer reach the bar (even every remaining member voting yes
+    # falls short) — reject early rather than wait out the timeout. Guarded on a
+    # non-empty roster: with no eligible voters yet the proposal stays OPEN (it will
+    # expire) rather than auto-rejecting on a vacuous "unreachable" check.
+    if eligible > 0 and reject > eligible - threshold:
+        return _resolve_proposal(proposal, CeilingRaiseStatus.REJECTED)
+    return proposal
+
+
+def expire_stale_proposals(project_id: Any, signal_key: str | None = None) -> None:
+    """Lazily expire past-due OPEN proposals (Amendment A.3) — no Celery/Beat.
+
+    Called on the write paths before the one-open-per-signal check, so a stale OPEN
+    row never blocks a fresh proposal. An expired proposal dies UNRATIFIED.
+    """
+    with transaction.atomic():
+        stale = SignalCeilingRaiseProposal.objects.select_for_update().filter(
+            project_id=project_id,
+            status=CeilingRaiseStatus.OPEN,
+            expires_at__lte=timezone.now(),
+        )
+        if signal_key is not None:
+            stale = stale.filter(signal_key=signal_key)
+        for proposal in stale:
+            _resolve_proposal(proposal, CeilingRaiseStatus.EXPIRED)
+
+
+def _supersede_open_proposals(project_id: Any, signal_key: str) -> None:
+    """Supersede any OPEN raise proposal for a signal whose ceiling is being lowered.
+
+    A lower moves the baseline the proposal was relative to, so the pending raise is no
+    longer valid — it is SUPERSEDED (audited), forcing a fresh proposal + vote rather
+    than letting a stale ratification apply an unexpected jump. This is the audit
+    surface for the lower-then-raise pattern (Amendment A.4).
+    """
+    with transaction.atomic():
+        for proposal in SignalCeilingRaiseProposal.objects.select_for_update().filter(
+            project_id=project_id,
+            signal_key=signal_key,
+            status=CeilingRaiseStatus.OPEN,
+        ):
+            _resolve_proposal(proposal, CeilingRaiseStatus.SUPERSEDED)
+
+
+def propose_or_apply_ceiling_change(
+    policy: ProjectSignalPrivacyPolicy,
+    signal_key: str,
+    new_ceiling: str,
+    *,
+    actor: Any,
+) -> SignalCeilingRaiseProposal | None:
+    """Route a ceiling change: a RAISE opens a ratification proposal; a LOWER applies now.
+
+    Returns the proposal on a raise (OPEN, or already RATIFIED when a solo team's sole
+    member is the proposer), or ``None`` on a lower / no-op (applied immediately via
+    ``raise_signal_ceiling``). The policy is unchanged until ratification, so the caller
+    re-reads it after this returns.
+    """
+    _validate_signal_key(signal_key)
+    if new_ceiling not in SignalAudience.values:
+        raise ValidationError({"ceiling": f"Invalid ceiling '{new_ceiling}'."})
+    current = policy.ceiling_of(signal_key)
+    if signal_audience_rank(new_ceiling) <= signal_audience_rank(current):
+        # Lower or no-op: immediate single action. A lower supersedes any open raise
+        # proposal for this signal (its baseline just moved).
+        if signal_audience_rank(new_ceiling) < signal_audience_rank(current):
+            _supersede_open_proposals(policy.project_id, signal_key)
+        raise_signal_ceiling(policy, signal_key, new_ceiling, actor=actor)
+        return None
+    # Raise — the team-owned act: open a ratification proposal.
+    project_id = policy.project_id
+    with transaction.atomic():
+        expire_stale_proposals(project_id, signal_key)
+        existing = (
+            SignalCeilingRaiseProposal.objects.select_for_update()
+            .filter(
+                project_id=project_id,
+                signal_key=signal_key,
+                status=CeilingRaiseStatus.OPEN,
+            )
+            .first()
+        )
+        if existing is not None:
+            raise CeilingProposalConflict(
+                "proposal_already_open",
+                "A ceiling-raise proposal is already open for this signal.",
+            )
+        proposal = SignalCeilingRaiseProposal.objects.create(
+            project_id=project_id,
+            signal_key=signal_key,
+            from_ceiling=current,
+            to_ceiling=new_ceiling,
+            proposed_by=actor if _is_real_user(actor) else None,
+            expires_at=timezone.now() + _ceiling_proposal_ttl(),
+        )
+        # Proposing is an implicit APPROVE — but only when the proposer is a team
+        # member (a non-team project Admin may kick off the team's vote without
+        # casting one). A solo-team proposer thereby ratifies immediately.
+        voter_ids = _team_voter_ids(project_id)
+        if _is_real_user(actor) and actor.pk in voter_ids:
+            SignalCeilingRaiseVote.objects.create(
+                proposal=proposal, voter=actor, choice=CeilingVoteChoice.APPROVE
+            )
+        _emit_proposal_changed(proposal)  # opened
+        proposal = _tally_and_maybe_apply(proposal)
+    return proposal
+
+
+def cast_ceiling_vote(proposal_id: Any, voter: Any, choice: str) -> SignalCeilingRaiseProposal:
+    """Record (or change) a team member's vote and re-tally under a row lock.
+
+    Idempotent: the vote is an upsert (``unique(proposal, voter)``) and the apply runs
+    once behind the OPEN->RATIFIED status guard. Raises ``CeilingProposalConflict`` when
+    the proposal is no longer open (including a lazy expiry evaluated under the lock).
+    """
+    if choice not in CeilingVoteChoice.values:
+        raise ValidationError({"choice": f"Invalid choice '{choice}'."})
+    with transaction.atomic():
+        try:
+            proposal = SignalCeilingRaiseProposal.objects.select_for_update().get(pk=proposal_id)
+        except SignalCeilingRaiseProposal.DoesNotExist:
+            raise CeilingProposalConflict("not_found", "Proposal not found.") from None
+        if proposal.status == CeilingRaiseStatus.OPEN and timezone.now() >= proposal.expires_at:
+            _resolve_proposal(proposal, CeilingRaiseStatus.EXPIRED)
+        if proposal.status != CeilingRaiseStatus.OPEN:
+            raise CeilingProposalConflict(
+                "proposal_closed", "This proposal is no longer open for voting."
+            )
+        SignalCeilingRaiseVote.objects.update_or_create(
+            proposal=proposal, voter=voter, defaults={"choice": choice}
+        )
+        return _tally_and_maybe_apply(proposal)
+
+
+def withdraw_ceiling_proposal(proposal_id: Any, actor: Any) -> SignalCeilingRaiseProposal:
+    """Withdraw an OPEN proposal (the proposer's cancel), recorded as REJECTED.
+
+    Frees the signal for a fresh proposal without waiting out the TTL. The caller
+    enforces that ``actor`` is the proposer or a facilitator/Admin.
+    """
+    with transaction.atomic():
+        try:
+            proposal = SignalCeilingRaiseProposal.objects.select_for_update().get(pk=proposal_id)
+        except SignalCeilingRaiseProposal.DoesNotExist:
+            raise CeilingProposalConflict("not_found", "Proposal not found.") from None
+        if proposal.status != CeilingRaiseStatus.OPEN:
+            raise CeilingProposalConflict("proposal_closed", "This proposal is no longer open.")
+        return _resolve_proposal(proposal, CeilingRaiseStatus.REJECTED)
+
+
+def live_open_proposals(project_id: Any) -> dict[str, SignalCeilingRaiseProposal]:
+    """Return ``{signal_key: live OPEN proposal}`` for the project, in ONE query.
+
+    A read helper for the GET surface: it does NOT persist an expiry (reads stay
+    side-effect-free) — a past-due OPEN row is treated as absent and is GC'd to
+    EXPIRED on the next write path. Votes are prefetched so the caller's per-proposal
+    tally/serialize do not re-query (the partial-unique constraint bounds the result
+    to at most one OPEN row per signal). The eligible roster should be fetched once by
+    the caller and threaded into ``proposal_tally``/serialization.
+    """
+    now = timezone.now()
+    result: dict[str, SignalCeilingRaiseProposal] = {}
+    for proposal in (
+        SignalCeilingRaiseProposal.objects.filter(
+            project_id=project_id, status=CeilingRaiseStatus.OPEN
+        )
+        .prefetch_related("votes")
+        .order_by("-created_at")
+    ):
+        if proposal.expires_at > now and proposal.signal_key not in result:
+            result[proposal.signal_key] = proposal
+    return result
+
+
+def proposal_tally(
+    proposal: SignalCeilingRaiseProposal, voter_ids: set[Any] | None = None
+) -> dict[str, int]:
+    """Current approve/reject/eligible/threshold counts for a proposal (read).
+
+    Pass ``voter_ids`` (the precomputed roster, identical across a project's proposals)
+    to avoid one roster query per proposal when serializing a list.
+    """
+    if voter_ids is None:
+        voter_ids = _team_voter_ids(proposal.project_id)
+    eligible = len(voter_ids)
+    approve, reject = _count_current_votes(proposal, voter_ids)
+    return {
+        "approve_count": approve,
+        "reject_count": reject,
+        "eligible_count": eligible,
+        "threshold": ratification_threshold(eligible),
+    }

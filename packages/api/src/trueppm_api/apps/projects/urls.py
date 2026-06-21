@@ -15,6 +15,9 @@ from trueppm_api.apps.projects.ceremony_views import (
 )
 from trueppm_api.apps.projects.program_views import ProgramViewSet
 from trueppm_api.apps.projects.signal_privacy_views import (
+    SignalCeilingProposalListView,
+    SignalCeilingProposalVoteView,
+    SignalCeilingProposalWithdrawView,
     SignalPrivacyPolicyView,
     SignalPrivacyRaiseCeilingView,
     SignalPrivacyRatchetDownView,
@@ -273,6 +276,22 @@ urlpatterns = [
         "projects/<project_pk>/signal-privacy/ratchet-down/",
         SignalPrivacyRatchetDownView.as_view(),
         name="project-signal-privacy-ratchet-down",
+    ),
+    # Ceiling-raise team ratification (ADR-0104 Amendment A / #930).
+    path(
+        "projects/<project_pk>/signal-privacy/ceiling-proposals/",
+        SignalCeilingProposalListView.as_view(),
+        name="project-signal-ceiling-proposals",
+    ),
+    path(
+        "projects/<project_pk>/signal-privacy/ceiling-proposals/<proposal_pk>/vote/",
+        SignalCeilingProposalVoteView.as_view(),
+        name="project-signal-ceiling-proposal-vote",
+    ),
+    path(
+        "projects/<project_pk>/signal-privacy/ceiling-proposals/<proposal_pk>/withdraw/",
+        SignalCeilingProposalWithdrawView.as_view(),
+        name="project-signal-ceiling-proposal-withdraw",
     ),
     # Sprint endpoints (ADR-0037)
     path(

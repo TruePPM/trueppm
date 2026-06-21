@@ -11291,11 +11291,170 @@
                 }
             }
         },
+        "/api/v1/projects/{project_pk}/signal-privacy/ceiling-proposals/": {
+            "get": {
+                "operationId": "v1_projects_signal_privacy_ceiling_proposals_list",
+                "description": "GET — list ceiling-raise proposals (open + recently resolved), team-readable.",
+                "summary": "List ceiling-raise ratification proposals (open + recent)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/CeilingProposal"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{project_pk}/signal-privacy/ceiling-proposals/{proposal_pk}/vote/": {
+            "post": {
+                "operationId": "v1_projects_signal_privacy_ceiling_proposals_vote_create",
+                "description": "POST — cast or change a vote on an open ceiling-raise proposal (team members only).",
+                "summary": "Vote on a ceiling-raise proposal",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "proposal_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CeilingVoteRequestRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CeilingVoteRequestRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CeilingVoteRequestRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CeilingProposal"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{project_pk}/signal-privacy/ceiling-proposals/{proposal_pk}/withdraw/": {
+            "post": {
+                "operationId": "v1_projects_signal_privacy_ceiling_proposals_withdraw_create",
+                "description": "POST — withdraw an open proposal (the proposer or a facilitator/Admin cancels it).",
+                "summary": "Withdraw an open ceiling-raise proposal",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "proposal_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CeilingProposal"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{project_pk}/signal-privacy/raise-ceiling/": {
             "post": {
                 "operationId": "v1_projects_signal_privacy_raise_ceiling_create",
-                "description": "POST — raise (or lower) one signal's team-authorized ceiling.",
-                "summary": "Raise or lower a signal's team-authorized ceiling",
+                "description": "POST — raise (→ opens a team-ratification proposal) or lower (immediate) a ceiling.",
+                "summary": "Raise (team-ratified) or lower (immediate) a signal's ceiling",
                 "parameters": [
                     {
                         "in": "path",
@@ -11346,7 +11505,17 @@
                                 }
                             }
                         },
-                        "description": ""
+                        "description": "Lower/no-op applied."
+                    },
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CeilingProposal"
+                                }
+                            }
+                        },
+                        "description": "Raise opened a ratification proposal (or ratified immediately)."
                     }
                 }
             }
@@ -21887,6 +22056,131 @@
                 "type": "string",
                 "description": "* `TECHNICAL` - Technical\n* `EXTERNAL` - External\n* `ORGANIZATIONAL` - Organizational\n* `PROJECT_MANAGEMENT` - Project Management"
             },
+            "CeilingProposal": {
+                "type": "object",
+                "description": "A ceiling-raise ratification proposal with its live tally (ADR-0104 Amendment A).",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "signal": {
+                        "type": "string"
+                    },
+                    "from_ceiling": {
+                        "$ref": "#/components/schemas/SignalAudienceEnum"
+                    },
+                    "to_ceiling": {
+                        "$ref": "#/components/schemas/SignalAudienceEnum"
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/CeilingProposalStatusEnum"
+                    },
+                    "proposed_by": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "expires_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "resolved_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "approve_count": {
+                        "type": "integer"
+                    },
+                    "reject_count": {
+                        "type": "integer"
+                    },
+                    "eligible_count": {
+                        "type": "integer"
+                    },
+                    "threshold": {
+                        "type": "integer"
+                    },
+                    "your_vote": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "can_vote": {
+                        "type": "boolean"
+                    },
+                    "votes": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CeilingVote"
+                        }
+                    }
+                },
+                "required": [
+                    "approve_count",
+                    "can_vote",
+                    "created_at",
+                    "eligible_count",
+                    "expires_at",
+                    "from_ceiling",
+                    "id",
+                    "proposed_by",
+                    "reject_count",
+                    "resolved_at",
+                    "signal",
+                    "status",
+                    "threshold",
+                    "to_ceiling",
+                    "votes",
+                    "your_vote"
+                ]
+            },
+            "CeilingProposalStatusEnum": {
+                "enum": [
+                    "open",
+                    "ratified",
+                    "rejected",
+                    "expired",
+                    "superseded"
+                ],
+                "type": "string",
+                "description": "* `open` - Open for ratification\n* `ratified` - Ratified — raise applied\n* `rejected` - Rejected by the team\n* `expired` - Expired unratified\n* `superseded` - Superseded by a ceiling change"
+            },
+            "CeilingVote": {
+                "type": "object",
+                "description": "One team member's vote on a ceiling-raise proposal (team-readable).",
+                "properties": {
+                    "voter": {
+                        "type": "string"
+                    },
+                    "choice": {
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                },
+                "required": [
+                    "choice",
+                    "created_at",
+                    "voter"
+                ]
+            },
+            "CeilingVoteRequestRequest": {
+                "type": "object",
+                "description": "POST body — cast or change a vote on a ceiling-raise proposal.",
+                "properties": {
+                    "choice": {
+                        "$ref": "#/components/schemas/ChoiceEnum"
+                    }
+                },
+                "required": [
+                    "choice"
+                ]
+            },
             "CeremonyTemplate": {
                 "type": "object",
                 "description": "Read/write serializer for program ceremony templates (ADR-0079).\n\nEnforces three rules the API contract requires:\n\n1. ``name`` is rejected if it matches the Scrum reserved-vocabulary list\n   (Sprint Planning, Sprint Review, etc.) — those events belong to the\n   per-sprint surface, not program-level cadence. This is a server-side\n   guard against silent boundary drift even if the UI is bypassed.\n2. ``cadence_day`` and ``cadence_time`` are required for time-of-day\n   cadences (weekly/biweekly/monthly) and forbidden for ``on_milestone``\n   (cleared to ``\"\"``/``None`` if supplied).\n3. ``duration_minutes`` is bounded to a sane meeting range (5–1440 min)\n   so the UI does not have to defend against pathological values.",
@@ -21998,6 +22292,14 @@
                     "cadence_type",
                     "name"
                 ]
+            },
+            "ChoiceEnum": {
+                "enum": [
+                    "approve",
+                    "reject"
+                ],
+                "type": "string",
+                "description": "* `approve` - approve\n* `reject` - reject"
             },
             "ColumnEnum": {
                 "enum": [
@@ -29184,11 +29486,22 @@
                     },
                     "can_raise_ceiling": {
                         "type": "boolean"
+                    },
+                    "can_vote": {
+                        "type": "boolean"
+                    },
+                    "open_proposals": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "$ref": "#/components/schemas/CeilingProposal"
+                        }
                     }
                 },
                 "required": [
                     "can_raise_ceiling",
                     "can_set_audience",
+                    "can_vote",
+                    "open_proposals",
                     "requester_tier",
                     "signals"
                 ]

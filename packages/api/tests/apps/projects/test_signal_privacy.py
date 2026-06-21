@@ -248,16 +248,25 @@ def test_set_audience_above_ceiling_rejected(project: Project, pm: Any) -> None:
     assert resp.status_code == 400
 
 
-def test_raise_ceiling_then_set_audience(project: Project, pm: Any) -> None:
+def test_raise_ceiling_endpoint_opens_proposal_then_set_audience(project: Project, pm: Any) -> None:
+    """The raise-ceiling endpoint now opens a team-ratification proposal (ADR-0104
+    Amendment A / #930) — the ceiling is NOT applied until the team ratifies. Once a
+    ceiling IS raised, the audience can be set up to it. (The full ratification flow
+    lives in test_signal_privacy_ratification.py; here we apply via the service to
+    isolate the set-audience-within-ceiling behavior.)"""
     raise_resp = _client(pm).post(
         f"{_url(project)}raise-ceiling/",
         {"signal": "velocity", "ceiling": SignalAudience.TEAM_SM_PM},
     )
-    assert raise_resp.status_code == 200
-    # Raising the ceiling does NOT move the dial.
-    assert raise_resp.data["signals"]["velocity"]["audience"] == SignalAudience.TEAM
-    assert raise_resp.data["signals"]["velocity"]["ceiling"] == SignalAudience.TEAM_SM_PM
+    # A raise opens a proposal (202); the ceiling has not yet moved.
+    assert raise_resp.status_code == 202
+    assert raise_resp.data["status"] == "open"
+    policy = ProjectSignalPrivacyPolicy.objects.get(project=project)
+    assert policy.ceiling_of("velocity") == SignalAudience.TEAM
 
+    # Simulate the team ratifying (the low-level applier), then confirm set-audience
+    # can move the dial up to the now-raised ceiling.
+    svc.raise_signal_ceiling(policy, "velocity", SignalAudience.TEAM_SM_PM)
     set_resp = _client(pm).patch(
         _url(project), {"signal": "velocity", "audience": SignalAudience.TEAM_SM}
     )

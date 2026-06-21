@@ -175,4 +175,68 @@ This ADR is **Proposed**. The following choices encode a defensible default but 
 1. **Velocity default = `audience: TEAM`, `ceiling: TEAM`** — *resolved 2026-06-02.* Team-only by default and **raisable only by the team-owned ceiling act** (§1.1). The PM (ADMIN) no longer reads velocity automatically and **cannot unilaterally expose it** — closing the PM-raise hole that the original single-value shape (Alternative F) left open. This supersedes both the cluster's original `TEAM_SM_PM` default and the mock's permanent hard-lock; it honors Morgan's "sharing up is explicit, team-owned, revocable."
 2. **Per-signal ceiling + raise/ratchet split (§1.1)** — *adopted 2026-06-02* to back the VoC-chosen ladder UI (Option A) and make upward exposure a team-owned, audited act. The two write gates: set-audience (facilitator facet) within `[TEAM, ceiling]`; raise-ceiling (team-owned). Confirm.
 3. **Interim gates, retired by #927.** The set-audience and PO-tier gates ship an interim `role >= Role.ADMIN` mapping only until the `is_scrum_master`/`is_product_owner` facets land — now pulled into **0.3 as #927** (carved from #599). If #927 lands first, this ADR wires the facets directly and the interim gate is unused. Confirm the interim gate as the fallback if intra-0.3 sequencing slips.
-4. **Team vote deferred to 0.4.** The 0.3 raise-ceiling gate (facilitator / `role >= Role.ADMIN` + audit + team-visible + retro-anchored) is replaced by a genuine team vote/ratification in 0.4 (filed follow-up). Confirm the 0.3 interim is acceptable.
+4. **Team vote deferred to 0.4.** The 0.3 raise-ceiling gate (facilitator / `role >= Role.ADMIN` + audit + team-visible + retro-anchored) is replaced by a genuine team vote/ratification in 0.4 (filed follow-up). Confirm the 0.3 interim is acceptable. — *Resolved by Amendment A below (#930).*
+
+---
+
+## Amendment A — Team ratification flow for ceiling raises (#930, 0.4)
+
+**Status**: Accepted (2026-06-21). Implements §1.1 decision 4 and the "0.4 team vote" deferral. Backend slice (propose/vote/ratify API + models); the web surface (pending-proposal indicator, in-retro vote affordance) is a tracked follow-up.
+
+### A.1 — The single behavior change
+
+The §1.1 raise-ceiling gate stops being single-actor. A request to set a signal's ceiling **higher on the ladder** (`signal_audience_rank(new) > current`) no longer applies immediately — it opens a **ratification proposal** and the raise takes effect **only when the team ratifies**. Everything else is unchanged and stays single-action, because tightening is never gated heavier than loosening:
+
+- **Lowering** a ceiling (`rank(new) <= current`) — applies immediately via the existing `raise_signal_ceiling` (it already clamps the audience down). No proposal.
+- **Set-audience** within `[TEAM, ceiling]` and **ratchet-down** — unchanged, immediate, facilitator/Admin.
+
+The hole is closed **at the API layer in this slice**, with or without the web UI: the existing `POST .../signal-privacy/raise-ceiling/` returns **`202` + the open proposal** instead of applying, the moment a raise is requested. There is no window where a lone facilitator can still apply a raise.
+
+### A.2 — Threshold (resolved)
+
+Eligibility and the bar are computed **server-side at every tally** (so roster changes are reflected live):
+
+- **Eligible voters** = non-deleted `TeamMembership` rows on the project's **default team** (`team__is_default=True`). This is the team roster (#927), **not** project membership — a non-team project-Admin/PM has no vote (Morgan: prevents vote-stuffing from outside the team). A project-Admin who *is* on the team votes as one member; SM/PO facets carry **no extra weight** (one member, one vote).
+- **Threshold** = `floor(eligible / 2) + 1` — **strict majority** of the current roster. This yields: 1→1, 2→2, 3→2, 4→3, 5→3. For any team of **≥ 2** members the proposer's own approval (1) never meets the bar, so **a lone facilitator can never raise alone** — at least one *other* member must approve. A 1-member team is the degenerate case: there is no other member to consult, so the proposer's approval ratifies (the rule protects members' consent from a facilitator; with no other members there is nothing to protect). Not unanimity, not whole-roster, so one disengaged member can never deadlock a raise (Alex/Morgan).
+
+### A.3 — Proposal lifecycle, voting, expiry (resolved)
+
+- **Who proposes**: the existing raise-ceiling gate — facilitator (`is_scrum_master`) **or** `role >= Role.ADMIN` who is a team member. (Minimal change; keeping propose authority where it is avoids a second migration of who-can-write while the ratification itself is what makes it team-owned.) **Proposing is an implicit APPROVE** — the proposer's vote is auto-recorded on open.
+- **Who votes**: any eligible team member (A.2). One vote per member (`unique(proposal, voter)`), changeable while the proposal is `OPEN` (upsert).
+- **Tally on every vote** (and on open): `APPROVE >= threshold` → **RATIFIED**, apply the raise; else if `REJECT > eligible - threshold` (approval can no longer reach the bar) → **REJECTED**; else stays `OPEN`.
+- **One open proposal per `(project, signal)`** — a partial unique constraint (`status = OPEN`). A second raise request for the same signal while one is open returns **`409`** (no superseding-proposal loop — see A.4). The proposer may **withdraw** their own open proposal (→ `REJECTED`, reason "withdrawn by proposer").
+- **Expiry**: `expires_at = created_at + SIGNAL_CEILING_PROPOSAL_TTL` (default **72 h** — long enough for an async team, short enough to not stall the PM; Morgan/Sarah). Evaluated **lazily** — any read (GET), vote, or new-proposal attempt first transitions a past-due `OPEN` proposal to **EXPIRED**. An expired proposal **dies UNRATIFIED**: the ceiling is unchanged, the outcome is explicit in the record. **Silence is never consent** for *widening* exposure — there is no auto-apply-on-timeout (David's auto-ratify-on-silence is rejected for exactly this reason). Lazy evaluation needs no Celery/Beat (no async, no outbox).
+
+### A.4 — Anti-gaming (resolved)
+
+- **One-open-per-signal** + `409` removes the supersede loop.
+- **Lower-then-raise clock reset**: applying a ceiling **lower** (immediate) while a raise proposal is `OPEN` for that signal **supersedes** it (→ `SUPERSEDED`, reason recorded) — the proposal was relative to the old baseline, so a fresh proposal + fresh vote is required. The transition is audited, so the lower→raise pattern is **visible in the record**, not a silent clock reset.
+- **Apply re-resolves the baseline**: on ratification the raise is applied through the existing `raise_signal_ceiling` against the *current* resolved ceiling; if the team already raised it by other means it is a no-op (the existing value guard), never a surprise double-jump.
+
+### A.5 — Rejected: a PMO/exec override that bypasses the vote
+
+The VoC panel's Marcus/Janet 🔴 ask — an Admin/PMO/exec path that reads or raises the ceiling *without* the team vote — is **explicitly rejected**. It is the §2 back-door by another name: the entire model exists so the PM does **not** read velocity automatically (Morgan's hard-NO) and cannot widen exposure unilaterally. A management bypass would re-open precisely the hole §1.1 closed. Portfolio-layer governance (a cross-program approval workflow that *can* compel sharing) is an **Enterprise** concern and a different feature; the OSS team-ratification here is single-team, team-owned, and has no bypass. This is consistent with the boundary test — a team needs this to run its own program; it is not cross-program governance.
+
+### A.6 — Data model, API, audit
+
+- **`SignalCeilingRaiseProposal`** (plain `models.Model`, projects app — a server-side governance record, **not** offline-synced, mirroring `SprintScopeChange`/`TaskDurationChangeEvent`/`AuditEvent`; **no** `server_version`): `id` (UUID), `project` FK, `signal_key`, `from_ceiling`, `to_ceiling` (`SignalAudience`), `proposed_by` FK (SET_NULL), `status` (`OPEN/RATIFIED/REJECTED/EXPIRED/SUPERSEDED`, default `OPEN`), `created_at`, `expires_at`, `resolved_at` (null until it leaves OPEN). Partial unique `(project, signal_key) WHERE status=open`; index `(project, signal_key, status)`.
+- **`SignalCeilingRaiseVote`** (plain `models.Model`): `id` (UUID), `proposal` FK (`related_name="votes"`, CASCADE), `voter` FK, `choice` (`APPROVE/REJECT`), `created_at`. `unique(proposal, voter)` — the `PulseResponse` one-vote-per-member template.
+- **API**: `POST .../signal-privacy/raise-ceiling/` → `202` + proposal on a raise (or `200` + policy on a lower/no-op or immediate ratify of a solo team); `POST .../signal-privacy/ceiling-proposals/{id}/vote/` `{choice}` → `200` + proposal (may carry the now-applied policy when the vote ratifies); `GET .../signal-privacy/ceiling-proposals/` lists open + recent-resolved proposals with their votes (team-readable); `GET .../signal-privacy/` gains an `open_proposals` block per signal (`to_ceiling`, `approve_count`, `threshold`, `eligible_count`, `expires_at`, `your_vote`, `can_vote`) — Sarah's pending indicator. Both POSTs carry the `IdempotencyMixin` (`select_for_update` on the proposal makes the tally/apply idempotent; the vote is an upsert; ratify applies once via the `status==OPEN` guard).
+- **Audit / team-readability**: the proposal + each vote ARE the audit record (Alex: team-readable, not just an admin log) — visible to every project member via the list endpoint. Applying the raise additionally writes the policy's `history_change_reason` and fires the existing `team_signal_consent_changed` on commit (the Enterprise seam). A new consumer-free `team_signal_ceiling_proposal_changed` signal fires on every status transition (open/ratify/reject/expire/supersede) on commit — same supply-only seam pattern, so Enterprise immutable-audit can observe proposal lifecycle. **No email/push** is wired (Priya's hard-NO on un-opted notification); the pending state is pull-only via GET.
+
+### A.7 — Durable Execution (amendment)
+
+1. **Broker-down**: N/A — propose/vote/ratify are synchronous DB writes; ratification applies the ceiling in-request. The only async-ish side effects are the two best-effort `on_commit` signals (`team_signal_consent_changed`, `team_signal_ceiling_proposal_changed`), which only delay an Enterprise cache invalidation, never lose the committed decision.
+2. **Drain task**: none — no `.delay()`.
+3. **Orphan window**: N/A — writes commit before the on-commit signals fire; expiry is lazy on read/vote/propose (no background sweep, no orphan rows that change state).
+4. **Service layer**: new `signal_privacy_services.py` functions — `propose_or_apply_ceiling_change` (routes raise→propose, lower→apply), `cast_ceiling_vote`, `_tally_and_maybe_apply`, `expire_stale_proposals`, `list_team_voters`.
+5. **API response**: `202 {proposal}` when a raise is deferred to the vote; `200` on a lower, an immediate solo-team ratify, and on a vote.
+6. **Outbox cleanup**: N/A — no outbox.
+7. **Idempotency**: `select_for_update` on the proposal during vote/tally; vote is `update_or_create` (unique `proposal+voter`); the apply runs once behind the `status==OPEN`→`RATIFIED` guard, and `raise_signal_ceiling`'s value guard makes a re-apply a no-op.
+8. **Dead-letter / failure**: synchronous; validation → `400`, conflict (no open proposal / already resolved / vote-by-non-member) → `409`/`403`. No async permanent-failure path.
+
+### A.8 — Implementation notes (amendment)
+
+- **Migration**: yes — `projects/0089` (two additive plain models). No change to `ProjectSignalPrivacyPolicy`.
+- **OSS or Enterprise**: **OSS** — single-team, team-owned ratification (Programs/Projects layer). The cross-program approval-workflow variant is Enterprise and out of scope here.
+- **Testing** (pytest, same MR): a raise opens a proposal and does **not** apply until ratified; a **lone facilitator cannot raise alone** on a ≥2-member team (proposer's auto-approve stays OPEN); a second approver ratifies and the ceiling applies + writes history; a **non-team project-Admin cannot vote** (`403`); votes are recorded and team-readable; a lower stays immediate and **supersedes** an open raise proposal; an expired proposal stays UNRATIFIED on the next read; a second open proposal for the same signal is `409`; **no PMO bypass exists**. (web vitest/Playwright land with the deferred web surface.)
