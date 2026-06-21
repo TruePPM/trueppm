@@ -265,3 +265,139 @@ def test_admin_can_still_deactivate_lower_member(db: object) -> None:
     resp = _client(actor).delete(_detail(target))
     assert resp.status_code == 204
     assert WorkspaceMembership.objects.get(user=target).status == MemberStatus.DEACTIVATED
+
+
+# --- Resource-availability baseline (#542) ------------------------------------
+
+
+@pytest.mark.django_db
+def test_member_row_defaults_to_full_availability(superadmin: object, member: object) -> None:
+    """A member with no explicit baseline reads as 100% available, no bounds (#542)."""
+    resp = _client(superadmin).get(LIST_URL)
+    row = next(r for r in resp.data if r["id"] == str(member.pk))
+    assert row["availability_percent"] == 100
+    assert row["availability_effective_from"] is None
+    assert row["availability_effective_to"] is None
+    assert row["availability_notes"] == ""
+
+
+@pytest.mark.django_db
+def test_admin_sets_availability_baseline(superadmin: object, member: object) -> None:
+    resp = _client(superadmin).patch(
+        _detail(member),
+        {
+            "availability_percent": 80,
+            "availability_effective_from": "2026-07-01",
+            "availability_effective_to": "2026-09-30",
+            "availability_notes": "Part-time contract this quarter",
+        },
+        format="json",
+    )
+    assert resp.status_code == 200, resp.data
+    assert resp.data["availability_percent"] == 80
+    assert resp.data["availability_effective_from"] == "2026-07-01"
+    m = WorkspaceMembership.objects.get(user=member)
+    assert m.availability_percent == 80
+    assert m.availability_effective_from == date(2026, 7, 1)
+    assert m.availability_effective_to == date(2026, 9, 30)
+    assert m.availability_notes == "Part-time contract this quarter"
+
+
+@pytest.mark.django_db
+def test_member_views_own_availability(member: object) -> None:
+    """A non-admin sees their own baseline on the self-scoped list row (#542)."""
+    ws = Workspace.load()
+    WorkspaceMembership.objects.create(
+        workspace=ws, user=member, role=WorkspaceRole.MEMBER, availability_percent=60
+    )
+    resp = _client(member).get(LIST_URL)
+    assert [r["id"] for r in resp.data] == [str(member.pk)]
+    assert resp.data[0]["availability_percent"] == 60
+
+
+@pytest.mark.django_db
+def test_member_cannot_edit_availability(member: object) -> None:
+    """Edit is Owner/Admin only — a plain member PATCHing availability is rejected (#542)."""
+    target = User.objects.create_user(username="avail_t", password="pw")
+    resp = _client(member).patch(_detail(target), {"availability_percent": 50}, format="json")
+    assert resp.status_code == 403
+
+
+@pytest.mark.django_db
+def test_availability_percent_zero_is_honored(superadmin: object, member: object) -> None:
+    """0% is a legitimate value — the presence check must not treat it as 'omitted' (#542)."""
+    resp = _client(superadmin).patch(_detail(member), {"availability_percent": 0}, format="json")
+    assert resp.status_code == 200, resp.data
+    assert WorkspaceMembership.objects.get(user=member).availability_percent == 0
+
+
+@pytest.mark.django_db
+def test_availability_percent_above_100_rejected(superadmin: object, member: object) -> None:
+    resp = _client(superadmin).patch(_detail(member), {"availability_percent": 101}, format="json")
+    assert resp.status_code == 400
+
+
+@pytest.mark.django_db
+def test_availability_from_after_to_rejected(superadmin: object, member: object) -> None:
+    resp = _client(superadmin).patch(
+        _detail(member),
+        {
+            "availability_effective_from": "2026-09-30",
+            "availability_effective_to": "2026-07-01",
+        },
+        format="json",
+    )
+    assert resp.status_code == 400
+
+
+@pytest.mark.django_db
+def test_partial_bound_validated_against_stored_bound(superadmin: object, member: object) -> None:
+    """A PATCH setting only `to` earlier than the stored `from` is rejected (#542)."""
+    ws = Workspace.load()
+    WorkspaceMembership.objects.create(
+        workspace=ws,
+        user=member,
+        role=WorkspaceRole.MEMBER,
+        availability_effective_from=date(2026, 8, 1),
+    )
+    resp = _client(superadmin).patch(
+        _detail(member), {"availability_effective_to": "2026-07-01"}, format="json"
+    )
+    assert resp.status_code == 400
+
+
+@pytest.mark.django_db
+def test_explicit_null_clears_stored_bound(superadmin: object, member: object) -> None:
+    ws = Workspace.load()
+    WorkspaceMembership.objects.create(
+        workspace=ws,
+        user=member,
+        role=WorkspaceRole.MEMBER,
+        availability_effective_from=date(2026, 8, 1),
+    )
+    resp = _client(superadmin).patch(
+        _detail(member), {"availability_effective_from": None}, format="json"
+    )
+    assert resp.status_code == 200, resp.data
+    assert WorkspaceMembership.objects.get(user=member).availability_effective_from is None
+
+
+@pytest.mark.django_db
+def test_availability_edit_not_blocked_by_peer_guard(db: object) -> None:
+    """Availability is benign capacity metadata — an Admin may set a peer Admin's
+    baseline even though the peer-guard blocks role/status changes on peers (#542)."""
+    ws = Workspace.load()
+    actor = User.objects.create_user(username="rm_admin", password="pw")
+    peer = User.objects.create_user(username="peer_admin", password="pw")
+    WorkspaceMembership.objects.create(workspace=ws, user=actor, role=WorkspaceRole.ADMIN)
+    WorkspaceMembership.objects.create(workspace=ws, user=peer, role=WorkspaceRole.ADMIN)
+    resp = _client(actor).patch(_detail(peer), {"availability_percent": 40}, format="json")
+    assert resp.status_code == 200, resp.data
+    assert WorkspaceMembership.objects.get(user=peer).availability_percent == 40
+
+
+@pytest.mark.django_db
+def test_empty_availability_patch_rejected(superadmin: object, member: object) -> None:
+    """An empty body still fails the at-least-one-field guard (#542)."""
+    resp = _client(superadmin).patch(_detail(member), {}, format="json")
+    assert resp.status_code == 400
