@@ -18,6 +18,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 import pytest
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -29,7 +30,13 @@ from trueppm_api.apps.observability.models import (
     RetentionSchedule,
 )
 from trueppm_api.apps.observability.purge_registry import PurgeSpec
-from trueppm_api.apps.observability.retention import resolve_retention
+from trueppm_api.apps.observability.retention import (
+    RETENTION_KEYS,
+    RETENTION_SPECS,
+    resolve_retention,
+    resolve_retention_map,
+    spec_for,
+)
 from trueppm_api.apps.observability.selectors import get_system_health
 from trueppm_api.apps.taskruns.models import TaskRun, TaskRunStatus
 
@@ -201,6 +208,59 @@ class TestResolveRetention:
     def test_disabled_override_returns_none(self) -> None:
         RetentionPolicy.objects.create(key="HISTORY_RETENTION_DAYS", value=120, enabled=False)
         assert resolve_retention("HISTORY_RETENTION_DAYS") is None
+
+
+class TestSpecFor:
+    """spec_for is pure metadata lookup (no DB); KeyError on an unknown window."""
+
+    def test_returns_metadata_for_a_known_key(self) -> None:
+        spec = spec_for("HISTORY_RETENTION_DAYS")
+        assert spec["label"] == "Event history"
+        assert spec["unit"] == "days"
+        assert spec["default"] == 90
+        assert spec["disablable"] is True
+
+    def test_sync_window_is_not_disablable(self) -> None:
+        # The non-nullable backend window must report disablable=False so the
+        # editor never offers to turn it off (mirrors the forced-enabled PATCH).
+        assert spec_for("TRUEPPM_SYNC_BATCH_RETENTION_HOURS")["disablable"] is False
+
+    def test_unknown_key_raises_keyerror(self) -> None:
+        with pytest.raises(KeyError):
+            spec_for("NOPE_RETENTION_DAYS")
+
+
+@pytest.mark.django_db
+class TestResolveRetentionMap:
+    """The batched resolver feeds the 10s-polled System Health overview, so its
+    per-key result must match resolve_retention exactly while doing one query."""
+
+    def test_all_keys_fall_back_to_settings_without_rows(self) -> None:
+        resolved = resolve_retention_map()
+        # Every operational window is present, defaulting to its ADR-0081 setting.
+        assert set(resolved) == set(RETENTION_KEYS)
+        for spec in RETENTION_SPECS:
+            assert resolved[spec["key"]] == getattr(settings, spec["key"], spec["default"])
+
+    def test_enabled_override_wins_per_key(self) -> None:
+        RetentionPolicy.objects.create(key="HISTORY_RETENTION_DAYS", value=120, enabled=True)
+        resolved = resolve_retention_map()
+        assert resolved["HISTORY_RETENTION_DAYS"] == 120
+        # An untouched key still reports its settings default.
+        assert resolved["TASK_RUN_RETENTION_DAYS"] == getattr(
+            settings, "TASK_RUN_RETENTION_DAYS", 30
+        )
+
+    def test_disabled_override_maps_to_none(self) -> None:
+        RetentionPolicy.objects.create(key="TASK_RUN_RETENTION_DAYS", value=45, enabled=False)
+        assert resolve_retention_map()["TASK_RUN_RETENTION_DAYS"] is None
+
+    def test_matches_per_key_resolve_retention(self) -> None:
+        RetentionPolicy.objects.create(key="TRUEPPM_WEBHOOK_RETENTION_DAYS", value=3, enabled=True)
+        RetentionPolicy.objects.create(key="TRUEPPM_IMPORT_RETENTION_DAYS", value=14, enabled=False)
+        batched = resolve_retention_map()
+        for key in RETENTION_KEYS:
+            assert batched[key] == resolve_retention(key)
 
 
 @pytest.mark.django_db
