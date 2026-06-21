@@ -72,7 +72,7 @@ TruePPM's stated position (ADR-0036): the tool for teams that *already run hybri
 |---|---|---|
 | Planning game | **Strong** | 3-point PERT + estimation governance (OPEN/SUGGEST_APPROVE/PM_ONLY), sprint capacity vs commitment split (ADR-0073), subtasks for splitting (ADR-0060), scope-injection gate (ADR-0102) |
 | Acceptance-test driven | **Strong model, manual loop** | `AcceptanceCriterion` (given/when/then, `met_by`/`met_at` trail, DOR gate enforces all-met before READY). But criteria flip only by hand — no CI test-result ingestion |
-| Small releases / CD | **Partial** | Git-aware task links (PR/MR/issue, read-only via `TaskLink` providers); inbound task-sync (ADR-0068, HMAC, rate-limited); Release object not until 0.7 (ADR-0088) |
+| Small releases / CD | **Partial** | Git-aware task links (PR/MR/issue, read-only via `TaskLink` providers); inbound task-sync (ADR-0068, HMAC, rate-limited); Release object not until 0.7 (ADR-0099) |
 | Continuous integration signals | **Plumbing yes, surface no** | Bi-directional webhooks exist, but no CI/build status on cards and no `sprint.*` events outbound |
 | Sustainable pace | **Strong and differentiated** | Capacity preflight, WIP threshold, overallocation heatmap, and — crucially — ADR-0104 team-signal privacy: velocity/pulse default to TEAM visibility, PMO is blocked by default. This is the anti-"velocity as surveillance" guard XP coaches ask for and almost no tool ships |
 | Collective ownership / pairing | **Absent** | `Task.assignee` is a single FK; `TaskResource` is capacity math, not co-ownership. No pairing concept anywhere |

@@ -1417,7 +1417,7 @@ class Task(VersionedModel):
     # ── Product-backlog / PO grooming (ADR-0105) ────────────────────────────────
     # Work-item taxonomy (#363). Default TASK keeps every pre-existing row's
     # semantics. EPIC is excluded from CPM/capacity (see CommittedTaskManager).
-    # Field name ``type`` matches ADR-0088's committed shape.
+    # Field name ``type`` matches ADR-0099's committed shape.
     type = models.CharField(
         max_length=16,
         choices=TaskType.choices,

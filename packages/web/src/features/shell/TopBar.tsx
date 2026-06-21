@@ -166,7 +166,7 @@ export function TopBar({ onHamburgerClick }: Props) {
       />
 
       {/* View / program nav — scrolls horizontally only when it overflows; the right
-          cluster stays pinned. ViewTabs / ProgramTabs are mutually exclusive (ADR-0091)
+          cluster stays pinned. ViewTabs / ProgramTabs are mutually exclusive (ADR-0095)
           so exactly one renders. */}
       <ShellNavScroller>
         <ViewTabs />

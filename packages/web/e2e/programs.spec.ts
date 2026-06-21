@@ -165,7 +165,7 @@ test.describe('Programs — empty state and creation', () => {
 });
 
 test.describe('Programs — shell tabs', () => {
-  // #790 / ADR-0091: program navigation lives in the global TopBar (mirroring
+  // #790 / ADR-0095: program navigation lives in the global TopBar (mirroring
   // project ViewTabs) and now includes a discoverable Settings tab.
   test('program nav is in the top bar and includes a Settings tab', async ({ page }) => {
     await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });

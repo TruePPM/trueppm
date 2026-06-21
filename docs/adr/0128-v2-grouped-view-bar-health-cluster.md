@@ -51,7 +51,7 @@ privacy gate* rather than inventing a new affordance.
 ### Forces
 - Must compose **beneath** the ADR-0041 methodology visibility matrix (hidden tabs stay
   absent from the DOM, within their group).
-- Must preserve the ADR-0091 `ViewTabs`/`ProgramTabs` mutual-exclusion contract and not
+- Must preserve the ADR-0095 `ViewTabs`/`ProgramTabs` mutual-exclusion contract and not
   touch `ProgramTabs`.
 - Must clear the ADR-0126 design-system CI gate (`scripts/check-design-system-v2.sh`):
   semantic tokens only, no raw hex, no dark-chrome-on-light in `features/shell/**`.
@@ -128,7 +128,7 @@ Project-scoped chrome, reusing the two existing mechanisms (no new router wiring
 
 1. `useProjectId()` is null on **My Work, Inbox, Portfolio (`/programs`), Program
    (`/programs/:id/*`), workspace Settings (`/settings`)** — the bar already returns
-   `null` there (and `ProgramTabs` owns program routes per ADR-0091). Unchanged.
+   `null` there (and `ProgramTabs` owns program routes per ADR-0095). Unchanged.
 2. **Project settings** (`/projects/:projectId/settings/*`) — a
    `useMatch('/projects/:projectId/settings/*')` guard returns `null`, mirroring the
    rule-123 settings-chrome-suppression pattern. Settings stays a reachable *destination*
