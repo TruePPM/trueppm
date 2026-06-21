@@ -149,7 +149,7 @@ test.describe('Program Settings → General', () => {
     });
   });
 
-  // #790 / ADR-0091: program navigation lives in the global TopBar (ProgramTabs),
+  // #790 / ADR-0095: program navigation lives in the global TopBar (ProgramTabs),
   // which persists across settings routes with the Settings tab active. There is no
   // in-content program tab strip, so the shared SettingsShell (and its SCOPE
   // switcher) mounts top-aligned, identical to the workspace and project scopes —

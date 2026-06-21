@@ -16,7 +16,7 @@ interface Tab {
   Icon: ComponentType<{ className?: string; 'aria-hidden'?: 'true' }>;
 }
 
-// Settings is last, mirroring the project ViewTabs (ADR-0091). The program tab
+// Settings is last, mirroring the project ViewTabs (ADR-0095). The program tab
 // set is shorter and fixed — no methodology/role gating (writes are gated inside
 // each page, like the project Settings tab).
 const TABS: Tab[] = [
@@ -29,7 +29,7 @@ const TABS: Tab[] = [
 ];
 
 /**
- * Top-bar tab strip for switching between program views (ADR-0091).
+ * Top-bar tab strip for switching between program views (ADR-0095).
  *
  * The program analog of `ViewTabs`: rendered inside the global `TopBar`,
  * `h-full` so it adds no height, and hidden when no program is active (no

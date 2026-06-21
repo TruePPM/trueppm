@@ -1,4 +1,4 @@
-# ADR-0091: Program navigation moves to the global TopBar
+# ADR-0095: Program navigation moves to the global TopBar
 
 ## Status
 Accepted (2026-05-27) — amends the navigation decision of ADR-0070. Resolves #790.

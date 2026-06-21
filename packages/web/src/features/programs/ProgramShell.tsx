@@ -1,7 +1,7 @@
 import { Outlet, useMatch } from 'react-router';
 
 /**
- * /programs/:programId — minimal layout shell (ADR-0091).
+ * /programs/:programId — minimal layout shell (ADR-0095).
  *
  * Program navigation (Overview · Backlog · Projects · Members · Settings) lives
  * in the global `TopBar` via `ProgramTabs`, mirroring how the project `ViewTabs`
