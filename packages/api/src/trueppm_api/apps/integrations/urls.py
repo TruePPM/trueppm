@@ -1,10 +1,16 @@
-"""URL routing for ``/api/v1/me/credentials/`` (ADR-0049 §3, #587)."""
+"""URL routing for ``/api/v1/me/credentials/`` (ADR-0049 §3, #587) and the
+per-project Git-event board automation (#329, ADR-0158)."""
 
 from __future__ import annotations
 
 from django.urls import path
 
-from .views import IntegrationCredentialViewSet
+from .views import (
+    GitAutomationConfigView,
+    GitAutomationRotateSecretView,
+    GitWebhookIngestView,
+    IntegrationCredentialViewSet,
+)
 
 # Provider key is captured as ``<slug:provider>`` — TASK_LINK_PROVIDERS keys
 # are short ascii (gitlab, github, generic, jira, servicenow…), so the slug
@@ -22,5 +28,22 @@ urlpatterns = [
             {"get": "retrieve", "post": "create", "delete": "destroy"}
         ),
         name="me-credentials-detail",
+    ),
+    # Git-event board automation (#329, ADR-0158). The kwarg MUST be ``project_pk``
+    # so ``IsProjectAdmin`` can resolve project membership on the config routes.
+    path(
+        "integrations/projects/<uuid:project_pk>/git-webhook/",
+        GitWebhookIngestView.as_view(),
+        name="git-webhook",
+    ),
+    path(
+        "integrations/projects/<uuid:project_pk>/git-automation/",
+        GitAutomationConfigView.as_view(),
+        name="git-automation-config",
+    ),
+    path(
+        "integrations/projects/<uuid:project_pk>/git-automation/rotate-secret/",
+        GitAutomationRotateSecretView.as_view(),
+        name="git-automation-rotate-secret",
     ),
 ]

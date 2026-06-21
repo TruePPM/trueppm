@@ -1621,6 +1621,131 @@
                 }
             }
         },
+        "/api/v1/integrations/projects/{project_pk}/git-automation/": {
+            "get": {
+                "operationId": "v1_integrations_projects_git_automation_retrieve",
+                "description": "``GET|PUT /api/v1/integrations/projects/{project_pk}/git-automation/`` — config (#329).\n\nProject-admin only (Owner/Admin). Reads/sets the off-by-default toggle and\nsurfaces the webhook URL and whether a secret is set. The secret itself is\nminted/rotated through :class:`GitAutomationRotateSecretView` and returned once.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "integrations"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            },
+            "put": {
+                "operationId": "v1_integrations_projects_git_automation_update",
+                "description": "``GET|PUT /api/v1/integrations/projects/{project_pk}/git-automation/`` — config (#329).\n\nProject-admin only (Owner/Admin). Reads/sets the off-by-default toggle and\nsurfaces the webhook URL and whether a secret is set. The secret itself is\nminted/rotated through :class:`GitAutomationRotateSecretView` and returned once.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "integrations"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/integrations/projects/{project_pk}/git-automation/rotate-secret/": {
+            "post": {
+                "operationId": "v1_integrations_projects_git_automation_rotate_secret_create",
+                "description": "``POST .../git-automation/rotate-secret/`` — mint a new webhook secret (#329).\n\nProject-admin only. Generates a fresh URL-safe secret, stores it Fernet-encrypted,\nand returns the plaintext **once** in the response — it is never retrievable again\n(the GET endpoint only reports whether a secret is set).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "integrations"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/integrations/projects/{project_pk}/git-webhook/": {
+            "post": {
+                "operationId": "v1_integrations_projects_git_webhook_create",
+                "description": "Inbound Git-event receiver — ``POST .../{project_pk}/git-webhook/`` (#329, ADR-0158).\n\nThe OSS Git-event board-card auto-move receiver. **The signature is the gate** —\nthis endpoint is unauthenticated-by-session (``AllowAny``); a GitHub\n``X-Hub-Signature-256`` HMAC or a GitLab ``X-Gitlab-Token`` over the project's\nsecret is what authorizes the call. A bad/missing signature is a hard 401, and\na project without enabled automation is a 404 so the endpoint never reveals\nwhich projects have automation configured.\n\nOSS boundary (ADR-0097 carve-out, mirroring ADR-0148): a single project-scoped,\noff-by-default, one-way Git→card receiver. No org connector, no OAuth, no\nbidirectional sync, no conflict resolution, no reconciliation loop. The general\nmulti-provider bidirectional Integration Hub remains Enterprise.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "integrations"
+                ],
+                "security": [
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/me/active-sprints/": {
             "get": {
                 "operationId": "v1_me_active_sprints_retrieve",
