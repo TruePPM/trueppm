@@ -37,7 +37,7 @@ describe('LaneMeta', () => {
   });
 
   it('renders add-task button with correct aria-label', () => {
-    render(<LaneMeta {...BASE_PROPS} />);
+    render(<LaneMeta {...BASE_PROPS} onAddTask={vi.fn()} />);
     expect(screen.getByRole('button', { name: 'Add task to Engineering' })).toBeInTheDocument();
   });
 
@@ -46,6 +46,15 @@ describe('LaneMeta', () => {
     render(<LaneMeta {...BASE_PROPS} onAddTask={onAddTask} />);
     fireEvent.click(screen.getByRole('button', { name: 'Add task to Engineering' }));
     expect(onAddTask).toHaveBeenCalledTimes(1);
+  });
+
+  // #324: assignee-grouped lanes pass no onAddTask — a lane id there is a
+  // resource, not a parent — so the add affordance is suppressed (not dead).
+  it('suppresses the add-task button when onAddTask is omitted', () => {
+    render(<LaneMeta {...BASE_PROPS} />);
+    expect(
+      screen.queryByRole('button', { name: 'Add task to Engineering' }),
+    ).not.toBeInTheDocument();
   });
 
   it('progress bar fill uses semantic-on-track at avg ≥ 50 (issue #385)', () => {

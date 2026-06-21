@@ -15,7 +15,12 @@
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import type { BoardSortKey } from '@/hooks/useBoardSavedViews';
 import type { BoardDensity, EvmMode } from './BoardCard';
-import type { BoardLayoutVariant, BacklogDensity, BoardZoom } from '@/hooks/useBoardToolbarPrefs';
+import type {
+  BoardLayoutVariant,
+  BacklogDensity,
+  BoardZoom,
+  BoardGroupMode,
+} from '@/hooks/useBoardToolbarPrefs';
 import { BoardViewDropdown } from './BoardViewDropdown';
 import { BoardSprintSwitcher } from './BoardSprintSwitcher';
 import { BoardSearchControl } from './BoardSearchControl';
@@ -236,8 +241,10 @@ export interface CalmToolbarProps {
   sprints: ApiSprint[];
   selectedSprintId: string | null;
   onSelectSprint: (id: string | null) => void;
-  // Group (single option for now — chip kept for future grouping modes)
-  groupBy: string;
+  // Group swimlanes by phase or assignee (issue 324). Persisted via
+  // useBoardToolbarPrefs; team grouping is a deferred follow-up.
+  groupBy: BoardGroupMode;
+  onGroupByChange: (g: BoardGroupMode) => void;
   // Sort
   sort: BoardSortKey;
   onSortChange: (s: BoardSortKey) => void;
@@ -305,6 +312,11 @@ const EVM_LABELS: Record<EvmMode, string> = {
   both: 'Both',
 };
 
+const GROUP_LABELS: Record<BoardGroupMode, string> = {
+  phase: 'Phase',
+  assignee: 'By assignee',
+};
+
 export function CalmToolbar(props: CalmToolbarProps) {
   const [openChip, setOpenChip] = useState<'group' | 'sort' | 'density' | 'more' | null>(null);
   const toggle = (chip: typeof openChip) => setOpenChip((prev) => (prev === chip ? null : chip));
@@ -365,21 +377,35 @@ export function CalmToolbar(props: CalmToolbarProps) {
       {/* Primary chips */}
       <ToolbarChip
         label="Group"
-        value={props.groupBy}
+        value={GROUP_LABELS[props.groupBy]}
         ariaLabel="Group lanes by"
         isOpen={openChip === 'group'}
         onToggle={() => toggle('group')}
       >
-        <div className="flex flex-col gap-1">
-          <button
-            type="button"
-            className="rounded-control px-2 py-1 text-left text-xs bg-brand-primary/10 text-brand-primary-dark dark:text-brand-primary"
-            disabled
-          >
-            Phase (WBS rollup)
-          </button>
-          <p className="px-2 py-1 text-xs text-neutral-text-secondary">
-            More grouping modes coming in a later release.
+        <div role="radiogroup" aria-label="Group lanes by" className="flex flex-col gap-0.5">
+          {(Object.keys(GROUP_LABELS) as BoardGroupMode[]).map((key) => (
+            <button
+              key={key}
+              type="button"
+              role="radio"
+              aria-checked={props.groupBy === key}
+              onClick={() => {
+                props.onGroupByChange(key);
+                setOpenChip(null);
+              }}
+              className={[
+                'rounded-control px-2 py-1 text-left text-xs',
+                'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none',
+                props.groupBy === key
+                  ? 'bg-brand-primary/10 text-brand-primary-dark dark:text-brand-primary'
+                  : 'text-neutral-text-primary hover:bg-neutral-surface-raised',
+              ].join(' ')}
+            >
+              {GROUP_LABELS[key]}
+            </button>
+          ))}
+          <p className="px-2 pt-1 text-[11px] text-neutral-text-secondary">
+            Team grouping is coming in a later release.
           </p>
         </div>
       </ToolbarChip>
