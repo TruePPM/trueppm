@@ -450,7 +450,7 @@ def _git_webhook_url(request: Request, project_pk: Any) -> str:
 
 
 @extend_schema(tags=["integrations"])
-class GitWebhookIngestView(APIView):
+class GitWebhookIngestView(IdempotencyMixin, APIView):
     """Inbound Git-event receiver — ``POST .../{project_pk}/git-webhook/`` (#329, ADR-0158).
 
     The OSS Git-event board-card auto-move receiver. **The signature is the gate** —
@@ -466,10 +466,13 @@ class GitWebhookIngestView(APIView):
     multi-provider bidirectional Integration Hub remains Enterprise.
     """
 
-    # IdempotencyMixin is intentionally absent: inbound webhooks have no JWT user to
-    # key the HTTP idempotency model on; dedup is handled by claim_webhook_delivery.
     from .throttles import GitWebhookThrottle
 
+    # Exempt from the HTTP idempotency model: an inbound webhook carries no JWT user
+    # to key the Idempotency-Key store on. Replay safety comes from two purpose-built
+    # layers instead — the Redis SET NX EX delivery claim and the forward-only status
+    # guard (a redelivered move is a no-op even if Redis is unavailable).
+    idempotency_exempt = True
     authentication_classes: list[type] = []
     permission_classes = [AllowAny]
     throttle_classes = [GitWebhookThrottle]
@@ -553,7 +556,7 @@ class GitWebhookIngestView(APIView):
 
 
 @extend_schema(tags=["integrations"])
-class GitAutomationConfigView(APIView):
+class GitAutomationConfigView(IdempotencyMixin, APIView):
     """``GET|PUT /api/v1/integrations/projects/{project_pk}/git-automation/`` — config (#329).
 
     Project-admin only (Owner/Admin). Reads/sets the off-by-default toggle and
@@ -561,6 +564,9 @@ class GitAutomationConfigView(APIView):
     minted/rotated through :class:`GitAutomationRotateSecretView` and returned once.
     """
 
+    # The PUT sets ``enabled`` to an explicit value on the per-project singleton, so a
+    # replay converges to the same state (naturally idempotent — no replayable resource).
+    idempotency_exempt = True
     permission_classes = [IsAuthenticated, IsProjectAdmin]
 
     def _config_payload(self, request: Request, automation: BoardAutomation) -> dict[str, Any]:
@@ -597,7 +603,7 @@ class GitAutomationConfigView(APIView):
 
 
 @extend_schema(tags=["integrations"])
-class GitAutomationRotateSecretView(APIView):
+class GitAutomationRotateSecretView(IdempotencyMixin, APIView):
     """``POST .../git-automation/rotate-secret/`` — mint a new webhook secret (#329).
 
     Project-admin only. Generates a fresh URL-safe secret, stores it Fernet-encrypted,
@@ -605,6 +611,11 @@ class GitAutomationRotateSecretView(APIView):
     (the GET endpoint only reports whether a secret is set).
     """
 
+    # Exempt: the secret lives in a single column on the per-project singleton, so a
+    # double rotation is last-write-wins — only one secret is ever active and a replay
+    # cannot mint a parallel credential. This is a deliberate admin action, not a
+    # retry-prone client mutation.
+    idempotency_exempt = True
     permission_classes = [IsAuthenticated, IsProjectAdmin]
 
     def post(self, request: Request, project_pk: str) -> Response:
