@@ -9158,6 +9158,86 @@
                 }
             }
         },
+        "/api/v1/projects/{project_pk}/board/activity/": {
+            "get": {
+                "operationId": "v1_projects_board_activity_retrieve",
+                "description": "GET the board's filterable, time-ordered activity feed (Viewer+).",
+                "summary": "Board-level activity feed (filterable, board-scoped)",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "actor",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Filter to one actor (user id)."
+                    },
+                    {
+                        "in": "query",
+                        "name": "limit",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Page size (1..100, default 50)."
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "since",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Lower time bound (inclusive ISO datetime)."
+                    },
+                    {
+                        "in": "query",
+                        "name": "type",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Comma-separated event types: comment_added, entered_sprint, exited_sprint, moved_sprint, task_created, task_deleted, task_updated."
+                    },
+                    {
+                        "in": "query",
+                        "name": "until",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Keyset cursor — events older than this ISO datetime (default now)."
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/BoardActivityResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{project_pk}/export/msproject.xml": {
             "get": {
                 "operationId": "v1_projects_export_msproject.xml_retrieve",
@@ -21534,6 +21614,110 @@
                 "type": "string",
                 "description": "* `dependency` - Waiting on dependency\n* `resource` - Missing resource\n* `vendor` - External vendor\n* `decision` - Decision needed\n* `other` - Other"
             },
+            "BoardActivityChange": {
+                "type": "object",
+                "properties": {
+                    "field": {
+                        "type": "string"
+                    },
+                    "old": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "new": {
+                        "type": "string",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "field",
+                    "new",
+                    "old"
+                ]
+            },
+            "BoardActivityEvent": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "event_type": {
+                        "$ref": "#/components/schemas/BoardActivityEventEventTypeEnum"
+                    },
+                    "actor": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "actor_id": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "task_id": {
+                        "type": "string"
+                    },
+                    "task_name": {
+                        "type": "string"
+                    },
+                    "sprint_id": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "changes": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/BoardActivityChange"
+                        }
+                    }
+                },
+                "required": [
+                    "actor",
+                    "actor_id",
+                    "changes",
+                    "event_type",
+                    "id",
+                    "sprint_id",
+                    "task_id",
+                    "task_name",
+                    "timestamp"
+                ]
+            },
+            "BoardActivityEventEventTypeEnum": {
+                "enum": [
+                    "comment_added",
+                    "entered_sprint",
+                    "exited_sprint",
+                    "moved_sprint",
+                    "task_created",
+                    "task_deleted",
+                    "task_updated"
+                ],
+                "type": "string",
+                "description": "* `comment_added` - comment_added\n* `entered_sprint` - entered_sprint\n* `exited_sprint` - exited_sprint\n* `moved_sprint` - moved_sprint\n* `task_created` - task_created\n* `task_deleted` - task_deleted\n* `task_updated` - task_updated"
+            },
+            "BoardActivityResponse": {
+                "type": "object",
+                "properties": {
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/BoardActivityEvent"
+                        }
+                    },
+                    "next_until": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "next_until",
+                    "results"
+                ]
+            },
             "BoardCardSearchResult": {
                 "type": "object",
                 "properties": {
@@ -22182,7 +22366,7 @@
                 "type": "string",
                 "description": "* `open` - Open\n* `suggest_approve` - Suggest & Approve\n* `pm_only` - PM Only"
             },
-            "EventTypeEnum": {
+            "EventType1fcEnum": {
                 "enum": [
                     "task.created",
                     "task.updated",
@@ -31780,7 +31964,7 @@
                     "event_type": {
                         "allOf": [
                             {
-                                "$ref": "#/components/schemas/EventTypeEnum"
+                                "$ref": "#/components/schemas/EventType1fcEnum"
                             }
                         ],
                         "readOnly": true
