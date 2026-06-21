@@ -13,6 +13,7 @@ import { SettingsPageTitle, SettingsCard } from '../SettingsShell';
 import { registry } from '@/lib/widget-registry';
 import { WebhooksManager } from '../components/integrations/WebhooksManager';
 import { ApiTokensManager } from '../components/integrations/ApiTokensManager';
+import { GitAutomationManager } from '../components/integrations/GitAutomationManager';
 import { ConnectorRoadmapCard } from '../ConnectorRoadmapCard';
 
 export function ProjectIntegrationsPage() {
@@ -34,6 +35,10 @@ export function ProjectIntegrationsPage() {
           <WebhooksManager scope={scope} />
           <ApiTokensManager scope={scope} />
         </div>
+
+        {/* Git-event board automation is project-scoped only (issue 1257 / issue 329); the
+            section hides itself below the project-admin role. */}
+        <GitAutomationManager projectId={projectId} />
 
         <ConnectedAccountsTeaser />
 
