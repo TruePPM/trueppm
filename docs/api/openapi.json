@@ -20953,11 +20953,7 @@
                         "readOnly": true
                     },
                     "event_type": {
-                        "allOf": [
-                            {
-                                "$ref": "#/components/schemas/AuditEventEventTypeEnum"
-                            }
-                        ],
+                        "type": "string",
                         "readOnly": true
                     },
                     "actor_id": {
@@ -21003,20 +20999,6 @@
                     "target_label",
                     "target_type"
                 ]
-            },
-            "AuditEventEventTypeEnum": {
-                "enum": [
-                    "member_added",
-                    "member_removed",
-                    "member_role_changed",
-                    "ownership_transferred",
-                    "project_created",
-                    "project_deleted",
-                    "workspace_settings_changed",
-                    "workspace_export_triggered"
-                ],
-                "type": "string",
-                "description": "* `member_added` - Member added\n* `member_removed` - Member removed\n* `member_role_changed` - Member role changed\n* `ownership_transferred` - Ownership transferred\n* `project_created` - Project created\n* `project_deleted` - Project deleted\n* `workspace_settings_changed` - Workspace settings changed\n* `workspace_export_triggered` - Workspace export triggered"
             },
             "BacklogItem": {
                 "type": "object",
@@ -22007,7 +21989,7 @@
                 "type": "string",
                 "description": "* `open` - Open\n* `suggest_approve` - Suggest & Approve\n* `pm_only` - PM Only"
             },
-            "EventType1fcEnum": {
+            "EventTypeEnum": {
                 "enum": [
                     "task.created",
                     "task.updated",
@@ -31570,7 +31552,7 @@
                     "event_type": {
                         "allOf": [
                             {
-                                "$ref": "#/components/schemas/EventType1fcEnum"
+                                "$ref": "#/components/schemas/EventTypeEnum"
                             }
                         ],
                         "readOnly": true

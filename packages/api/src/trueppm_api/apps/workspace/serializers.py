@@ -431,6 +431,13 @@ class AuditEventSerializer(serializers.ModelSerializer[AuditEvent]):
     """
 
     actor_id = serializers.IntegerField(read_only=True, allow_null=True)
+    # Declared as a plain string rather than letting ModelSerializer infer a
+    # ChoiceField. A ChoiceField emits an `event_type`-named enum component that
+    # collides with the webhook `event_type` enum (also `EventTypeEnum`), which
+    # makes drf-spectacular hash-rename the existing stable component — a
+    # schema-drift regression (project memory project_drf_enum_name_collision).
+    # This is a read-only log field; the allowed values live in AuditEventType.
+    event_type = serializers.CharField(read_only=True)
 
     class Meta:
         model = AuditEvent
