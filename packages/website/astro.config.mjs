@@ -106,6 +106,7 @@ export default defineConfig({
             { slug: "administration/audit-log" },
             { slug: "administration/sharing-and-access" },
             { slug: "administration/attachment-policy" },
+            { slug: "administration/git-event-automation" },
           ],
         },
         // --- Feature reference (sub-grouped) ---

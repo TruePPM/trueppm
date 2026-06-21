@@ -25,6 +25,12 @@ vi.mock('../components/integrations/ApiTokensManager', () => ({
   ),
 }));
 
+vi.mock('../components/integrations/GitAutomationManager', () => ({
+  GitAutomationManager: ({ projectId }: { projectId: string }) => (
+    <div data-testid="git-automation-manager">{projectId}</div>
+  ),
+}));
+
 beforeEach(() => {
   useProjectId.mockReturnValue('p-1');
 });
@@ -35,6 +41,7 @@ describe('ProjectIntegrationsPage', () => {
     expect(screen.getByRole('heading', { name: 'Integrations' })).toBeInTheDocument();
     expect(screen.getByTestId('webhooks-manager')).toHaveTextContent('project:p-1');
     expect(screen.getByTestId('tokens-manager')).toHaveTextContent('project:p-1');
+    expect(screen.getByTestId('git-automation-manager')).toHaveTextContent('p-1');
   });
 
   it('renders the connected-accounts teaser', () => {
