@@ -169,4 +169,43 @@ describe('VelocityPanel', () => {
     // 3 displayed − 1 excluded = 2 counted.
     expect(screen.getByText(/\(last 2\)/)).toBeInTheDocument();
   });
+
+  // AC3 (#485): the bar chart carries a visual rolling-average trendline, not
+  // only the numeric "{avg} ± {stdev}" text. The line is decorative (aria-hidden)
+  // because the value is already in the text + sr-only legend.
+  it('renders the rolling-average trendline when an average exists', () => {
+    const { container } = render(
+      <VelocityPanel
+        velocity={makeVelocity({
+          sprints: [makeSprint({})],
+          rolling_avg_points: 30,
+        })}
+      />,
+    );
+    const avgLine = container.querySelector('[data-testid="velocity-avg-line"]');
+    expect(avgLine).toBeInTheDocument();
+    expect(avgLine).toHaveAttribute('aria-hidden', 'true');
+    expect(avgLine?.querySelector('line')).toBeInTheDocument();
+    // The sr-only legend names the line for screen-reader users (WCAG 1.4.1).
+    expect(
+      container.querySelector('#velocity-band-legend')?.textContent,
+    ).toMatch(/dashed horizontal line marks the rolling average/i);
+  });
+
+  it('omits the trendline when there is no rolling average yet', () => {
+    const { container } = render(
+      <VelocityPanel
+        velocity={makeVelocity({
+          sprints: [makeSprint({})],
+          rolling_avg_points: null,
+        })}
+      />,
+    );
+    expect(
+      container.querySelector('[data-testid="velocity-avg-line"]'),
+    ).not.toBeInTheDocument();
+    expect(
+      container.querySelector('#velocity-band-legend')?.textContent,
+    ).not.toMatch(/rolling average/i);
+  });
 });
