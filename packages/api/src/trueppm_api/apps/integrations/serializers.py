@@ -248,3 +248,25 @@ def serialize_credential_summaries(
             }
         )
     return out
+
+
+class GitAutomationConfigSerializer(serializers.Serializer[Any]):
+    """Read view of a project's Git-event card automation (#329, ADR-0158).
+
+    Never renders the secret — only whether one is set. ``webhook_url`` is the
+    per-project endpoint the admin pastes into GitHub/GitLab; the secret travels
+    in the provider's signature header, never in the URL.
+    """
+
+    enabled = serializers.BooleanField()
+    secret_set = serializers.BooleanField()
+    webhook_url = serializers.CharField()
+    configured_by = serializers.UUIDField(allow_null=True)
+    secret_set_at = serializers.DateTimeField(allow_null=True)
+    updated_at = serializers.DateTimeField(allow_null=True)
+
+
+class GitAutomationUpdateSerializer(serializers.Serializer[Any]):
+    """Write payload for toggling Git-event automation (project-admin only)."""
+
+    enabled = serializers.BooleanField()

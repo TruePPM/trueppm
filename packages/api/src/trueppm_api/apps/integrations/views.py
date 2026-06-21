@@ -18,7 +18,8 @@ Credentials URL contract:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+import secrets
+from typing import TYPE_CHECKING, Any, cast
 
 from django.db import transaction
 from django.http import Http404
@@ -27,26 +28,32 @@ from django.utils import timezone
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import BasePermission, IsAuthenticated
+from rest_framework.permissions import AllowAny, BasePermission, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from trueppm_api.apps.access.models import ProjectMembership
 from trueppm_api.apps.access.permissions import (
+    IsProjectAdmin,
     IsProjectMember,
     IsProjectMemberWrite,
     IsProjectNotArchived,
     ProjectScopedViewSet,
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
-from trueppm_api.apps.projects.models import Task
+from trueppm_api.apps.projects.models import Project, Task
 
-from . import providers
-from .models import IntegrationCredential, TaskLink
+from . import git_webhook_auth, providers
+from .encryption import CredentialEncryptionError, decrypt_secret
+from .git_automation_services import apply_git_event_to_card
+from .models import BoardAutomation, IntegrationCredential, TaskLink
 from .registry import TASK_LINK_PROVIDERS, TaskLinkProvider
 from .serializers import (
     CredentialSummarySerializer,
     CredentialUpsertSerializer,
     CredentialVerificationErrorSerializer,
+    GitAutomationConfigSerializer,
+    GitAutomationUpdateSerializer,
     TaskLinkCredentialRequiredSerializer,
     TaskLinkSerializer,
     serialize_credential_summaries,
@@ -431,3 +438,197 @@ class TaskLinkViewSet(
             )
         )
         return Response(TaskLinkSerializer(link).data)
+
+
+def _git_webhook_url(request: Request, project_pk: Any) -> str:
+    """Absolute URL of a project's inbound Git-webhook receiver (admin pastes this)."""
+    from django.urls import reverse
+
+    return request.build_absolute_uri(
+        reverse("git-webhook", kwargs={"project_pk": str(project_pk)})
+    )
+
+
+@extend_schema(tags=["integrations"])
+class GitWebhookIngestView(APIView):
+    """Inbound Git-event receiver — ``POST .../{project_pk}/git-webhook/`` (#329, ADR-0158).
+
+    The OSS Git-event board-card auto-move receiver. **The signature is the gate** —
+    this endpoint is unauthenticated-by-session (``AllowAny``); a GitHub
+    ``X-Hub-Signature-256`` HMAC or a GitLab ``X-Gitlab-Token`` over the project's
+    secret is what authorizes the call. A bad/missing signature is a hard 401, and
+    a project without enabled automation is a 404 so the endpoint never reveals
+    which projects have automation configured.
+
+    OSS boundary (ADR-0097 carve-out, mirroring ADR-0148): a single project-scoped,
+    off-by-default, one-way Git→card receiver. No org connector, no OAuth, no
+    bidirectional sync, no conflict resolution, no reconciliation loop. The general
+    multi-provider bidirectional Integration Hub remains Enterprise.
+    """
+
+    # IdempotencyMixin is intentionally absent: inbound webhooks have no JWT user to
+    # key the HTTP idempotency model on; dedup is handled by claim_webhook_delivery.
+    from .throttles import GitWebhookThrottle
+
+    authentication_classes: list[type] = []
+    permission_classes = [AllowAny]
+    throttle_classes = [GitWebhookThrottle]
+
+    def post(self, request: Request, project_pk: str) -> Response:
+        from .throttles import claim_webhook_delivery
+
+        # Read the raw body BEFORE touching request.data — the HMAC must be checked
+        # against the exact bytes the provider signed, and accessing request.data
+        # consumes the stream.
+        raw_body = request.body
+
+        # 404 (not 401) when there is no enabled automation: do not leak which
+        # projects have it configured. Scope out soft-deleted projects too.
+        automation = (
+            BoardAutomation.objects.filter(
+                project_id=project_pk,
+                enabled=True,
+                project__is_deleted=False,
+            )
+            .select_related("project")
+            .first()
+        )
+        if automation is None or not automation.has_secret:
+            raise Http404
+
+        provider = git_webhook_auth.detect_provider(request.headers)
+        if provider is None:
+            raise Http404
+
+        try:
+            secret = decrypt_secret(automation.secret_ciphertext)
+        except CredentialEncryptionError:
+            # Secret unreadable (key rotated without re-encrypt) → cannot verify.
+            return Response(
+                {"detail": "Signature verification unavailable."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        try:
+            git_webhook_auth.verify_signature(provider, secret, raw_body, request.headers)
+        except git_webhook_auth.WebhookSignatureError:
+            return Response({"detail": "Invalid signature."}, status=status.HTTP_401_UNAUTHORIZED)
+
+        payload = request.data
+        if not isinstance(payload, dict):
+            return Response(
+                {"detail": "Malformed webhook payload."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        envelope = git_webhook_auth.parse_envelope(provider, request.headers, payload)
+        if envelope.event is None:
+            # A configured-but-irrelevant event (push, comment, draft, close). Not an
+            # error — return 2xx so the provider does not retry.
+            return Response(
+                {"matched": False, "moved": False, "ignored": envelope.raw_event_name},
+                status=status.HTTP_200_OK,
+            )
+
+        # Idempotency: a provider redelivery of the same event is a no-op. The
+        # forward-only guard in the service is a second, Redis-independent layer.
+        if not claim_webhook_delivery(project_pk, envelope.delivery_key):
+            return Response(
+                {"matched": False, "moved": False, "reason": "duplicate"},
+                status=status.HTTP_200_OK,
+            )
+
+        result = apply_git_event_to_card(automation, provider, envelope.event, envelope.pr_url)
+        return Response(
+            {
+                "matched": result.matched,
+                "moved": result.moved,
+                "task": result.task_id,
+                "from": result.from_status,
+                "to": result.to_status,
+                "reason": result.reason,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+@extend_schema(tags=["integrations"])
+class GitAutomationConfigView(APIView):
+    """``GET|PUT /api/v1/integrations/projects/{project_pk}/git-automation/`` — config (#329).
+
+    Project-admin only (Owner/Admin). Reads/sets the off-by-default toggle and
+    surfaces the webhook URL and whether a secret is set. The secret itself is
+    minted/rotated through :class:`GitAutomationRotateSecretView` and returned once.
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectAdmin]
+
+    def _config_payload(self, request: Request, automation: BoardAutomation) -> dict[str, Any]:
+        return {
+            "enabled": automation.enabled,
+            "secret_set": automation.has_secret,
+            "webhook_url": _git_webhook_url(request, automation.project_id),
+            "configured_by": automation.configured_by_id,
+            "secret_set_at": automation.secret_set_at,
+            "updated_at": automation.updated_at,
+        }
+
+    def _get_or_init(self, project_pk: str) -> BoardAutomation:
+        project = get_object_or_404(Project, pk=project_pk, is_deleted=False)
+        automation, _ = BoardAutomation.objects.get_or_create(project=project)
+        return automation
+
+    def get(self, request: Request, project_pk: str) -> Response:
+        automation = self._get_or_init(project_pk)
+        data = GitAutomationConfigSerializer(self._config_payload(request, automation)).data
+        return Response(data)
+
+    def put(self, request: Request, project_pk: str) -> Response:
+        serializer = GitAutomationUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        automation = self._get_or_init(project_pk)
+        automation.enabled = serializer.validated_data["enabled"]
+        # request.user is a real User here (IsAuthenticated gates this view); the
+        # cast narrows away the AnonymousUser arm the field FK does not accept.
+        automation.configured_by = cast("Any", request.user)
+        automation.save(update_fields=["enabled", "configured_by", "updated_at"])
+        data = GitAutomationConfigSerializer(self._config_payload(request, automation)).data
+        return Response(data)
+
+
+@extend_schema(tags=["integrations"])
+class GitAutomationRotateSecretView(APIView):
+    """``POST .../git-automation/rotate-secret/`` — mint a new webhook secret (#329).
+
+    Project-admin only. Generates a fresh URL-safe secret, stores it Fernet-encrypted,
+    and returns the plaintext **once** in the response — it is never retrievable again
+    (the GET endpoint only reports whether a secret is set).
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectAdmin]
+
+    def post(self, request: Request, project_pk: str) -> Response:
+        project = get_object_or_404(Project, pk=project_pk, is_deleted=False)
+        # 256 bits of entropy, URL-safe so it pastes cleanly into a provider's
+        # webhook secret field.
+        plaintext = secrets.token_urlsafe(32)
+        with transaction.atomic():
+            automation, _ = BoardAutomation.objects.get_or_create(project=project)
+            automation.set_secret(plaintext)
+            automation.configured_by = cast("Any", request.user)
+            automation.save(
+                update_fields=[
+                    "secret_ciphertext",
+                    "secret_set_at",
+                    "configured_by",
+                    "updated_at",
+                ]
+            )
+        return Response(
+            {
+                "secret": plaintext,
+                "webhook_url": _git_webhook_url(request, project.pk),
+                "secret_set_at": automation.secret_set_at,
+            },
+            status=status.HTTP_201_CREATED,
+        )

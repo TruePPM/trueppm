@@ -228,3 +228,78 @@ class TaskLink(VersionedModel):
 
         if TASK_LINK_PROVIDERS.get(self.provider) is None:
             raise ValidationError({"provider": f"Unknown provider {self.provider!r}."})
+
+
+class BoardAutomation(models.Model):
+    """Per-project Git-event card automation config (#329, ADR-0158).
+
+    Holds the off-by-default toggle and the shared webhook secret for a single
+    project's inbound Git-event auto-move. When ``enabled`` and a matching
+    ``TaskLink`` exists, a verified ``pull_request``/``merge_request`` webhook
+    advances that task's board status forward (opened → REVIEW, merged →
+    COMPLETE) through the normal ``TaskSerializer`` write path.
+
+    Plain ``models.Model`` (not ``VersionedModel``) — like ``IntegrationCredential``
+    this is project configuration that is **never** synced to the mobile offline
+    client; it carries a secret and has no place in the sync delta.
+
+    The secret is **Fernet-encrypted, not hashed.** Signature verification needs
+    the plaintext at request time — GitLab compares ``X-Gitlab-Token`` directly and
+    GitHub recomputes ``HMAC-SHA256`` over the raw body — so the one-way SHA-256
+    pattern used for ``ApiToken`` cannot work here. We reuse ``IntegrationCredential``'s
+    at-rest pattern (``BinaryField`` + ``encryption.encrypt_secret``). The plaintext
+    is shown once on rotation and never returned again.
+
+    ``configured_by`` is the admin who enabled automation; it becomes the
+    accountable ``request.user`` for the status write (mirrors ADR-0148 using
+    ``token.created_by``) so RBAC and ``django-simple-history`` see a real user,
+    while the activity timeline still classifies the edit as automation via the
+    ``history_change_reason`` (ADR-0096).
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.OneToOneField(
+        "projects.Project",
+        on_delete=models.CASCADE,
+        related_name="git_automation",
+    )
+    # Off by default (AC1): automation never fires until an admin opts in.
+    enabled = models.BooleanField(default=False)
+    # Fernet-encrypted webhook secret; never returned to any client. Empty until
+    # an admin mints one via the rotate-secret endpoint.
+    secret_ciphertext = models.BinaryField(blank=True, default=b"")
+    # When the current secret was minted/rotated — drives the "secret set" hint.
+    secret_set_at = models.DateTimeField(null=True, blank=True)
+    configured_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "board automation"
+        verbose_name_plural = "board automations"
+
+    def __str__(self) -> str:
+        state = "on" if self.enabled else "off"
+        return f"BoardAutomation(project={self.project_id}, {state})"
+
+    @property
+    def has_secret(self) -> bool:
+        """Whether a webhook secret has been minted (drives ``secret_set`` in the API)."""
+        return bool(self.secret_ciphertext)
+
+    def set_secret(self, plaintext: str) -> None:
+        """Fernet-encrypt and store ``plaintext`` as the webhook secret.
+
+        Does not save — the caller persists inside its own transaction so the
+        secret and ``secret_set_at`` land atomically.
+        """
+        from django.utils import timezone
+
+        self.secret_ciphertext = encrypt_secret(plaintext)
+        self.secret_set_at = timezone.now()
