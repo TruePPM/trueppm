@@ -37,6 +37,8 @@ from django.utils import timezone
 
 from trueppm_api.apps.access.models import ProjectMembership
 from trueppm_api.apps.workspace.models import (
+    AuditEvent,
+    AuditEventType,
     ExportJobStatus,
     GroupMembership,
     GroupProject,
@@ -48,6 +50,7 @@ from trueppm_api.apps.workspace.models import (
     WorkspaceMembership,
     WorkspaceRole,
 )
+from trueppm_api.apps.workspace.signals import audit_event_created
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +101,62 @@ def workspace_owner_user_ids(exclude_user_id: _PK | None = None) -> set[Any]:
 def would_strand_workspace(user_id: _PK) -> bool:
     """True if removing/demoting ``user_id`` would leave the workspace ownerless."""
     return len(workspace_owner_user_ids(exclude_user_id=user_id)) == 0
+
+
+# ---------------------------------------------------------------------------
+# Operational audit log (ADR-0157, #859)
+# ---------------------------------------------------------------------------
+
+
+def _actor_label(actor: Any) -> str:
+    """Human-readable display for an audit actor, captured at event time.
+
+    Denormalized onto the row so the log stays readable after the user is deleted
+    (the ``actor`` FK then resolves to NULL). Prefers a full name, then email,
+    then username; an absent actor (system action) yields an empty string.
+    """
+    if actor is None or not getattr(actor, "pk", None):
+        return ""
+    full_name = ""
+    get_full_name = getattr(actor, "get_full_name", None)
+    if callable(get_full_name):
+        full_name = (get_full_name() or "").strip()
+    label = full_name or getattr(actor, "email", "") or actor.get_username()
+    return label[:255]
+
+
+def record_audit_event(
+    *,
+    event_type: str,
+    actor: Any,
+    target_type: str = "",
+    target_id: Any = None,
+    target_label: str = "",
+    metadata: dict[str, Any] | None = None,
+) -> AuditEvent:
+    """Write one operational ``AuditEvent`` and fan it out to enterprise receivers.
+
+    The single choke point for the OSS audit log (ADR-0157): every emission site
+    calls this rather than ``AuditEvent.objects.create`` directly. The row is
+    written synchronously inside the caller's transaction (so it rolls back with a
+    failed action — the log never claims an action that did not happen), and the
+    ``audit_event_created`` signal is fired from ``transaction.on_commit`` with
+    ``send_robust`` so a raising enterprise receiver is swallowed-and-logged and
+    can never break the OSS write path. OSS itself connects no receiver.
+    """
+    event = AuditEvent.objects.create(
+        actor=actor if (actor is not None and getattr(actor, "pk", None)) else None,
+        actor_label=_actor_label(actor),
+        event_type=event_type,
+        target_type=target_type,
+        target_id=target_id,
+        target_label=(target_label or "")[:512],
+        metadata=metadata or {},
+    )
+    transaction.on_commit(
+        lambda: audit_event_created.send_robust(sender=AuditEvent, audit_event=event)
+    )
+    return event
 
 
 # ---------------------------------------------------------------------------
@@ -168,6 +227,17 @@ def transfer_workspace_ownership(*, new_owner: Any, actor: Any) -> WorkspaceMemb
             actor_row.role_changed_at = timezone.now()
             actor_row.save(update_fields=["role", "role_changed_at"])
 
+        # Audit inside the same transaction so the row rolls back with a failed
+        # transfer. target_id is left null — a User PK is an int, not a UUID — and
+        # the new owner's id is carried in metadata instead (ADR-0157).
+        record_audit_event(
+            event_type=AuditEventType.OWNERSHIP_TRANSFERRED,
+            actor=actor,
+            target_type="member",
+            target_label=_actor_label(new_owner),
+            metadata={"new_owner_user_id": new_owner.pk},
+        )
+
     return target
 
 
@@ -190,6 +260,16 @@ def enqueue_workspace_export(*, requested_by: Any) -> WorkspaceExportJob:
         return existing
 
     job = WorkspaceExportJob.objects.create(requested_by=requested_by)
+
+    # Audit only the path that actually queues a new export — the dedupe branch
+    # above returns an in-flight job without minting work, so it is not an event.
+    record_audit_event(
+        event_type=AuditEventType.EXPORT_TRIGGERED,
+        actor=requested_by,
+        target_type="workspace_export",
+        target_id=job.id,
+        target_label="Workspace export",
+    )
 
     def _dispatch() -> None:
         from trueppm_api.apps.workspace.tasks import run_workspace_export
@@ -704,7 +784,21 @@ def accept_invite(*, token: str, username: str = "", password: str = "") -> Any:
             user=user,
             defaults={"role": invite.role, "status": MemberStatus.ACTIVE},
         )
-        if not created:
+        if created:
+            # Self-service join: the actor is the invitee provisioning their own
+            # membership via a token (the endpoint is unauthenticated). Audited
+            # inside the provisioning transaction so it rolls back with it.
+            record_audit_event(
+                event_type=AuditEventType.MEMBER_ADDED,
+                actor=user,
+                target_type="member",
+                target_label=_actor_label(user),
+                metadata={
+                    "role": WorkspaceRole(membership.role).label,
+                    "source": "invite",
+                },
+            )
+        else:
             # A deactivated member must NOT be silently reactivated (or re-elevated)
             # by replaying a pending invite — that would let an admin's deactivation
             # be undone without admin consent. Reactivation is an explicit admin
@@ -715,12 +809,24 @@ def accept_invite(*, token: str, username: str = "", password: str = "") -> Any:
                     "before this invite can be used."
                 )
             changed = False
+            old_role = membership.role
             if invite.role > membership.role:
                 membership.role = invite.role
                 membership.role_changed_at = now
                 changed = True
             if changed:
                 membership.save()
+                record_audit_event(
+                    event_type=AuditEventType.MEMBER_ROLE_CHANGED,
+                    actor=user,
+                    target_type="member",
+                    target_label=_actor_label(user),
+                    metadata={
+                        "old_role": WorkspaceRole(old_role).label,
+                        "new_role": WorkspaceRole(membership.role).label,
+                        "source": "invite",
+                    },
+                )
 
         invite.status = InviteStatus.ACCEPTED
         invite.accepted_at = now

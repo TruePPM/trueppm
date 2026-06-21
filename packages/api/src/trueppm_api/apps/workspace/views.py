@@ -17,9 +17,11 @@ from django.db.models import Count, Q, QuerySet
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from django.utils.dateparse import parse_date, parse_datetime
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.pagination import CursorPagination
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
@@ -30,6 +32,8 @@ from rest_framework.views import APIView
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.workspace import services
 from trueppm_api.apps.workspace.models import (
+    AuditEvent,
+    AuditEventType,
     ExportJobStatus,
     Group,
     GroupMembership,
@@ -44,11 +48,13 @@ from trueppm_api.apps.workspace.models import (
 )
 from trueppm_api.apps.workspace.permissions import (
     IsWorkspaceAdmin,
+    IsWorkspaceAuditViewer,
     IsWorkspaceOwner,
     _workspace_membership_role,
     request_is_workspace_owner,
 )
 from trueppm_api.apps.workspace.serializers import (
+    AuditEventSerializer,
     GroupMemberAddSerializer,
     GroupProjectWriteSerializer,
     GroupSerializer,
@@ -228,6 +234,15 @@ class WorkspaceSettingsView(IdempotencyMixin, APIView):
         serializer = WorkspaceSettingsSerializer(workspace, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
+        # Audit the change (ADR-0157). Record which settings keys were touched —
+        # not their values, which may be large or sensitive (e.g. branding blobs).
+        services.record_audit_event(
+            event_type=AuditEventType.SETTINGS_CHANGED,
+            actor=request.user,
+            target_type="workspace",
+            target_label="Workspace settings",
+            metadata={"fields": sorted(serializer.validated_data.keys())},
+        )
         return Response(serializer.data)
 
     @extend_schema(
@@ -357,6 +372,7 @@ class WorkspaceMemberDetailView(IdempotencyMixin, APIView):
                     "You can only modify members with a role lower than your own."
                 )
 
+            role_changed_from: int | None = None
             if new_role is not None:
                 # An actor cannot grant a role above their own.
                 if actor_role is not None and new_role > actor_role:
@@ -371,6 +387,7 @@ class WorkspaceMemberDetailView(IdempotencyMixin, APIView):
                         {"detail": "Cannot demote the last Owner of the workspace."}
                     )
                 if new_role != membership.role:
+                    role_changed_from = membership.role
                     membership.role = new_role
                     membership.role_changed_at = timezone.now()
 
@@ -390,6 +407,21 @@ class WorkspaceMemberDetailView(IdempotencyMixin, APIView):
                 target.save(update_fields=["is_active"])
 
             membership.save()
+
+            # Audit a real role change (ADR-0157) inside the same transaction so
+            # it rolls back with a failed save. A status-only PATCH leaves
+            # role_changed_from None and records nothing here.
+            if role_changed_from is not None:
+                services.record_audit_event(
+                    event_type=AuditEventType.MEMBER_ROLE_CHANGED,
+                    actor=request.user,
+                    target_type="member",
+                    target_label=services._actor_label(target),
+                    metadata={
+                        "old_role": WorkspaceRole(role_changed_from).label,
+                        "new_role": WorkspaceRole(membership.role).label,
+                    },
+                )
 
         users = list(WorkspaceMemberListView()._annotated_users(User.objects.filter(pk=target.pk)))
         return Response(_build_member_rows(users)[0] if users else {})
@@ -432,6 +464,17 @@ class WorkspaceMemberDetailView(IdempotencyMixin, APIView):
             membership.save()
             target.is_active = False
             target.save(update_fields=["is_active"])
+
+            # Audit inside the same transaction so the row rolls back with a
+            # failed deactivation (ADR-0157). "Removed" here is a deactivation —
+            # the OSS workspace deactivates members rather than hard-deleting them.
+            services.record_audit_event(
+                event_type=AuditEventType.MEMBER_REMOVED,
+                actor=request.user,
+                target_type="member",
+                target_label=services._actor_label(target),
+                metadata={"role": WorkspaceRole(membership.role).label},
+            )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -925,3 +968,93 @@ class WorkspaceExportDownloadView(APIView):
             filename=f"workspace-export-{job.id}.tar.gz",
             content_type="application/gzip",
         )
+
+
+class AuditEventCursorPagination(CursorPagination):
+    """Stable, depth-independent pagination for the unbounded audit log (ADR-0157).
+
+    Cursor (not page-number) pagination because the log grows without bound and is
+    appended to concurrently — a cursor keyed on ``created_at`` stays correct under
+    inserts and is O(1) regardless of how deep the reader scrolls.
+    """
+
+    ordering = "-created_at"
+    page_size = 50
+    page_size_query_param = "page_size"
+    max_page_size = 200
+
+
+def _parse_audit_bound(value: str) -> Any:
+    """Parse a ``since``/``until`` filter into an aware datetime, or raise 400.
+
+    Accepts an ISO-8601 datetime or a bare date (interpreted as midnight). A naive
+    value is made timezone-aware in the active timezone.
+    """
+    import datetime as _datetime
+
+    parsed = parse_datetime(value)
+    if parsed is None:
+        as_date = parse_date(value)
+        if as_date is None:
+            raise ValidationError({"detail": f"Invalid date/time value: {value!r}."})
+        parsed = _datetime.datetime.combine(as_date, _datetime.time.min)
+    if timezone.is_naive(parsed):
+        parsed = timezone.make_aware(parsed)
+    return parsed
+
+
+class WorkspaceAuditEventListView(APIView):
+    """GET /api/v1/workspace/audit-events/ — operational audit log (ADR-0157, #859).
+
+    Owner/Admin only (``IsWorkspaceAuditViewer``). Cursor-paginated, newest first.
+    Optional filters, all ANDed: ``?event_type=`` (an ``AuditEventType`` value),
+    ``?actor=`` (user id), ``?since=`` / ``?until=`` (ISO-8601 on ``created_at``).
+    """
+
+    permission_classes = [IsAuthenticated, IsWorkspaceAuditViewer]
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "event_type",
+                str,
+                description="Filter to a single AuditEventType value.",
+            ),
+            OpenApiParameter("actor", int, description="Filter by actor user id."),
+            OpenApiParameter(
+                "since", str, description="Only events at/after this ISO-8601 instant."
+            ),
+            OpenApiParameter(
+                "until", str, description="Only events at/before this ISO-8601 instant."
+            ),
+        ],
+        responses={200: AuditEventSerializer(many=True)},
+    )
+    def get(self, request: Request) -> Response:
+        qs = AuditEvent.objects.select_related("actor").all()
+
+        event_type = request.query_params.get("event_type")
+        if event_type:
+            if event_type not in AuditEventType.values:
+                raise ValidationError({"detail": f"Unknown event_type: {event_type!r}."})
+            qs = qs.filter(event_type=event_type)
+
+        actor = request.query_params.get("actor")
+        if actor:
+            try:
+                actor_id = int(actor)
+            except (TypeError, ValueError) as exc:
+                raise ValidationError({"detail": "actor must be an integer user id."}) from exc
+            qs = qs.filter(actor_id=actor_id)
+
+        since = request.query_params.get("since")
+        if since:
+            qs = qs.filter(created_at__gte=_parse_audit_bound(since))
+        until = request.query_params.get("until")
+        if until:
+            qs = qs.filter(created_at__lte=_parse_audit_bound(until))
+
+        paginator = AuditEventCursorPagination()
+        page = paginator.paginate_queryset(qs, request, view=self)
+        data = AuditEventSerializer(page, many=True).data
+        return paginator.get_paginated_response(data)

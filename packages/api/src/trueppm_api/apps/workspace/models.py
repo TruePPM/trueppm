@@ -629,3 +629,76 @@ class WorkspaceExportJob(models.Model):
 
     def __str__(self) -> str:
         return f"WorkspaceExportJob({self.id}, {self.status})"
+
+
+class AuditEventType(models.TextChoices):
+    """Operational audit event verbs (ADR-0157, #859).
+
+    The set is **additive-only**: new verbs may be appended over time, but an
+    existing value is never renamed or removed — enterprise audit receivers and
+    already-stored rows must stay valid against it.
+    """
+
+    MEMBER_ADDED = "member_added", "Member added"
+    MEMBER_REMOVED = "member_removed", "Member removed"
+    MEMBER_ROLE_CHANGED = "member_role_changed", "Member role changed"
+    OWNERSHIP_TRANSFERRED = "ownership_transferred", "Ownership transferred"
+    PROJECT_CREATED = "project_created", "Project created"
+    PROJECT_DELETED = "project_deleted", "Project deleted"
+    SETTINGS_CHANGED = "workspace_settings_changed", "Workspace settings changed"
+    EXPORT_TRIGGERED = "workspace_export_triggered", "Workspace export triggered"
+
+
+class AuditEvent(models.Model):
+    """Append-only* operational audit row for workspace administration (ADR-0157, #859).
+
+    *Mutable in OSS — the model makes no immutability/signing/retention guarantee;
+    those are Enterprise concerns layered on via the ``audit_event_created`` signal
+    (``workspace/signals.py``). OSS just records "who did what, when" at the
+    workspace-admin grain (member/role/project/settings/export changes).
+
+    Plain (non-synced) ``models.Model`` — like ``WorkspaceExportJob`` and
+    ``SprintScopeChange``, an audit row is server-side operational metadata read
+    only through the Owner/Admin surface; it is **never** a mobile-offline sync
+    entity, so it carries no ``server_version``. There is no FK to ``Workspace``
+    because the OSS workspace is a singleton — a row always concerns the one
+    workspace (mirrors the ``WorkspaceExportJob`` rationale). The enterprise
+    receiver resolves the workspace itself when mirroring events into its
+    multi-tenant schema.
+
+    Actor and target are stored both as a best-effort FK/id **and** a denormalized
+    human-readable label, so the log stays readable after the user or target is
+    deleted (the ``SprintScopeChange.subtask_name`` idiom).
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="audit_events",
+    )
+    # Denormalized actor display captured at event time (email/name) so the row
+    # remains human-readable even after the user is deleted (actor FK → NULL).
+    actor_label = models.CharField(max_length=255, blank=True, default="")
+    event_type = models.CharField(max_length=40, choices=AuditEventType.choices, db_index=True)
+    target_type = models.CharField(max_length=40, blank=True, default="")
+    # Best-effort pointer; may dangle after a hard delete — the denormalized
+    # ``target_label`` is the source of truth for display.
+    target_id = models.UUIDField(null=True, blank=True)
+    target_label = models.CharField(max_length=512, blank=True, default="")
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        db_table = "workspace_auditevent"
+        ordering = ["-created_at"]
+        indexes = [
+            # Covers the ``?event_type=`` filter combined with the default
+            # reverse-chron ordering. Name ≤ 30 chars (Postgres identifier limit).
+            models.Index(fields=["event_type", "created_at"], name="auditevent_type_created_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"AuditEvent({self.event_type}, {self.created_at:%Y-%m-%d})"

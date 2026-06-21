@@ -401,6 +401,11 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
             user=self.request.user,  # type: ignore[misc]
             role=Role.OWNER,
         )
+        _record_project_audit_event(
+            event_type="project_created",
+            actor=self.request.user,
+            project=project,
+        )
         project_id = str(project.pk)
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "project_created", {"id": project_id})
@@ -451,6 +456,12 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
 
             ProjectMembership.objects.filter(project=instance).delete()
             Project.objects.filter(pk=instance.pk).delete()
+            _record_project_audit_event(
+                event_type="project_deleted",
+                actor=self.request.user,
+                project=instance,
+                metadata={"mode": "hard"},
+            )
             transaction.on_commit(
                 lambda: broadcast_board_event(
                     project_id, "project_hard_deleted", {"id": project_id}
@@ -459,6 +470,12 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
             return
 
         instance.soft_delete()
+        _record_project_audit_event(
+            event_type="project_deleted",
+            actor=self.request.user,
+            project=instance,
+            metadata={"mode": "soft"},
+        )
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "project_deleted", {"id": project_id})
         )
@@ -4955,6 +4972,31 @@ def _dispatch_webhooks(project_id: str, event_type: str, payload: dict) -> None:
     from trueppm_api.apps.webhooks.dispatch import dispatch_webhooks
 
     dispatch_webhooks(project_id, event_type, payload)
+
+
+def _record_project_audit_event(
+    *,
+    event_type: str,
+    actor: Any,
+    project: Project,
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    """Write a workspace operational audit row for a project lifecycle event.
+
+    Bridges projects → workspace (ADR-0157, #859) at call time only, via a
+    function-level import, so there is no module-load cycle. The row is written
+    inside the request transaction and rolls back if the action does.
+    """
+    from trueppm_api.apps.workspace.services import record_audit_event
+
+    record_audit_event(
+        event_type=event_type,
+        actor=actor,
+        target_type="project",
+        target_id=project.pk,
+        target_label=project.name,
+        metadata=metadata,
+    )
 
 
 def _notify_event(

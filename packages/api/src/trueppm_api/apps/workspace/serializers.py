@@ -16,6 +16,7 @@ from rest_framework import serializers
 from trueppm_api.apps.access.models import Role
 from trueppm_api.apps.workspace.models import (
     _MONTH_NAMES,
+    AuditEvent,
     ExportJobStatus,
     Group,
     MemberStatus,
@@ -418,3 +419,37 @@ class WorkspaceExportJobSerializer(serializers.ModelSerializer[WorkspaceExportJo
         if obj.status != ExportJobStatus.SUCCESS:
             return None
         return f"/api/v1/workspace/export/{obj.id}/download/"
+
+
+class AuditEventSerializer(serializers.ModelSerializer[AuditEvent]):
+    """Read serializer for an operational audit row (ADR-0157, #859).
+
+    Exposes both the actor FK id and the denormalized ``actor_label`` so the row
+    stays readable after the user is deleted (the FK then resolves to null). The
+    integer ``actor_id`` is the stock ``auth.User`` PK (TruePPM has no custom user
+    model); ``target_id`` is a nullable UUID best-effort pointer.
+    """
+
+    actor_id = serializers.IntegerField(read_only=True, allow_null=True)
+    # Declared as a plain string rather than letting ModelSerializer infer a
+    # ChoiceField. A ChoiceField emits an `event_type`-named enum component that
+    # collides with the webhook `event_type` enum (also `EventTypeEnum`), which
+    # makes drf-spectacular hash-rename the existing stable component — a
+    # schema-drift regression (project memory project_drf_enum_name_collision).
+    # This is a read-only log field; the allowed values live in AuditEventType.
+    event_type = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = AuditEvent
+        fields = [
+            "id",
+            "event_type",
+            "actor_id",
+            "actor_label",
+            "target_type",
+            "target_id",
+            "target_label",
+            "metadata",
+            "created_at",
+        ]
+        read_only_fields = fields

@@ -95,6 +95,25 @@ class IsWorkspaceOwner(BasePermission):
         return self.has_permission(request, view)
 
 
+class IsWorkspaceAuditViewer(BasePermission):
+    """ADMIN+ required for **every** method, reads included (ADR-0157, #859).
+
+    The audit log is Owner/Admin-visible only. ``IsWorkspaceAdmin`` is too loose
+    here — it admits any member on safe methods, but a plain Member must not read
+    who-did-what operational history. ``IsWorkspaceOwner`` is too strict (the log
+    is explicitly Admin-visible). This sits between them: ADMIN on all methods.
+    """
+
+    message = "You need workspace Admin access to view the audit log."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        role = _workspace_membership_role(request)
+        return role is not None and role >= WorkspaceRole.ADMIN
+
+    def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
+        return self.has_permission(request, view)
+
+
 def request_is_workspace_owner(request: Request) -> bool:
     """True when the requesting user holds the workspace OWNER role.
 
