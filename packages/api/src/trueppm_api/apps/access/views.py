@@ -522,6 +522,15 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
         serializer = ProgramMembershipWriteSerializer(instance, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         new_role = serializer.validated_data.get("role")
+        new_user = serializer.validated_data.get("user")
+
+        # Reassigning the access role or the member identity stays Owner-only (the
+        # ADR-0070 matrix). The freeform role_title (#565) is benign descriptive
+        # metadata — not enforced anywhere — so a role_title-only PATCH is allowed
+        # at Admin+. A request that also touches role/user is privileged and falls
+        # back to the Owner gate.
+        privileged_change = new_role is not None or new_user is not None
+        required_role = Role.OWNER if privileged_change else Role.ADMIN
 
         # Lock the actor's membership row inside an atomic block to close the
         # TOCTOU window where a concurrent demotion could let the actor assign
@@ -539,7 +548,7 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
                 raise PermissionDenied("You are not a member of this program.") from None
 
             actor_role = actor_membership.role
-            if actor_role < Role.OWNER:
+            if actor_role < required_role:
                 from rest_framework.exceptions import PermissionDenied
 
                 raise PermissionDenied("You do not have permission to perform this action.")

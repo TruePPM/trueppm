@@ -152,6 +152,14 @@ class ProgramMembership(VersionedModel):
     # stamped with timezone.now() only on an actual role change (the viewset
     # partial_update and transfer_program_sponsorship).
     role_changed_at = models.DateTimeField(null=True, blank=True, editable=False)
+    # Freeform functional-role label (#565), e.g. "Product Owner" / "Tech Lead" /
+    # "Scrum Master" — distinct from, and orthogonal to, the access ``role`` enum
+    # above. It is purely descriptive: not enforced anywhere, it anchors the
+    # PO-vs-PM sovereignty signals #501 will surface (a PM-labeled member dragging
+    # a story into an active sprint). Empty string is the single "unset" state
+    # (no nullable string, per project DJ001 convention); the serializer strips a
+    # whitespace-only submission back to "".
+    role_title = models.CharField(max_length=50, blank=True, default="")
 
     class Meta:
         db_table = "access_program_membership"
