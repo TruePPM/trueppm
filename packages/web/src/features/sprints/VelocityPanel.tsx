@@ -36,6 +36,10 @@ export function VelocityPanel({ velocity }: Props) {
     .map((s) => s.name)
     .join(', ');
   const chartW = sprints.length * (BAR_W + BAR_GAP) + BAR_GAP;
+  // Rolling-average reference line height. Guarded `avg <= max` so the line
+  // always sits inside the plot area (avg is a mean of completed points, so it
+  // can never exceed the chart's `max`, but the guard keeps the math safe).
+  const avgY = avg !== null && avg <= max ? CHART_H - (avg / max) * CHART_H : null;
 
   return (
     <section
@@ -172,6 +176,32 @@ export function VelocityPanel({ velocity }: Props) {
               </g>
             );
           })}
+          {avgY !== null && (
+            // Rolling-average trendline drawn ON TOP of the bars. Neutral ink
+            // (`neutral-text-primary`, navy) — never a semantic hue — so it stays
+            // distinct from the green/amber/red health bars and reverses in dark
+            // mode (rules 147/163). Decorative (`aria-hidden`): the numeric value
+            // is already in the `{avg} ± {stdev} pts` text and the sr-only legend.
+            <g aria-hidden="true" data-testid="velocity-avg-line">
+              <line
+                x1={0}
+                y1={avgY}
+                x2={chartW}
+                y2={avgY}
+                className="stroke-neutral-text-primary"
+                strokeWidth={1.5}
+                strokeDasharray="4 3"
+              />
+              <text
+                x={chartW - 2}
+                y={Math.max(avgY - 3, 9)}
+                textAnchor="end"
+                className="text-xs fill-neutral-text-secondary"
+              >
+                avg
+              </text>
+            </g>
+          )}
         </svg>
       )}
 
@@ -180,6 +210,7 @@ export function VelocityPanel({ velocity }: Props) {
         committed points completed, at risk is 60 to 85 percent, below target is
         under 60 percent. Sprints marked excluded are held out of the velocity
         average and forecast.
+        {avgY !== null && ' A dashed horizontal line marks the rolling average.'}
       </p>
 
       <p className="text-xs text-neutral-text-secondary italic">
