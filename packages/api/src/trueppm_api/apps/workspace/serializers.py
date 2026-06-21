@@ -253,6 +253,13 @@ class WorkspaceMemberSerializer(serializers.Serializer[Any]):
     project_count = serializers.IntegerField()
     last_active = serializers.CharField(allow_null=True)
     status = serializers.CharField()
+    # Resource-availability baseline (#542). The dict-builder emits the dates as
+    # ISO strings (or None), so these mirror the ``last_active`` CharField pattern
+    # rather than DateField — a read-only passthrough, no re-parsing.
+    availability_percent = serializers.IntegerField()
+    availability_effective_from = serializers.CharField(allow_null=True)
+    availability_effective_to = serializers.CharField(allow_null=True)
+    availability_notes = serializers.CharField(allow_blank=True)
     # SSO / 2FA are Enterprise identity features — always false in OSS, surfaced
     # read-only so the members table renders without conditional columns.
     sso = serializers.BooleanField()
@@ -260,10 +267,29 @@ class WorkspaceMemberSerializer(serializers.Serializer[Any]):
 
 
 class WorkspaceMemberUpdateSerializer(serializers.Serializer[Any]):
-    """PATCH body for a member — role and/or status (#518)."""
+    """PATCH body for a member — role, status, and/or availability baseline (#518/#542)."""
 
     role = serializers.IntegerField(required=False)
     status = serializers.ChoiceField(choices=MemberStatus.choices, required=False)
+    # Resource-availability baseline (#542). All optional; a key's *presence*
+    # (not truthiness) drives the update in the view, so 0% and an explicit-null
+    # date clear are distinguishable from "field omitted". from<=to is enforced
+    # authoritatively in the view after the partial merge (a PATCH may set only
+    # one bound against a stored other bound), with an early check here when both
+    # bounds arrive together.
+    availability_percent = serializers.IntegerField(required=False, min_value=0, max_value=100)
+    availability_effective_from = serializers.DateField(required=False, allow_null=True)
+    availability_effective_to = serializers.DateField(required=False, allow_null=True)
+    availability_notes = serializers.CharField(required=False, allow_blank=True, max_length=2000)
+
+    _MEMBER_FIELDS = (
+        "role",
+        "status",
+        "availability_percent",
+        "availability_effective_from",
+        "availability_effective_to",
+        "availability_notes",
+    )
 
     def validate_role(self, value: int) -> int:
         valid = {r.value for r in WorkspaceRole}
@@ -272,8 +298,17 @@ class WorkspaceMemberUpdateSerializer(serializers.Serializer[Any]):
         return value
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        if "role" not in attrs and "status" not in attrs:
-            raise serializers.ValidationError("Provide at least one of: role, status.")
+        if not any(field in attrs for field in self._MEMBER_FIELDS):
+            raise serializers.ValidationError(
+                "Provide at least one of: role, status, availability_percent, "
+                "availability_effective_from, availability_effective_to, availability_notes."
+            )
+        eff_from = attrs.get("availability_effective_from")
+        eff_to = attrs.get("availability_effective_to")
+        if eff_from is not None and eff_to is not None and eff_from > eff_to:
+            raise serializers.ValidationError(
+                {"availability_effective_to": "Must be on or after availability_effective_from."}
+            )
         return attrs
 
 

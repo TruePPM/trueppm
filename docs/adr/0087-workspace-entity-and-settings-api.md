@@ -164,3 +164,47 @@ per-request caching (mirrors `_membership_role`), `IsWorkspaceMember`,
    `EMAIL_MAX_RETRIES=3` with attempt/`email_failed_at` tracking; at exhaustion
    `email_pending` is cleared and the invite stays `pending` (admin can re-send
    by revoking + re-creating). Mirrors the notification email failure path.
+
+---
+
+## Addendum (2026-06-21, #542): Workspace-member availability baseline
+
+VoC audit on MR !302 (David, Resource Manager) flagged that allocation is
+all-or-nothing: a member is implicitly 100% available, with no way to model
+parental leave (40%), a part-time contract (60%), or a known side commitment.
+The project-level partial-allocation model (#489) therefore has no upper bound —
+no denominator — to compare summed per-project percentages against.
+
+**Decision.** Four additive fields on `WorkspaceMembership` (the existing
+through-model — keeps availability where the workspace role/status already live,
+no new entity):
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `availability_percent` | `PositiveSmallIntegerField(default=100)` | validated `0..100`; `default=100` backfills every existing row to fully-available so the AddField migration is non-interactive and historical behaviour is preserved |
+| `availability_effective_from` | `DateField(null=True)` | start of a temporary baseline (e.g. a quarter) |
+| `availability_effective_to` | `DateField(null=True)` | end; both NULL ⇒ applies indefinitely |
+| `availability_notes` | `TextField(blank=True)` | freeform context |
+
+`availability_effective_from <= availability_effective_to` is enforced
+authoritatively in the PATCH handler **after** the partial merge, so a request
+that sets only one bound is still validated against the stored other bound.
+
+**RBAC.** Edit is gated to Owner/Admin by the existing `IsWorkspaceAdmin` class
+on `WorkspaceMemberDetailView`. A member views their own baseline through the
+self-scoped member list (a non-admin GET already returns only their own row).
+Availability is deliberately **not** subject to the peer/higher-role guard that
+governs role/status changes: it is benign capacity metadata — it neither
+escalates a role nor gates login — so a resource manager (Admin) declares
+availability for everyone, peers included.
+
+**Scope.** This slice ships only the model, serializer, permission, and tests.
+The Members-table column, the per-member availability editor, and the #489
+overallocation warning that consumes this baseline are deferred to a web
+follow-up. No new ADR — this extends the workspace-membership data model
+introduced above.
+
+### Durable Execution
+N/A — a synchronous field write on an existing CRUD endpoint. No async side
+effects, no Celery dispatch, no broker interaction, no outbox. `WorkspaceMembership`
+is a `VersionedModel`; the write bumps `server_version` like any other edit.

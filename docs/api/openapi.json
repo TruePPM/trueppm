@@ -25753,13 +25753,32 @@
             },
             "PatchedWorkspaceMemberUpdateRequest": {
                 "type": "object",
-                "description": "PATCH body for a member — role and/or status (#518).",
+                "description": "PATCH body for a member — role, status, and/or availability baseline (#518/#542).",
                 "properties": {
                     "role": {
                         "type": "integer"
                     },
                     "status": {
                         "$ref": "#/components/schemas/WorkspaceMemberUpdateStatusEnum"
+                    },
+                    "availability_percent": {
+                        "type": "integer",
+                        "maximum": 100,
+                        "minimum": 0
+                    },
+                    "availability_effective_from": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "availability_effective_to": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "availability_notes": {
+                        "type": "string",
+                        "maxLength": 2000
                     }
                 }
             },
@@ -32126,6 +32145,20 @@
                     "status": {
                         "type": "string"
                     },
+                    "availability_percent": {
+                        "type": "integer"
+                    },
+                    "availability_effective_from": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "availability_effective_to": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "availability_notes": {
+                        "type": "string"
+                    },
                     "sso": {
                         "type": "boolean"
                     },
@@ -32134,6 +32167,10 @@
                     }
                 },
                 "required": [
+                    "availability_effective_from",
+                    "availability_effective_to",
+                    "availability_notes",
+                    "availability_percent",
                     "color",
                     "email",
                     "groups",
