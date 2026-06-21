@@ -39,11 +39,13 @@ from trueppm_api.apps.projects.models import (
 from trueppm_api.apps.projects.product_backlog_services import (
     BacklogReorderConflict,
     DorTransitionError,
+    SprintReorderConflict,
     auto_rank,
     compute_score,
     dor_blockers,
     mark_ready,
     reorder_backlog,
+    reorder_sprint,
     seed_sprint_rank,
     split_story,
 )
@@ -701,6 +703,235 @@ def test_reorder_endpoint_requires_backlog_manager(project: Project, member: obj
         format="json",
     )
     assert resp.status_code == 403
+
+
+# --------------------------------------------------------------------------- #
+# In-sprint execution-order reorder — writes sprint_rank only (#365, ADR-0105 §5)
+# --------------------------------------------------------------------------- #
+
+
+SPRINT_REORDER_URL = "/api/v1/sprints/{pk}/reorder/"
+
+
+def _active_sprint(project: Project) -> Sprint:
+    return Sprint.objects.create(
+        project=project,
+        name="S-active",
+        start_date=date(2026, 1, 5),
+        finish_date=date(2026, 1, 16),
+        state=SprintState.ACTIVE,
+    )
+
+
+def test_reorder_sprint_renumbers_dense_and_leaves_priority(project: Project) -> None:
+    sprint = _active_sprint(project)
+    a = _story(project, name="a", status=TaskStatus.NOT_STARTED, sprint=sprint, priority_rank=1)
+    b = _story(project, name="b", status=TaskStatus.NOT_STARTED, sprint=sprint, priority_rank=2)
+    c = _story(project, name="c", status=TaskStatus.NOT_STARTED, sprint=sprint, priority_rank=3)
+    seed_sprint_rank(sprint)
+    for t in (a, b, c):
+        t.refresh_from_db()
+    # New execution order: c, a, b.
+    changed = reorder_sprint(
+        sprint,
+        [
+            (str(c.pk), c.server_version),
+            (str(a.pk), a.server_version),
+            (str(b.pk), b.server_version),
+        ],
+        None,
+    )
+    for t in (a, b, c):
+        t.refresh_from_db()
+    assert (c.sprint_rank, a.sprint_rank, b.sprint_rank) == (1, 2, 3)
+    # priority_rank (the product-backlog ordering) is untouched — the two backlogs are independent.
+    assert (a.priority_rank, b.priority_rank, c.priority_rank) == (1, 2, 3)
+    assert changed == 3
+
+
+def test_reorder_sprint_is_idempotent(project: Project) -> None:
+    sprint = _active_sprint(project)
+    a = _story(project, name="a", status=TaskStatus.NOT_STARTED, sprint=sprint, priority_rank=1)
+    b = _story(project, name="b", status=TaskStatus.NOT_STARTED, sprint=sprint, priority_rank=2)
+    seed_sprint_rank(sprint)
+    a.refresh_from_db()
+    b.refresh_from_db()
+    order = [(str(a.pk), a.server_version), (str(b.pk), b.server_version)]
+    assert reorder_sprint(sprint, order, None) == 0
+
+
+def test_reorder_sprint_bumps_server_version_and_writes_history(project: Project) -> None:
+    sprint = _active_sprint(project)
+    a = _story(project, name="a", status=TaskStatus.NOT_STARTED, sprint=sprint, priority_rank=1)
+    b = _story(project, name="b", status=TaskStatus.NOT_STARTED, sprint=sprint, priority_rank=2)
+    seed_sprint_rank(sprint)
+    a.refresh_from_db()
+    b.refresh_from_db()
+    v0, h0 = a.server_version, a.history.count()
+    reorder_sprint(sprint, [(str(b.pk), b.server_version), (str(a.pk), a.server_version)], None)
+    a.refresh_from_db()
+    assert a.sprint_rank == 2  # moved to the back
+    assert a.server_version > v0
+    assert a.history.count() > h0
+
+
+def test_reorder_sprint_stale_server_version_conflicts(project: Project) -> None:
+    sprint = _active_sprint(project)
+    a = _story(project, name="a", status=TaskStatus.NOT_STARTED, sprint=sprint, priority_rank=1)
+    b = _story(project, name="b", status=TaskStatus.NOT_STARTED, sprint=sprint, priority_rank=2)
+    seed_sprint_rank(sprint)
+    a.refresh_from_db()
+    b.refresh_from_db()
+    with pytest.raises(SprintReorderConflict) as exc:
+        reorder_sprint(
+            sprint,
+            [(str(b.pk), b.server_version), (str(a.pk), a.server_version + 99)],
+            None,
+        )
+    assert str(a.pk) in exc.value.ids
+    a.refresh_from_db()
+    b.refresh_from_db()
+    assert (a.sprint_rank, b.sprint_rank) == (1, 2)  # nothing written
+
+
+def test_reorder_sprint_incomplete_set_conflicts(project: Project) -> None:
+    sprint = _active_sprint(project)
+    a = _story(project, name="a", status=TaskStatus.NOT_STARTED, sprint=sprint, priority_rank=1)
+    _story(project, name="b", status=TaskStatus.NOT_STARTED, sprint=sprint, priority_rank=2)
+    seed_sprint_rank(sprint)
+    a.refresh_from_db()
+    with pytest.raises(SprintReorderConflict):
+        reorder_sprint(sprint, [(str(a.pk), a.server_version)], None)
+
+
+def test_reorder_sprint_excludes_epics(project: Project) -> None:
+    # An epic that happens to sit in the sprint is not part of the execution order — supplying
+    # only the real stories is a complete set (the epic row is out of scope, not drift).
+    sprint = _active_sprint(project)
+    _story(project, name="epic", type=TaskType.EPIC, status=TaskStatus.NOT_STARTED, sprint=sprint)
+    a = _story(project, name="a", status=TaskStatus.NOT_STARTED, sprint=sprint, priority_rank=1)
+    b = _story(project, name="b", status=TaskStatus.NOT_STARTED, sprint=sprint, priority_rank=2)
+    seed_sprint_rank(sprint)
+    a.refresh_from_db()
+    b.refresh_from_db()
+    # Reverse the two stories; the epic is neither required nor an error.
+    changed = reorder_sprint(
+        sprint, [(str(b.pk), b.server_version), (str(a.pk), a.server_version)], None
+    )
+    a.refresh_from_db()
+    b.refresh_from_db()
+    assert (b.sprint_rank, a.sprint_rank) == (1, 2)
+    assert changed == 2
+
+
+def test_reorder_sprint_endpoint_happy_path(project: Project, member: object) -> None:
+    # Member+ (the sprint write floor) can reorder execution order — it's team-owned, unlike
+    # the PO-gated product backlog.
+    sprint = _active_sprint(project)
+    a = _story(project, name="a", status=TaskStatus.NOT_STARTED, sprint=sprint, priority_rank=1)
+    b = _story(project, name="b", status=TaskStatus.NOT_STARTED, sprint=sprint, priority_rank=2)
+    seed_sprint_rank(sprint)
+    a.refresh_from_db()
+    b.refresh_from_db()
+    client = APIClient()
+    client.force_authenticate(user=member)
+    resp = client.post(
+        SPRINT_REORDER_URL.format(pk=sprint.pk),
+        {"tasks": [_entry(b), _entry(a)]},
+        format="json",
+    )
+    assert resp.status_code == 200
+    assert resp.data["updated"] == 2
+    a.refresh_from_db()
+    b.refresh_from_db()
+    assert (b.sprint_rank, a.sprint_rank) == (1, 2)
+
+
+def test_reorder_sprint_endpoint_400_on_non_active(
+    owner_client: APIClient, project: Project
+) -> None:
+    sprint = Sprint.objects.create(
+        project=project,
+        name="S-planned",
+        start_date=date(2026, 1, 5),
+        finish_date=date(2026, 1, 16),
+        state=SprintState.PLANNED,
+    )
+    a = _story(project, name="a", status=TaskStatus.NOT_STARTED, sprint=sprint, priority_rank=1)
+    resp = owner_client.post(
+        SPRINT_REORDER_URL.format(pk=sprint.pk),
+        {"tasks": [_entry(a)]},
+        format="json",
+    )
+    assert resp.status_code == 400
+
+
+def test_reorder_sprint_endpoint_409_on_stale(owner_client: APIClient, project: Project) -> None:
+    sprint = _active_sprint(project)
+    a = _story(project, name="a", status=TaskStatus.NOT_STARTED, sprint=sprint, priority_rank=1)
+    b = _story(project, name="b", status=TaskStatus.NOT_STARTED, sprint=sprint, priority_rank=2)
+    seed_sprint_rank(sprint)
+    a.refresh_from_db()
+    b.refresh_from_db()
+    resp = owner_client.post(
+        SPRINT_REORDER_URL.format(pk=sprint.pk),
+        {"tasks": [{"id": str(b.pk), "server_version": b.server_version + 5}, _entry(a)]},
+        format="json",
+    )
+    assert resp.status_code == 409
+    assert str(b.pk) in resp.data["conflicts"]
+
+
+def test_reorder_sprint_endpoint_400_on_malformed(
+    owner_client: APIClient, project: Project
+) -> None:
+    sprint = _active_sprint(project)
+    a = _story(project, name="a", status=TaskStatus.NOT_STARTED, sprint=sprint, priority_rank=1)
+    seed_sprint_rank(sprint)
+    a.refresh_from_db()
+    pk = sprint.pk
+    # missing field
+    assert owner_client.post(SPRINT_REORDER_URL.format(pk=pk), {}, format="json").status_code == 400
+    # empty list
+    assert (
+        owner_client.post(
+            SPRINT_REORDER_URL.format(pk=pk), {"tasks": []}, format="json"
+        ).status_code
+        == 400
+    )
+    # duplicate ids
+    assert (
+        owner_client.post(
+            SPRINT_REORDER_URL.format(pk=pk), {"tasks": [_entry(a), _entry(a)]}, format="json"
+        ).status_code
+        == 400
+    )
+
+
+def test_reorder_sprint_endpoint_403_for_viewer_and_non_member(project: Project) -> None:
+    # Sprint execution order is Member+ (team-owned): a Viewer on the project and a user
+    # with no membership are both denied, enforced object-level via check_object_permissions.
+    sprint = _active_sprint(project)
+    a = _story(project, name="a", status=TaskStatus.NOT_STARTED, sprint=sprint, priority_rank=1)
+    seed_sprint_rank(sprint)
+    a.refresh_from_db()
+    url = SPRINT_REORDER_URL.format(pk=sprint.pk)
+    payload = {"tasks": [_entry(a)]}
+
+    viewer_user = User.objects.create_user(username="viewer", password="pw")
+    ProjectMembership.objects.create(project=project, user=viewer_user, role=Role.VIEWER)
+    viewer_client = APIClient()
+    viewer_client.force_authenticate(user=viewer_user)
+    assert viewer_client.post(url, payload, format="json").status_code == 403
+
+    outsider = User.objects.create_user(username="outsider", password="pw")
+    outsider_client = APIClient()
+    outsider_client.force_authenticate(user=outsider)
+    # A non-member must not even learn the sprint exists; 403/404 are both acceptable denials.
+    assert outsider_client.post(url, payload, format="json").status_code in (403, 404)
+
+    a.refresh_from_db()
+    assert a.sprint_rank == 1  # nothing written on either denial
 
 
 def test_reorder_broadcasts_backlog_reranked(

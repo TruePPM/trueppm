@@ -98,7 +98,7 @@ def close_sprint(self: object, request_id: str) -> None:
         with transaction.atomic():
             # Lock the sprint row: prevents two concurrent close attempts from
             # double-snapshotting completed_* or applying carry-over twice.
-            from trueppm_api.apps.projects.models import Sprint
+            from trueppm_api.apps.projects.models import Sprint, Task
 
             sprint = Sprint.objects.select_for_update().get(pk=req.sprint_id)
 
@@ -146,6 +146,18 @@ def close_sprint(self: object, request_id: str) -> None:
             # close's definition of done, so a failure rolls the whole close back
             # and the drain retries.
             snapshot_sprint_task_outcomes(sprint, carry_over_to=req.carry_over_to)
+
+            # #365 (ADR-0105 §5): clear the within-sprint execution order on close. A task
+            # returns to the product backlog ordered by ``priority_rank``; its closed-sprint
+            # ``sprint_rank`` stays queryable on the HistoricalTask rows (the pre-clear value
+            # on the create-time row, the null on the row the save() below writes). Runs
+            # BEFORE apply_carry_over so a carried task re-enters its next sprint un-ranked
+            # (re-seeded from priority_rank on that sprint's activate), never inheriting a
+            # stale rank. save() (not bulk_update) so server_version bumps + history is written.
+            for _task in Task.objects.filter(sprint_id=sprint.pk, is_deleted=False):
+                if _task.sprint_rank is not None:
+                    _task.sprint_rank = None
+                    _task.save(update_fields=["sprint_rank", "server_version"])
 
             carried_task_ids = apply_carry_over(sprint, req.carry_over_to)
 

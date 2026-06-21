@@ -170,6 +170,7 @@ FROZEN_WS_EVENT_TYPES = frozenset(
         "sprint_closed",
         "sprint_created",
         "sprint_deleted",
+        "sprint_reranked",
         "sprint_scope_changed",
         "sprint_updated",
         "suggestion_created",

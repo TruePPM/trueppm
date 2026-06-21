@@ -319,6 +319,80 @@ def seed_sprint_rank(sprint: Any) -> None:
                 task.save(update_fields=["sprint_rank", "server_version"])
 
 
+class SprintReorderConflict(Exception):
+    """Raised when an in-sprint reorder can't apply because the sprint backlog drifted.
+
+    Mirrors :class:`BacklogReorderConflict`: a concurrent add/remove/move means the
+    client's snapshot is stale, so the whole reorder is a 409 (write nothing) and the
+    client refetches + replays the drag. ``ids`` lists the offending task ids.
+    """
+
+    def __init__(self, ids: list[str]) -> None:
+        self.ids = ids
+        super().__init__(f"Stale sprint snapshot for tasks: {', '.join(ids)}")
+
+
+def reorder_sprint(sprint: Any, ordered: list[tuple[str, int]], actor: Any) -> int:
+    """Apply a manual drag reorder of a sprint's within-sprint execution order (#365).
+
+    The sprint-backlog analog of :func:`reorder_backlog` (ADR-0105 §5): writes ``sprint_rank``
+    *only* and never touches ``priority_rank``, so reordering for execution never disturbs the
+    Product Owner's product-backlog ranking. ``ordered`` is the *complete* current sprint set as
+    ``[(task_id, server_version), ...]`` in the new execution order, scoped exactly like
+    :func:`seed_sprint_rank` (the sprint's live, non-deleted, non-epic tasks).
+
+    Renumbers ``sprint_rank`` densely 1..N. Optimistic-locked on ``server_version`` and on
+    set-completeness: if the supplied set differs from the live sprint set (concurrent
+    add/remove/carry) or any row's version is stale, raises :class:`SprintReorderConflict`
+    (409) and writes nothing. Writes only changed rows, each via ``save()`` so
+    ``server_version`` bumps and ``HistoricalTask`` is written. Returns the count of rows
+    whose rank changed; idempotent (re-applying the same order writes nothing).
+    """
+    changed = 0
+    with transaction.atomic():
+        # Lock the live sprint rows first to serialise concurrent reorders, scoped exactly
+        # like seed_sprint_rank (the set that was seeded at commit): sprint members, non-epic.
+        live = (
+            Task.objects.select_for_update()
+            .filter(sprint=sprint, is_deleted=False)
+            .exclude(type=TaskType.EPIC)
+        )
+        by_id = {str(t.pk): t for t in live}
+        supplied = {tid for tid, _ in ordered}
+
+        # Completeness + membership: the client must hold exactly the current sprint set. Any
+        # drift (task pulled/carried since load, or an id that isn't a current sprint task) is
+        # a stale snapshot → 409, not a partial write.
+        drift = sorted((supplied - by_id.keys()) | (by_id.keys() - supplied))
+        if drift:
+            raise SprintReorderConflict(drift)
+
+        # Per-row optimistic lock.
+        stale = [tid for tid, sv in ordered if by_id[tid].server_version != sv]
+        if stale:
+            raise SprintReorderConflict(stale)
+
+        for new_rank, (tid, _) in enumerate(ordered, start=1):
+            task = by_id[tid]
+            if task.sprint_rank != new_rank:
+                task.sprint_rank = new_rank
+                task.save(update_fields=["sprint_rank", "server_version"])
+                changed += 1
+
+        # Registered inside the atomic block so it defers to commit (and fires only within a
+        # transaction). The board channel is the project; sprint_id lets the client scope the
+        # refetch. pid/sid are stable locals (not loop vars), so a plain closure is safe.
+        if changed:
+            pid = str(sprint.project_id)
+            sid = str(sprint.id)
+            transaction.on_commit(
+                lambda: broadcast_board_event(
+                    pid, "sprint_reranked", {"project_id": pid, "sprint_id": sid}
+                )
+            )
+    return changed
+
+
 # ── Split story ──────────────────────────────────────────────────────────────
 
 

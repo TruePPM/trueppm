@@ -16561,6 +16561,71 @@
                 }
             }
         },
+        "/api/v1/sprints/{id}/reorder/": {
+            "post": {
+                "operationId": "v1_sprints_reorder_create",
+                "description": "Drag reorder of a sprint's execution order — writes ``sprint_rank`` only (#365).\n\nThe sprint-backlog counterpart to ``product-backlog/reorder`` (ADR-0105 §5): reordering\nfor execution writes ``sprint_rank`` and never disturbs the Product Owner's\n``priority_rank``, so the two backlogs are independently ordered.\n\nBody: ``{\"tasks\": [{\"id\": \"<uuid>\", \"server_version\": <int>}, ...]}`` in target\nexecution order — the *complete* current sprint set. Writes dense ``sprint_rank`` 1..N,\noptimistic-locked on ``server_version``. Returns ``200 {\"updated\": <count>}``; ``409``\nwith the offending ids if the sprint set changed under the client (a task pulled in,\ncarried out, or reordered concurrently) so the client refetches and replays; ``400`` on\na malformed body or a non-ACTIVE sprint. ``sprint_rank`` only exists for the live\nexecution order, which is seeded on activate and cleared on close, so reordering is\ngated to ACTIVE sprints (Member+, via the viewset's write permission).",
+                "summary": "Reorder a sprint's within-sprint execution order (#365)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": {}
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": {}
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": {}
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/sprints/{id}/retro/": {
             "get": {
                 "operationId": "v1_sprints_retro_retrieve",
