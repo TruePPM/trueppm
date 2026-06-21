@@ -148,6 +148,15 @@ vi.mock('@/hooks/useCurrentUserRole', () => ({
   useCurrentUserRole: () => ({ role: 300, isLoading: false }),
 }));
 
+// PDF-export footer reads the current user's display name (issue 326). Mock so
+// the board test never fires a real `/auth/me/` XHR.
+vi.mock('@/hooks/useCurrentUser', () => ({
+  useCurrentUser: () => ({
+    user: { display_name: 'Test User', initials: 'TU' },
+    isLoading: false,
+  }),
+}));
+
 // Workshop hooks — mutable so individual tests can simulate an active session
 // and exercise the workshop-mode branches in BoardView (banner, exit dialog).
 let mockWorkshopSession: {

@@ -1448,6 +1448,11 @@ export function BoardView() {
   const { user: currentUser } = useCurrentUser();
   const boardPrintRef = useRef<HTMLDivElement>(null);
   const [exportingPdf, setExportingPdf] = useState(false);
+  // The print surface mounts only while an export is in flight (not on every
+  // render) so its duplicate projection of every card/column/phase name never
+  // collides with the live board's text nodes — which would otherwise break
+  // single-match queries across the app and the board's own tests.
+  const [exportRequested, setExportRequested] = useState(false);
   const boardPrintData = useMemo(
     () =>
       buildBoardPrintData({
@@ -1483,20 +1488,40 @@ export function BoardView() {
     ],
   );
 
-  const onExportPdf = useCallback(async () => {
+  // Requesting an export only flips `exportRequested`, which mounts the print
+  // surface (below). The rasterize itself runs in the effect once the node is
+  // committed to the DOM — so the layout exists for exactly the export and
+  // never lingers to duplicate the board's text.
+  const onExportPdf = useCallback(() => {
+    if (exportRequested || exportingPdf) return;
+    setExportRequested(true);
+  }, [exportRequested, exportingPdf]);
+
+  useEffect(() => {
+    if (!exportRequested) return;
     const node = boardPrintRef.current;
-    if (!node || exportingPdf) return;
+    let cancelled = false;
     setExportingPdf(true);
-    try {
-      await exportBoardPdf(node, {
-        fileName: boardPdfFileName(projectDetail?.name ?? 'board', new Date().toISOString()),
-      });
-    } catch {
-      toast.error("Couldn't generate the PDF — try again.");
-    } finally {
-      setExportingPdf(false);
-    }
-  }, [exportingPdf, projectDetail?.name]);
+    void (async () => {
+      try {
+        if (node) {
+          await exportBoardPdf(node, {
+            fileName: boardPdfFileName(projectDetail?.name ?? 'board', new Date().toISOString()),
+          });
+        }
+      } catch {
+        if (!cancelled) toast.error("Couldn't generate the PDF — try again.");
+      } finally {
+        if (!cancelled) {
+          setExportingPdf(false);
+          setExportRequested(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [exportRequested, projectDetail?.name]);
 
   // Demotion confirmation candidate (ADR-0057, Option C) — set by handleDragEnd
   // when a NOT_STARTED card is dropped on the band; cleared on confirm/cancel.
@@ -2158,7 +2183,7 @@ export function BoardView() {
             onEvmChange={setEvmMode}
             onOpenColumns={() => setShowSettings(true)}
             onOpenCheatsheet={() => setShowCheatsheet(true)}
-            onExportPdf={() => void onExportPdf()}
+            onExportPdf={onExportPdf}
             exportingPdf={exportingPdf}
             workshopMode={workshopMode}
             workshopDisabled={startWorkshop.isPending}
@@ -2173,16 +2198,19 @@ export function BoardView() {
               }
             }}
           />
-          {/* Off-screen board-export print surface (issue 326). Positioned out of
-              view (never display:none — html-to-image must render it) and
-              aria-hidden so it's invisible to assistive tech and pointer input.
-              `exportBoardPdf` rasterizes this node on demand. */}
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute -left-[99999px] top-0"
-          >
-            <BoardPrintLayout ref={boardPrintRef} data={boardPrintData} />
-          </div>
+          {/* Off-screen board-export print surface (issue 326). Mounted only
+              while an export is in flight so its duplicate projection of the
+              board's text never lingers in the DOM. Positioned out of view
+              (never display:none — html-to-image must render it) and aria-hidden
+              so it's invisible to assistive tech and pointer input. */}
+          {exportRequested && (
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute -left-[99999px] top-0"
+            >
+              <BoardPrintLayout ref={boardPrintRef} data={boardPrintData} />
+            </div>
+          )}
           {/* Workshop banner — shown when a session is active (ADR-0046) */}
           {workshopMode && workshopSession && (
             <WorkshopBanner
