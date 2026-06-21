@@ -104,6 +104,12 @@ import { ClosedSprintBanner } from './ClosedSprintBanner';
 import { useDefaultBoardSprint } from '@/hooks/useDefaultBoardSprint';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import type { BoardCardScopeActions } from './BoardCard';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { toast } from '@/components/Toast/toast';
+import { fmtUtcLong } from '@/lib/formatUtcDate';
+import { BoardPrintLayout } from './export/BoardPrintLayout';
+import { buildBoardPrintData } from './export/boardPrintData';
+import { exportBoardPdf, boardPdfFileName } from './export/exportBoardPdf';
 
 // ---------------------------------------------------------------------------
 // Sort helper
@@ -1435,6 +1441,63 @@ export function BoardView() {
     return built;
   }, [committedTasks, workshopMode, backlogTasks.length, groupMode]);
 
+  // Board PDF export (issue 326, ADR-0159). An off-screen `BoardPrintLayout`
+  // (mounted below) is rasterized on demand; we render it from the same
+  // already-filtered `phases`/`COLUMNS` the live board draws, so the export
+  // honors the active sprint scope and saved-view filters with no re-derivation.
+  const { user: currentUser } = useCurrentUser();
+  const boardPrintRef = useRef<HTMLDivElement>(null);
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const boardPrintData = useMemo(
+    () =>
+      buildBoardPrintData({
+        projectName: projectDetail?.name ?? 'Board',
+        sprintName: selectedSprint?.name ?? null,
+        columns: COLUMNS.map((c) => ({ status: c.status, label: c.label })),
+        lanes: phases.map((p) => ({ id: p.id, name: p.name, tasks: p.tasks })),
+        userName: currentUser?.display_name ?? null,
+        generatedAtLabel: fmtUtcLong(new Date().toISOString()),
+        filters: {
+          myTasks: myTasksFilter.enabled,
+          atRisk: riskLinkedOnly,
+          techDebt: debtOnly,
+          showCost,
+          searchQuery,
+          // BoardView holds the active view id but not its name (a child control
+          // fetches the saved-views list); the sprint + filter context below
+          // carry the scope, so a named view is intentionally not surfaced here.
+          savedViewName: null,
+        },
+      }),
+    [
+      projectDetail?.name,
+      selectedSprint?.name,
+      COLUMNS,
+      phases,
+      currentUser?.display_name,
+      myTasksFilter.enabled,
+      riskLinkedOnly,
+      debtOnly,
+      showCost,
+      searchQuery,
+    ],
+  );
+
+  const onExportPdf = useCallback(async () => {
+    const node = boardPrintRef.current;
+    if (!node || exportingPdf) return;
+    setExportingPdf(true);
+    try {
+      await exportBoardPdf(node, {
+        fileName: boardPdfFileName(projectDetail?.name ?? 'board', new Date().toISOString()),
+      });
+    } catch {
+      toast.error("Couldn't generate the PDF — try again.");
+    } finally {
+      setExportingPdf(false);
+    }
+  }, [exportingPdf, projectDetail?.name]);
+
   // Demotion confirmation candidate (ADR-0057, Option C) — set by handleDragEnd
   // when a NOT_STARTED card is dropped on the band; cleared on confirm/cancel.
   const [backlogDemoteCandidate, setBacklogDemoteCandidate] = useState<Task | null>(null);
@@ -2095,6 +2158,8 @@ export function BoardView() {
             onEvmChange={setEvmMode}
             onOpenColumns={() => setShowSettings(true)}
             onOpenCheatsheet={() => setShowCheatsheet(true)}
+            onExportPdf={() => void onExportPdf()}
+            exportingPdf={exportingPdf}
             workshopMode={workshopMode}
             workshopDisabled={startWorkshop.isPending}
             workshopButtonRef={workshopToggleRef}
@@ -2108,6 +2173,16 @@ export function BoardView() {
               }
             }}
           />
+          {/* Off-screen board-export print surface (issue 326). Positioned out of
+              view (never display:none — html-to-image must render it) and
+              aria-hidden so it's invisible to assistive tech and pointer input.
+              `exportBoardPdf` rasterizes this node on demand. */}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute -left-[99999px] top-0"
+          >
+            <BoardPrintLayout ref={boardPrintRef} data={boardPrintData} />
+          </div>
           {/* Workshop banner — shown when a session is active (ADR-0046) */}
           {workshopMode && workshopSession && (
             <WorkshopBanner
