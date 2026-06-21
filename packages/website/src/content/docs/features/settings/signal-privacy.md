@@ -46,7 +46,8 @@ A signal set to **Shared to program rollup** opts that signal into a cross-team 
 | View the tab and the "Who sees what" matrix | Any project member (read-only) |
 | Move a signal's **audience** within the ceiling | **Scrum Master** or project **Admin** |
 | **Lower** a ceiling | Scrum Master or project Admin |
-| **Raise** a ceiling | Scrum Master or project Admin — via a team-act confirmation (see below) |
+| **Propose raising** a ceiling | Scrum Master or project Admin — the team then ratifies (see below) |
+| **Vote** on a raise proposal | Any team member |
 
 Everyone else sees the tab read-only. They can see the current audience and ceiling for each signal; they just cannot change them. The API enforces the same gate server-side regardless of what the UI shows, and a non-member can never read a team signal.
 
@@ -58,7 +59,11 @@ Within the authorized ceiling, the Scrum Master moves a signal's audience up or 
 
 **Lowering a ceiling is always allowed** — a team can always decide a signal should travel less far, with no friction.
 
-**Raising a ceiling is deliberate.** Letting a signal travel *further* than the team has previously authorized is a trust decision the team owns, so raising the ceiling opens a confirmation dialog framed as a team act, and the change is **recorded in history**. The point is that no one quietly widens who can see the team's velocity or pulse — the raise is visible, attributable, and reversible.
+**Raising a ceiling is a team decision, not one person's.** Letting a signal travel *further* than the team has previously authorized is a trust decision the team owns. A facilitator or Admin can *propose* a raise, but it does not take effect until the team **ratifies** it — a strict majority of the team's members must approve. A lone facilitator, or a PM, can never widen a team signal's exposure alone.
+
+While a proposal is open, any team member can approve or reject it, and the proposal together with every vote is a **team-readable audit trail**: who proposed the raise, who voted, and how it resolved. A proposal that is not ratified within 72 hours simply expires with the ceiling unchanged — silence is never read as consent to share more widely. Lowering the ceiling while a raise is pending supersedes the proposal, so a tightened baseline always wins.
+
+There is deliberately **no management override**: nobody outside the team — not a PM, not the PMO — can raise a ceiling or bypass the vote. That is the whole point of the model.
 
 ## One-click ratchet
 
@@ -83,7 +88,7 @@ The Signal privacy tab is shown on **agile** and **hybrid** projects. It is **hi
 
 ## Related ADRs
 
-- [ADR-0104](/architecture/decisions/) — Signal privacy: the team-owned visibility ladder with an authorized ceiling
+- [ADR-0104](/architecture/decisions/) — Signal privacy: the team-owned visibility ladder with an authorized ceiling; Amendment A adds team ratification for raising a ceiling
 
 ## Related
 

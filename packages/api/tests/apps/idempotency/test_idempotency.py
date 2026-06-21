@@ -244,6 +244,13 @@ def _iter_view_classes() -> list[tuple[str, str | None, type, set[str]]]:
 # - project-signal-privacy-ratchet-down (SignalPrivacyRatchetDownView POST) sets every signal's
 #   audience to TEAM in one converging write on the singleton — replaying lands on the same
 #   all-team posture (naturally idempotent).
+# - project-signal-ceiling-proposal-vote (SignalCeilingProposalVoteView POST, ADR-0104 Amendment
+#   A / #930) upserts the caller's one vote (unique(proposal, voter)) and tallies behind a
+#   status guard (the apply runs once on OPEN->RATIFIED); replaying the same vote converges to
+#   the same vote, and a replay after the proposal resolves is a 409, never a duplicate effect;
+# - project-signal-ceiling-proposal-withdraw (SignalCeilingProposalWithdrawView POST) resolves an
+#   OPEN proposal to REJECTED behind the same status guard — a replay is a 409 (no longer open),
+#   so it converges to the same withdrawn state (naturally idempotent).
 # - auth-me-profile (MyProfileView PATCH, ADR-0129 / #1181) sets the caller's own
 #   default_landing on their UserProfile singleton; setting the current value is a no-op and a
 #   replay converges to the same stored preference — the same naturally-idempotent
@@ -260,6 +267,8 @@ EXEMPT_URL_NAMES = frozenset(
         "project-signal-privacy",
         "project-signal-privacy-raise-ceiling",
         "project-signal-privacy-ratchet-down",
+        "project-signal-ceiling-proposal-vote",
+        "project-signal-ceiling-proposal-withdraw",
         "auth-me-profile",
     }
 )
