@@ -1,14 +1,16 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { describe, it, expect, vi } from 'vitest';
 import { ProgramArchivePage } from './ProgramArchivePage';
 
-// Transfer sponsorship is now wired (issue 967); Split program remains a
-// disabled placeholder carrying the #967 tracking reference (rule 122 / #669).
+// Transfer sponsorship and Split program are both wired (issue 967); the only
+// remaining disabled lifecycle placeholder is Export project (async bundle).
 const mutation = { mutate: vi.fn(), isPending: false, error: null };
 const transferMutate = vi.fn();
 const transferMutation = { mutate: transferMutate, isPending: false, error: null };
+const splitMutate = vi.fn();
+const splitMutation = { mutate: splitMutate, isPending: false, error: null };
 
 vi.mock('@/hooks/useProgram', () => ({
   useProgram: () => ({ data: { id: 'p-1', name: 'Phase 2 Modernization', code: 'PH2', is_closed: false } }),
@@ -18,6 +20,16 @@ vi.mock('@/hooks/useProgramMutations', () => ({
   useReopenProgram: () => mutation,
   useDeleteProgram: () => mutation,
   useTransferSponsorship: () => transferMutation,
+  useSplitProgram: () => splitMutation,
+}));
+vi.mock('@/hooks/useProgramProjects', () => ({
+  useProgramProjects: () => ({
+    data: [
+      { id: 'proj-a', name: 'Apollo' },
+      { id: 'proj-b', name: 'Beacon' },
+    ],
+    isLoading: false,
+  }),
 }));
 vi.mock('@/hooks/useProjectMembers', () => ({
   useProjectMembers: () => ({ members: [], isLoading: false, error: null }),
@@ -43,11 +55,30 @@ function renderPage() {
 }
 
 describe('ProgramArchivePage lifecycle (#967)', () => {
-  it('disables Split program with the #967 reference', () => {
+  it('Split program opens the dialog and POSTs the grouped splits', async () => {
+    const user = userEvent.setup();
+    splitMutate.mockClear();
     renderPage();
-    const btn = screen.getByRole('button', { name: 'Split program…' });
-    expect(btn).toBeDisabled();
-    expect(btn).toHaveAttribute('title', expect.stringContaining('#967'));
+
+    await user.click(screen.getByRole('button', { name: 'Split program…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Split into sub-programs' });
+
+    // Confirm is gated until at least one sub-program is named.
+    const confirm = within(dialog).getByRole('button', { name: 'Split program' });
+    expect(confirm).toBeDisabled();
+
+    await user.type(within(dialog).getByLabelText('Sub-program 1 name'), 'Alpha');
+    // Assign the first project to the new sub (its select option value is the
+    // sub's stable localId, 'sub-0' for the first row).
+    await user.selectOptions(within(dialog).getByLabelText('Assign project Apollo to'), 'sub-0');
+
+    await waitFor(() => expect(confirm).toBeEnabled());
+    await user.click(confirm);
+
+    expect(splitMutate).toHaveBeenCalledWith(
+      { programId: 'p-1', splits: [{ name: 'Alpha', project_ids: ['proj-a'] }] },
+      expect.objectContaining({ onSuccess: expect.any(Function) as unknown }),
+    );
   });
 
   it('keeps the wired Close action enabled', () => {
