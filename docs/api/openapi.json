@@ -29653,6 +29653,10 @@
                         "readOnly": true,
                         "nullable": true
                     },
+                    "external_link_summary": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "status_changed_at": {
                         "type": "string",
                         "format": "date-time",
@@ -29852,6 +29856,7 @@
                     "dwell_days",
                     "early_finish",
                     "early_start",
+                    "external_link_summary",
                     "free_float",
                     "id",
                     "is_blocked",
