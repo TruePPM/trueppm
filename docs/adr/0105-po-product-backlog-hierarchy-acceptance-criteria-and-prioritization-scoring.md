@@ -22,8 +22,8 @@ list — acceptance criteria is a freeform textarea, there is no epic/story type
 hierarchy exists only implicitly via WBS nesting, and priority is a single gut-feel drag order.
 This is the cluster's beta-blocker (#731) and Jordan's #1 documented Jira complaint (#922).
 
-This ADR is the **0.3 foundation that ADR-0088 (0.7 PO product-strategy surface) explicitly
-depends on**: ADR-0088 §1 names `Task.type` (#363), the epic/initiative hierarchy parallel to
+This ADR is the **0.3 foundation that ADR-0099 (0.7 PO product-strategy surface) explicitly
+depends on**: ADR-0099 §1 names `Task.type` (#363), the epic/initiative hierarchy parallel to
 the WBS (#364), structured acceptance criteria (#493 made structured), and the Product Owner role
 (#496) as 0.3 prerequisites. This ADR designs them as one coherent backlog layer plus the
 prioritization-scoring framework (#922) and quick-inline-add (#921).
@@ -51,7 +51,7 @@ Priya/Team 6 🟡. Binding guardrails, encoded **structurally**:
   (ADR-0102), `story_points` (nullable), `status`. Epic/story vocabulary exists only as
   `BacklogItemType` on the program-level `BacklogItem` intake pool (ADR-0069) — not on `Task`.
 - **The CPM feed is leaf-only by `wbs_path`** — a second hierarchy can sit parallel via a new FK
-  with no engine impact (the ADR-0088 G1 lever). The existing `CommittedTaskManager` already
+  with no engine impact (the ADR-0099 G1 lever). The existing `CommittedTaskManager` already
   excludes `BACKLOG` + `is_recurring`; an epic exclusion rides the same key.
 - **No PO/SM Role ordinal.** Roles `VIEWER=0 / MEMBER=100 / SCHEDULER=200 / ADMIN=300 / OWNER=400`
   (`access/models.py`; ADMIN="Project Manager"). ADR-0078 (**Proposed**) models PO as a
@@ -77,7 +77,7 @@ Not a new entity. The existing `Task` tree plus two additive, nullable, sync-rid
   A `type=STORY` task points at a `type=EPIC` task. **Independent of `wbs_path`.** Epics nest one
   level only (Epic-of-Epics deferred). Validation: same-project `type=EPIC` target, no cycle.
 
-**Epic→schedule rollup is CPM-authoritative and one-way (inherits ADR-0088 G1).** An epic's span and
+**Epic→schedule rollup is CPM-authoritative and one-way (inherits ADR-0099 G1).** An epic's span and
 progress are **query-time annotations** (`min(early_start)/max(early_finish)` + points/criteria
 rollup over `epic_children`). **The scheduler never receives `parent_epic`**; the engine stays
 leaf-only-by-`wbs_path`. Epics are excluded from CPM input and `CommittedTaskManager` exactly as
@@ -92,7 +92,7 @@ sprint-review pass/fail trail. Optional `given`/`when`/`then` (CharField, blank)
 renders structured Given/When/Then where the team uses it.
 
 - **Derived reads:** `criteria_met_count` / `criteria_total`, surfaced as the DA-10/DA-14 AC meter
-  and a backlog-wide release-readiness count (ADR-0088 G3).
+  and a backlog-wide release-readiness count (ADR-0099 G3).
 - **Decoupled from `percent_complete` and any CPM percent** — a story may be schedule-complete with
   unmet criteria and vice versa. Criteria drive sprint-review pass/fail and release-readiness, not
   the schedule (tying DoD to CPM percent would re-open the G1 boundary — rejected).
@@ -166,7 +166,7 @@ need a queryable/indexable shape (VoC Jordan/Alex/Morgan all chose B).
 
 Backlog authoring (set `type`, link `parent_epic`, edit acceptance criteria, configure scoring, run
 auto-rank, split) is gated **`role >= Role.ADMIN OR TeamMembership.is_product_owner`** on the task's
-project, via a single `can_manage_backlog` capability helper (the seam ADR-0088's PO role drops into).
+project, via a single `can_manage_backlog` capability helper (the seam ADR-0099's PO role drops into).
 **Interim:** ADR-0078/#496 (the `is_product_owner` facet) is Proposed and not yet in code, so 0.3
 ships the **`role >= Role.ADMIN`-only** form of `can_manage_backlog` and wires the facet when the Team
 entity lands — no migration churn at that point. *Why a facet not an ordinal:* a 6th OSS ordinal
@@ -175,7 +175,7 @@ breaks the ADR-0072 extension point; ADR-0101/0102 already state "PO/SM is a hat
 Within-sprint `sprint_rank` reorder is Member+ (§5). Reads require project membership. Scoring fields
 are absent from contributor/My-Work and have no program endpoint.
 
-### 7. The backlog feeds planning by READ only — zero sprint write-path (inherits ADR-0088 G2)
+### 7. The backlog feeds planning by READ only — zero sprint write-path (inherits ADR-0099 G2)
 
 The backlog, scoring, auto-rank, and grooming surfaces expose **no `sprint` field** and can never set
 `Task.sprint`. A story enters a sprint only through the existing sprint-planning / scope-change gate
@@ -186,7 +186,7 @@ product-backlog priority.
 
 | Option | Pros | Cons |
 |--------|------|------|
-| **Same Task tree + `type` + `parent_epic` self-FK (chosen)** | One synced entity; epic tree rides sync free; CPM stays leaf-only (G1); zero WBS vocab for Jordan; matches ADR-0088 | Two coupled metadata axes on Task; one-level epic nesting |
+| **Same Task tree + `type` + `parent_epic` self-FK (chosen)** | One synced entity; epic tree rides sync free; CPM stays leaf-only (G1); zero WBS vocab for Jordan; matches ADR-0099 | Two coupled metadata axes on Task; one-level epic nesting |
 | Separate `Epic`/`EpicLink` entity | "Clean" epic object | New sync surface; risks an epic getting a schedulable identity (G1 hazard) |
 | **AcceptanceCriterion child rows (chosen, VoC C1=B)** | Ordering, review trail, queryable readiness count | A second model + nested CRUD; review-trail needs a privacy guard |
 | AC as `JSONField` of `{text,met,status}` (the impl draft) | One column, simplest | No stable ordering, no per-item review trail, no cheap count; VoC chose against |
@@ -198,13 +198,13 @@ product-backlog priority.
 | Single shared order | Simplest | Collapses the Sprint backlog into a board-with-dates; Morgan/Alex/Priya hard-NO |
 | Derived-only readiness (the sibling draft) | No stored field | Can't represent the PO's explicit Send-to-refine intent; DA-13 needs it |
 | PO as a 6th Role ordinal (#496 literal) | Single concept | Breaks ADR-0072; contradicts ADR-0078/0101/0102 |
-| Backlog action sets `Task.sprint` | One-step add-to-sprint | Violates ADR-0088 G2 / sprint sovereignty |
+| Backlog action sets `Task.sprint` | One-step add-to-sprint | Violates ADR-0099 G2 / sprint sovereignty |
 
 ## Consequences
 
 - **Easier:** Jordan runs a real PO backlog — typed epics/stories, a tickable DoD with a review trail,
   a reversible WSJF/RICE order, and a PO-owned Ready signal — without a second tool and without WBS
-  vocab; the team owns its in-sprint order; ADR-0088 gets its 0.3 foundation; auto-rank reuses the
+  vocab; the team owns its in-sprint order; ADR-0099 gets its 0.3 foundation; auto-rank reuses the
   existing `priority_rank` plumbing so every downstream consumer is unchanged.
 - **Harder:** `Task` grows several agile fields + an AcceptanceCriterion model (mitigated: all
   additive/nullable/synced, gated behind `agile_features`/`prioritization_model=NONE`); the epic
@@ -237,7 +237,7 @@ product-backlog priority.
 - **OSS or Enterprise:** **OSS**. No `trueppm_enterprise` import. Enterprise registers higher type
   tiers via the slot system and consumes cross-program rollups (enterprise #140/#141/#142) against the
   OSS read endpoints; OSS ships no cross-program/PMO aggregation.
-- **Coordinate with:** ADR-0088 (its declared 0.3 foundation — keep `type`/`parent_epic`/structured-AC
+- **Coordinate with:** ADR-0099 (its declared 0.3 foundation — keep `type`/`parent_epic`/structured-AC
   shapes compatible with `Task.target_release`), ADR-0078 (the `is_product_owner` facet — shared with
   ADR-0104's PO read tier), ADR-0069 (program `BacklogItem` stays the intake pool), ADR-0072 (no new
   ordinal), ADR-0101/0102 (no new sprint write-path; `sprint_rank` reorder writes the existing audit),

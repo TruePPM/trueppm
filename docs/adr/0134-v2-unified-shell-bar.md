@@ -116,7 +116,7 @@ the single bar. The bar is `flex flex-nowrap` (rule 113) and never wraps.
    breadcrumb (clickable up). **Rendered only when `sidebarCollapsed`; DOM-removed otherwise**
    (not `aria-hidden`). `<nav aria-label="Breadcrumb">` when present.
 3. **View navigation** — `ViewTabs` (grouped PLAN/TRACK/PEOPLE, project routes) **or**
-   `ProgramTabs` (program routes), mutually exclusive per ADR-0091. This `<nav>` keeps
+   `ProgramTabs` (program routes), mutually exclusive per ADR-0095. This `<nav>` keeps
    `aria-label="View"` (rule 172; shared with `BottomNav` — do not rename). **It is wrapped in
    an `overflow-x-auto` scroll region with `min-w-0`**, so the strip scrolls independently when
    it exceeds available width while the right cluster stays pinned. The grouping (ADR-0128) and

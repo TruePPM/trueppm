@@ -381,6 +381,21 @@ class WorkspaceMembership(VersionedModel):
     # role_changed_at is NULL until an actual role change.
     joined_at = models.DateTimeField(default=timezone.now, editable=False)
     role_changed_at = models.DateTimeField(null=True, blank=True, editable=False)
+    # Resource-availability baseline (#542): the workspace-member denominator the
+    # project-level allocation model (#489) compares its summed per-project
+    # percentages against. Models the member not being fully available — parental
+    # leave (40%), a part-time contract (60%), a known side commitment. The
+    # effective_* bounds carve out a temporary baseline (e.g. a single quarter);
+    # both NULL means it applies indefinitely. default=100 backfills every
+    # existing row to "fully available" so the AddField migration is non-
+    # interactive and the historical behaviour (everyone at 100%) is preserved.
+    availability_percent = models.PositiveSmallIntegerField(
+        default=100,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+    )
+    availability_effective_from = models.DateField(null=True, blank=True)
+    availability_effective_to = models.DateField(null=True, blank=True)
+    availability_notes = models.TextField(blank=True, default="")
 
     class Meta:
         db_table = "workspace_membership"

@@ -117,9 +117,19 @@ def _build_member_rows(users: list[Any]) -> list[dict[str, Any]]:
         if membership is not None:
             role_val = membership.role
             member_status = membership.status
+            avail_percent = membership.availability_percent
+            avail_from = membership.availability_effective_from
+            avail_to = membership.availability_effective_to
+            avail_notes = membership.availability_notes
         else:
             role_val = WorkspaceRole.OWNER if u.is_superuser else WorkspaceRole.MEMBER
             member_status = MemberStatus.ACTIVE
+            # A user without a membership row is fully available by default —
+            # mirrors the lazy-creation default the PATCH handler applies (#542).
+            avail_percent = 100
+            avail_from = None
+            avail_to = None
+            avail_notes = ""
         rows.append(
             {
                 "id": str(u.id),
@@ -133,6 +143,10 @@ def _build_member_rows(users: list[Any]) -> list[dict[str, Any]]:
                 "project_count": getattr(u, "project_count", 0),
                 "last_active": u.last_login.isoformat() if u.last_login else None,
                 "status": member_status,
+                "availability_percent": avail_percent,
+                "availability_effective_from": avail_from.isoformat() if avail_from else None,
+                "availability_effective_to": avail_to.isoformat() if avail_to else None,
+                "availability_notes": avail_notes,
                 "sso": False,
                 "two_fa": False,
             }
@@ -405,6 +419,35 @@ class WorkspaceMemberDetailView(IdempotencyMixin, APIView):
                 # cannot authenticate, and reactivation restores login.
                 target.is_active = new_status != MemberStatus.DEACTIVATED
                 target.save(update_fields=["is_active"])
+
+            # Resource-availability baseline (#542). Benign capacity metadata —
+            # it neither escalates a role nor gates login — so it is deliberately
+            # NOT subject to the peer/higher-role guard above: a resource manager
+            # (Admin) declares availability for everyone, peers included. Presence
+            # of the key (not its truthiness) drives the write so 0% and an
+            # explicit-null date clear are honored, not skipped.
+            if "availability_percent" in data:
+                membership.availability_percent = data["availability_percent"]
+            if "availability_effective_from" in data:
+                membership.availability_effective_from = data["availability_effective_from"]
+            if "availability_effective_to" in data:
+                membership.availability_effective_to = data["availability_effective_to"]
+            if "availability_notes" in data:
+                membership.availability_notes = data["availability_notes"]
+            # Authoritative from<=to guard after the partial merge: a PATCH that
+            # sets only one bound must still be validated against the stored other.
+            if (
+                membership.availability_effective_from is not None
+                and membership.availability_effective_to is not None
+                and membership.availability_effective_from > membership.availability_effective_to
+            ):
+                raise ValidationError(
+                    {
+                        "availability_effective_to": (
+                            "Must be on or after availability_effective_from."
+                        )
+                    }
+                )
 
             membership.save()
 
