@@ -103,6 +103,7 @@ export default defineConfig({
             { slug: "administration/email" },
             { slug: "administration/msproject-configuration" },
             { slug: "administration/workspace-settings" },
+            { slug: "administration/audit-log" },
             { slug: "administration/sharing-and-access" },
             { slug: "administration/attachment-policy" },
           ],

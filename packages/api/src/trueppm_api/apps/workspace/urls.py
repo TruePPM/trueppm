@@ -11,6 +11,7 @@ from trueppm_api.apps.workspace.views import (
     GroupProjectView,
     InviteAcceptView,
     TransferOwnershipView,
+    WorkspaceAuditEventListView,
     WorkspaceExportDetailView,
     WorkspaceExportDownloadView,
     WorkspaceExportView,
@@ -45,6 +46,12 @@ urlpatterns = [
         "workspace/export/<uuid:job_id>/download/",
         WorkspaceExportDownloadView.as_view(),
         name="workspace-export-download",
+    ),
+    # #859 — Operational audit log (ADR-0157); Owner/Admin read-only
+    path(
+        "workspace/audit-events/",
+        WorkspaceAuditEventListView.as_view(),
+        name="workspace-audit-events",
     ),
     # #518 — Members
     path("workspace/members/", WorkspaceMemberListView.as_view(), name="workspace-members"),

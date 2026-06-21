@@ -19439,6 +19439,72 @@
                 }
             }
         },
+        "/api/v1/workspace/audit-events/": {
+            "get": {
+                "operationId": "v1_workspace_audit_events_list",
+                "description": "GET /api/v1/workspace/audit-events/ — operational audit log (ADR-0157, #859).\n\nOwner/Admin only (``IsWorkspaceAuditViewer``). Cursor-paginated, newest first.\nOptional filters, all ANDed: ``?event_type=`` (an ``AuditEventType`` value),\n``?actor=`` (user id), ``?since=`` / ``?until=`` (ISO-8601 on ``created_at``).",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "actor",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Filter by actor user id."
+                    },
+                    {
+                        "in": "query",
+                        "name": "event_type",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Filter to a single AuditEventType value."
+                    },
+                    {
+                        "in": "query",
+                        "name": "since",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Only events at/after this ISO-8601 instant."
+                    },
+                    {
+                        "in": "query",
+                        "name": "until",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Only events at/before this ISO-8601 instant."
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/AuditEvent"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/workspace/email-settings/": {
             "get": {
                 "operationId": "v1_workspace_email_settings_retrieve",
@@ -20877,6 +20943,81 @@
                     "token_prefix"
                 ]
             },
+            "AuditEvent": {
+                "type": "object",
+                "description": "Read serializer for an operational audit row (ADR-0157, #859).\n\nExposes both the actor FK id and the denormalized ``actor_label`` so the row\nstays readable after the user is deleted (the FK then resolves to null). The\ninteger ``actor_id`` is the stock ``auth.User`` PK (TruePPM has no custom user\nmodel); ``target_id`` is a nullable UUID best-effort pointer.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "event_type": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/AuditEventEventTypeEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "actor_id": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "actor_label": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "target_type": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "target_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "target_label": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "metadata": {
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "actor_id",
+                    "actor_label",
+                    "created_at",
+                    "event_type",
+                    "id",
+                    "metadata",
+                    "target_id",
+                    "target_label",
+                    "target_type"
+                ]
+            },
+            "AuditEventEventTypeEnum": {
+                "enum": [
+                    "member_added",
+                    "member_removed",
+                    "member_role_changed",
+                    "ownership_transferred",
+                    "project_created",
+                    "project_deleted",
+                    "workspace_settings_changed",
+                    "workspace_export_triggered"
+                ],
+                "type": "string",
+                "description": "* `member_added` - Member added\n* `member_removed` - Member removed\n* `member_role_changed` - Member role changed\n* `ownership_transferred` - Ownership transferred\n* `project_created` - Project created\n* `project_deleted` - Project deleted\n* `workspace_settings_changed` - Workspace settings changed\n* `workspace_export_triggered` - Workspace export triggered"
+            },
             "BacklogItem": {
                 "type": "object",
                 "description": "Read/write serializer for program backlog items (ADR-0069, #737).\n\n``program`` is bound by URL (set in the view's ``perform_create``) and is\nread-only here so a client cannot retarget an item to another program by\npayload. ``pulled_*`` are read-only — they are written only by the ``pull``\naction via ``backlog_services``. ``status`` is writable for archive /\nun-archive (PROPOSED ↔ ARCHIVED) but ``validate_status`` rejects a direct\nset to ``PULLED``: the only PROPOSED→PULLED path is the ``pull`` action.\n``tags`` is a free-form list of short strings.",
@@ -21866,7 +22007,7 @@
                 "type": "string",
                 "description": "* `open` - Open\n* `suggest_approve` - Suggest & Approve\n* `pm_only` - PM Only"
             },
-            "EventTypeEnum": {
+            "EventType1fcEnum": {
                 "enum": [
                     "task.created",
                     "task.updated",
@@ -31429,7 +31570,7 @@
                     "event_type": {
                         "allOf": [
                             {
-                                "$ref": "#/components/schemas/EventTypeEnum"
+                                "$ref": "#/components/schemas/EventType1fcEnum"
                             }
                         ],
                         "readOnly": true
