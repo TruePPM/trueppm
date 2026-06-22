@@ -841,7 +841,7 @@ export function BoardCard({
             className={[
               'mt-1 inline-flex items-center gap-0.5 text-xs px-1 py-px rounded-chip border',
               isPastTwiceSla
-                ? 'bg-semantic-critical-bg border-semantic-critical/30 text-semantic-critical motion-safe:animate-pulse'
+                ? 'bg-semantic-critical-bg border-semantic-critical/30 text-semantic-critical'
                 : 'bg-brand-accent/10 border-brand-accent/30 text-brand-accent-dark',
             ].join(' ')}
             title={`${daysAgo}d in column — SLA: ${slaDays}d`}

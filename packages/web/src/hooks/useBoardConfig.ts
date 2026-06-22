@@ -24,27 +24,39 @@ export interface BoardColumnDef {
    */
   color: string | null;
   /**
-   * Cycle-time SLA in calendar days. Cards in this column longer than slaDays
-   * show an aging indicator (issue #192). Frontend-only — not sent to the API.
+   * Per-column aging threshold OVERRIDE in calendar days, persisted server-side
+   * (ADR-0161, issue 410). `null` = use the client default for this status
+   * (COLUMN_SLA_DEFAULTS). The settings page edits this raw override.
+   */
+  ageThresholdDays: number | null;
+  /**
+   * Effective cycle-time SLA in calendar days the board card consumes: the saved
+   * `ageThresholdDays` override when set, else the per-status default. Cards in this
+   * column longer than slaDays show an aging indicator (issue #192). Derived — read
+   * only, never edited directly.
    */
   slaDays?: number;
 }
 
-// API wire format — snake_case, no slaDays
+// API wire format — snake_case. slaDays is derived (not persisted); ageThresholdDays
+// round-trips as age_threshold_days.
 interface ApiColumn {
   status: TaskStatus;
   label: string;
   visible: boolean;
   wip_limit: number | null;
   color: string | null;
+  age_threshold_days?: number | null;
 }
 
 interface BoardConfigResponse {
   columns: ApiColumn[];
 }
 
-// slaDays are frontend-only defaults; not persisted to the server.
-const COLUMN_SLA_DEFAULTS: Partial<Record<TaskStatus, number>> = {
+// Per-status default aging thresholds — the fallback when a column has no saved
+// `ageThresholdDays` override (issue 192 behavior). Exported so the settings page can show
+// each column's default as the input placeholder (issue 410).
+export const COLUMN_SLA_DEFAULTS: Partial<Record<TaskStatus, number>> = {
   BACKLOG: 14,
   NOT_STARTED: 7,
   IN_PROGRESS: 10,
@@ -55,21 +67,26 @@ const COLUMN_SLA_DEFAULTS: Partial<Record<TaskStatus, number>> = {
 // ON_HOLD is hidden but kept in the type union for migration compatibility — tasks
 // that are ON_HOLD in the API will not appear on the board until they are migrated.
 const DEFAULT_COLUMNS: BoardColumnDef[] = [
-  { status: 'BACKLOG', label: 'Backlog', visible: true, wipLimit: null, color: '#94A3B8', slaDays: 14 },
-  { status: 'NOT_STARTED', label: 'To Do', visible: true, wipLimit: null, color: '#64748B', slaDays: 7 },
-  { status: 'IN_PROGRESS', label: 'In Progress', visible: true, wipLimit: 5, color: '#3B82F6', slaDays: 10 },
-  { status: 'REVIEW', label: 'Review', visible: true, wipLimit: 3, color: '#A855F7', slaDays: 4 },
-  { status: 'COMPLETE', label: 'Done', visible: true, wipLimit: null, color: '#22C55E' },
+  { status: 'BACKLOG', label: 'Backlog', visible: true, wipLimit: null, color: '#94A3B8', ageThresholdDays: null, slaDays: 14 },
+  { status: 'NOT_STARTED', label: 'To Do', visible: true, wipLimit: null, color: '#64748B', ageThresholdDays: null, slaDays: 7 },
+  { status: 'IN_PROGRESS', label: 'In Progress', visible: true, wipLimit: 5, color: '#3B82F6', ageThresholdDays: null, slaDays: 10 },
+  { status: 'REVIEW', label: 'Review', visible: true, wipLimit: 3, color: '#A855F7', ageThresholdDays: null, slaDays: 4 },
+  { status: 'COMPLETE', label: 'Done', visible: true, wipLimit: null, color: '#22C55E', ageThresholdDays: null },
 ];
 
 function fromApi(col: ApiColumn): BoardColumnDef {
+  // Effective SLA: the saved override when present, else the per-status client
+  // default. `age_threshold_days` may be absent (legacy config) or null (unset).
+  const override = col.age_threshold_days ?? null;
+  const effectiveSla = override ?? COLUMN_SLA_DEFAULTS[col.status];
   return {
     status: col.status,
     label: col.label,
     visible: col.visible,
     wipLimit: col.wip_limit,
     color: col.color,
-    slaDays: COLUMN_SLA_DEFAULTS[col.status],
+    ageThresholdDays: override,
+    slaDays: effectiveSla,
   };
 }
 
@@ -80,6 +97,7 @@ function toApi(col: BoardColumnDef): ApiColumn {
     visible: col.visible,
     wip_limit: col.wipLimit,
     color: col.color,
+    age_threshold_days: col.ageThresholdDays ?? null,
   };
 }
 

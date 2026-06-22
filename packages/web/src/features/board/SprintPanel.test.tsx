@@ -59,11 +59,18 @@ const useSprintMutationsMock = vi.mocked(useSprintMutations);
 
 function renderPanel(opts: {
   methodology?: 'WATERFALL' | 'AGILE' | 'HYBRID' | undefined;
+  boardCadence?: 'sprint' | 'continuous';
   sprint?: ApiSprint | null;
   role?: number | null;
   velocity?: Partial<ProjectVelocity>;
 } = {}) {
-  const { methodology = 'AGILE', sprint = makeSprint({ state: 'ACTIVE' }), role = ROLE_SCHEDULER, velocity } = opts;
+  const {
+    methodology = 'AGILE',
+    boardCadence = 'sprint',
+    sprint = makeSprint({ state: 'ACTIVE' }),
+    role = ROLE_SCHEDULER,
+    velocity,
+  } = opts;
   useActiveSprintMock.mockReturnValue({ sprint, isLoading: false });
   useCurrentUserRoleMock.mockReturnValue({ role, isLoading: role === null });
   useProjectVelocityMock.mockReturnValue({
@@ -80,7 +87,7 @@ function renderPanel(opts: {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <SprintPanel projectId="p1" methodology={methodology} />
+      <SprintPanel projectId="p1" methodology={methodology} boardCadence={boardCadence} />
     </QueryClientProvider>,
   );
 }
@@ -93,6 +100,11 @@ beforeEach(() => {
 describe('SprintPanel', () => {
   it('renders nothing for WATERFALL projects', () => {
     const { container } = renderPanel({ methodology: 'WATERFALL' });
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('renders nothing for a continuous-flow Kanban board, even with an active sprint (#410)', () => {
+    const { container } = renderPanel({ boardCadence: 'continuous' });
     expect(container).toBeEmptyDOMElement();
   });
 

@@ -59,9 +59,16 @@ const ACTIVE_SPRINT = {
 
 async function setupSprintRoutes(
   page: import('@playwright/test').Page,
-  options: { methodology?: 'AGILE' | 'WATERFALL' | 'HYBRID' } = {},
+  options: {
+    methodology?: 'AGILE' | 'WATERFALL' | 'HYBRID';
+    boardCadence?: 'sprint' | 'continuous';
+  } = {},
 ) {
-  const detail = { ...PROJECT_DETAIL, methodology: options.methodology ?? 'AGILE' };
+  const detail = {
+    ...PROJECT_DETAIL,
+    methodology: options.methodology ?? 'AGILE',
+    board_cadence: options.boardCadence ?? 'sprint',
+  };
   await setupAuth(page);
   await setupCatchAll(page);
   await setupApiMocks(page, {
@@ -353,5 +360,22 @@ test.describe('Board sprint panel (#482 / ADR-0073)', () => {
     await expect(
       page.getByRole('region', { name: /active sprint summary/i }),
     ).toHaveCount(0);
+  });
+
+  test('hidden on a continuous-flow Kanban board; flow analytics takes its place (#410)', async ({
+    page,
+  }) => {
+    // AGILE project with an ACTIVE sprint, but board_cadence=continuous — the sprint
+    // panel must hide (ADR-0161) while the methodology-neutral flow-analytics panel stays.
+    await setupSprintRoutes(page, { boardCadence: 'continuous' });
+    await page.goto(BASE_URL);
+    await expect(
+      page.getByRole('toolbar', { name: 'Board toolbar' }),
+    ).toBeVisible({ timeout: 10_000 });
+    await expect(
+      page.getByRole('region', { name: /active sprint summary/i }),
+    ).toHaveCount(0);
+    // The throughput/flow replacement is still present.
+    await expect(page.getByRole('region', { name: /flow analytics/i })).toBeVisible();
   });
 });

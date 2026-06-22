@@ -122,6 +122,23 @@ By default the board shows every committed task in the project. A **scope switch
 
 The selection persists in a `?sprint=` URL parameter, so a sprint-scoped board is a shareable link. The **backlog rail is unaffected** — it stays the intake source you drag from. While viewing an **active** or **planned** sprint, dragging a card from the backlog (or another phase) into a phase column **assigns it to that sprint** — for an active sprint it enters the team's [scope-injection review](/features/sprints/) as a pending item. A completed-sprint view is read-only for assignment.
 
+## Board cadence
+
+:::note[0.3]
+The board cadence picker and per-column aging thresholds land in 0.3.
+:::
+
+Agile and hybrid projects can run their board on one of two cadences, set in **Project → Settings → Workflow & fields → Board cadence** (Scheduler+):
+
+- **Sprint-based** (the default) — the board carries the full sprint chrome: the active-sprint panel, burndown, and sprint header.
+- **Continuous flow (Kanban)** — a continuous-flow board with no sprint cadence. The sprint panel, burndown, and sprint header are hidden, and the board leans on the always-present flow-analytics panel (cycle time, throughput, cumulative flow) instead. Cards still move through the same working columns.
+
+Switching cadence is **non-destructive** — an in-flight sprint is preserved, not deleted, so switching back to sprint-based brings it back verbatim. Waterfall projects don't use sprints, so cadence doesn't apply to them.
+
+### Aging cards
+
+Each working column can carry an **aging threshold** in days, configured per column in **Workflow & fields** (Scheduler+). When a card sits in its column longer than that threshold it gets a calm "aging" badge showing its dwell time — a quiet nudge that work is stalling. The signal is board-local: it's visible to everyone on the board but is never rolled up into a program or portfolio metric. Leave a column's threshold blank to use the built-in default for that status.
+
 ## Mobile
 
 On viewports below 768px the board reflows into a **horizontal snap-scroll layout**: each status column becomes a full-width page (`scroll-snap-align: start`), and swiping settles cleanly column-to-column. The phase swimlanes collapse on a phone — each column shows a flat list of its cards across every phase, so the narrow screen carries the status axis without nesting.

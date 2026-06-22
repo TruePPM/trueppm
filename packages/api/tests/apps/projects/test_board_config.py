@@ -15,7 +15,8 @@ from trueppm_api.apps.projects.models import BoardColumnConfig, Calendar, Projec
 User = get_user_model()
 
 # 5-column default per Claude Design handoff (issue #178), extended per ADR-0039
-# with optional `color` and `wip_limit` keys (issue #170).
+# with optional `color` and `wip_limit` keys (issue #170) and per ADR-0161 with the
+# optional `age_threshold_days` key (null = use the client default; #410).
 DEFAULT_COLUMNS = [
     {
         "status": "BACKLOG",
@@ -23,6 +24,7 @@ DEFAULT_COLUMNS = [
         "visible": True,
         "color": "#94A3B8",
         "wip_limit": None,
+        "age_threshold_days": None,
     },
     {
         "status": "NOT_STARTED",
@@ -30,6 +32,7 @@ DEFAULT_COLUMNS = [
         "visible": True,
         "color": "#64748B",
         "wip_limit": None,
+        "age_threshold_days": None,
     },
     {
         "status": "IN_PROGRESS",
@@ -37,14 +40,29 @@ DEFAULT_COLUMNS = [
         "visible": True,
         "color": "#3B82F6",
         "wip_limit": 5,
+        "age_threshold_days": None,
     },
-    {"status": "REVIEW", "label": "Review", "visible": True, "color": "#A855F7", "wip_limit": 3},
-    {"status": "COMPLETE", "label": "Done", "visible": True, "color": "#22C55E", "wip_limit": None},
+    {
+        "status": "REVIEW",
+        "label": "Review",
+        "visible": True,
+        "color": "#A855F7",
+        "wip_limit": 3,
+        "age_threshold_days": None,
+    },
+    {
+        "status": "COMPLETE",
+        "label": "Done",
+        "visible": True,
+        "color": "#22C55E",
+        "wip_limit": None,
+        "age_threshold_days": None,
+    },
 ]
 
 
 def _bare(columns: list[dict]) -> list[dict]:
-    """Return columns with only the legacy 3-key shape (drop color/wip_limit)."""
+    """Return columns with only the legacy 3-key shape (drop color/wip_limit/age)."""
     return [{"status": c["status"], "label": c["label"], "visible": c["visible"]} for c in columns]
 
 
@@ -116,6 +134,7 @@ def test_put_saves_config_with_color_and_wip_limit(scheduler_client, project):
             "visible": True,
             "color": "#FF00AA",
             "wip_limit": None,
+            "age_threshold_days": None,
         },
         {
             "status": "NOT_STARTED",
@@ -123,6 +142,7 @@ def test_put_saves_config_with_color_and_wip_limit(scheduler_client, project):
             "visible": True,
             "color": None,
             "wip_limit": 10,
+            "age_threshold_days": None,
         },
         {
             "status": "IN_PROGRESS",
@@ -130,6 +150,7 @@ def test_put_saves_config_with_color_and_wip_limit(scheduler_client, project):
             "visible": True,
             "color": "#3B82F6",
             "wip_limit": 7,
+            "age_threshold_days": 12,
         },
         {
             "status": "REVIEW",
@@ -137,6 +158,7 @@ def test_put_saves_config_with_color_and_wip_limit(scheduler_client, project):
             "visible": False,
             "color": "#A855F7",
             "wip_limit": 2,
+            "age_threshold_days": 3,
         },
         {
             "status": "COMPLETE",
@@ -144,6 +166,7 @@ def test_put_saves_config_with_color_and_wip_limit(scheduler_client, project):
             "visible": True,
             "color": "#22C55E",
             "wip_limit": None,
+            "age_threshold_days": None,
         },
     ]
     put_resp = scheduler_client.put(
@@ -172,6 +195,7 @@ def test_put_legacy_shape_normalizes_to_null_color_and_wip(scheduler_client, pro
     for col in put_resp.data["columns"]:
         assert col["color"] is None
         assert col["wip_limit"] is None
+        assert col["age_threshold_days"] is None
 
 
 @pytest.mark.django_db
@@ -285,6 +309,46 @@ def test_put_rejects_invalid_wip_limit(scheduler_client, project, bad_limit):
         format="json",
     )
     assert resp.status_code == 400
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("bad_threshold", [0, -1, "5", 1.5, True, False])
+def test_put_rejects_invalid_age_threshold(scheduler_client, project, bad_threshold):
+    """PUT rejects age_threshold_days values that are not positive integers or null (#410)."""
+    columns = [dict(c) for c in DEFAULT_COLUMNS]
+    columns[3]["age_threshold_days"] = bad_threshold  # REVIEW
+    resp = scheduler_client.put(
+        f"/api/v1/projects/{project.pk}/board-config/",
+        data={"columns": columns},
+        format="json",
+    )
+    assert resp.status_code == 400
+
+
+@pytest.mark.django_db
+def test_put_round_trips_age_threshold(scheduler_client, project):
+    """A configured per-column age threshold persists and GET reflects it (#410)."""
+    columns = [dict(c) for c in DEFAULT_COLUMNS]
+    columns[2]["age_threshold_days"] = 9  # IN_PROGRESS
+    put_resp = scheduler_client.put(
+        f"/api/v1/projects/{project.pk}/board-config/",
+        data={"columns": columns},
+        format="json",
+    )
+    assert put_resp.status_code == 200
+    in_progress = next(c for c in put_resp.data["columns"] if c["status"] == "IN_PROGRESS")
+    assert in_progress["age_threshold_days"] == 9
+
+    get_resp = scheduler_client.get(f"/api/v1/projects/{project.pk}/board-config/")
+    in_progress = next(c for c in get_resp.data["columns"] if c["status"] == "IN_PROGRESS")
+    assert in_progress["age_threshold_days"] == 9
+
+
+@pytest.mark.django_db
+def test_default_age_threshold_is_null(scheduler_client, project):
+    """An unconfigured board defaults age_threshold_days to null (= use client default)."""
+    resp = scheduler_client.get(f"/api/v1/projects/{project.pk}/board-config/")
+    assert all(col["age_threshold_days"] is None for col in resp.data["columns"])
 
 
 @pytest.mark.django_db

@@ -2320,8 +2320,9 @@ export function BoardView() {
           )}
 
           {/* Sprint header bar (#1138) — name + date range + Day N of M timebox
-              + goal + compact burndown. Only when a sprint is selected. */}
-          {selectedSprint && projectId && (
+              + goal + compact burndown. Only when a sprint is selected, and never on a
+              continuous-flow Kanban board (ADR-0161, issue 410) — that's sprint chrome. */}
+          {selectedSprint && projectId && projectDetail?.board_cadence !== 'continuous' && (
             <BoardSprintHeader sprint={selectedSprint} projectId={projectId} />
           )}
           {/* Closed-sprint read-only banner (#1141) — below the header, above the
@@ -2342,7 +2343,11 @@ export function BoardView() {
               onCardClick={handleCardClick}
               header={
                 projectId ? (
-                  <SprintPanel projectId={projectId} methodology={projectDetail?.methodology} />
+                  <SprintPanel
+                  projectId={projectId}
+                  methodology={projectDetail?.methodology}
+                  boardCadence={projectDetail?.board_cadence}
+                />
                 ) : null
               }
             />
@@ -2416,7 +2421,11 @@ export function BoardView() {
                 Hidden entirely on WATERFALL projects and on projects with
                 no active sprint. */}
                 {projectId && (
-                  <SprintPanel projectId={projectId} methodology={projectDetail?.methodology} />
+                  <SprintPanel
+                  projectId={projectId}
+                  methodology={projectDetail?.methodology}
+                  boardCadence={projectDetail?.board_cadence}
+                />
                 )}
                 {/* Flow analytics (ADR-0137, issue 1188) — collapsed by default;
                 team-private behind the ADR-0104 flow_metrics signal. */}

@@ -7,7 +7,7 @@ import type {
   ProjectHealth,
   ProjectVisibility,
 } from '@/api/types';
-import type { Methodology } from '@/types';
+import type { BoardCadence, Methodology } from '@/types';
 
 interface ApiProject {
   id: string;
@@ -78,6 +78,12 @@ export interface UpdateProjectPayload {
    * locks overrides (INHERIT, or Enterprise ENFORCE). Admin+-only.
    */
   methodology?: Methodology;
+  /**
+   * Board cadence (ADR-0161, issue 410). `sprint` shows sprint chrome on the board;
+   * `continuous` hides it for continuous-flow Kanban. Scheduler+-writable (in the
+   * serializer allowlist alongside methodology). Not an inheritable override.
+   */
+  board_cadence?: BoardCadence;
   /**
    * Iteration-container label override (ADR-0111/0116). Singular noun, ≤32 chars;
    * `null` clears the override so the project inherits the program/workspace default.

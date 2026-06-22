@@ -4,11 +4,11 @@ import { BoardSettingsPanel } from './BoardSettingsPanel';
 import type { BoardColumnDef } from '@/hooks/useBoardConfig';
 
 const COLUMNS: BoardColumnDef[] = [
-  { status: 'BACKLOG', label: 'Backlog', visible: true, color: '#94A3B8', wipLimit: null },
-  { status: 'NOT_STARTED', label: 'To Do', visible: true, color: '#64748B', wipLimit: null },
-  { status: 'IN_PROGRESS', label: 'In Progress', visible: true, color: '#3B82F6', wipLimit: 5 },
-  { status: 'REVIEW', label: 'Review', visible: true, color: '#A855F7', wipLimit: 3 },
-  { status: 'COMPLETE', label: 'Done', visible: true, color: '#22C55E', wipLimit: null },
+  { status: 'BACKLOG', label: 'Backlog', visible: true, color: '#94A3B8', wipLimit: null, ageThresholdDays: null },
+  { status: 'NOT_STARTED', label: 'To Do', visible: true, color: '#64748B', wipLimit: null, ageThresholdDays: null },
+  { status: 'IN_PROGRESS', label: 'In Progress', visible: true, color: '#3B82F6', wipLimit: 5, ageThresholdDays: null },
+  { status: 'REVIEW', label: 'Review', visible: true, color: '#A855F7', wipLimit: 3, ageThresholdDays: null },
+  { status: 'COMPLETE', label: 'Done', visible: true, color: '#22C55E', wipLimit: null, ageThresholdDays: null },
 ];
 
 describe('BoardSettingsPanel', () => {

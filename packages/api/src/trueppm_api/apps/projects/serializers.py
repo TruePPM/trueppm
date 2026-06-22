@@ -232,6 +232,10 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "estimation_mode",
             "agile_features",
             "methodology",
+            # Board cadence (ADR-0161, #410). Scheduler+-gated write (in
+            # _SCHEDULER_WRITABLE_FIELDS, alongside methodology). SPRINT default; not an
+            # inheritable override — it's a project-local board setting.
+            "board_cadence",
             # Read-only server-resolved methodology (ADR-0107) — what clients render
             # for tab visibility — and the value inherited if the override were ignored.
             "effective_methodology",
@@ -472,7 +476,7 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
     # Everything else under this serializer is a Project Manager concern, so this
     # is an explicit allowlist — any new writable field is Admin-only by default
     # until deliberately added here (#769; ADR-0041 estimation governance).
-    _SCHEDULER_WRITABLE_FIELDS = frozenset({"methodology", "estimation_mode"})
+    _SCHEDULER_WRITABLE_FIELDS = frozenset({"methodology", "board_cadence", "estimation_mode"})
 
     def validate_iteration_label(self, value: str | None) -> str | None:
         """Strip the override, or clear it to inherit (ADR-0111/0116).
@@ -3481,8 +3485,10 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
 
 
 # 5-column model per Claude Design handoff (issue #178).  Per ADR-0039 the
-# default JSON shape now carries optional `color` and `wip_limit` keys so
-# new projects render the brand semantic palette without a settings round-trip.
+# default JSON shape carries optional `color`, `wip_limit`, and `age_threshold_days`
+# keys so new projects render the brand semantic palette without a settings round-trip.
+# `age_threshold_days` defaults to None (= "use the client's per-status default"), so an
+# unconfigured board keeps the existing aging behavior (#192) until a team tunes it (#410).
 _DEFAULT_COLUMNS = [
     {
         "status": "BACKLOG",
@@ -3490,6 +3496,7 @@ _DEFAULT_COLUMNS = [
         "visible": True,
         "color": "#94A3B8",
         "wip_limit": None,
+        "age_threshold_days": None,
     },
     {
         "status": "NOT_STARTED",
@@ -3497,6 +3504,7 @@ _DEFAULT_COLUMNS = [
         "visible": True,
         "color": "#64748B",
         "wip_limit": None,
+        "age_threshold_days": None,
     },
     {
         "status": "IN_PROGRESS",
@@ -3504,9 +3512,24 @@ _DEFAULT_COLUMNS = [
         "visible": True,
         "color": "#3B82F6",
         "wip_limit": 5,
+        "age_threshold_days": None,
     },
-    {"status": "REVIEW", "label": "Review", "visible": True, "color": "#A855F7", "wip_limit": 3},
-    {"status": "COMPLETE", "label": "Done", "visible": True, "color": "#22C55E", "wip_limit": None},
+    {
+        "status": "REVIEW",
+        "label": "Review",
+        "visible": True,
+        "color": "#A855F7",
+        "wip_limit": 3,
+        "age_threshold_days": None,
+    },
+    {
+        "status": "COMPLETE",
+        "label": "Done",
+        "visible": True,
+        "color": "#22C55E",
+        "wip_limit": None,
+        "age_threshold_days": None,
+    },
 ]
 
 # Canonical statuses that must appear in every board config.  ON_HOLD is
@@ -3524,12 +3547,14 @@ class BoardColumnConfigSerializer(serializers.Serializer[dict[str, Any]]):
     statuses, label ≤ 32 chars, visible is a bool. All five canonical statuses
     must appear exactly once (no duplicates, no missing values).
 
-    Optional per-column metadata (ADR-0039):
-        color:      "#RRGGBB" hex string or null
-        wip_limit:  positive integer or null
+    Optional per-column metadata (ADR-0039, ADR-0161):
+        color:              "#RRGGBB" hex string or null
+        wip_limit:          positive integer or null
+        age_threshold_days: positive integer or null (null = use the client's
+                            per-status default; #410 board-aging tuning)
 
     Unknown keys are dropped silently — the validated payload only contains
-    the five recognized keys, preventing forward-compat key smuggling.
+    the recognized keys, preventing forward-compat key smuggling.
     """
 
     columns = serializers.ListField(child=serializers.DictField(), allow_empty=False)
@@ -3543,6 +3568,7 @@ class BoardColumnConfigSerializer(serializers.Serializer[dict[str, Any]]):
             visible = entry.get("visible")
             color = entry.get("color")
             wip_limit = entry.get("wip_limit")
+            age_threshold_days = entry.get("age_threshold_days")
             if status not in _CANONICAL_STATUSES:
                 raise serializers.ValidationError(f"Unknown status: {status!r}")
             if status in seen:
@@ -3561,6 +3587,14 @@ class BoardColumnConfigSerializer(serializers.Serializer[dict[str, Any]]):
                 isinstance(wip_limit, bool) or not isinstance(wip_limit, int) or wip_limit < 1
             ):
                 raise serializers.ValidationError("wip_limit must be a positive integer or null")
+            if age_threshold_days is not None and (
+                isinstance(age_threshold_days, bool)
+                or not isinstance(age_threshold_days, int)
+                or age_threshold_days < 1
+            ):
+                raise serializers.ValidationError(
+                    "age_threshold_days must be a positive integer or null"
+                )
             normalized.append(
                 {
                     "status": status,
@@ -3568,6 +3602,7 @@ class BoardColumnConfigSerializer(serializers.Serializer[dict[str, Any]]):
                     "visible": visible,
                     "color": color,
                     "wip_limit": wip_limit,
+                    "age_threshold_days": age_threshold_days,
                 }
             )
         missing = _CANONICAL_STATUSES - seen
