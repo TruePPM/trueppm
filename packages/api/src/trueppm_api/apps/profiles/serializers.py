@@ -13,10 +13,10 @@ from trueppm_api.apps.profiles.models import UserProfile
 class UserProfileSerializer(serializers.ModelSerializer[UserProfile]):
     """Read/write the caller's own app preferences.
 
-    ``default_landing`` choice validation is enforced by the model field's
-    ``choices`` (DRF rejects an out-of-range value with 400). ``hidden_views`` is
-    a bounded list of canonical view keys (ADR-0139); ``validate_hidden_views``
-    rejects unknown keys and de-duplicates.
+    ``default_landing`` and ``role_context`` choice validation is enforced by the
+    model fields' ``choices`` (DRF rejects an out-of-range value with 400).
+    ``hidden_views`` is a bounded list of canonical view keys (ADR-0139);
+    ``validate_hidden_views`` rejects unknown keys and de-duplicates.
     """
 
     # max_length on both the list and the child bound the payload so a worker can
@@ -30,7 +30,7 @@ class UserProfileSerializer(serializers.ModelSerializer[UserProfile]):
 
     class Meta:
         model = UserProfile
-        fields = ["default_landing", "hidden_views"]
+        fields = ["default_landing", "role_context", "hidden_views"]
 
     def validate_hidden_views(self, value: list[str]) -> list[str]:
         unknown = [v for v in value if v not in HIDEABLE_VIEW_KEYS]
@@ -56,6 +56,9 @@ class UserProfileSerializer(serializers.ModelSerializer[UserProfile]):
         if "default_landing" in validated_data:
             instance.default_landing = validated_data["default_landing"]
             update_fields.append("default_landing")
+        if "role_context" in validated_data:
+            instance.role_context = validated_data["role_context"]
+            update_fields.append("role_context")
         if "hidden_views" in validated_data:
             instance.hidden_views = validated_data["hidden_views"]
             update_fields.append("hidden_views")

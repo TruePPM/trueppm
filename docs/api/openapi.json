@@ -26176,7 +26176,7 @@
             },
             "PatchedUserProfileRequest": {
                 "type": "object",
-                "description": "Read/write the caller's own app preferences.\n\n``default_landing`` choice validation is enforced by the model field's\n``choices`` (DRF rejects an out-of-range value with 400). ``hidden_views`` is\na bounded list of canonical view keys (ADR-0139); ``validate_hidden_views``\nrejects unknown keys and de-duplicates.",
+                "description": "Read/write the caller's own app preferences.\n\n``default_landing`` and ``role_context`` choice validation is enforced by the\nmodel fields' ``choices`` (DRF rejects an out-of-range value with 400).\n``hidden_views`` is a bounded list of canonical view keys (ADR-0139);\n``validate_hidden_views`` rejects unknown keys and de-duplicates.",
                 "properties": {
                     "default_landing": {
                         "allOf": [
@@ -26185,6 +26185,14 @@
                             }
                         ],
                         "description": "Which screen the app opens on. 'auto' uses the role-based policy.\n\n* `auto` - Automatic (based on your role)\n* `my_work` - My Work\n* `project_overview` - Project Overview\n* `portfolio` - Portfolio"
+                    },
+                    "role_context": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/RoleContextEnum"
+                            }
+                        ],
+                        "description": "Active role-context view: PM, Scrum Master, or Unified Today (#412).\n\n* `pm` - PM\n* `scrum_master` - Scrum Master\n* `unified` - Unified Today"
                     },
                     "hidden_views": {
                         "type": "array",
@@ -29316,6 +29324,15 @@
                 "type": "string",
                 "description": "* `OPEN` - Open\n* `MITIGATING` - Mitigating\n* `RESOLVED` - Resolved\n* `ACCEPTED` - Accepted\n* `CLOSED` - Closed"
             },
+            "RoleContextEnum": {
+                "enum": [
+                    "pm",
+                    "scrum_master",
+                    "unified"
+                ],
+                "type": "string",
+                "description": "* `pm` - PM\n* `scrum_master` - Scrum Master\n* `unified` - Unified Today"
+            },
             "RoleEnum": {
                 "enum": [
                     0,
@@ -32047,7 +32064,7 @@
             },
             "UserProfile": {
                 "type": "object",
-                "description": "Read/write the caller's own app preferences.\n\n``default_landing`` choice validation is enforced by the model field's\n``choices`` (DRF rejects an out-of-range value with 400). ``hidden_views`` is\na bounded list of canonical view keys (ADR-0139); ``validate_hidden_views``\nrejects unknown keys and de-duplicates.",
+                "description": "Read/write the caller's own app preferences.\n\n``default_landing`` and ``role_context`` choice validation is enforced by the\nmodel fields' ``choices`` (DRF rejects an out-of-range value with 400).\n``hidden_views`` is a bounded list of canonical view keys (ADR-0139);\n``validate_hidden_views`` rejects unknown keys and de-duplicates.",
                 "properties": {
                     "default_landing": {
                         "allOf": [
@@ -32056,6 +32073,14 @@
                             }
                         ],
                         "description": "Which screen the app opens on. 'auto' uses the role-based policy.\n\n* `auto` - Automatic (based on your role)\n* `my_work` - My Work\n* `project_overview` - Project Overview\n* `portfolio` - Portfolio"
+                    },
+                    "role_context": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/RoleContextEnum"
+                            }
+                        ],
+                        "description": "Active role-context view: PM, Scrum Master, or Unified Today (#412).\n\n* `pm` - PM\n* `scrum_master` - Scrum Master\n* `unified` - Unified Today"
                     },
                     "hidden_views": {
                         "type": "array",
