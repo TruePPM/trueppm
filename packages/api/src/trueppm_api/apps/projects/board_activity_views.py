@@ -58,6 +58,10 @@ class BoardActivityEventSerializer(serializers.Serializer[Any]):
     task_id = serializers.CharField()
     task_name = serializers.CharField()
     sprint_id = serializers.CharField(allow_null=True)
+    # SprintScopeChange accept-gate status (pending/accepted/rejected) on `entered_sprint`
+    # events, else null (ADR-0160 Amendment B3, #1264). CharField not ChoiceField for the
+    # same #859 enum-collision reason as `event_type` above.
+    scope_change_status = serializers.CharField(allow_null=True)
     changes = BoardActivityChangeSerializer(many=True)
 
 

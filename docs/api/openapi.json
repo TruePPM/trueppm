@@ -21835,6 +21835,10 @@
                         "type": "string",
                         "nullable": true
                     },
+                    "scope_change_status": {
+                        "type": "string",
+                        "nullable": true
+                    },
                     "changes": {
                         "type": "array",
                         "items": {
@@ -21848,6 +21852,7 @@
                     "changes",
                     "event_type",
                     "id",
+                    "scope_change_status",
                     "sprint_id",
                     "task_id",
                     "task_name",

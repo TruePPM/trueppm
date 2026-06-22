@@ -93,7 +93,9 @@ def build_board_activity(
     Returns:
         ``{"results": [event, ...], "next_until": <iso str | None>}`` where each event
         is ``{id, event_type, actor, actor_id, timestamp, task_id, task_name,
-        changes: [{field, old, new}], sprint_id?}``. ``next_until`` is the oldest
+        changes: [{field, old, new}], sprint_id, scope_change_status}``
+        (``scope_change_status`` is the SprintScopeChange accept-gate status on
+        ``entered_sprint`` events, else null). ``next_until`` is the oldest
         returned timestamp (pass it back as ``until`` for the next page), or ``None``
         when the window is exhausted.
     """
@@ -173,7 +175,55 @@ def _history_events(
             events.extend(
                 _events_from_record(rec, older, wanted, user_names, sprint_names, hide_cost)
             )
+    _attach_scope_change_status(events)
     return events
+
+
+def _attach_scope_change_status(events: list[dict[str, Any]]) -> None:
+    """Enrich ``entered_sprint`` events with the ``SprintScopeChange`` accept-gate status.
+
+    A *post-activation* mid-sprint injection records a ``SprintScopeChange`` (ADR-0102)
+    whose ``status`` (``pending``/``accepted``/``rejected``) is the accept-gate outcome for
+    the *same* "task entered sprint X" fact the ``HistoricalTask`` sprint delta already
+    yields — which is why ADR-0160 sources the event from history (not also
+    ``SprintScopeChange``) to avoid double-counting, and deferred surfacing the *status* to
+    this enrichment (ADR-0160 Amendment B3, #1264).
+
+    Stamps ``scope_change_status`` onto each ``entered_sprint`` event via **one batched**
+    query keyed by ``(task_id, sprint_id)`` — index-covered by ``scope_change_task_sprint_idx``
+    — leaving it ``None`` for a pre-activation entry (no scope-change row). The status is not
+    cost-gated, so it is Viewer-readable like the rest of the feed. Mutates ``events`` in
+    place; a no-op when the batch holds no ``entered_sprint`` event.
+    """
+    keys = {
+        (e["task_id"], e["sprint_id"])
+        for e in events
+        if e["event_type"] == "entered_sprint" and e.get("sprint_id")
+    }
+    if not keys:
+        return
+
+    from trueppm_api.apps.projects.models import SprintScopeChange
+
+    status_map: dict[tuple[str, str], str] = {}
+    # Ordered ascending so the latest row wins on the rare re-injection of one task into the
+    # same sprint (multiple rows per (task, sprint)); the cross-product filter overfetches
+    # at most distinct-tasks × distinct-sprints rows, but only exact pairs are read back.
+    rows = (
+        SprintScopeChange.objects.filter(
+            task_id__in={k[0] for k in keys},
+            sprint_id__in={k[1] for k in keys},
+        )
+        .order_by("added_at")
+        .values("task_id", "sprint_id", "status")
+    )
+    for row in rows:
+        status_map[(str(row["task_id"]), str(row["sprint_id"]))] = row["status"]
+
+    for e in events:
+        if e["event_type"] == "entered_sprint":
+            # entered_sprint always carries a non-null sprint_id (see _sprint_event).
+            e["scope_change_status"] = status_map.get((e["task_id"], e["sprint_id"]))
 
 
 def _events_from_record(
@@ -349,4 +399,7 @@ def _serialize_event(event: dict[str, Any]) -> dict[str, Any]:
     ts = out["timestamp"]
     out["timestamp"] = ts.isoformat() if isinstance(ts, datetime) else ts
     out.setdefault("sprint_id", None)
+    # Present on every row (null off ``entered_sprint``) so the response shape is uniform —
+    # same contract as ``sprint_id`` (ADR-0160 Amendment B3, #1264).
+    out.setdefault("scope_change_status", None)
     return out
