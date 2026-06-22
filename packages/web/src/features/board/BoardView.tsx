@@ -86,6 +86,7 @@ import { BacklogDemoteConfirmDialog } from './BacklogDemoteConfirmDialog';
 import { ScheduleTaskDialog } from '@/features/schedule/ScheduleTaskDialog';
 import { CalmToolbar } from './CalmToolbar';
 import { SprintPanel } from './SprintPanel';
+import { BoardActivityPanel } from './activity/BoardActivityPanel';
 import {
   useBoardToolbarPrefs,
   type BoardZoom,
@@ -1258,6 +1259,28 @@ export function BoardView() {
   const [popoverTask, setPopoverTask] = useState<Task | null>(null);
   const [popoverAnchor, setPopoverAnchor] = useState<HTMLElement | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  // Board activity feed panel (ADR-0160, issue 1261) — open state persisted per project,
+  // mirroring the SprintPanel/FlowAnalyticsPanel disclosure convention.
+  const activityStorageKey = `trueppm.board.${projectId}.activityPanel.open`;
+  const [activityOpen, setActivityOpen] = useState(false);
+  useEffect(() => {
+    try {
+      setActivityOpen(window.localStorage.getItem(activityStorageKey) === 'true');
+    } catch {
+      // localStorage unavailable (private mode) — default closed.
+    }
+  }, [activityStorageKey]);
+  const toggleActivity = useCallback(() => {
+    setActivityOpen((v) => {
+      const next = !v;
+      try {
+        window.localStorage.setItem(activityStorageKey, String(next));
+      } catch {
+        // best-effort persistence
+      }
+      return next;
+    });
+  }, [activityStorageKey]);
   // editTaskId opens the unified TaskFormModal in edit mode (issue #305).
   // The popover's "Edit" footer action sets this; the modal owns the rest.
   const [editTaskId, setEditTaskId] = useState<string | null>(null);
@@ -2194,6 +2217,8 @@ export function BoardView() {
             onDebtOnlyToggle={() => setDebtOnly((v) => !v)}
             showCost={showCost}
             onShowCostToggle={() => setShowCost((v) => !v)}
+            activityOpen={activityOpen}
+            onToggleActivity={toggleActivity}
             onCollapseAll={() => collapseAll(phases.map((p) => p.id))}
             onExpandAll={expandAll}
             showWip={showWip}
@@ -2770,6 +2795,21 @@ export function BoardView() {
           projectId={projectId}
           onClose={() => setSelectedTaskId(null)}
         />
+      )}
+
+      {/* Board activity feed (ADR-0160, issue 1261) — a docked right-edge rail
+          (overlay on mobile). Clicking an event opens its card via the same
+          selectedTaskId drawer; a deleted/absent card is not openable. The panel
+          is non-modal, dismissed via its close button or the toolbar toggle. */}
+      {projectId && activityOpen && (
+        <div className="fixed inset-y-0 right-0 z-30 flex w-full max-w-sm border-l border-neutral-border md:w-80">
+          <BoardActivityPanel
+            projectId={projectId}
+            onClose={toggleActivity}
+            onOpenTask={(taskId) => setSelectedTaskId(taskId)}
+            isTaskOpenable={(taskId) => taskIndex.has(taskId)}
+          />
+        </div>
       )}
 
       {/* Task edit modal (issue #305) — opened by the popover's "Edit"

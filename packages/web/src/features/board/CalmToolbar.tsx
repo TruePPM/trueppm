@@ -270,6 +270,9 @@ export interface CalmToolbarProps {
   onDebtOnlyToggle: () => void;
   showCost: boolean;
   onShowCostToggle: () => void;
+  // Activity feed panel toggle (ADR-0160, issue 1261)
+  activityOpen: boolean;
+  onToggleActivity: () => void;
   // More⋯ controls
   onCollapseAll: () => void;
   onExpandAll: () => void;
@@ -511,6 +514,20 @@ export function CalmToolbar(props: CalmToolbarProps) {
       {breakpoint !== 'sm' && (
         <BoardZoomControl zoom={props.zoom} onZoomChange={props.onZoomChange} />
       )}
+
+      <span aria-hidden="true" className="h-4 w-px bg-neutral-border" />
+
+      {/* Activity feed panel toggle — a first-class board surface (ADR-0160), so it
+          stays visible rather than folding into the quiet-toggle group. */}
+      <ToolbarToggle
+        icon="≡"
+        label="Activity"
+        ariaLabel="Board activity feed"
+        pressed={props.activityOpen}
+        onToggle={props.onToggleActivity}
+        title="Show the board activity feed"
+        hideLabel={hideQuietToggleLabels}
+      />
 
       <span aria-hidden="true" className="h-4 w-px bg-neutral-border" />
 
