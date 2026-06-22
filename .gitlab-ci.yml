@@ -2036,24 +2036,25 @@ wasm:license-check:
 # on 2026-05-15, 0.2.0a1 on 2026-05-31). The 0.3 promotion (#914) should publish
 # via THIS tagged CI path, not a laptop, so the release is reproducible.
 #
-# Required CI/CD variable (Settings → CI/CD → Variables):
-#   PYPI_TOKEN — PyPI API token with upload scope for the trueppm-scheduler project.
-#                Mark as "Masked" and "Protected" (tags are protected refs).
+# Authentication: PyPI Trusted Publishing via GitLab OIDC (#938). The job
+# presents a short-lived GitLab ID token that PyPI exchanges for a scoped,
+# single-use upload token — there is NO long-lived secret on the publish path.
+# The former static PYPI_TOKEN CI/CD variable is no longer read and may be
+# deleted from Settings → CI/CD → Variables.
 #
-# PyPI account/ownership: the project is owned by the maintainer PyPI account
-# that performed the manual 0.1/0.2 uploads (Kelly Hair); PYPI_TOKEN is a
-# project-scoped token stored in the GitLab CI/CD Variables for this repo.
+# PyPI-side configuration (done in #937): a Trusted Publisher is registered on
+# the `trueppm-scheduler` PyPI project for this GitLab top-level group + project
+# and the `scheduler:publish` job. PyPI project ownership: the maintainer
+# account (Kelly Hair) that uploaded the 0.1/0.2 alphas.
 #
-# Provenance roadmap (#937/#938): replace the static PYPI_TOKEN with GitLab
-# OIDC against a PyPI Trusted Publisher and emit PEP 740 attestations so PyPI
-# renders a verified "built by this CI, unmodified" badge. That swap changes the
-# publish AUTH model, so it is deliberately NOT wired on this live tag path yet
-# (default 0.4). The PyPI-side Trusted Publisher must be configured in the PyPI
-# dashboard first (manual, #937); see the commented scaffold on the job below.
+# Provenance (#938): the job also emits PEP 740 digital attestations for the
+# exact sdist + wheel it uploads, signed via Sigstore with a second GitLab OIDC
+# token (aud: sigstore). PyPI verifies the attestation against the Trusted
+# Publisher and renders a "built by this CI, unmodified" badge on the project.
 #
 # The job builds an sdist + wheel using `python -m build` (PEP 517 standard),
-# generates + validates a CycloneDX SBOM (#936), then uploads with `twine`.
-# hatchling is the build backend (pyproject.toml).
+# generates + validates a CycloneDX SBOM (#936), signs PEP 740 attestations,
+# then uploads with `twine`. hatchling is the build backend (pyproject.toml).
 # ---------------------------------------------------------------------------
 
 scheduler:publish:
@@ -2067,25 +2068,26 @@ scheduler:publish:
   cache:
     <<: *scheduler-cache
     policy: pull
+  # GitLab OIDC tokens for PyPI Trusted Publishing (#938). Two audiences:
+  #   PYPI_ID_TOKEN (aud: pypi)         — exchanged at PyPI's mint-token endpoint
+  #                                       for a short-lived, project-scoped token.
+  #   SIGSTORE_ID_TOKEN (aud: sigstore) — ambient identity Sigstore uses to sign
+  #                                       the PEP 740 attestations (read by
+  #                                       sigstore-python's GitLab detector).
+  id_tokens:
+    PYPI_ID_TOKEN:
+      aud: pypi
+    SIGSTORE_ID_TOKEN:
+      aud: sigstore
   variables:
-    TWINE_USERNAME: __token__
-    TWINE_PASSWORD: $PYPI_TOKEN
     # Suppress the keyring warning that fires in non-interactive environments.
     PYTHON_KEYRING_BACKEND: keyring.backends.null.Keyring
-  # ── Trusted Publishing scaffold (#938) — DO NOT enable on the live tag path
-  # until the PyPI Trusted Publisher is configured (#937) and validated against
-  # TestPyPI's OIDC. To migrate: add `id_tokens` for GitLab OIDC, drop the
-  # TWINE_* vars above, and publish with `twine upload --attestations` (PEP 740)
-  # or `gh-action-pypi-publish`-equivalent. Default 0.4 (touches auth, not just
-  # artifacts), so it is left commented:
-  #   id_tokens:
-  #     PYPI_ID_TOKEN:
-  #       aud: pypi
   before_script:
     # cyclonedx-bom pinned to match the resident version in the ci-scheduler
     # image (.gitlab/ci-images/scheduler.Dockerfile); this job runs on the
-    # python:3.11-slim base, so it installs the tool here.
-    - pip install build twine cyclonedx-bom==7.3.0 --quiet
+    # python:3.11-slim base, so it installs the tooling here. twine>=6.1 uploads
+    # PEP 740 attestation sidecars; pypi-attestations signs them via Sigstore.
+    - pip install build "twine>=6.1" cyclonedx-bom==7.3.0 pypi-attestations --quiet
   script:
     # Verify the tag version matches the version declared in pyproject.toml.
     # Mismatches (e.g. forgot to bump the version) fail fast before uploading.
@@ -2112,13 +2114,28 @@ scheduler:publish:
     - python -m venv /tmp/sbom-venv
     - /tmp/sbom-venv/bin/pip install --quiet .
     - cyclonedx-py environment /tmp/sbom-venv/bin/python --validate --output-format JSON --output-reproducible --sv 1.6 -o dist/sbom.cdx.json
-    # Upload only the wheel + sdist — NOT the SBOM (it ships as a CI artifact /
-    # GitLab Release asset, not a PyPI distribution file).
-    - twine upload dist/*.tar.gz dist/*.whl --non-interactive --verbose
+    # Sign PEP 740 attestations for the SAME sdist + wheel uploaded below — the
+    # exact artifacts the SBOM is generated from — NOT the SBOM itself, which is
+    # not a PyPI distribution file (the explicit *.tar.gz / *.whl globs exclude
+    # dist/sbom.cdx.json). Sigstore signs using the ambient SIGSTORE_ID_TOKEN.
+    - python -m pypi_attestations sign dist/*.tar.gz dist/*.whl
+    # Mint a short-lived, project-scoped PyPI upload token from the GitLab OIDC
+    # token (Trusted Publishing) — no static PYPI_TOKEN. The minted token is
+    # passed only via the twine environment below and is never echoed.
+    - |
+      PYPI_API_TOKEN=$(python -c '
+      import json, os, urllib.request
+      req = urllib.request.Request("https://pypi.org/_/oidc/mint-token", data=json.dumps({"token": os.environ["PYPI_ID_TOKEN"]}).encode(), headers={"Content-Type": "application/json"})
+      print(json.load(urllib.request.urlopen(req))["token"])
+      ')
+    # Upload the wheel + sdist plus their `.publish.attestation` sidecars
+    # (--attestations); the SBOM ships as a CI artifact / Release asset, not a
+    # PyPI file, so it is excluded by the explicit *.tar.gz / *.whl globs.
+    - TWINE_USERNAME=__token__ TWINE_PASSWORD="$PYPI_API_TOKEN" twine upload --attestations dist/*.tar.gz dist/*.whl --non-interactive --verbose
   artifacts:
-    # Keep the built wheel + SBOM as a CI artifact for traceability.
-    # TODO(#936): also attach dist/sbom.cdx.json to the GitLab Release for the
-    # tag once a scheduler-release job (release-cli) exists.
+    # Keep the built wheel + sdist + SBOM as a CI artifact for traceability.
+    # The SBOM ships here today; attaching dist/sbom.cdx.json to the GitLab
+    # Release awaits a scheduler release-cli job. It is never a PyPI file.
     paths:
       - packages/scheduler/dist/
     expire_in: 30 days
