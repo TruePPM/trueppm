@@ -85,6 +85,17 @@ def test_list_includes_one_row_per_registered_provider(client: APIClient) -> Non
         assert "secret_ciphertext" not in row
 
 
+def test_list_excludes_credential_free_file_providers(client: APIClient) -> None:
+    """Cloud-file preview providers (#571) never store a PAT, so they stay off
+    the Connected Accounts page even though they're registered for link refresh."""
+    response = client.get("/api/v1/me/credentials/")
+    assert response.status_code == 200
+    providers = {row["provider"] for row in response.json()}
+    assert providers.isdisjoint({"google_drive", "dropbox", "box", "onedrive"})
+    # The PAT-storable providers are still present.
+    assert {"gitlab", "github", "generic"} <= providers
+
+
 def test_list_marks_connected_provider(client: APIClient, user: AbstractBaseUser) -> None:
     IntegrationCredential.upsert(user=user, provider="github", secret="ghp-fake-token", base_url="")
     response = client.get("/api/v1/me/credentials/")

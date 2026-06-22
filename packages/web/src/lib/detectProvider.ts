@@ -9,8 +9,44 @@
  *
  * Returns `null` for an empty or unparseable URL (hide the hint, disable Add);
  * `'generic'` for any well-formed http(s) URL that isn't a known SaaS host.
+ *
+ * The cloud-file hosts (issue 571, ADR-0163) mirror the server's `FileLinkProvider`
+ * host sets so a pasted Drive/Dropbox/Box/OneDrive URL shows a "refresh loads a
+ * preview" hint as the user types.
  */
-export type DetectedProvider = 'gitlab' | 'github' | 'generic';
+export type DetectedProvider =
+  | 'gitlab'
+  | 'github'
+  | 'google_drive'
+  | 'dropbox'
+  | 'box'
+  | 'onedrive'
+  | 'generic';
+
+/**
+ * File-host suffix → provider key. A host matches when it equals the suffix or
+ * is a subdomain of it (`app.box.com` → `box`), exactly like the server's
+ * `FileLinkProvider.matches`. The leading-dot subdomain check prevents a
+ * suffix-spoof host (`box.com.evil.com`) from matching.
+ */
+const FILE_HOST_SUFFIXES: ReadonlyArray<readonly [string, DetectedProvider]> = [
+  ['drive.google.com', 'google_drive'],
+  ['docs.google.com', 'google_drive'],
+  ['sheets.google.com', 'google_drive'],
+  ['slides.google.com', 'google_drive'],
+  ['dropbox.com', 'dropbox'],
+  ['box.com', 'box'],
+  ['onedrive.live.com', 'onedrive'],
+  ['sharepoint.com', 'onedrive'],
+  ['1drv.ms', 'onedrive'],
+];
+
+function matchFileHost(host: string): DetectedProvider | null {
+  for (const [suffix, provider] of FILE_HOST_SUFFIXES) {
+    if (host === suffix || host.endsWith(`.${suffix}`)) return provider;
+  }
+  return null;
+}
 
 /**
  * Normalize a user-pasted URL to a safe http(s) absolute URL, or `null` (#970).
@@ -43,5 +79,5 @@ export function detectProvider(url: string): DetectedProvider | null {
   const host = new URL(normalized).hostname.toLowerCase();
   if (host === 'github.com' || host === 'www.github.com') return 'github';
   if (host === 'gitlab.com' || host === 'www.gitlab.com') return 'gitlab';
-  return 'generic';
+  return matchFileHost(host) ?? 'generic';
 }

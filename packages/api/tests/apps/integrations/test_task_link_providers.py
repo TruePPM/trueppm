@@ -15,9 +15,13 @@ from django.contrib.auth import get_user_model
 from trueppm_api.apps.integrations import http, providers
 from trueppm_api.apps.integrations.models import IntegrationCredential
 from trueppm_api.apps.integrations.providers import (
+    BoxTaskLinkProvider,
+    DropboxTaskLinkProvider,
     GenericTaskLinkProvider,
     GitHubTaskLinkProvider,
     GitLabTaskLinkProvider,
+    GoogleDriveTaskLinkProvider,
+    OneDriveTaskLinkProvider,
     _parse_github_url,
     _parse_gitlab_url,
     resolve_provider_key,
@@ -236,3 +240,114 @@ def test_resolve_self_hosted_via_base_url() -> None:
 def test_resolve_unmatched_is_generic() -> None:
     user = User.objects.create_user(username="rk3", password="pw")
     assert resolve_provider_key("https://bitbucket.org/a/b/pull-requests/1", user=user) == "generic"
+
+
+# ---------------------------------------------------------------------------
+# Cloud-file preview providers (#571, ADR-0163)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("provider_cls", "url", "expected"),
+    [
+        (GoogleDriveTaskLinkProvider, "https://drive.google.com/file/d/x/view", True),
+        (GoogleDriveTaskLinkProvider, "https://docs.google.com/document/d/x/edit", True),
+        (GoogleDriveTaskLinkProvider, "https://sheets.google.com/x", True),
+        (GoogleDriveTaskLinkProvider, "https://github.com/a/b", False),
+        (DropboxTaskLinkProvider, "https://www.dropbox.com/s/abc/f.pdf", True),
+        (DropboxTaskLinkProvider, "https://dropbox.com/s/abc/f.pdf", True),
+        (BoxTaskLinkProvider, "https://app.box.com/s/abc", True),
+        (BoxTaskLinkProvider, "https://box.com/s/abc", True),
+        (OneDriveTaskLinkProvider, "https://onedrive.live.com/x", True),
+        (OneDriveTaskLinkProvider, "https://acme.sharepoint.com/:f:/x", True),
+        (OneDriveTaskLinkProvider, "https://1drv.ms/x", True),
+    ],
+)
+def test_file_provider_matches(provider_cls: type, url: str, expected: bool) -> None:
+    assert provider_cls.matches(url) is expected
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://box.com.evil.com/s/abc",  # suffix-spoof must not match box.com
+        "https://notdropbox.com/s/abc",
+        "https://drive.google.com.attacker.test/x",
+    ],
+)
+def test_file_provider_rejects_host_spoof(url: str) -> None:
+    assert BoxTaskLinkProvider.matches("https://box.com.evil.com/s/abc") is False
+    assert DropboxTaskLinkProvider.matches(url) is False
+    assert GoogleDriveTaskLinkProvider.matches(url) is False
+
+
+def _stub_html(
+    monkeypatch: pytest.MonkeyPatch, *, status: int, body: bytes, content_type: str
+) -> None:
+    def _fake_get(url: str, **kwargs: object) -> http.EgressResponse:
+        return http.EgressResponse(status=status, body=body, headers={"content-type": content_type})
+
+    monkeypatch.setattr(http, "get", _fake_get)
+
+
+def test_file_provider_unfurls_opengraph(monkeypatch: pytest.MonkeyPatch) -> None:
+    body = (
+        b"<html><head>"
+        b'<meta property="og:title" content="Q3 Budget">'
+        b'<meta property="og:description" content="Quarterly projections">'
+        b'<meta property="og:image" content="https://cdn.example.com/t.png">'
+        b"</head></html>"
+    )
+    _stub_html(monkeypatch, status=200, body=body, content_type="text/html")
+    meta = GoogleDriveTaskLinkProvider().fetch_metadata(
+        "https://docs.google.com/spreadsheets/d/x/edit", None
+    )
+    # A file has no PR/MR lifecycle — status stays unknown; the preview carries the signal.
+    assert meta.status == "unknown"
+    assert meta.title == "Q3 Budget"
+    assert meta.description == "Quarterly projections"
+    assert meta.thumbnail_url == "https://cdn.example.com/t.png"
+    assert meta.preview_type == "spreadsheet"
+
+
+def test_file_provider_direct_image_is_its_own_thumbnail(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A raw image URL returns no OpenGraph markup; the https URL itself is the thumb.
+    _stub_html(monkeypatch, status=200, body=b"\x89PNG\r\n", content_type="image/png")
+    url = "https://www.dropbox.com/s/abc/diagram.png"
+    meta = DropboxTaskLinkProvider().fetch_metadata(url, None)
+    assert meta.preview_type == "image"
+    assert meta.thumbnail_url == url
+
+
+def test_file_provider_non_200_is_unknown_without_preview(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A private file returns a login wall (e.g. 403) — no preview is written.
+    _stub_html(monkeypatch, status=403, body=b"denied", content_type="text/html")
+    meta = BoxTaskLinkProvider().fetch_metadata("https://app.box.com/s/private", None)
+    assert meta.status == "unknown"
+    assert meta.title is None
+    assert meta.description is None
+    assert meta.thumbnail_url is None
+    assert meta.preview_type is None
+
+
+def test_file_provider_transport_failure_is_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _raise(*args: object, **kwargs: object) -> object:
+        raise http.EgressBlocked("ssrf")
+
+    monkeypatch.setattr(http, "get", _raise)
+    meta = OneDriveTaskLinkProvider().fetch_metadata("https://onedrive.live.com/x", None)
+    assert meta.status == "unknown"
+    assert meta.preview_type is None
+
+
+@pytest.mark.django_db
+def test_resolve_file_hosts() -> None:
+    user = User.objects.create_user(username="rkf", password="pw")
+    cases = {
+        "https://drive.google.com/file/d/x/view": "google_drive",
+        "https://www.dropbox.com/s/abc/f.pdf": "dropbox",
+        "https://app.box.com/s/abc": "box",
+        "https://onedrive.live.com/x": "onedrive",
+    }
+    for url, expected in cases.items():
+        assert resolve_provider_key(url, user=user) == expected

@@ -26,7 +26,12 @@ from django.db import models
 from trueppm_api.apps.projects.models import VersionedModel
 
 from .encryption import encrypt_secret
-from .registry import LINK_STATUS_CHOICES, LINK_STATUS_UNKNOWN, TASK_LINK_PROVIDERS
+from .registry import (
+    LINK_STATUS_CHOICES,
+    LINK_STATUS_UNKNOWN,
+    PREVIEW_TYPE_CHOICES,
+    TASK_LINK_PROVIDERS,
+)
 
 
 class IntegrationCredential(models.Model):
@@ -186,6 +191,22 @@ class TaskLink(VersionedModel):
     # When the cached status/title was last fetched from the provider. Null
     # until the first refresh — drives the "as of …" / "never refreshed" hint.
     fetched_at = models.DateTimeField(null=True, blank=True)
+    # --- Cloud-file preview cache (#571, ADR-0163) ----------------------------
+    # Populated by a file provider's OpenGraph unfurl on refresh; empty for git
+    # and generic links. Stored here (on the synced row) rather than a side cache
+    # so the preview card renders offline on the mobile client from the sync delta.
+    # OpenGraph/Twitter description of a previewed file.
+    description = models.CharField(max_length=1024, blank=True, default="")
+    # Safe https preview-image URL (server drops non-https / blocked candidates).
+    thumbnail_url = models.URLField(max_length=2048, blank=True, default="")
+    # File class for the card's glyph/chip — one of PREVIEW_TYPE_VALUES, or "" for
+    # a link with no file preview (git, generic, not-yet-refreshed file).
+    preview_type = models.CharField(
+        max_length=16,
+        choices=PREVIEW_TYPE_CHOICES,
+        blank=True,
+        default="",
+    )
     # Manual ordering within a task's link list (lower sorts first).
     display_order = models.PositiveIntegerField(default=0)
 

@@ -513,3 +513,160 @@ def test_patch_link_from_another_project_is_404(member: object, memberships: Non
         _detail_url(other_project, other_task, link.pk), {"custom_title": "stolen"}, format="json"
     )
     assert r.status_code in (403, 404)
+
+
+# ---------------------------------------------------------------------------
+# Cloud-file preview cache (#571, ADR-0163)
+# ---------------------------------------------------------------------------
+
+
+def test_create_file_link_detects_provider(
+    member: object, project: Project, task: Task, memberships: None
+) -> None:
+    """A pasted cloud-file URL resolves to its file provider server-side."""
+    r = _client(member).post(
+        _list_url(project, task),
+        {"url": "https://docs.google.com/spreadsheets/d/abc/edit"},
+        format="json",
+    )
+    assert r.status_code == 201
+    body = r.json()
+    assert body["provider"] == "google_drive"
+    # No fetch on add — preview fields start empty.
+    assert body["description"] == ""
+    assert body["thumbnail_url"] == ""
+    assert body["preview_type"] == ""
+
+
+def test_refresh_file_link_writes_preview(
+    member: object,
+    project: Project,
+    task: Task,
+    memberships: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Refreshing a file link unfurls OpenGraph and persists the preview cache.
+
+    No credential is required (the unfurl is anonymous), so a Member refreshing
+    a Drive link gets a 200 with the enriched fields rather than a 422.
+    """
+    link = TaskLink.objects.create(
+        task=task,
+        url="https://docs.google.com/spreadsheets/d/abc/edit",
+        provider="google_drive",
+    )
+
+    def _fake_get(url: str, **kwargs: object) -> http.EgressResponse:
+        body = (
+            b"<html><head>"
+            b'<meta property="og:title" content="Q3 Budget">'
+            b'<meta property="og:description" content="Quarterly projections">'
+            b'<meta property="og:image" content="https://cdn.example.com/t.png">'
+            b"</head></html>"
+        )
+        return http.EgressResponse(status=200, body=body, headers={"content-type": "text/html"})
+
+    monkeypatch.setattr(http, "get", _fake_get)
+    r = _client(member).post(_refresh_url(project, task, link.pk))
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "unknown"  # a file has no lifecycle status
+    assert body["title"] == "Q3 Budget"
+    assert body["description"] == "Quarterly projections"
+    assert body["thumbnail_url"] == "https://cdn.example.com/t.png"
+    assert body["preview_type"] == "spreadsheet"
+    assert body["fetched_at"] is not None
+    link.refresh_from_db()
+    assert link.preview_type == "spreadsheet"
+    assert link.thumbnail_url == "https://cdn.example.com/t.png"
+
+
+def test_refresh_failure_keeps_last_good_preview(
+    member: object,
+    project: Project,
+    task: Task,
+    memberships: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A later failed unfurl (SSRF block / dead link) clears the row's preview to
+    empty rather than leaving a stale card claiming a description it no longer has."""
+    link = TaskLink.objects.create(
+        task=task,
+        url="https://app.box.com/s/abc",
+        provider="box",
+        description="old",
+        thumbnail_url="https://cdn.example.com/old.png",
+        preview_type="document",
+    )
+
+    def _raise(*args: object, **kwargs: object) -> object:
+        raise http.EgressTimeout("slow")
+
+    monkeypatch.setattr(http, "get", _raise)
+    r = _client(member).post(_refresh_url(project, task, link.pk))
+    assert r.status_code == 200
+    link.refresh_from_db()
+    assert link.description == ""
+    assert link.thumbnail_url == ""
+    assert link.preview_type == ""
+
+
+def test_preview_fields_are_read_only_on_create(
+    member: object, project: Project, task: Task, memberships: None
+) -> None:
+    """A client cannot seed the server-owned preview cache via create."""
+    r = _client(member).post(
+        _list_url(project, task),
+        {
+            "url": "https://www.dropbox.com/s/abc/f.pdf",
+            "description": "injected",
+            "thumbnail_url": "https://evil.example.com/x.png",
+            "preview_type": "pdf",
+        },
+        format="json",
+    )
+    assert r.status_code == 201
+    body = r.json()
+    assert body["description"] == ""
+    assert body["thumbnail_url"] == ""
+    assert body["preview_type"] == ""
+
+
+def test_refresh_throttle_caps_per_user(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The per-user refresh throttle blocks past its minute cap and fails open on
+    a Redis error (so a throttle outage never blocks a refresh)."""
+    from trueppm_api.apps.integrations import throttles
+
+    class _FakeRedis:
+        def __init__(self) -> None:
+            self.counts: dict[str, int] = {}
+
+        def incr(self, key: str) -> int:
+            self.counts[key] = self.counts.get(key, 0) + 1
+            return self.counts[key]
+
+        def expire(self, key: str, ttl: int) -> None:
+            return None
+
+    fake = _FakeRedis()
+    monkeypatch.setattr(throttles, "_client", lambda: fake)
+    throttle = throttles.TaskLinkRefreshThrottle()
+
+    class _ReqUser:
+        pk = 42
+
+    class _Req:
+        user = _ReqUser()
+
+    req = _Req()
+    allowed = sum(1 for _ in range(40) if throttle.allow_request(req, object()))  # type: ignore[arg-type]
+    assert allowed == throttles._REFRESH_LIMIT_PER_MIN  # 30 allowed, the rest blocked
+
+    # Fail-open: a Redis error must not block the request.
+    import redis
+
+    def _boom() -> object:
+        raise redis.RedisError("down")
+
+    monkeypatch.setattr(throttles, "_client", _boom)
+    assert throttle.allow_request(req, object()) is True  # type: ignore[arg-type]

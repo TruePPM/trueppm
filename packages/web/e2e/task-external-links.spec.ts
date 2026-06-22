@@ -58,14 +58,34 @@ interface LinkRow {
   labels: string[];
   status: string;
   fetched_at: string | null;
+  description: string;
+  thumbnail_url: string;
+  preview_type: string;
   display_order: number;
   server_version: number;
+}
+
+/** Provider key for a URL — mirrors the server's host detection (#637, #571). */
+function detectProviderForMock(url: string): string {
+  if (url.includes('github.com')) return 'github';
+  if (url.includes('gitlab.com')) return 'gitlab';
+  if (/(drive|docs|sheets|slides)\.google\.com/.test(url)) return 'google_drive';
+  if (url.includes('dropbox.com')) return 'dropbox';
+  if (url.includes('box.com')) return 'box';
+  if (url.includes('onedrive.live.com') || url.includes('sharepoint.com')) return 'onedrive';
+  return 'generic';
 }
 
 /** Stub the task-link endpoints with a stateful in-memory array. */
 async function stubLinks(
   page: Page,
-  opts: { initial?: LinkRow[]; refreshStatus?: number; refreshBody?: unknown } = {},
+  opts: {
+    initial?: LinkRow[];
+    refreshStatus?: number;
+    refreshBody?: unknown;
+    /** Overrides merged into the row on a 200 refresh (default: a git merged status). */
+    refreshResult?: Partial<LinkRow>;
+  } = {},
 ): Promise<void> {
   let links: LinkRow[] = opts.initial ? JSON.parse(JSON.stringify(opts.initial)) : [];
   const base = `**/api/v1/projects/${PROJECT_ID}/tasks/${TASK_ID}/links/`;
@@ -95,6 +115,7 @@ async function stubLinks(
         status: 'merged',
         title: 'Land it',
         fetched_at: new Date().toISOString(),
+        ...(opts.refreshResult ?? {}),
       };
       return route.fulfill({
         status: 200,
@@ -126,16 +147,15 @@ async function stubLinks(
       const row: LinkRow = {
         id: `link-${links.length + 1}`,
         url: normalized,
-        provider: normalized.includes('github.com')
-          ? 'github'
-          : normalized.includes('gitlab.com')
-            ? 'gitlab'
-            : 'generic',
+        provider: detectProviderForMock(normalized),
         title: '',
         custom_title: body.custom_title ?? '',
         labels: body.labels ?? [],
         status: 'unknown',
         fetched_at: null,
+        description: '',
+        thumbnail_url: '',
+        preview_type: '',
         display_order: links.length,
         server_version: 1,
       };
@@ -192,7 +212,7 @@ test.describe('Task external links (#637)', () => {
     const section = await openDrawerLinksSection(page);
 
     // Empty state.
-    await expect(section.getByRole('note')).toContainText(/Paste a GitLab, GitHub, or any URL/i);
+    await expect(section.getByRole('note')).toContainText(/cloud-file links show a preview/i);
 
     // Paste a GitHub URL → provider-detect hint appears.
     const input = section.getByLabel('Add a link URL');
@@ -249,6 +269,9 @@ test.describe('Task external links (#637)', () => {
           labels: [],
           status: 'unknown',
           fetched_at: null,
+          description: '',
+          thumbnail_url: '',
+          preview_type: '',
           display_order: 0,
           server_version: 1,
         },
@@ -280,6 +303,9 @@ test.describe('Task external links (#637)', () => {
           labels: [],
           status: 'unknown',
           fetched_at: null,
+          description: '',
+          thumbnail_url: '',
+          preview_type: '',
           display_order: 0,
           server_version: 1,
         },
@@ -293,5 +319,47 @@ test.describe('Task external links (#637)', () => {
     await expect(row.getByText('Click me')).toBeVisible();
     // …but it is NOT a link, so the javascript: URI can never bind to an href.
     await expect(row.getByRole('link', { name: /Click me/ })).toHaveCount(0);
+  });
+
+  test('#571: a cloud-file link unfurls to a preview card on refresh', async ({ page }) => {
+    await stubLinks(page, {
+      initial: [
+        {
+          id: 'link-drive',
+          url: 'https://docs.google.com/spreadsheets/d/abc/edit',
+          provider: 'google_drive',
+          title: '',
+          custom_title: '',
+          labels: [],
+          status: 'unknown',
+          fetched_at: null,
+          description: '',
+          thumbnail_url: '',
+          preview_type: '',
+          display_order: 0,
+          server_version: 1,
+        },
+      ],
+      // The refresh unfurls OpenGraph: title + description + a spreadsheet type.
+      refreshResult: {
+        status: 'unknown',
+        title: 'Q3 Budget',
+        description: 'Quarterly budget projections',
+        preview_type: 'spreadsheet',
+      },
+    });
+    const section = await openDrawerLinksSection(page);
+
+    const row = section.getByRole('listitem', { name: /Link:/ });
+    await expect(row).toBeVisible();
+    // Before refresh: no status pill (a file has no lifecycle) and no preview text.
+    await expect(row.getByText('UNKNOWN')).toHaveCount(0);
+    await expect(row.getByText('Quarterly budget projections')).toHaveCount(0);
+
+    // Refresh → preview card: title, description, and a neutral type chip.
+    await row.getByRole('button', { name: /Refresh/i }).click();
+    await expect(row.getByRole('link', { name: /Q3 Budget/ })).toBeVisible();
+    await expect(row.getByText('Quarterly budget projections')).toBeVisible();
+    await expect(row.getByLabel('File type: Spreadsheet')).toBeVisible();
   });
 });

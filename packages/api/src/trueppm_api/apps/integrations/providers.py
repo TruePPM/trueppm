@@ -28,12 +28,14 @@ from django.conf import settings
 
 from . import http
 from .encryption import decrypt_secret
+from .opengraph import classify_preview_type, parse_preview
 from .registry import (
     LINK_STATUS_CLOSED,
     LINK_STATUS_DRAFT,
     LINK_STATUS_MERGED,
     LINK_STATUS_OPEN,
     LINK_STATUS_UNKNOWN,
+    PREVIEW_TYPE_IMAGE,
     TASK_LINK_PROVIDERS,
     LinkMetadata,
     TaskLinkProvider,
@@ -310,11 +312,113 @@ class GenericTaskLinkProvider(TaskLinkProvider):
         return LinkMetadata(status=LINK_STATUS_UNKNOWN)
 
 
+class FileLinkProvider(TaskLinkProvider):
+    """Base for cloud-file OpenGraph preview providers (#571, ADR-0163).
+
+    Unlike the git providers these need **no** credential — they anonymously GET
+    the pasted URL itself through the SSRF-guarded :mod:`http` helper and scrape
+    its OpenGraph / Twitter-Card metadata into a rich :class:`LinkMetadata`
+    (``status`` stays ``unknown`` — a file has no PR/MR lifecycle; the preview
+    fields carry the signal). Each subclass declares only its ``hosts``; the
+    match, fetch, and classify logic is shared here.
+
+    Security: ``http.get`` validates the URL against the SSRF deny-list (private /
+    loopback / link-local / cloud-metadata) and disables redirects, so a public
+    file host can neither reach an internal address nor be bounced to one, and a
+    private file returns its provider's login wall (a generic app title), never
+    the private document's name.
+    """
+
+    requires_credential: ClassVar[bool] = False
+    # Anonymous unfurl — never stores a PAT, so it stays off the Connected
+    # Accounts page (#587). See TaskLinkProvider.connectable.
+    connectable: ClassVar[bool] = False
+    # Exact hosts and their subdomains this provider claims, lower-cased.
+    hosts: ClassVar[frozenset[str]] = frozenset()
+
+    @classmethod
+    def matches(cls, url: str) -> bool:
+        host = (urlparse(url).hostname or "").lower()
+        if not host:
+            return False
+        # Exact host or a subdomain of a claimed host (``acme.box.com`` →
+        # ``box.com``). The leading-dot guard prevents ``box.com.evil.com`` from
+        # matching ``box.com``.
+        return any(host == h or host.endswith(f".{h}") for h in cls.hosts)
+
+    def fetch_metadata(self, url: str, credential: Any) -> LinkMetadata:
+        try:
+            response = http.get(url, headers={"Accept": "text/html,application/xhtml+xml"})
+        except (http.EgressBlocked, http.EgressTimeout, http.EgressError):
+            return LinkMetadata(status=LINK_STATUS_UNKNOWN)
+        if response.status != 200:
+            # A 4xx/5xx (private file login wall, dead link) has no useful preview;
+            # leave the row's last-good preview untouched by returning bare unknown.
+            return LinkMetadata(status=LINK_STATUS_UNKNOWN)
+        preview = parse_preview(response.body, base_url=url)
+        preview_type = classify_preview_type(url, response.headers.get("content-type"))
+        thumbnail = preview.thumbnail_url
+        # A direct image URL (no OpenGraph markup) is its own thumbnail when https.
+        if (
+            thumbnail is None
+            and preview_type == PREVIEW_TYPE_IMAGE
+            and url.lower().startswith("https://")
+        ):
+            thumbnail = url
+        return LinkMetadata(
+            status=LINK_STATUS_UNKNOWN,
+            title=preview.title,
+            description=preview.description,
+            thumbnail_url=thumbnail,
+            preview_type=preview_type,
+        )
+
+
+class GoogleDriveTaskLinkProvider(FileLinkProvider):
+    """Google Drive / Docs / Sheets / Slides file preview (#571)."""
+
+    key: ClassVar[str] = "google_drive"
+    label: ClassVar[str] = "Google Drive"
+    hosts: ClassVar[frozenset[str]] = frozenset(
+        {"drive.google.com", "docs.google.com", "sheets.google.com", "slides.google.com"}
+    )
+
+
+class DropboxTaskLinkProvider(FileLinkProvider):
+    """Dropbox shared-file preview (#571)."""
+
+    key: ClassVar[str] = "dropbox"
+    label: ClassVar[str] = "Dropbox"
+    hosts: ClassVar[frozenset[str]] = frozenset({"dropbox.com"})
+
+
+class BoxTaskLinkProvider(FileLinkProvider):
+    """Box shared-file preview (#571)."""
+
+    key: ClassVar[str] = "box"
+    label: ClassVar[str] = "Box"
+    hosts: ClassVar[frozenset[str]] = frozenset({"box.com"})
+
+
+class OneDriveTaskLinkProvider(FileLinkProvider):
+    """OneDrive / SharePoint shared-file preview (#571)."""
+
+    key: ClassVar[str] = "onedrive"
+    label: ClassVar[str] = "OneDrive"
+    hosts: ClassVar[frozenset[str]] = frozenset({"onedrive.live.com", "sharepoint.com", "1drv.ms"})
+
+
 # Ordered list — apps.py iterates these in declaration order so the OSS
-# registration order is deterministic for tests + the credentials list.
+# registration order is deterministic for tests + the credentials list. File
+# providers precede ``generic`` so their hosts win the ``matches()`` scan; the
+# git providers stay first to preserve their existing resolution order.
 OSS_TASK_LINK_PROVIDERS: tuple[type[TaskLinkProvider], ...] = (
     GitLabTaskLinkProvider,
     GitHubTaskLinkProvider,
+    GoogleDriveTaskLinkProvider,
+    DropboxTaskLinkProvider,
+    BoxTaskLinkProvider,
+    OneDriveTaskLinkProvider,
     GenericTaskLinkProvider,
 )
 

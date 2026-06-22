@@ -148,6 +148,11 @@ class TaskLinkSerializer(serializers.ModelSerializer[TaskLink]):
             "labels",
             "status",
             "fetched_at",
+            # Cloud-file preview cache (#571, ADR-0163) — server-owned, populated
+            # by a file provider's OpenGraph unfurl on refresh; read-only.
+            "description",
+            "thumbnail_url",
+            "preview_type",
             "display_order",
             "server_version",
         ]
@@ -157,6 +162,9 @@ class TaskLinkSerializer(serializers.ModelSerializer[TaskLink]):
             "title",
             "status",
             "fetched_at",
+            "description",
+            "thumbnail_url",
+            "preview_type",
             "server_version",
         ]
 
@@ -232,6 +240,11 @@ def serialize_credential_summaries(
     for key in TASK_LINK_PROVIDERS:
         handler = TASK_LINK_PROVIDERS.get(key)
         if handler is None:  # pragma: no cover — keys() iterates known
+            continue
+        # Skip providers that never store a credential (cloud-file preview
+        # providers, #571) — the Connected Accounts page is a PAT manager, and
+        # an account with nothing to connect would only confuse.
+        if not getattr(handler, "connectable", True):
             continue
         row = rows_by_provider.get(key)
         out.append(

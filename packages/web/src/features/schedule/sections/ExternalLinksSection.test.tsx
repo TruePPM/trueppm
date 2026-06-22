@@ -33,6 +33,9 @@ function link(overrides: Partial<TaskExternalLink> = {}): TaskExternalLink {
     labels: [],
     status: 'open',
     fetched_at: null,
+    description: '',
+    thumbnail_url: '',
+    preview_type: '',
     display_order: 0,
     server_version: 1,
     ...overrides,
@@ -178,6 +181,92 @@ describe('ExternalLinksSection — custom title & labels (#970)', () => {
       }),
       expect.anything(),
     );
+  });
+});
+
+describe('ExternalLinksSection — cloud-file preview (#571)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useCreateMock.mockReturnValue({ mutate: vi.fn(), isPending: false });
+    useDeleteMock.mockReturnValue({ mutate: vi.fn(), isPending: false, isError: false });
+    useRefreshMock.mockReturnValue({ mutate: vi.fn(), isPending: false });
+    useUpdateMock.mockReturnValue({ mutate: vi.fn(), isPending: false, isError: false });
+  });
+
+  function fileLink(overrides: Partial<TaskExternalLink> = {}): TaskExternalLink {
+    return link({
+      id: 'f1',
+      provider: 'google_drive',
+      url: 'https://docs.google.com/spreadsheets/d/abc/edit',
+      title: 'Q3 Budget',
+      status: 'unknown',
+      ...overrides,
+    });
+  }
+
+  it('shows a preview-type chip — not a status pill — for a refreshed file link', () => {
+    useLinksMock.mockReturnValue({
+      links: [fileLink({ preview_type: 'spreadsheet', description: 'Quarterly projections' })],
+      isLoading: false,
+      error: null,
+    });
+    render(<ExternalLinksSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    expect(screen.getByLabelText('File type: Spreadsheet')).toBeInTheDocument();
+    // A file has no lifecycle — the "UNKNOWN" git status pill must not render.
+    expect(screen.queryByText('UNKNOWN')).toBeNull();
+    expect(screen.getByText('Quarterly projections')).toBeInTheDocument();
+  });
+
+  it('renders the thumbnail as a decorative image when present', () => {
+    useLinksMock.mockReturnValue({
+      links: [
+        fileLink({
+          preview_type: 'image',
+          thumbnail_url: 'https://cdn.example.com/t.png',
+          description: 'A diagram',
+        }),
+      ],
+      isLoading: false,
+      error: null,
+    });
+    const { container } = render(
+      <ExternalLinksSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />,
+    );
+    const img = container.querySelector('img');
+    expect(img).not.toBeNull();
+    expect(img).toHaveAttribute('src', 'https://cdn.example.com/t.png');
+    // Decorative — the title + description carry the meaning.
+    expect(img).toHaveAttribute('alt', '');
+  });
+
+  it('shows no chip and no preview block for a file link not yet refreshed', () => {
+    useLinksMock.mockReturnValue({
+      links: [fileLink({ title: '', preview_type: '', description: '', thumbnail_url: '' })],
+      isLoading: false,
+      error: null,
+    });
+    const { container } = render(
+      <ExternalLinksSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />,
+    );
+    // No type chip yet (refresh is the call to action) and no status pill.
+    expect(screen.queryByText(/File type:/)).toBeNull();
+    expect(screen.queryByText('UNKNOWN')).toBeNull();
+    expect(container.querySelector('img')).toBeNull();
+  });
+
+  it('falls back to a type glyph when the file link has no thumbnail', () => {
+    useLinksMock.mockReturnValue({
+      links: [fileLink({ preview_type: 'document', description: 'A spec', thumbnail_url: '' })],
+      isLoading: false,
+      error: null,
+    });
+    const { container } = render(
+      <ExternalLinksSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />,
+    );
+    // No <img>, but the description (and the glyph placeholder) render.
+    expect(container.querySelector('img')).toBeNull();
+    expect(screen.getByText('A spec')).toBeInTheDocument();
+    expect(screen.getByLabelText('File type: Document')).toBeInTheDocument();
   });
 });
 

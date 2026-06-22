@@ -196,7 +196,11 @@ class SyncTaskSuggestedAssigneeSerializer(serializers.ModelSerializer[TaskSugges
 
 
 class SyncTaskLinkSerializer(serializers.ModelSerializer[TaskLink]):
-    """Sync payload for TaskLink (ADR-0049 §3, #637) — git links on a task."""
+    """Sync payload for TaskLink (ADR-0049 §3, #637) — links on a task.
+
+    Carries the cloud-file preview cache (#571, ADR-0163) so the preview card
+    renders offline on the mobile client straight from the sync delta.
+    """
 
     class Meta:
         model = TaskLink
@@ -211,6 +215,9 @@ class SyncTaskLinkSerializer(serializers.ModelSerializer[TaskLink]):
             "labels",
             "status",
             "fetched_at",
+            "description",
+            "thumbnail_url",
+            "preview_type",
             "display_order",
         ]
 

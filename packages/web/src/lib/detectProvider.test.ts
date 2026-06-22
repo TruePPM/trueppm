@@ -17,6 +17,20 @@ describe('detectProvider', () => {
     expect(detectProvider('example.com/some/doc')).toBe('generic');
   });
 
+  it('detects cloud-file hosts (#571)', () => {
+    expect(detectProvider('https://drive.google.com/file/d/x/view')).toBe('google_drive');
+    expect(detectProvider('https://docs.google.com/document/d/x/edit')).toBe('google_drive');
+    expect(detectProvider('https://www.dropbox.com/s/abc/f.pdf')).toBe('dropbox');
+    expect(detectProvider('https://app.box.com/s/abc')).toBe('box');
+    expect(detectProvider('https://acme.sharepoint.com/:f:/x')).toBe('onedrive');
+    expect(detectProvider('https://onedrive.live.com/x')).toBe('onedrive');
+  });
+
+  it('does not match a suffix-spoof host as a file provider (#571)', () => {
+    expect(detectProvider('https://box.com.evil.com/s/abc')).toBe('generic');
+    expect(detectProvider('https://notdropbox.com/x')).toBe('generic');
+  });
+
   it('falls back to generic for any other well-formed http(s) URL', () => {
     expect(detectProvider('https://bitbucket.org/a/b/pull-requests/1')).toBe('generic');
     expect(detectProvider('https://gitlab.example.com/a/b/-/issues/1')).toBe('generic');
