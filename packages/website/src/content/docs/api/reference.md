@@ -178,6 +178,8 @@ A program is a container for related projects (see [Programs](/features/programs
 | PATCH | `/api/v1/programs/{id}/rollup-config/` | Update the program rollup KPIs config (Admin only) |
 | GET | `/api/v1/programs/{id}/risk-policy/` | Read the program risk & dependencies policy |
 | PATCH | `/api/v1/programs/{id}/risk-policy/` | Update the program risk & dependencies policy (Admin only) |
+| POST | `/api/v1/programs/bulk-fields/` | Bulk-set inherited settings (methodology, iteration label, risk policy) across multiple programs; body `{"ids": [...], "fields": {...}}` — only the named rows and fields change (Workspace Admin) |
+| POST | `/api/v1/programs/{id}/bulk-project-fields/` | Bulk-set inherited settings (methodology, iteration label) across this program's projects; body `{"ids": [...], "fields": {...}}` (Program Admin) |
 | GET | `/api/v1/programs/{id}/resource-contention/` | Within-program resource contention across member projects (Scheduler+; optional `?start=` / `?end=` window, repeatable `?resource=` / `?status=`) |
 | POST | `/api/v1/programs/{id}/split/` | Split a program into sub-programs — **planned, not yet implemented** (returns `501`) |
 
