@@ -72,6 +72,7 @@ interface Captures {
   projectArchive?: number;
   projectDelete?: { url: string };
   projectTransfer?: { body: unknown };
+  projectExport?: number;
   programClose?: number;
   programDelete?: { url: string };
   programTransfer?: { body: unknown };
@@ -186,6 +187,19 @@ async function setupProjectRoutes(page: Page, captures: Captures) {
   await page.route(`**/api/v1/projects/${PROJECT_ID}/transfer/`, async (route: Route) => {
     captures.projectTransfer = { body: route.request().postDataJSON() };
     await route.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_PROJECT) });
+  });
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/export/`, async (route: Route) => {
+    captures.projectExport = (captures.projectExport ?? 0) + 1;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      headers: { 'Content-Disposition': 'attachment; filename="APOLLO.json"' },
+      body: pj({
+        schema_version: '1.0',
+        program: { slug: 'apollo', name: 'Apollo Migration', methodology: 'HYBRID' },
+        projects: [{ slug: 'apollo', name: 'Apollo Migration', methodology: 'HYBRID' }],
+      }),
+    });
   });
 }
 
@@ -303,6 +317,26 @@ test.describe('Project lifecycle settings (#530)', () => {
     await expect
       .poll(() => captures.projectTransfer?.body)
       .toEqual({ new_owner_user_id: TARGET_USER_ID });
+  });
+
+  test('export project downloads a JSON seed from /projects/:id/export/ (#967)', async ({
+    page,
+  }) => {
+    const captures: Captures = {};
+    await setupAuth(page);
+    await setupProjectRoutes(page, captures);
+    await page.goto(`/projects/${PROJECT_ID}/settings/lifecycle`);
+
+    await expect(page.getByRole('heading', { name: 'Lifecycle' })).toBeVisible();
+
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByRole('button', { name: 'Export project…' }).click(),
+    ]);
+
+    await expect.poll(() => captures.projectExport).toBe(1);
+    // Filename derives from the project code (APOLLO), via the export hook.
+    expect(download.suggestedFilename()).toBe('APOLLO.json');
   });
 });
 

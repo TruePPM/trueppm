@@ -8,6 +8,7 @@ import {
   useTransferProject,
   useUnarchiveProject,
 } from '@/hooks/useProjectMutations';
+import { useExportProjectSeed } from '@/hooks/useProgramSeedIo';
 import { SettingsPageTitle } from '../SettingsShell';
 import { TransferOwnershipDialog } from '../components/TransferOwnershipDialog';
 
@@ -101,6 +102,9 @@ export function ProjectArchivePage() {
   const [transferOpen, setTransferOpen] = useState(false);
   const transferError = transfer.error instanceof Error ? transfer.error.message : null;
 
+  const exportSeed = useExportProjectSeed();
+  const exportError = exportSeed.error instanceof Error ? exportSeed.error.message : null;
+
   const isArchived = Boolean(project?.is_archived);
   const archiveLabel = isArchived
     ? `Unarchive ${project?.name ?? 'project'}…`
@@ -188,14 +192,15 @@ export function ProjectArchivePage() {
         <LifecycleCard
           title="Export project"
           tone="neutral"
-          description="Download a portable bundle: tasks (JSON + .mpp), baselines, attachments, time entries, audit log."
-          actionLabel="Generate export…"
+          description="Download this project as a portable JSON seed: tasks, sprints, dependencies, baselines, risks, and resources. Re-importable into any TruePPM workspace."
+          actionLabel="Export project…"
           notes={[
-            'Bundle is encrypted and signed; download link valid 24h.',
-            'Auto-deletes after 7 days unless saved.',
+            'Portable canonical JSON — re-imports via Programs → Import.',
+            'For a client-ready document, use the board PDF export instead.',
           ]}
-          disabled
-          disabledReason="Project export isn't available yet — tracked in #967"
+          onClick={() => exportSeed.mutate({ projectId, code: project?.code })}
+          busy={exportSeed.isPending}
+          error={exportError}
         />
 
         {/* Delete — critical zone */}

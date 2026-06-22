@@ -6,6 +6,7 @@ import { createElement } from 'react';
 import {
   seedImportErrors,
   useExportProgramSeed,
+  useExportProjectSeed,
   useLoadSampleProgram,
   useImportProgramSeed,
   useRemoveSampleProgram,
@@ -134,5 +135,61 @@ describe('useExportProgramSeed download flow', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(downloads).toEqual(['prog-9.json']);
+  });
+});
+
+describe('useExportProjectSeed download flow (#967)', () => {
+  let qc: QueryClient;
+  let clickSpy: MockInstance<() => void>;
+  let createObjectURL: ReturnType<typeof vi.fn>;
+  let revokeObjectURL: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    vi.clearAllMocks();
+    getMock.mockResolvedValue({ data: new Blob(['{}'], { type: 'application/json' }) });
+    createObjectURL = vi.fn().mockReturnValue('blob:fake');
+    revokeObjectURL = vi.fn();
+    URL.createObjectURL = createObjectURL as unknown as typeof URL.createObjectURL;
+    URL.revokeObjectURL = revokeObjectURL as unknown as typeof URL.revokeObjectURL;
+    clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+  });
+
+  afterEach(() => clickSpy.mockRestore());
+
+  it('fetches the project as a blob and triggers a download named by code', async () => {
+    const { result } = renderHook(() => useExportProjectSeed(), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({ projectId: 'proj-1', code: 'APOLLO' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(getMock).toHaveBeenCalledWith('/projects/proj-1/export/', { responseType: 'blob' });
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:fake');
+  });
+
+  it('falls back to the project id as the filename when code is absent', async () => {
+    const downloads: string[] = [];
+    clickSpy.mockImplementation(function (this: HTMLAnchorElement) {
+      downloads.push(this.download);
+    });
+    const { result } = renderHook(() => useExportProjectSeed(), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({ projectId: 'proj-9' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(downloads).toEqual(['proj-9.json']);
+  });
+
+  it('rejects when projectId is missing without calling the API', async () => {
+    const { result } = renderHook(() => useExportProjectSeed(), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({ projectId: undefined });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    expect(getMock).not.toHaveBeenCalled();
   });
 });

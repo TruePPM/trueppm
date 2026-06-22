@@ -4,11 +4,13 @@ import { MemoryRouter } from 'react-router';
 import { describe, it, expect, vi } from 'vitest';
 import { ProjectArchivePage } from './ProjectArchivePage';
 
-// Transfer ownership is now wired (issue 967); Export project remains a
-// disabled placeholder carrying the #967 tracking reference (rule 122 / #669).
+// Transfer ownership and Export project are both wired (issue 967); the only
+// remaining disabled placeholder is the async bundle deferred to a follow-up.
 const mutation = { mutate: vi.fn(), isPending: false, error: null };
 const transferMutate = vi.fn();
 const transferMutation = { mutate: transferMutate, isPending: false, error: null };
+const exportMutate = vi.fn();
+const exportMutation = { mutate: exportMutate, isPending: false, error: null };
 
 vi.mock('@/hooks/useProjectId', () => ({ useProjectId: () => 'p-1' }));
 vi.mock('@/hooks/useProject', () => ({
@@ -19,6 +21,9 @@ vi.mock('@/hooks/useProjectMutations', () => ({
   useUnarchiveProject: () => mutation,
   useDeleteProject: () => mutation,
   useTransferProject: () => transferMutation,
+}));
+vi.mock('@/hooks/useProgramSeedIo', () => ({
+  useExportProjectSeed: () => exportMutation,
 }));
 vi.mock('@/hooks/useProjectMembers', () => ({
   useProjectMembers: () => ({
@@ -43,11 +48,16 @@ function renderPage() {
 }
 
 describe('ProjectArchivePage lifecycle (#967)', () => {
-  it('disables Export project with the #967 reference', () => {
+  it('Export project triggers a JSON seed download for the project code', async () => {
+    const user = userEvent.setup();
+    exportMutate.mockClear();
     renderPage();
-    const btn = screen.getByRole('button', { name: 'Generate export…' });
-    expect(btn).toBeDisabled();
-    expect(btn).toHaveAttribute('title', expect.stringContaining('#967'));
+
+    const btn = screen.getByRole('button', { name: 'Export project…' });
+    expect(btn).toBeEnabled();
+    await user.click(btn);
+
+    expect(exportMutate).toHaveBeenCalledWith({ projectId: 'p-1', code: 'ATLAS' });
   });
 
   it('keeps the wired Archive action enabled', () => {

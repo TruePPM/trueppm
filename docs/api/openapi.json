@@ -6553,6 +6553,49 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/export/": {
+            "get": {
+                "operationId": "v1_projects_export_retrieve",
+                "description": "Export this project as a downloadable canonical JSON seed file (#967).\n\nMirrors program export (#616): a synchronous JSON attachment built from\n``export_project`` + ``dump_seed``. The seed wraps the single project in a\nminimal synthesized program block (ADR-0109 #967 addendum) so it re-imports\nwithout clobbering any live parent program. Read-only, open to any project\nmember, available on archived projects too (see get_permissions).",
+                "summary": "Export project as canonical JSON seed",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this project.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "A downloadable canonical JSON seed document (ADR-0109) describing this single project inside a synthesized single-project program wrapper. Round-trips back through the importer."
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/flow-metrics/": {
             "get": {
                 "operationId": "v1_projects_flow_metrics_retrieve",

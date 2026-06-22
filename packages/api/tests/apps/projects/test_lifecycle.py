@@ -12,6 +12,7 @@ Covers:
 
 from __future__ import annotations
 
+import json
 from datetime import date
 
 import pytest
@@ -691,3 +692,57 @@ def test_transfer_project_ownership_rejects_non_owner_actor(
     # other_user holds MEMBER, not OWNER.
     with pytest.raises(DjangoValidationError):
         transfer_project_ownership(project=project, new_owner=stranger, actor=other_user)
+
+
+# ---------------------------------------------------------------------------
+# Project export (#967) — GET /projects/:id/export/ (any member, read-only)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_export_project_member_downloads_json(owner: object, project: Project) -> None:
+    resp = _client(owner).get(f"/api/v1/projects/{project.pk}/export/")
+    assert resp.status_code == 200, resp.content
+    assert resp["Content-Type"] == "application/json"
+    assert "attachment" in resp["Content-Disposition"]
+    body = json.loads(resp.content)
+    assert body["schema_version"] == "1.0"
+    assert len(body["projects"]) == 1
+    # The `project` fixture is standalone (no program) — export still produces a
+    # valid single-project seed via the synthesized program wrapper (#967).
+    assert body["projects"][0]["name"] == "Apollo"
+    assert body["program"]["name"] == "Apollo"
+
+
+@pytest.mark.django_db
+def test_export_project_requires_auth(project: Project) -> None:
+    resp = APIClient().get(f"/api/v1/projects/{project.pk}/export/")
+    assert resp.status_code in (401, 403)
+
+
+@pytest.mark.django_db
+def test_export_project_non_member_denied(stranger: object, project: Project) -> None:
+    resp = _client(stranger).get(f"/api/v1/projects/{project.pk}/export/")
+    assert resp.status_code in (403, 404)
+
+
+@pytest.mark.django_db
+def test_export_project_viewer_can_download(
+    owner: object, other_user: object, project: Project
+) -> None:
+    # Read-only data portability is open to any member, including a Viewer.
+    ProjectMembership.objects.create(project=project, user=other_user, role=Role.VIEWER)
+    resp = _client(other_user).get(f"/api/v1/projects/{project.pk}/export/")
+    assert resp.status_code == 200, resp.content
+
+
+@pytest.mark.django_db
+def test_export_project_available_when_archived(owner: object, project: Project) -> None:
+    # Export stays available on an archived project (portability for archival),
+    # unlike write actions which the IsProjectNotArchived gate blocks.
+    project.is_archived = True
+    project.save(update_fields=["is_archived"])
+    resp = _client(owner).get(f"/api/v1/projects/{project.pk}/export/")
+    assert resp.status_code == 200, resp.content
+    body = json.loads(resp.content)
+    assert body["projects"][0]["name"] == "Apollo"
