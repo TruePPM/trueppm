@@ -58,11 +58,58 @@ export interface SignalPair {
   ceiling: SignalAudience;
 }
 
+/** Terminal + open states of a ceiling-raise proposal (mirrors CeilingRaiseStatus, #930). */
+export type CeilingRaiseStatus = 'open' | 'ratified' | 'rejected' | 'expired';
+
+/** Ratification choices a team member can cast (ADR-0104 Amendment A). */
+export type CeilingVoteChoice = 'approve' | 'reject';
+
+/** One team member's recorded vote — the backend exposes the voter as a user id only. */
+export interface CeilingVote {
+  voter: string;
+  choice: CeilingVoteChoice;
+  created_at: string;
+}
+
+/**
+ * A ceiling-raise ratification proposal with its live tally (ADR-0104 Amendment A / #930).
+ *
+ * `proposed_by` and each `votes[].voter` are user ids, not display names — the panel
+ * deliberately attributes by "you" + counts rather than naming voters (name-level
+ * attribution would chill honest voting, which defeats the privacy posture itself).
+ */
+export interface CeilingProposal {
+  id: string;
+  signal: SignalKey;
+  from_ceiling: SignalAudience;
+  to_ceiling: SignalAudience;
+  status: CeilingRaiseStatus;
+  proposed_by: string | null;
+  created_at: string;
+  expires_at: string;
+  resolved_at: string | null;
+  approve_count: number;
+  reject_count: number;
+  eligible_count: number;
+  threshold: number;
+  your_vote: CeilingVoteChoice | null;
+  can_vote: boolean;
+  votes: CeilingVote[];
+}
+
 export interface SignalPrivacyPolicy {
   signals: Record<SignalKey, SignalPair>;
   requester_tier: SignalAudience | null;
   can_set_audience: boolean;
   can_raise_ceiling: boolean;
+  /** Whether the requester is an active team member who may cast a ratification vote. */
+  can_vote: boolean;
+  /**
+   * The live OPEN ratification proposal per signal, keyed by signal — present only
+   * for signals that currently have one (a raise is pending). Drives the inline
+   * pending indicator without a second fetch.
+   */
+  open_proposals: Partial<Record<SignalKey, CeilingProposal>>;
 }
 
 export function audienceRank(value: SignalAudience): number {
@@ -86,14 +133,41 @@ export function useSignalPrivacy(
 }
 
 /**
- * Mutations for the panel. Each invalidates the policy query on success — a single
+ * Lists ceiling-raise proposals (open + recent resolved), team-readable. Lazy: only
+ * fetched when `enabled` (the Decision-history section is expanded) — the page load
+ * already carries the open proposals inline via the policy payload.
+ */
+export function useCeilingProposals(
+  projectId: string | undefined,
+  enabled: boolean,
+): UseQueryResult<CeilingProposal[]> {
+  return useQuery({
+    queryKey: ['ceiling-proposals', projectId],
+    queryFn: async () => {
+      const res = await apiClient.get<CeilingProposal[]>(
+        `/projects/${projectId}/signal-privacy/ceiling-proposals/`,
+      );
+      return res.data;
+    },
+    enabled: !!projectId && enabled,
+    staleTime: 30 * 1000,
+  });
+}
+
+/**
+ * Mutations for the panel. Each invalidates the affected queries on success — a single
  * write can move two values (e.g. lowering a ceiling clamps the audience), so the
- * whole posture is refetched rather than patched field-by-field.
+ * whole posture is refetched rather than patched field-by-field. Vote/withdraw also
+ * invalidate the proposals list so the Decision-history audit stays in sync.
  */
 export function useSignalPrivacyMutations(projectId: string | undefined) {
   const queryClient = useQueryClient();
-  const invalidate = () =>
+  const invalidatePolicy = () =>
     void queryClient.invalidateQueries({ queryKey: ['signal-privacy', projectId] });
+  const invalidateAll = () => {
+    invalidatePolicy();
+    void queryClient.invalidateQueries({ queryKey: ['ceiling-proposals', projectId] });
+  };
 
   const setAudience = useMutation({
     mutationFn: async (vars: { signal: SignalKey; audience: SignalAudience }) => {
@@ -103,18 +177,21 @@ export function useSignalPrivacyMutations(projectId: string | undefined) {
       );
       return res.data;
     },
-    onSuccess: invalidate,
+    onSuccess: invalidatePolicy,
   });
 
+  // A raise now returns 202 + an OPEN proposal (`proposed: true`); a lower/no-op stays
+  // 200 + the refreshed policy. Either way we just invalidate and let the refetched
+  // policy surface the new posture (and the inline pending card on a raise).
   const raiseCeiling = useMutation({
     mutationFn: async (vars: { signal: SignalKey; ceiling: SignalAudience }) => {
-      const res = await apiClient.post<SignalPrivacyPolicy>(
+      const res = await apiClient.post<SignalPrivacyPolicy | CeilingProposal>(
         `/projects/${projectId}/signal-privacy/raise-ceiling/`,
         vars,
       );
-      return res.data;
+      return { proposed: res.status === 202 };
     },
-    onSuccess: invalidate,
+    onSuccess: invalidateAll,
   });
 
   const ratchetDown = useMutation({
@@ -125,8 +202,30 @@ export function useSignalPrivacyMutations(projectId: string | undefined) {
       );
       return res.data;
     },
-    onSuccess: invalidate,
+    onSuccess: invalidatePolicy,
   });
 
-  return { setAudience, raiseCeiling, ratchetDown };
+  const voteOnProposal = useMutation({
+    mutationFn: async (vars: { proposalId: string; choice: CeilingVoteChoice }) => {
+      const res = await apiClient.post<CeilingProposal>(
+        `/projects/${projectId}/signal-privacy/ceiling-proposals/${vars.proposalId}/vote/`,
+        { choice: vars.choice },
+      );
+      return res.data;
+    },
+    onSuccess: invalidateAll,
+  });
+
+  const withdrawProposal = useMutation({
+    mutationFn: async (vars: { proposalId: string }) => {
+      const res = await apiClient.post<CeilingProposal>(
+        `/projects/${projectId}/signal-privacy/ceiling-proposals/${vars.proposalId}/withdraw/`,
+        {},
+      );
+      return res.data;
+    },
+    onSuccess: invalidateAll,
+  });
+
+  return { setAudience, raiseCeiling, ratchetDown, voteOnProposal, withdrawProposal };
 }
