@@ -47,7 +47,11 @@ class BoardActivityChangeSerializer(serializers.Serializer[Any]):
 
 class BoardActivityEventSerializer(serializers.Serializer[Any]):
     id = serializers.CharField()
-    event_type = serializers.ChoiceField(choices=sorted(EVENT_TYPES))
+    # CharField (not ChoiceField) deliberately: a ChoiceField over EVENT_TYPES emits a
+    # second `event_type` enum component that collides with the existing one and renames
+    # the canonical `EventTypeEnum` in the schema (the #859 schema-drift trap). The valid
+    # values are documented on the `type` query parameter instead.
+    event_type = serializers.CharField()
     actor = serializers.CharField(allow_null=True)
     actor_id = serializers.CharField(allow_null=True)
     timestamp = serializers.DateTimeField()

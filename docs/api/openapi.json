@@ -21811,7 +21811,7 @@
                         "type": "string"
                     },
                     "event_type": {
-                        "$ref": "#/components/schemas/BoardActivityEventEventTypeEnum"
+                        "type": "string"
                     },
                     "actor": {
                         "type": "string",
@@ -21853,19 +21853,6 @@
                     "task_name",
                     "timestamp"
                 ]
-            },
-            "BoardActivityEventEventTypeEnum": {
-                "enum": [
-                    "comment_added",
-                    "entered_sprint",
-                    "exited_sprint",
-                    "moved_sprint",
-                    "task_created",
-                    "task_deleted",
-                    "task_updated"
-                ],
-                "type": "string",
-                "description": "* `comment_added` - comment_added\n* `entered_sprint` - entered_sprint\n* `exited_sprint` - exited_sprint\n* `moved_sprint` - moved_sprint\n* `task_created` - task_created\n* `task_deleted` - task_deleted\n* `task_updated` - task_updated"
             },
             "BoardActivityResponse": {
                 "type": "object",
@@ -22668,7 +22655,7 @@
                 "type": "string",
                 "description": "* `open` - Open\n* `suggest_approve` - Suggest & Approve\n* `pm_only` - PM Only"
             },
-            "EventType1fcEnum": {
+            "EventTypeEnum": {
                 "enum": [
                     "task.created",
                     "task.updated",
@@ -32277,7 +32264,7 @@
                     "event_type": {
                         "allOf": [
                             {
-                                "$ref": "#/components/schemas/EventType1fcEnum"
+                                "$ref": "#/components/schemas/EventTypeEnum"
                             }
                         ],
                         "readOnly": true
