@@ -84,6 +84,16 @@ curl -s "http://localhost:8000/api/v1/tasks/?project=$PROJECT_ID&sprint=$SPRINT_
 
 → See [API reference](/api/reference/), [Quickstart](/getting-started/quickstart/)
 
+## Evaluate it yourself (~5 minutes)
+
+Seed the demo (`seed_demo_project --with-personas`) and sign in as **`tom`** — the team-member persona (password `demo`). The only question that matters: does this remove a click, or add one?
+
+1. **Open My Work.** Everything assigned to you, across every project, active-sprint tasks first. Update status right here — you never have to open the full project.
+2. **Move a card on the board.** That one action updates the burndown, the work package, the schedule, and every other open browser. You did one thing; everything else followed.
+3. **Notice what you don't have to do.** No status report, no Friday-afternoon timesheet, no project-management vocabulary to learn.
+
+The two things you'd want that aren't here yet — automatic Jira sync so you never double-enter, and 15-second mobile time entry — both land in **0.4**.
+
 ## Getting started
 
 1. Get your credentials from your project admin

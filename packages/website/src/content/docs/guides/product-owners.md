@@ -76,6 +76,19 @@ The most important interface between the PO and the PM:
 
 → Read the full hybrid walkthrough in [The Story](/the-story/)
 
+## Evaluate it yourself (~10 minutes)
+
+Seed the demo (`seed_demo_project --with-personas`) and sign in as **`maya`** — the Scrum Master persona (password `demo`). That surface shows the backlog and board the way you work them. (A dedicated Product Owner login arrives with the 0.3 sample projects.)
+
+1. **Open the backlog.** It's ordered by priority — drag to reorder. The order is your statement of what matters; the team pulls from the top.
+2. **Open the burn-up chart.** The total-scope line steps up where scope was added mid-sprint, so "what we committed to" and "what crept in" are visibly different.
+3. **Read the release forecast.** Velocity (completed points per sprint) drives a *remaining ÷ velocity* forecast — the answer to "when does this ship?" in your language, not a CPM planned date.
+4. **Check scope protection.** The capacity preflight panel is the evidence you point to when someone wants to inject scope into a sprint that's already full.
+
+This is your one-question filter — *does it tell me when the feature ships, in my language?* — answered with a velocity forecast, not a planned date.
+
+→ The [evaluation guide](/getting-started/evaluation-guide/) adds the **Aurora** and **Helios** samples (ship in 0.3), where a scope injection is accepted in one program and rejected in another.
+
 ## What's available now
 
 | Feature | Status |
