@@ -19,7 +19,9 @@ from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import (
     Calendar,
     Project,
+    ScopeChangeStatus,
     Sprint,
+    SprintScopeChange,
     Task,
     TaskComment,
     TaskStatus,
@@ -139,6 +141,68 @@ def test_sprint_assignment_surfaces_entered_sprint_event(project: Project, dev: 
     assert sprint_change["field"] == "sprint"
     assert sprint_change["old"] is None
     assert sprint_change["new"] == "S1"
+    # No SprintScopeChange row (pre-activation entry) → status is null, not absent
+    # (ADR-0160 Amendment B3, #1264).
+    assert entered["scope_change_status"] is None
+
+
+def _enter_sprint(project: Project, actor: Any) -> tuple[Task, Sprint]:
+    sprint = Sprint.objects.create(
+        project=project, name="S1", start_date=date(2026, 2, 1), finish_date=date(2026, 2, 14)
+    )
+    task = Task.objects.create(project=project, name="Card", duration=5)
+    task.sprint = sprint
+    _save(task, actor)
+    return task, sprint
+
+
+@pytest.mark.parametrize(
+    "scope_status",
+    [ScopeChangeStatus.PENDING, ScopeChangeStatus.ACCEPTED, ScopeChangeStatus.REJECTED],
+)
+def test_entered_sprint_surfaces_scope_change_status(
+    project: Project, dev: Any, scope_status: str
+) -> None:
+    """A post-activation injection's accept-gate status rides the entered_sprint event."""
+    task, sprint = _enter_sprint(project, dev)
+    SprintScopeChange.objects.create(
+        task=task, sprint=sprint, subtask_name=task.name, status=scope_status
+    )
+
+    body = _client(dev).get(_url(project)).data
+    entered = next(e for e in body["results"] if e["event_type"] == "entered_sprint")
+    assert entered["scope_change_status"] == scope_status
+
+
+def test_scope_change_status_latest_row_wins(project: Project, dev: Any) -> None:
+    """Re-injection of one task into the same sprint surfaces the latest decision."""
+    task, sprint = _enter_sprint(project, dev)
+    # Rows created in sequence → auto_now_add added_at is monotonic; the enrichment
+    # orders by added_at so the later (accepted) row wins over the earlier (pending) one.
+    SprintScopeChange.objects.create(
+        task=task, sprint=sprint, subtask_name=task.name, status=ScopeChangeStatus.PENDING
+    )
+    SprintScopeChange.objects.create(
+        task=task, sprint=sprint, subtask_name=task.name, status=ScopeChangeStatus.ACCEPTED
+    )
+
+    body = _client(dev).get(_url(project)).data
+    entered = next(e for e in body["results"] if e["event_type"] == "entered_sprint")
+    assert entered["scope_change_status"] == ScopeChangeStatus.ACCEPTED
+
+
+def test_scope_change_status_present_and_null_on_non_sprint_events(
+    project: Project, dev: Any
+) -> None:
+    """Every event row carries scope_change_status (null off entered_sprint) — uniform shape."""
+    task = Task.objects.create(project=project, name="Card", duration=5)
+    task.status = TaskStatus.IN_PROGRESS
+    _save(task, dev)
+
+    body = _client(dev).get(_url(project)).data
+    updated = next(e for e in body["results"] if e["event_type"] == "task_updated")
+    assert "scope_change_status" in updated
+    assert updated["scope_change_status"] is None
 
 
 def test_assignee_change_resolves_to_username(project: Project, pm: Any, dev: Any) -> None:
