@@ -74,6 +74,7 @@ from trueppm_api.apps.access.services import transfer_project_ownership
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.integrations.registry import LINK_STATUS_RANK, LINK_STATUS_UNKNOWN
 from trueppm_api.apps.projects.models import (
+    _HISTORY_EXCLUDED_TASK,
     AcceptanceCriterion,
     ApiToken,
     Baseline,
@@ -5787,31 +5788,78 @@ class ProjectMyTasksView(APIView):
 # Task detail drawer — history and baseline endpoints (ADR-0032)
 # ---------------------------------------------------------------------------
 
-# Fields exposed in the history diff — CPM outputs and sync internals excluded.
-_HISTORY_DIFF_FIELDS = [
-    "name",
-    "duration",
-    "status",
-    "percent_complete",
-    "planned_start",
-    "actual_start",
-    "actual_finish",
-    "optimistic_duration",
-    "most_likely_duration",
-    "pessimistic_duration",
-    "estimate_status",
-]
+# Fields excluded from the user-facing history diff (ADR-0096 Part 1).
+#
+# CPM outputs and sync internals are already absent from the historical model
+# (``_HISTORY_EXCLUDED_TASK``). This set drops the few remaining low-signal
+# bookkeeping columns from the *display* diff; everything else that is tracked is
+# surfaced (allow-by-exclusion). The previous 11-field opt-in allow-list left every
+# edit to a tracked-but-unlisted field — a WBS reorder (``wbs_path``, the highest-
+# frequency case), reassignment, sprint move, story-point or priority change —
+# rendering a bare "Updated" pill with no diff rows. Allow-by-exclusion fixes that
+# and surfaces newly-tracked fields automatically rather than silently dropping them.
+_HISTORY_DIFF_DISPLAY_EXCLUDED = frozenset(
+    {
+        # blocked_reason is contributor-private (the "Morgan surveillance boundary"):
+        # the task serializer read-gates it to the assignee + @-mentioned users via
+        # can_read_blocker_reason(). The history endpoint is Viewer+ for every member,
+        # so surfacing the reason's old/new text here would bypass that gate — exclude
+        # it. The structured blocker_type signal (visible to all members) is kept.
+        "blocked_reason",
+        "is_deleted",  # deletion is conveyed by history_type, not a diff row
+        "short_id",  # immutable, system-assigned identifier
+        "status_changed_at",  # derived bookkeeping timestamp
+        "blocked_since",  # derived bookkeeping timestamp
+        "sprint_pending",  # transient ADR-0102 scope-injection flag
+        "parent_governance_inherited",  # internal inheritance bookkeeping
+        "recurrence_occurrence_date",  # system-set during recurrence expansion
+        "recurrence_rule",  # FK to the rule object; recurrence shown via is_recurring
+    }
+)
+
+
+@functools.lru_cache(maxsize=1)
+def _history_diff_fields() -> tuple[Any, ...]:
+    """Concrete ``Task`` fields surfaced in the history diff (allow-by-exclusion).
+
+    Every tracked, non-PK field except the project link and the low-signal
+    bookkeeping columns in ``_HISTORY_DIFF_DISPLAY_EXCLUDED``. CPM/sync fields are
+    already absent from the historical model (``_HISTORY_EXCLUDED_TASK``). Cached:
+    the model field set is static for the process lifetime.
+    """
+    return tuple(
+        field
+        for field in Task._meta.concrete_fields
+        if not field.primary_key
+        and field.name != "project"
+        and field.name not in _HISTORY_DIFF_DISPLAY_EXCLUDED
+        and field.name not in _HISTORY_EXCLUDED_TASK
+    )
+
+
+def _history_fk_label(obj: Any) -> str:
+    """Human-readable label for a related object referenced in a diff value."""
+    get_full_name = getattr(obj, "get_full_name", None)
+    if callable(get_full_name):
+        # User: prefer the full name, fall back to the username.
+        return str(get_full_name() or obj.get_username())
+    return str(getattr(obj, "name", None) or obj)
 
 
 class TaskHistoryView(APIView):
     """Paginated field-level diff history for a single task.
 
     Returns HistoricalTask records in descending date order, each with a diff
-    list comparing it to the immediately preceding version.  The first record
-    (task creation) always has an empty diff — no previous version to compare.
+    list comparing it to the immediately preceding version (allow-by-exclusion;
+    ADR-0096 Part 1). The creation record (history_type ``+``) has an empty diff
+    — no previous version to compare. Change records (``~``) whose every changed
+    field is display-excluded are dropped, so the endpoint never emits a bare
+    "Updated" pill with no diff rows.
 
-    Accessible to all project members (Viewer+).  history_user is the username
-    of the user who made the change; null for programmatic writes.
+    Accessible to all project members (Viewer+). history_user is the username of
+    the user who made the change; null for programmatic writes. FK values
+    (assignee, sprint, …) are resolved to human-readable labels via a single
+    batched query per related model (no N+1 over the history).
     """
 
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
@@ -5824,23 +5872,57 @@ class TaskHistoryView(APIView):
         task = get_object_or_404(Task, pk=task_pk, project_id=project_pk, is_deleted=False)
 
         records = list(task.history.order_by("-history_date").select_related("history_user"))
+        diff_fields = _history_diff_fields()
 
-        result = []
+        # Pass 1: compute raw per-record changes, collecting FK ids to resolve in a
+        # single batched query per related model (avoids an N+1 over the history).
+        fk_ids: dict[str, set[Any]] = {}
+        raw_changes: list[list[tuple[Any, Any, Any]]] = []
         for i, record in enumerate(records):
             older = records[i + 1] if i + 1 < len(records) else None
-            diff = []
+            changes: list[tuple[Any, Any, Any]] = []
             if older is not None:
-                for field in _HISTORY_DIFF_FIELDS:
-                    new_val = getattr(record, field, None)
-                    old_val = getattr(older, field, None)
+                for field in diff_fields:
+                    new_val = getattr(record, field.attname, None)
+                    old_val = getattr(older, field.attname, None)
                     if new_val != old_val:
-                        diff.append(
-                            {
-                                "field": field,
-                                "old": str(old_val) if old_val is not None else None,
-                                "new": str(new_val) if new_val is not None else None,
-                            }
-                        )
+                        changes.append((field, old_val, new_val))
+                        if field.is_relation:
+                            bucket = fk_ids.setdefault(field.name, set())
+                            if old_val is not None:
+                                bucket.add(old_val)
+                            if new_val is not None:
+                                bucket.add(new_val)
+            raw_changes.append(changes)
+
+        # Batch-resolve FK ids to human-readable labels: {field_name: {pk: label}}.
+        fields_by_name = {field.name: field for field in diff_fields}
+        fk_labels: dict[str, dict[Any, str]] = {}
+        for field_name, ids in fk_ids.items():
+            related_model = fields_by_name[field_name].related_model
+            fk_labels[field_name] = {
+                obj.pk: _history_fk_label(obj)
+                for obj in related_model._default_manager.filter(pk__in=ids)
+            }
+
+        # Pass 2: render the response, dropping change records whose entire diff
+        # was display-excluded (the bare-"Updated"-pill case). Creation (+) and
+        # deletion (-) records are always kept.
+        result = []
+        for record, changes in zip(records, raw_changes, strict=True):
+            diff = []
+            for field, old_val, new_val in changes:
+                if field.is_relation:
+                    labels = fk_labels.get(field.name, {})
+                    old_repr = labels.get(old_val) if old_val is not None else None
+                    new_repr = labels.get(new_val) if new_val is not None else None
+                else:
+                    old_repr = str(old_val) if old_val is not None else None
+                    new_repr = str(new_val) if new_val is not None else None
+                diff.append({"field": field.name, "old": old_repr, "new": new_repr})
+
+            if record.history_type == "~" and not diff:
+                continue
 
             result.append(
                 {
