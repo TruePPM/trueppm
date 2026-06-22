@@ -23383,6 +23383,14 @@
                             "type": "string"
                         },
                         "readOnly": true
+                    },
+                    "role_context": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/RoleContextEnum"
+                            }
+                        ],
+                        "readOnly": true
                     }
                 },
                 "required": [
@@ -23395,6 +23403,7 @@
                     "initials",
                     "landing",
                     "max_project_role",
+                    "role_context",
                     "username",
                     "workspace_role"
                 ]
