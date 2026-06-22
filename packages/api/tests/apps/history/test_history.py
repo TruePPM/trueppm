@@ -331,6 +331,87 @@ class TestTaskHistoryAPI:
                 f"CPM field(s) {cpm_fields & diff_fields} appeared in diff"
             )
 
+    def test_diff_surfaces_previously_unlisted_tracked_field(
+        self,
+        owner_client: APIClient,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """Allow-by-exclusion (ADR-0096 Part 1): a tracked field outside the old
+        11-field allow-list (here ``story_points``) now renders a real diff
+        instead of a bare 'Updated' pill with no rows."""
+        task.story_points = 8
+        task.save()
+        r = owner_client.get(f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/")
+        results = r.data.get("results", r.data)
+        assert any(
+            d["field"] == "story_points" and d["new"] == "8"
+            for record in results
+            for d in record["diff"]
+        )
+
+    def test_diff_resolves_fk_to_human_label(
+        self,
+        owner_client: APIClient,
+        project: Project,
+        task: Task,
+        owner: object,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """FK diff values resolve to a human-readable label, never a raw id."""
+        task.assignee = owner  # type: ignore[assignment]
+        task.save()
+        r = owner_client.get(f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/")
+        results = r.data.get("results", r.data)
+        expected = owner.get_full_name() or owner.get_username()  # type: ignore[attr-defined]
+        assignee_diffs = [
+            d for record in results for d in record["diff"] if d["field"] == "assignee"
+        ]
+        assert assignee_diffs, "assignee change missing from history diff"
+        assert assignee_diffs[0]["new"] == expected
+        assert assignee_diffs[0]["new"] != str(owner.pk)  # type: ignore[attr-defined]
+
+    def test_empty_change_record_is_stripped(
+        self,
+        owner_client: APIClient,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """A '~' record whose only change is a display-excluded field (here the
+        transient ``sprint_pending`` flag) is omitted — the bare 'Updated' pill
+        never reaches the client. Creation (+) records are always kept."""
+        task.sprint_pending = True
+        task.save()
+        r = owner_client.get(f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/")
+        results = r.data.get("results", r.data)
+        assert all(record["history_type"] != "~" for record in results)
+        assert not any(d["field"] == "sprint_pending" for record in results for d in record["diff"])
+
+    def test_blocked_reason_never_leaks_into_diff(
+        self,
+        owner_client: APIClient,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """blocked_reason is contributor-private (read-gated to the assignee +
+        @-mentioned users in the serializer — the Morgan surveillance boundary).
+        Widening the history diff must NOT leak it to other members; the owner
+        here is neither the assignee nor mentioned."""
+        task.blocked_reason = "Waiting on the vendor — internal note"
+        task.name = "Renamed too"  # a non-excluded change keeps the record present
+        task.save()
+        r = owner_client.get(f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/")
+        results = r.data.get("results", r.data)
+        all_fields = {d["field"] for record in results for d in record["diff"]}
+        assert "blocked_reason" not in all_fields
+        assert "name" in all_fields  # the record itself survived (only the field is gated)
+        assert not any(
+            "vendor" in (d.get("new") or "") for record in results for d in record["diff"]
+        )
+
 
 # ---------------------------------------------------------------------------
 # Project history API

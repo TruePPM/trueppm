@@ -12798,7 +12798,7 @@
         "/api/v1/projects/{project_pk}/tasks/{task_pk}/history/": {
             "get": {
                 "operationId": "v1_projects_tasks_history_retrieve",
-                "description": "Paginated field-level diff history for a single task.\n\nReturns HistoricalTask records in descending date order, each with a diff\nlist comparing it to the immediately preceding version.  The first record\n(task creation) always has an empty diff — no previous version to compare.\n\nAccessible to all project members (Viewer+).  history_user is the username\nof the user who made the change; null for programmatic writes.",
+                "description": "Paginated field-level diff history for a single task.\n\nReturns HistoricalTask records in descending date order, each with a diff\nlist comparing it to the immediately preceding version (allow-by-exclusion;\nADR-0096 Part 1). The creation record (history_type ``+``) has an empty diff\n— no previous version to compare. Change records (``~``) whose every changed\nfield is display-excluded are dropped, so the endpoint never emits a bare\n\"Updated\" pill with no diff rows.\n\nAccessible to all project members (Viewer+). history_user is the username of\nthe user who made the change; null for programmatic writes. FK values\n(assignee, sprint, …) are resolved to human-readable labels via a single\nbatched query per related model (no N+1 over the history).",
                 "parameters": [
                     {
                         "in": "path",
