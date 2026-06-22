@@ -202,3 +202,54 @@ so the contract is fixed at design time.
    `validate_seed` raises `SeedValidationError` with the offending JSON path;
    #615's endpoint maps it to a 400 with a line/path-level error report. There is
    no retry queue because there is no async step.
+
+---
+
+## Addendum (#967): single-project export
+
+Issue #530 shipped program export (#616) as `GET /api/v1/programs/{id}/export/`.
+Issue #967 adds the project-grain counterpart so a PM can export **one project**
+as a portable seed file from the project settings/archive page (closing the #669
+dead-disabled-control anti-pattern on `ProjectArchivePage`).
+
+**Decision.** Add `GET /api/v1/projects/{id}/export/`, mirroring program export:
+a synchronous `HttpResponse` JSON attachment built from `exporter.export_project(project)`
++ `dump_seed(...)`. The endpoint is open to any project member
+(`IsAuthenticated + IsProjectMember`) and remains available on **archived**
+projects (the export action skips `IsProjectNotArchived`, matching program
+export's "data portability stays available for archival/forensics" stance and
+the `visit` action precedent). Export is read-only data portability, not a
+mutation, so it is not Owner-gated; a member can already read every field the
+export packages via existing endpoints.
+
+**Single-project seed shape.** The canonical schema requires a `program` wrapper
+(`required: ["schema_version","program","projects"]`, `projects.minItems: 1`), but
+`Project.program` is nullable (ADR-0070 — standalone projects are first-class).
+`export_project` therefore **synthesizes a minimal single-project program wrapper
+from the project itself** (`slug` from `project.code` or the slugified name,
+`name` = project name, `methodology` = project methodology) rather than emitting
+the live parent program. This is uniform for standalone and program-attached
+projects, and — because the synthesized slug is project-derived, not the parent
+program's `code` — re-importing a project export creates a **fresh** program
+instead of clobbering the live parent program's subtree (the wipe-then-recreate
+idempotency is keyed on `Program.code`). The program *roster/roles* are not
+exported (a project-scoped doc carries no `ProgramMembership`), but every user the
+project actually references (task assignees, resource accounts, risk owners) is
+still emitted in `accounts` so the doc re-imports with intact references. The #616
+round-trip guarantee holds: `export_program(import_seed(export_project(p)))` is
+byte-identical to a re-export.
+
+**Scope.** This slice is the synchronous **JSON seed** export only. The richer
+bundle in #967's original AC — `.mpp`, attachments, time entries, audit log, and
+a queued-job/download-link state — is deferred to a follow-up issue; that path
+would adopt the async export-job pattern (ADR-0092 workspace export), not this
+in-request `HttpResponse`.
+
+### Durable Execution (project export)
+Synchronous, read-only endpoint — every item is N/A. (1) Broker-down: N/A, no
+dispatch; the response is built and returned in-request. (2) Drain task: N/A.
+(3) Orphan window: N/A. (4) Service layer: `seed/exporter.py::export_project`
+(pure, returns a dict). (5) API response: synchronous `200` `application/json`
+attachment, not a queued `202`. (6) Outbox cleanup: N/A. (7) Idempotency:
+trivially idempotent (pure read; no writes, no broadcast). (8) Dead-letter: N/A —
+no async step; a serialization error surfaces in-request.

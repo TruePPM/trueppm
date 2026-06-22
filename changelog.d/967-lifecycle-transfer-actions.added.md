@@ -5,6 +5,4 @@
   flow can optionally rotate the program manager in the same step. The new owner /
   sponsor must already be a project / program member. Both endpoints
   (`POST /api/v1/projects/{id}/transfer/`, `POST /api/v1/programs/{id}/transfer-sponsorship/`)
-  are Owner-only and reject non-owners with `HTTP 403`. The remaining two #967 lifecycle
-  actions — **Export project** (async portable bundle) and **Split into sub-programs** —
-  stay disabled and tracked.
+  are Owner-only and reject non-owners with `HTTP 403`.

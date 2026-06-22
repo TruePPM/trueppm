@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     # lazy ``__getattr__`` loading below (so importing ``validate_seed`` stays
     # Django-free).
     from trueppm_api.apps.projects.seed.exporter import export_program as export_program
+    from trueppm_api.apps.projects.seed.exporter import export_project as export_project
     from trueppm_api.apps.projects.seed.importer import import_seed as import_seed
 
 
@@ -37,6 +38,10 @@ def __getattr__(name: str) -> object:
         from trueppm_api.apps.projects.seed.exporter import export_program
 
         return export_program
+    if name == "export_project":
+        from trueppm_api.apps.projects.seed.exporter import export_project
+
+        return export_project
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -44,6 +49,7 @@ __all__ = [
     "SUPPORTED_MAJORS",
     "SeedValidationError",
     "export_program",
+    "export_project",
     "import_seed",
     "validate_seed",
 ]

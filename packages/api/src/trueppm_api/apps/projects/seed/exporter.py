@@ -76,15 +76,42 @@ def _put(target: dict[str, Any], key: str, value: Any) -> None:
 
 def export_program(program: Program) -> dict[str, Any]:
     """Serialize ``program`` to a canonical seed document (a ``dict``)."""
-    return _Exporter(program).build()
+    projects = list(
+        Project.objects.filter(program=program, is_deleted=False).order_by("code", "name", "pk")
+    )
+    return _Exporter(program=program, projects=projects).build()
+
+
+def export_project(project: Project) -> dict[str, Any]:
+    """Serialize a single ``project`` to a canonical seed document (#967).
+
+    The canonical schema requires a top-level ``program`` block (ADR-0109) but
+    ``Project.program`` is nullable (ADR-0070 — standalone projects are
+    first-class), so the project is emitted inside a minimal program *synthesized
+    from the project itself* (slug/name/methodology). This is uniform whether or
+    not the live project belongs to a program, and because the synthesized slug
+    is project-derived rather than the parent program's ``code``, re-importing a
+    project export creates a fresh program instead of clobbering the live parent
+    program's subtree. The #616 round-trip guarantee still holds. See the #967
+    addendum in ADR-0109.
+    """
+    return _Exporter(program=None, projects=[project], synthetic_program=project).build()
 
 
 class _Exporter:
-    def __init__(self, program: Program) -> None:
+    def __init__(
+        self,
+        *,
+        program: Program | None,
+        projects: list[Project],
+        synthetic_program: Project | None = None,
+    ) -> None:
+        # ``program`` is the live parent program for a program export, or None
+        # for a single-project export (#967), in which case ``synthetic_program``
+        # (the project) sources the synthesized program-wrapper block.
         self.program = program
-        self.projects = list(
-            Project.objects.filter(program=program, is_deleted=False).order_by("code", "name", "pk")
-        )
+        self.synthetic_program = synthetic_program
+        self.projects = projects
         self.project_slug = _SlugAllocator()
         self.account_slug = _SlugAllocator()
         self.calendar_slug = _SlugAllocator()
@@ -133,7 +160,22 @@ class _Exporter:
     # --- top-level blocks --------------------------------------------------
 
     def _program_block(self) -> dict[str, Any]:
-        block: dict[str, Any] = {
+        if self.program is None:
+            # Single-project export (#967): synthesize a minimal program wrapper
+            # from the project so the seed satisfies the schema's required
+            # ``program`` block while staying decoupled from any live parent
+            # program (re-import won't clobber it). The slug is slugified to keep
+            # it schema-valid (kebab-case) since Project.code is free-form.
+            proj = self.synthetic_program
+            assert proj is not None  # always set when self.program is None
+            block: dict[str, Any] = {
+                "slug": _slugify(proj.code or proj.name),
+                "name": proj.name,
+                "methodology": proj.methodology,
+            }
+            _put(block, "description", proj.description)
+            return block
+        block = {
             "slug": self.program.code or self.project_slug.take(self.program.name),
             "name": self.program.name,
             "methodology": self.program.methodology,
@@ -145,14 +187,21 @@ class _Exporter:
         return block
 
     def _accounts_block(self) -> list[dict[str, Any]]:
-        # Every user referenced anywhere in the program needs an account so the
-        # export re-imports. Membership roles come from ProgramMembership.
-        roles = {m.user_id: m.role for m in ProgramMembership.objects.filter(program=self.program)}
+        # Every user referenced anywhere in the export needs an account so it
+        # re-imports. Membership roles come from ProgramMembership. A single-
+        # project export (#967) has no parent program, so the roster is empty and
+        # only the users the project actually references (task assignees, resource
+        # accounts, risk owners) are emitted — without program-level roles.
+        roles: dict[Any, int] = {}
         users: dict[Any, Any] = {}
-        if self.program.lead_id is not None:
-            users[self.program.lead_id] = self.program.lead
-        for m in ProgramMembership.objects.filter(program=self.program).select_related("user"):
-            users[m.user_id] = m.user
+        if self.program is not None:
+            roles = {
+                m.user_id: m.role for m in ProgramMembership.objects.filter(program=self.program)
+            }
+            if self.program.lead_id is not None:
+                users[self.program.lead_id] = self.program.lead
+            for m in ProgramMembership.objects.filter(program=self.program).select_related("user"):
+                users[m.user_id] = m.user
         for task in self._all_tasks():
             if task.assignee_id is not None:
                 users[task.assignee_id] = task.assignee

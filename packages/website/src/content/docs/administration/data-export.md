@@ -3,10 +3,10 @@ title: Data export
 description: Export a whole program to a canonical JSON seed file — endpoint, CLI, round-trip guarantee, and limitations.
 ---
 
-Any program can be exported to a single canonical JSON seed file — the same
-format the [sample projects](/getting-started/sample-projects/) ship in. Use it
-to back up a program, move it between instances, or hand it to a developer to
-edit and re-import.
+Any program — or a single project — can be exported to a canonical JSON seed
+file, the same format the [sample projects](/getting-started/sample-projects/)
+ship in. Use it to back up your work, move it between instances, or hand it to a
+developer to edit and re-import.
 
 ## Export a program
 
@@ -32,6 +32,40 @@ GET /api/v1/programs/{id}/export/
 
 Available to any program member (Viewer and above). The response is a JSON
 attachment.
+
+## Export a project
+
+A single project can be exported the same way, from its own settings.
+
+### Web
+
+Open **Project → Settings → Lifecycle** and choose **Export project…**. The
+project downloads as a seed file.
+
+### API
+
+```
+GET /api/v1/projects/{id}/export/
+```
+
+Available to any project member (Viewer and above), including on **archived**
+projects (so data stays portable for archival). The response is a JSON
+attachment.
+
+Because the seed format always describes a program and its projects, a
+project export wraps the project in a small synthesized single-project program
+derived from the project itself. This keeps the file self-contained and
+re-importable — a standalone project (one not grouped into a program) exports
+just the same — and means re-importing a project export creates a fresh program
+rather than overwriting the project's original parent program. Cross-project
+dependencies that point at a *sibling* project are omitted, since the sibling is
+not part of a single-project export.
+
+:::note
+This is the portable **JSON** export. For a boardroom-ready document, use the
+board PDF export instead. A richer project bundle (MS Project `.mpp`,
+attachments, time entries, and the audit log) is tracked as a follow-up.
+:::
 
 ## Round-trip guarantee
 

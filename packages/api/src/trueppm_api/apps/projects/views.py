@@ -32,6 +32,7 @@ from django.db.models import (
     When,
 )
 from django.db.models.expressions import RawSQL
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
@@ -292,6 +293,14 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
         # real visit (ADR-0150 D4). The resolver separately filters archived
         # projects out of the landing result, so recording one is harmless.
         if self.action == "visit":
+            return [IsAuthenticated(), IsProjectMember()]
+        # Project export (#967, ADR-0109 addendum): read-only data portability,
+        # open to any member (Viewer+) and available on archived projects too —
+        # it skips IsProjectNotArchived (like `visit`), mirroring program export's
+        # "portability stays available for archival/forensics" stance. Export is
+        # non-destructive and packages only data a member can already read, so it
+        # is not Owner-gated.
+        if self.action == "export":
             return [IsAuthenticated(), IsProjectMember()]
         return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
 
@@ -863,6 +872,38 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
         )
         serializer = self.get_serializer(project)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        summary="Export project as canonical JSON seed",
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "A downloadable canonical JSON seed document (ADR-0109) describing this "
+                    "single project inside a synthesized single-project program wrapper. "
+                    "Round-trips back through the importer."
+                ),
+            ),
+        },
+    )
+    @action(detail=True, methods=["get"], url_path="export")
+    def export(self, request: Request, pk: str | None = None) -> HttpResponse:
+        """Export this project as a downloadable canonical JSON seed file (#967).
+
+        Mirrors program export (#616): a synchronous JSON attachment built from
+        ``export_project`` + ``dump_seed``. The seed wraps the single project in a
+        minimal synthesized program block (ADR-0109 #967 addendum) so it re-imports
+        without clobbering any live parent program. Read-only, open to any project
+        member, available on archived projects too (see get_permissions).
+        """
+        from trueppm_api.apps.projects.seed.exporter import dump_seed, export_project
+
+        project = self.get_object()
+        body = dump_seed(export_project(project))
+        filename = f"{project.code or project.pk}.json"
+        response = HttpResponse(body, content_type="application/json")
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
 
     @extend_schema(
         parameters=[

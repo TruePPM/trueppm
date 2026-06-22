@@ -142,3 +142,35 @@ export function useExportProgramSeed(): UseMutationResult<void, Error, ExportPro
     },
   });
 }
+
+export interface ExportProjectInput {
+  /** May be null/undefined while the route param resolves; guarded at call time. */
+  projectId: string | null | undefined;
+  /** Project code/slug — used as the download filename when present. */
+  code?: string | null;
+}
+
+/**
+ * GET /api/v1/projects/{id}/export/ — download a single project as a JSON seed
+ * file (#967). The project-grain counterpart to {@link useExportProgramSeed};
+ * the exported file wraps the project in a synthesized single-project program
+ * and round-trips back through the importer.
+ */
+export function useExportProjectSeed(): UseMutationResult<void, Error, ExportProjectInput> {
+  return useMutation({
+    mutationFn: async ({ projectId, code }) => {
+      if (!projectId) throw new Error('projectId is required');
+      const res = await apiClient.get(`/projects/${projectId}/export/`, {
+        responseType: 'blob',
+      });
+      const url = URL.createObjectURL(res.data as Blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `${code || projectId}.json`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    },
+  });
+}
