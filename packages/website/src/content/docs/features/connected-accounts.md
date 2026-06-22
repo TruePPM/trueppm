@@ -1,6 +1,6 @@
 ---
 title: Connected Accounts & Git-Aware Links
-description: Connect your own GitLab, GitHub, or generic Git account to track live MR, PR, and issue status directly on TruePPM tasks.
+description: Connect your own GitLab, GitHub, or generic Git account to track live MR, PR, and issue status on TruePPM tasks — and preview Google Drive, Dropbox, Box, and OneDrive file links inline, no account needed.
 ---
 
 TruePPM lets each contributor connect their **own** Git host credentials and
@@ -80,9 +80,9 @@ status.
 
 ## Git-aware task links
 
-Paste a GitLab, GitHub, or any URL onto a task and track its live status from
-the task detail panel. Links are managed in the **External links** section of
-the task drawer.
+Paste a GitLab, GitHub, cloud-file, or any URL onto a task and track its live
+status — or, for a cloud-file link, see an inline preview — from the task detail
+panel. Links are managed in the **External links** section of the task drawer.
 
 :::note
 Git-aware links are distinct from the static **pinned links** described under
@@ -94,8 +94,9 @@ resolves an MR, PR, or issue and shows its current status badge.
 ### What the section does
 
 - **Add a link** — paste a URL; the provider is detected automatically from the
-  host (gitlab.com → GitLab, github.com → GitHub, anything else → a *generic*
-  link). You can paste a bare address without a scheme (`github.com/acme/api`) —
+  host (gitlab.com → GitLab, github.com → GitHub, a Google Drive / Dropbox / Box /
+  OneDrive host → that cloud-file provider, anything else → a *generic* link). You
+  can paste a bare address without a scheme (`github.com/acme/api`) —
   `https://` is assumed. For a self-hosted GitLab CE/EE or GitHub Enterprise
   Server instance, a link on that host routes to the matching provider when you
   have a credential connected with that host as its base URL. The provider is
@@ -126,6 +127,33 @@ resolves an MR, PR, or issue and shows its current status badge.
   Accounts** to connect one, rather than failing silently. Generic links need no
   credential and have no live status.
 - **Remove** — delete a link with an inline confirm.
+
+### Cloud-file previews
+
+A link to a **Google Drive, Dropbox, Box, or OneDrive** file renders an inline
+**preview card** instead of a status badge — a thumbnail, the file's title and
+description, and a file-type chip (Document, Spreadsheet, Presentation, Image,
+PDF, Folder, or File). These hosts have no merge/close lifecycle, so a cloud-file
+link shows its *type*, not a status.
+
+- **No account needed.** Unlike git links, a cloud-file preview needs **no
+  connected credential** — it reads only the public OpenGraph metadata a file's
+  share page already exposes, the same way a chat app unfurls a pasted link.
+  Private files (ones that show a sign-in wall to anyone not logged in) simply
+  show no thumbnail and fall back to a type glyph; their private contents are
+  never read.
+- **Fetched on demand.** Like git links, there is no background polling — the
+  preview is fetched when you press **Refresh** on the link, and the cached card
+  then syncs to the offline mobile client through the project sync delta, so it
+  is readable with no connection (only the thumbnail image, which lives on the
+  file host, needs the network to load).
+- **Safe by construction.** The fetch goes through the same SSRF-guarded egress
+  helper as git refresh (it refuses private/loopback/link-local/cloud-metadata
+  hosts and does not follow redirects), is bounded in time and size, and is
+  rate-limited per user. Only `https` thumbnail URLs are stored.
+
+Because cloud-file providers store no token, they do **not** appear on the
+Connected Accounts page — there is nothing to connect.
 
 ### At-a-glance status on the schedule
 
@@ -161,9 +189,11 @@ roll-up.
 | Remove link | `DELETE /api/v1/projects/{id}/tasks/{task_id}/links/{link_id}/` | Member |
 
 The add/edit body accepts `url`, `custom_title`, and `labels` (`provider`,
-`title`, and `status` are server-owned). Adding, editing, and removing follow
-task-edit permission; listing and refreshing follow task-read. Links inherit offline-sync parity with tasks, so add/remove/status
-changes reach the mobile client through the project sync delta.
+`title`, `status`, and the cloud-file preview fields `description`,
+`thumbnail_url`, and `preview_type` are server-owned). Adding, editing, and
+removing follow task-edit permission; listing and refreshing follow task-read.
+Links inherit offline-sync parity with tasks, so add/remove/status changes — and
+the cached preview — reach the mobile client through the project sync delta.
 
 ## Related ADRs
 
@@ -173,3 +203,5 @@ changes reach the mobile client through the project sync delta.
 - **ADR-0076** — Integration Management Surface Boundary
 - **ADR-0155** — At-a-glance external-link status indicators (the schedule
   list/Gantt roll-up)
+- **ADR-0163** — OSS cloud-file URL preview connector (Drive/Dropbox/Box/OneDrive
+  OpenGraph previews)

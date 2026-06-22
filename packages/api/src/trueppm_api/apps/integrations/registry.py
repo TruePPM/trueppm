@@ -62,18 +62,63 @@ LINK_STATUS_RANK: dict[str, int] = {
 LINK_STATUS_BY_RANK: dict[int, str] = {rank: status for status, rank in LINK_STATUS_RANK.items()}
 
 
+# Canonical preview-type classes for a cloud-file link (#571, ADR-0163). A file
+# provider classifies the unfurled URL onto one of these; the model stores the
+# string and the web layer maps each onto a single glyph. An empty string means
+# "no preview" (a git link, or a file link not yet refreshed). ``file`` is the
+# generic fallback when the host/extension/og:type don't pin a richer class.
+PREVIEW_TYPE_DOCUMENT = "document"
+PREVIEW_TYPE_SPREADSHEET = "spreadsheet"
+PREVIEW_TYPE_PRESENTATION = "presentation"
+PREVIEW_TYPE_IMAGE = "image"
+PREVIEW_TYPE_PDF = "pdf"
+PREVIEW_TYPE_FOLDER = "folder"
+PREVIEW_TYPE_FILE = "file"
+PREVIEW_TYPE_VALUES: tuple[str, ...] = (
+    PREVIEW_TYPE_DOCUMENT,
+    PREVIEW_TYPE_SPREADSHEET,
+    PREVIEW_TYPE_PRESENTATION,
+    PREVIEW_TYPE_IMAGE,
+    PREVIEW_TYPE_PDF,
+    PREVIEW_TYPE_FOLDER,
+    PREVIEW_TYPE_FILE,
+)
+# ``(value, value)`` pairs for the model's ``CharField(choices=...)`` — defined at
+# module level for the same django-stubs reason as ``LINK_STATUS_CHOICES`` above.
+PREVIEW_TYPE_CHOICES: tuple[tuple[str, str], ...] = tuple(
+    (value, value) for value in PREVIEW_TYPE_VALUES
+)
+
+
 @dataclass(frozen=True)
 class LinkMetadata:
     """Live status + title for a task link, returned by ``fetch_metadata`` (#637).
 
+    The trailing three fields are the cloud-file preview enrichment (#571,
+    ADR-0163). Git providers (gitlab/github/generic) return only ``status`` +
+    ``title`` and leave them ``None`` — so the dataclass carries both shapes and
+    the refresh path writes whichever fields are present. Adding optional fields
+    is additive: an Enterprise provider built against the old two-field shape
+    keeps returning a valid ``LinkMetadata``.
+
     Attributes:
         status: One of :data:`LINK_STATUS_VALUES`.
-        title: Human title the provider reported (PR/MR/issue title), or
-            ``None`` when unavailable — the UI falls back to the raw URL.
+        title: Human title the provider reported (PR/MR/issue title, or the
+            OpenGraph/``<title>`` of a file), or ``None`` when unavailable — the
+            UI falls back to ``custom_title`` then the raw URL.
+        description: OpenGraph/Twitter description of a file link, or ``None``.
+        thumbnail_url: A safe ``https://`` preview image URL, or ``None`` (a
+            private file, no ``og:image``, or a non-https/blocked candidate that
+            the provider dropped).
+        preview_type: One of :data:`PREVIEW_TYPE_VALUES`, or ``None`` for a link
+            that has no file preview (git links, generic links).
     """
 
     status: str
     title: str | None = None
+    description: str | None = None
+    thumbnail_url: str | None = None
+    preview_type: str | None = None
 
 
 @dataclass(frozen=True)
@@ -198,6 +243,12 @@ class TaskLinkProvider(abc.ABC):
     key: ClassVar[str]
     label: ClassVar[str]
     requires_credential: ClassVar[bool] = True
+    # Whether this provider appears on the user's Connected Accounts page (#587)
+    # as a PAT-storable account. The cloud-file preview providers (#571) never
+    # store a credential — their unfurl is anonymous — so they set this False and
+    # stay out of the credentials summary, while ``generic`` (which *can* hold a
+    # PAT a user refers to for a custom workflow) keeps the default True.
+    connectable: ClassVar[bool] = True
 
     @classmethod
     @abc.abstractmethod

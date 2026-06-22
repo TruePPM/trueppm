@@ -16,6 +16,8 @@ import { useState } from 'react';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
 import { canEditTask } from '@/lib/roles';
 import { detectProvider } from '@/lib/detectProvider';
+import type { DetectedProvider } from '@/lib/detectProvider';
+import { previewTypeGlyph, previewTypeLabel } from '@/lib/previewType';
 import { safeExternalHref } from '@/lib/safeExternalHref';
 import { formatRelative } from '@/lib/formatRelative';
 import {
@@ -34,11 +36,47 @@ import {
 } from '@/lib/linkStatus';
 import type { ExternalLinkStatus } from '@/lib/linkStatus';
 
-/** Provider glyph — Unicode for zero icon-library cost (matches AttachmentSection). */
+/** Provider glyph — Unicode for zero icon-library cost (matches AttachmentSection).
+ *  File providers (issue 571, ADR-0163) get distinct glyphs; the icon is decorative
+ *  (aria-hidden) — the link title carries the meaning. */
 function providerIcon(provider: string): string {
   if (provider === 'github') return '🐙';
   if (provider === 'gitlab') return '🦊';
+  if (provider === 'google_drive') return '📂';
+  if (provider === 'dropbox') return '🗄️';
+  if (provider === 'box') return '📦';
+  if (provider === 'onedrive') return '☁️';
   return '🔗';
+}
+
+/** Cloud-file providers whose right-slot is a preview-type chip, not a git status
+ *  badge — a file has no PR/MR lifecycle (issue 571, ADR-0163). */
+const FILE_PROVIDERS = new Set(['google_drive', 'dropbox', 'box', 'onedrive']);
+
+function isFileProvider(provider: string): boolean {
+  return FILE_PROVIDERS.has(provider);
+}
+
+/** Live "provider detected" hint for the add-link field (issues 637, 571). */
+function addHint(detected: DetectedProvider | null): string {
+  switch (detected) {
+    case 'github':
+      return '🐙 GitHub detected · refresh fetches live status';
+    case 'gitlab':
+      return '🦊 GitLab detected · refresh fetches live status';
+    case 'google_drive':
+      return '📂 Google Drive detected · refresh loads a preview';
+    case 'dropbox':
+      return '🗄️ Dropbox detected · refresh loads a preview';
+    case 'box':
+      return '📦 Box detected · refresh loads a preview';
+    case 'onedrive':
+      return '☁️ OneDrive detected · refresh loads a preview';
+    case 'generic':
+      return '🔗 Saved as a generic link (no live status)';
+    default:
+      return '';
+  }
 }
 
 // Color/label tokens come from the shared linkStatus module (issue 767, ADR-0155) so the
@@ -65,6 +103,79 @@ export function StatusBadge({ status, provider }: StatusBadgeProps) {
       <span aria-hidden="true" className={`w-1.5 h-1.5 rounded-full ${LINK_STATUS_DOT_CLASS[status]}`} />
       {label}
     </span>
+  );
+}
+
+/** Neutral preview-type chip for a cloud-file link (issue 571, ADR-0163). Distinct
+ *  from `StatusBadge` — status pills are reserved for git lifecycle states; a
+ *  file has no lifecycle, so its right-slot describes its *type*. */
+function TypeChip({ type }: { type: string }) {
+  const label = previewTypeLabel(type);
+  return (
+    <span
+      className="inline-flex items-center rounded bg-neutral-surface-sunken px-1.5 py-0.5
+        text-[11px] font-medium text-neutral-text-secondary"
+      aria-label={`File type: ${label}`}
+    >
+      {label}
+    </span>
+  );
+}
+
+/** Right-aligned slot: a type chip for previewed file links, a git status badge
+ *  otherwise. A file link not yet refreshed (no `preview_type`) shows nothing —
+ *  the "never refreshed" stamp + refresh button are the call to action. */
+function LinkRightSlot({ link }: { link: TaskExternalLink }) {
+  if (isFileProvider(link.provider)) {
+    return link.preview_type ? <TypeChip type={link.preview_type} /> : null;
+  }
+  return <StatusBadge status={link.status} provider={link.provider} />;
+}
+
+/**
+ * Cloud-file preview block (issue 571, ADR-0163): a thumbnail + description rendered
+ * only once a file link has been unfurled. The thumbnail is decorative
+ * (`alt=""`) — the link title and description carry the meaning — lazy-loaded,
+ * and falls back to a preview-type glyph when the image is absent (private file,
+ * no `og:image`) or fails to load (offline — the external image can't be fetched
+ * with no network, but the card itself renders from the synced fields).
+ */
+function FilePreview({ link }: { link: TaskExternalLink }) {
+  const [imgFailed, setImgFailed] = useState(false);
+  // Nothing to show until a preview has been fetched.
+  if (!link.description && !link.thumbnail_url) return null;
+  const showImage = !!link.thumbnail_url && !imgFailed;
+  const glyph = previewTypeGlyph(link.preview_type || 'file');
+  return (
+    <div className="flex items-start gap-2">
+      <div
+        className="flex h-14 w-14 flex-shrink-0 items-center justify-center overflow-hidden
+          rounded border border-neutral-border bg-neutral-surface-sunken"
+      >
+        {showImage ? (
+          <img
+            src={link.thumbnail_url}
+            alt=""
+            aria-hidden="true"
+            loading="lazy"
+            onError={() => setImgFailed(true)}
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          <span className="text-xl" aria-hidden="true">
+            {glyph}
+          </span>
+        )}
+      </div>
+      {link.description && (
+        <p
+          className="text-xs text-neutral-text-secondary line-clamp-2"
+          title={link.description}
+        >
+          {link.description}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -317,7 +428,7 @@ function ExternalLinkRow({ link, projectId, taskId, canEdit }: ExternalLinkRowPr
           </span>
         )}
         <span className={`ml-auto flex-shrink-0 ${refresh.isPending ? 'opacity-60' : ''}`}>
-          <StatusBadge status={link.status} provider={link.provider} />
+          <LinkRightSlot link={link} />
         </span>
       </div>
 
@@ -386,6 +497,8 @@ function ExternalLinkRow({ link, projectId, taskId, canEdit }: ExternalLinkRowPr
         </span>
       </div>
 
+      <FilePreview link={link} />
+
       <LabelPills labels={link.labels} />
 
       {connectPrompt && (
@@ -440,14 +553,7 @@ function AddLinkInput({ projectId, taskId }: AddLinkInputProps) {
     );
   }
 
-  const hint =
-    detected === 'github'
-      ? '🐙 GitHub detected · refresh fetches live status'
-      : detected === 'gitlab'
-        ? '🦊 GitLab detected · refresh fetches live status'
-        : detected === 'generic'
-          ? '🔗 Saved as a generic link (no live status)'
-          : '';
+  const hint = addHint(detected);
 
   return (
     <div className="flex flex-col gap-1">
@@ -560,8 +666,8 @@ export function ExternalLinksSection({
           className="text-xs text-neutral-text-secondary border border-dashed border-neutral-border
             bg-neutral-surface-sunken rounded px-4 py-3"
         >
-          🔗 Paste a GitLab, GitHub, or any URL. GitLab and GitHub links show live status — open,
-          draft, merged, or closed — and you can add a title and labels.
+          🔗 Paste a GitLab, GitHub, Drive, Dropbox, Box, or OneDrive URL. Git links show live
+          status; cloud-file links show a preview. Add a title and labels.
         </p>
       )}
 

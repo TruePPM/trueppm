@@ -30,6 +30,7 @@ from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, BasePermission, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import BaseThrottle
 from rest_framework.views import APIView
 
 from trueppm_api.apps.access.models import ProjectMembership
@@ -296,6 +297,20 @@ class TaskLinkViewSet(
             return [IsAuthenticated(), IsProjectMemberWrite(), IsProjectNotArchived()]
         return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
 
+    def get_throttles(self) -> list[BaseThrottle]:
+        """Rate-limit only the refresh action — it makes an outbound fetch (#571).
+
+        The cloud-file unfurl is an anonymous outbound GET, so refresh is a
+        potential egress amplifier; the per-user throttle caps the call rate on
+        top of the SSRF guard. CRUD reads/writes touch only the DB and stay
+        un-throttled.
+        """
+        if self.action == "refresh":
+            from .throttles import TaskLinkRefreshThrottle
+
+            return [TaskLinkRefreshThrottle()]
+        return super().get_throttles()
+
     def _get_task(self) -> Task:
         return get_object_or_404(
             Task,
@@ -420,10 +435,26 @@ class TaskLinkViewSet(
         link.status = metadata.status
         if metadata.title:
             link.title = metadata.title
+        # Cloud-file preview cache (#571, ADR-0163). A file provider returns these;
+        # git/generic providers leave them None and the row's empty defaults stand.
+        # Coalesce None → "" so the column type (CharField/URLField) is satisfied
+        # and a provider that returns no preview clears any stale one.
+        link.description = metadata.description or ""
+        link.thumbnail_url = metadata.thumbnail_url or ""
+        link.preview_type = metadata.preview_type or ""
         link.fetched_at = timezone.now()
         # VersionedModel.save() bumps server_version atomically; we pass the
         # changed fields only and let it handle the version bump + sync delta.
-        link.save(update_fields=["status", "title", "fetched_at"])
+        link.save(
+            update_fields=[
+                "status",
+                "title",
+                "description",
+                "thumbnail_url",
+                "preview_type",
+                "fetched_at",
+            ]
+        )
 
         if credential is not None:
             credential.last_used_at = timezone.now()

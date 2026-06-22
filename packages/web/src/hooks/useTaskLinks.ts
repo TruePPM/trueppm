@@ -13,6 +13,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type { ExternalLinkStatus } from '@/lib/linkStatus';
+import type { PreviewType } from '@/lib/previewType';
 
 // Re-exported from the canonical module (issue 767, ADR-0155) so existing importers
 // of `ExternalLinkStatus` from this hook keep working.
@@ -31,6 +32,13 @@ export interface TaskExternalLink {
   labels: string[];
   status: ExternalLinkStatus;
   fetched_at: string | null;
+  /** Cloud-file preview cache (issue 571, ADR-0163) — server-owned, set by refresh.
+   *  Empty string for git/generic links and for file links not yet refreshed. */
+  description: string;
+  /** Safe https preview-image URL, or '' (private file / no og:image / offline). */
+  thumbnail_url: string;
+  /** One of PreviewType, or '' for a link with no file preview. */
+  preview_type: PreviewType | '';
   display_order: number;
   server_version: number;
 }

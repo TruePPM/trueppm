@@ -26646,6 +26646,19 @@
                     "name"
                 ]
             },
+            "PreviewTypeEnum": {
+                "enum": [
+                    "document",
+                    "spreadsheet",
+                    "presentation",
+                    "image",
+                    "pdf",
+                    "folder",
+                    "file"
+                ],
+                "type": "string",
+                "description": "* `document` - document\n* `spreadsheet` - spreadsheet\n* `presentation` - presentation\n* `image` - image\n* `pdf` - pdf\n* `folder` - folder\n* `file` - file"
+            },
             "PrioritizationModelEnum": {
                 "enum": [
                     "none",
@@ -31209,6 +31222,23 @@
                         "readOnly": true,
                         "nullable": true
                     },
+                    "description": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "thumbnail_url": {
+                        "type": "string",
+                        "format": "uri",
+                        "readOnly": true
+                    },
+                    "preview_type": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/PreviewTypeEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
                     "display_order": {
                         "type": "integer",
                         "maximum": 2147483647,
@@ -31220,11 +31250,14 @@
                     }
                 },
                 "required": [
+                    "description",
                     "fetched_at",
                     "id",
+                    "preview_type",
                     "provider",
                     "server_version",
                     "status",
+                    "thumbnail_url",
                     "title",
                     "url"
                 ]
