@@ -3503,6 +3503,143 @@ class ProjectSignalPrivacyPolicy(VersionedModel):
         return self.resolved(signal_key)["ceiling"]
 
 
+class CeilingRaiseStatus(models.TextChoices):
+    """Lifecycle of a ceiling-raise ratification proposal (ADR-0104 Amendment A, #930).
+
+    OPEN is the only state a vote can be cast in; the four resolved states are
+    terminal. RATIFIED is the single state in which the ceiling is actually applied —
+    every other outcome leaves the ceiling unchanged (silence is never consent for
+    *widening* a team signal's exposure).
+    """
+
+    OPEN = "open", "Open for ratification"
+    RATIFIED = "ratified", "Ratified — raise applied"
+    REJECTED = "rejected", "Rejected by the team"
+    EXPIRED = "expired", "Expired unratified"
+    SUPERSEDED = "superseded", "Superseded by a ceiling change"
+
+
+class CeilingVoteChoice(models.TextChoices):
+    """A team member's stance on a ceiling-raise proposal (ADR-0104 Amendment A)."""
+
+    APPROVE = "approve", "Approve the raise"
+    REJECT = "reject", "Reject the raise"
+
+
+class SignalCeilingRaiseProposal(models.Model):
+    """A pending team ratification to raise one signal's ceiling (ADR-0104 Amendment A, #930).
+
+    Raising a signal's ceiling authorizes *wider* upward exposure, so ADR-0104 §1.1
+    makes it the team-owned act. This row is opened in place of an immediate raise:
+    the ceiling is applied only when the team ratifies (a strict majority of the
+    current team roster approves — :func:`signal_privacy_services.ratification_threshold`),
+    so a lone facilitator can never widen exposure alone. Lowering a ceiling and
+    set-audience moves never open a proposal — they stay immediate, because tightening
+    is never gated heavier than loosening.
+
+    Plain ``models.Model`` (not ``VersionedModel``): like ``SprintScopeChange`` /
+    ``AuditEvent`` this is a server-side governance record, never synced to mobile.
+    The proposal plus its votes ARE the team-readable audit of the decision; applying
+    the raise additionally writes the policy's ``history_change_reason`` and fires
+    ``team_signal_consent_changed`` (the Enterprise audit seam).
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name="signal_ceiling_proposals",
+    )
+    signal_key = models.CharField(max_length=64)
+    from_ceiling = models.CharField(max_length=20, choices=SignalAudience.choices)
+    to_ceiling = models.CharField(max_length=20, choices=SignalAudience.choices)
+    proposed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="signal_ceiling_proposals",
+    )
+    status = models.CharField(
+        max_length=12,
+        choices=CeilingRaiseStatus.choices,
+        default=CeilingRaiseStatus.OPEN,
+        db_index=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    # Stored (not computed) so the lazy-expiry filter is a cheap timestamp compare;
+    # set on open to created_at + SIGNAL_CEILING_PROPOSAL_TTL_HOURS (Amendment A.3).
+    expires_at = models.DateTimeField()
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "projects_signal_ceiling_proposal"
+        ordering = ["-created_at"]
+        constraints = [
+            # At most one OPEN proposal per (project, signal): a second raise while one
+            # is open returns 409 — no superseding-proposal loop (Amendment A.4).
+            models.UniqueConstraint(
+                fields=["project", "signal_key"],
+                condition=models.Q(status=CeilingRaiseStatus.OPEN),
+                name="crp_one_open_per_signal",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["project", "signal_key", "status"],
+                name="crp_proj_signal_status_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"SignalCeilingRaiseProposal({self.signal_key}: "
+            f"{self.from_ceiling}->{self.to_ceiling}, {self.status})"
+        )
+
+
+class SignalCeilingRaiseVote(models.Model):
+    """One team member's vote on a ceiling-raise proposal (ADR-0104 Amendment A, #930).
+
+    One vote per member (``unique(proposal, voter)``), changeable while the proposal
+    is OPEN — the ``PulseResponse`` one-response-per-member template. The vote rows
+    are the team-readable record of who ratified widening the signal's exposure.
+
+    Plain ``models.Model`` — a governance record, not synced to mobile.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    proposal = models.ForeignKey(
+        "SignalCeilingRaiseProposal",
+        on_delete=models.CASCADE,
+        related_name="votes",
+    )
+    voter = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="signal_ceiling_votes",
+    )
+    choice = models.CharField(max_length=8, choices=CeilingVoteChoice.choices)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "projects_signal_ceiling_vote"
+        ordering = ["created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["proposal", "voter"],
+                name="crv_one_vote_per_member",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["proposal", "choice"], name="crv_proposal_choice_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"SignalCeilingRaiseVote({self.voter_id}: {self.choice})"
+
+
 # ---------------------------------------------------------------------------
 # Inbound task-sync — ADR-0068 / issue #500 (Gap 3 of ADR-0065)
 # ---------------------------------------------------------------------------

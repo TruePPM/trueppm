@@ -109,3 +109,21 @@ milestone_forecast_recomputed = django.dispatch.Signal()
 # writers are the human-invoked, member-gated services (set_signal_audience /
 # raise_signal_ceiling / ratchet_down_to_team).
 team_signal_consent_changed = django.dispatch.Signal()
+
+
+# Emitted on every status transition of a ceiling-raise ratification proposal
+# (ADR-0104 Amendment A / #930) — opened, ratified, rejected, expired, superseded.
+#
+# Keyword arguments:
+#   sender       — the SignalCeilingRaiseProposal class
+#   project_id   — the project whose signal ceiling is under ratification
+#   signal_key   — the signal being raised ("velocity" / "throughput_rollup" / ...)
+#   proposal_id  — the proposal's UUID
+#   status       — the new CeilingRaiseStatus value
+#
+# Supply-only extension point, same contract as team_signal_consent_changed: OSS
+# only emits (no in-tree consumer); Enterprise may register a receiver in
+# AppConfig.ready() to capture the ratification lifecycle in its immutable audit.
+# Receivers that perform I/O must use transaction.on_commit(). No notification
+# (email/push) is wired in OSS — the pending state is pull-only (Priya's hard-NO).
+team_signal_ceiling_proposal_changed = django.dispatch.Signal()

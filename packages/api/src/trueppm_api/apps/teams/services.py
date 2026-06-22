@@ -133,3 +133,35 @@ def has_team_facet(user: AbstractBaseUser | AnonymousUser, project_id: Any, face
     if facet not in FACET_FIELDS:
         raise ValueError(f"Unknown team facet: {facet!r}")
     return user_facets(user, project_id)[facet]
+
+
+def team_member_user_ids(project_id: Any) -> set[Any]:
+    """Return the set of user ids on a project's default team (the voter roster).
+
+    The eligible-voter set for the ADR-0104 Amendment-A ceiling-raise ratification:
+    every non-deleted ``TeamMembership`` of the project's default team. Scoped to
+    *team* membership — **not** project membership — so a non-team project Admin/PM
+    cannot vote on (or stuff) a team's signal-sharing decision. One query; the count
+    is the ratification denominator and ``user_id in <set>`` is the per-voter gate.
+    """
+    return set(
+        TeamMembership.objects.filter(
+            team__project_id=project_id,
+            team__is_default=True,
+            team__is_deleted=False,
+            is_deleted=False,
+        ).values_list("user_id", flat=True)
+    )
+
+
+def is_team_member(user: AbstractBaseUser | AnonymousUser, project_id: Any) -> bool:
+    """Whether ``user`` is on the project's default team (an eligible signal voter)."""
+    if not getattr(user, "is_authenticated", False):
+        return False
+    return TeamMembership.objects.filter(
+        team__project_id=project_id,
+        team__is_default=True,
+        team__is_deleted=False,
+        user=user,  # type: ignore[misc]  # narrowed authenticated above
+        is_deleted=False,
+    ).exists()
