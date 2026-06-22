@@ -9,8 +9,8 @@
  * Priority allocation (multiples of 100 reserved for OSS):
  *   100 Overview · 200 Dependencies · 300 Subtasks (#308)
  *   400 Attachments (#310) · 450 External links (#637) · 480 Notes (#740)
- *   500 Comments (#311) · 600 Activity (#307) · 700 Recurring (#312)
- *   800 Estimates · 900 History · 1000 Baseline
+ *   500 Comments (issue 311) · 600 Activity (issue 307 + issue 874 history, unified issue 869) · 700 Recurring (issue 312)
+ *   800 Estimates · 1000 Baseline  (900 History merged into 600 Activity, ADR-0096)
  *
  * Subtasks / Attachments / Comments / Activity / Recurring are added in
  * their own MRs as each feature ships; their absence in this index leaves
@@ -28,10 +28,9 @@ import { AttachmentSection } from './AttachmentSection';
 import { ExternalLinksSection } from './ExternalLinksSection';
 import { NotesSection } from './NotesSection';
 import { CommentSection } from './CommentSection';
-import { ActivitySection } from './ActivitySection';
+import { ActivityTimeline } from '../ActivityTimeline';
 import { RecurrenceSection } from './RecurrenceSection';
 import { EstimatesSection } from './EstimatesSection';
-import { HistorySection } from './HistorySection';
 import { BaselineSection } from './BaselineSection';
 
 let registered = false;
@@ -131,10 +130,14 @@ export function registerOssDrawerSections(): void {
     tab: 'activity',
   });
 
+  // Activity (issue 307, unified per ADR-0096 Part 2 / issue 869) — one
+  // chronological timeline merging task history + comments, with field-group +
+  // per-person filters. Replaces the former split Activity (issue 307) +
+  // History (issue 874) sections.
   registry.register('task_detail.section', {
     id: 'activity',
     title: 'Activity',
-    component: ActivitySection,
+    component: ActivityTimeline,
     priority: 600,
     tab: 'activity',
   });
@@ -162,14 +165,6 @@ export function registerOssDrawerSections(): void {
     // Milestones have no PERT estimates — duration is always 0 and
     // the three-point fields are meaningless (ADR-0058).
     canRender: (ctx) => !(ctx as { task: Task }).task.isMilestone,
-  });
-
-  registry.register('task_detail.section', {
-    id: 'history',
-    title: 'History',
-    component: HistorySection,
-    priority: 900,
-    tab: 'activity',
   });
 
   registry.register('task_detail.section', {

@@ -96,10 +96,7 @@ const FIXTURE_HISTORY = {
   ],
 };
 
-async function gotoSchedule(
-  page: Page,
-  opts: { role?: number; canEdit?: boolean } = {},
-) {
+async function gotoSchedule(page: Page, opts: { role?: number; canEdit?: boolean } = {}) {
   await page.addInitScript(() => {
     localStorage.setItem(
       'trueppm-auth',
@@ -243,6 +240,16 @@ async function gotoSchedule(
       body: JSON.stringify(FIXTURE_HISTORY),
     }),
   );
+  // The unified Activity timeline (#869) merges history + comments; mock the
+  // second feed so its read resolves (empty here — the audit assertions use
+  // FIXTURE_HISTORY).
+  await page.route('**/tasks/*/comments/**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+    }),
+  );
   await page.route('**/tasks/*/baseline/**', (route) =>
     route.fulfill({
       status: 200,
@@ -354,19 +361,22 @@ test.describe('TaskDetailDrawer redesign — tab grouping', () => {
     await expect(drawer.getByRole('button', { name: 'External links' })).toBeVisible();
   });
 
-  test('Comments + Activity + History live under the Activity tab', async ({ page }) => {
+  test('Comments + Activity live under the Activity tab (History merged into Activity, #869)', async ({
+    page,
+  }) => {
     const drawer = await openDrawer(page, 'Discovery & Design');
-    await expect(drawer.getByRole('button', { name: 'History' })).toHaveCount(0);
     await drawer.getByRole('tab', { name: 'Activity' }).click();
     await expect(drawer.getByRole('button', { name: 'Comments' })).toBeVisible();
     await expect(drawer.getByRole('button', { name: 'Activity' })).toBeVisible();
-    await expect(drawer.getByRole('button', { name: 'History' })).toBeVisible();
+    // The former standalone History section is gone — its records now live in Activity.
+    await expect(drawer.getByRole('button', { name: 'History' })).toHaveCount(0);
   });
 
-  test('History section shows audit records when expanded', async ({ page }) => {
+  test('Activity timeline shows audit records when expanded', async ({ page }) => {
     const drawer = await openDrawer(page, 'Discovery & Design');
     await drawer.getByRole('tab', { name: 'Activity' }).click();
-    await drawer.getByRole('button', { name: 'History' }).click();
+    await drawer.getByRole('button', { name: 'Activity' }).click();
+    // FIXTURE_HISTORY is a single-field duration change by alice → rendered inline.
     await expect(drawer.getByText('alice')).toBeVisible({ timeout: 5_000 });
   });
 
