@@ -7,11 +7,15 @@
  */
 
 import { useMemo, useState } from 'react';
+import type { AxiosError } from 'axios';
 import { SettingsPageTitle } from '../SettingsShell';
 import { useProjectId } from '@/hooks/useProjectId';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { SignalLadder } from './SignalLadder';
 import { SignalMatrixLens } from './SignalMatrixLens';
 import { RaiseCeilingDialog } from './RaiseCeilingDialog';
+import { CeilingProposalCard } from './CeilingProposalCard';
+import { CeilingDecisionHistory } from './CeilingDecisionHistory';
 import {
   SIGNALS,
   audienceRank,
@@ -21,12 +25,20 @@ import {
   type SignalKey,
 } from './useSignalPrivacy';
 
+/** Pull the backend's `{detail}` off a failed vote/withdraw (409 conflict), if present. */
+function conflictDetail(error: unknown): string | null {
+  const detail = (error as AxiosError<{ detail?: string }>)?.response?.data?.detail;
+  return typeof detail === 'string' ? detail : null;
+}
+
 type View = 'ladder' | 'matrix';
 
 export function ProjectSignalPrivacyPage() {
   const projectId = useProjectId();
+  const { user } = useCurrentUser();
   const { data: policy, isLoading, isError } = useSignalPrivacy(projectId);
-  const { setAudience, raiseCeiling, ratchetDown } = useSignalPrivacyMutations(projectId);
+  const { setAudience, raiseCeiling, ratchetDown, voteOnProposal, withdrawProposal } =
+    useSignalPrivacyMutations(projectId);
 
   const [view, setView] = useState<View>('ladder');
   const [raiseFor, setRaiseFor] = useState<SignalKey | null>(null);
@@ -45,6 +57,14 @@ export function ProjectSignalPrivacyPage() {
   const saving =
     setAudience.isPending || raiseCeiling.isPending || ratchetDown.isPending;
   const saveError = setAudience.isError || raiseCeiling.isError || ratchetDown.isError;
+  // Vote/withdraw conflicts (e.g. the proposal resolved or expired under us) carry an
+  // actionable backend `detail`; surface it in place of the generic message.
+  const voteError =
+    (voteOnProposal.isError && conflictDetail(voteOnProposal.error)) ||
+    (withdrawProposal.isError && conflictDetail(withdrawProposal.error)) ||
+    (voteOnProposal.isError || withdrawProposal.isError
+      ? "Couldn't record that — please try again."
+      : null);
 
   function pendingSignal(): SignalKey | null {
     if (setAudience.isPending) return setAudience.variables?.signal ?? null;
@@ -141,6 +161,12 @@ export function ProjectSignalPrivacyPage() {
           </p>
         )}
 
+        {voteError && (
+          <p role="alert" className="mb-3 text-[13px] text-semantic-critical">
+            {voteError}
+          </p>
+        )}
+
         {raiseFor && policy && (
           <RaiseCeilingDialog
             signalTitle={SIGNALS.find((s) => s.key === raiseFor)!.title}
@@ -170,7 +196,9 @@ export function ProjectSignalPrivacyPage() {
         {policy && view === 'ladder' && (
           <>
             <ul className="divide-y divide-neutral-border rounded-lg border border-neutral-border">
-              {SIGNALS.map(({ key, title, description }) => (
+              {SIGNALS.map(({ key, title, description }) => {
+                const proposal = policy.open_proposals?.[key];
+                return (
                 <SignalLadder
                   key={key}
                   title={title}
@@ -179,6 +207,33 @@ export function ProjectSignalPrivacyPage() {
                   canSet={policy.can_set_audience}
                   canRaiseCeiling={policy.can_raise_ceiling}
                   pending={pendingSignal() === key}
+                  hasOpenProposal={!!proposal}
+                  proposalSlot={
+                    proposal ? (
+                      <CeilingProposalCard
+                        proposal={proposal}
+                        signalTitle={title}
+                        currentUserId={user?.id}
+                        canWithdraw={
+                          proposal.proposed_by === user?.id || policy.can_set_audience
+                        }
+                        voting={
+                          voteOnProposal.isPending &&
+                          voteOnProposal.variables?.proposalId === proposal.id
+                        }
+                        withdrawing={
+                          withdrawProposal.isPending &&
+                          withdrawProposal.variables?.proposalId === proposal.id
+                        }
+                        onVote={(choice) =>
+                          voteOnProposal.mutate({ proposalId: proposal.id, choice })
+                        }
+                        onWithdraw={() =>
+                          withdrawProposal.mutate({ proposalId: proposal.id })
+                        }
+                      />
+                    ) : null
+                  }
                   onSetAudience={(audience) => setAudience.mutate({ signal: key, audience })}
                   onRaiseCeiling={() => setRaiseFor(key)}
                   onLowerCeiling={() => {
@@ -196,13 +251,15 @@ export function ProjectSignalPrivacyPage() {
                     }
                   }}
                 />
-              ))}
+                );
+              })}
             </ul>
             {policy.can_raise_ceiling && (
               <p className="mt-3 text-[12px] text-neutral-text-secondary">
                 Raising a ceiling is a team decision — it&apos;s recorded and announced to the team.
               </p>
             )}
+            <CeilingDecisionHistory projectId={projectId} />
           </>
         )}
 

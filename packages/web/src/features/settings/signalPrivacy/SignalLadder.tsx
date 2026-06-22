@@ -8,6 +8,7 @@
  * heavier, team-owned "Raise ceiling" act, surfaced as a separate affordance.
  */
 
+import type { ReactNode } from 'react';
 import {
   AUDIENCE_RUNG_LABEL,
   AUDIENCE_RUNG_LABEL_FULL,
@@ -24,6 +25,10 @@ interface SignalLadderProps {
   canSet: boolean;
   canRaiseCeiling: boolean;
   pending?: boolean;
+  /** A raise is already pending team ratification — block opening another. */
+  hasOpenProposal?: boolean;
+  /** The inline pending-ratification card for this signal, when one is open. */
+  proposalSlot?: ReactNode;
   onSetAudience: (audience: SignalAudience) => void;
   onRaiseCeiling: () => void;
   onLowerCeiling: () => void;
@@ -36,6 +41,8 @@ export function SignalLadder({
   canSet,
   canRaiseCeiling,
   pending,
+  hasOpenProposal,
+  proposalSlot,
   onSetAudience,
   onRaiseCeiling,
   onLowerCeiling,
@@ -112,7 +119,8 @@ export function SignalLadder({
               <button
                 type="button"
                 onClick={onRaiseCeiling}
-                disabled={pending}
+                disabled={pending || hasOpenProposal}
+                title={hasOpenProposal ? 'A raise is already pending for this signal' : undefined}
                 className="text-[12px] font-medium text-sage-700 hover:underline disabled:opacity-50"
               >
                 ↑ Raise ceiling…
@@ -131,6 +139,8 @@ export function SignalLadder({
           </span>
         )}
       </div>
+
+      {proposalSlot}
     </li>
   );
 }
