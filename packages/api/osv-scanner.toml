@@ -1,0 +1,25 @@
+# OSV-Scanner suppressions for the API's locked dependency set
+# (packages/api/uv.lock), auto-discovered by the security:osv CI job.
+#
+# These migrate the API half of the former combined security:pip-audit job's
+# `--ignore-vuln` list onto OSV-Scanner's surgical, self-expiring control: each
+# entry carries a `reason` and an `ignoreUntil` expiry, so a suppression stays
+# documented and rots on its own instead of silently masking a future advisory
+# (the control `pip-audit --ignore-vuln` lacked). The API moved off pip-audit
+# once its uv.lock was committed (#904); OSV can only scan a committed lockfile.
+# See #1153 step 1.
+#
+# CVE-2026-3219 (pip) is deliberately NOT carried here: pip is the installer,
+# never a locked project dependency, so a lockfile-scoped OSV scan cannot
+# surface it. It remains suppressed in security:pip-audit:scheduler, which
+# audits an installed environment (where pip is present).
+
+[[IgnoredVulns]]
+id = "PYSEC-2025-183"
+ignoreUntil = 2026-12-31
+reason = "pyjwt 'weak encryption' — disputed upstream (key length is the caller's choice; pyjwt is a library, not a policy engine). Transitive via djangorestframework-simplejwt. We sign with HS256 over a long random SECRET_KEY, so the disputed weakness does not apply. No fix version exists as of 2026-05-20; re-evaluate once pyjwt rescinds the advisory or ships a hardened release."
+
+[[IgnoredVulns]]
+id = "CVE-2026-4539"
+ignoreUntil = 2026-12-31
+reason = "Local-access-only ReDoS in pygments' AdlLexer (CVSS low/medium). Dev tooling only (diff-cover -> pygments), not a runtime dependency of the API. No fix version exists as of 2026-03-25 (pygments 2.19.2 is latest); re-evaluate once pygments ships a patched release."
