@@ -43,6 +43,13 @@ from trueppm_api.apps.access.services import (
     transfer_program_sponsorship,
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
+from trueppm_api.apps.projects.bulk_settings import (
+    BulkFieldsRequestSerializer,
+    ProgramBulkFieldsSerializer,
+    ProjectBulkFieldsSerializer,
+    apply_bulk_fields,
+    build_bulk_response,
+)
 from trueppm_api.apps.projects.models import Methodology, Program, Project, Task
 from trueppm_api.apps.projects.serializers import (
     ProgramRiskPolicySerializer,
@@ -50,6 +57,7 @@ from trueppm_api.apps.projects.serializers import (
     ProgramSerializer,
     ProjectSerializer,
 )
+from trueppm_api.apps.workspace.permissions import IsWorkspaceAdmin
 
 # Upper bound on sub-programs created by a single split call (#967). Generous
 # enough for "one sub-program per project" on a large program, but caps the
@@ -74,6 +82,16 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
 
     def get_permissions(self) -> list[BasePermission]:
         if self.action in ("update", "partial_update"):
+            return [IsAuthenticated(), IsProgramAdmin(), IsProgramNotClosed()]
+        if self.action == "bulk_fields":
+            # Workspace → programs matrix (ADR-0161): org-level workspace-admin authority.
+            # Program has no workspace FK — the workspace is the singleton — so this is the
+            # org-wide admin gate, not a per-program one.
+            return [IsAuthenticated(), IsWorkspaceAdmin()]
+        if self.action == "bulk_project_fields":
+            # Program → projects matrix (ADR-0161): program-admin authority over the
+            # program's own projects. The program PK in the URL is the IDOR boundary;
+            # closed programs are not bulk-editable.
             return [IsAuthenticated(), IsProgramAdmin(), IsProgramNotClosed()]
         if self.action in (
             "destroy",
@@ -907,3 +925,71 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(ProgramRiskPolicySerializer(program).data)
+
+    @extend_schema(
+        summary="Bulk-set inherited settings across multiple programs",
+        request=BulkFieldsRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                description="Per-program id + new server_version, and the fields applied."
+            )
+        },
+    )
+    @action(detail=False, methods=["post"], url_path="bulk-fields")
+    def bulk_fields(self, request: Request) -> Response:
+        """Set inherited settings on a selection of programs in one call (ADR-0161, #1233).
+
+        URL: ``POST /api/v1/programs/bulk-fields/`` — the Workspace → Programs matrix scope.
+
+        Body ``{"ids": [<program uuid>...], "fields": {"methodology": "AGILE", ...}}``:
+        only the named fields on the named programs change; every other program and every
+        other field keeps inheriting. Workspace-admin only — the matrix is a
+        workspace-settings surface. Each row is written via ``save()`` so ``server_version``
+        bumps for offline sync and ``HistoricalProgram`` audits the diff. All-or-nothing.
+        """
+        envelope = BulkFieldsRequestSerializer(data=request.data)
+        envelope.is_valid(raise_exception=True)
+        with transaction.atomic():
+            rows = apply_bulk_fields(
+                field_serializer_cls=ProgramBulkFieldsSerializer,
+                queryset=Program.objects.filter(is_deleted=False, is_closed=False),
+                ids=envelope.validated_data["ids"],
+                fields=envelope.validated_data["fields"],
+            )
+        return Response(build_bulk_response(rows, envelope.validated_data["fields"]))
+
+    @extend_schema(
+        summary="Bulk-set inherited settings across this program's projects",
+        request=BulkFieldsRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                description="Per-project id + new server_version, and the fields applied."
+            )
+        },
+    )
+    @action(detail=True, methods=["post"], url_path="bulk-project-fields")
+    def bulk_project_fields(self, request: Request, pk: str | None = None) -> Response:
+        """Set inherited settings on a selection of this program's projects (ADR-0161, #1233).
+
+        URL: ``POST /api/v1/programs/{pk}/bulk-project-fields/`` — the Program → Projects
+        matrix scope.
+
+        Program-admin only. Targets are constrained to this program's own non-archived
+        projects, so the program PK in the URL is the IDOR boundary — a project id from
+        another program is rejected as out-of-scope (400), never silently skipped. Only the
+        two benign, non-schedule inherited fields (methodology, iteration_label) ship in
+        this slice; ``calendar`` is deferred (schedule-affecting, no bulk recalc path yet).
+        """
+        program = self.get_object()
+        envelope = BulkFieldsRequestSerializer(data=request.data)
+        envelope.is_valid(raise_exception=True)
+        with transaction.atomic():
+            rows = apply_bulk_fields(
+                field_serializer_cls=ProjectBulkFieldsSerializer,
+                queryset=Project.objects.filter(
+                    program_id=program.pk, is_deleted=False, is_archived=False
+                ),
+                ids=envelope.validated_data["ids"],
+                fields=envelope.validated_data["fields"],
+            )
+        return Response(build_bulk_response(rows, envelope.validated_data["fields"]))

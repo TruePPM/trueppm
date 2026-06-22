@@ -2719,6 +2719,61 @@
                 }
             }
         },
+        "/api/v1/programs/{id}/bulk-project-fields/": {
+            "post": {
+                "operationId": "v1_programs_bulk_project_fields_create",
+                "description": "Set inherited settings on a selection of this program's projects (ADR-0161, #1233).\n\nURL: ``POST /api/v1/programs/{pk}/bulk-project-fields/`` — the Program → Projects\nmatrix scope.\n\nProgram-admin only. Targets are constrained to this program's own non-archived\nprojects, so the program PK in the URL is the IDOR boundary — a project id from\nanother program is rejected as out-of-scope (400), never silently skipped. Only the\ntwo benign, non-schedule inherited fields (methodology, iteration_label) ship in\nthis slice; ``calendar`` is deferred (schedule-affecting, no bulk recalc path yet).",
+                "summary": "Bulk-set inherited settings across this program's projects",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this program.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BulkFieldsRequestRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BulkFieldsRequestRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BulkFieldsRequestRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Per-project id + new server_version, and the fields applied."
+                    }
+                }
+            }
+        },
         "/api/v1/programs/{id}/close/": {
             "post": {
                 "operationId": "v1_programs_close_create",
@@ -5298,6 +5353,49 @@
                             }
                         },
                         "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/programs/bulk-fields/": {
+            "post": {
+                "operationId": "v1_programs_bulk_fields_create",
+                "description": "Set inherited settings on a selection of programs in one call (ADR-0161, #1233).\n\nURL: ``POST /api/v1/programs/bulk-fields/`` — the Workspace → Programs matrix scope.\n\nBody ``{\"ids\": [<program uuid>...], \"fields\": {\"methodology\": \"AGILE\", ...}}``:\nonly the named fields on the named programs change; every other program and every\nother field keeps inheriting. Workspace-admin only — the matrix is a\nworkspace-settings surface. Each row is written via ``save()`` so ``server_version``\nbumps for offline sync and ``HistoricalProgram`` audits the diff. All-or-nothing.",
+                "summary": "Bulk-set inherited settings across multiple programs",
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BulkFieldsRequestRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BulkFieldsRequestRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BulkFieldsRequestRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Per-program id + new server_version, and the fields applied."
                     }
                 }
             }
@@ -21944,6 +22042,28 @@
                     "name",
                     "short_id",
                     "status"
+                ]
+            },
+            "BulkFieldsRequestRequest": {
+                "type": "object",
+                "description": "Request envelope: which rows to change, and which fields to set on them.\n\n``ids`` are the entities the user checked; ``fields`` is the partial field map to apply.\nOnly the named fields on the named rows change — every other row and every other field\nkeeps inheriting (#1233). The *values* in ``fields`` are validated per-scope by the\nper-entity serializer the caller passes to :func:`apply_bulk_fields`; this envelope only\nenforces the request shape (non-empty, well-typed ids, bounded count).",
+                "properties": {
+                    "ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "maxItems": 200
+                    },
+                    "fields": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                },
+                "required": [
+                    "fields",
+                    "ids"
                 ]
             },
             "CadenceTypeEnum": {
