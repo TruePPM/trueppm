@@ -23263,6 +23263,14 @@
                             "type": "string"
                         },
                         "readOnly": true
+                    },
+                    "role_context": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/MeRoleContextEnum"
+                            }
+                        ],
+                        "readOnly": true
                     }
                 },
                 "required": [
@@ -23275,9 +23283,19 @@
                     "initials",
                     "landing",
                     "max_project_role",
+                    "role_context",
                     "username",
                     "workspace_role"
                 ]
+            },
+            "MeRoleContextEnum": {
+                "enum": [
+                    "pm",
+                    "scrum_master",
+                    "unified"
+                ],
+                "type": "string",
+                "description": "* `pm` - pm\n* `scrum_master` - scrum_master\n* `unified` - unified"
             },
             "MeWorkTask": {
                 "type": "object",
@@ -26237,7 +26255,7 @@
                     "role_context": {
                         "allOf": [
                             {
-                                "$ref": "#/components/schemas/RoleContextEnum"
+                                "$ref": "#/components/schemas/UserProfileRoleContextEnum"
                             }
                         ],
                         "description": "Active role-context view: PM, Scrum Master, or Unified Today (#412).\n\n* `pm` - PM\n* `scrum_master` - Scrum Master\n* `unified` - Unified Today"
@@ -29372,15 +29390,6 @@
                 "type": "string",
                 "description": "* `OPEN` - Open\n* `MITIGATING` - Mitigating\n* `RESOLVED` - Resolved\n* `ACCEPTED` - Accepted\n* `CLOSED` - Closed"
             },
-            "RoleContextEnum": {
-                "enum": [
-                    "pm",
-                    "scrum_master",
-                    "unified"
-                ],
-                "type": "string",
-                "description": "* `pm` - PM\n* `scrum_master` - Scrum Master\n* `unified` - Unified Today"
-            },
             "RoleEnum": {
                 "enum": [
                     0,
@@ -32125,7 +32134,7 @@
                     "role_context": {
                         "allOf": [
                             {
-                                "$ref": "#/components/schemas/RoleContextEnum"
+                                "$ref": "#/components/schemas/UserProfileRoleContextEnum"
                             }
                         ],
                         "description": "Active role-context view: PM, Scrum Master, or Unified Today (#412).\n\n* `pm` - PM\n* `scrum_master` - Scrum Master\n* `unified` - Unified Today"
@@ -32139,6 +32148,15 @@
                         "maxItems": 32
                     }
                 }
+            },
+            "UserProfileRoleContextEnum": {
+                "enum": [
+                    "pm",
+                    "scrum_master",
+                    "unified"
+                ],
+                "type": "string",
+                "description": "* `pm` - PM\n* `scrum_master` - Scrum Master\n* `unified` - Unified Today"
             },
             "UserSearchResult": {
                 "type": "object",

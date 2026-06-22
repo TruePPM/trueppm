@@ -240,6 +240,12 @@ class MeSerializer(serializers.Serializer[Any]):
     # top of the per-project methodology preset client-side. API-first: the
     # hidden set is a server fact, identical for web, mobile, and MCP clients.
     hidden_views = serializers.SerializerMethodField()
+    # Active role-context "lens" (#412, ADR-0161). A presentation-only preference
+    # the web shell reads to pick a dual-hat user's default project view and the
+    # view-tab emphasis ("pm" / "scrum_master" / "unified"; "unified" if unset).
+    # It NEVER gates access — RBAC remains the sole authority; this is read here
+    # only so the lens can be reflected without a flash of the wrong view.
+    role_context = serializers.SerializerMethodField()
 
     def get_max_project_role(self, obj: Any) -> int | None:
         # Memoized: get_can_access_admin_settings also needs this, so without the
@@ -274,14 +280,15 @@ class MeSerializer(serializers.Serializer[Any]):
             ws is not None and ws >= WorkspaceRole.ADMIN
         )
 
-    def _prefs(self, obj: Any) -> tuple[str, list[str]]:
-        # Memoized single read of (default_landing, hidden_views): get_landing,
-        # get_default_landing, and get_hidden_views all need a UserProfile column,
-        # so reading both in one .only() query keeps /auth/me at one profile read.
+    def _prefs(self, obj: Any) -> tuple[str, list[str], str]:
+        # Memoized single read of (default_landing, hidden_views, role_context):
+        # get_landing, get_default_landing, get_hidden_views, and get_role_context
+        # all need a UserProfile column, so reading them in one .only() query keeps
+        # /auth/me at one profile read regardless of how many fields consume it.
         if not hasattr(self, "_prefs_cache"):
             from trueppm_api.apps.profiles.services import get_profile_prefs
 
-            self._prefs_cache: tuple[str, list[str]] = get_profile_prefs(obj)
+            self._prefs_cache: tuple[str, list[str], str] = get_profile_prefs(obj)
         return self._prefs_cache
 
     def get_default_landing(self, obj: Any) -> str:
@@ -317,6 +324,10 @@ class MeSerializer(serializers.Serializer[Any]):
     @extend_schema_field(serializers.ListField(child=serializers.CharField()))
     def get_hidden_views(self, obj: Any) -> list[str]:
         return self._prefs(obj)[1]
+
+    @extend_schema_field(serializers.ChoiceField(choices=["pm", "scrum_master", "unified"]))
+    def get_role_context(self, obj: Any) -> str:
+        return self._prefs(obj)[2]
 
     def get_display_name(self, obj: Any) -> str:
         name = f"{obj.first_name} {obj.last_name}".strip()

@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { setupCatchAll } from './fixtures';
 
 /**
  * View-switching E2E flows — navigate between Schedule, Grid, and Board views.
@@ -56,6 +57,34 @@ async function setup(page: import('@playwright/test').Page) {
       }),
     );
   });
+  // 401-guard net for the global shell endpoints (notifications, edition, …) that
+  // now activate once /auth/me/ resolves to a real user — registered FIRST so the
+  // spec's specific routes below still win, and unmocked endpoints return an empty
+  // list instead of a 404 that would destabilize the shell mid-interaction.
+  await setupCatchAll(page);
+  // /auth/me/ — the project-index redirect (ProjectIndexRedirect, ADR-0161) now
+  // holds until this resolves, so it must be mocked. The neutral `unified` lens
+  // keeps the index → Overview behavior this spec asserts.
+  await page.route('**/api/v1/auth/me/', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: 'e2e-user',
+        username: 'e2euser',
+        display_name: 'E2E User',
+        initials: 'EU',
+        email: 'e2e@example.com',
+        max_project_role: 400,
+        workspace_role: null,
+        can_access_admin_settings: true,
+        default_landing: 'my_work',
+        landing: { intent: 'my_work', path: '/me/work', resolved_by: 'preference' },
+        hidden_views: [],
+        role_context: 'unified',
+      }),
+    }),
+  );
   await page.route('**/api/v1/projects/', (route) =>
     route.fulfill({
       status: 200,

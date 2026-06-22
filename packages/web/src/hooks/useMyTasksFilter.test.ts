@@ -36,6 +36,7 @@ describe('useMyTasksFilter', () => {
         default_landing: 'auto',
         landing: { intent: 'my_work', path: '/me/work', resolved_by: 'fallback' },
         hidden_views: [],
+        role_context: 'unified',
       },
       isLoading: false,
     });
@@ -59,6 +60,7 @@ describe('useMyTasksFilter', () => {
         default_landing: 'auto',
         landing: { intent: 'my_work', path: '/me/work', resolved_by: 'fallback' },
         hidden_views: [],
+        role_context: 'unified',
       },
       isLoading: false,
     });
@@ -83,6 +85,7 @@ describe('useMyTasksFilter', () => {
         default_landing: 'auto',
         landing: { intent: 'my_work', path: '/me/work', resolved_by: 'fallback' },
         hidden_views: [],
+        role_context: 'unified',
       },
       isLoading: false,
     });
@@ -107,6 +110,7 @@ describe('useMyTasksFilter', () => {
         default_landing: 'auto',
         landing: { intent: 'my_work', path: '/me/work', resolved_by: 'fallback' },
         hidden_views: [],
+        role_context: 'unified',
       },
       isLoading: false,
     });

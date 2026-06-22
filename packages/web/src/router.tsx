@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate, useNavigate } from 'react-router';
 import { lazy, Suspense, useEffect } from 'react';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { safeLandingPath } from '@/features/me/landing';
+import { lensDefaultView } from '@/features/shell/lensOrder';
 import { AppShell } from '@/features/shell/AppShell';
 import { ProjectShell } from '@/features/project/ProjectShell';
 import { LoginPage } from '@/features/auth/LoginPage';
@@ -207,6 +208,22 @@ function RootRedirect() {
   );
 }
 
+/**
+ * Project-entry redirect (issue 1263, ADR-0161). `/projects/:id` lands on the view the
+ * user's role-context lens prefers — PM → Schedule, Scrum Master → Board, Unified
+ * → Overview (the historical default). Holds (renders nothing — the ProjectShell
+ * chrome stays painted) until `me` resolves, then redirects once, so the user
+ * never sees Overview flash before bouncing to their lens's view. On a warm
+ * `['current-user']` cache (the common case — TopBar fetched it on shell mount)
+ * the redirect is synchronous. The lens is presentation-only: this only changes
+ * where you *start*, never what you may access.
+ */
+function ProjectIndexRedirect() {
+  const { user, isLoading } = useCurrentUser();
+  if (isLoading || !user) return null;
+  return <Navigate to={lensDefaultView(user.role_context)} replace />;
+}
+
 export const router = createBrowserRouter([
   {
     path: '/login',
@@ -233,8 +250,9 @@ export const router = createBrowserRouter([
             path: 'projects/:projectId',
             element: <ProjectShell />,
             children: [
-              // /projects/:projectId → redirect to overview (canonical landing surface, ADR-0030)
-              { index: true, element: <Navigate to="overview" replace /> },
+              // /projects/:projectId → lens-aware landing (issue 1263, ADR-0161):
+              // PM→schedule, Scrum Master→board, Unified→overview (ADR-0030 default).
+              { index: true, element: <ProjectIndexRedirect /> },
               {
                 path: 'overview',
                 element: (

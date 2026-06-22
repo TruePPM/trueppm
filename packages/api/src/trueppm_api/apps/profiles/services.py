@@ -32,7 +32,12 @@ from django.conf import settings
 from django.db.models import Max
 
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
-from trueppm_api.apps.profiles.models import DefaultLanding, ProjectVisit, UserProfile
+from trueppm_api.apps.profiles.models import (
+    DefaultLanding,
+    ProjectVisit,
+    RoleContext,
+    UserProfile,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -212,18 +217,24 @@ def get_hidden_views(user: Any) -> list[str]:
     return list(profile.hidden_views) if profile is not None else []
 
 
-def get_profile_prefs(user: Any) -> tuple[str, list[str]]:
-    """Both app preferences in one row read — ``(default_landing, hidden_views)``.
+def get_profile_prefs(user: Any) -> tuple[str, list[str], str]:
+    """All app preferences in one row read — ``(default_landing, hidden_views, role_context)``.
 
-    ``/auth/me/`` surfaces both fields, so reading them together (one ``.only()``
-    query) avoids a second ``UserProfile`` lookup per response. Returns the
-    defaults (``AUTO``, ``[]``) when the user has no profile row yet.
+    ``/auth/me/`` surfaces all three fields, so reading them together (one
+    ``.only()`` query) avoids extra ``UserProfile`` lookups per response. Returns
+    the defaults (``AUTO``, ``[]``, ``UNIFIED``) when the user has no profile row
+    yet — ``role_context`` defaults to the neutral dual-hat lens (#412, ADR-0161),
+    matching the model default so an unconfigured user reads as "Unified Today".
     """
 
-    profile = UserProfile.objects.filter(user=user).only("default_landing", "hidden_views").first()
+    profile = (
+        UserProfile.objects.filter(user=user)
+        .only("default_landing", "hidden_views", "role_context")
+        .first()
+    )
     if profile is None:
-        return DefaultLanding.AUTO, []
-    return profile.default_landing, list(profile.hidden_views)
+        return DefaultLanding.AUTO, [], RoleContext.UNIFIED
+    return profile.default_landing, list(profile.hidden_views), profile.role_context
 
 
 _UNSET: Any = object()

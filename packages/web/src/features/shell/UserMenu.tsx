@@ -6,6 +6,7 @@ import { queryClient } from '@/lib/queryClient';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useProjectId } from '@/hooks/useProjectId';
 import { ThemeToggle } from '@/components/ThemeToggle';
+import { RoleContextMenuRow } from '@/features/shell/RoleContextMenuRow';
 import { KeyboardShortcutsModal } from './KeyboardShortcutsModal';
 
 // ---------------------------------------------------------------------------
@@ -71,6 +72,10 @@ function MenuContent({
         <span className="text-sm text-neutral-text-primary">Theme</span>
         <ThemeToggle />
       </div>
+
+      {/* View focus — role-context lens switcher (issue 1263, ADR-0161). Presentation
+          only; never changes access. Same plain-row pattern as Theme. */}
+      <RoleContextMenuRow isMobile={isMobile} />
 
       {/* My Work — cross-project contributor surface (#499, ADR-0065 Gap 2).
           Placed above project-scoped items so it's reachable without a project. */}
@@ -291,7 +296,7 @@ export function UserMenu() {
           <div
             role="menu"
             aria-label="User menu"
-            className="absolute top-full right-0 mt-1 z-50 w-60 bg-chrome-surface rounded-card border border-neutral-border flex flex-col py-1"
+            className="absolute top-full right-0 mt-1 z-50 w-64 bg-chrome-surface rounded-card border border-neutral-border flex flex-col py-1"
           >
             <MenuContent {...sharedContentProps} isMobile={false} />
           </div>

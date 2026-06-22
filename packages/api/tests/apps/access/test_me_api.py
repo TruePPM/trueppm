@@ -65,6 +65,8 @@ def test_me_authenticated_returns_200_with_expected_fields(db: object) -> None:
     assert data["landing"]["resolved_by"] == "fallback"
     # Per-user nav visibility (ADR-0139): empty by default (no row).
     assert data["hidden_views"] == []
+    # Role-context lens (issue 412, ADR-0161): neutral 'unified' by default (no row).
+    assert data["role_context"] == "unified"
 
 
 def test_me_surfaces_stored_hidden_views(db: object) -> None:
@@ -76,6 +78,24 @@ def test_me_surfaces_stored_hidden_views(db: object) -> None:
     resp = _make_client(user).get(URL)
     assert resp.status_code == 200
     assert resp.data["hidden_views"] == ["schedule", "calendar"]
+
+
+@pytest.mark.django_db
+def test_me_surfaces_stored_role_context(db: object) -> None:
+    """/auth/me/ reflects the user's stored role_context lens (issue 1263, ADR-0161).
+
+    The lens is read-only here — it is written via PATCH /auth/me/profile/ — and
+    the read must NOT change any access fact, only surface the stored value.
+    """
+    from trueppm_api.apps.profiles.models import UserProfile
+
+    user = User.objects.create_user(username="rc_me", password="pw")
+    UserProfile.objects.create(user=user, role_context="scrum_master")
+    resp = _make_client(user).get(URL)
+    assert resp.status_code == 200
+    assert resp.data["role_context"] == "scrum_master"
+    # The lens never grants authority: a no-membership user stays a contributor.
+    assert resp.data["can_access_admin_settings"] is False
 
 
 # ---------------------------------------------------------------------------
