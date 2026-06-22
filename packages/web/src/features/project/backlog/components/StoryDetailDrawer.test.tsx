@@ -105,8 +105,10 @@ describe('StoryDetailDrawer (#1043)', () => {
     const jobSize = screen.getByLabelText('Job size');
     await user.clear(jobSize);
     await user.type(jobSize, '2');
-    // (8 + 5 + 5) / 2 = 9.0
-    expect(screen.getByText('9.0')).toBeInTheDocument();
+    // (8 + 5 + 5) / 2 = 9.0 — async findBy retries past any React flush race
+    // under load (the preview re-renders synchronously, so the value is
+    // deterministic; the sync getByText raced the flush in a loaded CI shard).
+    expect(await screen.findByText('9.0')).toBeInTheDocument();
   });
 
   it('disables Ready with a plain-English reason when an estimate is missing', () => {
