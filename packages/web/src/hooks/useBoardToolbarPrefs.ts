@@ -23,12 +23,14 @@ export type BacklogDensity = 'compact' | 'comfortable' | 'full';
  */
 export type BoardZoom = 'small' | 'normal' | 'large';
 /**
- * Board swimlane grouping mode (issue 324). Persisted per-user-per-device like
- * zoom/density (not a saved-view config) — it's a personal lens on the board,
- * not shared board state. `assignee` groups cards by primary assignee; team
- * grouping is a deferred follow-up (needs a server-side team field).
+ * Board swimlane grouping mode (issue 324; `epic` added in issue 364). Persisted
+ * per-user-per-device like zoom/density (not a saved-view config) — it's a
+ * personal lens on the board, not shared board state. `assignee` groups cards by
+ * primary assignee; `epic` groups by the card's parent epic (a read-only lens —
+ * the epic FK is edited from the card drawer, not by dragging between lanes).
+ * Team grouping is a deferred follow-up (needs a server-side team field).
  */
-export type BoardGroupMode = 'phase' | 'assignee';
+export type BoardGroupMode = 'phase' | 'assignee' | 'epic';
 
 export interface BoardToolbarPrefs {
   layout: BoardLayoutVariant;
@@ -59,9 +61,11 @@ function read(): BoardToolbarPrefs {
       // Additive (issue 379): a stored v1 blob without `zoom` defaults to 'normal',
       // so the key change is backwards-compatible without a version bump.
       zoom: parsed.zoom === 'small' || parsed.zoom === 'large' ? parsed.zoom : 'normal',
-      // Additive (issue 324): a stored blob without `groupBy` defaults to 'phase'
-      // — same backwards-compatible pattern as zoom, no version bump.
-      groupBy: parsed.groupBy === 'assignee' ? 'assignee' : 'phase',
+      // Additive (issue 324, 364): a stored blob without `groupBy` defaults to
+      // 'phase' — same backwards-compatible pattern as zoom, no version bump. An
+      // unrecognized value also falls back to 'phase'.
+      groupBy:
+        parsed.groupBy === 'assignee' || parsed.groupBy === 'epic' ? parsed.groupBy : 'phase',
     };
   } catch {
     return DEFAULTS;

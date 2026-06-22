@@ -106,7 +106,7 @@ describe('CalmToolbar', () => {
 
   // Acceptance: chip popovers ----------------------------------------------
 
-  // Group swimlanes by phase or assignee (#324) -----------------------------
+  // Group swimlanes by phase, assignee (#324), or epic (#364) ---------------
 
   it('Group chip shows the active mode label and opens a radiogroup', async () => {
     const user = userEvent.setup();
@@ -133,6 +133,19 @@ describe('CalmToolbar', () => {
       'aria-expanded',
       'false',
     );
+  });
+
+  it('Group chip offers an Epic option that invokes onGroupByChange("epic") (#364)', async () => {
+    const user = userEvent.setup();
+    const onGroupByChange = vi.fn();
+    renderToolbar({ groupBy: 'epic', onGroupByChange });
+    const groupChip = screen.getByRole('button', { name: 'Group lanes by' });
+    expect(groupChip).toHaveTextContent('By epic');
+    await user.click(groupChip);
+    expect(screen.getByRole('radio', { name: 'By epic' })).toHaveAttribute('aria-checked', 'true');
+    // Switch away and back to verify the option is wired.
+    await user.click(screen.getByRole('radio', { name: 'Phase' }));
+    expect(onGroupByChange).toHaveBeenCalledWith('phase');
   });
 
   it('Sort chip is closed by default and opens a radiogroup popover on click', async () => {

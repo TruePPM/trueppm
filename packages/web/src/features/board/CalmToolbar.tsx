@@ -320,6 +320,7 @@ const EVM_LABELS: Record<EvmMode, string> = {
 const GROUP_LABELS: Record<BoardGroupMode, string> = {
   phase: 'Phase',
   assignee: 'By assignee',
+  epic: 'By epic',
 };
 
 export function CalmToolbar(props: CalmToolbarProps) {

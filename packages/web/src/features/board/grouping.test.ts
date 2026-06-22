@@ -1,9 +1,13 @@
 /**
  * buildAssigneeLanes / primaryAssigneeLaneId — assignee swimlane grouping (#324).
+ * buildEpicLanes / epicLaneId — epic swimlane grouping (#364).
  */
 import { describe, expect, it } from 'vitest';
 import {
   buildAssigneeLanes,
+  buildEpicLanes,
+  epicLaneId,
+  NO_EPIC_LANE_ID,
   primaryAssigneeLaneId,
   UNASSIGNED_LANE_ID,
 } from './grouping';
@@ -84,5 +88,87 @@ describe('buildAssigneeLanes', () => {
 
   it('returns no lanes for an empty task list', () => {
     expect(buildAssigneeLanes([])).toEqual([]);
+  });
+});
+
+describe('epicLaneId', () => {
+  it('returns the parent epic id', () => {
+    expect(epicLaneId(makeTask({ parentEpic: 'e-1' }))).toBe('e-1');
+  });
+
+  it('returns the no-epic sentinel when there is no parent epic', () => {
+    expect(epicLaneId(makeTask({ parentEpic: null }))).toBe(NO_EPIC_LANE_ID);
+  });
+});
+
+describe('buildEpicLanes', () => {
+  const epicNames = new Map<string, string>([
+    ['e-1', 'Checkout'],
+    ['e-2', 'Onboarding'],
+  ]);
+
+  it('groups cards into one lane per parent epic, labeled with the epic name', () => {
+    const lanes = buildEpicLanes(
+      [
+        makeTask({ id: 't1', parentEpic: 'e-1' }),
+        makeTask({ id: 't2', parentEpic: 'e-1' }),
+        makeTask({ id: 't3', parentEpic: 'e-2' }),
+      ],
+      epicNames,
+    );
+    expect(lanes.map((l) => l.id)).toEqual(['e-1', 'e-2']);
+    expect(lanes[0]).toMatchObject({ name: 'Checkout', summaryTask: undefined });
+    expect(lanes[0].tasks.map((t) => t.id)).toEqual(['t1', 't2']);
+    expect(lanes[1].tasks.map((t) => t.id)).toEqual(['t3']);
+  });
+
+  it('aggregates ungrouped cards into the "(No epic)" lane, pinned last', () => {
+    const lanes = buildEpicLanes(
+      [
+        makeTask({ id: 't1', parentEpic: null }),
+        makeTask({ id: 't2', parentEpic: 'e-2' }),
+        makeTask({ id: 't3', parentEpic: null }),
+      ],
+      epicNames,
+    );
+    expect(lanes.map((l) => l.id)).toEqual(['e-2', NO_EPIC_LANE_ID]);
+    const noEpic = lanes[lanes.length - 1];
+    expect(noEpic).toMatchObject({ name: '(No epic)' });
+    expect(noEpic.tasks.map((t) => t.id)).toEqual(['t1', 't3']);
+  });
+
+  it('sorts epic lanes alphabetically by epic name', () => {
+    const lanes = buildEpicLanes(
+      [
+        makeTask({ id: 't1', parentEpic: 'e-2' }), // Onboarding
+        makeTask({ id: 't2', parentEpic: 'e-1' }), // Checkout
+      ],
+      epicNames,
+    );
+    expect(lanes.map((l) => l.name)).toEqual(['Checkout', 'Onboarding']);
+  });
+
+  it('falls back to "Epic" when the parent id is not in the name map', () => {
+    const lanes = buildEpicLanes([makeTask({ id: 't1', parentEpic: 'e-unknown' })], epicNames);
+    expect(lanes).toHaveLength(1);
+    expect(lanes[0]).toMatchObject({ id: 'e-unknown', name: 'Epic' });
+  });
+
+  it('excludes summary tasks and epic-type tasks (lane structure, not cards)', () => {
+    const lanes = buildEpicLanes(
+      [
+        makeTask({ id: 'sum', isSummary: true, parentEpic: 'e-1' }),
+        makeTask({ id: 'epic', taskType: 'epic', parentEpic: null }),
+        makeTask({ id: 't1', parentEpic: 'e-1' }),
+      ],
+      epicNames,
+    );
+    expect(lanes).toHaveLength(1);
+    expect(lanes[0].id).toBe('e-1');
+    expect(lanes[0].tasks.map((t) => t.id)).toEqual(['t1']);
+  });
+
+  it('returns no lanes for an empty task list', () => {
+    expect(buildEpicLanes([], epicNames)).toEqual([]);
   });
 });
