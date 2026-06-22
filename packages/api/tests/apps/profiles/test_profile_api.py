@@ -6,7 +6,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
-from trueppm_api.apps.profiles.models import DefaultLanding, UserProfile
+from trueppm_api.apps.profiles.models import DefaultLanding, RoleContext, UserProfile
 
 User = get_user_model()
 
@@ -139,3 +139,64 @@ def test_patch_deduplicates_hidden_views() -> None:
     )
     assert resp.status_code == 200
     assert resp.data["hidden_views"] == ["schedule", "grid"]
+
+
+# --- role_context (#412) ----------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_role_context_unauthenticated_returns_401() -> None:
+    assert APIClient().patch(URL, {"role_context": "pm"}).status_code == 401
+
+
+@pytest.mark.django_db
+def test_get_profile_lazily_returns_unified_role_context() -> None:
+    """A fresh profile defaults to the dual-hat 'Unified Today' lens (#412)."""
+    user = User.objects.create_user(username="rc_lazy", password="pw")
+    resp = _client(user).get(URL)
+    assert resp.status_code == 200
+    assert resp.data["role_context"] == RoleContext.UNIFIED
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("choice", ["pm", "scrum_master", "unified"])
+def test_patch_role_context_round_trips_every_choice(choice: str) -> None:
+    user = User.objects.create_user(username=f"rc_{choice}", password="pw")
+    resp = _client(user).patch(URL, {"role_context": choice})
+    assert resp.status_code == 200
+    assert resp.data["role_context"] == choice
+    assert UserProfile.objects.get(user=user).role_context == choice
+
+
+@pytest.mark.django_db
+def test_patch_rejects_invalid_role_context() -> None:
+    user = User.objects.create_user(username="rc_bad", password="pw")
+    resp = _client(user).patch(URL, {"role_context": "not_a_role"})
+    assert resp.status_code == 400
+    assert "role_context" in resp.data
+
+
+@pytest.mark.django_db
+def test_patch_role_context_does_not_clobber_other_prefs() -> None:
+    """A partial PATCH of role_context leaves default_landing/hidden_views alone."""
+    user = User.objects.create_user(username="rc_partial", password="pw")
+    c = _client(user)
+    c.patch(URL, {"default_landing": "my_work"}, format="json")
+    c.patch(URL, {"hidden_views": ["board"]}, format="json")
+    c.patch(URL, {"role_context": "scrum_master"}, format="json")
+    profile = UserProfile.objects.get(user=user)
+    assert profile.default_landing == "my_work"
+    assert profile.hidden_views == ["board"]
+    assert profile.role_context == "scrum_master"
+
+
+@pytest.mark.django_db
+def test_user_can_only_touch_own_role_context() -> None:
+    """No :id in the path — a user's PATCH only ever writes their own row."""
+    alice = User.objects.create_user(username="rc_alice", password="pw")
+    bob = User.objects.create_user(username="rc_bob", password="pw")
+    _client(alice).patch(URL, {"role_context": "pm"})
+
+    # Bob's profile is untouched (defaults to unified), Alice's is pm.
+    assert _client(bob).get(URL).data["role_context"] == RoleContext.UNIFIED
+    assert UserProfile.objects.get(user=alice).role_context == "pm"
