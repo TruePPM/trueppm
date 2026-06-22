@@ -19,7 +19,7 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
-from trueppm_api.apps.projects.models import Calendar, Methodology, Project
+from trueppm_api.apps.projects.models import BoardCadence, Calendar, Methodology, Project
 
 User = get_user_model()
 
@@ -71,6 +71,63 @@ def test_scheduler_can_change_governance_fields(project: Project) -> None:
     assert resp.status_code == 200
     project.refresh_from_db()
     assert project.methodology == Methodology.WATERFALL
+
+
+@pytest.mark.django_db
+def test_board_cadence_defaults_to_sprint(project: Project) -> None:
+    """A new project starts sprint-based — the additive, non-destructive default (#410)."""
+    client = _client_for(project, Role.MEMBER, "u_bc_default")
+    got = client.get(f"/api/v1/projects/{project.pk}/")
+    assert got.data["board_cadence"] == BoardCadence.SPRINT
+
+
+@pytest.mark.django_db
+def test_scheduler_can_change_board_cadence(project: Project) -> None:
+    """board_cadence is a board-governance field a Scheduler may write (ADR-0161)."""
+    client = _client_for(project, Role.SCHEDULER, "u_bc_sched")
+    resp = client.patch(
+        f"/api/v1/projects/{project.pk}/",
+        {"board_cadence": BoardCadence.CONTINUOUS},
+        format="json",
+    )
+    assert resp.status_code == 200
+    project.refresh_from_db()
+    assert project.board_cadence == BoardCadence.CONTINUOUS
+
+
+@pytest.mark.django_db
+def test_member_cannot_change_board_cadence(project: Project) -> None:
+    """A Member is blocked at the permission gate (403) — board_cadence is Scheduler+."""
+    client = _client_for(project, Role.MEMBER, "u_bc_member")
+    resp = client.patch(
+        f"/api/v1/projects/{project.pk}/",
+        {"board_cadence": BoardCadence.CONTINUOUS},
+        format="json",
+    )
+    assert resp.status_code == 403
+    project.refresh_from_db()
+    assert project.board_cadence == BoardCadence.SPRINT
+
+
+@pytest.mark.django_db
+def test_board_cadence_change_is_audited_via_history(project: Project) -> None:
+    """The mode change is captured in HistoricalProject with the actor (ADR-0161 audit).
+
+    Satisfies the audit requirement without a new AuditEventType verb: django-simple-history
+    records the before/after value, the actor (history_user), and the timestamp.
+    """
+    client = _client_for(project, Role.SCHEDULER, "u_bc_audit")
+    actor = User.objects.get(username="u_bc_audit")
+    client.patch(
+        f"/api/v1/projects/{project.pk}/",
+        {"board_cadence": BoardCadence.CONTINUOUS},
+        format="json",
+    )
+    latest = project.history.first()
+    assert latest is not None
+    assert latest.board_cadence == BoardCadence.CONTINUOUS
+    assert latest.history_type == "~"  # update
+    assert latest.history_user_id == actor.pk
 
 
 @pytest.mark.django_db

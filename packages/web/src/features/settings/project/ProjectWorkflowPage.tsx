@@ -1,4 +1,11 @@
-import { useMemo, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from 'react';
 import {
   DndContext,
   KeyboardSensor,
@@ -19,8 +26,12 @@ import { SettingsPageTitle } from '../SettingsShell';
 import { BUILT_IN_FIELDS } from './builtInFields';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
-import { useBoardConfig, type BoardColumnDef } from '@/hooks/useBoardConfig';
+import { useProject } from '@/hooks/useProject';
+import { useUpdateProject } from '@/hooks/useProjectMutations';
+import { useActiveSprint } from '@/hooks/useSprints';
+import { useBoardConfig, COLUMN_SLA_DEFAULTS, type BoardColumnDef } from '@/hooks/useBoardConfig';
 import { useProjectPhases, type ProjectPhase } from '@/hooks/useProjectPhases';
+import type { BoardCadence } from '@/types';
 import {
   useProjectCustomFields,
   type CustomFieldOption,
@@ -85,11 +96,178 @@ export function ProjectWorkflowPage() {
       />
 
       <div className="px-6 pb-8 max-w-[920px] space-y-4">
+        <CadenceSection projectId={projectId} canEdit={canEditStatusesOrFields} />
         <PhasesSection projectId={projectId} canEdit={canEditPhases} />
         <StatusesSection projectId={projectId} canEdit={canEditStatusesOrFields} />
         <FieldsSection projectId={projectId} canEdit={canEditStatusesOrFields} />
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Board cadence section (issue 410, ADR-0164)
+// ---------------------------------------------------------------------------
+
+const CADENCE_OPTIONS: Array<{ id: BoardCadence; label: string; desc: string }> = [
+  {
+    id: 'sprint',
+    label: 'Sprint-based',
+    desc: 'Plan and track work in time-boxed sprints with a burndown.',
+  },
+  {
+    id: 'continuous',
+    label: 'Continuous flow (Kanban)',
+    desc: 'No sprint cadence — work flows through columns; the board surfaces flow analytics.',
+  },
+];
+
+/**
+ * Board cadence picker (ADR-0164). Orthogonal to methodology: only shown for
+ * AGILE/HYBRID projects (WATERFALL already hides sprints). Persists immediately on
+ * select — consistent with the rest of this page. Scheduler+ gated.
+ */
+function CadenceSection({
+  projectId,
+  canEdit,
+}: {
+  projectId: string | undefined;
+  canEdit: boolean;
+}) {
+  const { data: project, isLoading } = useProject(projectId ?? null);
+  const update = useUpdateProject(projectId ?? null);
+  const { sprint: activeSprint } = useActiveSprint(projectId ?? null);
+
+  const selected: BoardCadence = project?.board_cadence ?? 'sprint';
+  const isWaterfall = project?.methodology === 'WATERFALL';
+
+  // Roving tabindex for the radio-card group (rule 167 / WCAG 2.1.1): the group is
+  // one tab stop; arrow keys move focus only (never commit — activation saves), and
+  // the focused option mirrors the current selection.
+  const btnRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const selectedIdx = CADENCE_OPTIONS.findIndex((o) => o.id === selected);
+  const [focusIdx, setFocusIdx] = useState(selectedIdx >= 0 ? selectedIdx : 0);
+  useEffect(() => {
+    if (selectedIdx >= 0) setFocusIdx(selectedIdx);
+  }, [selectedIdx]);
+
+  const onRadioKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (!canEdit) return;
+    let next = focusIdx;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+      next = Math.min(CADENCE_OPTIONS.length - 1, focusIdx + 1);
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+      next = Math.max(0, focusIdx - 1);
+    } else if (e.key === 'Home') {
+      next = 0;
+    } else if (e.key === 'End') {
+      next = CADENCE_OPTIONS.length - 1;
+    } else {
+      return;
+    }
+    e.preventDefault();
+    setFocusIdx(next);
+    btnRefs.current[next]?.focus(); // move focus only — do NOT commit
+  };
+
+  return (
+    <section
+      aria-labelledby="cadence-heading"
+      className="bg-neutral-surface-raised border border-neutral-border rounded-lg overflow-hidden"
+    >
+      <div className="px-4 py-3 border-b border-neutral-border flex items-center gap-2">
+        <h2 id="cadence-heading" className="text-[13px] font-semibold text-neutral-text-primary">
+          Board cadence
+        </h2>
+        <span className="text-[12px] text-neutral-text-secondary">
+          · Sprint cadence or continuous Kanban flow
+        </span>
+      </div>
+      <div className="px-4 py-4">
+        {isLoading || !project ? (
+          <div className="h-16 rounded bg-neutral-surface-sunken animate-pulse" />
+        ) : isWaterfall ? (
+          <p className="text-[12px] text-neutral-text-secondary">
+            Waterfall projects don&rsquo;t use sprints — board cadence doesn&rsquo;t apply.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            <div
+              role="radiogroup"
+              aria-labelledby="cadence-heading"
+              tabIndex={-1}
+              onKeyDown={onRadioKeyDown}
+              className="grid grid-cols-2 gap-3 outline-none"
+            >
+              {CADENCE_OPTIONS.map((opt, i) => {
+                const isSelected = selected === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    ref={(el) => {
+                      btnRefs.current[i] = el;
+                    }}
+                    type="button"
+                    role="radio"
+                    aria-checked={isSelected}
+                    // Roving tabindex: only the focused option is in the tab order.
+                    tabIndex={i === focusIdx ? 0 : -1}
+                    disabled={!canEdit || update.isPending}
+                    onClick={() => {
+                      if (canEdit && opt.id !== selected) update.mutate({ board_cadence: opt.id });
+                    }}
+                    className={[
+                      'text-left rounded-lg border p-3 transition-colors',
+                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+                      !canEdit ? 'cursor-not-allowed' : '',
+                      isSelected
+                        ? 'border-2 border-brand-primary bg-brand-primary-light'
+                        : 'border border-neutral-border bg-neutral-surface-raised hover:bg-neutral-surface-sunken',
+                      !canEdit && !isSelected ? 'opacity-60' : '',
+                    ].join(' ')}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[13px] font-semibold text-neutral-text-primary">
+                        {opt.label}
+                      </span>
+                      {isSelected && (
+                        <span className="w-4 h-4 rounded-full flex items-center justify-center shrink-0 bg-brand-primary text-white">
+                          <svg width="10" height="10" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                            <path
+                              d="M3 8l4 4 6-7"
+                              stroke="currentColor"
+                              strokeWidth="2.5"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[12px] text-neutral-text-secondary leading-snug">{opt.desc}</p>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[12px] text-neutral-text-secondary">
+              Continuous flow hides sprint tracking (planning, burndown, sprint header) and leans on
+              the flow-analytics panel. Tasks still move through your board columns.
+            </p>
+            {selected === 'continuous' && activeSprint && (
+              <p className="text-[12px] rounded border border-brand-accent/30 bg-brand-accent/10 text-neutral-text-primary px-3 py-2">
+                ⚠ This board has an active sprint. Continuous flow hides sprint tracking — the sprint
+                and its data are preserved and return if you switch back to sprint-based.
+              </p>
+            )}
+            {update.isError && (
+              <p className="text-[12px] text-semantic-critical">
+                {extractErrorDetail(update.error) ?? 'Could not update board cadence.'}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -436,6 +614,18 @@ function StatusesSection({
             items={effective.map((c) => c.status)}
             strategy={verticalListSortingStrategy}
           >
+            <div
+              aria-hidden="true"
+              className="grid items-center gap-2.5 px-4 py-2 bg-neutral-surface-sunken border-b border-neutral-border/55 text-[10px] font-semibold tracking-[.08em] uppercase text-neutral-text-disabled"
+              style={{ gridTemplateColumns: '28px 28px 1fr 84px 96px 104px' }}
+            >
+              <span />
+              <span />
+              <span>Column</span>
+              <span>Status</span>
+              <span>Age (days)</span>
+              <span>Visibility</span>
+            </div>
             <ul className="divide-y divide-neutral-border/55">
               {effective.map((col) => (
                 <StatusRow
@@ -445,6 +635,9 @@ function StatusesSection({
                   onRename={(label) => updateColumn(col.status, { label })}
                   onRecolor={(color) => updateColumn(col.status, { color })}
                   onToggleVisible={() => updateColumn(col.status, { visible: !col.visible })}
+                  onSetAgeThreshold={(days) =>
+                    updateColumn(col.status, { ageThresholdDays: days })
+                  }
                 />
               ))}
             </ul>
@@ -461,12 +654,14 @@ function StatusRow({
   onRename,
   onRecolor,
   onToggleVisible,
+  onSetAgeThreshold,
 }: {
   column: BoardColumnDef;
   canEdit: boolean;
   onRename: (label: string) => void;
   onRecolor: (color: string | null) => void;
   onToggleVisible: () => void;
+  onSetAgeThreshold: (days: number | null) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: column.status,
@@ -476,6 +671,27 @@ function StatusRow({
   const [editing, setEditing] = useState(false);
   const [label, setLabel] = useState(column.label);
   const [showColorPicker, setShowColorPicker] = useState(false);
+  // Per-column aging threshold override (issue 410). Empty input = inherit the per-status
+  // default; committed on blur/Enter (one PUT per commit, mirroring the inline rename).
+  const [ageDraft, setAgeDraft] = useState(
+    column.ageThresholdDays != null ? String(column.ageThresholdDays) : '',
+  );
+  const defaultThreshold = COLUMN_SLA_DEFAULTS[column.status];
+
+  const commitAge = () => {
+    const trimmed = ageDraft.trim();
+    if (trimmed === '') {
+      if (column.ageThresholdDays !== null) onSetAgeThreshold(null);
+      return;
+    }
+    const next = Number(trimmed);
+    if (!Number.isInteger(next) || next < 1) {
+      // Revert an invalid entry to the last saved value rather than persist garbage.
+      setAgeDraft(column.ageThresholdDays != null ? String(column.ageThresholdDays) : '');
+      return;
+    }
+    if (next !== column.ageThresholdDays) onSetAgeThreshold(next);
+  };
 
   const handleSubmit = () => {
     const trimmed = label.trim();
@@ -495,7 +711,7 @@ function StatusRow({
     >
       <div
         className="grid items-center gap-2.5"
-        style={{ gridTemplateColumns: '28px 28px 1fr 110px 110px' }}
+        style={{ gridTemplateColumns: '28px 28px 1fr 84px 96px 104px' }}
       >
         {canEdit ? (
           <button
@@ -558,6 +774,34 @@ function StatusRow({
           <span className="text-[13px] font-medium text-neutral-text-primary">{column.label}</span>
         )}
         <span className="tppm-mono text-[11px] text-neutral-text-secondary">{column.status}</span>
+        {canEdit ? (
+          <input
+            type="number"
+            min={1}
+            inputMode="numeric"
+            aria-label={`Age limit in days for ${column.label}`}
+            title="Cards in this column longer than this many days show an aging indicator. Leave blank to use the default."
+            value={ageDraft}
+            placeholder={defaultThreshold != null ? String(defaultThreshold) : 'off'}
+            onChange={(e) => setAgeDraft(e.target.value)}
+            onBlur={commitAge}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitAge();
+              else if (e.key === 'Escape') {
+                setAgeDraft(column.ageThresholdDays != null ? String(column.ageThresholdDays) : '');
+              }
+            }}
+            className="w-full text-[12px] bg-neutral-surface-sunken border border-neutral-border rounded px-2 py-1 tppm-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+          />
+        ) : (
+          <span className="tppm-mono text-[11px] text-neutral-text-secondary">
+            {column.ageThresholdDays != null
+              ? `${column.ageThresholdDays}d`
+              : defaultThreshold != null
+                ? `${defaultThreshold}d`
+                : 'off'}
+          </span>
+        )}
         {canEdit ? (
           <button
             type="button"

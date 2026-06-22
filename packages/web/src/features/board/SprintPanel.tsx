@@ -17,11 +17,17 @@ import { useActiveSprint, useProjectVelocity, useSprintMutations } from '@/hooks
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { ROLE_SCHEDULER } from '@/lib/roles';
-import type { ApiSprint } from '@/types';
+import type { ApiSprint, BoardCadence } from '@/types';
 
 interface Props {
   projectId: string;
   methodology: 'WATERFALL' | 'AGILE' | 'HYBRID' | undefined;
+  /**
+   * Board cadence (ADR-0164, issue 410). `continuous` runs continuous-flow Kanban, which
+   * hides the sprint panel entirely. `undefined` while the project query loads falls
+   * back to showing the panel (the sprint-existence gate still applies).
+   */
+  boardCadence: BoardCadence | undefined;
 }
 
 /**
@@ -36,7 +42,7 @@ interface Props {
  * Collapsed-state defaults: expanded for SCHEDULER+, collapsed for
  * VIEWER/MEMBER. Persisted in localStorage per project.
  */
-export function SprintPanel({ projectId, methodology }: Props) {
+export function SprintPanel({ projectId, methodology, boardCadence }: Props) {
   const { sprint } = useActiveSprint(projectId);
   const itl = useIterationLabel(projectId);
   const { role } = useCurrentUserRole(projectId);
@@ -58,8 +64,10 @@ export function SprintPanel({ projectId, methodology }: Props) {
     setOpen(stored ?? isScheduler);
   }, [open, role, isScheduler, storageKey]);
 
-  // Hide for WATERFALL projects and projects without an active sprint.
+  // Hide for WATERFALL projects, continuous-flow Kanban boards (ADR-0164, issue 410),
+  // and projects without an active sprint.
   if (methodology === 'WATERFALL') return null;
+  if (boardCadence === 'continuous') return null;
   if (!sprint) return null;
 
   const handleToggle = () => {

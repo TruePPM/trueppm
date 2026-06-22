@@ -22020,6 +22020,14 @@
                     "results"
                 ]
             },
+            "BoardCadenceEnum": {
+                "enum": [
+                    "sprint",
+                    "continuous"
+                ],
+                "type": "string",
+                "description": "* `sprint` - Sprint-based\n* `continuous` - Continuous flow (Kanban)"
+            },
             "BoardCardSearchResult": {
                 "type": "object",
                 "properties": {
@@ -25595,6 +25603,9 @@
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"
                     },
+                    "board_cadence": {
+                        "$ref": "#/components/schemas/BoardCadenceEnum"
+                    },
                     "task_duration_change_percent_policy": {
                         "nullable": true,
                         "oneOf": [
@@ -27299,6 +27310,9 @@
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"
                     },
+                    "board_cadence": {
+                        "$ref": "#/components/schemas/BoardCadenceEnum"
+                    },
                     "effective_methodology": {
                         "type": "string",
                         "readOnly": true
@@ -27750,6 +27764,9 @@
                     },
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"
+                    },
+                    "board_cadence": {
+                        "$ref": "#/components/schemas/BoardCadenceEnum"
                     },
                     "effective_methodology": {
                         "type": "string",
@@ -28350,6 +28367,9 @@
                     },
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"
+                    },
+                    "board_cadence": {
+                        "$ref": "#/components/schemas/BoardCadenceEnum"
                     },
                     "task_duration_change_percent_policy": {
                         "nullable": true,

@@ -231,6 +231,21 @@ class Methodology(models.TextChoices):
     HYBRID = "HYBRID", "Hybrid"
 
 
+class BoardCadence(models.TextChoices):
+    """How the board runs work — sprint cadence vs continuous flow (ADR-0164, #410).
+
+    Orthogonal to ``Methodology``: ``methodology`` is the planning preset that drives
+    tab visibility (ADR-0041); ``board_cadence`` decides whether the board carries the
+    sprint chrome (panel, burndown, sprint header) or runs continuous-flow Kanban that
+    hides it and leans on the flow-analytics panel. Only meaningful for AGILE/HYBRID
+    projects — WATERFALL already hides sprints via ``methodology``. ``SPRINT`` is the
+    default so every pre-existing project keeps its current behavior.
+    """
+
+    SPRINT = "sprint", "Sprint-based"
+    CONTINUOUS = "continuous", "Continuous flow (Kanban)"
+
+
 class DurationChangePercentPolicy(models.TextChoices):
     """How ``percent_complete`` reacts when a task's ``duration`` changes (ADR-0151, #414).
 
@@ -810,6 +825,18 @@ class Project(VersionedModel):
         max_length=16,
         choices=Methodology.choices,
         default=Methodology.HYBRID,
+    )
+    # Board cadence (ADR-0164, #410). Orthogonal to ``methodology``: SPRINT (default)
+    # runs the board on a sprint cadence, preserving existing behavior; CONTINUOUS runs
+    # continuous-flow Kanban, which hides sprint chrome (panel, burndown, sprint header)
+    # on the board and leans on the flow-analytics panel. Only meaningful for AGILE/
+    # HYBRID projects — WATERFALL already hides sprints via ``methodology``. Switching is
+    # non-destructive: Sprint rows are never mutated, only hidden, so they return verbatim
+    # if a project switches back. Changes are audited via HistoricalProject.
+    board_cadence = models.CharField(
+        max_length=16,
+        choices=BoardCadence.choices,
+        default=BoardCadence.SPRINT,
     )
     # Product-backlog prioritization model (ADR-0105, #922). Drives which distinct input
     # columns on ``Task`` are read for the computed score. Scalar column (matches
