@@ -23,7 +23,7 @@ interface Props {
   projectId: string;
   methodology: 'WATERFALL' | 'AGILE' | 'HYBRID' | undefined;
   /**
-   * Board cadence (ADR-0162, issue 410). `continuous` runs continuous-flow Kanban, which
+   * Board cadence (ADR-0164, issue 410). `continuous` runs continuous-flow Kanban, which
    * hides the sprint panel entirely. `undefined` while the project query loads falls
    * back to showing the panel (the sprint-existence gate still applies).
    */
@@ -64,7 +64,7 @@ export function SprintPanel({ projectId, methodology, boardCadence }: Props) {
     setOpen(stored ?? isScheduler);
   }, [open, role, isScheduler, storageKey]);
 
-  // Hide for WATERFALL projects, continuous-flow Kanban boards (ADR-0162, issue 410),
+  // Hide for WATERFALL projects, continuous-flow Kanban boards (ADR-0164, issue 410),
   // and projects without an active sprint.
   if (methodology === 'WATERFALL') return null;
   if (boardCadence === 'continuous') return null;

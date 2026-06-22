@@ -326,7 +326,7 @@ export interface TaskLink {
 export type Methodology = 'WATERFALL' | 'AGILE' | 'HYBRID';
 
 /**
- * Board cadence (ADR-0162, issue 410) — orthogonal to {@link Methodology}. `sprint`
+ * Board cadence (ADR-0164, issue 410) — orthogonal to {@link Methodology}. `sprint`
  * (default) runs the board on a sprint cadence; `continuous` runs continuous-flow
  * Kanban, hiding sprint chrome and leaning on the flow-analytics panel. Only
  * meaningful for AGILE/HYBRID projects (WATERFALL already hides sprints).

@@ -232,7 +232,7 @@ class Methodology(models.TextChoices):
 
 
 class BoardCadence(models.TextChoices):
-    """How the board runs work — sprint cadence vs continuous flow (ADR-0162, #410).
+    """How the board runs work — sprint cadence vs continuous flow (ADR-0164, #410).
 
     Orthogonal to ``Methodology``: ``methodology`` is the planning preset that drives
     tab visibility (ADR-0041); ``board_cadence`` decides whether the board carries the
@@ -826,7 +826,7 @@ class Project(VersionedModel):
         choices=Methodology.choices,
         default=Methodology.HYBRID,
     )
-    # Board cadence (ADR-0162, #410). Orthogonal to ``methodology``: SPRINT (default)
+    # Board cadence (ADR-0164, #410). Orthogonal to ``methodology``: SPRINT (default)
     # runs the board on a sprint cadence, preserving existing behavior; CONTINUOUS runs
     # continuous-flow Kanban, which hides sprint chrome (panel, burndown, sprint header)
     # on the board and leans on the flow-analytics panel. Only meaningful for AGILE/

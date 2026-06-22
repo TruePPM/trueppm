@@ -79,7 +79,7 @@ export interface UpdateProjectPayload {
    */
   methodology?: Methodology;
   /**
-   * Board cadence (ADR-0162, issue 410). `sprint` shows sprint chrome on the board;
+   * Board cadence (ADR-0164, issue 410). `sprint` shows sprint chrome on the board;
    * `continuous` hides it for continuous-flow Kanban. Scheduler+-writable (in the
    * serializer allowlist alongside methodology). Not an inheritable override.
    */

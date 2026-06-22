@@ -1,4 +1,4 @@
-# ADR-0162: Project-level board cadence — first-class continuous-flow Kanban mode
+# ADR-0164: Project-level board cadence — first-class continuous-flow Kanban mode
 
 ## Status
 Proposed

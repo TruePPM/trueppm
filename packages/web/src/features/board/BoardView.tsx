@@ -2321,7 +2321,7 @@ export function BoardView() {
 
           {/* Sprint header bar (#1138) — name + date range + Day N of M timebox
               + goal + compact burndown. Only when a sprint is selected, and never on a
-              continuous-flow Kanban board (ADR-0162, issue 410) — that's sprint chrome. */}
+              continuous-flow Kanban board (ADR-0164, issue 410) — that's sprint chrome. */}
           {selectedSprint && projectId && projectDetail?.board_cadence !== 'continuous' && (
             <BoardSprintHeader sprint={selectedSprint} projectId={projectId} />
           )}

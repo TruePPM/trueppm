@@ -232,7 +232,7 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "estimation_mode",
             "agile_features",
             "methodology",
-            # Board cadence (ADR-0162, #410). Scheduler+-gated write (in
+            # Board cadence (ADR-0164, #410). Scheduler+-gated write (in
             # _SCHEDULER_WRITABLE_FIELDS, alongside methodology). SPRINT default; not an
             # inheritable override — it's a project-local board setting.
             "board_cadence",
@@ -3547,7 +3547,7 @@ class BoardColumnConfigSerializer(serializers.Serializer[dict[str, Any]]):
     statuses, label ≤ 32 chars, visible is a bool. All five canonical statuses
     must appear exactly once (no duplicates, no missing values).
 
-    Optional per-column metadata (ADR-0039, ADR-0162):
+    Optional per-column metadata (ADR-0039, ADR-0164):
         color:              "#RRGGBB" hex string or null
         wip_limit:          positive integer or null
         age_threshold_days: positive integer or null (null = use the client's
