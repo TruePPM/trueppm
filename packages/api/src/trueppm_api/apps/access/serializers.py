@@ -9,6 +9,7 @@ from drf_spectacular.utils import extend_schema_field, inline_serializer
 from rest_framework import serializers
 
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
+from trueppm_api.apps.profiles.models import RoleContext
 
 User = get_user_model()
 
@@ -240,7 +241,7 @@ class MeSerializer(serializers.Serializer[Any]):
     # top of the per-project methodology preset client-side. API-first: the
     # hidden set is a server fact, identical for web, mobile, and MCP clients.
     hidden_views = serializers.SerializerMethodField()
-    # Active role-context "lens" (#412, ADR-0161). A presentation-only preference
+    # Active role-context "lens" (#412, ADR-0162). A presentation-only preference
     # the web shell reads to pick a dual-hat user's default project view and the
     # view-tab emphasis ("pm" / "scrum_master" / "unified"; "unified" if unset).
     # It NEVER gates access — RBAC remains the sole authority; this is read here
@@ -325,7 +326,12 @@ class MeSerializer(serializers.Serializer[Any]):
     def get_hidden_views(self, obj: Any) -> list[str]:
         return self._prefs(obj)[1]
 
-    @extend_schema_field(serializers.ChoiceField(choices=["pm", "scrum_master", "unified"]))
+    # Reuse the model's own choices (not a hardcoded copy) so this enum is
+    # byte-identical to UserProfileSerializer.role_context — drf-spectacular then
+    # collapses both into one shared ``RoleContextEnum`` component instead of
+    # emitting divergent ``MeRoleContextEnum`` / ``UserProfileRoleContextEnum``
+    # duplicates for the same pm/scrum_master/unified set.
+    @extend_schema_field(serializers.ChoiceField(choices=RoleContext.choices))
     def get_role_context(self, obj: Any) -> str:
         return self._prefs(obj)[2]
 
