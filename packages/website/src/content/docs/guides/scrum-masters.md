@@ -124,6 +124,19 @@ Your job is still just: run good sprints, protect the team, facilitate retrospec
 
 → Read the full walkthrough in [The Story](/the-story/)
 
+## Evaluate it yourself (~10 minutes)
+
+Seed the demo (`seed_demo_project --with-personas`) and sign in as **`maya`** — the Scrum Master persona (password `demo`). The test: you should never need to open the Gantt.
+
+1. **Open the Sprints workspace.** Closed sprints carry a real burndown curve and a velocity bar chart with a rolling average — not a single fabricated number. The active sprint sits mid-window.
+2. **Walk the board.** Find the column that's turned amber or red. That's WIP overload, surfaced *before* it becomes a team-health problem — not after.
+3. **Open the retrospective.** An action item flagged "promote to backlog" is already a real task waiting in the next sprint. No copy-paste out of Confluence.
+4. **Notice what you didn't touch.** No schedule, no milestone, no dependency. The velocity you just generated is what feeds the PM's forecast automatically.
+
+If the sprint reads as a first-class container — goal, dates, burndown, velocity — rather than a board with date columns, it clears your one-question filter: *does this respect the sprint boundary?*
+
+→ The [evaluation guide](/getting-started/evaluation-guide/) adds the agile-only **Aurora** sample (ships in 0.3) for a deeper, history-rich sprint tour.
+
 ## Getting started
 
 1. Ask your admin to [set up a TruePPM instance](/getting-started/installation/)

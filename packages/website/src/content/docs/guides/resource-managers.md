@@ -7,9 +7,17 @@ You allocate people across projects and need to spot conflicts before they becom
 
 ## What you get today
 
-### Resource assignments
+### See capacity before the sprint starts
 
-Assign resources to tasks with the REST API. Each assignment links a resource to a task within a project:
+The clearest thing to try is **capacity preflight**. When a sprint is activated, TruePPM checks the committed story points against the team's available hours and flags anyone who is over-allocated — *before* the sprint starts, not on day 8 when it's too late. It's the project-scoped version of the conflict warning you're really after.
+
+### Fractional allocation and work hours
+
+Assignments carry **fractional units and work hours**, so a person can be 60% on a task rather than simply on or off. When someone's daily load within a project crosses 100%, TruePPM flags the over-allocation automatically.
+
+### Assign people in the app — or script it
+
+In the web app you assign people to tasks from the task drawer. If you'd rather build allocation reports the way you build spreadsheets, every resource and task-resource has a full REST endpoint:
 
 ```bash
 # Assign a resource to a task
@@ -19,24 +27,27 @@ curl -s -X POST http://localhost:8000/api/v1/task-resources/ \
   -d '{"task": "<task-id>", "resource": "<resource-id>"}'
 ```
 
-### Project-scoped visibility
-
-See who's assigned to what within each project. Resources and task-resource assignments have full CRUD endpoints, so you can build allocation reports from the API.
-
 ### Real-time awareness
 
-When a scheduler changes the plan — re-sequences tasks or adjusts durations — the schedule recalculates automatically and connected clients receive a WebSocket notification. You see allocation changes as they happen.
+When a scheduler changes the plan — re-sequences tasks or adjusts durations — the schedule recalculates automatically and connected clients get a WebSocket update. You see allocation changes as they happen.
+
+## Evaluate it yourself (~10 minutes)
+
+Seed the demo (`seed_demo_project --with-personas`) and sign in as **`sarah`** — the resource-manager persona (password `demo`).
+
+1. **Open the sprint's capacity preflight.** It surfaces an over-allocated member before the sprint is activated. That's your core test — *catch the conflict before it's locked in* — at project scope.
+2. **Look at an assignment.** Units and work hours are fractional, not a binary 100% / 0%.
+
+Be clear-eyed about the gap. Your top two criteria — one view of a person across *all* their projects, and a pre-commit warning that fires across projects — land in **0.5**. Today the conflict check is per-project. A pre-0.5 evaluation should expect that; it's sequenced on the roadmap, not an oversight.
 
 ## Current limitations
 
 TruePPM's resource management is single-project in scope today:
 
-- **Fractional allocation shipped in 0.2** — assignments carry fractional units and work hours, so a person can be partially allocated to a task
-- **Overallocation warnings shipped in 0.2** — when someone's daily load within a project exceeds 100%, TruePPM flags the overallocation automatically
-- **No cross-project view yet** — resource assignments are per-project; no single dashboard showing a person's load across all projects
+- **No cross-project view yet** — resource assignments are per-project; there is no single dashboard showing a person's load across all their projects
 - **No cross-project conflict detection yet** — overlapping assignments across projects aren't flagged (planned for 0.5)
 
-The cross-project pieces are important for resource managers and are prioritized on the roadmap.
+The cross-project pieces are the heart of your job, and they are prioritized on the roadmap for 0.5.
 
 ## What's coming
 

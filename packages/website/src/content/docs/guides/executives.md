@@ -1,9 +1,13 @@
 ---
-title: For Executives and PMO Directors
-description: How TruePPM delivers portfolio visibility, confidence-weighted forecasting, and governance for leadership.
+title: For Executives
+description: How TruePPM gives executive sponsors confidence-weighted forecasts they can trust — without learning the tool or waiting on a hand-built status report.
 ---
 
-You need portfolio visibility at a glance — which projects are on track, which are at risk, and where resources are constrained. TruePPM is building toward that, but it's important to be transparent about what exists today versus what's on the roadmap.
+You want one answer, fast: is the work on track, and can you say so out loud without it coming back to bite you? You don't operate the tool day to day — you need numbers you can trust and a forecast honest enough to admit its own uncertainty. This guide covers what TruePPM gives you today, stated plainly, and what's still on the way.
+
+:::note[Run a PMO instead?]
+If you manage the program office rather than sponsor from the C-suite — you live in rollups, roles, and the audit log — the [PMO directors guide](/guides/pmo-directors/) is written for you.
+:::
 
 ## What's available now
 
@@ -19,9 +23,9 @@ Unlike traditional tools that show a single "planned finish date," TruePPM's Mon
 
 This is available today, per project, via the scheduling engine and API. Your project managers can run Monte Carlo on any project with three-point estimates.
 
-### Per-project RBAC
+### Data you can trust
 
-TruePPM enforces a 5-role model per project. As an executive, you can be added as a **Viewer** (role 0) to any project for read-only access, or as a **Member** (role 100) for slightly more access. This is enforced at the API level — no backdoors.
+The number you repeat to the board is only as good as the data under it. TruePPM enforces a five-role permission model on every project, so people see and change only what their role allows — and it's enforced in the engine, not just hidden in the screen. You can be added as a read-only **Viewer** on any project to watch the live picture without being able to change it. (The [PMO directors guide](/guides/pmo-directors/) and the [RBAC reference](/administration/rbac/) have the full role model.)
 
 ### Self-hosted, compliant by design
 
@@ -38,7 +42,7 @@ The REST API provides full access to all project data — tasks, schedules, CPM 
 
 ## What's coming
 
-The features most relevant to executives and PMO directors are split across the community and enterprise roadmaps:
+The features most relevant to an executive sponsor are split across the community and enterprise roadmaps:
 
 | Feature | Description | Edition |
 |---------|-------------|---------|
@@ -57,11 +61,14 @@ The features most relevant to executives and PMO directors are split across the 
 These features require coordinating across multiple programs and enforcing governance at the portfolio level — which is the defining characteristic of the enterprise edition. The community edition handles everything a PM or program manager needs (including multi-project programs); the enterprise edition handles the portfolio and org-level governance layer on top.
 :::
 
-## Evaluating TruePPM
+## Evaluate it yourself (~5 minutes, no login of your own)
 
-If you're evaluating TruePPM for your organization:
+You don't need to learn the tool to judge it. Have whoever set up the demo seed it (`seed_demo_project --with-personas`) and sign in as **`carlos`** — the executive persona (password `demo`) — then look over their shoulder or have them screen-share.
 
-1. **Try the scheduling engine** — [install locally](/getting-started/installation/) and run the [quickstart](/getting-started/quickstart/). The CPM and Monte Carlo capabilities are the core differentiator.
-2. **Review the architecture** — the [architecture overview](/architecture/overview/) explains how the pieces fit together and how the platform scales.
-3. **Check the roadmap** — the [roadmap](/overview/roadmap/) shows what's built, what's in progress, and what's planned for each edition.
-4. **Talk to us** — if the enterprise features are what you need, reach out via the GitLab repository to discuss timelines and early access.
+1. **Open the Overview.** Look at the forecast. It should read as a *range with a confidence level* — "80% likely by this date" — not a flat "on track / off track." A forecast that won't admit uncertainty is the one that embarrasses you later.
+2. **Ask one question:** *did anyone build this by hand?* No — it's computed from the live plan. That's the whole difference from the two-day Excel ritual.
+3. **Find the date you'd actually quote.** P80 is the defensible number to take to the board; P50 is the optimistic one most tools show as "the date."
+
+Then judge it the way you actually decide. The technology is open and self-hosted, so your data never leaves your network. The two things you'd most want next — a one-glance portfolio dashboard and a weekly risk digest pushed to your inbox — are honestly still ahead (see "What's coming"); the portfolio view is an enterprise capability, and a single-program health digest is planned for 0.8. If either is a dealbreaker for you today, that's a fair call to make now rather than after rollout.
+
+For the deeper architecture and roadmap behind a buying decision, see the [architecture overview](/architecture/overview/) and the [roadmap](/overview/roadmap/).

@@ -165,6 +165,76 @@ If you would rather follow one role end to end, pick the path that matches you.
    (Platform Core → Migration → public launch) and open the **SSO login** task's
    History to see a security-review bounce that became a tracked audit risk.
 
+### Team member / contributor — ~5 min (Aurora)
+
+1. Sign in as **Priya**. Open the board (or **My Work**) and find your in-flight
+   cards.
+2. Move a card to the next column — the active sprint's **burndown** redraws
+   immediately; you didn't touch anything else.
+3. Open a "hero" task's **History** — your reassignments and a review bounce-back
+   are there, dated and by name. This is what "your board moves are the status"
+   looks like.
+
+### Resource manager — ~5 min (any sample), with one honest caveat
+
+Cross-project allocation and pre-commit conflict warnings are a **0.5**
+capability — they are not here yet, and an honest evaluation should expect that.
+What you *can* verify today is project-scoped:
+
+1. Sign in to any sample and open the **resource roster** — every sample seeds
+   realistic **capacity profiles** (full-time, part-time, and 10% advisors), not
+   everyone at 100%, with a non-default working calendar on at least one person.
+2. Open or activate a sprint and check **capacity preflight** — over-allocation
+   within the project is flagged before the sprint starts.
+
+See the [resource managers guide](/guides/resource-managers/) for what lands when.
+
+### Executive sponsor — ~5 min (Atlas), no login of your own
+
+You don't need to drive the tool. Have someone open **Atlas** and show you the
+forecast.
+
+1. Open the **Monte Carlo** modal on the flagship program — the answer is a
+   **range with a confidence level** (P50 ≤ P80 ≤ P95), computed from the live
+   plan, not a hand-built status slide.
+2. Toggle a high-impact risk and watch **P80 move** — that's the difference
+   between "we're on track" and "we're 80% likely by this date, and here's what
+   would change it."
+
+The portfolio dashboard and pushed weekly digest you'd want next are still
+ahead — see the [executives guide](/guides/executives/).
+
+### PMO director — ~5 min (Atlas)
+
+Atlas is a **program** — three related projects under one team — which is exactly
+the community-edition scope.
+
+1. Open the **program view** and read the cross-project rollup: the public-launch
+   milestone gated by Platform Core and Migration.
+2. Follow the **cross-project critical path** across the three projects.
+
+Portfolio governance *across many programs* (SSO, immutable audit, cross-program
+leveling) is the enterprise layer — the
+[PMO directors guide](/guides/pmo-directors/) draws the line.
+
+### Agile coach — ~10 min (Aurora, then Helios)
+
+Your evaluation is about autonomy, so check the artifacts that prove the sprint
+belongs to the team:
+
+1. In **Aurora**, sign in as **Alex**. Open a closed sprint's **retrospective**
+   and confirm a promoted action item carried into the next sprint's backlog —
+   the pipeline is real, not a checkbox.
+2. Find the mid-sprint scope injection that was **accepted** and recorded in the
+   scope audit (not slipped in silently).
+3. In **Helios**, find the injection that was **rejected** and deferred — the
+   team's boundary held, with a record either way.
+4. Note that **velocity stays team-private** unless the team opens the audience —
+   it is not auto-published to a management view.
+
+The full autonomy-vs-control contrast test (sign in as the team, then as
+management) is in the [agile coaches guide](/guides/agile-coaches/).
+
 ## Where this data comes from
 
 Every sample is generated from a committed builder

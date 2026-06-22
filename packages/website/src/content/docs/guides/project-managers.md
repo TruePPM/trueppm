@@ -111,6 +111,19 @@ P80 is the defensible number. It's the date with a real probability attached. St
 
 When a scheduler or admin changes the plan, all connected browsers update immediately via WebSocket. No manual refresh, no stale data. The sync protocol is designed for unreliable connectivity — work offline, sync when you have signal.
 
+## Evaluate it yourself (~10 minutes)
+
+The fastest way to judge TruePPM as a PM is to watch the schedule react to a change. Seed the demo (`seed_demo_project --with-personas`) and sign in as **`raj`** — the project-manager persona (password `demo`).
+
+1. **Open the Schedule.** The critical path is lit up and milestones are marked. This is the plan TruePPM keeps current for you — no "Update Project" button anywhere.
+2. **Change something.** Drag a task bar, or edit a duration in the task drawer. Downstream tasks shift on their own, and the critical path re-highlights if it moved.
+3. **Open Monte Carlo.** Confirm the dates climb P50 ≤ P80 ≤ P95. P80 is the date to commit to a client; the gap between P80 and your CPM date is your schedule risk, measured in days.
+4. **Turn on the baseline overlay.** Completed work is compared against the captured plan, so slip is visible. (Baseline *capture* is via the API today; the in-app button is on the 0.5 roadmap.)
+
+One honest note against your own test — *"does this work on my phone with no signal?"* — not yet. The native offline mobile editor is the headline of **0.4**. Today this is a desktop/web evaluation, and that's the right thing to wait for if mobile is your dealbreaker.
+
+→ For a guided, sample-by-sample walkthrough, see the [evaluation guide](/getting-started/evaluation-guide/).
+
 ## What's available
 
 | Feature | Status |
