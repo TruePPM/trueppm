@@ -26,12 +26,16 @@ node_modules
 coverage/
 coverage.xml
 
-# uv lockfile. The scheduler is a published LIBRARY → no committed lock (it
-# declares version ranges and resolves at install). The api is an APPLICATION →
-# commit its lock for reproducible installs and a scannable dependency surface
-# (#904 supply-chain hardening). Keep the blanket ignore for everything else.
+# uv lockfile. The api (APPLICATION) and the scheduler (published LIBRARY) both
+# commit a resolved lock — for reproducible dev/CI installs and a scannable
+# dependency surface: an SCA tool (security:osv) can audit a committed lockfile
+# but not the version ranges a library declares. The published scheduler wheel
+# still ships ranges from pyproject.toml; the lock is a repo-side artifact only
+# (#904 api supply-chain hardening, #1153 scheduler OSV migration). Keep the
+# blanket ignore for everything else.
 uv.lock
 !packages/api/uv.lock
+!packages/scheduler/uv.lock
 
 # Docker
 *.override.yml
