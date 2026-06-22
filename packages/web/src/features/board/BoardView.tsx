@@ -91,7 +91,7 @@ import {
   type BoardZoom,
   type BoardGroupMode,
 } from '@/hooks/useBoardToolbarPrefs';
-import { buildAssigneeLanes, primaryAssigneeLaneId } from './grouping';
+import { buildAssigneeLanes, buildEpicLanes, epicLaneId, primaryAssigneeLaneId } from './grouping';
 import { useBoardCardSearch } from '@/hooks/useBoardCardSearch';
 import { useProject } from '@/hooks/useProject';
 import { useActiveSprint, useSprints } from '@/hooks/useSprints';
@@ -1419,7 +1419,25 @@ export function BoardView() {
     return { committedTasks: committed, backlogTasks: backlog };
   }, [tasks, selectedSprintId]);
 
+  // Epic id → display name (364), built from the full task set: an epic story's
+  // parent epic may sit outside the committed/in-sprint slice, so deriving names
+  // from `committedTasks` alone would mislabel lanes. Epics are real Task rows
+  // (type='epic') returned by the same schedule query.
+  const epicNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const t of tasks ?? []) {
+      if (t.taskType === 'epic') m.set(t.id, t.name);
+    }
+    return m;
+  }, [tasks]);
+
   const phases = useMemo<Phase[]>(() => {
+    // Epic grouping (364): one lane per parent epic + a "(No epic)" lane. A pure
+    // client lens over the same cards — read-only (the epic FK is edited from the
+    // card drawer, never by dragging between lanes).
+    if (groupMode === 'epic') {
+      return buildEpicLanes(committedTasks, epicNameById);
+    }
     // Assignee grouping (324): one lane per primary assignee + an Unassigned
     // lane. A pure client view over the same cards — no synthetic root/backlog
     // injection (that is phase-mode promote-target plumbing, 386).
@@ -1439,7 +1457,7 @@ export function BoardView() {
       built.push({ id: 'root', name: 'Project Tasks', summaryTask: undefined, tasks: [] });
     }
     return built;
-  }, [committedTasks, workshopMode, backlogTasks.length, groupMode]);
+  }, [committedTasks, workshopMode, backlogTasks.length, groupMode, epicNameById]);
 
   // Board PDF export (issue 326, ADR-0159). An off-screen `BoardPrintLayout`
   // (mounted below) is rasterized on demand; we render it from the same
@@ -1861,15 +1879,18 @@ export function BoardView() {
       if (!newStatus) return;
       const currentPhaseId = activeTask.parentId ?? 'root';
       const phaseChanged = workshopMode && newPhaseId !== currentPhaseId;
-      // Cross-lane drag under assignee grouping (324): drag-to-reassign is a
-      // deferred follow-up, so a drop into a different assignee lane never
-      // changes the assignee. A status (column) change in the same drop still
-      // applies; we append a hint pointing at the card's own assignee control.
+      // Cross-lane drag under assignee (324) or epic (364) grouping: drag-to-
+      // reassign is a deferred follow-up, so a drop into a different assignee or
+      // epic lane never changes the assignee or the parent epic. A status
+      // (column) change in the same drop still applies; we append a hint
+      // pointing at the card's own control for that dimension.
       const reassignDeferred =
-        groupMode === 'assignee' && newPhaseId !== primaryAssigneeLaneId(activeTask);
+        (groupMode === 'assignee' && newPhaseId !== primaryAssigneeLaneId(activeTask)) ||
+        (groupMode === 'epic' && newPhaseId !== epicLaneId(activeTask));
+      const reassignNoun = groupMode === 'epic' ? 'epic' : 'assignee';
       if (newStatus === activeTask.status && !phaseChanged) {
         if (reassignDeferred && ariaLiveRef.current) {
-          ariaLiveRef.current.textContent = `Drag-to-reassign isn't available yet — open ${activeTask.name} to change its assignee.`;
+          ariaLiveRef.current.textContent = `Drag-to-reassign isn't available yet — open ${activeTask.name} to change its ${reassignNoun}.`;
         }
         return;
       }
@@ -2485,9 +2506,11 @@ export function BoardView() {
                     collapsed: collapsedIds.has(phase.id),
                     onToggleCollapse: () => toggleCollapse(phase.id),
                     onMenuMove: handleMenuMove,
-                    // Assignee lanes (324) can't host a new task (a lane id is a
-                    // resource, not a parent) — suppress the per-lane add button.
-                    onAddTask: groupMode === 'assignee' ? undefined : handleAddTask,
+                    // Assignee (324) and epic (364) lanes can't host a new task (a
+                    // lane id is a resource or an epic, not a WBS parent) — suppress
+                    // the per-lane add button in those read-only lenses.
+                    onAddTask:
+                      groupMode === 'assignee' || groupMode === 'epic' ? undefined : handleAddTask,
                     focusedCardId,
                     // Search match set (when active) overrides the issue-182 dep-hover
                     // dim set — see effectiveHighlightIds (issue 323).

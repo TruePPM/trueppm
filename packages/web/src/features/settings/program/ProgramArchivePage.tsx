@@ -5,10 +5,12 @@ import {
   useCloseProgram,
   useDeleteProgram,
   useReopenProgram,
+  useSplitProgram,
   useTransferSponsorship,
 } from '@/hooks/useProgramMutations';
 import { SettingsPageTitle } from '../SettingsShell';
 import { TransferOwnershipDialog } from '../components/TransferOwnershipDialog';
+import { SplitProgramDialog } from '../components/SplitProgramDialog';
 
 interface LifecycleCardProps {
   title: string;
@@ -50,7 +52,9 @@ function LifecycleCard({
       <p className="text-[12px] text-neutral-text-secondary mb-2 leading-relaxed">{description}</p>
       <ul className="list-disc pl-4 mb-3 space-y-0.5">
         {notes.map((n) => (
-          <li key={n} className="text-[11px] text-neutral-text-secondary">{n}</li>
+          <li key={n} className="text-[11px] text-neutral-text-secondary">
+            {n}
+          </li>
         ))}
       </ul>
       <button
@@ -94,9 +98,13 @@ export function ProgramArchivePage() {
   const reopen = useReopenProgram();
   const remove = useDeleteProgram();
   const transfer = useTransferSponsorship();
+  const split = useSplitProgram();
 
   const [transferOpen, setTransferOpen] = useState(false);
   const transferError = transfer.error instanceof Error ? transfer.error.message : null;
+
+  const [splitOpen, setSplitOpen] = useState(false);
+  const splitError = split.error instanceof Error ? split.error.message : null;
 
   const isClosed = Boolean(program?.is_closed);
   const closeActionLabel = isClosed ? 'Reopen program…' : 'Close program…';
@@ -175,11 +183,12 @@ export function ProgramArchivePage() {
           description="Divide this program into two or more independent programs. Projects are redistributed by phase or by project list."
           actionLabel="Split program…"
           notes={[
-            'Original program is archived after split.',
+            'Original program is closed (read-only) after split.',
             'All project links, dependencies, and baselines are preserved.',
           ]}
-          disabled
-          disabledReason="Splitting a program isn't available yet — tracked in #967"
+          onClick={() => setSplitOpen(true)}
+          busy={split.isPending}
+          error={splitError}
         />
 
         {/* Delete — critical zone */}
@@ -258,6 +267,31 @@ export function ProgramArchivePage() {
                 new_lead_user_id: newLeadId,
               },
               { onSuccess: () => setTransferOpen(false) },
+            );
+          }}
+        />
+      ) : null}
+
+      {splitOpen && programId ? (
+        <SplitProgramDialog
+          programId={programId}
+          programName={program?.name ?? 'program'}
+          error={splitError}
+          busy={split.isPending}
+          onCancel={() => setSplitOpen(false)}
+          onConfirm={(splits) => {
+            split.mutate(
+              { programId, splits },
+              {
+                onSuccess: (result) => {
+                  setSplitOpen(false);
+                  // The parent program is now a closed read-only shell — land the
+                  // user on the first new sub-program (their work moved there), or
+                  // home if the split produced none (all-empty edge case).
+                  const firstSub = result.sub_programs[0];
+                  void navigate(firstSub ? `/programs/${firstSub.id}` : '/', { replace: true });
+                },
+              },
             );
           }}
         />

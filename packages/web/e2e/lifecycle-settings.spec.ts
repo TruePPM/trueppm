@@ -75,7 +75,28 @@ interface Captures {
   programClose?: number;
   programDelete?: { url: string };
   programTransfer?: { body: unknown };
+  programSplit?: { body: unknown };
 }
+
+const NEW_SUB_ID = 'e2e-subprogram-00000000-0000-0000-0000-000000000967';
+const PROGRAM_PROJECTS = [
+  {
+    id: 'proj-apollo',
+    name: 'Apollo',
+    description: '',
+    start_date: '2026-03-02',
+    methodology: 'HYBRID',
+    program: PROGRAM_ID,
+  },
+  {
+    id: 'proj-beacon',
+    name: 'Beacon',
+    description: '',
+    start_date: '2026-03-02',
+    methodology: 'HYBRID',
+    program: PROGRAM_ID,
+  },
+];
 
 const TARGET_USER_ID = 'user-bob';
 const PROJECT_MEMBERS = [
@@ -201,6 +222,14 @@ async function setupProgramRoutes(page: Page, captures: Captures) {
   });
   await page.route(`**/api/v1/programs/${PROGRAM_ID}/members/`, async (route: Route) => {
     await route.fulfill({ status: 200, contentType: 'application/json', body: pj(PROGRAM_MEMBERS) });
+  });
+  // The split dialog reads the program's projects to redistribute them.
+  await page.route(`**/api/v1/programs/${PROGRAM_ID}/projects/`, async (route: Route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj(PROGRAM_PROJECTS),
+    });
   });
   await page.route(
     `**/api/v1/programs/${PROGRAM_ID}/transfer-sponsorship/`,
@@ -330,5 +359,72 @@ test.describe('Program lifecycle settings (#530)', () => {
     await expect
       .poll(() => captures.programTransfer?.body)
       .toEqual({ new_owner_user_id: TARGET_USER_ID });
+  });
+
+  test('split redistributes projects and POSTs grouped splits to /split/ (#967)', async ({
+    page,
+  }) => {
+    const captures: Captures = {};
+    await setupAuth(page);
+    await setupProgramRoutes(page, captures);
+    await page.route(`**/api/v1/programs/${PROGRAM_ID}/split/`, async (route: Route) => {
+      captures.programSplit = { body: route.request().postDataJSON() };
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({
+          program: { ...FIXTURE_PROGRAM, is_closed: true },
+          sub_programs: [{ ...FIXTURE_PROGRAM, id: NEW_SUB_ID, name: 'Alpha', code: 'ALPHA' }],
+        }),
+      });
+    });
+    await page.goto(`/programs/${PROGRAM_ID}/settings/lifecycle`);
+
+    await expect(page.getByRole('heading', { name: 'Archive / Close' })).toBeVisible();
+    await page.getByRole('button', { name: 'Split program…' }).click();
+
+    const dialog = page.getByRole('dialog', { name: 'Split into sub-programs' });
+    await expect(dialog).toBeVisible();
+
+    // Confirm is gated until the sub-program is named.
+    const confirm = dialog.getByRole('button', { name: 'Split program' });
+    await expect(confirm).toBeDisabled();
+
+    await dialog.getByLabel('Sub-program 1 name').fill('Alpha');
+    await dialog.getByLabel('Assign project Apollo to').selectOption('sub-0');
+
+    await expect(confirm).toBeEnabled();
+    await confirm.click();
+
+    await expect
+      .poll(() => captures.programSplit?.body)
+      .toEqual({ splits: [{ name: 'Alpha', project_ids: ['proj-apollo'] }] });
+  });
+
+  test('split surfaces a server 400 inline and keeps the dialog open (#967)', async ({ page }) => {
+    const captures: Captures = {};
+    await setupAuth(page);
+    await setupProgramRoutes(page, captures);
+    await page.route(`**/api/v1/programs/${PROGRAM_ID}/split/`, async (route: Route) => {
+      await route.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: pj({ detail: 'A program can be split into at most 50 sub-programs.' }),
+      });
+    });
+    await page.goto(`/programs/${PROGRAM_ID}/settings/lifecycle`);
+
+    await page.getByRole('button', { name: 'Split program…' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Split into sub-programs' });
+    await expect(dialog).toBeVisible();
+
+    await dialog.getByLabel('Sub-program 1 name').fill('Alpha');
+    await dialog.getByRole('button', { name: 'Split program' }).click();
+
+    await expect(
+      dialog.getByText('A program can be split into at most 50 sub-programs.'),
+    ).toBeVisible();
+    // The dialog stays open so the user can correct the input.
+    await expect(dialog).toBeVisible();
   });
 });

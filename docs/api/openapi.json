@@ -9158,6 +9158,86 @@
                 }
             }
         },
+        "/api/v1/projects/{project_pk}/board/activity/": {
+            "get": {
+                "operationId": "v1_projects_board_activity_retrieve",
+                "description": "GET the board's filterable, time-ordered activity feed (Viewer+).",
+                "summary": "Board-level activity feed (filterable, board-scoped)",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "actor",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Filter to one actor (user id)."
+                    },
+                    {
+                        "in": "query",
+                        "name": "limit",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Page size (1..100, default 50)."
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "since",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Lower time bound (inclusive ISO datetime)."
+                    },
+                    {
+                        "in": "query",
+                        "name": "type",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Comma-separated event types: comment_added, entered_sprint, exited_sprint, moved_sprint, task_created, task_deleted, task_updated."
+                    },
+                    {
+                        "in": "query",
+                        "name": "until",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Keyset cursor — events older than this ISO datetime (default now)."
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/BoardActivityResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{project_pk}/export/msproject.xml": {
             "get": {
                 "operationId": "v1_projects_export_msproject.xml_retrieve",
@@ -12718,7 +12798,7 @@
         "/api/v1/projects/{project_pk}/tasks/{task_pk}/history/": {
             "get": {
                 "operationId": "v1_projects_tasks_history_retrieve",
-                "description": "Paginated field-level diff history for a single task.\n\nReturns HistoricalTask records in descending date order, each with a diff\nlist comparing it to the immediately preceding version.  The first record\n(task creation) always has an empty diff — no previous version to compare.\n\nAccessible to all project members (Viewer+).  history_user is the username\nof the user who made the change; null for programmatic writes.",
+                "description": "Paginated field-level diff history for a single task.\n\nReturns HistoricalTask records in descending date order, each with a diff\nlist comparing it to the immediately preceding version (allow-by-exclusion;\nADR-0096 Part 1). The creation record (history_type ``+``) has an empty diff\n— no previous version to compare. Change records (``~``) whose every changed\nfield is display-excluded are dropped, so the endpoint never emits a bare\n\"Updated\" pill with no diff rows.\n\nAccessible to all project members (Viewer+). history_user is the username of\nthe user who made the change; null for programmatic writes. FK values\n(assignee, sprint, …) are resolved to human-readable labels via a single\nbatched query per related model (no N+1 over the history).",
                 "parameters": [
                     {
                         "in": "path",
@@ -21703,6 +21783,97 @@
                 "type": "string",
                 "description": "* `dependency` - Waiting on dependency\n* `resource` - Missing resource\n* `vendor` - External vendor\n* `decision` - Decision needed\n* `other` - Other"
             },
+            "BoardActivityChange": {
+                "type": "object",
+                "properties": {
+                    "field": {
+                        "type": "string"
+                    },
+                    "old": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "new": {
+                        "type": "string",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "field",
+                    "new",
+                    "old"
+                ]
+            },
+            "BoardActivityEvent": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "event_type": {
+                        "type": "string"
+                    },
+                    "actor": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "actor_id": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "task_id": {
+                        "type": "string"
+                    },
+                    "task_name": {
+                        "type": "string"
+                    },
+                    "sprint_id": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "changes": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/BoardActivityChange"
+                        }
+                    }
+                },
+                "required": [
+                    "actor",
+                    "actor_id",
+                    "changes",
+                    "event_type",
+                    "id",
+                    "sprint_id",
+                    "task_id",
+                    "task_name",
+                    "timestamp"
+                ]
+            },
+            "BoardActivityResponse": {
+                "type": "object",
+                "properties": {
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/BoardActivityEvent"
+                        }
+                    },
+                    "next_until": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "next_until",
+                    "results"
+                ]
+            },
             "BoardCardSearchResult": {
                 "type": "object",
                 "properties": {
@@ -26005,7 +26176,7 @@
             },
             "PatchedUserProfileRequest": {
                 "type": "object",
-                "description": "Read/write the caller's own app preferences.\n\n``default_landing`` choice validation is enforced by the model field's\n``choices`` (DRF rejects an out-of-range value with 400). ``hidden_views`` is\na bounded list of canonical view keys (ADR-0139); ``validate_hidden_views``\nrejects unknown keys and de-duplicates.",
+                "description": "Read/write the caller's own app preferences.\n\n``default_landing`` and ``role_context`` choice validation is enforced by the\nmodel fields' ``choices`` (DRF rejects an out-of-range value with 400).\n``hidden_views`` is a bounded list of canonical view keys (ADR-0139);\n``validate_hidden_views`` rejects unknown keys and de-duplicates.",
                 "properties": {
                     "default_landing": {
                         "allOf": [
@@ -26014,6 +26185,14 @@
                             }
                         ],
                         "description": "Which screen the app opens on. 'auto' uses the role-based policy.\n\n* `auto` - Automatic (based on your role)\n* `my_work` - My Work\n* `project_overview` - Project Overview\n* `portfolio` - Portfolio"
+                    },
+                    "role_context": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/RoleContextEnum"
+                            }
+                        ],
+                        "description": "Active role-context view: PM, Scrum Master, or Unified Today (#412).\n\n* `pm` - PM\n* `scrum_master` - Scrum Master\n* `unified` - Unified Today"
                     },
                     "hidden_views": {
                         "type": "array",
@@ -29145,6 +29324,15 @@
                 "type": "string",
                 "description": "* `OPEN` - Open\n* `MITIGATING` - Mitigating\n* `RESOLVED` - Resolved\n* `ACCEPTED` - Accepted\n* `CLOSED` - Closed"
             },
+            "RoleContextEnum": {
+                "enum": [
+                    "pm",
+                    "scrum_master",
+                    "unified"
+                ],
+                "type": "string",
+                "description": "* `pm` - PM\n* `scrum_master` - Scrum Master\n* `unified` - Unified Today"
+            },
             "RoleEnum": {
                 "enum": [
                     0,
@@ -31876,7 +32064,7 @@
             },
             "UserProfile": {
                 "type": "object",
-                "description": "Read/write the caller's own app preferences.\n\n``default_landing`` choice validation is enforced by the model field's\n``choices`` (DRF rejects an out-of-range value with 400). ``hidden_views`` is\na bounded list of canonical view keys (ADR-0139); ``validate_hidden_views``\nrejects unknown keys and de-duplicates.",
+                "description": "Read/write the caller's own app preferences.\n\n``default_landing`` and ``role_context`` choice validation is enforced by the\nmodel fields' ``choices`` (DRF rejects an out-of-range value with 400).\n``hidden_views`` is a bounded list of canonical view keys (ADR-0139);\n``validate_hidden_views`` rejects unknown keys and de-duplicates.",
                 "properties": {
                     "default_landing": {
                         "allOf": [
@@ -31885,6 +32073,14 @@
                             }
                         ],
                         "description": "Which screen the app opens on. 'auto' uses the role-based policy.\n\n* `auto` - Automatic (based on your role)\n* `my_work` - My Work\n* `project_overview` - Project Overview\n* `portfolio` - Portfolio"
+                    },
+                    "role_context": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/RoleContextEnum"
+                            }
+                        ],
+                        "description": "Active role-context view: PM, Scrum Master, or Unified Today (#412).\n\n* `pm` - PM\n* `scrum_master` - Scrum Master\n* `unified` - Unified Today"
                     },
                     "hidden_views": {
                         "type": "array",

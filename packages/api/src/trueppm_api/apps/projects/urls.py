@@ -7,6 +7,7 @@ from rest_framework.routers import DefaultRouter
 
 from trueppm_api.apps.integrations.views import TaskLinkViewSet
 from trueppm_api.apps.projects.backlog_views import BacklogItemViewSet
+from trueppm_api.apps.projects.board_activity_views import BoardActivityView
 from trueppm_api.apps.projects.ceremony_views import (
     CeremonyTemplateViewSet,
     PhaseGateConfigView,
@@ -141,6 +142,12 @@ urlpatterns = [
         "projects/<pk>/board-views/<view_pk>/",
         BoardSavedViewDetailView.as_view(),
         name="project-board-views-detail",
+    ),
+    # Board-level activity feed (ADR-0160 / #325) — filterable, board-scoped.
+    path(
+        "projects/<project_pk>/board/activity/",
+        BoardActivityView.as_view(),
+        name="project-board-activity",
     ),
     # Presence endpoint — who is connected to this project's WebSocket
     path(

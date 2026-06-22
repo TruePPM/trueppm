@@ -30,6 +30,20 @@ class DefaultLanding(models.TextChoices):
     PORTFOLIO = "portfolio", "Portfolio"
 
 
+class RoleContext(models.TextChoices):
+    """Which role-context "lens" the app presents for this user (#412).
+
+    A person who wears two hats (e.g. a delivery lead who is both PM and Scrum
+    Master) can pin the workspace to a single role's layout, or keep the dual-hat
+    ``UNIFIED`` view that blends both. This stores the *active* lens; the concrete
+    mode-layouts that consume it are a deferred frontend follow-up.
+    """
+
+    PM = "pm", "PM"
+    SCRUM_MASTER = "scrum_master", "Scrum Master"
+    UNIFIED = "unified", "Unified Today"
+
+
 class UserProfile(models.Model):
     """Singleton per-user app preferences.
 
@@ -56,6 +70,15 @@ class UserProfile(models.Model):
         choices=DefaultLanding.choices,
         default=DefaultLanding.AUTO,
         help_text="Which screen the app opens on. 'auto' uses the role-based policy.",
+    )
+    # 'unified' is the default because the dual-hat "Unified Today" view is the
+    # headline demo for #412: a user who has not yet picked a lens should see the
+    # blended PM + Scrum Master surface, not be forced into one role up front.
+    role_context = models.CharField(
+        max_length=12,
+        choices=RoleContext.choices,
+        default=RoleContext.UNIFIED,
+        help_text="Active role-context view: PM, Scrum Master, or Unified Today (#412).",
     )
     # Per-user view visibility (ADR-0139). Canonical view keys this user has
     # hidden from their own project nav — applied globally across every project,

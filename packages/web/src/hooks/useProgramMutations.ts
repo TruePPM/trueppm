@@ -170,19 +170,58 @@ export interface SplitProgramInput {
   splits: { name: string; project_ids: string[] }[];
 }
 
+export interface SplitProgramResult {
+  /** The original program, now closed (read-only shell). */
+  program: Program;
+  /** The newly created sub-programs, in input order. */
+  sub_programs: Program[];
+}
+
 /**
- * POST /api/v1/programs/:id/split/ — 501 stub for 0.2 (#530).
- *
- * The handler validates the payload shape and Owner role then returns
- * ``501 Not Implemented`` with ``{ detail, tracking_issue }``. The hook is
- * shipped now so the UI dialog can render and the "coming soon" surface
- * stays coherent. Real implementation lands in a follow-up.
+ * Surface the server's `{detail}` from a DRF 400 verbatim. The shared response
+ * interceptor rejects with the raw AxiosError (whose `.message` is the generic
+ * "Request failed with status code 400"), so the actionable validation message
+ * — "Project X is not a project of this program.", "…at most 50 sub-programs." —
+ * has to be lifted out of `response.data.detail` at the call site (the same
+ * structural extraction `useTaskMutations` uses).
  */
-export function useSplitProgram(): UseMutationResult<unknown, Error, SplitProgramInput> {
+function splitErrorMessage(err: unknown): string {
+  const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+  if (typeof detail === 'string' && detail.trim() !== '') return detail;
+  return err instanceof Error ? err.message : 'Could not split the program.';
+}
+
+/**
+ * POST /api/v1/programs/:id/split/ — split a program into sub-programs (ADR-0156, #967).
+ *
+ * Each entry in ``splits`` becomes a new sub-program owned by the caller, and the
+ * entry's projects move under it; any project left unassigned stays on the
+ * original program, which the server closes after the split. The whole operation
+ * is atomic and returns the closed parent plus the new sub-programs.
+ *
+ * A server 400 is re-thrown with its `{detail}` as the message so the dialog can
+ * surface the validation reason verbatim. Invalidates the ``['programs']`` cache —
+ * this prefix covers the programs list (sidebar/list page, where the new
+ * sub-programs appear), the parent's detail (``['programs', id]``, now closed),
+ * and the parent's projects subview (``['programs', id, 'projects']``, where the
+ * redistributed projects left). The caller owns navigation, because the parent is
+ * now a read-only shell.
+ */
+export function useSplitProgram(): UseMutationResult<SplitProgramResult, Error, SplitProgramInput> {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ programId, splits }) => {
-      const res = await apiClient.post<unknown>(`/programs/${programId}/split/`, { splits });
-      return res.data;
+      try {
+        const res = await apiClient.post<SplitProgramResult>(`/programs/${programId}/split/`, {
+          splits,
+        });
+        return res.data;
+      } catch (err) {
+        throw new Error(splitErrorMessage(err));
+      }
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['programs'] });
     },
   });
 }

@@ -155,4 +155,16 @@ describe('Program lifecycle hooks (#530)', () => {
       splits: [{ name: 'A', project_ids: ['p1'] }],
     });
   });
+
+  it('useSplitProgram surfaces the server {detail} verbatim on a 400', async () => {
+    postMock.mockRejectedValueOnce({
+      response: { data: { detail: 'Project p9 is not a project of this program.' } },
+    });
+    const { result } = renderHook(() => useSplitProgram(), {
+      wrapper: makeWrapper(makeClient()),
+    });
+    result.current.mutate({ programId: 'prog-1', splits: [{ name: 'A', project_ids: ['p9'] }] });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.error?.message).toBe('Project p9 is not a project of this program.');
+  });
 });
