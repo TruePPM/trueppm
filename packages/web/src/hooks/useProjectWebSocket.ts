@@ -30,6 +30,10 @@
  *   board_view_created / board_view_updated / board_view_deleted → invalidate boardViews
  *   project_created / project_updated / project_deleted → invalidate project + projects
  *   phases_reordered → invalidate tasks
+ *   board activity feed → the card-sync events above (task_created / task_updated /
+ *     task_deleted, sprint_scope_changed, task_comment_created) also invalidate
+ *     ['board-activity', projectId] so the activity panel refetches its head page live,
+ *     through the already role-gated read API — no new WS event (ADR-0160 Amendment B1, issue 1264)
  *
  * Reconnects with exponential backoff (1s → 2s → 4s → … up to 30s).
  * Stops reconnecting when `projectId` is null/undefined or the token is absent.
@@ -91,10 +95,13 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
   // Track whether the component is still mounted so we don't reconnect after unmount.
   const mountedRef = useRef(true);
 
-  // Trailing-debounce state for coalescing Gantt-data invalidations. The set
-  // accumulates which query keys a burst touched; the timer flushes them as a
-  // single invalidation per key once the burst goes quiet (#773).
-  const pendingInvalidationsRef = useRef<Set<'tasks' | 'dependencies'>>(new Set());
+  // Trailing-debounce state for coalescing burst-prone invalidations (tasks,
+  // dependencies, and the board activity feed). The set accumulates which query
+  // keys a burst touched; the timer flushes them as a single invalidation per key
+  // once the burst goes quiet (#773).
+  const pendingInvalidationsRef = useRef<Set<'tasks' | 'dependencies' | 'board-activity'>>(
+    new Set(),
+  );
   const invalidateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // ADR-0152 (#327): highest task_updated server_version observed per task, so a
   // duplicate or out-of-order replayed delta is ignored rather than triggering a
@@ -123,14 +130,14 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
     let backoffMs = 1_000;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
-    // Coalesce a burst of Gantt-data invalidations into a single trailing
-    // refetch per query key. High-frequency mutation events (task_*,
-    // dependency_*, cpm_complete, bulk/reorder, assignment_*, sprint/rollup)
-    // route through here instead of invalidating immediately, so a sync batch
-    // of N row events produces 1 refetch rather than N. Low-frequency,
-    // narrowly-scoped invalidations (per-task comments, members, board config,
-    // project-level) stay immediate — they are not part of a burst.
-    function scheduleInvalidate(...keys: Array<'tasks' | 'dependencies'>) {
+    // Coalesce a burst of invalidations into a single trailing refetch per query
+    // key. High-frequency mutation events (task_*, dependency_*, cpm_complete,
+    // bulk/reorder, assignment_*, sprint/rollup, board-activity) route through
+    // here instead of invalidating immediately, so a sync batch of N row events
+    // produces 1 refetch rather than N. Low-frequency, narrowly-scoped
+    // invalidations (per-task comments, members, board config, project-level)
+    // stay immediate — they are not part of a burst.
+    function scheduleInvalidate(...keys: Array<'tasks' | 'dependencies' | 'board-activity'>) {
       for (const key of keys) pendingInvalidationsRef.current.add(key);
       if (invalidateTimerRef.current !== null) return;
       invalidateTimerRef.current = setTimeout(() => {
@@ -283,8 +290,16 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         if (!isSelfEcho && !isDuplicate) {
           scheduleInvalidate('tasks');
         }
+        // The board activity feed is an append-only audit log, so it refetches
+        // even for the originating client's own edit (you want your action to land
+        // in the feed) — only a true duplicate/replay at an already-seen version is
+        // skipped. No-op while the panel is closed: an inactive infinite query is
+        // marked stale, not refetched, until the panel remounts (ADR-0160 B1, issue 1264).
+        if (!isDuplicate) {
+          scheduleInvalidate('board-activity');
+        }
       } else if (event_type === 'task_created' || event_type === 'task_deleted') {
-        scheduleInvalidate('tasks');
+        scheduleInvalidate('tasks', 'board-activity');
       } else if (
         event_type === 'dependency_created' ||
         event_type === 'dependency_updated' ||
@@ -361,6 +376,11 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         const taskId = payload?.task_id;
         if (typeof taskId === 'string') {
           void queryClient.invalidateQueries({ queryKey: ['task-comments', taskId] });
+        }
+        // Only a brand-new comment is a `comment_added` row in the board activity
+        // feed; edits/deletes/reactions/acks don't add feed rows (ADR-0160 B1, issue 1264).
+        if (event_type === 'task_comment_created') {
+          scheduleInvalidate('board-activity');
         }
       } else if (
         event_type === 'task_attachment_created' ||
@@ -478,7 +498,9 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
       // handler, other clients kept showing the stale "Pending acceptance" chip
       // and the "accepted scope only" forecast caveat until a manual refetch.
       else if (event_type === 'sprint_scope_changed') {
-        scheduleInvalidate('tasks');
+        // Accept/reject flips a task's sprint membership → an entered/exited_sprint
+        // row in the board activity feed (ADR-0160 B1, issue 1264).
+        scheduleInvalidate('tasks', 'board-activity');
         void queryClient.invalidateQueries({ queryKey: ['sprints', projectIdRef.current] });
         // The accepted/rejected task's points enter or leave the committed-scope
         // line, so an open burndown for that sprint must refetch too — it is a

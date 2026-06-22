@@ -764,3 +764,172 @@ describe('useProjectWebSocket — wave-2 missing handlers (#835)', () => {
     });
   });
 });
+
+// #1264 / ADR-0160 Amendment B1 — the board activity panel goes live by
+// invalidating ['board-activity', projectId] on the existing card-sync events,
+// refetched through the already role-gated read API. No new WS event type.
+describe('useProjectWebSocket — board activity feed live updates (#1264)', () => {
+  const originalWebSocket = globalThis.WebSocket;
+  let qc: QueryClient;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    MockWebSocket.instances = [];
+    // @ts-expect-error — overriding WebSocket for the test environment
+    globalThis.WebSocket = MockWebSocket;
+    act(() => {
+      useAuthStore.setState({ accessToken: 'tok-abc', isAuthenticated: true });
+    });
+    qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    globalThis.WebSocket = originalWebSocket;
+    act(() => {
+      useAuthStore.setState({ accessToken: null, isAuthenticated: false });
+    });
+  });
+
+  function dispatch(eventType: string, payload: Record<string, unknown> = {}) {
+    act(() => {
+      MockWebSocket.instances[0].dispatch('message', {
+        data: JSON.stringify({ event_type: eventType, payload }),
+      });
+    });
+  }
+
+  function flushDebounce() {
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
+  }
+
+  function boardActivityInvalidationCount(calls: unknown[][]): number {
+    return calls.filter((call) => {
+      const arg = call[0] as { queryKey?: unknown[] } | undefined;
+      return (
+        Array.isArray(arg?.queryKey) &&
+        arg.queryKey[0] === 'board-activity' &&
+        arg.queryKey[1] === 'proj-1'
+      );
+    }).length;
+  }
+
+  it.each(['task_created', 'task_deleted'])(
+    'invalidates the board activity feed on %s',
+    (eventType) => {
+      const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+      renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+      dispatch(eventType, { id: 't1' });
+      flushDebounce();
+
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['board-activity', 'proj-1'] });
+    },
+  );
+
+  it('invalidates the board activity feed on a remote-actor task_updated', () => {
+    qc.setQueryData(['current-user'], { id: 'me' });
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('task_updated', { id: 't1', actor_id: 'someone-else', version: 3 });
+    flushDebounce();
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['board-activity', 'proj-1'] });
+  });
+
+  it('refetches the feed even on a self-echo task_updated (append-only audit log)', () => {
+    // Unlike the tasks cache (which suppresses self-echo to protect an in-flight
+    // optimistic edit), the activity feed has no optimistic state and should show
+    // the originating user's own action — so it still refetches.
+    qc.setQueryData(['current-user'], { id: 'me' });
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('task_updated', { id: 't1', actor_id: 'me', version: 5 });
+    flushDebounce();
+
+    expect(boardActivityInvalidationCount(invalidateSpy.mock.calls)).toBe(1);
+    // ...but the tasks cache is NOT refetched on a self-echo (optimistic update stands).
+    const tasksCalls = invalidateSpy.mock.calls.filter((call) => {
+      const arg = call[0] as { queryKey?: unknown[] } | undefined;
+      return Array.isArray(arg?.queryKey) && arg.queryKey[0] === 'tasks';
+    }).length;
+    expect(tasksCalls).toBe(0);
+  });
+
+  it('does not refetch the feed for a duplicate/replayed task_updated', () => {
+    qc.setQueryData(['current-user'], { id: 'me' });
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('task_updated', { id: 't1', actor_id: 'someone-else', version: 7 });
+    flushDebounce();
+    dispatch('task_updated', { id: 't1', actor_id: 'someone-else', version: 7 });
+    flushDebounce();
+
+    // First event refetches the feed; the same-version replay is a no-op.
+    expect(boardActivityInvalidationCount(invalidateSpy.mock.calls)).toBe(1);
+  });
+
+  it('invalidates the board activity feed on task_comment_created', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('task_comment_created', { task_id: 't1', comment_id: 'c1' });
+    flushDebounce();
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['board-activity', 'proj-1'] });
+  });
+
+  it.each(['task_comment_updated', 'task_comment_deleted', 'task_comment_reaction_added'])(
+    'does not invalidate the feed on %s (no new feed row)',
+    (eventType) => {
+      const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+      renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+      dispatch(eventType, { task_id: 't1', comment_id: 'c1' });
+      flushDebounce();
+
+      expect(boardActivityInvalidationCount(invalidateSpy.mock.calls)).toBe(0);
+    },
+  );
+
+  it('invalidates the board activity feed on sprint_scope_changed', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('sprint_scope_changed', { sprint_id: 's1', task_id: 't1' });
+    flushDebounce();
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['board-activity', 'proj-1'] });
+  });
+
+  it('coalesces a burst of card mutations into a single feed invalidation', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('task_created', { id: 't1' });
+    dispatch('task_updated', { id: 't2', actor_id: 'x', version: 1 });
+    dispatch('task_deleted', { id: 't3' });
+
+    // Nothing fires until the burst goes quiet.
+    expect(boardActivityInvalidationCount(invalidateSpy.mock.calls)).toBe(0);
+    flushDebounce();
+    expect(boardActivityInvalidationCount(invalidateSpy.mock.calls)).toBe(1);
+  });
+
+  it('does not invalidate the feed for an unrelated event', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('board_config_updated', {});
+    flushDebounce();
+
+    expect(boardActivityInvalidationCount(invalidateSpy.mock.calls)).toBe(0);
+  });
+});
