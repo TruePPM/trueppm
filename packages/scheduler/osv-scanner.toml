@@ -1,0 +1,29 @@
+# OSV-Scanner suppressions for the scheduler's locked dependency set
+# (packages/scheduler/uv.lock), auto-discovered by the security:osv CI job.
+#
+# These migrate the scheduler half of the retired security:pip-audit:scheduler
+# job's `--ignore-vuln` list onto OSV-Scanner's surgical, self-expiring control:
+# each entry carries a `reason` and an `ignoreUntil` expiry, so a suppression
+# stays documented and rots on its own instead of silently masking a future
+# advisory (the control `pip-audit --ignore-vuln` lacked). The scheduler moved
+# off pip-audit once it committed its uv.lock (#1153 scheduler half); OSV can
+# only scan a committed lockfile. This list is INDEPENDENT of the api's
+# (packages/api/osv-scanner.toml) — per-directory auto-discovery scopes each
+# file to its own lockfile, so no api-side suppression bleeds across (the bleed
+# the former shared pip-audit list caused).
+#
+# CVE-2026-3219 (pip) is deliberately NOT carried here: pip is the installer,
+# never a locked project dependency, so a lockfile-scoped OSV scan cannot
+# surface it. It was suppressed in the old pip-audit job (which audited an
+# installed environment where pip is present); a lockfile scan has no such
+# entry to flag. The published scheduler wheel's runtime closure is networkx +
+# numpy — pip is not a dependency of it.
+#
+# PYSEC-2025-183 (pyjwt) is likewise NOT carried: pyjwt is not in the
+# scheduler's dependency set (it reaches the api via simplejwt only). Omitting
+# it is exactly the cross-package bleed the per-directory split removes.
+
+[[IgnoredVulns]]
+id = "CVE-2026-4539"
+ignoreUntil = 2026-12-31
+reason = "Local-access-only ReDoS in pygments' AdlLexer (CVSS low/medium). Dev tooling only (diff-cover -> pygments), not part of the published wheel's runtime closure (networkx + numpy). No patched release addresses it as of 2026-03-25; re-evaluate once pygments ships a fix."

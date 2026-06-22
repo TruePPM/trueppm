@@ -61,7 +61,7 @@ merge-blocking checks so security regressions are caught before release:
 |-------|------|-----------------|
 | Secret scanning | gitleaks | Hardcoded credentials, keys, and tokens (also a pre-commit hook) |
 | Static analysis (SAST) | bandit, semgrep | Insecure Python/JS/TS/Django patterns |
-| Dependency CVEs (SCA) | pip-audit, osv-scanner, cargo-deny | Known-vulnerable Python, npm, and Rust dependencies |
+| Dependency CVEs (SCA) | osv-scanner, cargo-deny | Known-vulnerable Python, npm, and Rust dependencies |
 | Container / IaC | trivy | Dockerfile and Helm misconfigurations; image CVEs before push |
 | License compliance | pip-licenses, license-checker, cargo-deny | Copyleft licenses incompatible with the Apache-2.0 core |
 

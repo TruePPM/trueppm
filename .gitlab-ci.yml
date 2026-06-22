@@ -112,12 +112,12 @@ workflow:
 # api includes scheduler paths because the API package installs the scheduler
 # as a dependency; a scheduler change can break API type-checking.
 #
-# API-side security jobs (pip-audit, license:check:py) declare a single
-# optional needs on ci:build-api-image so they enter DAG mode and run in
-# parallel with the test stage rather than waiting for it to finish. The
-# optional+single-dep shape avoids blocked-job cascades on single-package
-# MRs: if only the API changed, web:test is skipped, but pip-audit and
-# license:check:py still run because they don't depend on web:test.
+# The API-side license:check:py job declares a single optional needs on
+# ci:build-api-image so it enters DAG mode and runs in parallel with the test
+# stage rather than waiting for it to finish. The optional+single-dep shape
+# avoids blocked-job cascades on single-package MRs: if only the API changed,
+# web:test is skipped, but license:check:py still runs because it doesn't depend
+# on web:test. (Python SCA itself is now security:osv, which uses no needs.)
 # ---------------------------------------------------------------------------
 
 .rules-scheduler: &rules-scheduler
@@ -847,8 +847,8 @@ api:schema-drift:
 
 api:uv-lock-check:
   # Verify packages/api/uv.lock stays in sync with packages/api/pyproject.toml
-  # (#904 supply-chain hardening). The api is an application, so unlike the
-  # scheduler library it commits a resolved lockfile — for reproducible installs
+  # (#904 supply-chain hardening). Both the api (application) and the scheduler
+  # (published library) commit a resolved lockfile — for reproducible installs
   # and a scannable dependency surface (an SCA tool can audit a lockfile; it
   # cannot audit a range). This gate fails if pyproject changed without
   # re-locking; refresh with `cd packages/api && uv lock`. uv is pinned so the
@@ -868,6 +868,33 @@ api:uv-lock-check:
     - pip install uv==0.9.5 --quiet
   script:
     - cd packages/api
+    - uv lock --check
+
+scheduler:uv-lock-check:
+  # Verify packages/scheduler/uv.lock stays in sync with the scheduler's
+  # pyproject.toml (#1153 scheduler OSV migration). The scheduler now commits a
+  # resolved lock — not to pin the published wheel (it still ships version ranges
+  # from pyproject.toml) but to give security:osv a scannable dependency surface
+  # (OSV can audit a lockfile; it cannot audit a range). This gate fails if
+  # pyproject changed without re-locking; refresh with
+  # `cd packages/scheduler && uv lock`. uv is pinned so the committed lock's
+  # revision stays stable across CI runs and Renovate's lockFileMaintenance owns
+  # the routine refreshes. Mirrors api:uv-lock-check; kept as its own job so a
+  # scheduler-only change does not pull in the api manifests and vice versa.
+  stage: analyze
+  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  needs: []
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/scheduler/pyproject.toml
+        - packages/scheduler/uv.lock
+        - .gitlab-ci.yml
+  before_script:
+    - pip install uv==0.9.5 --quiet
+  script:
+    - cd packages/scheduler
     - uv lock --check
 
 web:type-check:
@@ -1630,56 +1657,11 @@ pages:
 # ---------------------------------------------------------------------------
 # SECURITY — CVE scans + license audit. MR + main only.
 #
-# The SCA jobs (security:osv, security:pip-audit:scheduler) and the
-# license:check:* jobs use no needs: and rely on stage ordering. This avoids
-# blocked-job cascades on single-package MRs: if only the API changed, web:test
-# is skipped; a needs: [api:test, web:test] would then skip security too,
-# silently dropping the dependency CVE scan.
+# The SCA job (security:osv) and the license:check:* jobs use no needs: and rely
+# on stage ordering. This avoids blocked-job cascades on single-package MRs: if
+# only the API changed, web:test is skipped; a needs: [api:test, web:test] would
+# then skip security too, silently dropping the dependency CVE scan.
 # ---------------------------------------------------------------------------
-
-security:pip-audit:scheduler:
-  # Standalone CVE scan for the PUBLISHED library's dependency set (#935).
-  #
-  # trueppm-scheduler ships to PyPI (Apache 2.0) with a tiny runtime surface
-  # (networkx + numpy) and no committed lockfile yet, so its Python SCA stays on
-  # pip-audit (which audits an installed environment) until it ships a uv.lock —
-  # OSV can only scan a lockfile. The API moved to security:osv once its uv.lock
-  # was committed (#904), retiring the former combined api+scheduler pip-audit
-  # job; this job now owns the scheduler's Python SCA outright, with its OWN
-  # ignore-list (no api-side suppression bleeds across — the bleed the old
-  # shared list caused). It also gives external consumers and our release gate a
-  # clean, uncontaminated answer to "is the published library's dependency set
-  # clean?". Tracked for OSV migration in #1153 (scheduler half).
-  extends: .scheduler
-  stage: security
-  <<: *rules-scheduler
-  cache:
-    <<: *scheduler-cache
-    policy: pull
-  before_script:
-    # Upgrade pip/wheel so the audit doesn't flag the base-image build tools,
-    # then add pip-audit. We override .scheduler's before_script, so re-link
-    # the resident scheduler[dev] wheels here too.
-    - pip install --upgrade pip wheel --quiet
-    - pip install pip-audit --quiet
-    - pip install -e "packages/scheduler[dev]" --quiet
-  script:
-    # Scheduler-scoped ignore-list — INDEPENDENT of the api's. Only CVEs whose
-    # package is actually present in the scheduler[dev] environment belong here;
-    # every entry must cite the CVE and why it can't be remediated.
-    #
-    # CVE-2026-3219: pip itself mishandles concatenated tar+ZIP archives as ZIP.
-    # Environmental (present in every Python env), install-time only, no fix
-    # release as of 2026-04-25. Remove once pip ships a patched release.
-    #
-    # CVE-2026-4539: local-access-only ReDoS in pygments' AdlLexer. Pulled in as
-    # DEV tooling only (diff-cover → pygments), not a runtime dependency of the
-    # published wheel. No fix as of 2026-03-25. Remove when pygments patches.
-    #
-    # NOTE: the api's PYSEC-2025-183 (pyjwt, via djangorestframework-simplejwt)
-    # is deliberately NOT inherited — pyjwt is not in the scheduler environment.
-    # That uninherited suppression is exactly the bleed this split removes.
-    - pip-audit --progress-spinner=off --desc on --ignore-vuln CVE-2026-3219 --ignore-vuln CVE-2026-4539
 
 scheduler:sbom:
   # Generate + validate a CycloneDX SBOM for the PUBLISHED trueppm-scheduler
@@ -1731,25 +1713,26 @@ security:osv:
   # Unified SCA across the committed lockfiles using the OSV database:
   #   - npm:    packages/web, packages/website
   #   - Cargo:  packages/wasm-scheduler
-  #   - Python: packages/api (uv.lock)
+  #   - Python: packages/api (uv.lock), packages/scheduler (uv.lock)
   # Replaces the per-package npm-audit jobs (former web:security + website:security)
   # and adds Rust coverage that nothing scanned before. This is also where #904's
   # "add npm-audit" finding lands: OSV's surgical, expiring per-advisory ignores
   # supersede a blanket `npm audit --audit-level=high`, so re-adding npm-audit
   # would regress the control rather than strengthen it. The API joined here once
   # its uv.lock was committed (#904), retiring the former combined api+scheduler
-  # pip-audit job (#1153 step 1); the scheduler stays on
-  # security:pip-audit:scheduler until it ships a committed lockfile (it has only
-  # a pyproject.toml today — OSV can only scan a lockfile).
+  # pip-audit job (#1153 step 1); the scheduler joined once it committed its own
+  # uv.lock (#1153 scheduler half), retiring security:pip-audit:scheduler. OSV
+  # can only scan a lockfile, so each ecosystem joins here as it commits one.
   #
   # OSV-Scanner exits non-zero on any non-ignored advisory (it has no
   # --audit-level threshold). Not-yet-fixable or sub-HIGH advisories are
   # suppressed via per-directory osv-scanner.toml files that each carry a
   # `reason` and an `ignoreUntil` expiry, so suppressions stay documented and
-  # self-expire rather than rotting silently (see packages/api/osv-scanner.toml,
-  # which carries the pyjwt/pygments suppressions migrated off pip-audit).
-  # This is a stricter, more honest posture than the prior --audit-level=high
-  # blanket: the surgical, expiring ignore is the control npm audit lacked.
+  # self-expire rather than rotting silently (see packages/api/osv-scanner.toml
+  # and packages/scheduler/osv-scanner.toml, which carry the suppressions
+  # migrated off pip-audit). This is a stricter, more honest posture than the
+  # prior --audit-level=high blanket: the surgical, expiring ignore is the
+  # control npm audit lacked.
   #
   # Pinned binary download (the official image is distroless / shell-less, which
   # GitLab's script runner can't use); the linux build is a static Go binary.
@@ -1764,6 +1747,7 @@ security:osv:
         - packages/website/package-lock.json
         - packages/wasm-scheduler/Cargo.lock
         - packages/api/uv.lock
+        - packages/scheduler/uv.lock
         - "**/osv-scanner.toml"
         - .gitlab-ci.yml
   before_script:
@@ -1780,10 +1764,11 @@ security:osv:
         -L packages/website/package-lock.json
         -L packages/wasm-scheduler/Cargo.lock
         -L packages/api/uv.lock
+        -L packages/scheduler/uv.lock
 
 security:gitleaks:
   # Secret scanning across the whole working tree (#1251). The one scanner the
-  # suite was missing: bandit/semgrep cover insecure code, osv/pip-audit cover
+  # suite was missing: bandit/semgrep cover insecure code, osv covers
   # vulnerable deps, trivy covers IaC — none of them catch a committed
   # credential. Runs on every MR and on main (a secret can appear in ANY file,
   # so unlike the dep scanners this carries no `changes:` filter), and is also
@@ -1931,7 +1916,7 @@ license:check:py:
   # the two halves run serially. Splitting drops the apt install entirely,
   # runs the halves in parallel, and scopes each rule to its own manifests so
   # a web-only dep bump no longer pays the Python re-link and vice versa.
-  # Mirrors the existing pip-audit (ci-api) / OSV-Scanner (node+cargo) split.
+  # Mirrors the existing security:osv (Python+node+cargo) per-manifest scoping.
   #
   # Kaizen #640 N1: `changes:` is dep manifests only — license composition
   # only changes when manifests/lock files do; main + scheduled runs catch
