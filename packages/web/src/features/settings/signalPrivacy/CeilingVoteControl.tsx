@@ -1,6 +1,6 @@
 /**
  * The ratification tally + approve/reject affordance for one open ceiling-raise
- * proposal (ADR-0104 Amendment A / #930, #1260).
+ * proposal (ADR-0104 Amendment A / issue 930, issue 1260).
  *
  * The tally text is authoritative (`approve / threshold needed · eligible can vote`);
  * the dot row is a glance-able echo capped at the threshold (the bar to clear), not the

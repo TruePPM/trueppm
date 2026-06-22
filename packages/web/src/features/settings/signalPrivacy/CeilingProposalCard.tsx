@@ -1,6 +1,6 @@
 /**
  * Inline "raise is pending team ratification" card for one signal's ladder row
- * (ADR-0104 Amendment A / #930, #1260) — Sarah's pending indicator.
+ * (ADR-0104 Amendment A / issue 930, issue 1260) — Sarah's pending indicator.
  *
  * Rendered only when a signal has a live OPEN proposal. It is the persistent
  * confirmation that a facilitator's raise opened a ratification proposal (rather than

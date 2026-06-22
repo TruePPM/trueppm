@@ -58,7 +58,7 @@ export interface SignalPair {
   ceiling: SignalAudience;
 }
 
-/** Terminal + open states of a ceiling-raise proposal (mirrors CeilingRaiseStatus, #930). */
+/** Terminal + open states of a ceiling-raise proposal (mirrors CeilingRaiseStatus, issue 930). */
 export type CeilingRaiseStatus = 'open' | 'ratified' | 'rejected' | 'expired';
 
 /** Ratification choices a team member can cast (ADR-0104 Amendment A). */
@@ -72,7 +72,7 @@ export interface CeilingVote {
 }
 
 /**
- * A ceiling-raise ratification proposal with its live tally (ADR-0104 Amendment A / #930).
+ * A ceiling-raise ratification proposal with its live tally (ADR-0104 Amendment A / issue 930).
  *
  * `proposed_by` and each `votes[].voter` are user ids, not display names — the panel
  * deliberately attributes by "you" + counts rather than naming voters (name-level

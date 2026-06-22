@@ -1,6 +1,6 @@
 /**
  * Team-readable audit tail of resolved ceiling-raise proposals (ADR-0104
- * Amendment A.6 / #930, #1260).
+ * Amendment A.6 / issue 930, issue 1260).
  *
  * Collapsed by default and fetched lazily — open proposals are already shown inline on
  * their ladder row, so this section filters to terminal outcomes (ratified / rejected /
