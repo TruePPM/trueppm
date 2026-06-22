@@ -63,6 +63,8 @@ function Harness(overrides: Partial<CalmToolbarProps> = {}) {
     onDebtOnlyToggle: vi.fn(),
     showCost: false,
     onShowCostToggle: vi.fn(),
+    activityOpen: false,
+    onToggleActivity: vi.fn(),
     onCollapseAll: vi.fn(),
     onExpandAll: vi.fn(),
     showWip: true,
