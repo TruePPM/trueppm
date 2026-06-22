@@ -120,16 +120,21 @@ Deeper program configuration lives under **/programs/:id/settings**:
   Toggles save as you change them.
 - **Risk policy** — program-wide risk rules: which dependency types are allowed
   (FS / SS / FF / SF), which risk fields are mandatory, and escalation thresholds.
-- **Lifecycle** — close or reopen the program, and transfer sponsorship to another
-  member. Transfer sponsorship opens a member picker: the chosen member becomes the
-  program Owner, the current Owner is demoted to Admin, and you can optionally rotate
-  the program manager in the same step. The new sponsor must already be a program
-  member.
+- **Lifecycle** — close or reopen the program, transfer sponsorship to another
+  member, and split the program into sub-programs. Transfer sponsorship opens a
+  member picker: the chosen member becomes the program Owner, the current Owner is
+  demoted to Admin, and you can optionally rotate the program manager in the same
+  step. The new sponsor must already be a program member. **Split into sub-programs**
+  (Owner only) opens a dialog where you name one or more new sub-programs you'll own
+  and assign each of the program's projects to one of them; any project you leave
+  unassigned stays on the original program, which is closed (read-only) after the
+  split. Only the `Project → program` link moves — each project keeps its full
+  schedule, dependencies, baselines, and history under its new program.
 
 The rollup-KPI and risk-policy settings are backed by
 `GET`/`PATCH /api/v1/programs/{id}/rollup-config/` and `/risk-policy/` respectively;
-lifecycle actions map to `POST /api/v1/programs/{id}/close/`, `/reopen/`, and
-`/transfer-sponsorship/`.
+lifecycle actions map to `POST /api/v1/programs/{id}/close/`, `/reopen/`,
+`/transfer-sponsorship/`, and `/split/`.
 
 ## Program identity square
 
