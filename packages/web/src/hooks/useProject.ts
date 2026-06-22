@@ -46,7 +46,7 @@ export interface ApiProjectDetail {
    */
   inherited_methodology: Methodology;
   /**
-   * Board cadence (ADR-0161, issue 410). `sprint` (default) shows the sprint chrome;
+   * Board cadence (ADR-0162, issue 410). `sprint` (default) shows the sprint chrome;
    * `continuous` hides it for continuous-flow Kanban. Scheduler+-writable. Not an
    * inheritable override — a project-local board setting.
    */

@@ -106,7 +106,7 @@ export function ProjectWorkflowPage() {
 }
 
 // ---------------------------------------------------------------------------
-// Board cadence section (issue 410, ADR-0161)
+// Board cadence section (issue 410, ADR-0162)
 // ---------------------------------------------------------------------------
 
 const CADENCE_OPTIONS: Array<{ id: BoardCadence; label: string; desc: string }> = [
@@ -123,7 +123,7 @@ const CADENCE_OPTIONS: Array<{ id: BoardCadence; label: string; desc: string }> 
 ];
 
 /**
- * Board cadence picker (ADR-0161). Orthogonal to methodology: only shown for
+ * Board cadence picker (ADR-0162). Orthogonal to methodology: only shown for
  * AGILE/HYBRID projects (WATERFALL already hides sprints). Persists immediately on
  * select — consistent with the rest of this page. Scheduler+ gated.
  */

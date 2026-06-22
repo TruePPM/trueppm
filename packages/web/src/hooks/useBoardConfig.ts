@@ -25,7 +25,7 @@ export interface BoardColumnDef {
   color: string | null;
   /**
    * Per-column aging threshold OVERRIDE in calendar days, persisted server-side
-   * (ADR-0161, issue 410). `null` = use the client default for this status
+   * (ADR-0162, issue 410). `null` = use the client default for this status
    * (COLUMN_SLA_DEFAULTS). The settings page edits this raw override.
    */
   ageThresholdDays: number | null;

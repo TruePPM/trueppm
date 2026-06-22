@@ -2,7 +2,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    """Add Project.board_cadence (ADR-0161, #410).
+    """Add Project.board_cadence (ADR-0162, #410).
 
     Additive, non-destructive: default ``sprint`` preserves every existing project's
     current board behavior. Added to both ``project`` and ``historicalproject`` so the
