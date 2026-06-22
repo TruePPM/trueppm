@@ -131,6 +131,16 @@ describe('useBoardToolbarPrefs', () => {
     expect(result.current.groupBy).toBe('assignee');
   });
 
+  it('persists and restores the epic groupBy mode (#364)', () => {
+    const { result } = renderHook(() => useBoardToolbarPrefs());
+    act(() => result.current.setGroupBy('epic'));
+    expect(result.current.groupBy).toBe('epic');
+    const stored = JSON.parse(localStorage.getItem('trueppm.board.toolbarPrefs.v1') ?? '{}') as {
+      groupBy?: string;
+    };
+    expect(stored.groupBy).toBe('epic');
+  });
+
   it('defaults groupBy to phase when the stored blob predates the key (backwards-compat)', () => {
     localStorage.setItem(
       'trueppm.board.toolbarPrefs.v1',
