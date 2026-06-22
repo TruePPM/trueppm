@@ -120,6 +120,16 @@ class Task:
     delivery_mode: DeliveryMode | None = None
     story_points: float | None = None
 
+    # Per-task calendar (ADR-0120 D3, cross-project dependencies). When set, and
+    # the owning :class:`Project` supplies a matching entry in ``Project.calendars``,
+    # this task's *duration* arithmetic uses that calendar instead of the
+    # pass-level ``Project.calendar``. It is the substrate for a program-scoped
+    # CPM pass where tasks drawn from different member projects each keep their
+    # own working week in one merged schedule. ``None`` (the default) — or an id
+    # with no matching entry — means "use the pass-level calendar", so every
+    # existing single-calendar document schedules byte-for-byte as before.
+    calendar_id: str | None = None
+
     def to_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = _serialize(asdict(self))
         return result
@@ -357,6 +367,16 @@ class Project:
     # stays pure and never reads the wall clock).
     status_date: date | None = None
 
+    # Per-task calendar registry (ADR-0120 D3, cross-project dependencies). A
+    # mapping of calendar id → :class:`Calendar` that tasks opt into via
+    # ``Task.calendar_id``. ``None`` (or empty) means the whole project schedules
+    # on the single pass-level ``calendar`` — the existing behavior, byte-for-byte.
+    # The program-scoped CPM pass populates this so each member project's tasks
+    # keep their own working week in one merged schedule, while lag on any edge is
+    # consumed on the *successor's* calendar (the constraint lands where the wait
+    # is). A ``calendar_id`` with no entry here falls back to ``calendar``.
+    calendars: dict[str, Calendar] | None = None
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
@@ -368,6 +388,11 @@ class Project:
             "velocity_samples": self.velocity_samples,
             "sprint_length_days": self.sprint_length_days,
             "status_date": self.status_date.isoformat() if self.status_date else None,
+            "calendars": (
+                {cid: cal.to_dict() for cid, cal in self.calendars.items()}
+                if self.calendars
+                else None
+            ),
         }
 
     @classmethod
@@ -391,6 +416,16 @@ class Project:
                 for s in velocity_samples:
                     if s is not None and not math.isfinite(float(s)):
                         raise ValueError(f"velocity_samples must be finite numbers (got {s!r}).")
+            # Per-task calendar registry (ADR-0120 D3). Absent/null → None (the
+            # single-calendar default). A non-dict value reaches ``.items()`` and
+            # is wrapped as InvalidScheduleInput by the surrounding except, like
+            # every other malformed-shape on this path.
+            calendars_data = data.get("calendars")
+            calendars = (
+                {cid: Calendar.from_dict(cal) for cid, cal in calendars_data.items()}
+                if calendars_data is not None
+                else None
+            )
             return cls(
                 id=data["id"],
                 name=data["name"],
@@ -405,6 +440,7 @@ class Project:
                     if data.get("status_date") is not None
                     else None
                 ),
+                calendars=calendars,
             )
         except (KeyError, ValueError, TypeError, AttributeError) as err:
             # AttributeError covers a non-dict top-level document (``[1,2,3]``,

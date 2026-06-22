@@ -69,6 +69,39 @@ print(build.early_finish)  # 2026-01-23 (15 working days from 2026-01-05, across
 > passes — they do not change any computed date. Sub-day scheduling is a future
 > change.
 
+### Per-task calendars
+
+By default every task is scheduled on the single `Project.calendar`. A task can
+instead opt into its own working week — useful when one schedule spans teams or
+projects that keep different calendars:
+
+```python
+seven_day = Calendar(working_days=0b111_1111)  # every day is a working day
+support = Task(id="t-3", name="Hotfix", duration=timedelta(days=3), calendar_id="ops")
+
+project = Project(
+    id="p-1",
+    name="My Project",
+    start_date=date(2026, 1, 5),
+    tasks=[task_a, support],
+    calendar=Calendar(),                 # pass-level default (Mon–Fri)
+    calendars={"ops": seven_day},        # registry tasks opt into by id
+)
+```
+
+Conventions:
+
+- **Duration** arithmetic uses the task's *own* calendar (`calendar_id` → entry in
+  `Project.calendars`). A `calendar_id` of `None`, or one with no matching entry,
+  falls back to the pass-level `Project.calendar` — never an error.
+- **Lag** on a dependency edge is counted on the **successor's** calendar: the
+  constraint lands where the wait is actually consumed.
+- It is fully backward compatible — a project with no `calendars` registry
+  schedules byte-for-byte as before.
+- Per-task calendars are honored by the CPM `schedule()` pass (early/late dates,
+  float, criticality). `monte_carlo()` samples on the pass-level `Project.calendar`
+  only.
+
 See [the full documentation](https://docs.trueppm.com/features/scheduler) for CPM output fields, Monte Carlo usage, and CLI reference.
 
 ## Errors and input limits

@@ -456,6 +456,30 @@ def _retreat_calendar_days(d: date, lag: timedelta, calendar: Calendar) -> date:
     return _prev_working_day(_safe_offset(d, -lag), calendar)
 
 
+def _resolve_task_calendars(project: Project) -> dict[str, Calendar] | None:
+    """Map each task id to the calendar its own date arithmetic should use (ADR-0120 D3).
+
+    Returns ``None`` when the project declares no per-task ``calendars`` registry —
+    the signal for the engine to take the single-calendar fast path that is
+    byte-for-byte identical to the pre-ADR-0120 behavior. Otherwise every task
+    resolves to its ``Project.calendars[task.calendar_id]`` entry, falling back to
+    the pass-level ``project.calendar`` when ``calendar_id`` is unset or names no
+    known calendar (a fall-back, not an error — a stray id never breaks a pass).
+
+    This map governs *duration* arithmetic only: a task's own working week. Lag on
+    an edge is consumed on the **successor's** calendar (the constraint lands where
+    the wait is), so the passes look the successor up in this same map separately.
+    """
+    if not project.calendars:
+        return None
+    default = project.calendar
+    calendars = project.calendars
+    return {
+        t.id: (calendars.get(t.calendar_id, default) if t.calendar_id is not None else default)
+        for t in project.tasks
+    }
+
+
 # ---------------------------------------------------------------------------
 # Graph utilities
 # ---------------------------------------------------------------------------
@@ -635,6 +659,7 @@ def _forward_pass(
     project_start: date,
     calendar: Calendar,
     status_date: date | None = None,
+    task_calendars: dict[str, Calendar] | None = None,
 ) -> None:
     """Compute early_start and early_finish for every task (in-place).
 
@@ -644,18 +669,34 @@ def _forward_pass(
     date) is given, remaining/not-started work is floored at it — future work is
     never scheduled in the past. With no actuals and no status date the result is
     byte-identical to a pure planning pass.
-    """
-    start_base = _next_working_day(project_start, calendar)
-    # The data date floors all not-yet-finished work: nothing remaining can be
-    # scheduled before "as of now". A status date at or before project start is
-    # already covered by the project-start floor. Completed work is historical and
-    # is deliberately *not* floored at the data date (handled below).
-    start = start_base
-    if status_date is not None:
-        start = max(start_base, _next_working_day(status_date, calendar))
 
+    Per-task calendars (ADR-0120 D3): when ``task_calendars`` is supplied, the task
+    being computed (the successor of every incoming edge) uses its own calendar for
+    *all* of its arithmetic — duration expansion **and** the working-day snap of
+    every predecessor constraint, since lag lands on the successor's calendar and
+    the successor *is* the node here. ``task_calendars=None`` (or any task absent
+    from it) falls back to ``calendar``, making the single-calendar path identical.
+    """
     for node_id in topo_order:
         task = task_map[node_id]
+        # The node being computed is the successor of all its incoming edges, so a
+        # single calendar — its own — governs both its duration and the snap of
+        # every predecessor constraint (lag is consumed on the successor's
+        # calendar). With no per-task calendars this is always ``calendar``.
+        cal = calendar if task_calendars is None else task_calendars.get(node_id, calendar)
+
+        # The project-start floor (and the data-date floor) snap to *this* task's
+        # calendar — a task can never begin on its own non-working day. With one
+        # project calendar every task resolves the same value the pre-ADR-0120 pass
+        # hoisted out of the loop; the result is byte-identical.
+        start_base = _next_working_day(project_start, cal)
+        # The data date floors all not-yet-finished work: nothing remaining can be
+        # scheduled before "as of now". A status date at or before project start is
+        # already covered by the project-start floor. Completed work is historical
+        # and is deliberately *not* floored at the data date (handled below).
+        start = start_base
+        if status_date is not None:
+            start = max(start_base, _next_working_day(status_date, cal))
 
         # Completed (actual_finish set, or percent_complete >= 100): laid out at its
         # FULL duration so the bar keeps its shape (ADR-0136). Whatever actuals exist
@@ -672,14 +713,14 @@ def _forward_pass(
                 task.early_start = (
                     task.actual_start
                     if task.actual_start is not None
-                    else _start_from_finish(task.actual_finish, full_days, calendar)
+                    else _start_from_finish(task.actual_finish, full_days, cal)
                 )
                 continue
             if task.actual_start is not None:
                 # Start is known (e.g. a REVIEW task: done, awaiting sign-off);
                 # lay the full duration forward from it.
                 task.early_start = task.actual_start
-                task.early_finish = _finish_from_start(task.actual_start, full_days, calendar)
+                task.early_finish = _finish_from_start(task.actual_start, full_days, cal)
                 continue
             # No actuals recorded: a full-duration CPM planning position, anchored at
             # the un-floored project start rather than the data date.
@@ -695,7 +736,7 @@ def _forward_pass(
         # planned_start (SNET) is an additional ES lower-bound: the task may
         # not start before this date regardless of network logic.
         if task.planned_start is not None:
-            es_constraints.append(_next_working_day(task.planned_start, calendar))
+            es_constraints.append(_next_working_day(task.planned_start, cal))
         ef_constraints: list[date] = []
 
         for pred_id in g.predecessors(node_id):
@@ -709,23 +750,21 @@ def _forward_pass(
                 # Successor cannot start until the day after predecessor finishes + lag.
                 # EF is inclusive, so add 1 day to move past it, then add lag.
                 es_constraints.append(
-                    _next_working_day(
-                        _safe_offset(pred.early_finish, timedelta(days=1) + lag), calendar
-                    )
+                    _next_working_day(_safe_offset(pred.early_finish, timedelta(days=1) + lag), cal)
                 )
             elif dep.dep_type == DependencyType.SS:
                 # Successor cannot start before predecessor starts + lag.
-                es_constraints.append(_advance_calendar_days(pred.early_start, lag, calendar))
+                es_constraints.append(_advance_calendar_days(pred.early_start, lag, cal))
             elif dep.dep_type == DependencyType.FF:
                 # Successor cannot finish before predecessor finishes + lag.
-                ef_constraints.append(_advance_calendar_days(pred.early_finish, lag, calendar))
+                ef_constraints.append(_advance_calendar_days(pred.early_finish, lag, cal))
             elif dep.dep_type == DependencyType.SF:
                 # Successor cannot finish before predecessor starts + lag.
-                ef_constraints.append(_advance_calendar_days(pred.early_start, lag, calendar))
+                ef_constraints.append(_advance_calendar_days(pred.early_start, lag, cal))
 
         # ES = latest of all ES constraints.
         task.early_start = max(es_constraints)
-        task.early_finish = _finish_from_start(task.early_start, duration_days, calendar)
+        task.early_finish = _finish_from_start(task.early_start, duration_days, cal)
 
         # Apply EF constraints (from FF/SF dependencies).
         if ef_constraints:
@@ -733,12 +772,12 @@ def _forward_pass(
             if min_ef > task.early_finish:
                 task.early_finish = min_ef
                 # Pull ES back to match: task must start early enough to hit EF.
-                back_start = _start_from_finish(task.early_finish, duration_days, calendar)
+                back_start = _start_from_finish(task.early_finish, duration_days, cal)
                 # ES cannot go below its own constraints.
                 task.early_start = max(back_start, max(es_constraints))
                 # Recompute EF from the (possibly adjusted) ES.
                 task.early_finish = max(
-                    _finish_from_start(task.early_start, duration_days, calendar),
+                    _finish_from_start(task.early_start, duration_days, cal),
                     min_ef,
                 )
 
@@ -749,6 +788,7 @@ def _backward_pass(
     g: nx.DiGraph[str],
     project_finish: date,
     calendar: Calendar,
+    task_calendars: dict[str, Calendar] | None = None,
 ) -> None:
     """Compute late_start and late_finish for every task (in-place).
 
@@ -757,9 +797,18 @@ def _backward_pass(
     pass resolved, and an in-progress task's late dates span only its remaining
     duration, matching the forward pass so total/free float stay internally
     consistent.
+
+    Per-task calendars (ADR-0120 D3): the node being computed (the *predecessor* of
+    every outgoing edge here) lays out its own duration on its own calendar, while
+    each successor constraint snaps its lag on the **successor's** calendar — the
+    constraint is consumed where the successor waits. With ``task_calendars=None``
+    every lookup resolves to ``calendar`` and the pass is identical to before.
     """
     for node_id in reversed(topo_order):
         task = task_map[node_id]
+        # This node is the predecessor of its outgoing edges; its own calendar lays
+        # out its duration (and floors its late finish at the project finish).
+        node_cal = calendar if task_calendars is None else task_calendars.get(node_id, calendar)
 
         # Completed (actual_finish set, or percent_complete >= 100): late == early,
         # so the task carries zero float and never distorts the critical path. The
@@ -780,6 +829,9 @@ def _backward_pass(
             succ = task_map[succ_id]
             dep: Dependency = g[node_id][succ_id]["dep"]
             lag = dep.lag
+            # Lag on this edge is consumed on the successor's calendar; with one
+            # project calendar this is the same as node_cal.
+            succ_cal = calendar if task_calendars is None else task_calendars.get(succ_id, calendar)
             # Successors are visited first in reverse topo order, so these are always set.
             assert succ.late_start is not None and succ.late_finish is not None
 
@@ -787,22 +839,22 @@ def _backward_pass(
                 # Predecessor must finish the day before successor's late start minus lag.
                 lf_constraints.append(
                     _prev_working_day(
-                        _safe_offset(succ.late_start, -timedelta(days=1) - lag), calendar
+                        _safe_offset(succ.late_start, -timedelta(days=1) - lag), succ_cal
                     )
                 )
             elif dep.dep_type == DependencyType.SS:
                 # Predecessor must start no later than successor's late start minus lag.
-                ls_constraints.append(_retreat_calendar_days(succ.late_start, lag, calendar))
+                ls_constraints.append(_retreat_calendar_days(succ.late_start, lag, succ_cal))
             elif dep.dep_type == DependencyType.FF:
                 # Predecessor must finish no later than successor's late finish minus lag.
-                lf_constraints.append(_retreat_calendar_days(succ.late_finish, lag, calendar))
+                lf_constraints.append(_retreat_calendar_days(succ.late_finish, lag, succ_cal))
             elif dep.dep_type == DependencyType.SF:
                 # Predecessor must start no later than successor's late finish minus lag.
-                ls_constraints.append(_retreat_calendar_days(succ.late_finish, lag, calendar))
+                ls_constraints.append(_retreat_calendar_days(succ.late_finish, lag, succ_cal))
 
         # LF = earliest of all LF constraints (binding constraint).
         task.late_finish = min(lf_constraints)
-        task.late_start = _start_from_finish(task.late_finish, duration_days, calendar)
+        task.late_start = _start_from_finish(task.late_finish, duration_days, node_cal)
 
         # Apply LS constraints (from SS/SF dependencies).
         if ls_constraints:
@@ -810,7 +862,7 @@ def _backward_pass(
             if max_ls < task.late_start:
                 task.late_start = max_ls
                 # Push LF forward to match.
-                fwd_finish = _finish_from_start(task.late_start, duration_days, calendar)
+                fwd_finish = _finish_from_start(task.late_start, duration_days, node_cal)
                 task.late_finish = min(
                     fwd_finish,
                     min(lf_constraints),
@@ -823,6 +875,7 @@ def _compute_floats(
     g: nx.DiGraph[str],
     calendar: Calendar,
     wd_counter: _WorkingDayCounter | None = None,
+    task_calendars: dict[str, Calendar] | None = None,
 ) -> None:
     """Compute total_float, free_float, and is_critical for every task (in-place).
 
@@ -840,24 +893,34 @@ def _compute_floats(
     successors falls back to its total float. (Earlier versions inspected FS
     successors only and let SS/FF/SF tasks report ``free_float == total_float``;
     that FS-only caveat is now removed — see issue #825.)
+
+    Per-task calendars (ADR-0120 D3): a task's own total-float span is measured on
+    its own calendar, while each free-float slack — like the forward constraint it
+    mirrors — is measured on the *successor's* calendar. With one project calendar
+    every span resolves to ``calendar`` and the fast ``wd_counter`` is used for all
+    of them, exactly as before.
     """
 
     # O(log n) span counts when a counter is supplied (the schedule() hot path,
-    # #822); the scalar O(span) reference otherwise. Both return identical counts.
-    def _wdb(start: date, end: date) -> int:
-        if wd_counter is not None:
+    # #822); the scalar O(span) reference otherwise. The counter is built over the
+    # default project ``calendar``, so it is only valid for spans measured on that
+    # calendar — a per-task calendar (``cal is not calendar``) falls back to the
+    # scalar reference. Both return identical counts.
+    def _wdb(start: date, end: date, cal: Calendar) -> int:
+        if wd_counter is not None and cal is calendar:
             return wd_counter.between(start, end)
-        return _working_days_between(start, end, calendar)
+        return _working_days_between(start, end, cal)
 
     for node_id in topo_order:
         task = task_map[node_id]
+        node_cal = calendar if task_calendars is None else task_calendars.get(node_id, calendar)
 
         # Total float: working days between early_start and late_start.
         # A task is critical when this is zero (cannot be delayed at all).
         # All passes have run by now, so these fields are always set.
         assert task.early_start is not None and task.late_start is not None
         assert task.early_finish is not None
-        tf_days = _wdb(task.early_start, task.late_start)
+        tf_days = _wdb(task.early_start, task.late_start, node_cal)
         task.total_float = timedelta(days=tf_days)
         task.is_critical = tf_days == 0
 
@@ -873,22 +936,25 @@ def _compute_floats(
             succ = task_map[succ_id]
             dep: Dependency = g[node_id][succ_id]["dep"]
             lag = dep.lag
+            # The constraint is consumed on the successor's calendar (mirrors the
+            # forward pass, where the snap used the successor's calendar).
+            succ_cal = calendar if task_calendars is None else task_calendars.get(succ_id, calendar)
             assert succ.early_start is not None and succ.early_finish is not None
             if dep.dep_type == DependencyType.FS:
                 imposed = _next_working_day(
-                    _safe_offset(task.early_finish, timedelta(days=1) + lag), calendar
+                    _safe_offset(task.early_finish, timedelta(days=1) + lag), succ_cal
                 )
                 succ_date = succ.early_start
             elif dep.dep_type == DependencyType.SS:
-                imposed = _advance_calendar_days(task.early_start, lag, calendar)
+                imposed = _advance_calendar_days(task.early_start, lag, succ_cal)
                 succ_date = succ.early_start
             elif dep.dep_type == DependencyType.FF:
-                imposed = _advance_calendar_days(task.early_finish, lag, calendar)
+                imposed = _advance_calendar_days(task.early_finish, lag, succ_cal)
                 succ_date = succ.early_finish
             else:  # SF: successor finish is bounded by this task's start + lag
-                imposed = _advance_calendar_days(task.early_start, lag, calendar)
+                imposed = _advance_calendar_days(task.early_start, lag, succ_cal)
                 succ_date = succ.early_finish
-            slack = _wdb(imposed, succ_date)
+            slack = _wdb(imposed, succ_date, succ_cal)
             ff_days = min(ff_days, max(0, slack))
 
         task.free_float = timedelta(days=max(0, ff_days))
@@ -1156,6 +1222,31 @@ def _validate_project(project: Project) -> None:
     # (#749) so both engines reject identically at the validation layer.
     _next_working_day(project.start_date, project.calendar)
 
+    # Per-task calendar registry (ADR-0120 D3): every named calendar a task may opt
+    # into is held to the same guards as the project calendar, so a degenerate
+    # member-project calendar can't drive the merged program pass into a spin. Each
+    # is reachability-probed from the project start (the merged pass anchors every
+    # calendar at the same start). The offending id is named so a bad member-project
+    # calendar is traceable in a program-scoped run.
+    if project.calendars:
+        for cal_id, cal in project.calendars.items():
+            if isinstance(cal.working_days, bool) or not isinstance(cal.working_days, int):
+                raise InvalidScheduleInput(
+                    f"Calendar {cal_id!r} working_days must be an integer bitmask "
+                    f"(got {cal.working_days!r})."
+                )
+            if cal.working_days & 0b111_1111 == 0:
+                raise InvalidScheduleInput(
+                    f"Calendar {cal_id!r} has no working weekday set (working_days bitmask "
+                    "is empty); at least one of Mon-Sun must be a working day."
+                )
+            if len(cal.exceptions) > MAX_CALENDAR_EXCEPTIONS:
+                raise InvalidScheduleInput(
+                    f"Calendar {cal_id!r} has {len(cal.exceptions)} exception ranges, exceeding "
+                    f"the maximum of {MAX_CALENDAR_EXCEPTIONS:,}."
+                )
+            _next_working_day(project.start_date, cal)
+
     # Non-finite agile inputs crash deep inside the velocity sampler (NaN/inf
     # story_points hit ``int(np.ceil(...))``; an inf velocity sample passes the
     # ``> 0`` filter and poisons the bootstrap mean), so reject them eagerly
@@ -1204,6 +1295,15 @@ def _validate_project(project: Project) -> None:
                     f"Task {t.id!r} {actual_name} must be a date, "
                     f"not {type(actual_value).__name__}."
                 )
+        # calendar_id (ADR-0120 D3) is looked up as a dict key against the project's
+        # calendar registry; a non-string id can never match an entry and would
+        # silently fall back to the default calendar, so reject it explicitly to
+        # surface the caller's mistake rather than schedule on the wrong calendar.
+        if t.calendar_id is not None and not isinstance(t.calendar_id, str):
+            raise InvalidScheduleInput(
+                f"Task {t.id!r} calendar_id must be a string or None, "
+                f"not {type(t.calendar_id).__name__}."
+            )
         _check_duration(t.duration, f"Task {t.id!r} duration")
         for field_name, value in (
             ("optimistic_duration", t.optimistic_duration),
@@ -1399,20 +1499,33 @@ def schedule(project: Project) -> ScheduleResult:
     tasks = [copy.deepcopy(t) for t in project.tasks]
     task_map = {t.id: t for t in tasks}
 
+    # Per-task calendars (ADR-0120 D3): resolved once and threaded through every
+    # pass. ``None`` when the project declares no ``calendars`` registry — the
+    # single-calendar fast path, identical to the pre-ADR-0120 behavior.
+    task_calendars = _resolve_task_calendars(project)
+
     _forward_pass(
-        task_map, topo_order, g, project.start_date, project.calendar, project.status_date
+        task_map,
+        topo_order,
+        g,
+        project.start_date,
+        project.calendar,
+        project.status_date,
+        task_calendars,
     )
 
     # Project finish = latest early_finish across all tasks.
     # Forward pass guarantees every task has early_finish set.
     project_finish: date = max(t.early_finish for t in tasks if t.early_finish is not None)
 
-    _backward_pass(task_map, topo_order, g, project_finish, project.calendar)
+    _backward_pass(task_map, topo_order, g, project_finish, project.calendar, task_calendars)
     # Precompute a working-day index over the schedule's span so float
     # computation is O(log n) per span instead of O(span) (#822, ADR-0142). Every
-    # date _compute_floats measures lies within [start_date, project_finish].
+    # date _compute_floats measures lies within [start_date, project_finish]. The
+    # counter is built over the default calendar; per-task-calendar spans fall back
+    # to the scalar count inside _compute_floats.
     wd_counter = _WorkingDayCounter.build(project.start_date, project_finish, project.calendar)
-    _compute_floats(task_map, topo_order, g, project.calendar, wd_counter)
+    _compute_floats(task_map, topo_order, g, project.calendar, wd_counter, task_calendars)
 
     # Order the critical path deterministically AND topologically. Filtering a
     # topological order keeps every predecessor ahead of its successor; the catch
@@ -1676,6 +1789,12 @@ def monte_carlo(
     and zero-duration milestones occupy their start day exactly as in
     :func:`schedule` (#1066) — a fully deterministic project (no estimates,
     no velocity signal) simulates to precisely the CPM finish date.
+
+    Per-task calendars (ADR-0120 D3) are **not** honored here: Monte Carlo samples
+    every task on the pass-level ``project.calendar``. ``Task.calendar_id`` /
+    ``Project.calendars`` affect only the deterministic :func:`schedule` pass; a
+    project carrying them simulates as though every task shared the project
+    calendar.
     Computation is vectorised with numpy:
     10 000 runs on a 200-task project completes in well under 100 ms — but note
     the ``max_runs`` cap defaults to 1 000, so a 10 000-run call must raise it

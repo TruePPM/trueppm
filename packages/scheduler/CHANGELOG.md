@@ -17,6 +17,14 @@ between releases. Pin an exact version (e.g. `trueppm-scheduler==0.2.0a1`).
 
 ### Added
 
+- Per-task calendars: a `Task` can opt into its own working week via
+  `Task.calendar_id` and a `Project.calendars` registry, so a single schedule can
+  mix tasks that follow different calendars (the substrate for cross-project
+  dependencies within a program). Duration arithmetic uses the task's own calendar;
+  lag on a dependency is counted on the successor's calendar. Honored by the CPM
+  `schedule()` pass; `monte_carlo()` continues to sample on the pass-level
+  calendar. Backward compatible — a project with no `calendars` registry is
+  unchanged (#1117).
 - Agile-aware Monte Carlo: scrum/flow tasks can be sampled from team velocity
   rather than a three-point estimate, via `DeliveryMode` (#411).
 - CycloneDX SBOM (`sbom.cdx.json`) generated, validated, and retained as a
