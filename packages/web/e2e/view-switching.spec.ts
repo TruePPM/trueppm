@@ -62,7 +62,7 @@ async function setup(page: import('@playwright/test').Page) {
   // spec's specific routes below still win, and unmocked endpoints return an empty
   // list instead of a 404 that would destabilize the shell mid-interaction.
   await setupCatchAll(page);
-  // /auth/me/ — the project-index redirect (ProjectIndexRedirect, ADR-0161) now
+  // /auth/me/ — the project-index redirect (ProjectIndexRedirect, ADR-0162) now
   // holds until this resolves, so it must be mocked. The neutral `unified` lens
   // keeps the index → Overview behavior this spec asserts.
   await page.route('**/api/v1/auth/me/', (route) =>

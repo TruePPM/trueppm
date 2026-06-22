@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { setupAuth, setupApiMocks, setupCatchAll, type UserFixture } from './fixtures';
 
 /**
- * Role-context lens — "View focus" (issue 1263, ADR-0161).
+ * Role-context lens — "View focus" (issue 1263, ADR-0162).
  *
  * The lens is a presentation-only per-user preference. Two behaviors are covered
  * end-to-end: the settings switcher writes `role_context` and the choice survives
@@ -44,7 +44,7 @@ async function setup(page: Page, lens: string) {
   });
 }
 
-test.describe('Role-context lens (ADR-0161)', () => {
+test.describe('Role-context lens (ADR-0162)', () => {
   test('the View focus switcher writes the lens and it persists across reload', async ({ page }) => {
     await setup(page, 'unified');
 

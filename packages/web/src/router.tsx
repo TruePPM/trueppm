@@ -209,7 +209,7 @@ function RootRedirect() {
 }
 
 /**
- * Project-entry redirect (issue 1263, ADR-0161). `/projects/:id` lands on the view the
+ * Project-entry redirect (issue 1263, ADR-0162). `/projects/:id` lands on the view the
  * user's role-context lens prefers — PM → Schedule, Scrum Master → Board, Unified
  * → Overview (the historical default). Holds (renders nothing — the ProjectShell
  * chrome stays painted) until `me` resolves, then redirects once, so the user
@@ -250,7 +250,7 @@ export const router = createBrowserRouter([
             path: 'projects/:projectId',
             element: <ProjectShell />,
             children: [
-              // /projects/:projectId → lens-aware landing (issue 1263, ADR-0161):
+              // /projects/:projectId → lens-aware landing (issue 1263, ADR-0162):
               // PM→schedule, Scrum Master→board, Unified→overview (ADR-0030 default).
               { index: true, element: <ProjectIndexRedirect /> },
               {

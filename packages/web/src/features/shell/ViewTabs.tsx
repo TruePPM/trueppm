@@ -110,7 +110,7 @@ export function ViewTabs() {
   // of the methodology filter, then the role gate. `overview` leads standalone
   // (outside the hidden-set) so the bar can never be emptied.
   const hiddenViews = new Set(user?.hidden_views ?? []);
-  // Role-context lens (issue 1263, ADR-0161): promote the active lens's priority views
+  // Role-context lens (issue 1263, ADR-0162): promote the active lens's priority views
   // to the front of their group. Composes AFTER the methodology / hidden-views /
   // role filters — it only re-orders already-permitted views, never reveals one.
   // `unified` (default while `user` is loading) is the identity → no flash.

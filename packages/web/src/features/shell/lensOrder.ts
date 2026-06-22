@@ -1,5 +1,5 @@
 /**
- * Role-context lens ordering (issue 1263, ADR-0161).
+ * Role-context lens ordering (issue 1263, ADR-0162).
  *
  * Two pure helpers that consume the active `role_context` lens and re-point /
  * re-order *already-permitted* surfaces. Presentation only — neither helper

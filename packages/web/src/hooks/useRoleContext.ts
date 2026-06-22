@@ -8,7 +8,7 @@ interface ProfileResponse {
 
 /**
  * PATCH /api/v1/auth/me/profile/ — set the caller's role-context lens (issue 412,
- * ADR-0161). Mirrors `useUpdateDefaultLanding`: on success the `['current-user']`
+ * ADR-0162). Mirrors `useUpdateDefaultLanding`: on success the `['current-user']`
  * query is invalidated so every consumer of `role_context` (the view bar, the
  * project-entry redirect, the switcher itself) re-reads the new lens.
  *

@@ -1,4 +1,4 @@
-# ADR-0161: Role-context lens — a presentation-only PM / Scrum Master / Unified view switcher
+# ADR-0162: Role-context lens — a presentation-only PM / Scrum Master / Unified view switcher
 
 ## Status
 Proposed

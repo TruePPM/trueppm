@@ -223,7 +223,7 @@ def get_profile_prefs(user: Any) -> tuple[str, list[str], str]:
     ``/auth/me/`` surfaces all three fields, so reading them together (one
     ``.only()`` query) avoids extra ``UserProfile`` lookups per response. Returns
     the defaults (``AUTO``, ``[]``, ``UNIFIED``) when the user has no profile row
-    yet — ``role_context`` defaults to the neutral dual-hat lens (#412, ADR-0161),
+    yet — ``role_context`` defaults to the neutral dual-hat lens (#412, ADR-0162),
     matching the model default so an unconfigured user reads as "Unified Today".
     """
 

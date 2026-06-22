@@ -139,7 +139,7 @@ const DEFAULT_USER: UserFixture = {
   // Per-user nav visibility (ADR-0139) — empty so specs see the full methodology
   // nav by default; the customize-views spec overrides `user` to hide views.
   hidden_views: [],
-  // Role-context lens (issue 1263, ADR-0161) — neutral default so the project
+  // Role-context lens (issue 1263, ADR-0162) — neutral default so the project
   // index redirects to Overview and the view bar keeps canonical order; the
   // role-context spec overrides `user` to exercise the PM / Scrum Master lenses.
   role_context: 'unified',

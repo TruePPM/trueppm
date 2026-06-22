@@ -1,5 +1,5 @@
 /**
- * Inline "View focus" lens switcher for the UserMenu (issue 1263, ADR-0161).
+ * Inline "View focus" lens switcher for the UserMenu (issue 1263, ADR-0162).
  *
  * Mirrors the Theme row: a `justify-between` plain row (label + a compact
  * segmented control), NOT a `role="menuitem"` — the segmented owns its own

@@ -1,5 +1,5 @@
 /**
- * Presentation metadata for the role-context lens switcher (issue 1263, ADR-0161).
+ * Presentation metadata for the role-context lens switcher (issue 1263, ADR-0162).
  *
  * Single source of the user-facing copy so the compact UserMenu segmented and
  * the settings radio-card group never drift. The lens is presentation-only; the

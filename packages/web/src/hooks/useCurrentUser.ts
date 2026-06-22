@@ -16,7 +16,7 @@ export type DefaultLanding = 'auto' | 'my_work' | 'project_overview' | 'portfoli
 export type LandingIntent = 'my_work' | 'project_overview' | 'portfolio';
 export type LandingResolvedBy = 'preference' | 'role_policy' | 'fallback';
 /**
- * Active role-context "lens" (issue 412, ADR-0161). A presentation-only preference:
+ * Active role-context "lens" (issue 412, ADR-0162). A presentation-only preference:
  * it picks a dual-hat user's default project view and the view-tab emphasis. It
  * NEVER gates access — RBAC stays the sole authority. `unified` is the neutral
  * default. Writable via PATCH /auth/me/profile/.
@@ -62,7 +62,7 @@ export interface CurrentUser {
    */
   hidden_views: string[];
   /**
-   * Active role-context lens (issue 412, ADR-0161) — `unified` if unset. Read so the
+   * Active role-context lens (issue 412, ADR-0162) — `unified` if unset. Read so the
    * shell can reflect/respect the stored lens without a flash of the wrong view.
    */
   role_context: RoleContext;

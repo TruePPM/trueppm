@@ -1,6 +1,6 @@
 /**
  * Radio-card group for picking the role-context lens on the settings page
- * (issue 1263, ADR-0161).
+ * (issue 1263, ADR-0162).
  *
  * Mirrors `LandingChoiceRadioGroup`'s roving-tabindex pattern (rule 167) but is
  * typed to `RoleContext` and carries none of the landing-specific Auto /

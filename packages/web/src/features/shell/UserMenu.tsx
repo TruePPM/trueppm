@@ -73,7 +73,7 @@ function MenuContent({
         <ThemeToggle />
       </div>
 
-      {/* View focus — role-context lens switcher (issue 1263, ADR-0161). Presentation
+      {/* View focus — role-context lens switcher (issue 1263, ADR-0162). Presentation
           only; never changes access. Same plain-row pattern as Theme. */}
       <RoleContextMenuRow isMobile={isMobile} />
 

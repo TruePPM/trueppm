@@ -67,7 +67,7 @@ export function MyGeneralPreferencesPage() {
   const [selected, setSelected] = useState<DefaultLanding | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
 
-  // Role-context lens (issue 1263, ADR-0161) — same optimistic/auto-save shape, kept
+  // Role-context lens (issue 1263, ADR-0162) — same optimistic/auto-save shape, kept
   // in its own state so a save on one preference never disturbs the other.
   const updateRoleContext = useUpdateRoleContext();
   const [selectedFocus, setSelectedFocus] = useState<RoleContext | null>(null);
