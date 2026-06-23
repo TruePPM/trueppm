@@ -30,7 +30,7 @@ Most P3M tools force a choice. TruePPM is designed from the ground up so teams c
 
 <CardGrid>
   <Card title="Waterfall" icon="document">
-    CPM forward/backward pass, milestones, baselines, Monte Carlo risk. The Project Manager gets a Gantt that computes the math — P50, P80, P95 confidence intervals, not a single optimistic date. [PM guide →](/guides/project-managers/)
+    CPM forward/backward pass, milestones, baseline comparison, Monte Carlo risk. The Project Manager gets a Gantt that computes the math — P50, P80, P95 confidence intervals, not a single optimistic date. [PM guide →](/guides/project-managers/)
   </Card>
   <Card title="Agile" icon="rocket">
     Sprint boards, WIP limits, velocity tracking, burndown charts, retrospectives. The Scrum Master lives in the board view and never has to open a Gantt. [Scrum Master guide →](/guides/scrum-masters/)
@@ -92,7 +92,7 @@ print(result.critical_path)           # ['t-1', 't-2']
     Your data stays yours. Run it on your infrastructure. The scheduling engine ships standalone on PyPI — use it without the API if you just need the math.
   </Card>
   <Card title="Built for collaboration" icon="laptop">
-    Real-time WebSocket push, 5-role RBAC, offline-first sync for mobile. Every mutation broadcast to connected clients.
+    Real-time WebSocket push, 5-role RBAC, offline-first sync for unreliable networks. Every mutation broadcast to connected clients.
   </Card>
 </CardGrid>
 
@@ -119,7 +119,7 @@ The **Since** column is the release a capability first shipped in. 0.2 (the `0.2
 | RBAC | **0.1** | 5-role per-project permissions (Owner / Admin / Scheduler / Member / Viewer) on every endpoint. |
 | Real-time | **0.1** | WebSocket broadcasts for all mutations, deferred to transaction commit. |
 | Offline sync | **0.1** | WatermelonDB-compatible delta protocol with soft-delete tombstones. |
-| Schedule (Gantt) | **0.1** | Custom canvas renderer — critical path, baselines, milestones, build mode. |
+| Schedule (Gantt) | **0.1** | Custom canvas renderer — critical path, baseline comparison, milestones, build mode. |
 | Board / Kanban | **0.1** | 5-column board with WIP limit overload detection and drag-to-status. |
 | Sprints | **0.1** | Full plan → activate → close lifecycle, burndown, velocity, capacity preflight, retrospective. |
 | Risk Register | **0.1** | Probability × impact scoring, lifecycle states, task links, CSV export. |

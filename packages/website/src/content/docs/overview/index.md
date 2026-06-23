@@ -49,7 +49,7 @@ See [The Story](/the-story/) for an end-to-end walkthrough of how these roles in
 The **community edition** (Apache 2.0, this repository) includes everything an individual PM or program team needs:
 
 - Scheduling engine (CPM + Monte Carlo), standalone on PyPI as `trueppm-scheduler`
-- Schedule view (custom canvas Gantt — critical path, baselines, milestones, drag-to-reschedule)
+- Schedule view (custom canvas Gantt — critical path, baseline comparison, milestones, drag-to-reschedule)
 - Board / Kanban (5-column, WIP limit overload detection, drag-to-status)
 - Sprints workspace (plan/activate/close, burndown, velocity, capacity preflight, retrospective)
 - Agile reporting (burn charts, velocity calibration, multi-team lens)
@@ -64,7 +64,7 @@ The **community edition** (Apache 2.0, this repository) includes everything an i
 The **enterprise edition** (separate repository, proprietary) adds features for organizations governing a portfolio across multiple programs:
 
 - Portfolio dashboard and health scores
-- Org identity governance — SAML 2.0 federation, SCIM provisioning, LDAP/AD directory sync, enforced org-wide SSO (basic OIDC/OAuth login is in the community core, lands 0.4)
+- Org identity governance — SAML 2.0 federation, SCIM provisioning, LDAP/AD directory sync, enforced org-wide SSO (basic OIDC/OAuth login lands in the community core at 0.4)
 - Immutable audit trail
 - Cross-program resource leveling and capacity forecasting
 - AI scheduling and scenario modeling
