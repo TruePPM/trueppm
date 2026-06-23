@@ -27,6 +27,12 @@ Note on already-resolved duplicates: ``main`` legitimately contains duplicate
 are never flagged — only migrations that are *new on this branch* and collide are
 reported. This keeps the false-positive rate at zero on a clean ``main``.
 
+Note on squash migrations: a ``squashmigrations`` output declares ``replaces =
+[...]`` and deliberately re-occupies a number it replaces (``0001_squashed_…``
+stands in for ``0001_initial``). That is not a two-leaf conflict — Django's
+``replaces`` graph requires the squash to keep that number — so files declaring
+``replaces`` are skipped (see ``_is_replacement``).
+
 Usage:
     python scripts/check-migration-numbering.py [base-ref]
     # base-ref defaults to origin/main
@@ -60,6 +66,22 @@ def _base_basenames(base: str, path: Path) -> set[str]:
 def _number(name: str) -> str | None:
     match = _NUM.match(name)
     return match.group(1) if match else None
+
+
+def _is_replacement(path: Path) -> bool:
+    """True if the migration declares ``replaces = [...]`` (a squash migration).
+
+    A squash legitimately re-occupies a number it replaces (``0001_squashed_…``
+    sits alongside the ``0001_initial`` it stands in for) — it is not a second
+    leaf, and Django's ``replaces`` graph requires it to keep that number. Such a
+    file must not be reported as a cross-branch numbering collision.
+    """
+    try:
+        return (
+            re.search(r"^\s*replaces\s*=", path.read_text(), re.MULTILINE) is not None
+        )
+    except OSError:
+        return False
 
 
 def main() -> int:
@@ -101,6 +123,8 @@ def main() -> int:
             num = _number(name)
             if num is None or name in base_files:
                 continue  # unchanged file, or not a numbered migration
+            if _is_replacement(mig_dir / name):
+                continue  # squash migration — reusing a replaced number is correct
             clashes = base_by_num.get(num, set()) - {name}
             if clashes:
                 collisions.append((app, num, name, sorted(clashes)))

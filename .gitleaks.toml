@@ -50,4 +50,12 @@ regexes = [
   # test_encryption.py — a literal "fake-token", not a credential. Matched on
   # the fixture prefix because the gitlab-pat rule truncates its capture.
   '''glpat-abc123-this-is-a-fak''',
+  # Django model-field keyword arg captured as a "secret" by the generic-api-key
+  # rule when a field's help_text mentions a keyword like "token" on the same
+  # line — e.g. `help_text="… preserved after token deletion.", max_length=8`.
+  # `makemigrations` + `ruff format` place help_text and max_length on one line
+  # in a regenerated migration; main wraps them across lines, which is why this
+  # only surfaces after a migration squash (#1286). A field-length declaration
+  # is never a credential.
+  '''max_length=\d+''',
 ]

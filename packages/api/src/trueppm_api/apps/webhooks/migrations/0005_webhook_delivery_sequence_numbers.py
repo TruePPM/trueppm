@@ -51,5 +51,5 @@ class Migration(migrations.Migration):
             name="sequence_number",
             field=models.BigIntegerField(default=0, editable=False),
         ),
-        migrations.RunPython(backfill_sequence_numbers, reverse_backfill),
+        migrations.RunPython(backfill_sequence_numbers, reverse_backfill, elidable=True),
     ]

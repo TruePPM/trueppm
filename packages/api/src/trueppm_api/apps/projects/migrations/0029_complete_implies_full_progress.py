@@ -34,5 +34,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(coerce_complete_to_full_progress, noop_reverse),
+        migrations.RunPython(coerce_complete_to_full_progress, noop_reverse, elidable=True),
     ]

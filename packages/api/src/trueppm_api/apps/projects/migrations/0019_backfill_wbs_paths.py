@@ -58,5 +58,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(_backfill_wbs_paths, _noop),
+        migrations.RunPython(_backfill_wbs_paths, _noop, elidable=True),
     ]

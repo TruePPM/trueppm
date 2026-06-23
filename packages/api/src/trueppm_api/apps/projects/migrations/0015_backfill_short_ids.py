@@ -44,5 +44,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(backfill_short_ids, reverse_backfill),
+        migrations.RunPython(backfill_short_ids, reverse_backfill, elidable=True),
     ]

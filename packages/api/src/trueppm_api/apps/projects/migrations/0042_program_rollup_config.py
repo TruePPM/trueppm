@@ -89,5 +89,7 @@ class Migration(migrations.Migration):
                 max_length=24,
             ),
         ),
-        migrations.RunPython(_seed_existing_programs, reverse_code=_clear_rollup_config),
+        migrations.RunPython(
+            _seed_existing_programs, reverse_code=_clear_rollup_config, elidable=True
+        ),
     ]

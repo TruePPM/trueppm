@@ -67,5 +67,5 @@ class Migration(migrations.Migration):
     operations = [
         # Reverse is a no-op: dropped garbage keys carried no meaning, so there
         # is nothing to restore.
-        migrations.RunPython(_clean_matrix, migrations.RunPython.noop),
+        migrations.RunPython(_clean_matrix, migrations.RunPython.noop, elidable=True),
     ]

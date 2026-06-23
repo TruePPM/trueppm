@@ -124,7 +124,10 @@ ignore = ["RUF002", "RUF003"]
 [tool.ruff.lint.per-file-ignores]
 # RUF012: Django/DRF Meta class attributes and ViewSet class attributes are
 # mutable by convention — suppressing globally for Django source files.
-"*/migrations/*.py" = ["RUF012"]
+# E501: squashed/regenerated migrations serialize long `replaces` lists and
+# help_text/choices into single string literals that `ruff format` cannot wrap;
+# hand-wrapping generated code defeats clean regeneration.
+"*/migrations/*.py" = ["RUF012", "E501"]
 "*/models.py" = ["RUF012"]
 "*/serializers.py" = ["RUF012"]
 "*/views.py" = ["RUF012"]
