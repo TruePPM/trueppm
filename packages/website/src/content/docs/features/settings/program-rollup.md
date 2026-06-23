@@ -8,7 +8,7 @@ A **program** groups several related projects under one PM. The **Program Settin
 1. **Which KPIs appear** on the program overview — a per-KPI on/off list.
 2. **How project health aggregates** into the single program health dot — one program-wide policy.
 
-Open it at **Program → Settings → Rollup KPIs**. The design and rationale are recorded in [ADR-0169: Program rollup KPIs configuration](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0079-program-rollup-config.md).
+Open it at **Program → Settings → Rollup KPIs**. The design and rationale are recorded in [ADR-0169: Program rollup KPIs configuration](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0169-program-rollup-config.md).
 
 This is intra-program only. A program rolls up its *own* projects; there is no cross-program aggregation — that would be portfolio scope, which is an Enterprise concern.
 
