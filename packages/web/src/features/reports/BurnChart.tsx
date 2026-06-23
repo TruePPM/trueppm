@@ -53,7 +53,9 @@ interface NormPoint {
   // Recharts skips null y-values (connectNulls defaults false), ending the line.
   remaining: number | null;
   completed: number | null;
-  scope: number;
+  // `null` after the last snapshot too — the burnup total-scope line shares the
+  // completed line's extent and must end with the data, not flat-line (#1279).
+  scope: number | null;
   ideal: number;
 }
 
@@ -159,6 +161,10 @@ export function deriveSprintSeries(
   let prevScope = committedVal;
   let carriedRemaining = committedVal;
   let carriedCompleted = 0;
+  // The cumulative total-scope value, carried across gap days like the remaining
+  // and completed lines so the burnup scope line is a step function that holds its
+  // level between snapshots rather than dropping back to the committed baseline.
+  let carriedScope = committedVal;
 
   for (let i = 0; i < totalDays; i++) {
     const d = new Date(sprint.start_date + 'T00:00:00Z');
@@ -194,7 +200,10 @@ export function deriveSprintSeries(
 
     const scopeDelta =
       metric === 'points' ? (snap?.scope_change_points ?? 0) : (snap?.scope_change_task_count ?? 0);
+    // scope_change_points is the CUMULATIVE signed delta from the committed baseline
+    // as of this snapshot, so the total scope on a snapshot day is committed + delta.
     const curScope = committedVal + (snap ? scopeDelta : 0);
+    if (snap) carriedScope = curScope;
     const ideal = idealRemainingAt(committedVal, i, denom);
 
     if (snap && scopeDelta !== 0 && curScope !== prevScope) {
@@ -202,7 +211,20 @@ export function deriveSprintSeries(
       prevScope = curScope;
     }
 
-    points.push({ date: iso, remaining, completed, scope: committedVal, ideal });
+    // Total-scope line: the burnup's load-bearing series. It must STEP UP when scope
+    // is injected mid-sprint (#1279) — the previous flat `committedVal` hid exactly the
+    // scope creep the burnup exists to expose. Shares the completed line's extent
+    // (anchored at committed on day 0, carried across gaps, null after the last
+    // snapshot so it ends with the data, issue-1249 shape).
+    const scope: number | null = snap
+      ? carriedScope
+      : i === 0
+        ? committedVal
+        : pastLastSnap || lastSnapIso === null
+          ? null
+          : carriedScope;
+
+    points.push({ date: iso, remaining, completed, scope, ideal });
   }
 
   // Trend uses the SAME slope denominator as the plotted ideal so the

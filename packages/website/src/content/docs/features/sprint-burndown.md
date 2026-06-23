@@ -17,6 +17,13 @@ Step 6 ([Execute](/the-story/#6-execute--daily-cadence-two-worlds-in-sync)) of t
 - **Trending callout:** `Trending {N} pts ahead/behind of ideal · scope-add {date} (+{N} pts)` — color reflects on-track / at-risk
 - **Forecast close:** linear extrapolation from current pace to zero remaining
 
+## Burn up view
+
+A **Burn down / Burn up / Combined** toggle sits on the chart card. **Burn up** plots two ascending lines instead of the descending remaining line:
+
+- **Completed:** cumulative completed points per day.
+- **Total scope:** committed scope plus accepted mid-sprint injections (`committed_points + scope_change_points`). When accepted scope is injected, this line **steps up** — making scope creep visible at a glance, which a burndown alone hides (a flat burndown can mean "no work done" *or* "work done but matched by added scope"). **Combined** overlays remaining, completed, scope, and ideal on one chart.
+
 ## Where to find it in the app
 
 - Route: `/projects/:projectId/sprints` (left ~60% of the metrics row)

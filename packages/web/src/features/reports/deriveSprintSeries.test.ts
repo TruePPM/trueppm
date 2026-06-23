@@ -166,6 +166,84 @@ describe('deriveSprintSeries — actual line shares the ideal coordinate system'
   });
 });
 
+describe('deriveSprintSeries — burnup total-scope line (#1279)', () => {
+  it('day 0 scope == committed (scope and completed share the start anchor)', () => {
+    const { points } = deriveSprintSeries(makeSprint(), [], 'points');
+    expect(points[0].scope).toBe(40);
+    expect(points[0].completed).toBe(0);
+  });
+
+  it('steps the scope line UP above committed when scope is injected mid-sprint', () => {
+    // The burnup exists to expose scope creep: a +8 cumulative scope delta must
+    // raise the total-scope line to 48, not sit flat at the committed 40 (#1279).
+    const snapshots = [
+      snap({ snapshot_date: '2026-04-03', remaining_points: 30, completed_points: 10 }),
+      snap({
+        snapshot_date: '2026-04-05',
+        remaining_points: 33,
+        completed_points: 15,
+        scope_change_points: 8,
+      }),
+    ];
+    const { points } = deriveSprintSeries(makeSprint(), snapshots, 'points');
+    expect(points.find((p) => p.date === '2026-04-03')?.scope).toBe(40); // no change yet
+    expect(points.find((p) => p.date === '2026-04-05')?.scope).toBe(48); // +8 injected
+    expect(points.find((p) => p.date === '2026-04-05')?.completed).toBe(15);
+  });
+
+  it('carries the elevated scope forward across a gap, not back to committed', () => {
+    const snapshots = [
+      snap({ snapshot_date: '2026-04-05', remaining_points: 33, scope_change_points: 8 }),
+      snap({ snapshot_date: '2026-04-09', remaining_points: 20, scope_change_points: 8 }),
+    ];
+    const { points } = deriveSprintSeries(makeSprint(), snapshots, 'points');
+    // 2026-04-07 has no snapshot but sits between two +8 snapshots → stays at 48.
+    expect(points.find((p) => p.date === '2026-04-07')?.scope).toBe(48);
+  });
+
+  it('ends the scope line with the last snapshot (null after), like completed', () => {
+    const snapshots = [
+      snap({ snapshot_date: '2026-04-07', remaining_points: 18, scope_change_points: 4 }),
+    ];
+    const { points } = deriveSprintSeries(makeSprint(), snapshots, 'points');
+    const lastRow = points[points.length - 1];
+    expect(lastRow.date).toBe('2026-04-14');
+    expect(lastRow.scope).toBeNull();
+    expect(lastRow.completed).toBeNull();
+  });
+
+  it('steps the scope line DOWN below committed when scope is removed', () => {
+    const snapshots = [
+      snap({ snapshot_date: '2026-04-05', remaining_points: 25, scope_change_points: -6 }),
+    ];
+    const { points } = deriveSprintSeries(makeSprint(), snapshots, 'points');
+    expect(points.find((p) => p.date === '2026-04-05')?.scope).toBe(34); // 40 - 6
+  });
+
+  it('records a scope-change marker when the scope steps (chart dots)', () => {
+    const snapshots = [
+      snap({ snapshot_date: '2026-04-05', remaining_points: 33, scope_change_points: 8 }),
+    ];
+    const { scopeChanges } = deriveSprintSeries(makeSprint(), snapshots, 'points');
+    expect(scopeChanges).toEqual([expect.objectContaining({ date: '2026-04-05', newScope: 48 })]);
+  });
+
+  it('uses the task-count series under the tasks metric', () => {
+    const snapshots = [
+      snap({
+        snapshot_date: '2026-04-05',
+        remaining_task_count: 7,
+        completed_task_count: 3,
+        scope_change_task_count: 2,
+      }),
+    ];
+    const { points } = deriveSprintSeries(makeSprint(), snapshots, 'tasks');
+    // committed_task_count 8 + 2 injected = 10
+    expect(points.find((p) => p.date === '2026-04-05')?.scope).toBe(10);
+    expect(points.find((p) => p.date === '2026-04-05')?.completed).toBe(3);
+  });
+});
+
 describe('deriveSprintSeries — trend uses the same slope denominator (issue 1249)', () => {
   const RealDate = Date;
 
