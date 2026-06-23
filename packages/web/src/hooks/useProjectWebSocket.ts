@@ -456,7 +456,7 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         void queryClient.invalidateQueries({ queryKey: ['customFields', projectIdRef.current] });
       }
 
-      // --- Estimation poker (ADR-0179, #863) ---
+      // --- Estimation poker (ADR-0179, issue 863) ---
       // A vote/reveal/commit nudge; the payload carries no sprint_id (and no vote values),
       // so invalidate every mounted poker query — only the live sprint's is mounted, and a
       // commit also writes story_points, so refresh the planning backlog.

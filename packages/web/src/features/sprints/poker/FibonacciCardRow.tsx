@@ -1,5 +1,5 @@
 /**
- * The Fibonacci card row for estimation poker (ADR-0179, #863) — a single-select
+ * The Fibonacci card row for estimation poker (ADR-0179, issue 863) — a single-select
  * radiogroup with roving tabindex (rule 167) and arrow-key navigation. The trailing "?"
  * card is the unsure vote (value `null`).
  */

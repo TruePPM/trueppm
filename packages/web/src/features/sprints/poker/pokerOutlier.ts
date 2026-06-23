@@ -1,5 +1,5 @@
 /**
- * Outlier detection for estimation poker (ADR-0179 §3, #863).
+ * Outlier detection for estimation poker (ADR-0179 §3, issue 863).
  *
  * The Fibonacci voting ladder. A round is an "outlier" — worth a conversation before
  * committing — when the spread between the highest and lowest numeric vote is at least

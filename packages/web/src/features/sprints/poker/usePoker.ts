@@ -1,5 +1,5 @@
 /**
- * Hooks for sprint-planning estimation poker (ADR-0179, #863).
+ * Hooks for sprint-planning estimation poker (ADR-0179, issue 863).
  *
  * `useSprintPoker` reads the sprint's live round(s); the mutations drive the lifecycle
  * (open / vote / reveal / reopen / commit / cancel). Voting is optimistic — the caller's

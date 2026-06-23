@@ -881,7 +881,7 @@ export interface PokerRevealedVote {
 export type PokerSessionState = 'open' | 'revealed' | 'committed' | 'cancelled';
 
 /**
- * An estimation-poker round (ADR-0179, #863), privacy-filtered by state: while `open`,
+ * An estimation-poker round (ADR-0179, issue 863), privacy-filtered by state: while `open`,
  * `votes` is empty and only `vote_count` + `my_vote` are exposed; on reveal `votes` lists
  * every member's value.
  */

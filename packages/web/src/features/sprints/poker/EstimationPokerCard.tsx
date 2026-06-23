@@ -1,5 +1,5 @@
 /**
- * Estimation poker card (ADR-0179, #863) — the sprint-planning right-rail surface that
+ * Estimation poker card (ADR-0179, issue 863) — the sprint-planning right-rail surface that
  * sizes unestimated candidates in-place: open a round, vote on a Fibonacci card, reveal
  * simultaneously, discuss the outlier, and commit the agreed Task.story_points.
  *

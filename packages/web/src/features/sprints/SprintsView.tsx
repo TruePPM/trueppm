@@ -500,7 +500,7 @@ export function SprintsView() {
                     selectedSprint.id === plannedSprint?.id ? plannedTaskIds : []
                   }
                 />
-                {/* Estimation poker (ADR-0179, #863) — size unestimated candidates in-place. */}
+                {/* Estimation poker (ADR-0179, issue 863) — size unestimated candidates in-place. */}
                 <EstimationPokerCard
                   sprintId={selectedSprint.id}
                   candidates={
