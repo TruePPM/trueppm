@@ -371,7 +371,7 @@ export function ProgramGeneralPage() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               aria-label="Program name"
-              className="w-full max-w-[420px] h-8 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+              className="w-full max-w-[420px] h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
             />
           </FieldRow>
 
@@ -382,7 +382,7 @@ export function ProgramGeneralPage() {
               onChange={(e) => setCode(e.target.value)}
               aria-label="Program code"
               maxLength={40}
-              className="w-[140px] h-8 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] tppm-mono text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+              className="w-[140px] h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] tppm-mono text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
             />
           </FieldRow>
 
@@ -426,7 +426,7 @@ export function ProgramGeneralPage() {
                 <button
                   type="button"
                   onClick={() => setColor(null)}
-                  className="ml-1 text-[12px] text-brand-primary font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded"
+                  className="ml-1 text-[12px] text-brand-primary font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded-control"
                 >
                   Clear
                 </button>
@@ -443,7 +443,7 @@ export function ProgramGeneralPage() {
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
               aria-label="Description"
-              className="w-full max-w-[540px] px-2.5 py-2 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary leading-relaxed resize-y focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+              className="w-full max-w-[540px] px-2.5 py-2 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary leading-relaxed resize-y focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
             />
           </FieldRow>
 
@@ -460,7 +460,7 @@ export function ProgramGeneralPage() {
               value={targetDate}
               onChange={(e) => setTargetDate(e.target.value)}
               aria-label="Program target date"
-              className="w-[160px] h-8 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] tppm-mono text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+              className="w-[160px] h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] tppm-mono text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
             />
           </FieldRow>
 
@@ -491,7 +491,7 @@ export function ProgramGeneralPage() {
                   onClick={() => setHealth(opt.id)}
                   aria-pressed={health === opt.id}
                   className={[
-                    'px-3 py-1 rounded border text-[12px] font-medium transition-colors',
+                    'px-3 py-1 rounded-control border text-[12px] font-medium transition-colors',
                     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
                     health === opt.id
                       ? HEALTH_ACTIVE[opt.id]
@@ -526,7 +526,7 @@ export function ProgramGeneralPage() {
                     role="radio"
                     aria-checked={isSelected}
                     className={[
-                      'px-3 py-1 rounded border text-[12px] font-medium transition-colors',
+                      'px-3 py-1 rounded-control border text-[12px] font-medium transition-colors',
                       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
                       !methodologyEditable ? 'cursor-not-allowed' : '',
                       isSelected
@@ -687,7 +687,7 @@ export function ProgramGeneralPage() {
               type="button"
               onClick={() => programId && exportSeed.mutate({ programId, code: program?.code })}
               disabled={!programId || exportSeed.isPending}
-              className="h-9 rounded border border-neutral-border px-4 text-[13px] font-medium text-neutral-text-primary
+              className="h-9 rounded-control border border-neutral-border px-4 text-[13px] font-medium text-neutral-text-primary
               hover:bg-neutral-surface-raised
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
               disabled:opacity-60"

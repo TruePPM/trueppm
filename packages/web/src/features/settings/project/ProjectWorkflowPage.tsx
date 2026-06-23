@@ -173,7 +173,7 @@ function CadenceSection({
   return (
     <section
       aria-labelledby="cadence-heading"
-      className="bg-neutral-surface-raised border border-neutral-border rounded-lg overflow-hidden"
+      className="bg-neutral-surface-raised border border-neutral-border rounded-card overflow-hidden"
     >
       <div className="px-4 py-3 border-b border-neutral-border flex items-center gap-2">
         <h2 id="cadence-heading" className="text-[13px] font-semibold text-neutral-text-primary">
@@ -185,7 +185,7 @@ function CadenceSection({
       </div>
       <div className="px-4 py-4">
         {isLoading || !project ? (
-          <div className="h-16 rounded bg-neutral-surface-sunken animate-pulse" />
+          <div className="h-16 rounded-card bg-neutral-surface-sunken animate-pulse" />
         ) : isWaterfall ? (
           <p className="text-[12px] text-neutral-text-secondary">
             Waterfall projects don&rsquo;t use sprints — board cadence doesn&rsquo;t apply.
@@ -217,7 +217,7 @@ function CadenceSection({
                       if (canEdit && opt.id !== selected) update.mutate({ board_cadence: opt.id });
                     }}
                     className={[
-                      'text-left rounded-lg border p-3 transition-colors',
+                      'text-left rounded-card border p-3 transition-colors',
                       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
                       !canEdit ? 'cursor-not-allowed' : '',
                       isSelected
@@ -254,7 +254,7 @@ function CadenceSection({
               the flow-analytics panel. Tasks still move through your board columns.
             </p>
             {selected === 'continuous' && activeSprint && (
-              <p className="text-[12px] rounded border border-brand-accent/30 bg-brand-accent/10 text-neutral-text-primary px-3 py-2">
+              <p className="text-[12px] rounded-card border border-brand-accent/30 bg-brand-accent/10 text-neutral-text-primary px-3 py-2">
                 ⚠ This board has an active sprint. Continuous flow hides sprint tracking — the sprint
                 and its data are preserved and return if you switch back to sprint-based.
               </p>
@@ -326,7 +326,7 @@ function PhasesSection({
   return (
     <section
       aria-labelledby="phases-heading"
-      className="bg-neutral-surface-raised border border-neutral-border rounded-lg overflow-hidden"
+      className="bg-neutral-surface-raised border border-neutral-border rounded-card overflow-hidden"
     >
       <div className="px-4 py-3 border-b border-neutral-border flex items-center gap-2">
         <h2 id="phases-heading" className="text-[13px] font-semibold text-neutral-text-primary">
@@ -341,7 +341,7 @@ function PhasesSection({
             type="button"
             onClick={handleAddPhase}
             disabled={create.isPending}
-            className="px-2.5 py-1 rounded border border-neutral-border text-[12px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
+            className="px-2.5 py-1 rounded-control border border-neutral-border text-[12px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
           >
             + Add phase
           </button>
@@ -438,7 +438,7 @@ function PhaseRow({
             aria-label={`Reorder phase ${phase.name}`}
             {...attributes}
             {...listeners}
-            className="text-neutral-text-disabled select-none text-[16px] leading-none cursor-grab focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded"
+            className="text-neutral-text-disabled select-none text-[16px] leading-none cursor-grab focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded-control"
           >
             ⠿
           </button>
@@ -455,13 +455,13 @@ function PhaseRow({
             type="button"
             aria-label={`Change color for ${phase.name}`}
             onClick={() => setShowColorPicker((v) => !v)}
-            className="w-[18px] h-[18px] rounded border border-neutral-border/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+            className="w-[18px] h-[18px] rounded-control border border-neutral-border/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
             style={{ background: phase.color ?? '#94A3B8' }}
           />
         ) : (
           <span
             aria-hidden="true"
-            className="w-[18px] h-[18px] rounded border border-neutral-border/55"
+            className="w-[18px] h-[18px] rounded-control border border-neutral-border/55"
             style={{ background: phase.color ?? '#94A3B8' }}
           />
         )}
@@ -479,13 +479,13 @@ function PhaseRow({
                 setEditing(false);
               }
             }}
-            className="text-[13px] font-medium text-neutral-text-primary bg-neutral-surface-sunken border border-neutral-border rounded px-1.5 py-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+            className="text-[13px] font-medium text-neutral-text-primary bg-neutral-surface-sunken border border-neutral-border rounded-control px-1.5 py-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
           />
         ) : canEdit ? (
           <button
             type="button"
             onClick={() => setEditing(true)}
-            className="text-left text-[13px] font-medium text-neutral-text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded"
+            className="text-left text-[13px] font-medium text-neutral-text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded-control"
           >
             {phase.name}
           </button>
@@ -501,7 +501,7 @@ function PhaseRow({
             type="button"
             onClick={onDelete}
             aria-label={`Delete phase ${phase.name}`}
-            className="text-right text-neutral-text-secondary text-[18px] leading-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded"
+            className="text-right text-neutral-text-secondary text-[18px] leading-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded-control"
           >
             ×
           </button>
@@ -521,7 +521,7 @@ function PhaseRow({
                 onRecolor(c);
                 setShowColorPicker(false);
               }}
-              className="w-5 h-5 rounded border border-neutral-border/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+              className="w-5 h-5 rounded-control border border-neutral-border/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
               style={{ background: c }}
             />
           ))}
@@ -531,7 +531,7 @@ function PhaseRow({
               onRecolor(null);
               setShowColorPicker(false);
             }}
-            className="px-1.5 py-0.5 text-[11px] text-neutral-text-secondary border border-neutral-border/55 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+            className="px-1.5 py-0.5 text-[11px] text-neutral-text-secondary border border-neutral-border/55 rounded-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
           >
             Clear
           </button>
@@ -591,7 +591,7 @@ function StatusesSection({
   return (
     <section
       aria-labelledby="statuses-heading"
-      className="bg-neutral-surface-raised border border-neutral-border rounded-lg overflow-hidden"
+      className="bg-neutral-surface-raised border border-neutral-border rounded-card overflow-hidden"
     >
       <div className="px-4 py-3 border-b border-neutral-border flex items-center gap-2">
         <h2 id="statuses-heading" className="text-[13px] font-semibold text-neutral-text-primary">
@@ -719,7 +719,7 @@ function StatusRow({
             aria-label={`Reorder status ${column.label}`}
             {...attributes}
             {...listeners}
-            className="text-neutral-text-disabled select-none text-[16px] leading-none cursor-grab focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded"
+            className="text-neutral-text-disabled select-none text-[16px] leading-none cursor-grab focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded-control"
           >
             ⠿
           </button>
@@ -760,13 +760,13 @@ function StatusRow({
                 setEditing(false);
               }
             }}
-            className="text-[13px] font-medium text-neutral-text-primary bg-neutral-surface-sunken border border-neutral-border rounded px-1.5 py-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+            className="text-[13px] font-medium text-neutral-text-primary bg-neutral-surface-sunken border border-neutral-border rounded-control px-1.5 py-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
           />
         ) : canEdit ? (
           <button
             type="button"
             onClick={() => setEditing(true)}
-            className="text-left text-[13px] font-medium text-neutral-text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded"
+            className="text-left text-[13px] font-medium text-neutral-text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded-control"
           >
             {column.label}
           </button>
@@ -791,7 +791,7 @@ function StatusRow({
                 setAgeDraft(column.ageThresholdDays != null ? String(column.ageThresholdDays) : '');
               }
             }}
-            className="w-full text-[12px] bg-neutral-surface-sunken border border-neutral-border rounded px-2 py-1 tppm-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+            className="w-full text-[12px] bg-neutral-surface-sunken border border-neutral-border rounded-control px-2 py-1 tppm-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
           />
         ) : (
           <span className="tppm-mono text-[11px] text-neutral-text-secondary">
@@ -807,7 +807,7 @@ function StatusRow({
             type="button"
             onClick={onToggleVisible}
             aria-pressed={column.visible}
-            className="text-[11px] text-neutral-text-secondary border border-neutral-border/55 rounded px-2 py-0.5 hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+            className="text-[11px] text-neutral-text-secondary border border-neutral-border/55 rounded-control px-2 py-0.5 hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
           >
             {column.visible ? 'Hide column' : 'Show column'}
           </button>
@@ -839,7 +839,7 @@ function StatusRow({
               onRecolor(null);
               setShowColorPicker(false);
             }}
-            className="px-1.5 py-0.5 text-[11px] text-neutral-text-secondary border border-neutral-border/55 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+            className="px-1.5 py-0.5 text-[11px] text-neutral-text-secondary border border-neutral-border/55 rounded-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
           >
             Clear
           </button>
@@ -870,7 +870,7 @@ function FieldsSection({
   return (
     <section
       aria-labelledby="fields-heading"
-      className="bg-neutral-surface-raised border border-neutral-border rounded-lg overflow-hidden"
+      className="bg-neutral-surface-raised border border-neutral-border rounded-card overflow-hidden"
     >
       <div className="px-4 py-3 border-b border-neutral-border flex items-center gap-2">
         <h2 id="fields-heading" className="text-[13px] font-semibold text-neutral-text-primary">
@@ -884,7 +884,7 @@ function FieldsSection({
           <button
             type="button"
             onClick={() => setShowAdd(true)}
-            className="px-2.5 py-1 rounded border border-neutral-border text-[12px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+            className="px-2.5 py-1 rounded-control border border-neutral-border text-[12px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
           >
             + New field
           </button>
@@ -915,7 +915,7 @@ function FieldsSection({
             <span className="text-[12px] text-neutral-text-secondary">{f.typeLabel}</span>
             <span>
               {f.required ? (
-                <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-brand-primary-light text-brand-primary">
+                <span className="inline-flex items-center px-2 py-0.5 rounded-chip text-[11px] font-semibold bg-brand-primary-light text-brand-primary">
                   Required
                 </span>
               ) : (
@@ -923,7 +923,7 @@ function FieldsSection({
               )}
             </span>
             <span>
-              <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-neutral-surface-sunken text-neutral-text-secondary border border-neutral-border/55">
+              <span className="inline-flex items-center px-2 py-0.5 rounded-chip text-[11px] font-semibold bg-neutral-surface-sunken text-neutral-text-secondary border border-neutral-border/55">
                 Built-in
               </span>
             </span>
@@ -948,7 +948,7 @@ function FieldsSection({
               </span>
               <span>
                 {f.required ? (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-brand-primary-light text-brand-primary">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-chip text-[11px] font-semibold bg-brand-primary-light text-brand-primary">
                     Required
                   </span>
                 ) : (
@@ -956,7 +956,7 @@ function FieldsSection({
                 )}
               </span>
               <span>
-                <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-brand-accent-light text-brand-accent-dark">
+                <span className="inline-flex items-center px-2 py-0.5 rounded-chip text-[11px] font-semibold bg-brand-accent-light text-brand-accent-dark">
                   Custom
                 </span>
               </span>
@@ -966,7 +966,7 @@ function FieldsSection({
                     type="button"
                     onClick={() => setEditingField(f)}
                     aria-label={`Edit ${f.name}`}
-                    className="text-[11px] text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded px-1"
+                    className="text-[11px] text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded-control px-1"
                   >
                     Edit
                   </button>
@@ -974,7 +974,7 @@ function FieldsSection({
                     type="button"
                     onClick={() => remove.mutate(f.id)}
                     aria-label={`Delete ${f.name}`}
-                    className="text-[18px] leading-none text-neutral-text-secondary hover:text-semantic-critical focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded"
+                    className="text-[18px] leading-none text-neutral-text-secondary hover:text-semantic-critical focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded-control"
                   >
                     ×
                   </button>
@@ -1082,7 +1082,7 @@ function CustomFieldModal({
     >
       <form
         onSubmit={submit}
-        className="bg-neutral-surface-raised rounded-lg border border-neutral-border w-[480px] max-w-[92vw]"
+        className="bg-neutral-surface-raised rounded-card border border-neutral-border w-[480px] max-w-[92vw]"
       >
         <div className="px-4 py-3 border-b border-neutral-border">
           <h3
@@ -1104,7 +1104,7 @@ function CustomFieldModal({
               onChange={(e) => setName(e.target.value)}
               required
               maxLength={64}
-              className="w-full text-[13px] bg-neutral-surface-sunken border border-neutral-border rounded px-2 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+              className="w-full text-[13px] bg-neutral-surface-sunken border border-neutral-border rounded-control px-2 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
             />
           </label>
           <label className="block">
@@ -1119,7 +1119,7 @@ function CustomFieldModal({
                 if (!isSelectType(next)) setOptions([]);
               }}
               disabled={mode === 'edit'}
-              className="w-full text-[13px] bg-neutral-surface-sunken border border-neutral-border rounded px-2 py-1 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+              className="w-full text-[13px] bg-neutral-surface-sunken border border-neutral-border rounded-control px-2 py-1 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
             >
               {CUSTOM_FIELD_TYPE_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>
@@ -1139,7 +1139,7 @@ function CustomFieldModal({
               type="checkbox"
               checked={required}
               onChange={(e) => setRequired(e.target.checked)}
-              className="rounded border-neutral-border"
+              className="rounded-control border-neutral-border"
             />
             <span className="text-[13px] text-neutral-text-primary">Required on every task</span>
           </label>
@@ -1153,14 +1153,14 @@ function CustomFieldModal({
           <button
             type="button"
             onClick={onCancel}
-            className="px-3 py-1 text-[12px] text-neutral-text-secondary border border-neutral-border rounded hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+            className="px-3 py-1 text-[12px] text-neutral-text-secondary border border-neutral-border rounded-control hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={!canSubmit || submitting}
-            className="px-3 py-1 text-[12px] font-medium text-white bg-brand-primary rounded hover:bg-brand-primary-dark disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+            className="px-3 py-1 text-[12px] font-medium text-white bg-brand-primary rounded-control hover:bg-brand-primary-dark disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
           >
             {submitting ? 'Saving…' : mode === 'create' ? 'Add field' : 'Save'}
           </button>
@@ -1198,7 +1198,7 @@ function OptionsEditor({
               aria-label={`Option ${i + 1} value`}
               value={opt.value}
               onChange={(e) => update(i, { value: e.target.value })}
-              className="flex-1 text-[12px] bg-neutral-surface-sunken border border-neutral-border rounded px-2 py-1 tppm-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+              className="flex-1 text-[12px] bg-neutral-surface-sunken border border-neutral-border rounded-control px-2 py-1 tppm-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
               placeholder="value"
               maxLength={32}
             />
@@ -1206,7 +1206,7 @@ function OptionsEditor({
               aria-label={`Option ${i + 1} label`}
               value={opt.label}
               onChange={(e) => update(i, { label: e.target.value })}
-              className="flex-1 text-[12px] bg-neutral-surface-sunken border border-neutral-border rounded px-2 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+              className="flex-1 text-[12px] bg-neutral-surface-sunken border border-neutral-border rounded-control px-2 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
               placeholder="Label"
               maxLength={64}
             />
@@ -1214,7 +1214,7 @@ function OptionsEditor({
               type="button"
               onClick={() => remove(i)}
               aria-label={`Remove option ${opt.value}`}
-              className="text-neutral-text-secondary hover:text-semantic-critical text-[16px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded"
+              className="text-neutral-text-secondary hover:text-semantic-critical text-[16px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded-control"
             >
               ×
             </button>
@@ -1224,7 +1224,7 @@ function OptionsEditor({
       <button
         type="button"
         onClick={add}
-        className="text-[12px] text-brand-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded"
+        className="text-[12px] text-brand-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded-control"
       >
         + Add option
       </button>

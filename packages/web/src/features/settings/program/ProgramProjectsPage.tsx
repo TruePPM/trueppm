@@ -78,14 +78,14 @@ export function ProgramProjectsPage() {
               <button
                 type="button"
                 onClick={() => setShowImport(true)}
-                className="px-3 py-1.5 rounded border border-neutral-border text-neutral-text-secondary text-[13px] font-medium hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                className="px-3 py-1.5 rounded-control border border-neutral-border text-neutral-text-secondary text-[13px] font-medium hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               >
                 Import
               </button>
               <button
                 type="button"
                 onClick={() => setShowAddModal(true)}
-                className="px-3 py-1.5 rounded bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                className="px-3 py-1.5 rounded-control bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               >
                 + Add project
               </button>
@@ -101,7 +101,7 @@ export function ProgramProjectsPage() {
               <div
                 key={i}
                 aria-hidden="true"
-                className="h-12 animate-pulse rounded border border-neutral-border bg-neutral-surface-raised"
+                className="h-12 animate-pulse rounded-card border border-neutral-border bg-neutral-surface-raised"
               />
             ))}
           </div>
@@ -114,7 +114,7 @@ export function ProgramProjectsPage() {
         )}
 
         {!isLoading && !error && projects && projects.length === 0 && (
-          <div className="mt-4 rounded border border-neutral-border bg-neutral-surface-raised p-6 text-center">
+          <div className="mt-4 rounded-card border border-neutral-border bg-neutral-surface-raised p-6 text-center">
             <p className="text-sm text-neutral-text-secondary">
               No projects in this program yet.
               {isAdmin ? ' Use + Add project to assign one.' : ''}

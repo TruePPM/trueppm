@@ -62,7 +62,7 @@ export function IterationLabelField({ value, onChange }: IterationLabelFieldProp
 
   const chipClass = (selected: boolean) =>
     [
-      'px-3 py-1 rounded border text-[12px] font-medium transition-colors cursor-pointer',
+      'px-3 py-1 rounded-control border text-[12px] font-medium transition-colors cursor-pointer',
       // Focus ring follows the (visually hidden) radio's focus state.
       'has-[:focus-visible]:outline-none has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand-primary has-[:focus-visible]:ring-offset-1',
       selected
@@ -115,7 +115,7 @@ export function IterationLabelField({ value, onChange }: IterationLabelFieldProp
               aria-invalid={customEmpty ? 'true' : undefined}
               aria-describedby={`${previewId}${customEmpty ? ` ${errorId}` : ''}`}
               placeholder="e.g. Cycle"
-              className="w-[200px] h-8 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+              className="w-[200px] h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
             />
             <span className="text-[11px] text-neutral-text-secondary tabular-nums">
               {value.trim().length}/{MAX_LEN}

@@ -81,7 +81,7 @@ export function ProjectNotificationsPage() {
             isn't ready to dial in their routing has a one-click opt-out. The
             matrix below remains fully editable while paused — toggling cells
             updates stored preferences for when pause is released. */}
-        <div className="bg-neutral-surface-raised border border-neutral-border rounded-lg p-4 flex items-start gap-4">
+        <div className="bg-neutral-surface-raised border border-neutral-border rounded-card p-4 flex items-start gap-4">
           <Toggle
             on={preferences.paused}
             onToggle={togglePaused}
@@ -103,7 +103,7 @@ export function ProjectNotificationsPage() {
         <div
           aria-disabled={preferences.paused}
           className={[
-            'bg-neutral-surface-raised border border-neutral-border rounded-lg overflow-hidden transition-opacity',
+            'bg-neutral-surface-raised border border-neutral-border rounded-card overflow-hidden transition-opacity',
             preferences.paused ? 'opacity-50' : '',
           ].join(' ')}
         >
@@ -147,7 +147,7 @@ export function ProjectNotificationsPage() {
 
         {/* Slack routing + Quiet hours */}
         <div className="grid grid-cols-2 gap-3.5">
-          <div className="bg-neutral-surface-raised border border-neutral-border rounded-lg p-4">
+          <div className="bg-neutral-surface-raised border border-neutral-border rounded-card p-4">
             <h2 className="text-[13px] font-semibold text-neutral-text-primary mb-3">Slack channel routing</h2>
             <p className="text-[12px] text-neutral-text-secondary leading-snug mb-3">
               Configure Slack channels for your workspace in{' '}
@@ -166,7 +166,7 @@ export function ProjectNotificationsPage() {
                   style={{ gridTemplateColumns: '1.4fr 1fr' }}
                 >
                   <span className="text-neutral-text-secondary leading-snug">{row.lvl}</span>
-                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-brand-primary-light text-brand-primary h-fit">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-chip text-[11px] font-semibold bg-brand-primary-light text-brand-primary h-fit">
                     {row.ch}
                   </span>
                 </div>
@@ -174,7 +174,7 @@ export function ProjectNotificationsPage() {
             </div>
           </div>
 
-          <div className="bg-neutral-surface-raised border border-neutral-border rounded-lg p-4">
+          <div className="bg-neutral-surface-raised border border-neutral-border rounded-card p-4">
             <h2 className="text-[13px] font-semibold text-neutral-text-primary mb-3">Quiet hours</h2>
             <div className="flex items-center gap-2.5">
               <Toggle
@@ -254,7 +254,7 @@ function QuietHourSelect({
           aria-label={label}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="w-full h-8 pl-2.5 pr-7 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary appearance-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+          className="w-full h-8 pl-2.5 pr-7 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary appearance-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
         >
           {merged.map((t) => (
             <option key={t} value={t}>

@@ -370,7 +370,7 @@ export function ProjectGeneralPage() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               aria-label="Project name"
-              className="w-full max-w-[420px] h-8 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+              className="w-full max-w-[420px] h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
             />
           </FieldRow>
 
@@ -385,7 +385,7 @@ export function ProjectGeneralPage() {
               maxLength={12}
               aria-label="Project code"
               placeholder="ENG-2026"
-              className="w-[140px] h-8 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] tppm-mono text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+              className="w-[140px] h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] tppm-mono text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
             />
           </FieldRow>
 
@@ -395,7 +395,7 @@ export function ProjectGeneralPage() {
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
               aria-label="Description"
-              className="w-full max-w-[540px] px-2.5 py-2 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary leading-relaxed resize-y focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+              className="w-full max-w-[540px] px-2.5 py-2 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary leading-relaxed resize-y focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
             />
           </FieldRow>
 
@@ -426,7 +426,7 @@ export function ProjectGeneralPage() {
                   onClick={() => setHealth(opt.id)}
                   aria-pressed={health === opt.id}
                   className={[
-                    'px-3 py-1 rounded border text-[12px] font-medium transition-colors',
+                    'px-3 py-1 rounded-control border text-[12px] font-medium transition-colors',
                     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
                     health === opt.id
                       ? HEALTH_ACTIVE[opt.id]
@@ -576,7 +576,7 @@ export function ProjectGeneralPage() {
                 value={timezone}
                 onChange={(e) => setTimezone(e.target.value)}
                 aria-label="Timezone"
-                className="w-full h-8 pl-2.5 pr-8 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary appearance-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+                className="w-full h-8 pl-2.5 pr-8 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary appearance-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
               >
                 <option value="">Workspace default</option>
                 {TIMEZONES.map((tz) => (
@@ -614,7 +614,7 @@ export function ProjectGeneralPage() {
                   onClick={() => setCalendarId(null)}
                   aria-pressed={calendarInherited}
                   className={[
-                    'px-3 py-1 rounded border text-[12px] font-medium transition-colors',
+                    'px-3 py-1 rounded-control border text-[12px] font-medium transition-colors',
                     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
                     calendarInherited
                       ? 'bg-brand-primary-light text-brand-primary border-brand-primary/40'
@@ -629,7 +629,7 @@ export function ProjectGeneralPage() {
                   aria-pressed={!calendarInherited}
                   title="Calendar picker isn't available yet — tracked in #968"
                   className={[
-                    'px-3 py-1 rounded border text-[12px] font-medium transition-colors',
+                    'px-3 py-1 rounded-control border text-[12px] font-medium transition-colors',
                     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
                     'disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed',
                     !calendarInherited
@@ -655,7 +655,7 @@ export function ProjectGeneralPage() {
                 value={defaultView}
                 onChange={(e) => setDefaultView(e.target.value as ProjectDefaultView)}
                 aria-label="Default view"
-                className="w-full h-8 pl-2.5 pr-8 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary appearance-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+                className="w-full h-8 pl-2.5 pr-8 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary appearance-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
               >
                 {DEFAULT_VIEW_OPTIONS.map((v) => (
                   <option key={v.id} value={v.id}>

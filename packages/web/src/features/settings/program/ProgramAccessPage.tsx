@@ -17,7 +17,7 @@ const GRID = '1.8fr 1.2fr 130px 170px 88px';
 
 function RoleBadge({ label }: { label: string }) {
   return (
-    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-neutral-surface-sunken text-neutral-text-secondary">
+    <span className="inline-flex items-center px-2 py-0.5 rounded-chip text-xs font-semibold bg-neutral-surface-sunken text-neutral-text-secondary">
       {label}
     </span>
   );
@@ -110,7 +110,7 @@ function MemberRow({
             onClick={() => setConfirmRemove(true)}
             disabled={isRemoving}
             aria-label={isSelf ? 'Leave program' : `Remove ${user_detail.username}`}
-            className="min-h-[28px] px-2 rounded text-xs font-medium text-semantic-critical hover:bg-semantic-critical/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
+            className="min-h-[28px] px-2 rounded-control text-xs font-medium text-semantic-critical hover:bg-semantic-critical/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
           >
             {isSelf ? 'Leave' : 'Remove'}
           </button>
@@ -124,14 +124,14 @@ function MemberRow({
                 setConfirmRemove(false);
               }}
               disabled={isRemoving}
-              className="h-7 px-2 rounded border border-semantic-critical text-xs font-semibold text-semantic-critical hover:bg-semantic-critical/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
+              className="h-7 px-2 rounded-control border border-semantic-critical text-xs font-semibold text-semantic-critical hover:bg-semantic-critical/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
             >
               {isSelf ? 'Leave' : 'Confirm'}
             </button>
             <button
               type="button"
               onClick={() => setConfirmRemove(false)}
-              className="h-7 px-2 rounded border border-neutral-border text-xs font-medium text-neutral-text-secondary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              className="h-7 px-2 rounded-control border border-neutral-border text-xs font-medium text-neutral-text-secondary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
               Cancel
             </button>
@@ -191,7 +191,7 @@ export function ProgramAccessPage() {
               type="button"
               onClick={() => setShowInvite((v) => !v)}
               aria-expanded={showInvite}
-              className="px-3 py-1.5 rounded bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              className="px-3 py-1.5 rounded-control bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
               {showInvite ? 'Cancel' : '+ Add member'}
             </button>
@@ -203,7 +203,7 @@ export function ProgramAccessPage() {
         {canManage && showInvite && (
           <section
             aria-labelledby="program-access-invite-heading"
-            className="mb-6 rounded-lg border border-neutral-border bg-neutral-surface-raised p-4"
+            className="mb-6 rounded-card border border-neutral-border bg-neutral-surface-raised p-4"
           >
             <h2
               id="program-access-invite-heading"
@@ -216,7 +216,7 @@ export function ProgramAccessPage() {
         )}
 
         <div
-          className="grid items-center px-4 py-2 bg-neutral-surface-sunken border border-neutral-border rounded-t-lg text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mt-4"
+          className="grid items-center px-4 py-2 bg-neutral-surface-sunken border border-neutral-border rounded-t-card text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mt-4"
           style={{ gridTemplateColumns: GRID }}
         >
           <span>Member</span>
@@ -226,7 +226,7 @@ export function ProgramAccessPage() {
           <span />
         </div>
 
-        <div className="bg-neutral-surface-raised border-x border-b border-neutral-border rounded-b-lg overflow-hidden">
+        <div className="bg-neutral-surface-raised border-x border-b border-neutral-border rounded-b-card overflow-hidden">
           {isLoading && (
             <div
               aria-label="Loading members"

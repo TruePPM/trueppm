@@ -212,7 +212,7 @@ function RollupPreview({ programId, policyDirty }: { programId: string; policyDi
   return (
     <section
       aria-labelledby="preview-heading"
-      className="bg-neutral-surface-raised border border-neutral-border rounded-lg overflow-hidden"
+      className="bg-neutral-surface-raised border border-neutral-border rounded-card overflow-hidden"
     >
       <div className="px-4 py-3 border-b border-neutral-border/55">
         <h2 id="preview-heading" className="text-[13px] font-semibold text-neutral-text-primary">
@@ -242,7 +242,7 @@ function RollupPreview({ programId, policyDirty }: { programId: string; policyDi
           <>
             <div className="flex items-center gap-2 flex-wrap">
               <span
-                className={`bg-transparent border rounded px-2 py-0.5 text-[12px] font-medium ${PREVIEW_HEALTH_PILL[HEALTH_VARIANT[rollup.program_health]]}`}
+                className={`bg-transparent border rounded-chip px-2 py-0.5 text-[12px] font-medium ${PREVIEW_HEALTH_PILL[HEALTH_VARIANT[rollup.program_health]]}`}
                 aria-label={`Program health: ${HEALTH_LABEL[rollup.program_health]}`}
               >
                 {HEALTH_LABEL[rollup.program_health]}
@@ -406,7 +406,7 @@ export function ProgramRollupPage() {
         action={
           !canEdit ? (
             <span
-              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-neutral-surface-sunken text-neutral-text-secondary"
+              className="inline-flex items-center px-2 py-0.5 rounded-chip text-xs font-medium bg-neutral-surface-sunken text-neutral-text-secondary"
               title="Only program admins can edit rollup KPIs"
             >
               Read-only
@@ -419,7 +419,7 @@ export function ProgramRollupPage() {
         {/* KPI toggles */}
         <section
           aria-labelledby="kpi-heading"
-          className="bg-neutral-surface-raised border border-neutral-border rounded-lg overflow-hidden"
+          className="bg-neutral-surface-raised border border-neutral-border rounded-card overflow-hidden"
         >
           <div className="px-4 py-3 border-b border-neutral-border/55 bg-neutral-surface-sunken">
             <h2 id="kpi-heading" className="text-[13px] font-semibold text-neutral-text-primary">
@@ -446,7 +446,7 @@ export function ProgramRollupPage() {
               <button
                 type="button"
                 onClick={() => void refetch()}
-                className="h-7 px-2 rounded border border-neutral-border text-xs font-medium text-neutral-text-secondary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                className="h-7 px-2 rounded-control border border-neutral-border text-xs font-medium text-neutral-text-secondary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               >
                 Retry
               </button>
@@ -497,7 +497,7 @@ export function ProgramRollupPage() {
         {/* Aggregation policy */}
         <section
           aria-labelledby="policy-heading"
-          className="bg-neutral-surface-raised border border-neutral-border rounded-lg overflow-hidden"
+          className="bg-neutral-surface-raised border border-neutral-border rounded-card overflow-hidden"
         >
           <div className="px-4 py-3 border-b border-neutral-border/55">
             <h2 id="policy-heading" className="text-[13px] font-semibold text-neutral-text-primary">
@@ -524,7 +524,7 @@ export function ProgramRollupPage() {
               <button
                 type="button"
                 onClick={() => void refetch()}
-                className="h-7 px-2 rounded border border-neutral-border text-xs font-medium text-neutral-text-secondary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                className="h-7 px-2 rounded-control border border-neutral-border text-xs font-medium text-neutral-text-secondary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               >
                 Retry
               </button>
@@ -538,7 +538,7 @@ export function ProgramRollupPage() {
                 <label
                   key={opt.id}
                   className={[
-                    'flex items-start gap-2.5 rounded p-2',
+                    'flex items-start gap-2.5 rounded-control p-2',
                     canEdit ? 'cursor-pointer hover:bg-neutral-surface-sunken' : 'opacity-80',
                   ].join(' ')}
                 >
@@ -576,7 +576,7 @@ export function ProgramRollupPage() {
                 <div
                   role="status"
                   aria-live="polite"
-                  className="mt-2 flex items-center justify-between gap-3 px-3 py-2 rounded border border-brand-primary/40 bg-brand-primary/5"
+                  className="mt-2 flex items-center justify-between gap-3 px-3 py-2 rounded-card border border-brand-primary/40 bg-brand-primary/5"
                 >
                   <span className="text-[12px] font-medium text-neutral-text-primary">
                     <span aria-hidden="true">▲</span> Unsaved changes
@@ -586,7 +586,7 @@ export function ProgramRollupPage() {
                       type="button"
                       onClick={() => setDraftPolicy(null)}
                       disabled={savePolicy.isPending}
-                      className="h-7 px-2.5 rounded border border-neutral-border text-xs font-medium text-neutral-text-secondary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
+                      className="h-7 px-2.5 rounded-control border border-neutral-border text-xs font-medium text-neutral-text-secondary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
                     >
                       Discard
                     </button>
@@ -594,7 +594,7 @@ export function ProgramRollupPage() {
                       type="button"
                       onClick={onSavePolicy}
                       disabled={savePolicy.isPending}
-                      className="h-7 px-3 rounded bg-brand-primary text-xs font-semibold text-white hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
+                      className="h-7 px-3 rounded-control bg-brand-primary text-xs font-semibold text-white hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
                     >
                       {savePolicy.isPending ? 'Saving…' : 'Save'}
                     </button>
@@ -614,7 +614,7 @@ export function ProgramRollupPage() {
             role={toast.variant === 'error' ? 'alert' : 'status'}
             aria-live={toast.variant === 'error' ? 'assertive' : 'polite'}
             className={[
-              'fixed bottom-6 right-6 z-50 px-4 py-2.5 rounded border border-neutral-border text-[13px] font-medium',
+              'fixed bottom-6 right-6 z-50 px-4 py-2.5 rounded-card border border-neutral-border text-[13px] font-medium',
               toast.variant === 'error'
                 ? 'bg-semantic-critical text-white'
                 : 'bg-neutral-text-primary text-white',
