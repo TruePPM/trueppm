@@ -3,7 +3,7 @@ title: Architecture Overview
 description: System diagram, design decisions, and package structure.
 ---
 
-This page describes the architecture of TruePPM as it exists today. The scheduling engine, API, real-time layer, and web frontend are all functional as of 0.1 (May 2026).
+This page describes the architecture of TruePPM as it exists today. The scheduling engine, API, real-time layer, web frontend, and the 0.2 settings/administration and program platform are all functional as of 0.2 — shipped as the `0.2.0-alpha.1` pre-release (May 31, 2026).
 
 ## System diagram
 
@@ -103,8 +103,8 @@ grep -r "trueppm_enterprise" packages/
 # must return zero results
 ```
 
-**Community:** scheduling engine, CPM, Monte Carlo, Schedule (Gantt-style) UI, Board, Sprints workspace, program management (coordinating multiple projects within a program), mobile apps, offline sync, real-time, 5-role RBAC, REST/WS API, time tracking, baselines, Helm chart, MS Project import/export.
+**Community:** scheduling engine, CPM, Monte Carlo, Schedule (Gantt-style) UI, Board, Sprints workspace, program management (coordinating multiple projects within a program), basic single sign-on (OIDC/OAuth login against your own identity provider), mobile apps, offline sync, real-time, 5-role RBAC, REST/WS API, time tracking, baselines, Helm chart, MS Project import/export.
 
-**Enterprise (separate repo):** portfolio analytics and health scores, cross-program resource leveling, SSO/SAML/OIDC, LDAP sync, immutable audit trail, custom roles, approval workflows, Jira/GitLab/ServiceNow connectors, AI scheduling, scenario modeling, multi-tenancy.
+**Enterprise (separate repo):** portfolio analytics and health scores, cross-program resource leveling, org identity governance (SAML 2.0 federation, SCIM provisioning, LDAP/AD directory sync, enforced org-wide SSO), immutable audit trail, custom roles, approval workflows, the org-wide Jira/GitLab/ServiceNow integration hub, AI scheduling, scenario modeling, multi-tenancy.
 
 The OSS unit is the **program** (one PM, one or more related projects). The Enterprise unit is the **portfolio** (multiple programs under organizational governance).

@@ -50,8 +50,8 @@ The features most relevant to an executive sponsor are split across the communit
 | Demand intake | Prioritization workspace for project proposals | Enterprise |
 | Cross-program coordination | Dependencies and alignment across multiple programs | Enterprise |
 | Schedule forensics | Narrative detection of what changed and why | Enterprise |
-| SSO/SAML/OIDC | Enterprise single sign-on | Enterprise |
-| LDAP sync | Automatic user provisioning | Enterprise |
+| Basic single sign-on | OIDC/OAuth login against your own identity provider (lands 0.4) | Community (planned) |
+| Org identity governance | SAML 2.0 federation, SCIM provisioning, LDAP/AD directory sync, enforced org-wide SSO | Enterprise |
 | Immutable audit trail | Compliance-ready change history | Enterprise |
 | Board-ready exports | Client-ready Gantt PDF (planned 0.4) and the reporting suite (planned 0.8) | Community (planned) |
 | Email/Slack notifications | Event notifications by email and Slack webhook shipped in 0.2; a single-program health digest is planned for 0.8 | Community |

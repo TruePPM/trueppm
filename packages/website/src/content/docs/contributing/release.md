@@ -43,11 +43,11 @@ Before any manifest is touched, the script shows the computed version as a **sug
 
 ```text
 About to cut a release:
-  current : 0.1.9
-  new     : 0.2.0-alpha.1   <- suggested
-  tags    : v0.2.0-alpha.1, scheduler-v0.2.0a1
+  current : 0.2.0-alpha.1
+  new     : 0.3.0-alpha.1   <- suggested
+  tags    : v0.3.0-alpha.1, scheduler-v0.3.0a1
   note    : pre-release — CHANGELOG will not be rotated
-Enter to accept 0.2.0-alpha.1, type an explicit version to override, or 'q' to abort:
+Enter to accept 0.3.0-alpha.1, type an explicit version to override, or 'q' to abort:
 ```
 
 - **Enter** accepts the suggested version.

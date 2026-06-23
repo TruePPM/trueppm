@@ -64,7 +64,7 @@ The **community edition** (Apache 2.0, this repository) includes everything an i
 The **enterprise edition** (separate repository, proprietary) adds features for organizations governing a portfolio across multiple programs:
 
 - Portfolio dashboard and health scores
-- SSO/SAML/OIDC and LDAP sync
+- Org identity governance — SAML 2.0 federation, SCIM provisioning, LDAP/AD directory sync, enforced org-wide SSO (basic OIDC/OAuth login is in the community core, lands 0.4)
 - Immutable audit trail
 - Cross-program resource leveling and capacity forecasting
 - AI scheduling and scenario modeling
