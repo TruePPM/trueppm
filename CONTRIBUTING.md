@@ -4,8 +4,8 @@ Thank you for your interest in TruePPM. This document covers everything you need
 
 ## Two-repo structure
 
-- **[trueppm/trueppm](https://gitlab.com/trueppm/trueppm)** (this repo) — community edition, Apache 2.0. Everything a PM, PO, or Scrum Master needs to manage a program: scheduling engine, CPM, Monte Carlo, Schedule (Gantt), Board, Sprints, offline sync, real-time collaboration, 5-role RBAC.
-- **trueppm/trueppm-enterprise** — proprietary. Portfolio analytics, SSO/SAML, cross-program resource leveling, AI scheduling, approval workflows. Issues for enterprise features go in that tracker, not here.
+- **[trueppm/trueppm](https://gitlab.com/trueppm/trueppm)** (this repo) — community edition, Apache 2.0. Everything a PM, PO, or Scrum Master needs to manage a program: scheduling engine, CPM, Monte Carlo, Schedule (Gantt), Board, Sprints, offline sync, real-time collaboration, 5-role RBAC, basic single sign-on (OIDC/OAuth against your own IdP).
+- **trueppm/trueppm-enterprise** — proprietary. Portfolio analytics, org identity governance (SAML/SCIM/LDAP directory sync, enforced org-wide SSO), cross-program resource leveling, AI scheduling, approval workflows. Issues for enterprise features go in that tracker, not here.
 
 **The OSS core must never import from the enterprise repo.** Verify with:
 
