@@ -86,7 +86,7 @@ describe('BulkFieldsMatrix', () => {
 
   it('select-all goes indeterminate on partial selection, checked on full', () => {
     renderMatrix();
-    const all = screen.getByLabelText('Select all rows') as HTMLInputElement;
+    const all = screen.getByLabelText<HTMLInputElement>('Select all rows');
     fireEvent.click(screen.getByLabelText('Select Apollo'));
     expect(all.indeterminate).toBe(true);
     expect(all.checked).toBe(false);
@@ -139,7 +139,7 @@ describe('BulkFieldsMatrix', () => {
   it('drops a locked field from the picker but keeps it as a display column (web-rule 196)', () => {
     renderMatrix({ fields: makeFields({ methodologyLocked: true }) });
     // Methodology is no longer an option in the field picker…
-    const picker = screen.getByLabelText('Field to set') as HTMLSelectElement;
+    const picker = screen.getByLabelText<HTMLSelectElement>('Field to set');
     const optionValues = [...picker.options].map((o) => o.value);
     expect(optionValues).toEqual(['iteration_label']);
     // …but the Methodology column header still renders (display-only).
