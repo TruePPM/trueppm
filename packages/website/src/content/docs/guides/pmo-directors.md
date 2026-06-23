@@ -5,7 +5,7 @@ description: What the community edition gives a PMO at the program level today �
 
 You run a program office. You need visibility across the work, capacity you can plan against, and a compliance story you can defend — and you evaluate tools professionally, so you want the line drawn honestly. Here it is up front: **the community edition is built for the program level — one or more related projects run by a team. Portfolio governance across many programs is the enterprise edition, by design.**
 
-That split is deliberate, not a gap. TruePPM's whole model is adoption-first: a program gets fully productive on the open-source core, and the organization adds the enterprise layer for portfolio coordination, SSO, and compliance evidence when it needs to govern across programs. This guide covers what the core gives you today, and exactly where enterprise begins.
+That split is deliberate, not a gap. TruePPM's whole model is adoption-first: a program gets fully productive on the open-source core, and the organization adds the enterprise layer for portfolio coordination, org-wide identity governance, and compliance evidence when it needs to govern across programs. This guide covers what the core gives you today, and exactly where enterprise begins.
 
 ## What you get today (community edition)
 
@@ -25,7 +25,7 @@ Be precise about what this is and isn't: it is an *operational* log for running 
 
 ### Role-based access control
 
-TruePPM enforces a **five-role model** (Owner / Admin / Scheduler / Member / Viewer) on every project, at the engine level — not just hidden in the UI. People see and change only what their role allows. This is the access-control foundation; **SSO / SAML / OIDC and LDAP sync** sit on top of it in the enterprise edition.
+TruePPM enforces a **five-role model** (Owner / Admin / Scheduler / Member / Viewer) on every project, at the engine level — not just hidden in the UI. People see and change only what their role allows. This is the access-control foundation. Basic OIDC/OAuth single sign-on against your own identity provider is in the community core (lands in 0.4); the org identity-*governance* layer — **SAML 2.0 federation, SCIM provisioning, LDAP/AD directory sync, and enforced org-wide SSO** — sits on top of it in the enterprise edition.
 
 → See [RBAC](/administration/rbac/) and [Sharing & access](/administration/sharing-and-access/)
 
@@ -49,7 +49,7 @@ Seed the demo (`seed_demo_project --with-personas`) and sign in as **`diana`** �
 2. **Open the program view.** See the rollup across its projects — the cross-project picture a program manager works from.
 3. **With an Owner or Admin account, open the audit log** (Settings → Audit log). Confirm that operational changes are recorded with who and when.
 
-Then judge it against your real bar. Your top criteria — a one-glance portfolio dashboard across 40 projects, SSO, and a tamper-evident audit trail — are **enterprise**, and intentionally not in this repo. The honest question for the community edition is narrower: *does a single program run cleanly on the open core, so adoption can start before the portfolio layer is bought?*
+Then judge it against your real bar. Your top criteria — a one-glance portfolio dashboard across 40 projects, enforced org-wide SSO with directory sync, and a tamper-evident audit trail — are **enterprise**, and intentionally not in this repo. The honest question for the community edition is narrower: *does a single program run cleanly on the open core, so adoption can start before the portfolio layer is bought?*
 
 ## Where the line is: community vs. enterprise
 
@@ -59,8 +59,9 @@ Then judge it against your real bar. Your top criteria — a one-glance portfoli
 | Operational audit log (who changed what) | Community | Day-to-day workspace operations |
 | Five-role RBAC, self-hosted | Community | Access-control and residency foundation |
 | Per-project confidence forecasts (P50/P80/P95) | Community | The number you repeat to the board |
+| Basic single sign-on (OIDC/OAuth via your own IdP) | Community | Login federation a self-hoster expects (lands 0.4) |
 | Portfolio dashboard & health scores | Enterprise | Visibility *across many programs* |
-| SSO / SAML / OIDC, LDAP sync | Enterprise | Org-wide identity governance |
+| Org identity governance (SAML 2.0, SCIM, LDAP/AD sync, enforced SSO) | Enterprise | Directory-driven provisioning and enforced org-wide SSO |
 | Immutable audit trail, SOC 2 evidence export | Enterprise | Tamper-evident compliance, not operations |
 | Cross-program resource leveling & heat map | Enterprise | Capacity *across* programs |
 | Demand intake & prioritization workspace | Enterprise | Portfolio investment governance |

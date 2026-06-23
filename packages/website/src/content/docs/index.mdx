@@ -110,7 +110,9 @@ print(result.critical_path)           # ['t-1', 't-2']
 
 ## What's built today
 
-| Component | Status | Description |
+The **Since** column is the release a capability first shipped in. 0.2 (the `0.2.0-alpha.1` pre-release) is the current build; the 0.1 rows are the foundation it builds on.
+
+| Capability | Since | Description |
 |-----------|--------|-------------|
 | Scheduling engine | **0.1** | CPM + Monte Carlo. Ships standalone as [`trueppm-scheduler`](https://pypi.org/project/trueppm-scheduler/) on PyPI. |
 | REST API | **0.1** | Full CRUD for projects, tasks, dependencies, resources, calendars, members, sprints. OpenAPI 3.0.3 schema. |
@@ -126,6 +128,12 @@ print(result.critical_path)           # ['t-1', 't-2']
 | MS Project import / export | **0.1** | `.xml` import/export; `.mpp` accepted when the optional MPXJ dependency is installed (full `.mpp` support lands in 0.6). |
 | Inbound task sync | **0.1** | Webhook ingest endpoint for upstream task systems. |
 | Helm chart | **0.1** | Kubernetes deployment with vendored sub-charts for PostgreSQL and Valkey. |
+| Settings & administration | **0.2** | Workspace / Program / Project settings shell on live APIs — members, roles, methodology, workflow, notifications, access, integrations, and lifecycle. |
+| Programs (OSS) | **0.2** | Program entity with rollup KPIs, cadence, cross-project risk policy, and a dual-level program backlog (epic / feature / story / task). |
+| Recurring tasks | **0.2** | Recurrence-rule generator with custom and fractional work hours, excluded from the CPM critical path. |
+| Durable execution | **0.2** | Outbox-dispatch hardening, Beat heartbeat, dead-letter alerting, retention purge editor, and Idempotency-Key support. |
+| Notifications | **0.2** | Per-user email and Slack-webhook notifications with a preference matrix; Git-aware task automation. |
+| MS Project import UI | **0.2** | In-app create-from-import flow layered on the 0.1 import / export REST endpoints. |
 
 ## Next steps
 
