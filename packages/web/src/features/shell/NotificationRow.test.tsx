@@ -75,6 +75,22 @@ describe('NotificationRow', () => {
     expect(navigateMock).toHaveBeenCalledWith('/projects/p1/schedule?task=t9');
   });
 
+  it('deep-links a ceiling-raise proposal to the signal-privacy settings section (#1275)', () => {
+    renderWithRouter(
+      <NotificationRow
+        notification={row({
+          mention: null,
+          event_type: 'signal.ceiling_proposal_opened',
+          subject: 'Vote: raise velocity visibility',
+          body: 'Your team has an open proposal — vote by Jun 26.',
+          task_id: null,
+        })}
+      />,
+    );
+    fireEvent.click(screen.getByText('Vote: raise velocity visibility'));
+    expect(navigateMock).toHaveBeenCalledWith('/projects/p1/settings#signal-privacy');
+  });
+
   it('renders the group-mention variant when mentioned_group_key is set', () => {
     renderWithRouter(
       <NotificationRow

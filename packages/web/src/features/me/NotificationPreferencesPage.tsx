@@ -45,6 +45,16 @@ const EVENT_LABELS: Record<string, { title: string; example: string }> = {
     title: 'When someone comments on your task',
     example: 'A teammate leaves a note on a task you own',
   },
+  // Signal-privacy ceiling-raise ratification (#1275). Email defaults OFF —
+  // the in-app inbox is the discovery surface.
+  'signal.ceiling_proposal_opened': {
+    title: 'When your team opens a signal-visibility proposal',
+    example: 'A proposal to widen velocity visibility opens — vote before it expires',
+  },
+  'signal.ceiling_proposal_resolved': {
+    title: 'When a signal-visibility proposal is resolved',
+    example: 'A visibility proposal is ratified, rejected, or expires',
+  },
 };
 
 const CHANNEL_LABELS: Record<string, string> = {
@@ -131,6 +141,8 @@ export function NotificationPreferencesPage() {
         'task.due_date_changed',
         'task.blocked',
         'comment_on_my_task',
+        'signal.ceiling_proposal_opened',
+        'signal.ceiling_proposal_resolved',
       ]),
       channels: ordered(channelSet, ['in_app', 'email']),
       prefByKey: byKey,

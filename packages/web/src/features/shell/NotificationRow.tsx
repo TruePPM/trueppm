@@ -44,7 +44,12 @@ export function NotificationRow({ notification, onNavigate }: Props) {
     if (!notification.is_read) {
       update.mutate({ id: notification.id, is_read: true });
     }
-    if (notification.task_id) {
+    if (notification.event_type.startsWith('signal.ceiling_proposal')) {
+      // Ceiling-raise proposals (#1275) live in a settings section, not a task —
+      // deep-link to it so the vote is one click from the inbox (the discovery
+      // gap ADR-0104 Amendment B closes). Settings sections are anchors (web-rule 195).
+      void navigate(`/projects/${notification.project}/settings#signal-privacy`);
+    } else if (notification.task_id) {
       void navigate(`/projects/${notification.project}/schedule?task=${notification.task_id}`);
     } else {
       void navigate(`/projects/${notification.project}/board`);
