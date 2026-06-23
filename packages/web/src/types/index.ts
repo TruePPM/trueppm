@@ -361,6 +361,16 @@ export interface Project {
    * this field; the program name is fetched on demand via useProgram(id).
    */
   programId: string | null;
+  /**
+   * Inheritance fields populated only by the program-projects endpoint for the
+   * bulk-edit matrix (issue 1233); undefined on the other project-list shapes. The
+   * `effective_*` reads are server-resolved (ADR-0107/0116); `iterationLabel` is the
+   * raw nullable override (null = inherit) used to distinguish set-vs-inherited.
+   */
+  iterationLabel?: string | null;
+  effectiveIterationLabel?: string | null;
+  effectiveMethodology?: Methodology;
+  inheritedMethodology?: Methodology;
 }
 
 /**

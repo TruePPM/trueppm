@@ -124,7 +124,11 @@ Deeper program configuration lives under **/programs/:id/settings**:
   [Program identity square](#program-identity-square) for what the code and color drive.
 - **Access** — manage program membership: invite members, change roles, and remove
   members (the same membership model as the Members tab).
-- **Projects** — the child projects in the program.
+- **Projects** — the child projects in the program. Admins can **bulk-edit** inherited
+  settings here: select projects, pick a field (methodology or iteration label), and apply
+  a value to just the selected rows — or "Reset to inherited" to clear an override so a
+  project inherits the program default again. Inherited values are shown distinctly from
+  explicit overrides.
 - **Rollup KPIs** — choose which indicators roll up across the program's projects —
   schedule health, schedule variance, critical-task counts, risk score, and more.
   Toggles save as you change them.

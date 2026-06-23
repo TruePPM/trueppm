@@ -109,15 +109,48 @@ test.describe('Program Settings → Projects', () => {
     await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible();
     await expect(page.getByText('Artemis IV Lift')).toBeVisible();
     await expect(page.getByText('Launch Control Software')).toBeVisible();
-    await expect(page.getByText('WATERFALL').first()).toBeVisible();
-    await expect(page.getByText('AGILE').first()).toBeVisible();
     await expect(page.getByText(/2 projects/)).toBeVisible();
+    // Admin (role 400) gets the bulk-edit matrix: an action bar + per-row selection.
+    await expect(page.getByTestId('bulk-fields-action-bar')).toBeVisible();
+    await expect(page.getByLabel('Select Artemis IV Lift')).toBeVisible();
 
     // The hardcoded fixture row from the stub page must not appear.
     await expect(page.getByText('Ground Support Equipment')).toHaveCount(0);
 
     // The stub banner must not render on a wired page.
     await expect(page.getByTestId('stub-page-banner')).toHaveCount(0);
+  });
+
+  test('admin bulk-sets a field on the selected projects (issue 1233)', async ({ page }) => {
+    await setup(page, [
+      { id: 'pr-1', name: 'Artemis IV Lift', description: '', start_date: '2026-01-01', methodology: 'WATERFALL', program: PROGRAM_ID },
+      { id: 'pr-2', name: 'Launch Control Software', description: '', start_date: '2026-01-01', methodology: 'AGILE', program: PROGRAM_ID },
+    ]);
+    let posted: { ids: string[]; fields: Record<string, unknown> } | null = null;
+    await page.route(`**/api/v1/programs/${PROGRAM_ID}/bulk-project-fields/`, async (route) => {
+      posted = route.request().postDataJSON() as { ids: string[]; fields: Record<string, unknown> };
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ updated: posted.ids.map((id) => ({ id, server_version: 2 })), fields: Object.keys(posted.fields) }),
+      });
+    });
+
+    await page.goto(`/programs/${PROGRAM_ID}/settings/projects`);
+    await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible();
+
+    // Select one project, stage a methodology value, apply. The settings page is the
+    // consolidated SettingsShell (rule 195) — all sections mount at once, so the
+    // General section's own Methodology radiogroup also has an "Agile" radio. Scope to
+    // the bulk action bar to avoid the strict-mode collision.
+    await page.getByLabel('Select Artemis IV Lift').check();
+    const bar = page.getByTestId('bulk-fields-action-bar');
+    await bar.getByRole('radio', { name: 'Agile' }).click();
+    await page.getByTestId('bulk-fields-apply').click();
+
+    await expect.poll(() => posted).not.toBeNull();
+    expect(posted!.ids).toEqual(['pr-1']);
+    expect(posted!.fields).toEqual({ methodology: 'AGILE' });
   });
 
   test('shows empty state when the program has no projects', async ({ page }) => {
