@@ -91,6 +91,17 @@ describe('NotificationRow', () => {
     expect(navigateMock).toHaveBeenCalledWith('/projects/p1/settings#signal-privacy');
   });
 
+  it('does not crash when a row omits event_type (older mention mocks)', () => {
+    // Some notification payloads (and hand-written e2e mocks) omit event_type for
+    // mention rows; the ceiling-proposal routing must short-circuit on the falsy
+    // isEvent flag, not call .startsWith on undefined.
+    renderWithRouter(
+      <NotificationRow notification={row({ event_type: undefined, task_id: 't7' })} />,
+    );
+    fireEvent.click(screen.getByText('Bob mentioned you'));
+    expect(navigateMock).toHaveBeenCalledWith('/projects/p1/schedule?task=t7');
+  });
+
   it('renders the group-mention variant when mentioned_group_key is set', () => {
     renderWithRouter(
       <NotificationRow
