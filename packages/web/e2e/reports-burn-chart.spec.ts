@@ -191,10 +191,14 @@ test.describe('Reports tab — variant switching', () => {
     await expect(page.getByRole('heading', { name: /burn chart/i })).toBeVisible({ timeout: 10_000 });
   });
 
-  test('clicking Burn up marks it as checked', async ({ page }) => {
+  test('clicking Burn up marks it as checked and renders both lines (#1279)', async ({ page }) => {
     await page.getByRole('radio', { name: /burn up/i }).click();
     await expect(page.getByRole('radio', { name: /burn up/i })).toHaveAttribute('aria-checked', 'true');
     await expect(page.getByRole('radio', { name: /burn down/i })).toHaveAttribute('aria-checked', 'false');
+    // Burnup shows the completed line and the total-scope line — surfaced by their
+    // legend entries (the burndown's "Ideal" entry is gone).
+    await expect(page.getByText('Completed', { exact: true })).toBeVisible();
+    await expect(page.getByText('Total scope', { exact: true })).toBeVisible();
   });
 
   test('clicking Combined marks it as checked', async ({ page }) => {
