@@ -65,6 +65,7 @@ From 0.3 onward each release **lands one primary persona** — it ships the feat
 - **Client-ready PDF** — a basic Gantt-with-critical-path schedule export from day one (the rich reporting suite lands at 0.8)
 - **Ongoing inbound sync** — continuous one-way Jira → TruePPM card sync (distinct from the one-time migration import at 0.6) so contributors never double-enter
 - **Offline hardening** — WebSocket event replay/resync, sync conflict detection, calm offline states
+- **Basic single sign-on (OIDC / OAuth2)** — point TruePPM at your own identity provider (Keycloak, Authentik, Authelia, Zitadel, Google, GitHub, GitLab) and your whole team logs in through it. Self-hosted, login-only, no directory required — the federation a self-hoster expects as table stakes, not behind a paywall. The org identity-*governance* layer (SAML 2.0, SCIM provisioning, LDAP/AD directory sync, enforced org-wide SSO) stays in the enterprise edition
 - **Read-only MCP server** (#503 #504 #603) — point any MCP client (Claude Desktop and the like) at your self-hosted instance and ask real questions of the live schedule: critical path, a non-mutating Monte Carlo what-if ("slip this task three days — when do we ship?"), sprint status and velocity, the risk register, and My Work. Every answer is computed server-side by the same CPM/Monte Carlo engine the UI uses — never an LLM guess, never leaving your box. Per-team token scopes keep sprint internals private. Read-only by design; write tools are deliberately held to 0.6
 - **AI-native foundation** — alongside the read-only MCP server, three pieces make the engine something an AI can *trust* rather than guess at: a **provenance graph** (#1058) so every computed date, float, and P80 carries the server-side derivation an agent can cite; a **local natural-language query layer** (#1060) that compiles a question into engine calls, never into an answer; and a **bring-your-own local-model adapter** (#1061) so the AI runs against a self-hosted model and nothing — plan or inference — leaves your box. The point of "evolve *with* AI": the same deterministic engine is just as useful whether your team queries it or your agents do
 
@@ -138,7 +139,7 @@ These features live in a separate proprietary repository and overlay the OSS cor
 - CCPM (Critical Chain Project Management)
 - Resource heat map (cross-portfolio)
 - Schedule forensics (narrative change detection)
-- SSO/SAML/OIDC and LDAP sync
+- Org identity governance — SAML 2.0 federation, SCIM provisioning, LDAP/AD directory sync, and enforced org-wide SSO (basic OIDC/OAuth login ships in the OSS core at 0.4)
 - Immutable audit trail
 - Custom roles and approval workflows
 - Jira / GitLab / ServiceNow connectors (git integration hub — 0.2)
