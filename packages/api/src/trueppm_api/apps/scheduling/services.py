@@ -418,7 +418,19 @@ def build_sched_tasks(db_tasks: list[Any], *, suggest_approve: bool) -> list[Any
             # (MS Project allows non-zero milestone durations); the engine operates
             # on duration only, so normalise at the boundary.
             duration=timedelta(days=0) if t.is_milestone else timedelta(days=t.duration),
-            planned_start=t.planned_start,
+            # planned_start is the engine's SNET floor (ADR-0014). An explicit value
+            # always wins; otherwise a sprint-assigned, schedulable task inherits its
+            # sprint's start_date as a *synthetic* floor (ADR-0168) so agile work
+            # positions in its sprint window instead of the project origin. Engine
+            # input only — never written back, so the stored row stays null; applying
+            # it in this one converter keeps CPM and Monte Carlo in sync (#1185).
+            # Milestones are excluded — a sprint review/demo gate sits at the sprint
+            # end, not its start (ADR-0106).
+            planned_start=(
+                t.planned_start
+                if t.planned_start is not None
+                else (t.sprint.start_date if (t.sprint_id and not t.is_milestone) else None)
+            ),
             percent_complete=t.percent_complete,
             actual_start=t.actual_start,
             actual_finish=t.actual_finish,

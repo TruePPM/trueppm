@@ -283,7 +283,9 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
 
     # Monte Carlo simulates committed delivery only — BACKLOG cards are not
     # part of the forecast. ADR-0057 / Task.committed.
-    db_tasks = list(Task.committed.filter(project=project))
+    # select_related("sprint"): build_sched_tasks reads sprint.start_date for the
+    # ADR-0168 sprint-window floor; load it with the task to avoid an N+1.
+    db_tasks = list(Task.committed.filter(project=project).select_related("sprint"))
 
     # Shared converter (ADR-0132): the deterministic CPM pass and Monte Carlo
     # build their scheduler input through one function, so a field can never reach
