@@ -54,7 +54,7 @@ interface NormPoint {
   remaining: number | null;
   completed: number | null;
   // `null` after the last snapshot too — the burnup total-scope line shares the
-  // completed line's extent and must end with the data, not flat-line (#1279).
+  // completed line's extent and must end with the data, not flat-line (issue 1279).
   scope: number | null;
   ideal: number;
 }
@@ -212,7 +212,7 @@ export function deriveSprintSeries(
     }
 
     // Total-scope line: the burnup's load-bearing series. It must STEP UP when scope
-    // is injected mid-sprint (#1279) — the previous flat `committedVal` hid exactly the
+    // is injected mid-sprint (issue 1279) — the previous flat `committedVal` hid exactly the
     // scope creep the burnup exists to expose. Shares the completed line's extent
     // (anchored at committed on day 0, carried across gaps, null after the last
     // snapshot so it ends with the data, issue-1249 shape).
