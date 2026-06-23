@@ -108,6 +108,9 @@ class PokerSessionSerializer(serializers.Serializer[Any]):
         return _PokerMyVoteSerializer(mine).data if mine is not None else None
 
     def get_vote_count(self, obj: PokerSession) -> int:
+        # `votes` is prefetched (prefetch_related("votes__voter")), so len() reads the
+        # cache — using .count() here would fire a second query and defeat the prefetch.
+        # nosemgrep: python.sqlalchemy.performance.performance-improvements.len-all-count
         return len(obj.votes.all())
 
     def get_participant_count(self, obj: PokerSession) -> int:
