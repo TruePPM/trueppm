@@ -27515,6 +27515,18 @@
                         },
                         "readOnly": true
                     },
+                    "risk_slip_propagation": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/RiskSlipPropagationEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "risk_escalation_days": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
                     "health": {
                         "$ref": "#/components/schemas/HealthEnum"
                     },
@@ -27632,6 +27644,8 @@
                     "my_role_label",
                     "name",
                     "project_count",
+                    "risk_escalation_days",
+                    "risk_slip_propagation",
                     "server_version",
                     "updated_at"
                 ]
@@ -30216,6 +30230,15 @@
                     "probability",
                     "title"
                 ]
+            },
+            "RiskSlipPropagationEnum": {
+                "enum": [
+                    "none",
+                    "warn",
+                    "block"
+                ],
+                "type": "string",
+                "description": "* `none` - No action\n* `warn` - Warn only\n* `block` - Block & escalate"
             },
             "RiskStatusEnum": {
                 "enum": [

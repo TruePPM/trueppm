@@ -86,6 +86,12 @@ export type MethodologyOverridePolicy = 'inherit' | 'suggest' | 'enforce';
 export type ProgramHealth = 'AUTO' | 'ON_TRACK' | 'AT_RISK' | 'CRITICAL';
 
 /**
+ * What a program does when a cross-project dependency slips (issue 529). Mirrors
+ * ``apps.projects.models.SlipPropagation``. Direct column, default `warn`.
+ */
+export type ProgramSlipPropagation = 'none' | 'warn' | 'block';
+
+/**
  * Program listing scope. Queryset enforcement is a future change; the field is
  * stored and rendered today. Mirrors ``apps.projects.models.Visibility`` (#523).
  */
@@ -182,6 +188,13 @@ export interface Program {
   /** Read-only values inherited if the override were cleared (the workspace value). */
   inherited_attachments_enabled: boolean;
   inherited_allowed_attachment_types: string[];
+  /** Cross-project dependency slip behaviour (issue 529). Direct column (default
+   *  `warn`), not inheritable, so it carries no effective/inherited pair.
+   *  Bulk-editable from the Workspace → Programs matrix (issue 1283). */
+  risk_slip_propagation: ProgramSlipPropagation;
+  /** Days a cross-project slip may persist before escalation (issue 529), 1–30
+   *  (default 3). Bulk-editable from the Workspace → Programs matrix (issue 1283). */
+  risk_escalation_days: number;
   /** PM health override; AUTO defers to the rollup. */
   health: ProgramHealth;
   /** Headline target finish date as an ISO `YYYY-MM-DD` string, or null when the

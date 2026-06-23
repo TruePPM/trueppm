@@ -291,3 +291,41 @@ guard — ownership must always be explicitly granted to an individual.
 | `DELETE` | `/api/v1/workspace/groups/{id}/members/{user_id}/` | Admin+ | Remove a member (triggers cascade). |
 | `POST` | `/api/v1/workspace/groups/{id}/projects/` | Admin+ | Link the group to a project with a conferred role (triggers cascade). |
 | `DELETE` | `/api/v1/workspace/groups/{id}/projects/{project_id}/` | Admin+ | Unlink the group from a project (removes group-conferred memberships). |
+
+## Programs (`/settings/programs`)
+
+The **Programs** section is a bulk-edit matrix over every program in the workspace.
+It is the workspace-scoped counterpart of the program's own **Projects → bulk-edit**
+surface: instead of editing one program at a time, an admin sets a single field across
+a selection of programs in one atomic call.
+
+### How it works
+
+1. Check the programs you want to change (or **select all**).
+2. Pick **one** field to set:
+   - **Methodology** — the default delivery model new projects in each program inherit.
+     Under a workspace `inherit` methodology lock this column is read-only (display-only).
+   - **Iteration label** — the program's iteration-container label; **Reset to inherited**
+     clears the override so the program inherits the workspace default again.
+   - **Slip propagation** — what each program does when a cross-project dependency slips:
+     **No action**, **Warn only**, or **Block & escalate**.
+   - **Escalation days** — how long a cross-project slip may persist before escalation
+     (1–30 days).
+3. Apply. The change is **all-or-nothing** across the selected rows and bumps each
+   program's `server_version`. A selection can touch at most **200** programs per call.
+
+Inherited values are shown distinctly from explicit overrides. Methodology and the two
+risk-policy fields are always-set columns (no "inherit" state).
+
+### Access
+
+- **Any active workspace member** can read the program list (the matrix is visible
+  read-only, without the edit action bar).
+- **Workspace Admin or Owner** is required to apply a bulk change.
+
+### Endpoints
+
+| Method | Path | Access | Description |
+|---|---|---|---|
+| `GET` | `/api/v1/programs/` | Any member | List programs (the matrix reads `methodology`, `iteration_label`, `risk_slip_propagation`, and `risk_escalation_days`). |
+| `POST` | `/api/v1/programs/bulk-fields/` | Admin+ | Set one field across the selected programs in one atomic call. |
