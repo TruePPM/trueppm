@@ -1110,6 +1110,7 @@ def build_helios() -> dict:
             "ACTIVE": "IN_PROGRESS",
             "PLANNED": "BACKLOG",
         }[state]
+        points = [3, 5, 8][i % 3]
         story = {
             "wbs_path": f"2.{i}",
             "name": name,
@@ -1120,7 +1121,12 @@ def build_helios() -> dict:
                 "IN_PROGRESS": 40.0,
                 "BACKLOG": 0.0,
             }[status],
-            "story_points": [3, 5, 8][i % 3],
+            "story_points": points,
+            # A working-day duration so the story has real width on the schedule
+            # once the sprint-window floor (ADR-0168) positions it — without one a
+            # story defaults to a 1-day sliver. Scaled ~points/2 and kept inside the
+            # ~10-working-day sprint so the parallel stories all fit their window.
+            "duration": {3: 2, 5: 3, 8: 5}[points],
             # Two engineers share the build; the timeline then load-balances a
             # couple of stories between them as sprints fill up.
             "assignee": ["mei", "nadia"][i % 2],
