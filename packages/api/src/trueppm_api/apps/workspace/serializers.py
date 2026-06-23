@@ -411,7 +411,7 @@ class GroupProjectWriteSerializer(serializers.Serializer[Any]):
 
 
 # ---------------------------------------------------------------------------
-# #641 — Workspace lifecycle (ADR-0092)
+# #641 — Workspace lifecycle (ADR-0174)
 # ---------------------------------------------------------------------------
 
 
@@ -449,7 +449,7 @@ class WorkspaceExportJobSerializer(serializers.ModelSerializer[WorkspaceExportJo
         """Authenticated download path, present only once the archive is ready.
 
         Returns a relative API path (not a raw storage URL) so the archive is
-        always fetched through the owner-gated download endpoint (ADR-0092).
+        always fetched through the owner-gated download endpoint (ADR-0174).
         """
         if obj.status != ExportJobStatus.SUCCESS:
             return None

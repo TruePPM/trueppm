@@ -1,5 +1,5 @@
 /**
- * Hooks for the retention policy editor + purge runs (ADR-0090).
+ * Hooks for the retention policy editor + purge runs (ADR-0173).
  *
  * GET  /api/v1/health/retention/         — policy table, schedule, recent runs
  * PATCH /api/v1/health/retention/        — save-bar commit

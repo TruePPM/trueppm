@@ -139,7 +139,7 @@ def enqueue_recalculate(
 
 
 # ---------------------------------------------------------------------------
-# Monte Carlo run history — ADR-0109 (#961)
+# Monte Carlo run history — ADR-0175 (#961)
 # ---------------------------------------------------------------------------
 
 
@@ -155,7 +155,7 @@ def record_monte_carlo_run(
     user: Any = None,
     distribution: dict[str, Any] | None = None,
 ) -> MonteCarloRun | None:
-    """Persist one project-level Monte Carlo run for the forecast history (ADR-0109).
+    """Persist one project-level Monte Carlo run for the forecast history (ADR-0175).
 
     Called synchronously from ``run_monte_carlo`` after the simulation returns.
     Persistence is **best-effort**: the simulation result is the primary

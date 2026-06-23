@@ -1,4 +1,4 @@
-# ADR-0083: HTTP Idempotency-Key Support on Unsafe Mutations
+# ADR-0170: HTTP Idempotency-Key Support on Unsafe Mutations
 
 ## Status
 Proposed
@@ -174,7 +174,7 @@ class IdempotencyKey(models.Model):
     Does NOT inherit VersionedModel — server-side request-dedup record, not synced
     to mobile clients. A committed row is always status='completed' (the claim is
     written and updated in the same ATOMIC_REQUESTS transaction; a rolled-back
-    mutation leaves no row). See ADR-0083.
+    mutation leaves no row). See ADR-0170.
     """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,

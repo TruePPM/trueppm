@@ -1,4 +1,4 @@
-"""DRF dispatch-layer idempotency mixin (ADR-0083).
+"""DRF dispatch-layer idempotency mixin (ADR-0170).
 
 The hook lives at the DRF dispatch layer rather than in Django middleware because
 ``ATOMIC_REQUESTS = True``: the per-request transaction wraps only the view call, so a

@@ -102,7 +102,7 @@ const FIXTURE_MC_RESULT = {
   sensitivity: [{ task_id: 'mc-t2', index: 0.88 }],
 };
 
-/** Forecast run history (ADR-0109, #961): newest-first with per-run deltas. */
+/** Forecast run history (ADR-0175, #961): newest-first with per-run deltas. */
 const FIXTURE_MC_HISTORY = {
   results: [
     {
@@ -401,7 +401,7 @@ test.describe('Monte Carlo Schedule Integration (#333)', () => {
   });
 });
 
-test.describe('Monte Carlo forecast history (#961, ADR-0109)', () => {
+test.describe('Monte Carlo forecast history (#961, ADR-0175)', () => {
   async function openMcPanel(page: import('@playwright/test').Page) {
     await gotoScheduleWithMC(page);
     // Open the MC confidence drawer from the shell health-cluster forecast band.

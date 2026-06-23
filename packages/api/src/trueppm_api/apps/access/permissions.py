@@ -998,7 +998,7 @@ class ProjectScopedViewSet(IdempotencyMixin, viewsets.GenericViewSet):  # type: 
     Subclasses should call super().get_queryset() and then apply additional
     filters on top of the membership-scoped queryset.
 
-    Inherits IdempotencyMixin (ADR-0083) so every project-scoped mutation honors the
+    Inherits IdempotencyMixin (ADR-0170) so every project-scoped mutation honors the
     Idempotency-Key header. The mixin precedes GenericViewSet in the MRO so its
     initial()/finalize_response()/handle_exception() overrides run inside the
     ATOMIC_REQUESTS transaction. Opt out with ``idempotency_exempt = True``.

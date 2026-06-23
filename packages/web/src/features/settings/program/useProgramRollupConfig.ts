@@ -7,7 +7,7 @@ import {
 } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 
-/** Wire-format identifiers for the rollup KPI toggles. Closed enum — see ADR-0079. */
+/** Wire-format identifiers for the rollup KPI toggles. Closed enum — see ADR-0169. */
 export type RollupKpi =
   | 'schedule_variance'
   | 'cost_variance'
@@ -34,7 +34,7 @@ export interface ProgramRollupConfig {
 const queryKey = (programId: string | undefined) =>
   ['program-rollup-config', programId] as const;
 
-/** GET /api/v1/programs/:id/rollup-config/ — ADR-0079, #527. */
+/** GET /api/v1/programs/:id/rollup-config/ — ADR-0169, #527. */
 export function useProgramRollupConfig(
   programId: string | undefined,
 ): UseQueryResult<ProgramRollupConfig> {

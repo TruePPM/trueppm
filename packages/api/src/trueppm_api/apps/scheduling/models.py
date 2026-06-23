@@ -250,7 +250,7 @@ class VelocitySuggestion(models.Model):
 
 
 class MonteCarloRun(models.Model):
-    """One persisted project-level Monte Carlo simulation run (ADR-0109, #961).
+    """One persisted project-level Monte Carlo simulation run (ADR-0175, #961).
 
     Written synchronously per ``POST /projects/<pk>/monte-carlo/`` run so the PM
     can read finish-date forecast *drift* over time ("my P80 was Aug 14 two weeks
@@ -267,7 +267,7 @@ class MonteCarloRun(models.Model):
     Retention is the OSS cap applied to run *count*: a nightly purge keeps the
     newest ``settings.MC_HISTORY_CAP`` rows per project (Enterprise overrides to
     ``None`` = unlimited). Bounded history, never unlimited — the portfolio /
-    cross-program rollup is the Enterprise upsell (ADR-0109).
+    cross-program rollup is the Enterprise upsell (ADR-0175).
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -280,7 +280,7 @@ class MonteCarloRun(models.Model):
     # SET_NULL + null: account deletion never cascades away forecast history, and
     # the attribution is optional metadata. Serialized ONLY to Admin/Owner so
     # forecast drift cannot become a named-individual performance signal at the
-    # team level (ADR-0109 / VoC Morgan). related_name="+": no reverse accessor
+    # team level (ADR-0175 / VoC Morgan). related_name="+": no reverse accessor
     # needed (we never list a user's runs).
     triggered_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -348,7 +348,7 @@ class ProjectForecastSnapshot(models.Model):
       latest-per-milestone, and carries a velocity-privacy band — a different read
       contract. (Its FK already owns ``related_name="forecast_snapshots"`` on
       Project, which is why this model uses ``project_forecast_snapshots``.)
-    * ``MonteCarloRun`` (ADR-0109) is written only when a user *explicitly* runs
+    * ``MonteCarloRun`` (ADR-0175) is written only when a user *explicitly* runs
       Monte Carlo and is capped to the newest N runs — it never captures CPM-finish
       drift on a project that has never been simulated, and its flat cap drops the
       long tail the trend chart needs.

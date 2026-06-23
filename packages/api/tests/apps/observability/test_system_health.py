@@ -1,4 +1,4 @@
-"""Tests for the System Health overview endpoint (#692, ADR-0087).
+"""Tests for the System Health overview endpoint (#692, ADR-0172).
 
 Covers:
   - GET /api/v1/health/system/ IsAdminUser gating (401 unauth, 403 non-staff)

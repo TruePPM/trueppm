@@ -382,7 +382,7 @@ project write is rejected (`403`); a non-`PROPOSED` item is rejected (`409`).
 `pulled_by` cleared) so it can be re-pulled. The `OneToOne` on `pulled_task` uses
 `SET_NULL` so Task deletion never cascades to the item.
 
-The pull viewset uses `IdempotencyMixin` (header-based replay, ADR-0083); the
+The pull viewset uses `IdempotencyMixin` (header-based replay, ADR-0170); the
 `status==PROPOSED` guard under `select_for_update` is the domain-level double-pull guard.
 
 ### 6. Trigram search (#739)

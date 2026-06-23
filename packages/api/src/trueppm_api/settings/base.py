@@ -188,7 +188,7 @@ CELERY_TIMEZONE = "UTC"
 from celery.schedules import crontab  # noqa: E402 — must follow REDIS_URL
 
 CELERY_BEAT_SCHEDULE = {
-    # Retention purge coordinator (ADR-0090): one self-gating task that purges the
+    # Retention purge coordinator (ADR-0173): one self-gating task that purges the
     # five operational tables (event history, task runs, webhook deliveries, import
     # requests, sync batches) as a single unified run, recorded in PurgeRun. Fires
     # every 30 min and no-ops outside the operator-configured window (Settings →
@@ -212,7 +212,7 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": crontab(hour=2, minute=15),
     },
     # Nightly cleanup: trims project Monte Carlo run history to the newest
-    # MC_HISTORY_CAP rows per project (ADR-0109, #961). No-ops when the cap is
+    # MC_HISTORY_CAP rows per project (ADR-0175, #961). No-ops when the cap is
     # None (Enterprise unlimited).
     "purge-monte-carlo-runs-nightly": {
         "task": "scheduling.purge_old_monte_carlo_runs",
@@ -312,7 +312,7 @@ CELERY_BEAT_SCHEDULE = {
     },
     # Hourly cleanup: deletes stored Idempotency-Key rows older than
     # IDEMPOTENCY_RETENTION_HOURS. Hourly (not nightly) so the 24h contract holds —
-    # a nightly job would let rows live up to ~48h (ADR-0083).
+    # a nightly job would let rows live up to ~48h (ADR-0170).
     "idempotency-keys-purge-hourly": {
         "task": "idempotency.purge_old_keys",
         "schedule": crontab(minute=5),
@@ -332,13 +332,13 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": crontab(hour=4, minute=15),
     },
     # Re-dispatch workspace export jobs orphaned by a broker outage at on_commit
-    # (ADR-0092 §Durable Execution item 2; 5-min orphan window inside the task).
+    # (ADR-0174 §Durable Execution item 2; 5-min orphan window inside the task).
     "drain-workspace-exports": {
         "task": "workspace.drain_workspace_exports",
         "schedule": 30.0,
     },
     # Nightly: delete export jobs past their download-link expiry and their files
-    # (ADR-0092 §Durable Execution item 6).
+    # (ADR-0174 §Durable Execution item 6).
     "purge-expired-exports": {
         "task": "workspace.purge_expired_exports",
         # 04:20 UTC — after purge-stale-invites.
@@ -496,7 +496,7 @@ MC_SIMULATION_CAP: int | None = 1_000
 # lower this; Enterprise overrides it in enterprise settings.
 MC_TASK_CAP: int | None = 5_000
 
-# Project Monte Carlo run-history retention (ADR-0109, #961): the nightly purge
+# Project Monte Carlo run-history retention (ADR-0175, #961): the nightly purge
 # keeps the newest MC_HISTORY_CAP MonteCarloRun rows per project so a PM can read
 # finish-date forecast drift over time. None = unlimited (Enterprise overrides it
 # — unbounded history + cross-program rollup is the portfolio upsell).
@@ -664,7 +664,7 @@ TRUEPPM_WEBHOOK_RETENTION_DAYS: int | None = env.int("TRUEPPM_WEBHOOK_RETENTION_
 TRUEPPM_IMPORT_RETENTION_DAYS: int | None = env.int("TRUEPPM_IMPORT_RETENTION_DAYS", default=7)
 
 # Download-link validity (days) for a completed WorkspaceExportJob; past this the
-# nightly purge deletes the job row and its stored archive (ADR-0092). The full
+# nightly purge deletes the job row and its stored archive (ADR-0174). The full
 # archive can be large and contains every project's data, so it is not kept
 # indefinitely. Set to None to disable expiry/purge (links never lapse).
 TRUEPPM_EXPORT_RETENTION_DAYS: int | None = env.int("TRUEPPM_EXPORT_RETENTION_DAYS", default=7)
@@ -681,7 +681,7 @@ TRUEPPM_BEAT_STALE_SECONDS: int = env.int("TRUEPPM_BEAT_STALE_SECONDS", default=
 TRUEPPM_SYNC_BATCH_RETENTION_HOURS: int = env.int("TRUEPPM_SYNC_BATCH_RETENTION_HOURS", default=24)
 
 # How long a manual retention purge may be considered "in progress" before the
-# run endpoint stops treating a RUNNING PurgeRow as blocking (ADR-0090 §G). Bounds
+# run endpoint stops treating a RUNNING PurgeRow as blocking (ADR-0173 §G). Bounds
 # the API-level single-flight guard to the coordinator's Redis lock window so a
 # worker that died mid-run can't block all future manual runs with a stale row.
 RETENTION_PURGE_INFLIGHT_SECONDS: int = env.int("RETENTION_PURGE_INFLIGHT_SECONDS", default=600)
@@ -724,7 +724,7 @@ WORKFLOW_DRAIN_BATCH_SIZE = env.int("WORKFLOW_DRAIN_BATCH_SIZE", default=200)
 WORKFLOW_PURGE_BATCH_SIZE = env.int("WORKFLOW_PURGE_BATCH_SIZE", default=500)
 
 # ---------------------------------------------------------------------------
-# Idempotency-Key retention (trueppm_api.apps.idempotency, ADR-0083)
+# Idempotency-Key retention (trueppm_api.apps.idempotency, ADR-0170)
 # ---------------------------------------------------------------------------
 
 # Retention window in hours for stored Idempotency-Key responses. Purged hourly by
@@ -746,7 +746,7 @@ SPECTACULAR_SETTINGS = {
     "VERSION": "0.3.0",
     "SERVE_INCLUDE_SCHEMA": False,
     "COMPONENT_SPLIT_REQUEST": True,
-    # Pin state-enum names (ADR-0090). PurgeRun.state shares the field name "state"
+    # Pin state-enum names (ADR-0173). PurgeRun.state shares the field name "state"
     # with the sprint lifecycle enum; introducing a second "state" choice set makes
     # drf-spectacular disambiguate *both* by model prefix, renaming the sprint enum
     # away from the stable `StateEnum` component (a schema regression). Pinning the

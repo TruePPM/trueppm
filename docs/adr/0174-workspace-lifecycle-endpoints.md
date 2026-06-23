@@ -1,4 +1,4 @@
-# ADR-0092: Workspace lifecycle endpoints (transfer ownership / export / delete)
+# ADR-0174: Workspace lifecycle endpoints (transfer ownership / export / delete)
 
 ## Status
 Accepted
@@ -25,7 +25,7 @@ Enterprise. **OSS.** (Cross-workspace governance, billing, org audit = Enterpris
 
 A new `IsWorkspaceOwner` permission (role == OWNER; superuser-with-no-row treated as
 OWNER, matching the existing bootstrap in `permissions.py`) gates all three endpoints.
-All carry `IdempotencyMixin` (ADR-0083), consistent with the other workspace views.
+All carry `IdempotencyMixin` (ADR-0170), consistent with the other workspace views.
 
 ### 1. `POST /api/v1/workspace/transfer-ownership/`
 Body `{"new_owner_user_id": <int>}`. Mirrors `ProjectViewSet.transfer`. Service

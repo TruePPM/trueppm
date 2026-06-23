@@ -187,7 +187,7 @@ cycle).
 OSS = **none**. Rows accumulate. This is acceptable because workspace
 *administration* events are intrinsically low-volume (member/role/project/settings/
 export changes happen on the order of tens-to-hundreds per workspace, not per-task
-or per-request). Automatic retention/purge is an Enterprise concern (ADR-0090
+or per-request). Automatic retention/purge is an Enterprise concern (ADR-0173
 territory) and a guarantee OSS explicitly does **not** make (per #859). No cap in
 this slice; if volume ever proves a problem an admin-triggered prune can be added
 later without schema change.

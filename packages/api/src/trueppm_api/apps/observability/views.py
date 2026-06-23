@@ -143,7 +143,7 @@ def dead_letter_metrics(_request: Request) -> HttpResponse:
     summary="System health overview (operator dashboard)",
     description=(
         "Aggregated, read-only snapshot of the durable-execution layer for the "
-        "workspace-admin System Health dashboard (#692, ADR-0087): five component "
+        "workspace-admin System Health dashboard (#692, ADR-0172): five component "
         "status cards (outbox dispatcher, Celery Beat, dead-letter alerting, "
         "notification dispatcher, retention purge), the Beat heartbeat panel and "
         "configured schedule, a dead-letter summary, and the read-only retention "
@@ -189,7 +189,7 @@ def system_health(_request: Request) -> Response:
         "batches) with estimated row counts and sizes, the purge schedule, and the "
         "seven most recent purge runs. Row counts and sizes are PostgreSQL "
         "estimates. Workspace operators tune these from Settings → System health → "
-        "Retention & purge (ADR-0090). Requires a staff (admin) account."
+        "Retention & purge (ADR-0173). Requires a staff (admin) account."
     ),
     responses={200: RetentionStateSerializer},
     tags=["meta"],
@@ -209,7 +209,7 @@ def system_health(_request: Request) -> Response:
 @api_view(["GET", "PATCH"])
 @permission_classes([IsAdminUser])
 def retention_settings(request: Request) -> Response:
-    """Read or update the retention policy + schedule (ADR-0090 §G).
+    """Read or update the retention policy + schedule (ADR-0173 §G).
 
     Overrides layer over the ADR-0081 settings defaults — an absent override means
     the deployment's configured default is used, so behaviour is unchanged until an
@@ -263,7 +263,7 @@ def retention_impact(request: Request) -> Response:
 @api_view(["POST"])
 @permission_classes([IsAdminUser])
 def retention_runs(request: Request) -> Response:
-    """Queue a manual purge or dry-run; returns 202 with the run id (ADR-0090 §G).
+    """Queue a manual purge or dry-run; returns 202 with the run id (ADR-0173 §G).
 
     Rejects with 409 when a run started within the coordinator's lock window is
     still in progress — an end-to-end single-flight guard on top of the worker-side

@@ -1,4 +1,4 @@
-"""Full-workspace archive builder (ADR-0092, #641).
+"""Full-workspace archive builder (ADR-0174, #641).
 
 Produces a single ``.tar.gz`` containing the entire workspace as JSON plus the
 binary attachment files, and stores it via the configured default storage. The

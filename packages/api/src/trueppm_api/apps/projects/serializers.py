@@ -144,7 +144,7 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
 
     ``member_count`` and ``percent_complete`` are populated only when the
     viewset annotates them — currently just the ``?program__isnull=true``
-    (ungrouped) list branch consumed by the Programs directory (ADR-0083).
+    (ungrouped) list branch consumed by the Programs directory (ADR-0171).
     They return ``null`` on every other path so the default project list stays
     a single unaggregated query (the list is deliberately lightweight at
     portfolio scale — see ``ProjectViewSet.get_serializer_class``).
@@ -350,12 +350,12 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
 
     def get_member_count(self, obj: Project) -> int | None:
         """Active membership count — only annotated on the ungrouped list
-        branch (ADR-0083). ``None`` elsewhere; never triggers a per-row query."""
+        branch (ADR-0171). ``None`` elsewhere; never triggers a per-row query."""
         return getattr(obj, "member_count", None)
 
     def get_percent_complete(self, obj: Project) -> float | None:
         """Task-weighted mean progress — annotated only on the ungrouped list
-        branch (ADR-0083). ``None`` when unannotated or the project has no
+        branch (ADR-0171). ``None`` when unannotated or the project has no
         tasks. Rounded to one decimal for display stability."""
         value = getattr(obj, "percent_complete", None)
         return round(value, 1) if value is not None else None
@@ -1221,7 +1221,7 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
 
 
 class ProgramRollupConfigSerializer(serializers.ModelSerializer[Program]):
-    """GET/PATCH payload for ``/api/v1/programs/{id}/rollup-config/`` (ADR-0079).
+    """GET/PATCH payload for ``/api/v1/programs/{id}/rollup-config/`` (ADR-0169).
 
     Both fields are partial-updatable. ``enabled_kpis`` is validated against
     the closed ``RollupKpi`` enum — unknown identifiers raise 400 rather than
@@ -4508,7 +4508,7 @@ class MilestoneSlipSerializer(serializers.Serializer[dict[str, Any]]):
 
 
 class SprintOutcomeSerializer(serializers.Serializer[dict[str, Any]]):
-    """Consolidated sprint-review read (#985, ADR-0111 §3) for
+    """Consolidated sprint-review read (#985, ADR-0176 §3) for
     ``GET /api/sprints/{id}/outcome/``.
 
     The single surface the #567 review UI and the MCP adapter bind to —

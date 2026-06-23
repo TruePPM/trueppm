@@ -1,4 +1,4 @@
-"""Binds each retention key to its purge callable and physical tables (ADR-0090).
+"""Binds each retention key to its purge callable and physical tables (ADR-0173).
 
 This is the *coordinator-side* binding: it imports the domain apps' purge
 functions and models, so it is imported only on the admin/coordinator path — never
@@ -9,7 +9,7 @@ to avoid any chance of an app-registry-not-ready import.
 Row counts and byte sizes are PostgreSQL **estimates** (``pg_class.reltuples`` and
 ``pg_total_relation_size``) — fast and index-free on large tables, but approximate.
 Bytes freed by a purge is derived as ``avg_row_bytes × rows`` and is best-effort
-by design (ADR-0090 Consequences).
+by design (ADR-0173 Consequences).
 """
 
 from __future__ import annotations

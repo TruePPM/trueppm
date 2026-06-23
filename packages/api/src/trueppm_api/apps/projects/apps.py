@@ -21,7 +21,7 @@ class ProjectsConfig(AppConfig):
         receivers._register_milestone_rollup_receiver()
 
         # Register the post_save handler that seeds methodology-aware rollup
-        # config when a Program is created (ADR-0079, #527).
+        # config when a Program is created (ADR-0169, #527).
         receivers._register_program_rollup_seed_receiver()
 
         # Register the post_save handler that resets a pulled BacklogItem to

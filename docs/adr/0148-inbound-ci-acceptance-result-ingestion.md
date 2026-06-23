@@ -100,7 +100,7 @@ follow-up (filed separately) once a UI exists to set it.
 
 **5. Abuse surface.** `results` is capped at **200** entries per request (`400` above
 the cap). The endpoint is wrapped in the existing HTTP idempotency-key support
-(ADR-0083 http-idempotency) for safe retries, and is naturally idempotent regardless.
+(ADR-0170 http-idempotency) for safe retries, and is naturally idempotent regardless.
 
 ## Alternatives Considered
 
@@ -145,7 +145,7 @@ the cap). The endpoint is wrapped in the existing HTTP idempotency-key support
    updated/unchanged + per-task DOR summary (above). Not a 202.
 6. **Outbox cleanup:** N/A.
 7. **Idempotency:** flipping is inherently idempotent (target-state no-op, no re-stamp).
-   HTTP idempotency-key (ADR-0083) covers duplicate POST retries. Token `last_used_at`
+   HTTP idempotency-key (ADR-0170) covers duplicate POST retries. Token `last_used_at`
    update is a harmless repeat.
 8. **Dead-letter / failure handling:** N/A — synchronous; a failed request returns
    4xx/5xx and CI retries. No queue, no DLQ.

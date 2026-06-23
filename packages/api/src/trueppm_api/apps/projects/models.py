@@ -327,7 +327,7 @@ class DefaultView(models.TextChoices):
 
 
 class RollupKpi(models.TextChoices):
-    """KPIs that can be enabled on the program-overview rollup (ADR-0079, #527).
+    """KPIs that can be enabled on the program-overview rollup (ADR-0169, #527).
 
     The set is closed — the serializer rejects unknown identifiers. Three KPIs
     that touched team-boundary or aggregation-correctness concerns were
@@ -349,7 +349,7 @@ class RollupKpi(models.TextChoices):
 
 
 class AggregationPolicy(models.TextChoices):
-    """How project health combines into the program health dot (ADR-0079, #527).
+    """How project health combines into the program health dot (ADR-0169, #527).
 
     ``WORST`` is the default and the only policy that does not dilute a single
     critical project — recommended for adoption by Sarah/Marcus, see the VoC
@@ -493,7 +493,7 @@ class Program(VersionedModel):
         blank=True,
         help_text="Program accent color as #RRGGBB hex, or null when unset.",
     )
-    # Rollup config (ADR-0079, #527) — controls which KPIs appear on the
+    # Rollup config (ADR-0169, #527) — controls which KPIs appear on the
     # program overview and how project health is aggregated into the program
     # health dot. Stored as two columns on Program so the existing
     # HistoricalRecords audit and ``server_version`` bump on save() cover both
@@ -1103,7 +1103,7 @@ class TaskType(models.TextChoices):
     exactly as ``is_recurring`` templates are. The epic→story link is the ``Task.epic``
     self-FK, deliberately parallel to (and independent of) the WBS ``wbs_path`` (#364).
 
-    TECH_DEBT (ADR-0135, #1076) is the inverse of EPIC: it *is* schedulable work that
+    TECH_DEBT (ADR-0178, #1076) is the inverse of EPIC: it *is* schedulable work that
     consumes sprint capacity, so it deliberately is NOT added to the EPIC aggregate
     exclusion — debt counts toward velocity and committed-delivery aggregates like a
     STORY/TASK. Its only distinct treatment is reporting: it is filterable via the
@@ -2634,7 +2634,7 @@ class SprintTaskDisposition(models.TextChoices):
 
 
 class SprintTaskOutcome(models.Model):
-    """Per-task membership-at-close snapshot for sprint review (ADR-0111, #982).
+    """Per-task membership-at-close snapshot for sprint review (ADR-0176, #982).
 
     One immutable row per task that was linked to the sprint at the instant it
     closed — written inside the close transaction *before* ``apply_carry_over``
@@ -2678,7 +2678,7 @@ class SprintTaskOutcome(models.Model):
     # ship from uncommitted injected work that didn't ship.
     was_pending = models.BooleanField(default=False)
     # True when written by the optional backfill command (best-effort from
-    # HistoricalTask), False for rows captured live at close (ADR-0111 §4).
+    # HistoricalTask), False for rows captured live at close (ADR-0176 §4).
     backfilled = models.BooleanField(default=False)
     # Review-time curation (ADR-0118, #924): whether the team will walk
     # stakeholders through this story in the Sprint Review demo. The close-snapshot

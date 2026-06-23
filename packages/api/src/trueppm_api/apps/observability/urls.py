@@ -1,4 +1,4 @@
-"""URL routes for observability (ADR-0081, ADR-0090)."""
+"""URL routes for observability (ADR-0081, ADR-0173)."""
 
 from __future__ import annotations
 

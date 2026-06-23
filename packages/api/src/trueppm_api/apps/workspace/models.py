@@ -588,7 +588,7 @@ class GroupProject(models.Model):
 
 
 class ExportJobStatus(models.TextChoices):
-    """Lifecycle of an async workspace export (ADR-0092)."""
+    """Lifecycle of an async workspace export (ADR-0174)."""
 
     PENDING = "pending", "Pending"
     RUNNING = "running", "Running"
@@ -597,7 +597,7 @@ class ExportJobStatus(models.TextChoices):
 
 
 class WorkspaceExportJob(models.Model):
-    """Tracks a full-workspace archive export (ADR-0092, #641).
+    """Tracks a full-workspace archive export (ADR-0174, #641).
 
     Plain (non-synced) model — an export job is server-side bookkeeping, never a
     mobile-offline entity. There is no FK to ``Workspace`` because it is a

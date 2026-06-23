@@ -1,4 +1,4 @@
-"""Tests for the Workspace lifecycle API (#641, ADR-0092).
+"""Tests for the Workspace lifecycle API (#641, ADR-0174).
 
 Covers the Owner-only gate, transfer-ownership demotion, the async export job +
 authenticated download, and the hard-delete factory reset (typed-confirmation
@@ -251,7 +251,7 @@ def test_member_cannot_delete_workspace(member: object) -> None:
 
 # ---------------------------------------------------------------------------
 # Export task lifecycle — idempotency gate, retry/permanent-fail, drain, purge,
-# and the owner-ready email (ADR-0092 §Durable Execution).
+# and the owner-ready email (ADR-0174 §Durable Execution).
 # ---------------------------------------------------------------------------
 
 

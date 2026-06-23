@@ -875,7 +875,7 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
     )
     @action(detail=True, methods=["get", "patch"], url_path="rollup-config")
     def rollup_config(self, request: Request, pk: str | None = None) -> Response:
-        """Read or update the program rollup KPIs config (ADR-0079, #527).
+        """Read or update the program rollup KPIs config (ADR-0169, #527).
 
         URL: ``GET|PATCH /api/v1/programs/{pk}/rollup-config/``
 

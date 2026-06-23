@@ -72,7 +72,7 @@ from trueppm_api.apps.workspace.serializers import (
     initials_for,
 )
 
-# Typed-confirmation header for the destructive workspace delete (ADR-0092). Its
+# Typed-confirmation header for the destructive workspace delete (ADR-0174). Its
 # value must equal the workspace name exactly — the web danger page sends it.
 CONFIRM_WORKSPACE_HEADER = "X-Confirm-Workspace"
 
@@ -269,7 +269,7 @@ class WorkspaceSettingsView(IdempotencyMixin, APIView):
         ),
     )
     def delete(self, request: Request) -> Response:
-        """Hard-delete the workspace and all its data (ADR-0092, #641).
+        """Hard-delete the workspace and all its data (ADR-0174, #641).
 
         Owner-only (PATCH is ADMIN+, so the owner gate is enforced here rather than
         via the class-level permission). A typed-confirmation header must match the
@@ -914,7 +914,7 @@ class GroupProjectView(IdempotencyMixin, APIView):
 
 
 # ---------------------------------------------------------------------------
-# #641 — Workspace lifecycle: transfer ownership / export (ADR-0092)
+# #641 — Workspace lifecycle: transfer ownership / export (ADR-0174)
 # (Workspace hard-delete is ``WorkspaceSettingsView.delete`` above.)
 # ---------------------------------------------------------------------------
 

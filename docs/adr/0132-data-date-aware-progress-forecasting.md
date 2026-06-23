@@ -160,7 +160,7 @@ preview/partial engine); the ADR documents the gap and #1187 closes it.
 - API changes: **yes** — `ProjectSerializer` gains `status_date` (read/write,
   null → today on compute). MC and CPM now consume progress fields via the
   shared builder. `MonteCarloRun` records the `status_date` used (provenance;
-  additive on Proposed ADR-0109b).
+  additive on Proposed ADR-0175).
 - OSS or Enterprise: **OSS** (`trueppm-suite`).
 
 ### Durable Execution

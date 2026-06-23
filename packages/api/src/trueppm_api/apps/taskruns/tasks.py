@@ -17,7 +17,7 @@ def _do_taskrun_purge(*, dry_run: bool = False, override_value: int | None = Non
 
     Deletes terminal (SUCCESS/FAILED/CANCELLED) TaskRun rows older than the window
     resolved by ``resolve_retention`` (operator override → the
-    TASK_RUN_RETENTION_DAYS default, ADR-0090); ``None`` disables the purge. Returns
+    TASK_RUN_RETENTION_DAYS default, ADR-0173); ``None`` disables the purge. Returns
     rows deleted, or the eligible count when ``dry_run``; ``override_value`` forces
     a hypothetical window.
     """
@@ -49,7 +49,7 @@ def purge_old_task_runs() -> dict[str, Any]:
     """Delete completed/failed/cancelled TaskRun records older than the window.
 
     Still dispatchable directly, but no longer on its own Beat schedule — the
-    consolidated retention coordinator owns scheduled purging (ADR-0090 §C).
+    consolidated retention coordinator owns scheduled purging (ADR-0173 §C).
     Controlled by TASK_RUN_RETENTION_DAYS (default 30) plus any operator override;
     a resolved window of None disables auto-purge.
     """

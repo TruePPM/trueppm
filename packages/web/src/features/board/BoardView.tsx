@@ -1225,7 +1225,7 @@ export function BoardView() {
     isSynthetic?: boolean;
   } | null>(null);
   const [riskLinkedOnly, setRiskLinkedOnly] = useState(false);
-  // Tech-debt filter (ADR-0135, #1076) — transient board toggle that narrows to
+  // Tech-debt filter (ADR-0178, #1076) — transient board toggle that narrows to
   // type=tech_debt so a team can see remediation work distinctly. Not part of a
   // saved view; it's a quick lens, like the at-risk toggle's intent.
   const [debtOnly, setDebtOnly] = useState(false);
@@ -1780,7 +1780,7 @@ export function BoardView() {
           if (myResourceId === null) continue;
           if (!task.assignees.some((a) => a.resourceId === myResourceId)) continue;
         }
-        // Tech-debt lens (ADR-0135, #1076): narrow to remediation work.
+        // Tech-debt lens (ADR-0178, #1076): narrow to remediation work.
         if (debtOnly && task.taskType !== 'tech_debt') continue;
         byStatus[task.status]?.push(task);
       }
@@ -2317,7 +2317,7 @@ export function BoardView() {
             </div>
           )}
 
-          {/* "Tech debt" active chip (ADR-0135, #1076) — keeps the lens
+          {/* "Tech debt" active chip (ADR-0178, #1076) — keeps the lens
               inescapable so a narrowed board doesn't read as "lost tasks". */}
           {debtOnly && (
             <div

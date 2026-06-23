@@ -57,7 +57,7 @@ The dead-letter card shows the parked count, the age of the oldest parked task, 
 common failure cause, and an **Open inspector** link. The retention card shows the
 current per-table retention windows (read-only here) with a **Manage retention** link to
 the editor, where admins tune windows, schedule, and on-demand runs; see
-[Retention](retention.md) and ADR-0081 / ADR-0090.
+[Retention](retention.md) and ADR-0081 / ADR-0173.
 
 ## Dead-letter inspector
 

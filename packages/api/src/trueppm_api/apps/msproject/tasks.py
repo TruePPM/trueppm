@@ -288,7 +288,7 @@ def _do_import_purge(*, dry_run: bool = False, override_value: int | None = None
     """Business logic for purge_old_import_requests — extracted for testability.
 
     Retention comes from ``resolve_retention`` (operator override → the
-    TRUEPPM_IMPORT_RETENTION_DAYS default, ADR-0090); ``None`` disables the purge,
+    TRUEPPM_IMPORT_RETENTION_DAYS default, ADR-0173); ``None`` disables the purge,
     keeping ImportRequest blobs indefinitely. Returns rows deleted, or the eligible
     count when ``dry_run``; ``override_value`` forces a hypothetical window.
     """

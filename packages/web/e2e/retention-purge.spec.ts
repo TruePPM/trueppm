@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * Workspace Settings → Retention & purge E2E (#693, ADR-0090).
+ * Workspace Settings → Retention & purge E2E (#693, ADR-0173).
  *
  * Operator editor backed by GET/PATCH /api/v1/health/retention/, the impact
  * estimate, and the run endpoint. Covers:

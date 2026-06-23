@@ -4,7 +4,7 @@
 Accepted (decisions ratified by Kelly, 2026-05-25)
 
 ## Context
-#527 (ADR-0079) shipped the **config** for program-overview KPI rollups — two
+#527 (ADR-0169) shipped the **config** for program-overview KPI rollups — two
 columns on `Program` (`rollup_enabled_kpis`, `rollup_aggregation_policy`) and the
 `GET/PATCH /programs/{pk}/rollup-config/` endpoint — but **no consumer reads that
 config**. The program overview shows no rolled-up values; the #527 acceptance
@@ -39,7 +39,7 @@ Two forces collide:
    path is the *default* experience, not an edge case.
 
 2. **The 4 aggregation policies were designed for the health dot, not arbitrary
-   KPIs.** ADR-0079's docstring: the policy describes "how project health combines
+   KPIs.** ADR-0169's docstring: the policy describes "how project health combines
    into the program health dot." But the enabled KPIs are heterogeneous — ordinal
    health bands, additive counts, risk-exposure scores, signed day-variances, dates.
    "Average critical-task count per project" is not a number a PM asks for; "total
@@ -114,7 +114,7 @@ Rationale for Count/Score being policy-independent: a count or total risk-exposu
 *is* a program-level fact — the sum is the only PM-useful number. "Worst-casing" or
 "averaging" a count produces a figure no one acts on. The policy governs the
 **health bands and the variance** (the genuinely combinable signals) and the
-headline **program health dot**, which is exactly what ADR-0079 designed it for.
+headline **program health dot**, which is exactly what ADR-0169 designed it for.
 
 **`weighted_by_budget` fallback.** When the program's policy is `weighted_by_budget`
 (no budget field exists), Health/Variance reduce by `average` and the response sets

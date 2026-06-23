@@ -1,4 +1,4 @@
-# ADR-0111: Sprint Review API Foundation — Membership-at-Close and the Consolidated Outcome Read
+# ADR-0176: Sprint Review API Foundation — Membership-at-Close and the Consolidated Outcome Read
 
 ## Status
 Accepted (2026-06-09) — Kelly affirmed API-first as the standing contract and signed off on all five questions below with the recommended answers: (1) null `didnt_ship[].story_points` for the suppressed management band; (2) no data-migration backfill, optional operator command + `outcome_recorded` flag; (3) `/outcome/` serves all states with a `provisional` flag; (4) store exact `TaskStatus` as `final_status`; (5) build order #982 → #983/#984 → #985 → #567 UI. Implementation may begin with #982.

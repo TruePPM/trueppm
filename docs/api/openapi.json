@@ -304,7 +304,7 @@
         "/api/v1/admin/failed-tasks/": {
             "get": {
                 "operationId": "v1_admin_failed_tasks_list",
-                "description": "Admin endpoint for dead-lettered Celery tasks.\n\nList/detail/retry/dismiss: admin users only. The serializer exposes\ntracebacks, args, and kwargs which may contain internal paths or partial\nsecrets and must not be visible to unprivileged members.\n\nThe list endpoint backs the dead-letter inspector (#694, ADR-0087) and\naccepts read-only filters: ``?status=`` (one of the FailedTaskStatus\nvalues), ``?task_name=`` (case-insensitive substring), and\n``?failed_after=`` / ``?failed_before=`` (ISO-8601, filtered on\n``last_failed_at``). Results keep the model default ordering\n(``-last_failed_at``, newest failure first).",
+                "description": "Admin endpoint for dead-lettered Celery tasks.\n\nList/detail/retry/dismiss: admin users only. The serializer exposes\ntracebacks, args, and kwargs which may contain internal paths or partial\nsecrets and must not be visible to unprivileged members.\n\nThe list endpoint backs the dead-letter inspector (#694, ADR-0172) and\naccepts read-only filters: ``?status=`` (one of the FailedTaskStatus\nvalues), ``?task_name=`` (case-insensitive substring), and\n``?failed_after=`` / ``?failed_before=`` (ISO-8601, filtered on\n``last_failed_at``). Results keep the model default ordering\n(``-last_failed_at``, newest failure first).",
                 "parameters": [
                     {
                         "in": "query",
@@ -394,7 +394,7 @@
         "/api/v1/admin/failed-tasks/{id}/": {
             "get": {
                 "operationId": "v1_admin_failed_tasks_retrieve",
-                "description": "Admin endpoint for dead-lettered Celery tasks.\n\nList/detail/retry/dismiss: admin users only. The serializer exposes\ntracebacks, args, and kwargs which may contain internal paths or partial\nsecrets and must not be visible to unprivileged members.\n\nThe list endpoint backs the dead-letter inspector (#694, ADR-0087) and\naccepts read-only filters: ``?status=`` (one of the FailedTaskStatus\nvalues), ``?task_name=`` (case-insensitive substring), and\n``?failed_after=`` / ``?failed_before=`` (ISO-8601, filtered on\n``last_failed_at``). Results keep the model default ordering\n(``-last_failed_at``, newest failure first).",
+                "description": "Admin endpoint for dead-lettered Celery tasks.\n\nList/detail/retry/dismiss: admin users only. The serializer exposes\ntracebacks, args, and kwargs which may contain internal paths or partial\nsecrets and must not be visible to unprivileged members.\n\nThe list endpoint backs the dead-letter inspector (#694, ADR-0172) and\naccepts read-only filters: ``?status=`` (one of the FailedTaskStatus\nvalues), ``?task_name=`` (case-insensitive substring), and\n``?failed_after=`` / ``?failed_before=`` (ISO-8601, filtered on\n``last_failed_at``). Results keep the model default ordering\n(``-last_failed_at``, newest failure first).",
                 "parameters": [
                     {
                         "in": "path",
@@ -1532,7 +1532,7 @@
         "/api/v1/health/retention/": {
             "get": {
                 "operationId": "v1_health_retention_retrieve",
-                "description": "Returns the editable retention policy for the five operational tables (event history, task runs, webhook deliveries, import requests, sync batches) with estimated row counts and sizes, the purge schedule, and the seven most recent purge runs. Row counts and sizes are PostgreSQL estimates. Workspace operators tune these from Settings → System health → Retention & purge (ADR-0090). Requires a staff (admin) account.",
+                "description": "Returns the editable retention policy for the five operational tables (event history, task runs, webhook deliveries, import requests, sync batches) with estimated row counts and sizes, the purge schedule, and the seven most recent purge runs. Row counts and sizes are PostgreSQL estimates. Workspace operators tune these from Settings → System health → Retention & purge (ADR-0173). Requires a staff (admin) account.",
                 "summary": "Retention policy editor state",
                 "tags": [
                     "meta"
@@ -1716,7 +1716,7 @@
         "/api/v1/health/system/": {
             "get": {
                 "operationId": "v1_health_system_retrieve",
-                "description": "Aggregated, read-only snapshot of the durable-execution layer for the workspace-admin System Health dashboard (#692, ADR-0087): five component status cards (outbox dispatcher, Celery Beat, dead-letter alerting, notification dispatcher, retention purge), the Beat heartbeat panel and configured schedule, a dead-letter summary, and the read-only retention configuration. Composes existing committed state — no payloads or task arguments are exposed here. Always responds 200 with statuses in the body (unlike `/health/beat/`, which is a 200/503 probe). Requires a staff (admin) account.",
+                "description": "Aggregated, read-only snapshot of the durable-execution layer for the workspace-admin System Health dashboard (#692, ADR-0172): five component status cards (outbox dispatcher, Celery Beat, dead-letter alerting, notification dispatcher, retention purge), the Beat heartbeat panel and configured schedule, a dead-letter summary, and the read-only retention configuration. Composes existing committed state — no payloads or task arguments are exposed here. Always responds 200 with statuses in the body (unlike `/health/beat/`, which is a 200/503 probe). Requires a staff (admin) account.",
                 "summary": "System health overview (operator dashboard)",
                 "tags": [
                     "meta"
@@ -3402,7 +3402,7 @@
         "/api/v1/programs/{id}/rollup-config/": {
             "get": {
                 "operationId": "v1_programs_rollup_config_retrieve",
-                "description": "Read or update the program rollup KPIs config (ADR-0079, #527).\n\nURL: ``GET|PATCH /api/v1/programs/{pk}/rollup-config/``\n\nPermission split is method-level (see ``get_permissions``): any\nmember can read, only admins can write. Audit is automatic via the\n``HistoricalRecords()`` already on Program — every successful PATCH\ncreates a ``HistoricalProgram`` row with the field diff.",
+                "description": "Read or update the program rollup KPIs config (ADR-0169, #527).\n\nURL: ``GET|PATCH /api/v1/programs/{pk}/rollup-config/``\n\nPermission split is method-level (see ``get_permissions``): any\nmember can read, only admins can write. Audit is automatic via the\n``HistoricalRecords()`` already on Program — every successful PATCH\ncreates a ``HistoricalProgram`` row with the field diff.",
                 "summary": "Read or update the program rollup KPIs config",
                 "parameters": [
                     {
@@ -3442,7 +3442,7 @@
             },
             "patch": {
                 "operationId": "v1_programs_rollup_config_partial_update",
-                "description": "Read or update the program rollup KPIs config (ADR-0079, #527).\n\nURL: ``GET|PATCH /api/v1/programs/{pk}/rollup-config/``\n\nPermission split is method-level (see ``get_permissions``): any\nmember can read, only admins can write. Audit is automatic via the\n``HistoricalRecords()`` already on Program — every successful PATCH\ncreates a ``HistoricalProgram`` row with the field diff.",
+                "description": "Read or update the program rollup KPIs config (ADR-0169, #527).\n\nURL: ``GET|PATCH /api/v1/programs/{pk}/rollup-config/``\n\nPermission split is method-level (see ``get_permissions``): any\nmember can read, only admins can write. Audit is automatic via the\n``HistoricalRecords()`` already on Program — every successful PATCH\ncreates a ``HistoricalProgram`` row with the field diff.",
                 "summary": "Read or update the program rollup KPIs config",
                 "parameters": [
                     {
@@ -7324,7 +7324,7 @@
                                 }
                             }
                         },
-                        "description": "Project Monte Carlo run history (ADR-0109/0143). {results: [MonteCarloRun], cap: int|null, enabled: bool}. When the per-workspace config disables history, enabled is false and results is empty. Each run carries P50/P80/P95, cpm_finish, n_simulations, task_count, a per-percentile delta vs the previous run (null on the oldest row), triggered_by_name (non-null only for the resolved attribution audience), and distribution (only when ?expand=distribution)."
+                        "description": "Project Monte Carlo run history (ADR-0175/0143). {results: [MonteCarloRun], cap: int|null, enabled: bool}. When the per-workspace config disables history, enabled is false and results is empty. Each run carries P50/P80/P95, cpm_finish, n_simulations, task_count, a per-percentile delta vs the previous run (null on the oldest row), triggered_by_name (non-null only for the resolved attribution audience), and distribution (only when ?expand=distribution)."
                     },
                     "404": {
                         "content": {
@@ -7343,7 +7343,7 @@
         "/api/v1/projects/{id}/monte-carlo/latest/": {
             "get": {
                 "operationId": "v1_projects_monte_carlo_latest_retrieve",
-                "description": "Return the latest cached Monte Carlo result for the project.\n\nFalls back to the most recent persisted ``MonteCarloRun`` when the 24-hour\ncache has expired (ADR-0109): the latest forecast now survives past the\nTTL. As of #1231 the run also persists its distribution, so when present the\nfallback returns the real ``histogram_buckets``/``confidence_curve``/\n``sensitivity`` instead of empty arrays — the histogram survives cache\nexpiry. Legacy runs (no persisted distribution) still fall back to empty,\nand the frontend renders the empty-state prose for them.",
+                "description": "Return the latest cached Monte Carlo result for the project.\n\nFalls back to the most recent persisted ``MonteCarloRun`` when the 24-hour\ncache has expired (ADR-0175): the latest forecast now survives past the\nTTL. As of #1231 the run also persists its distribution, so when present the\nfallback returns the real ``histogram_buckets``/``confidence_curve``/\n``sensitivity`` instead of empty arrays — the histogram survives cache\nexpiry. Legacy runs (no persisted distribution) still fall back to empty,\nand the frontend renders the empty-state prose for them.",
                 "parameters": [
                     {
                         "in": "path",
@@ -17194,7 +17194,7 @@
         "/api/v1/sprints/{id}/outcome/": {
             "get": {
                 "operationId": "v1_sprints_outcome_retrieve",
-                "description": "Consolidated sprint-review read (#985, ADR-0111 §3).\n\nOne surface composing the goal verdict (#983), velocity delta + burn\nstatus (#984, ADR-0104 gated), the closing \"didn't ship\" membership\n(#982), commitment aggregates, and a retro summary — so the review UI and\nthe MCP adapter bind to a single endpoint instead of stitching calls or\nderiving the numbers client-side. Viewer+; privacy enforced in the service.",
+                "description": "Consolidated sprint-review read (#985, ADR-0176 §3).\n\nOne surface composing the goal verdict (#983), velocity delta + burn\nstatus (#984, ADR-0104 gated), the closing \"didn't ship\" membership\n(#982), commitment aggregates, and a retro summary — so the review UI and\nthe MCP adapter bind to a single endpoint instead of stitching calls or\nderiving the numbers client-side. Viewer+; privacy enforced in the service.",
                 "parameters": [
                     {
                         "in": "path",
@@ -19191,7 +19191,7 @@
                         "schema": {
                             "type": "string"
                         },
-                        "description": "Filter by task type value (epic/story/task/bug/spike/tech_debt). Backs the board tech-debt filter (ADR-0135, #1076)."
+                        "description": "Filter by task type value (epic/story/task/bug/spike/tech_debt). Backs the board tech-debt filter (ADR-0178, #1076)."
                     }
                 ],
                 "tags": [
@@ -26205,7 +26205,7 @@
             },
             "PatchedProjectRequest": {
                 "type": "object",
-                "description": "Read/write serializer for projects.\n\ncalendar is optional on create — the API will use the board's default\ncalendar when omitted.\n\nestimation_mode controls who may write three-point estimates on tasks.\nDefaults to 'open'; writable by IsProjectScheduler+ only (enforced in\nProjectViewSet.update via permission check on the field).\n\nprogram is optional and writable on update (ADR-0070). Cross-permission\ncheck: assigning or moving requires the caller to hold ADMIN on the\n*new* program AND ADMIN on this project (and ADMIN on the *old* program\nwhen reassigning away from one). Enforced in ``validate_program``.\n\n``member_count`` and ``percent_complete`` are populated only when the\nviewset annotates them — currently just the ``?program__isnull=true``\n(ungrouped) list branch consumed by the Programs directory (ADR-0083).\nThey return ``null`` on every other path so the default project list stays\na single unaggregated query (the list is deliberately lightweight at\nportfolio scale — see ``ProjectViewSet.get_serializer_class``).",
+                "description": "Read/write serializer for projects.\n\ncalendar is optional on create — the API will use the board's default\ncalendar when omitted.\n\nestimation_mode controls who may write three-point estimates on tasks.\nDefaults to 'open'; writable by IsProjectScheduler+ only (enforced in\nProjectViewSet.update via permission check on the field).\n\nprogram is optional and writable on update (ADR-0070). Cross-permission\ncheck: assigning or moving requires the caller to hold ADMIN on the\n*new* program AND ADMIN on this project (and ADMIN on the *old* program\nwhen reassigning away from one). Enforced in ``validate_program``.\n\n``member_count`` and ``percent_complete`` are populated only when the\nviewset annotates them — currently just the ``?program__isnull=true``\n(ungrouped) list branch consumed by the Programs directory (ADR-0171).\nThey return ``null`` on every other path so the default project list stays\na single unaggregated query (the list is deliberately lightweight at\nportfolio scale — see ``ProjectViewSet.get_serializer_class``).",
                 "properties": {
                     "name": {
                         "type": "string",
@@ -27885,7 +27885,7 @@
             },
             "ProgramRollupConfig": {
                 "type": "object",
-                "description": "GET/PATCH payload for ``/api/v1/programs/{id}/rollup-config/`` (ADR-0079).\n\nBoth fields are partial-updatable. ``enabled_kpis`` is validated against\nthe closed ``RollupKpi`` enum — unknown identifiers raise 400 rather than\nbeing silently dropped, which would leave the UI and the server in\ndifferent states.",
+                "description": "GET/PATCH payload for ``/api/v1/programs/{id}/rollup-config/`` (ADR-0169).\n\nBoth fields are partial-updatable. ``enabled_kpis`` is validated against\nthe closed ``RollupKpi`` enum — unknown identifiers raise 400 rather than\nbeing silently dropped, which would leave the UI and the server in\ndifferent states.",
                 "properties": {
                     "enabled_kpis": {
                         "type": "array",
@@ -27906,7 +27906,7 @@
             },
             "Project": {
                 "type": "object",
-                "description": "Read/write serializer for projects.\n\ncalendar is optional on create — the API will use the board's default\ncalendar when omitted.\n\nestimation_mode controls who may write three-point estimates on tasks.\nDefaults to 'open'; writable by IsProjectScheduler+ only (enforced in\nProjectViewSet.update via permission check on the field).\n\nprogram is optional and writable on update (ADR-0070). Cross-permission\ncheck: assigning or moving requires the caller to hold ADMIN on the\n*new* program AND ADMIN on this project (and ADMIN on the *old* program\nwhen reassigning away from one). Enforced in ``validate_program``.\n\n``member_count`` and ``percent_complete`` are populated only when the\nviewset annotates them — currently just the ``?program__isnull=true``\n(ungrouped) list branch consumed by the Programs directory (ADR-0083).\nThey return ``null`` on every other path so the default project list stays\na single unaggregated query (the list is deliberately lightweight at\nportfolio scale — see ``ProjectViewSet.get_serializer_class``).",
+                "description": "Read/write serializer for projects.\n\ncalendar is optional on create — the API will use the board's default\ncalendar when omitted.\n\nestimation_mode controls who may write three-point estimates on tasks.\nDefaults to 'open'; writable by IsProjectScheduler+ only (enforced in\nProjectViewSet.update via permission check on the field).\n\nprogram is optional and writable on update (ADR-0070). Cross-permission\ncheck: assigning or moving requires the caller to hold ADMIN on the\n*new* program AND ADMIN on this project (and ADMIN on the *old* program\nwhen reassigning away from one). Enforced in ``validate_program``.\n\n``member_count`` and ``percent_complete`` are populated only when the\nviewset annotates them — currently just the ``?program__isnull=true``\n(ungrouped) list branch consumed by the Programs directory (ADR-0171).\nThey return ``null`` on every other path so the default project list stays\na single unaggregated query (the list is deliberately lightweight at\nportfolio scale — see ``ProjectViewSet.get_serializer_class``).",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -28137,14 +28137,14 @@
                     "member_count": {
                         "type": "integer",
                         "nullable": true,
-                        "description": "Active membership count — only annotated on the ungrouped list\nbranch (ADR-0083). ``None`` elsewhere; never triggers a per-row query.",
+                        "description": "Active membership count — only annotated on the ungrouped list\nbranch (ADR-0171). ``None`` elsewhere; never triggers a per-row query.",
                         "readOnly": true
                     },
                     "percent_complete": {
                         "type": "number",
                         "format": "double",
                         "nullable": true,
-                        "description": "Task-weighted mean progress — annotated only on the ungrouped list\nbranch (ADR-0083). ``None`` when unannotated or the project has no\ntasks. Rounded to one decimal for display stability.",
+                        "description": "Task-weighted mean progress — annotated only on the ungrouped list\nbranch (ADR-0171). ``None`` when unannotated or the project has no\ntasks. Rounded to one decimal for display stability.",
                         "readOnly": true
                     },
                     "open_task_count": {
@@ -28606,14 +28606,14 @@
                     "member_count": {
                         "type": "integer",
                         "nullable": true,
-                        "description": "Active membership count — only annotated on the ungrouped list\nbranch (ADR-0083). ``None`` elsewhere; never triggers a per-row query.",
+                        "description": "Active membership count — only annotated on the ungrouped list\nbranch (ADR-0171). ``None`` elsewhere; never triggers a per-row query.",
                         "readOnly": true
                     },
                     "percent_complete": {
                         "type": "number",
                         "format": "double",
                         "nullable": true,
-                        "description": "Task-weighted mean progress — annotated only on the ungrouped list\nbranch (ADR-0083). ``None`` when unannotated or the project has no\ntasks. Rounded to one decimal for display stability.",
+                        "description": "Task-weighted mean progress — annotated only on the ungrouped list\nbranch (ADR-0171). ``None`` when unannotated or the project has no\ntasks. Rounded to one decimal for display stability.",
                         "readOnly": true
                     },
                     "open_task_count": {
@@ -29008,7 +29008,7 @@
             },
             "ProjectRequest": {
                 "type": "object",
-                "description": "Read/write serializer for projects.\n\ncalendar is optional on create — the API will use the board's default\ncalendar when omitted.\n\nestimation_mode controls who may write three-point estimates on tasks.\nDefaults to 'open'; writable by IsProjectScheduler+ only (enforced in\nProjectViewSet.update via permission check on the field).\n\nprogram is optional and writable on update (ADR-0070). Cross-permission\ncheck: assigning or moving requires the caller to hold ADMIN on the\n*new* program AND ADMIN on this project (and ADMIN on the *old* program\nwhen reassigning away from one). Enforced in ``validate_program``.\n\n``member_count`` and ``percent_complete`` are populated only when the\nviewset annotates them — currently just the ``?program__isnull=true``\n(ungrouped) list branch consumed by the Programs directory (ADR-0083).\nThey return ``null`` on every other path so the default project list stays\na single unaggregated query (the list is deliberately lightweight at\nportfolio scale — see ``ProjectViewSet.get_serializer_class``).",
+                "description": "Read/write serializer for projects.\n\ncalendar is optional on create — the API will use the board's default\ncalendar when omitted.\n\nestimation_mode controls who may write three-point estimates on tasks.\nDefaults to 'open'; writable by IsProjectScheduler+ only (enforced in\nProjectViewSet.update via permission check on the field).\n\nprogram is optional and writable on update (ADR-0070). Cross-permission\ncheck: assigning or moving requires the caller to hold ADMIN on the\n*new* program AND ADMIN on this project (and ADMIN on the *old* program\nwhen reassigning away from one). Enforced in ``validate_program``.\n\n``member_count`` and ``percent_complete`` are populated only when the\nviewset annotates them — currently just the ``?program__isnull=true``\n(ungrouped) list branch consumed by the Programs directory (ADR-0171).\nThey return ``null`` on every other path so the default project list stays\na single unaggregated query (the list is deliberately lightweight at\nportfolio scale — see ``ProjectViewSet.get_serializer_class``).",
                 "properties": {
                     "name": {
                         "type": "string",
@@ -30867,7 +30867,7 @@
             },
             "SprintOutcome": {
                 "type": "object",
-                "description": "Consolidated sprint-review read (#985, ADR-0111 §3) for\n``GET /api/sprints/{id}/outcome/``.\n\nThe single surface the #567 review UI and the MCP adapter bind to —\ncommitment aggregates, goal verdict (#983), velocity delta + burn status\n(#984, ADR-0104 gated, null when suppressed), the closing membership /\n\"didn't ship\" list (#982), and a retro summary. ``provisional`` is true for\nACTIVE/PLANNED (live, not snapshotted); ``outcome_recorded`` is false for\nsprints closed before the membership snapshot shipped.",
+                "description": "Consolidated sprint-review read (#985, ADR-0176 §3) for\n``GET /api/sprints/{id}/outcome/``.\n\nThe single surface the #567 review UI and the MCP adapter bind to —\ncommitment aggregates, goal verdict (#983), velocity delta + burn status\n(#984, ADR-0104 gated, null when suppressed), the closing membership /\n\"didn't ship\" list (#982), and a retro summary. ``provisional`` is true for\nACTIVE/PLANNED (live, not snapshotted); ``outcome_recorded`` is false for\nsprints closed before the membership snapshot shipped.",
                 "properties": {
                     "sprint_id": {
                         "type": "string",
@@ -33632,7 +33632,7 @@
                     "download_url": {
                         "type": "string",
                         "nullable": true,
-                        "description": "Authenticated download path, present only once the archive is ready.\n\nReturns a relative API path (not a raw storage URL) so the archive is\nalways fetched through the owner-gated download endpoint (ADR-0092).",
+                        "description": "Authenticated download path, present only once the archive is ready.\n\nReturns a relative API path (not a raw storage URL) so the archive is\nalways fetched through the owner-gated download endpoint (ADR-0174).",
                         "readOnly": true
                     }
                 },

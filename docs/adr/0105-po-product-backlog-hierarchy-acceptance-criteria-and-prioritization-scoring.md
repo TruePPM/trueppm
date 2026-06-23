@@ -270,7 +270,7 @@ product-backlog priority.
 6. **Outbox cleanup:** N/A.
 7. **Idempotency:** auto-rank is idempotent (pure function of current scores); Mark-ready idempotent;
    criteria/type/link/sprint_rank writes use `server_version` optimistic concurrency; quick-add uses
-   the HTTP Idempotency-Key (ADR-0083a).
+   the HTTP Idempotency-Key (ADR-0170).
 8. **Dead-letter / failure:** synchronous writes surface failures directly; the deferred board
    broadcast falls to existing best-effort handling and self-heals on the next board load.
 

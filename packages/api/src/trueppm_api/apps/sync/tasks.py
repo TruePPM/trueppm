@@ -37,7 +37,7 @@ def _do_purge(*, dry_run: bool = False, override_value: int | None = None) -> in
     """Business logic for purge_sync_batches — extracted for testability.
 
     The window (in hours) comes from ``resolve_retention`` (operator override →
-    the TRUEPPM_SYNC_BATCH_RETENTION_HOURS default, ADR-0090). This window is
+    the TRUEPPM_SYNC_BATCH_RETENTION_HOURS default, ADR-0173). This window is
     non-nullable, so it is never disabled. Returns rows deleted, or the eligible
     count when ``dry_run``; ``override_value`` forces a hypothetical window.
     """

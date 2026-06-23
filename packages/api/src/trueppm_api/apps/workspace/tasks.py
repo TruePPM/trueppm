@@ -6,7 +6,7 @@
 - ``purge_stale_invites`` — nightly, marks expired pending invites and deletes
   accepted/revoked/expired invites older than the retention window.
 - ``run_workspace_export`` — builds a full-workspace archive for one job and emails
-  the owner; idempotent + bounded retries (ADR-0092).
+  the owner; idempotent + bounded retries (ADR-0174).
 - ``drain_workspace_exports`` — every 30 s, re-dispatches export jobs orphaned by a
   broker outage at ``on_commit`` (5-min orphan window).
 - ``purge_expired_exports`` — nightly, deletes export jobs past their link expiry and
@@ -29,10 +29,10 @@ EMAIL_ORPHAN_WINDOW_MINUTES = 5  # ADR-0087 §Durable item 3 — matches the not
 EMAIL_BATCH_SIZE = 50
 INVITE_RETENTION_DAYS = 30  # ADR-0087 §Durable item 6
 
-EXPORT_MAX_RETRIES = 3  # ADR-0092 §Durable item 8
-EXPORT_ORPHAN_WINDOW_MINUTES = 5  # ADR-0092 §Durable item 3
+EXPORT_MAX_RETRIES = 3  # ADR-0174 §Durable item 8
+EXPORT_ORPHAN_WINDOW_MINUTES = 5  # ADR-0174 §Durable item 3
 EXPORT_DRAIN_BATCH_SIZE = 10
-DEFAULT_EXPORT_RETENTION_DAYS = 7  # ADR-0092 §Durable item 6
+DEFAULT_EXPORT_RETENTION_DAYS = 7  # ADR-0174 §Durable item 6
 
 
 @idempotent_task(
@@ -136,7 +136,7 @@ def _do_drain_invite_emails() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Workspace export (ADR-0092, #641)
+# Workspace export (ADR-0174, #641)
 # ---------------------------------------------------------------------------
 
 

@@ -8,7 +8,7 @@ A **program** groups several related projects under one PM. The **Program Settin
 1. **Which KPIs appear** on the program overview — a per-KPI on/off list.
 2. **How project health aggregates** into the single program health dot — one program-wide policy.
 
-Open it at **Program → Settings → Rollup KPIs**. The design and rationale are recorded in [ADR-0079: Program rollup KPIs configuration](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0079-program-rollup-config.md).
+Open it at **Program → Settings → Rollup KPIs**. The design and rationale are recorded in [ADR-0169: Program rollup KPIs configuration](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0079-program-rollup-config.md).
 
 This is intra-program only. A program rolls up its *own* projects; there is no cross-program aggregation — that would be portfolio scope, which is an Enterprise concern.
 
@@ -54,7 +54,7 @@ Ten KPIs can be enabled. The page groups them into three sections for scannabili
 
 Only enabled KPIs appear on the program overview and its rollup tiles. KPI toggles save **optimistically** — the switch flips immediately, and rapid changes are batched into a single save.
 
-The KPI set is deliberately closed: the API rejects unknown identifiers rather than silently dropping them. Three KPIs that touched team-boundary or aggregation-correctness concerns (team velocity, scope-change count, resource utilization) were excluded during design review — see ADR-0079 for the reasoning.
+The KPI set is deliberately closed: the API rejects unknown identifiers rather than silently dropping them. Three KPIs that touched team-boundary or aggregation-correctness concerns (team velocity, scope-change count, resource utilization) were excluded during design review — see ADR-0169 for the reasoning.
 
 ## Methodology-aware defaults
 

@@ -1,4 +1,4 @@
-"""Tests for project Monte Carlo run persistence + history (ADR-0109, #961).
+"""Tests for project Monte Carlo run persistence + history (ADR-0175, #961).
 
 Covers: persistence on run, the history endpoint (newest-first + computed
 deltas), the Admin/Owner-only attribution gate, the latest-endpoint DB fallback

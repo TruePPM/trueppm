@@ -1,4 +1,4 @@
-"""Tests for the Program rollup-config endpoint (#527, ADR-0079).
+"""Tests for the Program rollup-config endpoint (#527, ADR-0169).
 
 Covers:
 - GET returns the persisted config to any program member; non-members 404.
