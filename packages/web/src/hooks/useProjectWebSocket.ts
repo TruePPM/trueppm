@@ -99,9 +99,9 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
   // dependencies, and the board activity feed). The set accumulates which query
   // keys a burst touched; the timer flushes them as a single invalidation per key
   // once the burst goes quiet (#773).
-  const pendingInvalidationsRef = useRef<Set<'tasks' | 'dependencies' | 'board-activity'>>(
-    new Set(),
-  );
+  const pendingInvalidationsRef = useRef<
+    Set<'tasks' | 'dependencies' | 'board-activity' | 'standup'>
+  >(new Set());
   const invalidateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // ADR-0152 (#327): highest task_updated server_version observed per task, so a
   // duplicate or out-of-order replayed delta is ignored rather than triggering a
@@ -137,7 +137,9 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
     // produces 1 refetch rather than N. Low-frequency, narrowly-scoped
     // invalidations (per-task comments, members, board config, project-level)
     // stay immediate — they are not part of a burst.
-    function scheduleInvalidate(...keys: Array<'tasks' | 'dependencies' | 'board-activity'>) {
+    function scheduleInvalidate(
+      ...keys: Array<'tasks' | 'dependencies' | 'board-activity' | 'standup'>
+    ) {
       for (const key of keys) pendingInvalidationsRef.current.add(key);
       if (invalidateTimerRef.current !== null) return;
       invalidateTimerRef.current = setTimeout(() => {
@@ -296,10 +298,13 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         // skipped. No-op while the panel is closed: an inactive infinite query is
         // marked stale, not refetched, until the panel remounts (ADR-0160 B1, issue 1264).
         if (!isDuplicate) {
-          scheduleInvalidate('board-activity');
+          // The standup walk's done/in-progress/blocker buckets are derived from the
+          // same card state, so a status/assignee/blocker move refetches it too
+          // (inactive → marked stale while standup mode is closed; ADR-0166).
+          scheduleInvalidate('board-activity', 'standup');
         }
       } else if (event_type === 'task_created' || event_type === 'task_deleted') {
-        scheduleInvalidate('tasks', 'board-activity');
+        scheduleInvalidate('tasks', 'board-activity', 'standup');
       } else if (
         event_type === 'dependency_created' ||
         event_type === 'dependency_updated' ||
@@ -505,8 +510,9 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
       // and the "accepted scope only" forecast caveat until a manual refetch.
       else if (event_type === 'sprint_scope_changed') {
         // Accept/reject flips a task's sprint membership → an entered/exited_sprint
-        // row in the board activity feed (ADR-0160 B1, issue 1264).
-        scheduleInvalidate('tasks', 'board-activity');
+        // row in the board activity feed (ADR-0160 B1, issue 1264) and changes which
+        // cards the standup walk groups (ADR-0166).
+        scheduleInvalidate('tasks', 'board-activity', 'standup');
         void queryClient.invalidateQueries({ queryKey: ['sprints', projectIdRef.current] });
         // The accepted/rejected task's points enter or leave the committed-scope
         // line, so an open burndown for that sprint must refetch too — it is a

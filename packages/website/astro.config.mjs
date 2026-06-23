@@ -148,6 +148,7 @@ export default defineConfig({
                 { slug: "features/product-backlog" },
                 { slug: "features/board" },
                 { slug: "features/board-sprint-panel" },
+                { slug: "features/daily-standup" },
                 { slug: "features/wip-overload" },
                 { slug: "features/workshops" },
                 { slug: "features/sprints" },
