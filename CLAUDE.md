@@ -180,6 +180,77 @@ The classification test: "Would a PM or program manager need this to run their p
 - Before opening an OSS issue with cross-program, portfolio, SAML/SCIM/LDAP identity-governance, audit-trail, or approval-workflow scope, run the `enterprise-check` agent (basic OIDC/OAuth login does not need this gate — it is OSS)
 - Enforced by CI: `boundary:check` runs on main pushes and on schedule; it fails the pipeline if any open OSS issue carries the `enterprise` or `portfolio` label. See `scripts/check-issue-boundary.sh`
 
+## Migration discipline
+
+Django migrations are cheap to create and cheap to throw away while we are pre-1.0
+alpha. The goal is **not** to minimize migration count day-to-day — fighting the
+count leads to hand-edited migrations, which are far more dangerous than many clean
+ones. The goal is that each migration stays clean and the overall history stays
+short enough to be signal. Six rules:
+
+1. **Batch model edits, then run `makemigrations` once per feature.** The biggest
+   source of sprawl is re-running `makemigrations` while iterating on a model in a
+   single branch (add field → migrate → rename → migrate → add index → migrate =
+   three migrations for one change). Finish the model design first, then generate
+   one migration. If a branch still ends up with several WIP migrations, squash them
+   to one before the MR: `python manage.py squashmigrations <app> <start> <end>`.
+2. **Prefer `Meta.indexes` / `Meta.constraints` over `RunSQL`.** Anything declared
+   in model `Meta` is regenerated automatically by `makemigrations` and therefore
+   survives a squash; raw `RunSQL` lives outside model state and is silently dropped
+   when migrations are regenerated. Reach for raw SQL only for what the ORM genuinely
+   cannot express (PostgreSQL extensions, ltree GiST indexes, `CREATE INDEX
+   CONCURRENTLY`) — and see the non-regenerable-ops list below.
+3. **Never import a migration module in a test.** `importlib.import_module(
+   "...migrations.0019_backfill_...")` couples the suite to migration *file names*,
+   which a squash deletes (this broke five test files in #1286). Assert the *outcome*
+   on the model/serializer instead; if a data backfill needs a unit test, test the
+   underlying function it calls, not the migration wrapper.
+4. **Keep the `api:migration-check` CI gate (`makemigrations --check --dry-run`).**
+   It proves the committed migrations fully describe the models — catching a
+   hand-edited migration that diverged, a forgotten regenerate after a model change,
+   and an unfaithful squash.
+5. **Regenerate with the full recipe.** `makemigrations` output is not ruff-clean
+   (import order + long `help_text` / `choices` lines). Always follow with
+   `ruff check --fix <migrations> && ruff format <migrations>`. `E501` is ignored for
+   `*/migrations/*.py` in `pyproject.toml` because a generated long string literal
+   cannot be wrapped without hand-editing generated code, which defeats clean
+   regeneration.
+6. **Squash to a fresh baseline at each minor-version release with `replaces=`.**
+   Migrations *should* accumulate between releases — that is their job. At each
+   `0.x → 0.(x+1)` boundary, collapse each app's history with Django's
+   `squashmigrations`, which generates a `0001_squashed_…` migration carrying a
+   `replaces=` list, and put "squash migrations" on the release checklist next to
+   changelog assembly. This is the **non-destructive** approach adopted in #1286: the
+   original migrations stay on disk and remain applyable, so fresh installs use the
+   collapsed migration while existing local/dev/deployed databases upgrade as a
+   **no-op** — no drop, no recreate, no data-migration step. Do **not** hand-write a
+   regenerated `0001_initial` to replace the history; that path cannot reproduce the
+   non-regenerable operations below and would force every existing database to be
+   dropped.
+
+**Why `replaces=` and not a regenerated `0001_initial`.** `makemigrations` cannot
+reproduce operations that live outside model state, so a hand-regenerated initial
+migration would silently lose them — which is exactly why the squash keeps the
+originals via `replaces=` instead of starting from scratch. The operations that
+cannot be regenerated, and therefore depend on the originals being retained:
+- `CREATE EXTENSION ltree` and `CREATE EXTENSION pg_trgm` — `RunSQL`, must run
+  *before* any `CreateModel` that uses an ltree field or `gin_trgm_ops`;
+- the GiST index on `projects_task.wbs_path` — `RunSQL` (powers ltree subtree /
+  ancestor queries);
+- the composite `(project_id, history_date)` index on `projects_historicaltask` —
+  a raw `CREATE INDEX` operation.
+
+Trigram **GIN** indexes are declared in model `Meta` and regenerate automatically;
+only the raw `RunSQL` and extension operations rely on the originals being kept.
+
+**A `replaces=` squash does not reset databases.** Because the original migrations
+remain applyable, a database whose tables already exist simply records the squashed
+migration as applied (Django sees its `replaces=` set is fully applied) and carries
+on — there is no `DROP DATABASE`, no recreate, and no data loss. The earlier
+destructive delete-and-regenerate approach, which *would* have required every
+operator and developer to drop their local DB, was evaluated and **rejected** in
+#1286 in favor of `replaces=`.
+
 ## Documentation Discipline
 
 ### Code documentation
