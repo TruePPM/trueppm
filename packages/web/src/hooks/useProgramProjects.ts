@@ -9,6 +9,12 @@ interface ApiProject {
   start_date: string;
   methodology?: Methodology;
   program?: string | null;
+  // Inheritance reads (ProjectSerializer, ADR-0107/0116) — used by the bulk-edit
+  // matrix (issue 1233) to display effective values and the set-vs-inherited distinction.
+  effective_methodology?: Methodology;
+  inherited_methodology?: Methodology;
+  iteration_label?: string | null;
+  effective_iteration_label?: string | null;
 }
 
 /**
@@ -33,6 +39,10 @@ export function useProgramProjects(
         methodology: p.methodology ?? 'HYBRID',
         programId: p.program ?? programId ?? null,
         openTaskCount: null, // not annotated on the program-projects endpoint
+        iterationLabel: p.iteration_label ?? null,
+        effectiveIterationLabel: p.effective_iteration_label ?? null,
+        effectiveMethodology: p.effective_methodology ?? p.methodology ?? 'HYBRID',
+        inheritedMethodology: p.inherited_methodology,
       }));
     },
     enabled: !!programId,

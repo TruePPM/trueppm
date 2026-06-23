@@ -16,6 +16,15 @@ vi.mock('@/hooks/useProgramProjects', () => ({
     useProgramProjects() as { data: unknown; isLoading: boolean; error: Error | null },
 }));
 
+// The bulk-edit matrix (#1233) reads the workspace methodology policy (for the rule-196
+// lock) and posts via the bulk-fields hook; stub both so the page renders offline.
+vi.mock('../hooks/useWorkspaceSettings', () => ({
+  useWorkspaceSettings: () => ({ data: { methodologyOverridePolicy: 'suggest' } }),
+}));
+vi.mock('@/hooks/useBulkProjectFields', () => ({
+  useBulkProjectFields: () => ({ mutateAsync: vi.fn().mockResolvedValue({ updated: [], fields: [] }), isPending: false }),
+}));
+
 // The Add modal renders into a portal and pulls in unrelated mutation hooks; stub it.
 vi.mock('@/features/programs/AddProjectToProgramModal', () => ({
   AddProjectToProgramModal: () => <div data-testid="add-modal" />,
@@ -60,7 +69,7 @@ describe('ProgramProjectsPage (settings)', () => {
     expect(screen.getByText(/No projects in this program yet/i)).toBeInTheDocument();
   });
 
-  it('renders real projects from the hook', () => {
+  it('renders real projects through the bulk-edit matrix (admin)', () => {
     useProgram.mockReturnValue({ data: { id: 'p-1', name: 'Phase 2', my_role: 400 } });
     useProgramProjects.mockReturnValue({
       data: [
@@ -73,9 +82,10 @@ describe('ProgramProjectsPage (settings)', () => {
     renderPage();
     expect(screen.getByText('Artemis IV')).toBeInTheDocument();
     expect(screen.getByText('Launch Control')).toBeInTheDocument();
-    expect(screen.getByText('WATERFALL')).toBeInTheDocument();
-    expect(screen.getByText('AGILE')).toBeInTheDocument();
     expect(screen.getByText(/2 projects/)).toBeInTheDocument();
+    // Admin gets the bulk-edit action bar + per-row selection (issue 1233).
+    expect(screen.getByTestId('bulk-fields-action-bar')).toBeInTheDocument();
+    expect(screen.getByLabelText('Select Artemis IV')).toBeInTheDocument();
   });
 
   it('hides Add project button for Viewer (role=0)', () => {
