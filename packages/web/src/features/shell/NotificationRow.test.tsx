@@ -75,6 +75,33 @@ describe('NotificationRow', () => {
     expect(navigateMock).toHaveBeenCalledWith('/projects/p1/schedule?task=t9');
   });
 
+  it('deep-links a ceiling-raise proposal to the signal-privacy settings section (#1275)', () => {
+    renderWithRouter(
+      <NotificationRow
+        notification={row({
+          mention: null,
+          event_type: 'signal.ceiling_proposal_opened',
+          subject: 'Vote: raise velocity visibility',
+          body: 'Your team has an open proposal — vote by Jun 26.',
+          task_id: null,
+        })}
+      />,
+    );
+    fireEvent.click(screen.getByText('Vote: raise velocity visibility'));
+    expect(navigateMock).toHaveBeenCalledWith('/projects/p1/settings#signal-privacy');
+  });
+
+  it('does not crash when a row omits event_type (older mention mocks)', () => {
+    // Some notification payloads (and hand-written e2e mocks) omit event_type for
+    // mention rows; the ceiling-proposal routing must short-circuit on the falsy
+    // isEvent flag, not call .startsWith on undefined.
+    renderWithRouter(
+      <NotificationRow notification={row({ event_type: undefined, task_id: 't7' })} />,
+    );
+    fireEvent.click(screen.getByText('Bob mentioned you'));
+    expect(navigateMock).toHaveBeenCalledWith('/projects/p1/schedule?task=t7');
+  });
+
   it('renders the group-mention variant when mentioned_group_key is set', () => {
     renderWithRouter(
       <NotificationRow
