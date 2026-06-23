@@ -46,11 +46,47 @@ const POPULATED_FLOW = {
   flow_metrics_suppressed: false,
 };
 
-async function setup(page: import('@playwright/test').Page, flow = POPULATED_FLOW) {
+/** A ready throughput-basis forecast (ADR-0130 D3). Dates are fixed; the board frames
+ * P80 as "~N weeks" relative to the wall clock, so the spec asserts the pattern (not a
+ * fixed count) — the card stays "ready" regardless of when the suite runs. */
+const FORECAST_THROUGHPUT_READY = {
+  status: 'ready',
+  remaining_points: null,
+  remaining_count: 18,
+  sample_count: 8,
+  p50_sprints: null,
+  p80_sprints: null,
+  p50_date: '2026-12-15',
+  p80_date: '2026-12-29',
+  p95_date: '2027-01-12',
+  basis: 'monte_carlo',
+  forecast_basis: 'throughput',
+  velocity_suppressed: false,
+};
+
+interface SetupOpts {
+  cadence?: 'sprint' | 'continuous';
+  forecast?: Record<string, unknown>;
+}
+
+async function setup(
+  page: import('@playwright/test').Page,
+  flow = POPULATED_FLOW,
+  opts: SetupOpts = {},
+) {
   await setupAuth(page);
   await setupCatchAll(page);
   await setupApiMocks(page, {
-    projects: [{ id: PROJECT_ID, name: 'Flow Project', description: '', start_date: '2026-01-01', calendar: 'default' }],
+    projects: [
+      {
+        id: PROJECT_ID,
+        name: 'Flow Project',
+        description: '',
+        start_date: '2026-01-01',
+        calendar: 'default',
+        board_cadence: opts.cadence ?? 'sprint',
+      },
+    ],
     projectId: PROJECT_ID,
     tasks: TASKS,
     statusSummary: { task_count: 2 },
@@ -68,6 +104,12 @@ async function setup(page: import('@playwright/test').Page, flow = POPULATED_FLO
   await page.route(`**/api/v1/projects/${PROJECT_ID}/flow-metrics/**`, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(flow) }),
   );
+  // Per-spec override wins over the setupApiMocks default warming-up forecast.
+  if (opts.forecast) {
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/sprint-forecast/`, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(opts.forecast) }),
+    );
+  }
 }
 
 test.describe('Flow analytics on the board', () => {
@@ -102,5 +144,30 @@ test.describe('Flow analytics on the board', () => {
     await expect(page.getByText('In Progress')).toBeVisible({ timeout: 10_000 });
     // The chip is independent of the "Show WIP limits" toggle.
     await expect(page.getByTestId('wip-breach-chip').first()).toBeVisible();
+  });
+
+  test('a continuous-cadence board headlines the throughput forecast (issue 1280)', async ({ page }) => {
+    await setup(page, POPULATED_FLOW, { cadence: 'continuous', forecast: FORECAST_THROUGHPUT_READY });
+    await page.goto(`${BASE_URL}/board`);
+    await expect(page.getByText('In Progress')).toBeVisible({ timeout: 10_000 });
+
+    await page.getByTestId('flow-analytics-toggle').click();
+    const card = page.getByTestId('throughput-forecast-ready');
+    await expect(card).toBeVisible();
+    // P80 framed forward as "~N weeks" + the (P80) marker, plus the remaining scope.
+    await expect(card).toContainText(/~\s*\d+\s*weeks?/);
+    await expect(card).toContainText('(P80)');
+    await expect(card).toContainText('18');
+  });
+
+  test('a sprint-cadence board shows no throughput forecast card (unaffected)', async ({ page }) => {
+    // Even with a ready throughput forecast available, a sprint board keeps its
+    // velocity forecast elsewhere and never mounts this card.
+    await setup(page, POPULATED_FLOW, { cadence: 'sprint', forecast: FORECAST_THROUGHPUT_READY });
+    await page.goto(`${BASE_URL}/board`);
+    await expect(page.getByText('In Progress')).toBeVisible({ timeout: 10_000 });
+    await page.getByTestId('flow-analytics-toggle').click();
+    await expect(page.getByTestId('flow-analytics-charts')).toBeVisible();
+    await expect(page.getByTestId('throughput-forecast')).toHaveCount(0);
   });
 });

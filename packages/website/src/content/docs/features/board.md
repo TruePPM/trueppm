@@ -131,7 +131,7 @@ The board cadence picker and per-column aging thresholds land in 0.3.
 Agile and hybrid projects can run their board on one of two cadences, set in **Project → Settings → Workflow & fields → Board cadence** (Scheduler+):
 
 - **Sprint-based** (the default) — the board carries the full sprint chrome: the active-sprint panel, burndown, and sprint header.
-- **Continuous flow (Kanban)** — a continuous-flow board with no sprint cadence. The sprint panel, burndown, and sprint header are hidden, and the board leans on the always-present flow-analytics panel (cycle time, throughput, cumulative flow) instead. Cards still move through the same working columns.
+- **Continuous flow (Kanban)** — a continuous-flow board with no sprint cadence. The sprint panel, burndown, and sprint header are hidden, and the board leans on the always-present flow-analytics panel (cycle time, throughput, cumulative flow) instead. That panel also carries a **throughput forecast**: a Monte-Carlo estimate over recent weekly throughput that headlines a P80 "finish in ~N weeks — by &lt;date&gt;" answer for the remaining backlog, so a Kanban team gets a forward delivery date without sprints or velocity. Cards still move through the same working columns.
 
 Switching cadence is **non-destructive** — an in-flight sprint is preserved, not deleted, so switching back to sprint-based brings it back verbatim. Waterfall projects don't use sprints, so cadence doesn't apply to them.
 
