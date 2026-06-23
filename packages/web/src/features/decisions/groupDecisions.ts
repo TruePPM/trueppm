@@ -1,5 +1,5 @@
 /**
- * Group a flat Decisions list by sprint for the Decisions view (ADR-0165, #748).
+ * Group a flat Decisions list by sprint for the Decisions view (ADR-0165, issue 748).
  *
  * The server already orders newest-sprint-first with the backlog (sprint-less) group
  * trailing, so this preserves first-encounter order rather than re-sorting — each sprint

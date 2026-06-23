@@ -1,5 +1,5 @@
 /**
- * Decisions view (ADR-0165, #748) — the project + sprint decision log.
+ * Decisions view (ADR-0165, issue 748) — the project + sprint decision log.
  *
  * Renders the decision-flagged task notes for a project, grouped by sprint. A scope
  * segmented control toggles between "All decisions" (every decision, closed sprints

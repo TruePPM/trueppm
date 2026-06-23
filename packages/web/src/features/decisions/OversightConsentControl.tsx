@@ -1,5 +1,5 @@
 /**
- * Oversight-visibility consent control (ADR-0165 §3, #748).
+ * Oversight-visibility consent control (ADR-0165 §3, issue 748).
  *
  * The team's single upward-exposure switch for the project Decisions view, shown only to
  * the consent authority (a project Admin — `policy.can_edit`). Default-closed: decisions
