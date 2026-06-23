@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { sprintTimebox } from '@/features/board/sprintTimebox';
 import { StandupPersonCard } from './StandupPersonCard';
 import { useStandup } from './useStandup';
@@ -27,6 +28,7 @@ interface Props {
 }
 
 export function StandupMode({ projectId, onClose, onOpenTask }: Props) {
+  const itl = useIterationLabel();
   const { data, isLoading, isError } = useStandup(projectId, true);
   const [index, setIndex] = useState(0);
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -93,7 +95,7 @@ export function StandupMode({ projectId, onClose, onOpenTask }: Props) {
         <EmptyState reason={data?.reason ?? null} projectId={projectId} />
       ) : count === 0 ? (
         <CenteredMessage
-          title="No one on this sprint yet"
+          title={`No one on this ${itl.lower} yet`}
           body="Assign cards to teammates to walk the board."
         />
       ) : (
@@ -278,21 +280,22 @@ function Footer({ projectId }: { projectId: string }) {
 }
 
 function EmptyState({ reason, projectId }: { reason: string | null; projectId: string }) {
+  const itl = useIterationLabel();
   const continuous = reason === 'continuous_cadence';
   return (
     <CenteredMessage
-      title={continuous ? 'This board runs in continuous flow' : 'No active sprint to walk'}
+      title={continuous ? 'This board runs in continuous flow' : `No active ${itl.lower} to walk`}
       body={
         continuous
-          ? 'Standup is a sprint ceremony. Switch the board to sprint cadence to run a walk-the-board standup.'
-          : 'Standup runs on the active sprint — plan or activate one to begin.'
+          ? `Standup is a ${itl.lower} ceremony. Switch the board to ${itl.lower} cadence to run a walk-the-board standup.`
+          : `Standup runs on the active ${itl.lower} — plan or activate one to begin.`
       }
       cta={
         <Link
           to={`/projects/${projectId}/sprints`}
           className="text-sm text-brand-primary underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         >
-          Go to sprints →
+          Go to {itl.lowerPlural} →
         </Link>
       }
     />

@@ -1,4 +1,5 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { screen, fireEvent } from '@testing-library/react';
+import { renderWithProviders as render } from '@/test/utils';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SprintScopeBadge } from './SprintScopeBadge';
 import { useSprintScopeChanges, type SprintScopeChanges } from '@/hooks/useSprints';

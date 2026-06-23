@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import type { ApiSprint } from '@/types';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { SprintGoalCard } from './SprintGoalCard';
 import { AdvancingToMilestoneCard } from './AdvancingToMilestoneCard';
 import { predecessorsInSprint } from './sprintMath';
@@ -30,6 +31,7 @@ interface Props {
  * Rendered only on PLANNED state — the caller gates on `sprint.state`.
  */
 export function SprintPlanningBridge({ sprint, projectId, canEdit, sprintTaskIds }: Props) {
+  const itl = useIterationLabel();
   const predecessors = useMemo(
     () =>
       predecessorsInSprint(
@@ -49,7 +51,7 @@ export function SprintPlanningBridge({ sprint, projectId, canEdit, sprintTaskIds
         className="text-xs font-semibold tracking-widest uppercase text-brand-primary-dark flex items-center gap-2"
       >
         <span aria-hidden="true">◆</span>
-        Planning bridge — this sprint&rsquo;s goal advances a schedule milestone
+        Planning bridge — this {itl.lower}&rsquo;s goal advances a schedule milestone
       </h2>
 
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
@@ -58,7 +60,7 @@ export function SprintPlanningBridge({ sprint, projectId, canEdit, sprintTaskIds
             sprint={sprint}
             projectId={projectId}
             canEdit={canEdit}
-            heading="Draft sprint goal"
+            heading={`Draft ${itl.lower} goal`}
           />
         </div>
         <div className="md:col-span-2">

@@ -4,6 +4,7 @@ import type { Task } from '@/types';
 import type { GanttScaleData } from './engine';
 import { leftToDate } from './engine';
 import { usePromoteTask } from '@/hooks/useTaskMutations';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import { UnscheduledTaskRow } from './UnscheduledTaskRow';
 import { UnscheduledDragPreview } from './UnscheduledDragPreview';
@@ -58,6 +59,7 @@ export function UnscheduledGutter({
   canvasScrollRef,
   taskListWidth,
 }: UnscheduledGutterProps) {
+  const itl = useIterationLabel();
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try {
       return localStorage.getItem(COLLAPSED_KEY) === 'true';
@@ -167,15 +169,15 @@ export function UnscheduledGutter({
                 onSuccess: () => {
                   const label = formatShortDate(dropDate);
                   setActionToast({
-                    message: `Added '${task.name}' to the sprint, starting ${label}`,
+                    message: `Added '${task.name}' to the ${itl.lower}, starting ${label}`,
                   });
                   if (ariaLiveRef.current) {
-                    ariaLiveRef.current.textContent = `Added ${task.name} to the sprint, starting ${label}.`;
+                    ariaLiveRef.current.textContent = `Added ${task.name} to the ${itl.lower}, starting ${label}.`;
                   }
                 },
                 onError: () => {
                   if (ariaLiveRef.current) {
-                    ariaLiveRef.current.textContent = `Could not add ${task.name} to the sprint.`;
+                    ariaLiveRef.current.textContent = `Could not add ${task.name} to the ${itl.lower}.`;
                   }
                 },
               },
@@ -202,7 +204,7 @@ export function UnscheduledGutter({
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('keydown', onKeyDown);
     };
-  }, [drag, canvasScrollRef, scaleData, projectId, promoteMutation, setActionToast]);
+  }, [drag, canvasScrollRef, scaleData, projectId, promoteMutation, setActionToast, itl.lower]);
 
   const handleSetDate = useCallback((task: Task, date: string) => {
     if (!navigator.onLine) return;

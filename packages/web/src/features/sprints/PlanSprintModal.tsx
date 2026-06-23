@@ -192,7 +192,7 @@ export function PlanSprintModal({
                 maxLength={255}
                 required
                 aria-required="true"
-                placeholder="Sprint 13 — Pilot deployment"
+                placeholder={`${itl.singular} 13 — Pilot deployment`}
                 className="h-9 px-3 rounded border border-neutral-border bg-neutral-surface
                   text-sm text-neutral-text-primary placeholder:text-neutral-text-disabled
                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"

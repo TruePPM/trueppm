@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useSprintScopeChanges } from '@/hooks/useSprints';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { ScopeChangeDrawer } from './ScopeChangeDrawer';
 
 interface Props {
@@ -16,6 +17,7 @@ interface Props {
  */
 export function SprintScopeBadge({ sprintId }: Props) {
   const { data } = useSprintScopeChanges(sprintId);
+  const itl = useIterationLabel();
   const [open, setOpen] = useState(false);
   const count = data?.summary.added_mid_sprint_count ?? 0;
   if (count === 0) return null;
@@ -31,7 +33,7 @@ export function SprintScopeBadge({ sprintId }: Props) {
           hover:border-semantic-at-risk focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
       >
         <span aria-hidden="true">⚠</span>
-        <span className="tppm-mono">{count}</span> task{count === 1 ? '' : 's'} added mid-sprint
+        <span className="tppm-mono">{count}</span> task{count === 1 ? '' : 's'} added mid-{itl.lower}
       </button>
       {open && <ScopeChangeDrawer sprintId={sprintId} onClose={() => setOpen(false)} />}
     </>

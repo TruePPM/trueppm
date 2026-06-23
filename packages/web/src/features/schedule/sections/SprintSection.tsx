@@ -124,7 +124,7 @@ export function SprintSection({ taskId, projectId, userRole, canEdit }: DrawerSe
             disabled={isPending}
             className={SELECT_CLASS}
           >
-            <option value="">— No sprint —</option>
+            <option value="">— No {itl.lower} —</option>
             {assignable.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}

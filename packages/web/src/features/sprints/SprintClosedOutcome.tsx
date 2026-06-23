@@ -25,6 +25,7 @@ import {
   type ReviewShippedStory,
   type SprintOutcome,
 } from '@/hooks/useSprints';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 
 interface Props {
   outcome: SprintOutcome;
@@ -115,6 +116,7 @@ function SprintReviewSection({
   const setPresenter = useSetPresenter(sprintId);
   const setNote = useSetReviewNote(sprintId);
   const flag = useFlagForBacklog(sprintId);
+  const itl = useIterationLabel();
 
   // #1130: the demo walkthrough is the demo-flagged subset of shipped, already in
   // demo_order from the server. Reorder writes the complete demo set's new order.
@@ -128,7 +130,7 @@ function SprintReviewSection({
   return (
     <div className="rounded-md border border-neutral-border bg-neutral-surface" data-testid="sprint-review">
       <h3 className="px-3 py-2 text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary border-b border-neutral-border">
-        Sprint review
+        {itl.singular} review
       </h3>
 
       {/* #1129: committed-at-planning → shipped COUNT delta. Always visible — the
@@ -170,7 +172,7 @@ function SprintReviewSection({
       {/* Shipped stories + demo curation. */}
       {r.shipped.length === 0 ? (
         <p role="status" className="px-3 py-3 text-xs italic text-neutral-text-secondary">
-          No stories shipped this sprint.
+          No stories shipped this {itl.lower}.
         </p>
       ) : (
         <>
@@ -642,6 +644,7 @@ function DeltaValue({ delta }: { delta: number }) {
 
 function DidntShipList({ outcome }: { outcome: SprintOutcome }) {
   const { didnt_ship: items, didnt_ship_summary: sum, outcome_recorded } = outcome;
+  const itl = useIterationLabel();
 
   if (!outcome_recorded) {
     return (
@@ -649,8 +652,8 @@ function DidntShipList({ outcome }: { outcome: SprintOutcome }) {
         role="status"
         className="rounded-md border border-dashed border-neutral-border bg-neutral-surface p-4 text-xs text-neutral-text-secondary"
       >
-        Per-task membership was not recorded for this sprint (it closed before
-        membership capture shipped).
+        Per-task membership was not recorded for this {itl.lower} (it closed
+        before membership capture shipped).
       </p>
     );
   }
@@ -698,10 +701,11 @@ function DidntShipList({ outcome }: { outcome: SprintOutcome }) {
 }
 
 function DispositionChip({ item }: { item: SprintOutcome['didnt_ship'][number] }) {
+  const itl = useIterationLabel();
   if (item.disposition === 'carried') {
     return (
       <span className="text-xs text-neutral-text-secondary shrink-0">
-        → {item.next_sprint_name ?? 'next sprint'}
+        → {item.next_sprint_name ?? `next ${itl.lower}`}
       </span>
     );
   }

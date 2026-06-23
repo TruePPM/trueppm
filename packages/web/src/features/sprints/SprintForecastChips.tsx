@@ -18,6 +18,7 @@ import { Link } from 'react-router';
 
 import { formatShortDate } from '@/features/sprints/sprintMath';
 import { useSprintBurndown, useSprintForecast } from '@/hooks/useSprints';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 
 interface Props {
   projectId: string;
@@ -27,8 +28,9 @@ interface Props {
 export function SprintForecastChips({ projectId, sprintId }: Props) {
   const { data: burndown } = useSprintBurndown(sprintId);
   const { data: forecast } = useSprintForecast(projectId);
+  const itl = useIterationLabel();
 
-  const finish = sprintFinishChip(burndown);
+  const finish = sprintFinishChip(burndown, itl.lower);
   // The release-horizon chip branches on forecast_basis (NOT the legacy `basis`,
   // web-rule 176): a velocity team reads sprint counts, a throughput (flow) team
   // reads item counts + dates. Hidden when the velocity signal is team-private or
@@ -41,7 +43,7 @@ export function SprintForecastChips({ projectId, sprintId }: Props) {
   return (
     <div className="mt-2 flex flex-wrap gap-2" data-testid="sprint-forecast-chips">
       {finish && (
-        <Chip to={to} tone={finish.tone} label="Sprint finish projection">
+        <Chip to={to} tone={finish.tone} label={`${itl.singular} finish projection`}>
           <span aria-hidden="true">{finish.icon}</span> {finish.node}
         </Chip>
       )}
@@ -62,8 +64,8 @@ export function SprintForecastChips({ projectId, sprintId }: Props) {
       {showHorizon && forecast && forecast.forecast_basis === 'velocity' && (
         <Chip to={to} tone="neutral" label="Release horizon">
           <span aria-hidden="true">→</span> At this pace, the backlog clears in ~
-          <span className="tppm-mono">{forecast.p50_sprints}</span> sprint
-          {forecast.p50_sprints === 1 ? '' : 's'} (P80{' '}
+          <span className="tppm-mono">{forecast.p50_sprints}</span>{' '}
+          {forecast.p50_sprints === 1 ? itl.lower : itl.lowerPlural} (P80{' '}
           <span className="tppm-mono">{forecast.p80_sprints}</span>)
         </Chip>
       )}
@@ -114,6 +116,7 @@ interface FinishChip {
 /** Map the #984 burn pace into Alex's standup phrasing (numbers in .tppm-mono). */
 function sprintFinishChip(
   burndown: { burn_status?: string; trend_points?: number | null } | undefined,
+  iterationLower: string,
 ): FinishChip | null {
   if (!burndown || !burndown.burn_status || burndown.burn_status === 'no_data') return null;
   const trend = burndown.trend_points ?? 0;
@@ -139,5 +142,5 @@ function sprintFinishChip(
       icon: '⚠',
     };
   }
-  return { node: <>On plan to finish this sprint</>, tone: 'on-track', icon: '✓' };
+  return { node: <>On plan to finish this {iterationLower}</>, tone: 'on-track', icon: '✓' };
 }

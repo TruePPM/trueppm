@@ -8,7 +8,8 @@
  *  - per-section role="status" empty rows (never hide one while the other fills)
  *  - backlog chips carry the dashed left edge + readiness label variant
  */
-import { render, screen, within } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
+import { renderWithProviders as render } from '@/test/utils';
 import { QueryClientProvider, QueryClient } from '@tanstack/react-query';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createRef, type ReactElement } from 'react';

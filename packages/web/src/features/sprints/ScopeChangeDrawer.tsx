@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useSprintScopeChanges, type ScopeChangeEvent } from '@/hooks/useSprints';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 
 interface Props {
   /** Sprint whose scope-change audit to show. */
@@ -20,6 +21,7 @@ interface Props {
  */
 export function ScopeChangeDrawer({ sprintId, onClose }: Props) {
   const { data, isLoading } = useSprintScopeChanges(sprintId);
+  const itl = useIterationLabel();
   const closeBtnRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -73,7 +75,7 @@ export function ScopeChangeDrawer({ sprintId, onClose }: Props) {
             <p className="px-4 py-3 text-xs text-neutral-text-disabled">Loading scope changes…</p>
           ) : events.length === 0 ? (
             <p className="px-4 py-6 text-center text-xs italic text-neutral-text-disabled">
-              No scope changes since this sprint was activated.
+              No scope changes since this {itl.lower} was activated.
             </p>
           ) : (
             <ul className="flex flex-col">
@@ -95,6 +97,7 @@ const STATUS_LABEL: Record<ScopeChangeEvent['status'], string> = {
 };
 
 function ScopeChangeRow({ event }: { event: ScopeChangeEvent }) {
+  const itl = useIterationLabel();
   const removed = event.status === 'rejected';
   const points = event.story_points ?? 0;
   const when = new Date(event.added_at).toLocaleDateString('en-US', {
@@ -116,7 +119,7 @@ function ScopeChangeRow({ event }: { event: ScopeChangeEvent }) {
         <p className="text-sm text-neutral-text-primary truncate" title={event.item_name}>
           {event.item_name}
           {event.goal_impact && (
-            <span className="ml-1.5 align-middle text-xs text-semantic-at-risk" title="Affects the sprint goal">
+            <span className="ml-1.5 align-middle text-xs text-semantic-at-risk" title={`Affects the ${itl.lower} goal`}>
               ◆
             </span>
           )}

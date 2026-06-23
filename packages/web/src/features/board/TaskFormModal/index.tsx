@@ -550,7 +550,7 @@ export function TaskFormModal({
       const anchorErr = parseProgressAnchorError(err);
       if (anchorErr) {
         setSubmitError(
-          `Set a Planned Start date (or assign a sprint) before recording progress.`,
+          `Set a Planned Start date (or assign a ${itl.lower}) before recording progress.`,
         );
         return;
       }
@@ -801,7 +801,7 @@ export function TaskFormModal({
                   onChange={(e) => setForm({ ...form, sprintId: e.target.value || null })}
                   className="w-full h-9 px-3 text-sm text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded-control focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-60"
                 >
-                  <option value="">No sprint</option>
+                  <option value="">No {itl.lower}</option>
                   {sprints
                     .filter((s) => s.state !== 'CANCELLED')
                     .map((s) => (

@@ -5,6 +5,7 @@ import {
   useUpsertPulse,
   type PulseTrendPoint,
 } from '@/hooks/useRetroBoard';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 
 interface Props {
   sprintId: string;
@@ -310,10 +311,11 @@ function PulseTrend({
   points: PulseTrendPoint[];
   energyDeclining: boolean;
 }) {
+  const itl = useIterationLabel();
   if (points.length === 0) {
     return (
       <p className="text-xs italic text-neutral-text-disabled">
-        No pulse history yet — answers appear here as your team responds across sprints.
+        No pulse history yet — answers appear here as your team responds across {itl.lowerPlural}.
       </p>
     );
   }
@@ -327,14 +329,14 @@ function PulseTrend({
           role="status"
           className="inline-flex items-center gap-1 self-start text-xs text-semantic-warning bg-semantic-warning-bg rounded px-2 py-0.5"
         >
-          <span aria-hidden="true">⚠</span> Energy down 2 sprints running.
+          <span aria-hidden="true">⚠</span> Energy down 2 {itl.lowerPlural} running.
         </p>
       )}
       <Sparkline label="Mood" points={points} value={(p) => p.avg_mood} />
       <Sparkline label="Energy" points={points} value={(p) => p.avg_energy} />
       <Sparkline label="Confidence" points={points} value={(p) => p.avg_confidence} />
       <p className="text-[11px] tppm-mono text-neutral-text-disabled">
-        {latest.response_count} responded this sprint
+        {latest.response_count} responded this {itl.lower}
       </p>
     </div>
   );

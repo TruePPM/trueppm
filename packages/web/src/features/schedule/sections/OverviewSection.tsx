@@ -103,7 +103,7 @@ export function OverviewSection({ taskId, projectId, userRole, canEdit }: Drawer
         onError: (err) => {
           if (parseProgressAnchorError(err)) {
             setProgressError(
-              `Set a Planned Start date (or assign a sprint) before recording progress.`,
+              `Set a Planned Start date (or assign a ${itl.lower}) before recording progress.`,
             );
           }
         },

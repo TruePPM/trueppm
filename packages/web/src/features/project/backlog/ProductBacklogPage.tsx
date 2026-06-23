@@ -384,13 +384,14 @@ function ViewToggle({ view, onChange }: { view: BacklogView; onChange: (v: Backl
 
 /** Legend explaining the sprint-commitment chips + the reorder/score behavior (web-rule 180). */
 function LegendStrip() {
+  const itl = useIterationLabel();
   return (
     <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 border-b border-neutral-border bg-neutral-surface px-6 py-2 text-[11px] text-neutral-text-secondary">
       <span className="inline-flex items-center gap-1.5">
         <span className="rounded-chip bg-brand-primary/10 px-1.5 py-0.5 font-semibold text-brand-primary">
           Pulled
         </span>
-        = committed to a sprint
+        = committed to a {itl.lower}
       </span>
       <span className="inline-flex items-center gap-1.5">
         <span className="rounded-chip border border-dashed border-neutral-border px-1.5 py-0.5 font-semibold text-neutral-text-secondary">
@@ -663,7 +664,7 @@ export function ProductBacklogPage() {
             <span>Readiness</span>
             {hasScore && <span className="text-center">{scoring.model.toUpperCase()}</span>}
             <span className="text-center">Pts</span>
-            <span>Sprint</span>
+            <span>{itl.singular}</span>
             <span className="text-center">Owner</span>
           </div>
 

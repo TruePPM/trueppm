@@ -326,7 +326,7 @@ export function EstimatesTab({
           )}
           {!sprintIsActive && task.status !== 'COMPLETE' && (
             <p className="text-xs text-neutral-text-secondary">
-              Remaining effort can be updated while the sprint is active.
+              Remaining effort can be updated while the {itl.lower} is active.
             </p>
           )}
         </fieldset>
