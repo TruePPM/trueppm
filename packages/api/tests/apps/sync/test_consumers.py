@@ -532,3 +532,57 @@ async def test_connection_evict_ignores_other_user(user: object, project: Projec
     )
 
     consumer.close.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Heartbeat: receive_json refreshes the presence TTL (#784)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_receive_json_heartbeat_refreshes_presence_ttl(
+    user: object, project: Project
+) -> None:
+    """Any inbound client message resets the presence key's expiry so an open but
+    idle socket is not evicted (``receive_json`` → ``_presence_heartbeat``)."""
+    from trueppm_api.apps.sync.consumers import (
+        _PRESENCE_TTL,
+        ProjectConsumer,
+        _presence_key,
+    )
+
+    consumer = ProjectConsumer()
+    consumer.project_pk = str(project.pk)
+    consumer._user = user  # type: ignore[attr-defined]
+
+    mock_redis = AsyncMock()
+    mock_redis.expire = AsyncMock()
+
+    with patch(
+        "trueppm_api.apps.sync.consumers.ProjectConsumer._get_redis",
+        new=AsyncMock(return_value=mock_redis),
+    ):
+        await consumer.receive_json({"type": "ping"})
+
+    mock_redis.expire.assert_awaited_once_with(_presence_key(str(project.pk)), _PRESENCE_TTL)
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_receive_json_without_user_is_a_noop(project: Project) -> None:
+    """A message that arrives before the handshake bound ``_user`` must not touch
+    Redis — the ``hasattr(self, "_user")`` guard short-circuits the heartbeat."""
+    from trueppm_api.apps.sync.consumers import ProjectConsumer
+
+    consumer = ProjectConsumer()
+    consumer.project_pk = str(project.pk)
+
+    get_redis = AsyncMock()
+    with patch(
+        "trueppm_api.apps.sync.consumers.ProjectConsumer._get_redis",
+        new=get_redis,
+    ):
+        await consumer.receive_json({"type": "ping"})
+
+    get_redis.assert_not_awaited()
