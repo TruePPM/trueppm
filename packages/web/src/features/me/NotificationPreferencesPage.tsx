@@ -45,7 +45,7 @@ const EVENT_LABELS: Record<string, { title: string; example: string }> = {
     title: 'When someone comments on your task',
     example: 'A teammate leaves a note on a task you own',
   },
-  // Signal-privacy ceiling-raise ratification (#1275). Email defaults OFF —
+  // Signal-privacy ceiling-raise ratification (issue 1275). Email defaults OFF —
   // the in-app inbox is the discovery surface.
   'signal.ceiling_proposal_opened': {
     title: 'When your team opens a signal-visibility proposal',
