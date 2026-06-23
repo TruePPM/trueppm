@@ -70,6 +70,11 @@ prevents one side unilaterally reorganizing the other side's container.
 A project can belong to at most one program. The same project cannot be in
 multiple programs at once.
 
+The picker has a search box and a methodology filter (All / Waterfall / Agile /
+Hybrid), and every row shows the project's methodology — so at organizational
+scale, or when two projects share a similar name, you can confirm you're adding
+the right one before you commit.
+
 ## The program shell
 
 `/programs/:id` is a six-tab shell — **Overview**, **Backlog**, **Projects**, **Resources**, **Members**, and **Settings**:
@@ -87,7 +92,11 @@ multiple programs at once.
   role on both the program and the target project.
 - **Projects** — the projects currently in this program. Click a project name
   to navigate to it. The `Remove` action detaches the project (it becomes
-  standalone, untouched).
+  standalone, untouched). When the program has a **target date** set, it shows at
+  the top of this tab. Each project row carries a standup-style count of its
+  **overdue** tasks (past their scheduled finish) and **at-risk** tasks (five or
+  fewer working days of float), so the tab reads like a morning dashboard rather
+  than a plain directory.
 - **Resources** — *(coming in 0.3)* within-program resource contention. Surfaces
   people staffed across more than one of the program's projects in overlapping
   windows, broken down by project, with an over-allocation flag when someone is
@@ -108,9 +117,10 @@ projects.
 
 Deeper program configuration lives under **/programs/:id/settings**:
 
-- **General** — name, description, code, accent color, health, visibility, and the
-  methodology default for new projects. The program lead is shown read-only. Edits
-  are staged and committed through a save bar. See
+- **General** — name, description, code, accent color, health, an optional
+  **target date** (the program's headline finish date, shown on its card and
+  Projects tab), visibility, and the methodology default for new projects. The
+  program lead is shown read-only. Edits are staged and committed through a save bar. See
   [Program identity square](#program-identity-square) for what the code and color drive.
 - **Access** — manage program membership: invite members, change roles, and remove
   members (the same membership model as the Members tab).

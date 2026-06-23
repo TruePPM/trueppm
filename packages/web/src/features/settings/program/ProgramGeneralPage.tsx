@@ -74,6 +74,9 @@ export function ProgramGeneralPage() {
   const [description, setDescription] = useState('');
   const [code, setCode] = useState('');
   const [health, setHealth] = useState<ProgramHealth>('AUTO');
+  // '' = no target date (open-ended program). Stored as an ISO `YYYY-MM-DD`
+  // string to match the native date input; normalized to null on save (issue 560).
+  const [targetDate, setTargetDate] = useState('');
   const [methodology, setMethodology] = useState<ProgramMethodology>('HYBRID');
   // null = inherit the workspace default (ADR-0116, #1106).
   const [iterationLabel, setIterationLabel] = useState<string | null>(null);
@@ -104,6 +107,7 @@ export function ProgramGeneralPage() {
   const [initialDescription, setInitialDescription] = useState('');
   const [initialCode, setInitialCode] = useState('');
   const [initialHealth, setInitialHealth] = useState<ProgramHealth>('AUTO');
+  const [initialTargetDate, setInitialTargetDate] = useState('');
   const [initialMethodology, setInitialMethodology] = useState<ProgramMethodology>('HYBRID');
   const [initialIterationLabel, setInitialIterationLabel] = useState<string | null>(null);
   const [initialPublicSharing, setInitialPublicSharing] = useState<boolean | null>(null);
@@ -125,6 +129,7 @@ export function ProgramGeneralPage() {
     setDescription(program.description ?? '');
     setCode(program.code ?? '');
     setHealth(program.health);
+    setTargetDate(program.target_date ?? '');
     setMethodology(program.methodology);
     setIterationLabel(program.iteration_label ?? null);
     setPublicSharing(program.public_sharing ?? null);
@@ -139,6 +144,7 @@ export function ProgramGeneralPage() {
     setInitialDescription(program.description ?? '');
     setInitialCode(program.code ?? '');
     setInitialHealth(program.health);
+    setInitialTargetDate(program.target_date ?? '');
     setInitialMethodology(program.methodology);
     setInitialIterationLabel(program.iteration_label ?? null);
     setInitialPublicSharing(program.public_sharing ?? null);
@@ -157,6 +163,7 @@ export function ProgramGeneralPage() {
       description,
       code,
       health,
+      targetDate,
       methodology,
       iterationLabel,
       publicSharing,
@@ -173,6 +180,7 @@ export function ProgramGeneralPage() {
       description,
       code,
       health,
+      targetDate,
       methodology,
       iterationLabel,
       publicSharing,
@@ -191,6 +199,7 @@ export function ProgramGeneralPage() {
       description: initialDescription,
       code: initialCode,
       health: initialHealth,
+      targetDate: initialTargetDate,
       methodology: initialMethodology,
       iterationLabel: initialIterationLabel,
       publicSharing: initialPublicSharing,
@@ -207,6 +216,7 @@ export function ProgramGeneralPage() {
       initialDescription,
       initialCode,
       initialHealth,
+      initialTargetDate,
       initialMethodology,
       initialIterationLabel,
       initialPublicSharing,
@@ -229,6 +239,8 @@ export function ProgramGeneralPage() {
         description,
         code,
         health,
+        // '' clears the target date — the program becomes open-ended (issue 560).
+        target_date: targetDate || null,
         methodology,
         // null clears the override (inherit); blank custom normalizes to null (ADR-0116).
         iteration_label: iterationLabel === null ? null : iterationLabel.trim() || null,
@@ -249,6 +261,7 @@ export function ProgramGeneralPage() {
     setInitialDescription(description);
     setInitialCode(code);
     setInitialHealth(health);
+    setInitialTargetDate(targetDate);
     setInitialMethodology(methodology);
     setInitialIterationLabel(iterationLabel);
     setInitialPublicSharing(publicSharing);
@@ -266,6 +279,7 @@ export function ProgramGeneralPage() {
     description,
     code,
     health,
+    targetDate,
     methodology,
     iterationLabel,
     publicSharing,
@@ -283,6 +297,7 @@ export function ProgramGeneralPage() {
     setDescription(initialDescription);
     setCode(initialCode);
     setHealth(initialHealth);
+    setTargetDate(initialTargetDate);
     setMethodology(initialMethodology);
     setIterationLabel(initialIterationLabel);
     setPublicSharing(initialPublicSharing);
@@ -298,6 +313,7 @@ export function ProgramGeneralPage() {
     initialDescription,
     initialCode,
     initialHealth,
+    initialTargetDate,
     initialMethodology,
     initialIterationLabel,
     initialPublicSharing,
@@ -428,6 +444,23 @@ export function ProgramGeneralPage() {
               rows={3}
               aria-label="Description"
               className="w-full max-w-[540px] px-2.5 py-2 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary leading-relaxed resize-y focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+            />
+          </FieldRow>
+
+          {/* Headline target finish date (issue 560) — a program spans projects with
+              independent CPM schedules, so there is no computed end date; the PM
+              sets one. Native date input → StubFieldset disables it below Admin
+              (rule 122). Empty clears it (open-ended). */}
+          <FieldRow
+            label="Target date"
+            hint="The program's headline finish date — shows on its card and Projects tab. Optional."
+          >
+            <input
+              type="date"
+              value={targetDate}
+              onChange={(e) => setTargetDate(e.target.value)}
+              aria-label="Program target date"
+              className="w-[160px] h-8 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] tppm-mono text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
             />
           </FieldRow>
 

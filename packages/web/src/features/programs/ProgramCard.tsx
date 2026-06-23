@@ -1,10 +1,24 @@
 import { Link } from 'react-router';
-import type { Program } from '@/api/types';
+import type { Program, ProgramHealth } from '@/api/types';
+import { fmtUtcShort } from '@/lib/formatUtcDate';
 import { ProgramIdentitySquare } from './ProgramIdentitySquare';
 
 interface Props {
   program: Program;
 }
+
+/**
+ * Health → circle-dot treatment + label (issue 560). Per rule 158 program health is a
+ * CIRCLE dot (the identity square stays for `program.color`); the dot carries the
+ * color and the word carries the meaning (rule 6/7/120). AUTO is omitted — it
+ * means "defer to the rollup", and the computed worst-of-children value lives on
+ * the program overview (it is not recomputed per card to keep the list cheap).
+ */
+const HEALTH_DOT: Record<Exclude<ProgramHealth, 'AUTO'>, { dot: string; label: string }> = {
+  ON_TRACK: { dot: 'bg-semantic-on-track', label: 'On track' },
+  AT_RISK: { dot: 'bg-semantic-at-risk', label: 'At risk' },
+  CRITICAL: { dot: 'bg-semantic-critical', label: 'Critical' },
+};
 
 /**
  * Returns the visual treatment for a program-role chip. The chip is wider than
@@ -36,13 +50,24 @@ function roleChipClasses(role: number | null): string {
  * row reads consistently with other count surfaces in the app.
  */
 export function ProgramCard({ program }: Props) {
+  const health = program.health !== 'AUTO' ? HEALTH_DOT[program.health] : null;
+  const targetLabel = program.target_date ? fmtUtcShort(program.target_date) : null;
+  // The whole card is a single <Link>, so its aria-label REPLACES the inner text
+  // for screen readers — fold the role, health, and target into it (rule 6).
+  const ariaLabel = [
+    program.name,
+    program.my_role_label ? `your role: ${program.my_role_label}` : null,
+    health ? `health: ${health.label}` : null,
+    targetLabel ? `target ${targetLabel}` : null,
+  ]
+    .filter(Boolean)
+    .join(', ');
+
   return (
     <li>
       <Link
         to={`/programs/${program.id}/projects`}
-        aria-label={`${program.name}${
-          program.my_role_label ? `, your role: ${program.my_role_label}` : ''
-        }`}
+        aria-label={ariaLabel}
         className="flex h-full flex-col gap-2 rounded-lg border border-neutral-border bg-neutral-surface p-4
           transition-[transform,border-color] duration-fast ease-brand
           hover:border-brand-primary/40 motion-safe:hover:-translate-y-px
@@ -66,11 +91,20 @@ export function ProgramCard({ program }: Props) {
         {program.description && (
           <p className="line-clamp-2 text-xs text-neutral-text-secondary">{program.description}</p>
         )}
-        <p className="tppm-mono mt-auto text-xs text-neutral-text-secondary">
-          {program.project_count} project{program.project_count === 1 ? '' : 's'} ·{' '}
-          {program.member_count} member{program.member_count === 1 ? '' : 's'} ·{' '}
-          {program.methodology}
-        </p>
+        <div className="mt-auto flex flex-col gap-1">
+          {health && (
+            <span className="inline-flex items-center gap-1.5">
+              <span aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${health.dot}`} />
+              <span className="text-xs text-neutral-text-secondary">{health.label}</span>
+            </span>
+          )}
+          <p className="tppm-mono text-xs text-neutral-text-secondary">
+            {program.project_count} project{program.project_count === 1 ? '' : 's'} ·{' '}
+            {program.member_count} member{program.member_count === 1 ? '' : 's'} ·{' '}
+            {program.methodology}
+            {targetLabel ? ` · Target ${targetLabel}` : ''}
+          </p>
+        </div>
       </Link>
     </li>
   );

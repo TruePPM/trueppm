@@ -50,7 +50,13 @@ from trueppm_api.apps.projects.bulk_settings import (
     apply_bulk_fields,
     build_bulk_response,
 )
-from trueppm_api.apps.projects.models import Methodology, Program, Project, Task
+from trueppm_api.apps.projects.models import (
+    Methodology,
+    Program,
+    Project,
+    Task,
+    TaskStatus,
+)
 from trueppm_api.apps.projects.serializers import (
     ProgramRiskPolicySerializer,
     ProgramRollupConfigSerializer,
@@ -771,9 +777,32 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
         — that gate is enforced by the project's own viewset on click-through).
         """
         program = self.get_object()
+        # Per-project overdue / at-risk counts (#560), so the Projects tab reads
+        # like a morning standup. Both are conditional COUNTs over the project's
+        # own tasks in the SAME query (no N+1) — distinct=True guards against the
+        # row-fanout that two filtered aggregates over one reverse relation would
+        # otherwise produce. "Incomplete" excludes COMPLETE and soft-deleted rows;
+        # "overdue" = past the CPM early_finish; "at-risk" reuses the canonical
+        # ≤5-working-days-of-float rule (cf. ProjectViewSet.status_summary).
+        today = timezone.localdate()
+        incomplete = ~Q(tasks__status=TaskStatus.COMPLETE) & Q(tasks__is_deleted=False)
         qs = (
             Project.objects.filter(program=program, is_deleted=False)
             .select_related("calendar")
+            .annotate(
+                overdue_count=Count(
+                    "tasks",
+                    filter=incomplete & Q(tasks__early_finish__lt=today),
+                    distinct=True,
+                ),
+                at_risk_count=Count(
+                    "tasks",
+                    filter=incomplete
+                    & Q(tasks__total_float__isnull=False)
+                    & Q(tasks__total_float__lte=5),
+                    distinct=True,
+                ),
+            )
             .order_by("start_date", "name")
         )
         return Response(ProjectSerializer(qs, many=True).data)

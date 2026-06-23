@@ -467,6 +467,13 @@ class Program(VersionedModel):
         choices=Health.choices,
         default=Health.AUTO,
     )
+    # The program's single headline target finish date (#560). A program spans
+    # projects with independent CPM schedules, so there is no computed program
+    # end date — the PM sets one explicitly to answer "what's in flight and when
+    # is it supposed to finish?" (Jordan, VoC !291). Nullable: most programs run
+    # open-ended. ADMIN+ to set (gated by the viewset's IsProgramAdmin on update).
+    # A target_milestone FK is a deferred follow-up — see #560.
+    target_date = models.DateField(null=True, blank=True)
     # Listing scope. WORKSPACE = listable by any workspace member; PRIVATE =
     # explicit-members-only. Queryset enforcement is a future change — see the
     # Visibility docstring above.

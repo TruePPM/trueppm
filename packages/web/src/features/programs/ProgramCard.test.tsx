@@ -38,6 +38,7 @@ function makeProgram(overrides: Partial<Program> = {}): Program {
     inherited_attachments_enabled: true,
     inherited_allowed_attachment_types: ['application/pdf'],
     health: 'AUTO',
+    target_date: null,
     visibility: 'WORKSPACE',
     color: null,
     lead: null,
@@ -96,5 +97,34 @@ describe('ProgramCard identity square (#698)', () => {
     expect(square.className).not.toMatch(/semantic-(on-track|at-risk|critical)/);
     // No inline accent color when unset.
     expect(square.style.backgroundColor).toBe('');
+  });
+});
+
+describe('ProgramCard health + target date (#560)', () => {
+  it('renders a health dot + label for a concrete (non-AUTO) health', () => {
+    renderCard(makeProgram({ health: 'AT_RISK' }));
+    const dot = screen.getByText('At risk').previousElementSibling;
+    expect(dot).toHaveClass('rounded-full', 'bg-semantic-at-risk');
+    // The single-<Link> aria-label REPLACES the inner text for SR — health must
+    // be folded into it (rule 6).
+    expect(screen.getByRole('link').getAttribute('aria-label')).toMatch(/health: At risk/);
+  });
+
+  it('omits the health indicator when health is AUTO (defer to the rollup)', () => {
+    renderCard(makeProgram({ health: 'AUTO' }));
+    expect(screen.queryByText('At risk')).not.toBeInTheDocument();
+    expect(screen.queryByText('On track')).not.toBeInTheDocument();
+    expect(screen.getByRole('link').getAttribute('aria-label')).not.toMatch(/health:/);
+  });
+
+  it('renders the target date and folds it into the accessible name', () => {
+    renderCard(makeProgram({ target_date: '2026-09-30' }));
+    expect(screen.getByText(/Target/)).toBeInTheDocument();
+    expect(screen.getByRole('link').getAttribute('aria-label')).toMatch(/target/i);
+  });
+
+  it('omits the target date when unset', () => {
+    renderCard(makeProgram({ target_date: null }));
+    expect(screen.queryByText(/Target/)).not.toBeInTheDocument();
   });
 });

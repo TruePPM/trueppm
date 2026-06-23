@@ -83,6 +83,21 @@ async function setup(page: Page, { existingPrograms = [] as (typeof FIXTURE_PROG
   const pj = (data: unknown) => JSON.stringify(data);
   let programs = [...existingPrograms];
 
+  // Catch-all 401-guard (registered FIRST → lowest precedence; every specific
+  // route below is more-recent and wins). Without it, any endpoint the shell
+  // touches but this spec does not mock (notifications, presence, …) hits the
+  // real network, 401s, and trips the session-expired modal — which then
+  // intercepts pointer events and cascades into unrelated failures. Returns the
+  // empty list shape; object endpoints the page reads are all mocked explicitly
+  // below, so none fall through to this net.
+  await page.route('**/api/v1/**', (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj({ count: 0, next: null, previous: null, results: [] }),
+    }),
+  );
+
   await page.route('**/api/v1/auth/me/', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_ME) }),
   );
@@ -494,5 +509,103 @@ test.describe('Programs — sidebar entry', () => {
     await expect(
       sidebar.getByRole('button', { name: 'Phase 2 Modernization', exact: true }),
     ).toBeVisible();
+  });
+});
+
+test.describe('Programs — Projects-tab rollup surfacing (#560 / #564)', () => {
+  const PROGRAM_PROJECTS = [
+    {
+      id: 'pp-alpha',
+      name: 'Alpha',
+      methodology: 'WATERFALL',
+      program: PROGRAM_ID,
+      overdue_count: 2,
+      at_risk_count: 1,
+    },
+    {
+      id: 'pp-bravo',
+      name: 'Bravo',
+      methodology: 'AGILE',
+      program: PROGRAM_ID,
+      overdue_count: 0,
+      at_risk_count: 0,
+    },
+  ];
+
+  test('shows the program target date and per-project overdue / at-risk chips (#560)', async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.route(`**/api/v1/programs/${PROGRAM_ID}/`, (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ...FIXTURE_PROGRAM, target_date: '2026-09-30', project_count: 2 }),
+      }),
+    );
+    await page.route(`**/api/v1/programs/${PROGRAM_ID}/projects/`, (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PROGRAM_PROJECTS) }),
+    );
+    await page.goto(`/programs/${PROGRAM_ID}/projects`);
+
+    // Page-rendered signal: the project list resolved before asserting chrome.
+    await expect(page.getByRole('link', { name: 'Alpha' })).toBeVisible();
+    await expect(page.getByText(/^Target /)).toBeVisible();
+
+    const alpha = page.getByRole('listitem').filter({ hasText: 'Alpha' });
+    await expect(alpha.getByText('2 overdue')).toBeVisible();
+    await expect(alpha.getByText('1 at risk')).toBeVisible();
+
+    // A project with zero counts shows neither chip.
+    const bravo = page.getByRole('listitem').filter({ hasText: 'Bravo' });
+    await expect(bravo.getByText(/overdue/)).toHaveCount(0);
+    await expect(bravo.getByText(/at risk/)).toHaveCount(0);
+  });
+
+  test('add-project modal shows methodology badges and filters by methodology (#564)', async ({
+    page,
+  }) => {
+    await setup(page);
+    // Non-empty program list → only the toolbar "Add existing" renders (the
+    // empty-state duplicate would be a strict-mode collision).
+    await page.route(`**/api/v1/programs/${PROGRAM_ID}/projects/`, (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PROGRAM_PROJECTS) }),
+    );
+    // The modal reads the global project list (useProjects) for candidates.
+    await page.route('**/api/v1/projects/', (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          results: [
+            { id: 'c-wf', name: 'Riverside Waterfall', methodology: 'WATERFALL', program: null },
+            { id: 'c-ag', name: 'Riverside Agile', methodology: 'AGILE', program: null },
+          ],
+          count: 2,
+          next: null,
+          previous: null,
+        }),
+      }),
+    );
+    await page.goto(`/programs/${PROGRAM_ID}/projects`);
+    await page.getByRole('button', { name: 'Add existing' }).click();
+
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByText('Riverside Waterfall')).toBeVisible();
+    // Per-row methodology badge (scoped to its row, exact so it matches only the
+    // badge — not the "Riverside Waterfall" name, nor the filter radio outside it).
+    await expect(
+      dialog
+        .locator('label')
+        .filter({ hasText: 'Riverside Waterfall' })
+        .getByText('Waterfall', { exact: true }),
+    ).toBeVisible();
+
+    // Filter to Agile — scope to the methodology radiogroup so it doesn't collide
+    // with the per-row project-selection radios (whose names also contain "Agile").
+    const methodologyGroup = dialog.getByRole('radiogroup', { name: 'Filter by methodology' });
+    await methodologyGroup.getByRole('radio', { name: 'Agile' }).click();
+    await expect(dialog.getByText('Riverside Agile')).toBeVisible();
+    await expect(dialog.getByText('Riverside Waterfall')).toHaveCount(0);
   });
 });

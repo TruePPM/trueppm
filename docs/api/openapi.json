@@ -25475,6 +25475,11 @@
                     "health": {
                         "$ref": "#/components/schemas/HealthEnum"
                     },
+                    "target_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
                     "visibility": {
                         "$ref": "#/components/schemas/VisibilityEnum"
                     },
@@ -26862,6 +26867,11 @@
                     "health": {
                         "$ref": "#/components/schemas/HealthEnum"
                     },
+                    "target_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
                     "visibility": {
                         "$ref": "#/components/schemas/VisibilityEnum"
                     },
@@ -27181,6 +27191,11 @@
                     "health": {
                         "$ref": "#/components/schemas/HealthEnum"
                     },
+                    "target_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
                     "visibility": {
                         "$ref": "#/components/schemas/VisibilityEnum"
                     },
@@ -27487,6 +27502,18 @@
                         "description": "Count of non-deleted, not-yet-COMPLETE tasks — annotated only on the\nlist branch (#960). ``None`` elsewhere; never triggers a per-row query.",
                         "readOnly": true
                     },
+                    "overdue_count": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "Incomplete tasks past their CPM ``early_finish`` (#560) — annotated\nonly on the program-projects branch. ``None`` elsewhere.",
+                        "readOnly": true
+                    },
+                    "at_risk_count": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "Incomplete tasks with ≤5 working days of float (#560) — the canonical\nat-risk definition (cf. ProjectViewSet.status_summary, program_rollup).\nAnnotated only on the program-projects branch. ``None`` elsewhere.",
+                        "readOnly": true
+                    },
                     "is_archived": {
                         "type": "boolean",
                         "readOnly": true
@@ -27506,6 +27533,7 @@
                 "required": [
                     "archived_at",
                     "archived_by",
+                    "at_risk_count",
                     "effective_allow_guests",
                     "effective_allowed_attachment_types",
                     "effective_attachments_enabled",
@@ -27532,6 +27560,7 @@
                     "member_count",
                     "name",
                     "open_task_count",
+                    "overdue_count",
                     "percent_complete",
                     "server_version",
                     "start_date"
@@ -27942,6 +27971,18 @@
                         "description": "Count of non-deleted, not-yet-COMPLETE tasks — annotated only on the\nlist branch (#960). ``None`` elsewhere; never triggers a per-row query.",
                         "readOnly": true
                     },
+                    "overdue_count": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "Incomplete tasks past their CPM ``early_finish`` (#560) — annotated\nonly on the program-projects branch. ``None`` elsewhere.",
+                        "readOnly": true
+                    },
+                    "at_risk_count": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "Incomplete tasks with ≤5 working days of float (#560) — the canonical\nat-risk definition (cf. ProjectViewSet.status_summary, program_rollup).\nAnnotated only on the program-projects branch. ``None`` elsewhere.",
+                        "readOnly": true
+                    },
                     "is_archived": {
                         "type": "boolean",
                         "readOnly": true
@@ -27996,6 +28037,7 @@
                 "required": [
                     "archived_at",
                     "archived_by",
+                    "at_risk_count",
                     "effective_allow_guests",
                     "effective_allowed_attachment_types",
                     "effective_attachments_enabled",
@@ -28024,6 +28066,7 @@
                     "my_facets",
                     "name",
                     "open_task_count",
+                    "overdue_count",
                     "percent_complete",
                     "program_detail",
                     "recalculated_at",

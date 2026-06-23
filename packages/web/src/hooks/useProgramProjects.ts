@@ -9,6 +9,9 @@ interface ApiProject {
   start_date: string;
   methodology?: Methodology;
   program?: string | null;
+  /** Per-project rollup counts annotated by this endpoint (issue 560). */
+  overdue_count?: number | null;
+  at_risk_count?: number | null;
 }
 
 /**
@@ -33,6 +36,8 @@ export function useProgramProjects(
         methodology: p.methodology ?? 'HYBRID',
         programId: p.program ?? programId ?? null,
         openTaskCount: null, // not annotated on the program-projects endpoint
+        overdueCount: p.overdue_count ?? null,
+        atRiskCount: p.at_risk_count ?? null,
       }));
     },
     enabled: !!programId,

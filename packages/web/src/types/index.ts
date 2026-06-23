@@ -345,6 +345,14 @@ export interface Project {
    * endpoint; null when the server did not provide it.
    */
   openTaskCount: number | null;
+  /**
+   * Per-project overdue / at-risk task counts (issue 560). Annotated only by the
+   * program-projects endpoint (`GET /programs/{id}/projects/`); `undefined`
+   * everywhere else, `null` when the endpoint provided no annotation. Drives
+   * the standup-style chips on the program Projects tab.
+   */
+  overdueCount?: number | null;
+  atRiskCount?: number | null;
   /** Project methodology preset — drives default tab visibility (ADR-0041). */
   methodology: Methodology;
   /**
