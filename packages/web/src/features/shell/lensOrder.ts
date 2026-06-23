@@ -17,11 +17,15 @@ import type { VisibleViewGroup } from '@/features/shell/methodologyTabs';
 /**
  * The default project view each lens lands on at the project index
  * (`/projects/:id` → this view). These are universally-present routes (every
- * methodology has Overview / Schedule / Board as reachable segments, ADR-0030),
- * so the redirect always resolves. `unified` keeps the canonical Overview.
+ * methodology has Today / Schedule / Board as reachable segments, ADR-0030/0180),
+ * so the redirect always resolves. `unified` lands on the Unified Today view.
  */
 export const LENS_DEFAULT_VIEW: Record<RoleContext, string> = {
-  unified: 'overview',
+  // The Unified Today split view (ADR-0180) is the dual-hat PM+SM home — the
+  // purpose-built destination the `unified` lens lands on (was 'overview' in the
+  // ADR-0162 v1 placeholder). `today` is visible for every methodology, so the
+  // project-index redirect always resolves.
+  unified: 'today',
   pm: 'schedule',
   scrum_master: 'board',
 };

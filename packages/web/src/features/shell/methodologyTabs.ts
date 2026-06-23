@@ -7,6 +7,7 @@ import type { Methodology } from '@/types';
  * | Tab             | WATERFALL | AGILE | HYBRID |
  * |-----------------|-----------|-------|--------|
  * | overview        | ✅        | ✅    | ✅     |
+ * | today           | ✅        | ✅    | ✅     |
  * | board           | ✅        | ✅    | ✅     |
  * | product-backlog | ❌        | ✅    | ✅     |
  * | sprints         | ❌        | ✅    | ✅     |
@@ -70,7 +71,10 @@ export const VIEW_GROUPS: readonly ViewGroupDef[] = [
     label: 'Plan',
     views: ['product-backlog', 'sprints', 'schedule', 'grid', 'calendar'],
   },
-  { id: 'TRACK', label: 'Track', views: ['board', 'risk', 'reports'] },
+  // `today` leads TRACK — the Unified Today split view (ADR-0180). Visible for every
+  // methodology (the board it embeds already is); it degrades gracefully when a project
+  // has no active sprint. The `unified` role-context lens lands here (lensOrder.ts).
+  { id: 'TRACK', label: 'Track', views: ['today', 'board', 'risk', 'reports'] },
   { id: 'PEOPLE', label: 'People', views: ['resources'] },
 ] as const;
 

@@ -250,6 +250,26 @@ export function OverviewIcon({ className, ...rest }: IconProps) {
   );
 }
 
+/** "Today" — a compact sun glyph for the Unified Today view (ADR-0180). */
+export function TodayIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      className={className}
+      {...rest}
+    >
+      <circle cx="8" cy="8" r="3" />
+      <rect x="7.25" y="0.5" width="1.5" height="2.5" rx="0.75" />
+      <rect x="7.25" y="13" width="1.5" height="2.5" rx="0.75" />
+      <rect x="0.5" y="7.25" width="2.5" height="1.5" rx="0.75" />
+      <rect x="13" y="7.25" width="2.5" height="1.5" rx="0.75" />
+    </svg>
+  );
+}
+
 /** Settings — cog with centre circle */
 export function SettingsIcon({ className, ...rest }: IconProps) {
   return (

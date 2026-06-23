@@ -7,7 +7,7 @@ import { setupAuth, setupApiMocks, setupCatchAll, type UserFixture } from './fix
  * The lens is a presentation-only per-user preference. Two behaviors are covered
  * end-to-end: the settings switcher writes `role_context` and the choice survives
  * a reload (the AC), and the project index lands on the lens's default view
- * (PM → Schedule, Scrum Master → Board, Unified → Overview).
+ * (PM → Schedule, Scrum Master → Board, Unified → Today — ADR-0180).
  */
 
 const PROJECT_ID = 'e2e-rolectx-0000-0000-0000-000000000001';
@@ -77,7 +77,7 @@ test.describe('Role-context lens (ADR-0162)', () => {
   for (const { lens, view } of [
     { lens: 'pm', view: 'schedule' },
     { lens: 'scrum_master', view: 'board' },
-    { lens: 'unified', view: 'overview' },
+    { lens: 'unified', view: 'today' },
   ]) {
     test(`the ${lens} lens lands the project index on ${view}`, async ({ page }) => {
       await setup(page, lens);

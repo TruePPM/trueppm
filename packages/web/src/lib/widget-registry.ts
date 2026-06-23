@@ -32,7 +32,9 @@ export type SlotId =
   // --- Project settings slots (issue #569 / ADR-0076) ---
   | 'project_settings.integrations' // extra cards rendered below the OSS three sections (Enterprise extension point)
   // --- User settings slots (issue #587 / ADR-0049) ---
-  | 'user_settings.connected_accounts'; // extra provider cards on User → Settings → Connected Accounts (Enterprise extension point — Jira / ServiceNow / Bitbucket / Azure DevOps register here)
+  | 'user_settings.connected_accounts' // extra provider cards on User → Settings → Connected Accounts (Enterprise extension point — Jira / ServiceNow / Bitbucket / Azure DevOps register here)
+  // --- Unified Today view slots (issue 412 / ADR-0180) ---
+  | 'today_view.gate_status'; // Enterprise: gate-status + change-request alert cards on the Today schedule strip; renders nothing in OSS
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export interface SlotRegistration<T = ComponentType<any>> {

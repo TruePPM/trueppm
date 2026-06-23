@@ -18,7 +18,7 @@ function groups(): VisibleViewGroup[] {
 
 describe('lensDefaultView', () => {
   it('maps each lens to its project-entry view', () => {
-    expect(lensDefaultView('unified')).toBe('overview');
+    expect(lensDefaultView('unified')).toBe('today'); // ADR-0180: the Unified Today view
     expect(lensDefaultView('pm')).toBe('schedule');
     expect(lensDefaultView('scrum_master')).toBe('board');
   });

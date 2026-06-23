@@ -92,6 +92,15 @@ describe('groupedVisibleViews (ADR-0128)', () => {
     ]);
   });
 
+  it('today (ADR-0180) leads the TRACK group and is visible for every methodology', () => {
+    for (const m of ['WATERFALL', 'AGILE', 'HYBRID'] as const) {
+      const track = groupedVisibleViews(m).find((g) => g.id === 'TRACK');
+      expect(track?.visibleViews[0]).toBe('today');
+    }
+    // It is also a hideable view (unlike the always-on `overview`).
+    expect(HIDEABLE_VIEW_KEYS.has('today')).toBe(true);
+  });
+
   it('AGILE drops Schedule + Calendar from PLAN (ADR-0041 filter composes within the group)', () => {
     const plan = groupedVisibleViews('AGILE').find((g) => g.id === 'PLAN');
     expect(plan?.visibleViews).toEqual(['product-backlog', 'sprints', 'grid']);
