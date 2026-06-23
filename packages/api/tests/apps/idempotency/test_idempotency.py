@@ -255,6 +255,10 @@ def _iter_view_classes() -> list[tuple[str, str | None, type, set[str]]]:
 #   default_landing on their UserProfile singleton; setting the current value is a no-op and a
 #   replay converges to the same stored preference — the same naturally-idempotent
 #   retention-settings shape, with no replayable resource to dedup.
+# - project-decisions-policy (ProjectDecisionsPolicyView PATCH, ADR-0167 / #748) sets the single
+#   oversight_visible boolean on the project's decisions-visibility policy singleton; setting the
+#   current value is a no-op and a replay converges to the same posture — the same naturally-
+#   idempotent settings-toggle shape as the signal-privacy views, with no replayable resource.
 EXEMPT_URL_NAMES = frozenset(
     {
         "project-schedule",
@@ -269,6 +273,7 @@ EXEMPT_URL_NAMES = frozenset(
         "project-signal-privacy-ratchet-down",
         "project-signal-ceiling-proposal-vote",
         "project-signal-ceiling-proposal-withdraw",
+        "project-decisions-policy",
         "auth-me-profile",
     }
 )

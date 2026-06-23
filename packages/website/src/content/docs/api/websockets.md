@@ -102,7 +102,7 @@ include:
   `task_comment_deleted`, `task_attachment_created`, `task_attachment_deleted`,
   `comment_created`
 - **Notes log**: `task_note_created`, `task_note_updated`, `task_note_deleted`,
-  `task_note_pinned`
+  `task_note_pinned`, `task_note_decision_toggled`
 - **Roster / assignments**: `roster_changed`, `assignment_created`,
   `assignment_updated`, `assignment_deleted`
 - **Board config**: `board_config_updated`, `board_view_created`,
