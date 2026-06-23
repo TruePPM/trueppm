@@ -155,6 +155,44 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
   });
 
+  it('invalidates the decisions list and task-notes on task_note_decision_toggled (#748)', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    act(() => {
+      MockWebSocket.instances[0].dispatch('message', {
+        data: JSON.stringify({
+          event_type: 'task_note_decision_toggled',
+          payload: { id: 'note-1', task_id: 'task-1', decision: true },
+        }),
+      });
+    });
+    flushDebounce();
+
+    // The toggle flips a per-task note chip AND re-sorts the project Decisions list.
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['task-notes', 'task-1'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['decisions', 'proj-1'] });
+  });
+
+  it('does not invalidate the decisions list for a plain task_note_pinned event (#748)', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    act(() => {
+      MockWebSocket.instances[0].dispatch('message', {
+        data: JSON.stringify({
+          event_type: 'task_note_pinned',
+          payload: { id: 'note-1', task_id: 'task-1', pinned: true },
+        }),
+      });
+    });
+    flushDebounce();
+
+    // Pin still refreshes the per-task notes, but the Decisions list is decision-only.
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['task-notes', 'task-1'] });
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['decisions', 'proj-1'] });
+  });
+
   it('does not invalidate dependencies for unrelated events', () => {
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
     renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });

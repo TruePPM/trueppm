@@ -392,21 +392,27 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         }
       }
 
-      // --- Task note events (ADR-0143, issue 740) ---
+      // --- Task note events (ADR-0143, issue 740; decision toggle ADR-0165, #748) ---
       // A note create/edit/pin/delete invalidates the per-task notes list AND the
       // task list/board (the `latest_note_at` freshness chip is annotated on the
-      // task serializer, so peers' cards re-fetch to show the new timestamp).
+      // task serializer, so peers' cards re-fetch to show the new timestamp). A
+      // `task_note_decision_toggled` additionally invalidates the project Decisions
+      // list so an open Decisions view reflects a peer's flag without a reload.
       else if (
         event_type === 'task_note_created' ||
         event_type === 'task_note_updated' ||
         event_type === 'task_note_deleted' ||
-        event_type === 'task_note_pinned'
+        event_type === 'task_note_pinned' ||
+        event_type === 'task_note_decision_toggled'
       ) {
         const taskId = payload?.task_id;
         if (typeof taskId === 'string') {
           void queryClient.invalidateQueries({ queryKey: ['task-notes', taskId] });
         }
         void queryClient.invalidateQueries({ queryKey: ['tasks', projectIdRef.current] });
+        if (event_type === 'task_note_decision_toggled') {
+          void queryClient.invalidateQueries({ queryKey: ['decisions', projectIdRef.current] });
+        }
       }
 
       // --- Task external-link events (integrations) ---

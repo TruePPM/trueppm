@@ -163,6 +163,36 @@ export function usePinNote() {
   });
 }
 
+interface ToggleDecisionVars {
+  projectId: string;
+  taskId: string;
+  noteId: string;
+}
+
+/**
+ * POST /api/v1/projects/{projectId}/tasks/{taskId}/notes/{noteId}/decision/
+ *
+ * Toggle a note's `decision` flag — the seam that promotes a note into the project
+ * and sprint Decisions views (ADR-0165, #748). Curation, not authorship: open to any
+ * MEMBER+, like pin. Invalidates the per-task notes list (so the drawer chip flips)
+ * and the project Decisions list (so an open Decisions view re-sorts).
+ */
+export function useToggleDecision() {
+  const queryClient = useQueryClient();
+  return useMutation<TaskNote, Error, ToggleDecisionVars>({
+    mutationFn: async ({ projectId, taskId, noteId }) => {
+      const res = await apiClient.post<TaskNote>(
+        `/projects/${projectId}/tasks/${taskId}/notes/${noteId}/decision/`,
+      );
+      return res.data;
+    },
+    onSuccess: (_data, { projectId, taskId }) => {
+      void queryClient.invalidateQueries({ queryKey: notesKey(taskId) });
+      void queryClient.invalidateQueries({ queryKey: ['decisions', projectId] });
+    },
+  });
+}
+
 interface DeleteNoteVars {
   projectId: string;
   taskId: string;

@@ -13,6 +13,7 @@ from trueppm_api.apps.projects.ceremony_views import (
     PhaseGateConfigView,
     ProjectGuardrailPolicyView,
 )
+from trueppm_api.apps.projects.decisions_views import ProjectDecisionsPolicyView
 from trueppm_api.apps.projects.program_views import ProgramViewSet
 from trueppm_api.apps.projects.signal_privacy_views import (
     SignalCeilingProposalListView,
@@ -292,6 +293,12 @@ urlpatterns = [
         "projects/<project_pk>/signal-privacy/ceiling-proposals/<proposal_pk>/withdraw/",
         SignalCeilingProposalWithdrawView.as_view(),
         name="project-signal-ceiling-proposal-withdraw",
+    ),
+    # Decisions-view visibility policy — singleton per project (ADR-0165, #748).
+    path(
+        "projects/<project_pk>/decisions-policy/",
+        ProjectDecisionsPolicyView.as_view(),
+        name="project-decisions-policy",
     ),
     # Sprint endpoints (ADR-0037)
     path(
@@ -679,6 +686,12 @@ urlpatterns = [
         "projects/<project_pk>/tasks/<task_pk>/notes/<pk>/pin/",
         TaskNoteViewSet.as_view({"post": "pin"}),
         name="project-task-notes-pin",
+    ),
+    # Decision flag — promotes a note into the project/sprint Decisions log (ADR-0165, #748)
+    path(
+        "projects/<project_pk>/tasks/<task_pk>/notes/<pk>/decision/",
+        TaskNoteViewSet.as_view({"post": "decision"}),
+        name="project-task-notes-decision",
     ),
     # Program ceremony templates + phase-gate config (ADR-0079, #528)
     path(

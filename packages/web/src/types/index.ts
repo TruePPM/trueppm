@@ -829,9 +829,9 @@ export interface TaskNote {
   body: string;
   pinned: boolean;
   /**
-   * issue 748 seam — flags a note as a decision. Always false in 0.3; the Notes UI
-   * does not surface it. Kept on the type so the Decisions fast-follow is purely
-   * additive.
+   * Flags a note as a decision (ADR-0165, #748) — promotes it into the project and
+   * sprint Decisions views. Toggled via the decision action (mirrors pin); surfaced as
+   * a one-tap chip on the note row.
    */
   decision: boolean;
   edited_at: string | null;
@@ -839,6 +839,36 @@ export interface TaskNote {
   is_deleted: boolean;
   deleted_at: string | null;
   deleted_by: CollabUserMini | null;
+}
+
+/** Minimal sprint context on a {@link DecisionNote} (null = backlog). */
+export interface DecisionSprintContext {
+  id: string;
+  name: string;
+  state: string;
+}
+
+/**
+ * A decision-flagged note as returned by the project Decisions list
+ * (`GET /projects/{id}/decisions/`, ADR-0165, #748) — the note plus the task and
+ * sprint context the Decisions view groups and links by.
+ */
+export interface DecisionNote {
+  id: string;
+  body: string;
+  decision: boolean;
+  pinned: boolean;
+  author: CollabUserMini | null;
+  edited_at: string | null;
+  created_at: string;
+  task: { id: string; name: string };
+  sprint: DecisionSprintContext | null;
+}
+
+/** Read shape of the Decisions-view visibility policy (`GET /projects/{id}/decisions-policy/`). */
+export interface DecisionsPolicy {
+  oversight_visible: boolean;
+  can_edit: boolean;
 }
 
 /** Per-user "I'm on it" ack — never triggers notification (ADR-0075 §A.3, Morgan blocker). */
