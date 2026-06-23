@@ -1957,6 +1957,21 @@ class Dependency(VersionedModel):
             MaxValueValidator(MAX_DEPENDENCY_LAG_DAYS),
         ],
     )
+    # Cross-project consent gate (ADR-0120 D2). Same-project edges are always
+    # accepted (the writer already holds Scheduler+ on the one project). A
+    # cross-project edge whose successor sits in a project the creator cannot
+    # schedule is created ``pending_acceptance=True`` and is *inert* — the
+    # downstream team must accept before it binds. Boolean (not an enum) by
+    # deliberate ADR choice to avoid a drf-spectacular enum-name collision.
+    pending_acceptance = models.BooleanField(default=False)
+    accepted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="accepted_dependencies",
+    )
+    accepted_at = models.DateTimeField(null=True, blank=True)
 
     history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_BASE)
 

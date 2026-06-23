@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, cast
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import timezone
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from trueppm_scheduler import InvalidScheduleInput, find_cycle
 
@@ -3284,6 +3285,46 @@ def _load_project_tasks_and_children_map(
     return task_ids, children_map
 
 
+def _load_program_tasks_and_children_map(
+    project_ids: list[Any],
+) -> tuple[list[str], dict[str, list[str]]]:
+    """Program-scoped twin of :func:`_load_project_tasks_and_children_map`.
+
+    Loads every non-deleted task across all ``project_ids`` (the member projects
+    of one program) so cycle detection can run over the *merged* graph required
+    by a cross-project dependency edge (ADR-0120 D1). Task IDs are globally
+    unique UUIDs, so the returned ``children_map`` keys never collide across
+    projects — but ``wbs_path`` strings are only unique *within* a project, so
+    parent resolution is scoped per project to avoid a path in project A
+    accidentally adopting a child in project B.
+    """
+    rows = list(
+        Task.objects.filter(project_id__in=project_ids, is_deleted=False).values(
+            "id", "project_id", "wbs_path"
+        )
+    )
+    task_ids: list[str] = [str(r["id"]) for r in rows]
+    # Key path→id by (project_id, wbs_path) so identical paths in sibling
+    # projects stay distinct.
+    path_to_id: dict[tuple[str, str], str] = {}
+    for r in rows:
+        wbs = r["wbs_path"]
+        if wbs:
+            path_to_id[(str(r["project_id"]), str(wbs))] = str(r["id"])
+    children_map: dict[str, list[str]] = {}
+    for r in rows:
+        wbs = r["wbs_path"]
+        if not wbs:
+            continue
+        parent_path, _, _ = str(wbs).rpartition(".")
+        if not parent_path:
+            continue
+        parent_id = path_to_id.get((str(r["project_id"]), parent_path))
+        if parent_id:
+            children_map.setdefault(parent_id, []).append(str(r["id"]))
+    return task_ids, children_map
+
+
 class TaskRecurrenceRuleSerializer(serializers.ModelSerializer[TaskRecurrenceRule]):
     """Read/write serializer for a task's recurrence rule (ADR-0090).
 
@@ -3368,14 +3409,41 @@ class TaskRecurrenceRuleSerializer(serializers.ModelSerializer[TaskRecurrenceRul
         return attrs
 
 
+class ExternalTaskCardSerializer(serializers.Serializer[Any]):
+    """Minimal, read-only visibility card for a task across a project boundary (ADR-0120 D5).
+
+    Carries only non-sensitive *scheduling* facts — id, title, the owning
+    project, a milestone flag, the CPM early dates, and the criticality flag. It
+    deliberately omits description, assignee, points, status, and comments so a
+    user blocked by a task in a project they cannot otherwise access gets a
+    human-readable "what is blocking me" answer (never "blocked by [redacted]")
+    without leaking team-private data. Surfaced wherever a cross-project
+    dependency is serialized; an MCP client gets the same fact (API-first).
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    title = serializers.CharField(source="name", read_only=True)
+    hex_id = serializers.CharField(source="short_id", read_only=True)
+    project_id = serializers.UUIDField(read_only=True)
+    project_name = serializers.CharField(source="project.name", read_only=True)
+    is_milestone = serializers.BooleanField(read_only=True)
+    early_start = serializers.DateField(read_only=True, allow_null=True)
+    early_finish = serializers.DateField(read_only=True, allow_null=True)
+    is_critical = serializers.BooleanField(read_only=True, allow_null=True)
+
+
 class DependencySerializer(serializers.ModelSerializer[Dependency]):
     """Read/write serializer for task dependencies (FS/SS/FF/SF links with optional lag).
 
-    Cross-project edges are rejected in validate() because the CPM engine
-    assumes a single-project DAG. Edges that would close a cycle on the
-    expanded leaf graph are also rejected at create/update time with a
-    structured 400 ``{"detail": "cyclic_dependency", "cycle": [...]}`` so the
-    frontend can surface the offending path to the user; see ADR-0055.
+    Edges may connect tasks in the **same project** or in two projects of the
+    **same Program** (ADR-0120 D1). Cross-*program* edges are still rejected — the
+    Enterprise boundary (ADR-0070) is unchanged. A cross-project edge whose
+    successor sits in a project the creator cannot schedule is created
+    ``pending_acceptance=True`` and is inert until the downstream team accepts it
+    (D2 consent gate). Edges that would close a cycle on the expanded leaf graph
+    — built over the **program** when the edge is cross-project — are rejected at
+    create/update time with a structured 400 ``{"detail": "cyclic_dependency",
+    "cycle": [...]}`` so the frontend can surface the offending path; see ADR-0055.
     """
 
     # Explicit querysets exclude soft-deleted tasks so a caller cannot anchor
@@ -3387,11 +3455,52 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
     successor = serializers.PrimaryKeyRelatedField(
         queryset=Task.objects.filter(is_deleted=False),
     )
+    accepted_by: serializers.PrimaryKeyRelatedField[Any] = serializers.PrimaryKeyRelatedField(
+        read_only=True
+    )
+    predecessor_card = serializers.SerializerMethodField()
+    successor_card = serializers.SerializerMethodField()
+
+    # Consent decision resolved in validate() for a cross-project create, applied
+    # by the viewset's perform_create. ``None`` for same-project edges.
+    _consent: dict[str, Any] | None = None
 
     class Meta:
         model = Dependency
-        fields = ["id", "predecessor", "successor", "dep_type", "lag"]
-        read_only_fields = ["id"]
+        fields = [
+            "id",
+            "predecessor",
+            "successor",
+            "dep_type",
+            "lag",
+            "pending_acceptance",
+            "accepted_by",
+            "accepted_at",
+            "predecessor_card",
+            "successor_card",
+        ]
+        read_only_fields = ["id", "pending_acceptance", "accepted_by", "accepted_at"]
+
+    @extend_schema_field(ExternalTaskCardSerializer(allow_null=True))
+    def get_predecessor_card(self, obj: Dependency) -> dict[str, Any] | None:
+        return self._card_for(obj, obj.predecessor)
+
+    @extend_schema_field(ExternalTaskCardSerializer(allow_null=True))
+    def get_successor_card(self, obj: Dependency) -> dict[str, Any] | None:
+        return self._card_for(obj, obj.successor)
+
+    def _card_for(self, dep: Dependency, task: Task) -> dict[str, Any] | None:
+        """Return the D5 minimal card for ``task`` — only on a cross-project edge.
+
+        Same-project dependencies carry no card: the client already holds the
+        counterpart task, so emitting it would only bloat the (hot) dependency
+        list payload. The card is populated for both endpoints of a cross-project
+        edge so a reader on either side can name the counterpart they may not be
+        able to open.
+        """
+        if dep.predecessor.project_id == dep.successor.project_id:
+            return None
+        return dict(ExternalTaskCardSerializer(task).data)
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         predecessor = attrs.get("predecessor") or (
@@ -3399,29 +3508,140 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
         )
         successor = attrs.get("successor") or (self.instance.successor if self.instance else None)
 
-        # Membership check runs first — before the same-project check — so that
-        # a non-member submitting any foreign task UUID always gets 403 regardless
-        # of whether the two UUIDs happen to share a project. Running same-project
-        # first would let callers distinguish the two cases and infer shared
-        # project membership from the error code (ADR-0055 / #359 hardening).
         request = self.context.get("request")
         view = self.context.get("view")
-        if request is not None and view is not None:
-            if predecessor:
-                view.check_object_permissions(request, predecessor)
-            if successor:
-                view.check_object_permissions(request, successor)
 
-        # Enforce same-project constraint: the CPM engine assumes a single-project
-        # DAG. Cross-project edges produce undefined scheduling behaviour.
-        if predecessor and successor and predecessor.project_id != successor.project_id:
-            raise serializers.ValidationError(
-                "Predecessor and successor must belong to the same project."
+        cross_project = bool(
+            predecessor and successor and predecessor.project_id != successor.project_id
+        )
+
+        if not cross_project:
+            # Same-project edge — unchanged behaviour. The object-permission check
+            # (Scheduler+ on the one project) runs for both endpoints before any
+            # branching, so a non-member submitting a foreign UUID always gets 403
+            # regardless of whether the two UUIDs share a project — preventing
+            # membership inference from the error code (ADR-0055 / #359 hardening).
+            if request is not None and view is not None:
+                if predecessor:
+                    view.check_object_permissions(request, predecessor)
+                if successor:
+                    view.check_object_permissions(request, successor)
+        elif predecessor and successor:
+            # Cross-project edge within one program (ADR-0120 D1/D2): authorize,
+            # reject cross-PROGRAM edges, and classify the consent state. Recorded
+            # on the serializer for perform_create/perform_update to persist.
+            #
+            # Resolve consent on create, or when an *update* repoints an endpoint
+            # into a (new) cross-project relationship — repointing is itself a
+            # scope-injection vector and must re-earn downstream consent. A
+            # no-endpoint-change update (e.g. an FS→SS or lag edit on an existing
+            # cross edge) must NOT re-run consent, or it would silently reset an
+            # already-accepted edge back to pending.
+            endpoints_changed = self.instance is None or (
+                predecessor.pk != self.instance.predecessor_id
+                or successor.pk != self.instance.successor_id
             )
+            if endpoints_changed:
+                self._consent = self._resolve_cross_project_consent(request, predecessor, successor)
 
         if predecessor and successor:
             self._check_no_cycle(predecessor, successor)
         return attrs
+
+    def _resolve_cross_project_consent(
+        self, request: Any, predecessor: Task, successor: Task
+    ) -> dict[str, Any]:
+        """Authorize a same-program cross-project edge and classify consent (ADR-0120 D2).
+
+        Returns ``{pending_acceptance, accepted_by, accepted_at}`` for the
+        viewset to apply on save. Raises a 400 for cross-*program* edges
+        (Enterprise boundary) and a 403 when the caller lacks the required read
+        access or schedule authority.
+
+        Consent follows C2: the **successor** is the side a cross-project edge
+        newly constrains (the scope-injection vector), so the edge auto-accepts
+        only when the creator already holds Scheduler+ on the successor's
+        project; otherwise it is created pending and the downstream team accepts
+        it explicitly. The predecessor is never scope-injected (it does not wait
+        on the successor), so upstream consent is not required.
+        """
+        from rest_framework.exceptions import PermissionDenied
+
+        from trueppm_api.apps.access.permissions import (
+            _is_project_archived,
+            effective_program_role,
+            effective_project_role,
+        )
+
+        if request is None:
+            # No request context (e.g. an internal/scripted call) — refuse rather
+            # than guess authority. The API path always supplies a request.
+            raise serializers.ValidationError(
+                "Cross-project dependencies can only be created through the API."
+            )
+
+        pred_proj = predecessor.project_id
+        succ_proj = successor.project_id
+
+        # One query for both projects' program FKs — avoids lazy-loading
+        # task.project per endpoint on a write path (perf).
+        program_by_project: dict[Any, Any] = dict(
+            Project.objects.filter(id__in={pred_proj, succ_proj}).values_list("id", "program_id")
+        )
+        pred_program = program_by_project.get(pred_proj)
+        succ_program = program_by_project.get(succ_proj)
+
+        pred_role = effective_project_role(request, pred_proj)
+        succ_role = effective_project_role(request, succ_proj)
+
+        # D5 read-access widening — a member of the task's project, or of the
+        # task's program, may reference it. Checked FIRST (before the
+        # cross-PROGRAM 400 below) so a non-member submitting a foreign UUID
+        # always gets 403 and cannot infer the project/program pairing from the
+        # error code — the #359 ordering, now program-aware.
+        def _can_read(project_role: int | None, program_id: Any) -> bool:
+            if project_role is not None:
+                return True
+            return bool(program_id) and effective_program_role(request, program_id) is not None
+
+        if not _can_read(pred_role, pred_program) or not _can_read(succ_role, succ_program):
+            raise PermissionDenied(
+                "You need access to both the predecessor and successor projects "
+                "(or to their shared program) to link them."
+            )
+
+        # Cross-PROGRAM (or program-less) edges stay rejected: portfolio
+        # coordination is Enterprise (ADR-0070), and a null program has no shared
+        # scope to cycle-check or schedule against.
+        if not pred_program or not succ_program or pred_program != succ_program:
+            raise serializers.ValidationError(
+                "Predecessor and successor must belong to the same project, "
+                "or to two projects of the same program."
+            )
+
+        pred_sched = pred_role is not None and pred_role >= Role.SCHEDULER
+        succ_sched = succ_role is not None and succ_role >= Role.SCHEDULER
+
+        # Must hold schedule authority on at least one endpoint to propose an edge.
+        if not (pred_sched or succ_sched):
+            raise PermissionDenied(
+                "You need at least Resource Manager role on one endpoint project "
+                "to create a cross-project dependency."
+            )
+
+        # Archived projects are read-only (#530) — mirror IsProjectNotArchived,
+        # which the cross-project create path otherwise skips (it does not run the
+        # single-project object-permission check).
+        if _is_project_archived(request, pred_proj) or _is_project_archived(request, succ_proj):
+            raise PermissionDenied("Cannot link a dependency on an archived project.")
+
+        if succ_sched:
+            return {
+                "pending_acceptance": False,
+                "accepted_by": request.user,
+                "accepted_at": timezone.now(),
+            }
+        return {"pending_acceptance": True, "accepted_by": None, "accepted_at": None}
 
     def _check_no_cycle(self, predecessor: Task, successor: Task) -> None:
         """Reject the proposed edge if it would close a logical cycle.
@@ -3438,15 +3658,34 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
             self._raise_cycle_error([predecessor, predecessor])
             return
 
-        project_id = predecessor.project_id
-
-        # Single bulk pull of the project's tasks gives us both the children_map
-        # for summary expansion AND the FK list to scope the dependency edge
-        # query. Querying `Dependency.objects.filter(predecessor__project_id=...)`
-        # would force a JOIN through the FK and cost more on cold cache; using
-        # `predecessor_id__in=task_ids` hits the FK index directly. Perf review
-        # for #356.
-        task_ids, children_map = _load_project_tasks_and_children_map(project_id)
+        # Cross-project edges must be cycle-checked over the *merged* program
+        # graph (ADR-0120 D1): an A→B cross edge can close a cycle that is only
+        # visible when both projects' tasks and deps are present. Same-project
+        # edges keep the cheaper single-project scope. ``validate()`` has already
+        # confirmed a non-null shared program for the cross-project case before
+        # reaching here, so ``program_id`` is present; the guard degrades safely.
+        if predecessor.project_id != successor.project_id:
+            program_id = (
+                Project.objects.filter(id=predecessor.project_id)
+                .values_list("program_id", flat=True)
+                .first()
+            )
+            scope_project_ids = (
+                list(
+                    Project.objects.filter(program_id=program_id, is_deleted=False).values_list(
+                        "id", flat=True
+                    )
+                )
+                if program_id
+                else [predecessor.project_id]
+            )
+            task_ids, children_map = _load_program_tasks_and_children_map(scope_project_ids)
+        else:
+            # Single bulk pull of the project's tasks gives us both the
+            # children_map for summary expansion AND the FK list to scope the
+            # dependency edge query. `predecessor_id__in=task_ids` hits the FK
+            # index directly rather than JOINing through project_id. Perf #356.
+            task_ids, children_map = _load_project_tasks_and_children_map(predecessor.project_id)
 
         existing_qs = Dependency.objects.filter(
             is_deleted=False,
@@ -3478,11 +3717,12 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
         # racing the frontend's task cache (a freshly created task may not be
         # there yet); see ADR-0055 §7.
         unique_ids = set(cycle_ids)
+        # Resolve by id only — the cycle path may span member projects when the
+        # proposed edge is cross-project, so a single-project filter would drop
+        # the foreign nodes from the rendered path.
         tasks_by_id = {
             str(t.id): t
-            for t in Task.objects.filter(project_id=project_id, id__in=unique_ids).only(
-                "id", "name", "short_id"
-            )
+            for t in Task.objects.filter(id__in=unique_ids).only("id", "name", "short_id")
         }
         ordered_tasks = [tasks_by_id.get(tid) for tid in cycle_ids]
         # If any id failed to resolve (deleted concurrently?), fall back to a

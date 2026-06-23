@@ -89,7 +89,8 @@ include:
 
 - **Tasks**: `task_created`, `task_updated`, `task_deleted`, `task_duration_changed`,
   `tasks_reordered`, `tasks_restructured`, `tasks_bulk_mutated`
-- **Dependencies**: `dependency_created`, `dependency_updated`, `dependency_deleted`
+- **Dependencies**: `dependency_created`, `dependency_updated`, `dependency_deleted`,
+  `dependency_accepted`, `dependency_rejected`
 - **Scheduling**: `cpm_complete`, `cpm_error`, `task_run_started`,
   `task_run_progress`, `task_run_completed`, `task_run_failed`, `task_run_cancelled`
 - **Baselines**: `baseline_created`, `baseline_activated`, `baseline_deleted`
@@ -177,6 +178,8 @@ adding it to that frozen set. Events with no webhook counterpart are marked
 | `dependency_created` | `dependency.created` |
 | `dependency_deleted` | `dependency.deleted` |
 | `dependency_updated` | **WS-only** |
+| `dependency_accepted` | **WS-only** |
+| `dependency_rejected` | **WS-only** |
 | `project_created` | `project.created` |
 | `project_updated` | **WS-only** |
 | `project_archived` | **WS-only** |
