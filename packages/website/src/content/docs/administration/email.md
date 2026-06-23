@@ -65,6 +65,10 @@ today.
   the in-app inbox but stops attempting email.
 - Bodies are plain text. A recipient with no email address is skipped (the in-app
   notification still appears).
+- Bodies carry a direct deep-link to the affected task when
+  [`FRONTEND_BASE_URL`](/administration/configuration/) is set (e.g. the
+  `task.blocked` email links straight to the blocked task). Leave it empty and the
+  email still renders — it just omits the link.
 
 ## Disabling email
 

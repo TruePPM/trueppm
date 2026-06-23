@@ -155,6 +155,13 @@ ALLOW_LOCAL_ATTACHMENT_STORAGE = env.bool("TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAG
 # split). Empty by default (same-origin reverse-proxy deploy).
 CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=[])
 
+# Public origin the web app is served from, e.g. "https://app.example.com". Used
+# to build absolute deep-links into emails/notifications (ADR-0165, #1158) — the
+# API otherwise has no notion of where the frontend lives. Empty by default
+# (zero-config): when unset, email bodies render without a link rather than emit a
+# broken relative URL. Trailing slash is stripped at use; do not include a path.
+FRONTEND_BASE_URL = env("FRONTEND_BASE_URL", default="")
+
 # ---------------------------------------------------------------------------
 # Cache / Channels / Celery  (all backed by Redis)
 # ---------------------------------------------------------------------------

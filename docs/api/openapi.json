@@ -6412,9 +6412,17 @@
         "/api/v1/projects/{id}/blocked/": {
             "get": {
                 "operationId": "v1_projects_blocked_retrieve",
-                "description": "List flagged-blocked tasks on this project — the PM's impediment roll-up.\n\nReturns every task whose ``blocked_reason`` is non-empty (the flag of\nrecord), oldest-blocked first (age drives escalation), each row carrying\n``blocker_type`` + age + actor + assignee + the soft ``blocking_task`` link.\n\nReason text is **omitted entirely** from every row, for every requester —\nthe roll-up is a triage surface, not a place to read contributor voice\n(ADR-0124 §4, the Morgan boundary). The private reason is read only on the\ntask drawer, gated to the assignee + @-mentioned. There is no filter, sort,\nor search param on reason anywhere on this endpoint.\n\nProject membership (Viewer+) is required — enforced by the viewset\npermission classes plus ``check_object_permissions`` on the project.",
+                "description": "List flagged-blocked tasks on this project — the PM's impediment roll-up.\n\nReturns every task whose ``blocked_reason`` is non-empty (the flag of\nrecord), oldest-blocked first (age drives escalation), each row carrying\n``blocker_type`` + age + actor + assignee + the soft ``blocking_task`` link.\nOptionally narrowed by ``?blocker_type=`` and ``?min_age_days=`` (#1157) —\nboth filter on the team-shareable structured signal only.\n\nReason text is **omitted entirely** from every row, for every requester —\nthe roll-up is a triage surface, not a place to read contributor voice\n(ADR-0124 §4, the Morgan boundary). The private reason is read only on the\ntask drawer, gated to the assignee + @-mentioned. There is no filter, sort,\nor search param on reason anywhere on this endpoint — the filters touch only\n``blocker_type`` and ``blocked_since`` (age).\n\nProject membership (Viewer+) is required — enforced by the viewset\npermission classes plus ``check_object_permissions`` on the project.",
                 "summary": "Blocked tasks on this project (ADR-0124, #1134)",
                 "parameters": [
+                    {
+                        "in": "query",
+                        "name": "blocker_type",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Filter to one BlockerType (dependency / resource / vendor / decision / other). Unknown value → 400."
+                    },
                     {
                         "in": "path",
                         "name": "id",
@@ -6424,6 +6432,14 @@
                         },
                         "description": "A UUID string identifying this project.",
                         "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "min_age_days",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Keep only tasks blocked at least N days. Non-negative integer; negative or non-integer → 400."
                     }
                 ],
                 "tags": [
@@ -16478,9 +16494,17 @@
         "/api/v1/sprints/{id}/blocked/": {
             "get": {
                 "operationId": "v1_sprints_blocked_retrieve",
-                "description": "List flagged-blocked tasks in this sprint — the SM's impediment roll-up.\n\nSame reason-free shape as ``GET /projects/{id}/blocked/`` (type + age +\nactor + assignee + soft link, oldest-blocked first), scoped to this\nsprint's tasks. Reason text is omitted from every row for every requester\n(ADR-0124 §4); no reason filter/sort/search param is exposed. Sprint\nmembership (Viewer+) is enforced via ``check_object_permissions``.",
+                "description": "List flagged-blocked tasks in this sprint — the SM's impediment roll-up.\n\nSame reason-free shape as ``GET /projects/{id}/blocked/`` (type + age +\nactor + assignee + soft link, oldest-blocked first), scoped to this\nsprint's tasks, with the same optional ``?blocker_type=`` / ``?min_age_days=``\nfilters (#1157). Reason text is omitted from every row for every requester\n(ADR-0124 §4); no reason filter/sort/search param is exposed. Sprint\nmembership (Viewer+) is enforced via ``check_object_permissions``.",
                 "summary": "Blocked tasks in this sprint (ADR-0124, #1134)",
                 "parameters": [
+                    {
+                        "in": "query",
+                        "name": "blocker_type",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Filter to one BlockerType (dependency / resource / vendor / decision / other). Unknown value → 400."
+                    },
                     {
                         "in": "path",
                         "name": "id",
@@ -16490,6 +16514,14 @@
                         },
                         "description": "A UUID string identifying this sprint.",
                         "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "min_age_days",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Keep only tasks blocked at least N days. Non-negative integer; negative or non-integer → 400."
                     }
                 ],
                 "tags": [

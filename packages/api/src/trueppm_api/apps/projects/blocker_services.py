@@ -32,6 +32,11 @@ if TYPE_CHECKING:
 
     from trueppm_api.apps.projects.models import Task
 
+# Upper bound on the ``?min_age_days=`` roll-up filter (#1157, ADR-0165). ~100 years
+# — far beyond any real impediment age — chosen so an out-of-range value fails loud
+# as a 400 rather than overflowing ``timedelta`` into an uncaught 500.
+MAX_MIN_AGE_DAYS = 36500
+
 
 def can_read_blocker_reason(task: Task, user: AbstractBaseUser | None) -> bool:
     """Return whether ``user`` may read ``task.blocked_reason`` (the private free text).
@@ -152,14 +157,48 @@ def resolve_impediment_recipients(task: Task) -> set[Any]:
     return recipients
 
 
+def task_deep_link(task: Task) -> str:
+    """Return the public frontend deep-link to a task, or ``""`` when unconfigured.
+
+    Matches the path the in-app inbox navigates to so web and email resolve to the
+    same place (``NotificationRow.tsx`` → ``/projects/{id}/schedule?task={id}``); the
+    SPA renders that route responsively, so the link is mobile-friendly (#1158).
+
+    Built from ``settings.FRONTEND_BASE_URL`` (the public origin the API is served
+    behind). When that is empty — the zero-config default — there is no reachable
+    public URL to point at, so this returns ``""`` and callers omit the link line
+    rather than emit a broken relative link.
+
+    Args:
+        task: The task to link to.
+
+    Returns:
+        An absolute task URL, or ``""`` when ``FRONTEND_BASE_URL`` is unset.
+    """
+    from django.conf import settings
+
+    base = (getattr(settings, "FRONTEND_BASE_URL", "") or "").rstrip("/")
+    if not base:
+        return ""
+    return f"{base}/projects/{task.project_id}/schedule?task={task.pk}"
+
+
 def render_blocker_notification(task: Task) -> tuple[str, str]:
-    """Render the ``task.blocked`` subject + body — type + age only, NEVER reason.
+    """Render the ``task.blocked`` subject + body — type/age/actor/link, NEVER reason.
 
     The privacy boundary is enforced at the point of render, not just at the
     serializer: the notification body that reaches the SM/PM (and is frozen onto
-    the email row by the drain) carries the structured triage signal — the
-    blocker type label and a coarse age — and never the free-text reason. A PM
-    must not be able to read a contributor's reason through a notification body.
+    the email row by the drain) carries the structured triage signal — the blocker
+    type label, a coarse age, the actor who flagged it, the soft ``blocking_task``
+    link, and a deep-link to the task — and never the free-text reason. A PM must
+    not be able to read a contributor's reason through a notification body
+    (ADR-0124 §4).
+
+    The actor / blocking-task / deep-link lines (#1158) make the email actionable:
+    the recipient sees who flagged it and what it waits on, and opens the task in
+    one tap instead of hunting for it. Each enrichment line is emitted only when its
+    source is present, so a bare flag still renders cleanly, and the link line is
+    omitted entirely when ``FRONTEND_BASE_URL`` is unset.
 
     Args:
         task: The freshly-flagged task.
@@ -182,10 +221,21 @@ def render_blocker_notification(task: Task) -> tuple[str, str]:
     subject = f"{task.name} is blocked"
     detail_bits = [b for b in (type_label, age_label) if b]
     if detail_bits:
-        body = f'"{task.name}" was flagged blocked — {" · ".join(detail_bits)}.'
+        lead = f'"{task.name}" was flagged blocked — {" · ".join(detail_bits)}.'
     else:
-        body = f'"{task.name}" was flagged blocked.'
-    return subject, body
+        lead = f'"{task.name}" was flagged blocked.'
+
+    lines = [lead]
+    # Actor + soft link are the already-team-shareable signal (never the reason).
+    if task.blocked_by_id and task.blocked_by:
+        lines.append(f"Flagged by {task.blocked_by.username}.")
+    if task.blocking_task_id and task.blocking_task:
+        lines.append(f'Waiting on: "{task.blocking_task.name}".')
+    link = task_deep_link(task)
+    if link:
+        lines += ["", f"Open the task: {link}"]
+
+    return subject, "\n".join(lines)
 
 
 def _coarse_age_label(age_seconds: int | None) -> str:
@@ -253,7 +303,61 @@ def _blocked_row(task: Task) -> dict[str, Any]:
     }
 
 
-def _blocked_queryset(base_qs: Any) -> Any:
+def parse_blocked_filters(query_params: Any) -> dict[str, Any]:
+    """Validate the roll-up filter query params into kwargs for the roll-up builders (#1157).
+
+    Accepts the two team-shareable triage filters and **nothing reason-derived** —
+    the Morgan boundary (ADR-0124 §4) is structural here: ``blocked_reason`` is not a
+    recognized key, so there is no path by which the private reason becomes
+    queryable. Both params are optional; absent → no filtering (today's behavior).
+
+    * ``blocker_type`` — must be a member of :class:`BlockerType`. An unknown value
+      raises (→ 400) rather than silently returning an empty list, so an automated
+      escalation report fails loud on a typo instead of under-counting.
+    * ``min_age_days`` — a non-negative integer; ``0`` is a no-op. A negative,
+      non-integer, or absurdly large value (> ``MAX_MIN_AGE_DAYS``, ~100 years)
+      raises (→ 400) — the cap keeps an out-of-range input on the fail-loud 400 path
+      instead of overflowing ``timedelta`` into an uncaught 500.
+
+    Args:
+        query_params: The request ``query_params`` (a ``QueryDict``-like mapping).
+
+    Returns:
+        ``{"blocker_type": <str|None>, "min_age_days": <int|None>}`` — the kwargs the
+        roll-up builders thread into :func:`_blocked_queryset`.
+
+    Raises:
+        rest_framework.exceptions.ValidationError: on an unknown ``blocker_type`` or a
+            negative / non-integer ``min_age_days``.
+    """
+    from rest_framework.exceptions import ValidationError
+
+    from trueppm_api.apps.projects.models import BlockerType
+
+    blocker_type = query_params.get("blocker_type") or None
+    if blocker_type is not None and blocker_type not in set(BlockerType.values):
+        raise ValidationError(
+            {"blocker_type": [f"Unknown blocker_type. Valid: {', '.join(BlockerType.values)}."]}
+        )
+
+    min_age_days: int | None = None
+    raw_age = query_params.get("min_age_days")
+    if raw_age is not None and raw_age != "":
+        try:
+            min_age_days = int(raw_age)
+        except (TypeError, ValueError):
+            raise ValidationError({"min_age_days": ["Must be a non-negative integer."]}) from None
+        if min_age_days < 0 or min_age_days > MAX_MIN_AGE_DAYS:
+            raise ValidationError(
+                {"min_age_days": [f"Must be an integer between 0 and {MAX_MIN_AGE_DAYS}."]}
+            )
+
+    return {"blocker_type": blocker_type, "min_age_days": min_age_days}
+
+
+def _blocked_queryset(
+    base_qs: Any, *, blocker_type: str | None = None, min_age_days: int | None = None
+) -> Any:
     """Filter a Task queryset to flagged-blocked rows, oldest-blocked first.
 
     "Blocked" is the flag-of-record: a non-empty ``blocked_reason``. Ordered by
@@ -261,48 +365,79 @@ def _blocked_queryset(base_qs: Any) -> Any:
     escalation — the SM/PM want the longest-running impediments at the top. Rows
     are ``select_related`` on ``assignee``, ``blocked_by``, and ``blocking_task``
     so the roll-up serialization adds no per-row query.
+
+    The optional ``blocker_type`` / ``min_age_days`` filters (#1157) narrow the list
+    on the team-shareable structured signal only. ``min_age_days`` filters on
+    ``blocked_since`` (the age clock), keeping rows flagged at or before
+    ``now - N days``. Neither filter touches ``blocked_reason``.
     """
-    return (
+    qs = (
         base_qs.exclude(blocked_reason="")
         .filter(is_deleted=False)
         .select_related("assignee", "blocked_by", "blocking_task")
         .order_by("blocked_since", "id")
     )
+    if blocker_type:
+        qs = qs.filter(blocker_type=blocker_type)
+    if min_age_days:
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        cutoff = timezone.now() - timedelta(days=min_age_days)
+        # blocked_since <= cutoff ⇒ blocked at least min_age_days ago. NULL
+        # blocked_since (legacy rows never re-saved) cannot satisfy an age floor.
+        qs = qs.filter(blocked_since__isnull=False, blocked_since__lte=cutoff)
+    return qs
 
 
-def project_blocked_rollup(project: Any) -> dict[str, Any]:
-    """Return the reason-free "blocked tasks on this project" roll-up (#1134).
+def project_blocked_rollup(
+    project: Any, *, blocker_type: str | None = None, min_age_days: int | None = None
+) -> dict[str, Any]:
+    """Return the reason-free "blocked tasks on this project" roll-up (#1134/#1157).
 
     Backs ``GET /projects/{id}/blocked/``. Lists every flagged-blocked task in the
     project (oldest-blocked first) with type + age + actor + assignee +
     blocking-task link — and **no reason text** (see :func:`_blocked_row`).
+    Optionally narrowed by ``blocker_type`` / ``min_age_days`` (#1157).
 
     Args:
         project: The ``Project`` whose blocked tasks to list.
+        blocker_type: Optional :class:`BlockerType` value to match.
+        min_age_days: Optional minimum blocked-age in days.
 
     Returns:
         ``{"project_id", "count", "blocked": [<row>, ...]}``.
     """
-    qs = _blocked_queryset(project.tasks)
+    qs = _blocked_queryset(project.tasks, blocker_type=blocker_type, min_age_days=min_age_days)
     rows = [_blocked_row(t) for t in qs]
     return {"project_id": str(project.pk), "count": len(rows), "blocked": rows}
 
 
-def sprint_blocked_rollup(sprint: Any) -> dict[str, Any]:
-    """Return the reason-free "blocked tasks in this sprint" roll-up (#1134).
+def sprint_blocked_rollup(
+    sprint: Any, *, blocker_type: str | None = None, min_age_days: int | None = None
+) -> dict[str, Any]:
+    """Return the reason-free "blocked tasks in this sprint" roll-up (#1134/#1157).
 
     Backs ``GET /sprints/{id}/blocked/`` — the SM's sprint-scoped impediment list.
     Same shape and same reason-omission as :func:`project_blocked_rollup`, scoped
-    to the sprint's tasks.
+    to the sprint's tasks, with the same optional ``blocker_type`` / ``min_age_days``
+    filters (#1157).
 
     Args:
         sprint: The ``Sprint`` whose blocked tasks to list.
+        blocker_type: Optional :class:`BlockerType` value to match.
+        min_age_days: Optional minimum blocked-age in days.
 
     Returns:
         ``{"sprint_id", "count", "blocked": [<row>, ...]}``.
     """
     from trueppm_api.apps.projects.models import Task
 
-    qs = _blocked_queryset(Task.objects.filter(sprint_id=sprint.pk))
+    qs = _blocked_queryset(
+        Task.objects.filter(sprint_id=sprint.pk),
+        blocker_type=blocker_type,
+        min_age_days=min_age_days,
+    )
     rows = [_blocked_row(t) for t in qs]
     return {"sprint_id": str(sprint.pk), "count": len(rows), "blocked": rows}
