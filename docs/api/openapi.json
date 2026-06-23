@@ -1307,6 +1307,128 @@
                 }
             }
         },
+        "/api/v1/dependencies/{id}/accept/": {
+            "post": {
+                "operationId": "v1_dependencies_accept_create",
+                "description": "Accept a pending cross-project dependency (ADR-0120 D2 / C2).\n\nOnly Scheduler+ on the **successor** (downstream) project may accept — the\nsuccessor is the side a cross-project edge newly constrains, so its team\nholds the consent (no management bypass, ADR-0102 precedent). Returns 400\nif the edge is not pending. The accept is audited via the history row.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this dependency.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DependencyRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DependencyRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DependencyRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Dependency"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/dependencies/{id}/reject/": {
+            "post": {
+                "operationId": "v1_dependencies_reject_create",
+                "description": "Reject (soft-delete) a pending cross-project dependency (ADR-0120 D2).\n\nSame downstream-consent gate as :meth:`accept`. Soft-deletes the edge so\nthe history row preserves the audit of who declined it.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this dependency.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DependencyRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DependencyRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DependencyRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Dependency"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/edition/": {
             "get": {
                 "operationId": "v1_edition_retrieve",
@@ -22020,6 +22142,14 @@
                     "results"
                 ]
             },
+            "BoardCadenceEnum": {
+                "enum": [
+                    "sprint",
+                    "continuous"
+                ],
+                "type": "string",
+                "description": "* `sprint` - Sprint-based\n* `continuous` - Continuous flow (Kanban)"
+            },
             "BoardCardSearchResult": {
                 "type": "object",
                 "properties": {
@@ -22651,7 +22781,7 @@
             },
             "Dependency": {
                 "type": "object",
-                "description": "Read/write serializer for task dependencies (FS/SS/FF/SF links with optional lag).\n\nCross-project edges are rejected in validate() because the CPM engine\nassumes a single-project DAG. Edges that would close a cycle on the\nexpanded leaf graph are also rejected at create/update time with a\nstructured 400 ``{\"detail\": \"cyclic_dependency\", \"cycle\": [...]}`` so the\nfrontend can surface the offending path to the user; see ADR-0055.",
+                "description": "Read/write serializer for task dependencies (FS/SS/FF/SF links with optional lag).\n\nEdges may connect tasks in the **same project** or in two projects of the\n**same Program** (ADR-0120 D1). Cross-*program* edges are still rejected — the\nEnterprise boundary (ADR-0070) is unchanged. A cross-project edge whose\nsuccessor sits in a project the creator cannot schedule is created\n``pending_acceptance=True`` and is inert until the downstream team accepts it\n(D2 consent gate). Edges that would close a cycle on the expanded leaf graph\n— built over the **program** when the edge is cross-project — are rejected at\ncreate/update time with a structured 400 ``{\"detail\": \"cyclic_dependency\",\n\"cycle\": [...]}`` so the frontend can surface the offending path; see ADR-0055.",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -22679,17 +22809,54 @@
                         "maximum": 36525,
                         "minimum": -36525,
                         "description": "Lag in calendar days (positive = delay, negative = lead)"
+                    },
+                    "pending_acceptance": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "accepted_by": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "accepted_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "predecessor_card": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ExternalTaskCard"
+                            }
+                        ],
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "successor_card": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ExternalTaskCard"
+                            }
+                        ],
+                        "nullable": true,
+                        "readOnly": true
                     }
                 },
                 "required": [
+                    "accepted_at",
+                    "accepted_by",
                     "id",
+                    "pending_acceptance",
                     "predecessor",
-                    "successor"
+                    "predecessor_card",
+                    "successor",
+                    "successor_card"
                 ]
             },
             "DependencyRequest": {
                 "type": "object",
-                "description": "Read/write serializer for task dependencies (FS/SS/FF/SF links with optional lag).\n\nCross-project edges are rejected in validate() because the CPM engine\nassumes a single-project DAG. Edges that would close a cycle on the\nexpanded leaf graph are also rejected at create/update time with a\nstructured 400 ``{\"detail\": \"cyclic_dependency\", \"cycle\": [...]}`` so the\nfrontend can surface the offending path to the user; see ADR-0055.",
+                "description": "Read/write serializer for task dependencies (FS/SS/FF/SF links with optional lag).\n\nEdges may connect tasks in the **same project** or in two projects of the\n**same Program** (ADR-0120 D1). Cross-*program* edges are still rejected — the\nEnterprise boundary (ADR-0070) is unchanged. A cross-project edge whose\nsuccessor sits in a project the creator cannot schedule is created\n``pending_acceptance=True`` and is inert until the downstream team accepts it\n(D2 consent gate). Edges that would close a cycle on the expanded leaf graph\n— built over the **program** when the edge is cross-project — are rejected at\ncreate/update time with a structured 400 ``{\"detail\": \"cyclic_dependency\",\n\"cycle\": [...]}`` so the frontend can surface the offending path; see ADR-0055.",
                 "properties": {
                     "predecessor": {
                         "type": "string",
@@ -22862,6 +23029,66 @@
                 ],
                 "type": "string",
                 "description": "* `task.created` - Task Created\n* `task.updated` - Task Updated\n* `task.deleted` - Task Deleted\n* `dependency.created` - Dependency Created\n* `dependency.deleted` - Dependency Deleted\n* `schedule.recalculated` - Schedule Recalculated\n* `project.created` - Project Created\n* `task.assigned` - Task Assigned\n* `task.assignee_changed` - Task Assignee Changed\n* `task.mentioned` - Task Mentioned\n* `task.due_date_changed` - Task Due Date Changed\n* `sprint.activated` - Sprint Activated\n* `sprint.closed` - Sprint Closed\n* `sprint.scope_changed` - Sprint Scope Changed"
+            },
+            "ExternalTaskCard": {
+                "type": "object",
+                "description": "Minimal, read-only visibility card for a task across a project boundary (ADR-0120 D5).\n\nCarries only non-sensitive *scheduling* facts — id, title, the owning\nproject, a milestone flag, the CPM early dates, and the criticality flag. It\ndeliberately omits description, assignee, points, status, and comments so a\nuser blocked by a task in a project they cannot otherwise access gets a\nhuman-readable \"what is blocking me\" answer (never \"blocked by [redacted]\")\nwithout leaking team-private data. Surfaced wherever a cross-project\ndependency is serialized; an MCP client gets the same fact (API-first).",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "title": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "hex_id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "project_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "project_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "is_milestone": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "early_start": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "early_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "is_critical": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "early_finish",
+                    "early_start",
+                    "hex_id",
+                    "id",
+                    "is_critical",
+                    "is_milestone",
+                    "project_id",
+                    "project_name",
+                    "title"
+                ]
             },
             "FailedTask": {
                 "type": "object",
@@ -23383,6 +23610,14 @@
                             "type": "string"
                         },
                         "readOnly": true
+                    },
+                    "role_context": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/RoleContextEnum"
+                            }
+                        ],
+                        "readOnly": true
                     }
                 },
                 "required": [
@@ -23395,6 +23630,7 @@
                     "initials",
                     "landing",
                     "max_project_role",
+                    "role_context",
                     "username",
                     "workspace_role"
                 ]
@@ -25259,7 +25495,7 @@
             },
             "PatchedDependencyRequest": {
                 "type": "object",
-                "description": "Read/write serializer for task dependencies (FS/SS/FF/SF links with optional lag).\n\nCross-project edges are rejected in validate() because the CPM engine\nassumes a single-project DAG. Edges that would close a cycle on the\nexpanded leaf graph are also rejected at create/update time with a\nstructured 400 ``{\"detail\": \"cyclic_dependency\", \"cycle\": [...]}`` so the\nfrontend can surface the offending path to the user; see ADR-0055.",
+                "description": "Read/write serializer for task dependencies (FS/SS/FF/SF links with optional lag).\n\nEdges may connect tasks in the **same project** or in two projects of the\n**same Program** (ADR-0120 D1). Cross-*program* edges are still rejected — the\nEnterprise boundary (ADR-0070) is unchanged. A cross-project edge whose\nsuccessor sits in a project the creator cannot schedule is created\n``pending_acceptance=True`` and is inert until the downstream team accepts it\n(D2 consent gate). Edges that would close a cycle on the expanded leaf graph\n— built over the **program** when the edge is cross-project — are rejected at\ncreate/update time with a structured 400 ``{\"detail\": \"cyclic_dependency\",\n\"cycle\": [...]}`` so the frontend can surface the offending path; see ADR-0055.",
                 "properties": {
                     "predecessor": {
                         "type": "string",
@@ -25458,6 +25694,11 @@
                     "health": {
                         "$ref": "#/components/schemas/HealthEnum"
                     },
+                    "target_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
                     "visibility": {
                         "$ref": "#/components/schemas/VisibilityEnum"
                     },
@@ -25585,6 +25826,9 @@
                     },
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"
+                    },
+                    "board_cadence": {
+                        "$ref": "#/components/schemas/BoardCadenceEnum"
                     },
                     "task_duration_change_percent_policy": {
                         "nullable": true,
@@ -26637,6 +26881,19 @@
                     "name"
                 ]
             },
+            "PreviewTypeEnum": {
+                "enum": [
+                    "document",
+                    "spreadsheet",
+                    "presentation",
+                    "image",
+                    "pdf",
+                    "folder",
+                    "file"
+                ],
+                "type": "string",
+                "description": "* `document` - document\n* `spreadsheet` - spreadsheet\n* `presentation` - presentation\n* `image` - image\n* `pdf` - pdf\n* `folder` - folder\n* `file` - file"
+            },
             "PrioritizationModelEnum": {
                 "enum": [
                     "none",
@@ -26828,6 +27085,11 @@
                     },
                     "health": {
                         "$ref": "#/components/schemas/HealthEnum"
+                    },
+                    "target_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
                     },
                     "visibility": {
                         "$ref": "#/components/schemas/VisibilityEnum"
@@ -27148,6 +27410,11 @@
                     "health": {
                         "$ref": "#/components/schemas/HealthEnum"
                     },
+                    "target_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
                     "visibility": {
                         "$ref": "#/components/schemas/VisibilityEnum"
                     },
@@ -27276,6 +27543,9 @@
                     },
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"
+                    },
+                    "board_cadence": {
+                        "$ref": "#/components/schemas/BoardCadenceEnum"
                     },
                     "effective_methodology": {
                         "type": "string",
@@ -27451,6 +27721,18 @@
                         "description": "Count of non-deleted, not-yet-COMPLETE tasks — annotated only on the\nlist branch (#960). ``None`` elsewhere; never triggers a per-row query.",
                         "readOnly": true
                     },
+                    "overdue_count": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "Incomplete tasks past their CPM ``early_finish`` (#560) — annotated\nonly on the program-projects branch. ``None`` elsewhere.",
+                        "readOnly": true
+                    },
+                    "at_risk_count": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "Incomplete tasks with ≤5 working days of float (#560) — the canonical\nat-risk definition (cf. ProjectViewSet.status_summary, program_rollup).\nAnnotated only on the program-projects branch. ``None`` elsewhere.",
+                        "readOnly": true
+                    },
                     "is_archived": {
                         "type": "boolean",
                         "readOnly": true
@@ -27470,6 +27752,7 @@
                 "required": [
                     "archived_at",
                     "archived_by",
+                    "at_risk_count",
                     "effective_allow_guests",
                     "effective_allowed_attachment_types",
                     "effective_attachments_enabled",
@@ -27496,6 +27779,7 @@
                     "member_count",
                     "name",
                     "open_task_count",
+                    "overdue_count",
                     "percent_complete",
                     "server_version",
                     "start_date"
@@ -27729,6 +28013,9 @@
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"
                     },
+                    "board_cadence": {
+                        "$ref": "#/components/schemas/BoardCadenceEnum"
+                    },
                     "effective_methodology": {
                         "type": "string",
                         "readOnly": true
@@ -27903,6 +28190,18 @@
                         "description": "Count of non-deleted, not-yet-COMPLETE tasks — annotated only on the\nlist branch (#960). ``None`` elsewhere; never triggers a per-row query.",
                         "readOnly": true
                     },
+                    "overdue_count": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "Incomplete tasks past their CPM ``early_finish`` (#560) — annotated\nonly on the program-projects branch. ``None`` elsewhere.",
+                        "readOnly": true
+                    },
+                    "at_risk_count": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "Incomplete tasks with ≤5 working days of float (#560) — the canonical\nat-risk definition (cf. ProjectViewSet.status_summary, program_rollup).\nAnnotated only on the program-projects branch. ``None`` elsewhere.",
+                        "readOnly": true
+                    },
                     "is_archived": {
                         "type": "boolean",
                         "readOnly": true
@@ -27957,6 +28256,7 @@
                 "required": [
                     "archived_at",
                     "archived_by",
+                    "at_risk_count",
                     "effective_allow_guests",
                     "effective_allowed_attachment_types",
                     "effective_attachments_enabled",
@@ -27985,6 +28285,7 @@
                     "my_facets",
                     "name",
                     "open_task_count",
+                    "overdue_count",
                     "percent_complete",
                     "program_detail",
                     "recalculated_at",
@@ -28328,6 +28629,9 @@
                     },
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"
+                    },
+                    "board_cadence": {
+                        "$ref": "#/components/schemas/BoardCadenceEnum"
                     },
                     "task_duration_change_percent_policy": {
                         "nullable": true,
@@ -31200,6 +31504,23 @@
                         "readOnly": true,
                         "nullable": true
                     },
+                    "description": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "thumbnail_url": {
+                        "type": "string",
+                        "format": "uri",
+                        "readOnly": true
+                    },
+                    "preview_type": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/PreviewTypeEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
                     "display_order": {
                         "type": "integer",
                         "maximum": 2147483647,
@@ -31211,11 +31532,14 @@
                     }
                 },
                 "required": [
+                    "description",
                     "fetched_at",
                     "id",
+                    "preview_type",
                     "provider",
                     "server_version",
                     "status",
+                    "thumbnail_url",
                     "title",
                     "url"
                 ]

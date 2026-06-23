@@ -9,6 +9,7 @@ import {
   STANDALONE_LEADING,
   STANDALONE_TRAILING,
 } from '@/features/shell/methodologyTabs';
+import { applyRoleContextLensOrder } from '@/features/shell/lensOrder';
 import { VIEW_TAB_META, type ViewIconType } from '@/features/shell/viewMeta';
 import { ROLE_SCHEDULER } from '@/lib/roles';
 import type { Methodology } from '@/types';
@@ -109,9 +110,16 @@ export function ViewTabs() {
   // of the methodology filter, then the role gate. `overview` leads standalone
   // (outside the hidden-set) so the bar can never be emptied.
   const hiddenViews = new Set(user?.hidden_views ?? []);
-  const groups = groupedVisibleViewsForUser(methodology, hiddenViews)
-    .map((g) => ({ ...g, visibleViews: g.visibleViews.filter(roleAllows) }))
-    .filter((g) => g.visibleViews.length > 0);
+  // Role-context lens (issue 1263, ADR-0162): promote the active lens's priority views
+  // to the front of their group. Composes AFTER the methodology / hidden-views /
+  // role filters — it only re-orders already-permitted views, never reveals one.
+  // `unified` (default while `user` is loading) is the identity → no flash.
+  const groups = applyRoleContextLensOrder(
+    groupedVisibleViewsForUser(methodology, hiddenViews)
+      .map((g) => ({ ...g, visibleViews: g.visibleViews.filter(roleAllows) }))
+      .filter((g) => g.visibleViews.length > 0),
+    user?.role_context ?? 'unified',
+  );
 
   return (
     <nav aria-label="View" className="hidden md:flex items-stretch h-full">

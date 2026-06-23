@@ -231,6 +231,21 @@ class Methodology(models.TextChoices):
     HYBRID = "HYBRID", "Hybrid"
 
 
+class BoardCadence(models.TextChoices):
+    """How the board runs work — sprint cadence vs continuous flow (ADR-0164, #410).
+
+    Orthogonal to ``Methodology``: ``methodology`` is the planning preset that drives
+    tab visibility (ADR-0041); ``board_cadence`` decides whether the board carries the
+    sprint chrome (panel, burndown, sprint header) or runs continuous-flow Kanban that
+    hides it and leans on the flow-analytics panel. Only meaningful for AGILE/HYBRID
+    projects — WATERFALL already hides sprints via ``methodology``. ``SPRINT`` is the
+    default so every pre-existing project keeps its current behavior.
+    """
+
+    SPRINT = "sprint", "Sprint-based"
+    CONTINUOUS = "continuous", "Continuous flow (Kanban)"
+
+
 class DurationChangePercentPolicy(models.TextChoices):
     """How ``percent_complete`` reacts when a task's ``duration`` changes (ADR-0151, #414).
 
@@ -452,6 +467,13 @@ class Program(VersionedModel):
         choices=Health.choices,
         default=Health.AUTO,
     )
+    # The program's single headline target finish date (#560). A program spans
+    # projects with independent CPM schedules, so there is no computed program
+    # end date — the PM sets one explicitly to answer "what's in flight and when
+    # is it supposed to finish?" (Jordan, VoC !291). Nullable: most programs run
+    # open-ended. ADMIN+ to set (gated by the viewset's IsProgramAdmin on update).
+    # A target_milestone FK is a deferred follow-up — see #560.
+    target_date = models.DateField(null=True, blank=True)
     # Listing scope. WORKSPACE = listable by any workspace member; PRIVATE =
     # explicit-members-only. Queryset enforcement is a future change — see the
     # Visibility docstring above.
@@ -810,6 +832,18 @@ class Project(VersionedModel):
         max_length=16,
         choices=Methodology.choices,
         default=Methodology.HYBRID,
+    )
+    # Board cadence (ADR-0164, #410). Orthogonal to ``methodology``: SPRINT (default)
+    # runs the board on a sprint cadence, preserving existing behavior; CONTINUOUS runs
+    # continuous-flow Kanban, which hides sprint chrome (panel, burndown, sprint header)
+    # on the board and leans on the flow-analytics panel. Only meaningful for AGILE/
+    # HYBRID projects — WATERFALL already hides sprints via ``methodology``. Switching is
+    # non-destructive: Sprint rows are never mutated, only hidden, so they return verbatim
+    # if a project switches back. Changes are audited via HistoricalProject.
+    board_cadence = models.CharField(
+        max_length=16,
+        choices=BoardCadence.choices,
+        default=BoardCadence.SPRINT,
     )
     # Product-backlog prioritization model (ADR-0105, #922). Drives which distinct input
     # columns on ``Task`` are read for the computed score. Scalar column (matches
@@ -1923,6 +1957,21 @@ class Dependency(VersionedModel):
             MaxValueValidator(MAX_DEPENDENCY_LAG_DAYS),
         ],
     )
+    # Cross-project consent gate (ADR-0120 D2). Same-project edges are always
+    # accepted (the writer already holds Scheduler+ on the one project). A
+    # cross-project edge whose successor sits in a project the creator cannot
+    # schedule is created ``pending_acceptance=True`` and is *inert* — the
+    # downstream team must accept before it binds. Boolean (not an enum) by
+    # deliberate ADR choice to avoid a drf-spectacular enum-name collision.
+    pending_acceptance = models.BooleanField(default=False)
+    accepted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="accepted_dependencies",
+    )
+    accepted_at = models.DateTimeField(null=True, blank=True)
 
     history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_BASE)
 

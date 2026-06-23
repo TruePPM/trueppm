@@ -521,6 +521,30 @@ def _program_membership_role(request: Request, program_id: Any) -> int | None:
     return role
 
 
+def effective_project_role(request: Request, project_id: Any) -> int | None:
+    """Public, request-cached lookup of the caller's role ordinal on a project.
+
+    Thin wrapper over the internal :func:`_membership_role` so callers outside
+    this module (e.g. the cross-project dependency consent gate in ADR-0120 D2)
+    have a documented surface for "what role does the requester hold on project
+    X" without importing a private helper. Returns ``None`` when the user has no
+    active membership. Compare against :class:`~trueppm_api.apps.access.models.Role`
+    ordinals (``>= Role.SCHEDULER`` for schedule authority).
+    """
+    return _membership_role(request, project_id)
+
+
+def effective_program_role(request: Request, program_id: Any) -> int | None:
+    """Public, request-cached lookup of the caller's role ordinal on a program.
+
+    Wrapper over :func:`_program_membership_role`. Used by the ADR-0120 minimal
+    visibility card / consent gate to grant *read* access to a cross-edge
+    counterpart task: a ``ProgramMembership`` holder may read either member
+    project's task card even without a direct ``ProjectMembership``.
+    """
+    return _program_membership_role(request, program_id)
+
+
 def _get_program_id_from_obj(obj: Any) -> Any | None:
     """Extract a program PK from a model instance for has_object_permission checks.
 

@@ -13,6 +13,10 @@ const useCurrentUserRole = vi.fn();
 const useProjectPhases = vi.fn();
 const useBoardConfig = vi.fn();
 const useProjectCustomFields = vi.fn();
+const useProject = vi.fn();
+const useUpdateProject = vi.fn();
+const useActiveSprint = vi.fn();
+const cadenceMutate = vi.fn();
 
 const phaseCreate = vi.fn();
 const phaseUpdate = vi.fn();
@@ -47,6 +51,19 @@ vi.mock('@/hooks/useBoardConfig', () => ({
       isLoading: boolean;
       save: typeof boardSave;
     },
+  COLUMN_SLA_DEFAULTS: { BACKLOG: 14, NOT_STARTED: 7, IN_PROGRESS: 10, REVIEW: 4 },
+}));
+
+vi.mock('@/hooks/useProject', () => ({
+  useProject: () => useProject() as { data: unknown; isLoading: boolean },
+}));
+
+vi.mock('@/hooks/useProjectMutations', () => ({
+  useUpdateProject: () => useUpdateProject() as unknown,
+}));
+
+vi.mock('@/hooks/useSprints', () => ({
+  useActiveSprint: () => useActiveSprint() as { sprint: unknown; isLoading: boolean },
 }));
 
 vi.mock('@/hooks/useProjectCustomFields', () => ({
@@ -81,6 +98,7 @@ function makeColumn(o: Partial<BoardColumnDef> = {}): BoardColumnDef {
     visible: true,
     wipLimit: null,
     color: '#94A3B8',
+    ageThresholdDays: null,
     ...o,
   };
 }
@@ -127,6 +145,18 @@ beforeEach(() => {
     isLoading: false,
     save: boardSave,
   });
+  // CadenceSection (#410): AGILE project, sprint cadence, no active sprint by default.
+  useProject.mockReturnValue({
+    data: { board_cadence: 'sprint', methodology: 'AGILE' },
+    isLoading: false,
+  });
+  useUpdateProject.mockReturnValue({
+    mutate: cadenceMutate,
+    isPending: false,
+    isError: false,
+    error: null,
+  });
+  useActiveSprint.mockReturnValue({ sprint: null, isLoading: false });
   useProjectCustomFields.mockReturnValue({
     fields: [
       {
@@ -224,6 +254,77 @@ describe('ProjectWorkflowPage — Statuses section', () => {
     expect(boardSave).toHaveBeenCalled();
     const next = boardSave.mock.calls[0][0] as BoardColumnDef[];
     expect(next.find((c) => c.status === 'BACKLOG')?.visible).toBe(false);
+  });
+
+  it('committing a per-column age limit persists ageThresholdDays via save() (#410)', async () => {
+    useCurrentUserRole.mockReturnValue({ role: ROLE_SCHEDULER, isLoading: false });
+    boardSave.mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    renderPage();
+    const statusSection = screen.getByRole('region', { name: /Statuses/i });
+    const input = within(statusSection).getByRole('spinbutton', {
+      name: /Age limit in days for Backlog/i,
+    });
+    await user.type(input, '6');
+    await user.tab(); // blur commits
+    expect(boardSave).toHaveBeenCalled();
+    const next = boardSave.mock.calls[0][0] as BoardColumnDef[];
+    expect(next.find((c) => c.status === 'BACKLOG')?.ageThresholdDays).toBe(6);
+  });
+});
+
+describe('ProjectWorkflowPage — Board cadence section (#410)', () => {
+  it('renders both cadence options for an AGILE project', () => {
+    renderPage();
+    const region = screen.getByRole('region', { name: /Board cadence/i });
+    expect(within(region).getByRole('radio', { name: /Sprint-based/i })).toBeInTheDocument();
+    expect(within(region).getByRole('radio', { name: /Continuous flow/i })).toBeInTheDocument();
+  });
+
+  it('selecting Continuous flow persists board_cadence', async () => {
+    useCurrentUserRole.mockReturnValue({ role: ROLE_SCHEDULER, isLoading: false });
+    const user = userEvent.setup();
+    renderPage();
+    const region = screen.getByRole('region', { name: /Board cadence/i });
+    await user.click(within(region).getByRole('radio', { name: /Continuous flow/i }));
+    expect(cadenceMutate).toHaveBeenCalledWith({ board_cadence: 'continuous' });
+  });
+
+  it('arrow keys move focus within the radiogroup without committing (rule 167)', async () => {
+    useCurrentUserRole.mockReturnValue({ role: ROLE_SCHEDULER, isLoading: false });
+    const user = userEvent.setup();
+    renderPage();
+    const region = screen.getByRole('region', { name: /Board cadence/i });
+    const sprint = within(region).getByRole('radio', { name: /Sprint-based/i });
+    const continuous = within(region).getByRole('radio', { name: /Continuous flow/i });
+    sprint.focus();
+    await user.keyboard('{ArrowRight}');
+    expect(continuous).toHaveFocus();
+    // Arrow navigation moves focus only — it must NOT trigger a save.
+    expect(cadenceMutate).not.toHaveBeenCalled();
+  });
+
+  it('shows the active-sprint reassurance note when continuous with an active sprint', () => {
+    useProject.mockReturnValue({
+      data: { board_cadence: 'continuous', methodology: 'AGILE' },
+      isLoading: false,
+    });
+    useActiveSprint.mockReturnValue({ sprint: { id: 's1', state: 'ACTIVE' }, isLoading: false });
+    renderPage();
+    const region = screen.getByRole('region', { name: /Board cadence/i });
+    expect(within(region).getByText(/active sprint/i)).toBeInTheDocument();
+    expect(within(region).getByText(/preserved and return/i)).toBeInTheDocument();
+  });
+
+  it('does not render the cadence picker for a WATERFALL project', () => {
+    useProject.mockReturnValue({
+      data: { board_cadence: 'sprint', methodology: 'WATERFALL' },
+      isLoading: false,
+    });
+    renderPage();
+    const region = screen.getByRole('region', { name: /Board cadence/i });
+    expect(within(region).queryByRole('radio')).not.toBeInTheDocument();
+    expect(within(region).getByText(/doesn.+apply/i)).toBeInTheDocument();
   });
 });
 

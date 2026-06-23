@@ -34,6 +34,14 @@ logger = logging.getLogger(__name__)
 # work per request is one indexed lookup + at most one status write.
 _WEBHOOK_LIMIT_PER_MIN = 120
 
+# Per-user cap on the task-link refresh action (#571, ADR-0163). A refresh makes
+# an outbound HTTP fetch; for the cloud-file providers that fetch is *anonymous*
+# (no credential gate), so the endpoint is a potential SSRF/egress amplifier. The
+# existing SSRF deny-list + 5 s / 256 KB caps bound each call; this bounds the
+# call *rate* per user. Generous enough for a human clicking refresh on a task's
+# handful of links, far below an automated abuse rate.
+_REFRESH_LIMIT_PER_MIN = 30
+
 
 class GitWebhookThrottle(BaseThrottle):
     """Per-project rate limit for the inbound Git-event receiver.
@@ -58,6 +66,39 @@ class GitWebhookThrottle(BaseThrottle):
             return True
 
         if count > _WEBHOOK_LIMIT_PER_MIN:
+            self.wait_seconds = 60
+            return False
+        return True
+
+    def wait(self) -> float | None:
+        return getattr(self, "wait_seconds", None)
+
+
+class TaskLinkRefreshThrottle(BaseThrottle):
+    """Per-user rate limit for the task-link refresh action (#571, ADR-0163).
+
+    Keyed on the authenticated user id (the action requires auth). Fails *open*
+    on any Redis error — a throttle outage must never block a Viewer from
+    refreshing a link, and the SSRF guard remains the hard egress boundary.
+    """
+
+    def allow_request(self, request: Request, view: APIView) -> bool:
+        user = getattr(request, "user", None)
+        user_id = getattr(user, "pk", None)
+        if user_id is None:  # pragma: no cover — IsProjectMember requires auth
+            return True
+
+        bucket_key = f"rate:link_refresh:{user_id}"
+        try:
+            client = _client()
+            count = int(client.incr(bucket_key))  # type: ignore[arg-type]
+            if count == 1:
+                client.expire(bucket_key, 60)
+        except redis.RedisError:
+            logger.exception("TaskLinkRefreshThrottle: Redis error, failing open")
+            return True
+
+        if count > _REFRESH_LIMIT_PER_MIN:
             self.wait_seconds = 60
             return False
         return True

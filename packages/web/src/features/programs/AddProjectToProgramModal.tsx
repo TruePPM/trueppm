@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { useProjects } from '@/hooks/useProjects';
 import { useAssignProjectToProgram } from '@/hooks/useProgramMutations';
+import {
+  MethodologyFilter,
+  METHODOLOGY_LABEL,
+  type MethodologyFilterValue,
+} from './MethodologyFilter';
 
 interface Props {
   programId: string;
@@ -27,6 +32,7 @@ export function AddProjectToProgramModal({ programId, programName, onClose }: Pr
   const assignProject = useAssignProjectToProgram();
 
   const [search, setSearch] = useState('');
+  const [methodologyFilter, setMethodologyFilter] = useState<MethodologyFilterValue>('ALL');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -56,7 +62,16 @@ export function AddProjectToProgramModal({ programId, programName, onClose }: Pr
   const candidates = projects.filter((p) => p.programId !== programId);
 
   const q = search.trim().toLowerCase();
-  const matches = candidates.filter((p) => !q || p.name.toLowerCase().includes(q));
+  // Both facets are client-side over the already-cached project list (issue 564) — no
+  // extra API call. Search and methodology narrow independently.
+  const matches = candidates.filter(
+    (p) =>
+      (!q || p.name.toLowerCase().includes(q)) &&
+      (methodologyFilter === 'ALL' || p.methodology === methodologyFilter),
+  );
+  // Candidates exist but the active search/filter hides them all — distinct from
+  // "no candidates at all", so the user knows to widen rather than create.
+  const noMatches = candidates.length > 0 && matches.length === 0;
 
   const standalone = matches.filter((p) => p.programId === null);
   const elsewhere = matches.filter((p) => p.programId !== null);
@@ -115,6 +130,10 @@ export function AddProjectToProgramModal({ programId, programName, onClose }: Pr
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           />
 
+          {!isLoading && candidates.length > 0 && (
+            <MethodologyFilter value={methodologyFilter} onChange={setMethodologyFilter} />
+          )}
+
           {isLoading && (
             <div className="mt-4 space-y-2">
               {[1, 2, 3].map((i) => (
@@ -131,6 +150,12 @@ export function AddProjectToProgramModal({ programId, programName, onClose }: Pr
             <p className="mt-6 text-sm text-neutral-text-secondary">
               No other projects available to add. Create a new project from the sidebar,
               then assign it here.
+            </p>
+          )}
+
+          {!isLoading && noMatches && (
+            <p role="status" className="mt-6 text-sm text-neutral-text-secondary">
+              No projects match. Try a different search or methodology.
             </p>
           )}
 
@@ -152,7 +177,14 @@ export function AddProjectToProgramModal({ programId, programName, onClose }: Pr
                         className="h-4 w-4 text-brand-primary
                           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
                       />
-                      <span className="truncate text-sm text-neutral-text-primary">{p.name}</span>
+                      <span className="flex-1 truncate text-sm text-neutral-text-primary">
+                        {p.name}
+                      </span>
+                      {/* Methodology badge (issue 564) — confirm the right "Riverside"
+                          before assigning. tppm-mono matches the Projects-tab row. */}
+                      <span className="tppm-mono shrink-0 text-xs text-neutral-text-secondary">
+                        {METHODOLOGY_LABEL[p.methodology]}
+                      </span>
                     </label>
                   </li>
                 ))}
@@ -181,7 +213,14 @@ export function AddProjectToProgramModal({ programId, programName, onClose }: Pr
                         className="h-4 w-4 text-brand-primary
                           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
                       />
-                      <span className="truncate text-sm text-neutral-text-primary">{p.name}</span>
+                      <span className="flex-1 truncate text-sm text-neutral-text-primary">
+                        {p.name}
+                      </span>
+                      {/* Methodology badge (issue 564) — confirm the right "Riverside"
+                          before assigning. tppm-mono matches the Projects-tab row. */}
+                      <span className="tppm-mono shrink-0 text-xs text-neutral-text-secondary">
+                        {METHODOLOGY_LABEL[p.methodology]}
+                      </span>
                     </label>
                   </li>
                 ))}

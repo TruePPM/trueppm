@@ -32,6 +32,7 @@ const FIXTURE_PROJECT = {
   estimation_mode: 'open',
   agile_features: false,
   methodology: 'HYBRID',
+  board_cadence: 'sprint',
 };
 
 const FIXTURE_PHASE_ENG = {
@@ -98,6 +99,7 @@ interface Captures {
   phaseCreate?: Record<string, unknown>;
   boardConfigPut?: Record<string, unknown>;
   fieldCreate?: Record<string, unknown>;
+  projectPatch?: Record<string, unknown>;
 }
 
 async function setup(page: Page, captures: Captures) {
@@ -136,9 +138,18 @@ async function setup(page: Page, captures: Captures) {
       body: pj({ results: [FIXTURE_PROJECT], count: 1, next: null, previous: null }),
     }),
   );
-  await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_PROJECT) }),
-  );
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/`, async (route) => {
+    if (route.request().method() === 'PATCH') {
+      captures.projectPatch = (await route.request().postDataJSON()) as Record<string, unknown>;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({ ...FIXTURE_PROJECT, ...captures.projectPatch }),
+      });
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_PROJECT) });
+  });
 
   // useCurrentUserRole hits /members/?self=true — admin so all edit controls show.
   await page.route(`**/api/v1/projects/${PROJECT_ID}/members/**`, (r) =>
@@ -311,5 +322,40 @@ test.describe('Project Settings → Workflow (#521)', () => {
     await dialog.getByRole('textbox').first().fill('Vendor');
     await dialog.getByRole('combobox').selectOption('SINGLE_SELECT');
     await expect(dialog.getByRole('button', { name: /Add field/i })).toBeDisabled();
+  });
+
+  // Board cadence picker (#410, ADR-0161)
+  test('selecting Continuous flow PATCHes board_cadence=continuous', async ({ page }) => {
+    const captures: Captures = {};
+    await setup(page, captures);
+    await page.goto(`/projects/${PROJECT_ID}/settings/workflow`);
+
+    const cadence = page.getByRole('region', { name: /Board cadence/i });
+    await expect(cadence.getByRole('radio', { name: /Sprint-based/i })).toBeVisible();
+    await cadence.getByRole('radio', { name: /Continuous flow/i }).click();
+
+    await expect.poll(() => captures.projectPatch).toEqual(
+      expect.objectContaining({ board_cadence: 'continuous' }),
+    );
+  });
+
+  // Per-column aging threshold (#410, ADR-0161)
+  test('setting a per-column age limit PUTs board-config with age_threshold_days', async ({
+    page,
+  }) => {
+    const captures: Captures = {};
+    await setup(page, captures);
+    await page.goto(`/projects/${PROJECT_ID}/settings/workflow`);
+
+    const statusesSection = page.getByRole('region', { name: /Statuses/i });
+    const ageInput = statusesSection.getByRole('spinbutton', {
+      name: /Age limit in days for Backlog/i,
+    });
+    await ageInput.fill('6');
+    await ageInput.blur();
+
+    await expect.poll(() => captures.boardConfigPut).toBeTruthy();
+    const cols = (captures.boardConfigPut?.columns as Array<Record<string, unknown>>) ?? [];
+    expect(cols.find((c) => c.status === 'BACKLOG')?.age_threshold_days).toBe(6);
   });
 });

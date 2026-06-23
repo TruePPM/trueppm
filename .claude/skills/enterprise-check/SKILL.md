@@ -105,6 +105,14 @@ OSS feature list (non-exhaustive):
 - Gantt chart (web + mobile)
 - Time tracking and time entries
 - 5-role RBAC (Owner, Admin, Scheduler, Member, Viewer)
+- **Basic single sign-on (OIDC / OAuth2)** — self-service login against the
+  self-hoster's *own* identity provider (Keycloak, Authentik, Authelia, Zitadel,
+  Google, GitHub, GitLab, generic OIDC). **Authentication only**: an admin
+  registers a provider's client ID/secret and users sign in through it. No
+  directory provisioning, no enforced-SSO policy, no group→role mapping — those
+  are the Enterprise identity-governance layer below. Self-hosters run their own
+  IdP and treat login federation as table stakes; gating it is the "SSO tax" that
+  blocks adoption before a prospect can feel value.
 - Real-time collaboration (WebSocket sync within a single project)
 - Offline mobile (WatermelonDB sync)
 - REST + WebSocket API
@@ -138,8 +146,12 @@ Enterprise feature list (non-exhaustive):
 - CCPM (Critical Chain)
 - Resource heat map (cross-portfolio)
 - Schedule forensics and narrative reporting
-- SSO / SAML / OIDC
-- LDAP sync
+- **Org identity governance** — SAML 2.0 federation, SCIM provisioning /
+  deprovisioning, LDAP / Active Directory directory sync, enforced org-wide SSO
+  (disable local accounts), just-in-time group→role mapping, and an auth-event
+  audit trail. (OSS ships basic OIDC/OAuth login; this is the directory +
+  policy + compliance layer on top — log in via your IdP → OSS; provision,
+  deprovision, and govern accounts from a directory → Enterprise.)
 - Immutable audit trail
 - Custom roles (beyond the 5-role model)
 - Approval workflows

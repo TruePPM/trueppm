@@ -15,6 +15,9 @@ interface ApiProject {
   inherited_methodology?: Methodology;
   iteration_label?: string | null;
   effective_iteration_label?: string | null;
+  /** Per-project rollup counts annotated by this endpoint (issue 560). */
+  overdue_count?: number | null;
+  at_risk_count?: number | null;
 }
 
 /**
@@ -43,6 +46,8 @@ export function useProgramProjects(
         effectiveIterationLabel: p.effective_iteration_label ?? null,
         effectiveMethodology: p.effective_methodology ?? p.methodology ?? 'HYBRID',
         inheritedMethodology: p.inherited_methodology,
+        overdueCount: p.overdue_count ?? null,
+        atRiskCount: p.at_risk_count ?? null,
       }));
     },
     enabled: !!programId,

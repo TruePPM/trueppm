@@ -6,7 +6,7 @@ import type {
   ProjectHealth,
   ProjectVisibility,
 } from '@/api/types';
-import type { Methodology } from '@/types';
+import type { BoardCadence, Methodology } from '@/types';
 
 export interface ApiProjectDetail {
   id: string;
@@ -45,6 +45,12 @@ export interface ApiProjectDetail {
    * affordance and the policy-driven read-only treatment.
    */
   inherited_methodology: Methodology;
+  /**
+   * Board cadence (ADR-0164, issue 410). `sprint` (default) shows the sprint chrome;
+   * `continuous` hides it for continuous-flow Kanban. Scheduler+-writable. Not an
+   * inheritable override — a project-local board setting.
+   */
+  board_cadence: BoardCadence;
   /** Optional short code (uppercase A-Z, 0-9, hyphen; ≤12 chars). Empty when unset. */
   code: string;
   /** PM health override; AUTO defers to the (future) rollup. */

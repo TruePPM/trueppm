@@ -7,6 +7,7 @@ import { NewProjectModal } from '@/features/shell/NewProjectModal';
 import { ImportProjectModal } from '@/components/import/ImportProjectModal';
 import { AddProjectToProgramModal } from './AddProjectToProgramModal';
 import { ROLE_ADMIN } from '@/lib/roles';
+import { fmtUtcShort } from '@/lib/formatUtcDate';
 
 /**
  * /programs/:programId/projects — projects belonging to the program (ADR-0070).
@@ -48,15 +49,24 @@ export function ProgramProjectsPage() {
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-6">
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-neutral-text-primary">
-          Projects
-          {projects && (
-            <span className="tppm-mono ml-2 text-xs font-normal text-neutral-text-secondary">
-              {projects.length}
-            </span>
+      <div className="mb-4 flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold text-neutral-text-primary">
+            Projects
+            {projects && (
+              <span className="tppm-mono ml-2 text-xs font-normal text-neutral-text-secondary">
+                {projects.length}
+              </span>
+            )}
+          </h2>
+          {/* The program's single headline target finish date (issue 560). Read-only
+              here; ADMIN+ sets it on Program → Settings → General. */}
+          {program?.target_date && (
+            <p className="tppm-mono mt-0.5 text-xs text-neutral-text-secondary">
+              Target {fmtUtcShort(program.target_date)}
+            </p>
           )}
-        </h2>
+        </div>
         {isAdmin && (
           <div
             role="toolbar"
@@ -186,6 +196,26 @@ export function ProgramProjectsPage() {
               <span className="tppm-mono shrink-0 text-xs text-neutral-text-secondary">
                 {p.methodology}
               </span>
+              {/* Standup-style rollup chips (issue 560) — only when the count is
+                  non-zero. Color is paired with the word (rule 7/120); the
+                  count stays mono (rule 8c). Outlined, AA-dark text variants
+                  (rule 39/145). Informational — the row name carries the link. */}
+              {(p.overdueCount ?? 0) > 0 && (
+                <span
+                  className="tppm-mono shrink-0 rounded border border-semantic-critical/40 px-1.5 py-0.5 text-xs text-semantic-critical"
+                  aria-label={`${p.overdueCount} overdue task${p.overdueCount === 1 ? '' : 's'}`}
+                >
+                  {p.overdueCount} overdue
+                </span>
+              )}
+              {(p.atRiskCount ?? 0) > 0 && (
+                <span
+                  className="tppm-mono shrink-0 rounded border border-semantic-at-risk/40 px-1.5 py-0.5 text-xs text-semantic-at-risk"
+                  aria-label={`${p.atRiskCount} at-risk task${p.atRiskCount === 1 ? '' : 's'}`}
+                >
+                  {p.atRiskCount} at risk
+                </span>
+              )}
               {isAdmin && (
                 <button
                   type="button"

@@ -3777,14 +3777,23 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
     def get_permissions(self) -> list[BasePermission]:
         if self.action in ("list", "retrieve"):
             return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
+        if self.action in ("accept", "reject"):
+            # Object-level authority for a pending cross-project edge is the
+            # downstream (successor) project's Scheduler+, which the generic
+            # project-scoped permission classes can't express (they resolve the
+            # predecessor's project). It is enforced inside the action body —
+            # ADR-0120 D2 / C2.
+            return [IsAuthenticated()]
         return [IsAuthenticated(), IsProjectScheduler(), IsProjectNotArchived()]
 
     serializer_class = DependencySerializer
     filter_backends = [filters.OrderingFilter]
     ordering_fields = ["dep_type"]
-    queryset = Dependency.objects.select_related("predecessor", "successor").filter(
-        is_deleted=False
-    )
+    # ``predecessor__project`` / ``successor__project`` are prefetched so the D5
+    # ExternalTaskCard's ``project_name`` does not N+1 on a cross-project list.
+    queryset = Dependency.objects.select_related(
+        "predecessor", "predecessor__project", "successor", "successor__project"
+    ).filter(is_deleted=False)
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         try:
@@ -3805,7 +3814,26 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
             )
 
     def get_queryset(self) -> QuerySet[Dependency]:
-        qs = super().get_queryset()
+        # ProjectScopedViewSet scopes Dependency to the *predecessor's* project
+        # membership only. A cross-project edge (ADR-0120) must also be visible
+        # to — and acceptable by — members of the *successor's* project (the side
+        # an incoming edge constrains), so widen the membership scope to either
+        # endpoint. Same-project edges are unaffected (both endpoints share the
+        # one project). The minimal D5 card, not the full task, is what a reader
+        # gets for a counterpart in a project they cannot otherwise open.
+        base = Dependency.objects.select_related(
+            "predecessor", "predecessor__project", "successor", "successor__project"
+        ).filter(is_deleted=False)
+        user = getattr(self.request, "user", None)
+        if user is None or not user.is_authenticated:
+            return base.none()
+        member_project_ids = ProjectMembership.objects.filter(
+            user=user, is_deleted=False
+        ).values_list("project_id", flat=True)
+        qs = base.filter(
+            Q(predecessor__project_id__in=member_project_ids)
+            | Q(successor__project_id__in=member_project_ids)
+        )
         project_id = self.request.query_params.get("project")
         if project_id:
             qs = qs.filter(predecessor__project_id=project_id)
@@ -3822,14 +3850,27 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
     def perform_create(self, serializer: BaseSerializer[Dependency]) -> None:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
-        # H1 fix: DRF does not call has_object_permission on create actions,
-        # so we must verify the predecessor task belongs to a project the caller
-        # is a member of (Resource Manager+) before saving.
+        # H1 fix: DRF does not call has_object_permission on create actions, so we
+        # re-check Scheduler+ on the predecessor's project before saving. A
+        # cross-project edge (ADR-0120) is exempt: the serializer's consent gate
+        # has already authorized both sides, and the legitimate proposer may hold
+        # schedule authority on only the *successor* side — this single-project
+        # check would wrongly 403 them.
         predecessor = serializer.validated_data.get("predecessor")
-        if predecessor is not None:
+        successor = serializer.validated_data.get("successor")
+        cross_project = bool(
+            predecessor is not None
+            and successor is not None
+            and predecessor.project_id != successor.project_id
+        )
+        if predecessor is not None and not cross_project:
             self.check_object_permissions(self.request, predecessor)
 
-        instance = serializer.save()
+        # Apply the cross-project consent decision (pending/accepted) resolved in
+        # the serializer's validate(); same-project edges fall back to the model
+        # default (accepted, not pending).
+        consent = getattr(serializer, "_consent", None)
+        instance = serializer.save(**consent) if consent else serializer.save()
         project_id = str(instance.predecessor.project_id)
         dep_id = str(instance.pk)
         transaction.on_commit(
@@ -3852,7 +3893,15 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
     def perform_update(self, serializer: BaseSerializer[Dependency]) -> None:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
-        instance = serializer.save()
+        # Apply the consent decision when an update repoints an endpoint into a
+        # new cross-project relationship (ADR-0120 D2). Without this, a
+        # predecessor-side Scheduler could PATCH the successor to a project they
+        # cannot schedule and have the edge land live, bypassing the consent gate
+        # — the create path resolves consent but the update path must too. The
+        # serializer only sets ``_consent`` when the endpoints actually changed,
+        # so an in-place lag/dep_type edit preserves the existing acceptance state.
+        consent = getattr(serializer, "_consent", None)
+        instance = serializer.save(**consent) if consent else serializer.save()
         project_id = str(instance.predecessor.project_id)
         dep_id = str(instance.pk)
         transaction.on_commit(
@@ -3877,6 +3926,102 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
         transaction.on_commit(
             lambda: _dispatch_webhooks(project_id, "dependency.deleted", {"id": dep_id})
         )
+
+    @action(detail=True, methods=["post"], url_path="accept")
+    def accept(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Accept a pending cross-project dependency (ADR-0120 D2 / C2).
+
+        Only Scheduler+ on the **successor** (downstream) project may accept — the
+        successor is the side a cross-project edge newly constrains, so its team
+        holds the consent (no management bypass, ADR-0102 precedent). Returns 400
+        if the edge is not pending. The accept is audited via the history row.
+        """
+        return self._resolve_pending(request, accept=True)
+
+    @action(detail=True, methods=["post"], url_path="reject")
+    def reject(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Reject (soft-delete) a pending cross-project dependency (ADR-0120 D2).
+
+        Same downstream-consent gate as :meth:`accept`. Soft-deletes the edge so
+        the history row preserves the audit of who declined it.
+        """
+        return self._resolve_pending(request, accept=False)
+
+    def _resolve_pending(self, request: Request, *, accept: bool) -> Response:
+        from rest_framework.exceptions import PermissionDenied
+        from rest_framework.exceptions import ValidationError as DRFValidationError
+
+        from trueppm_api.apps.access.permissions import _is_project_archived, effective_project_role
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        dependency = self.get_object()
+
+        # Downstream consent (C2): Scheduler+ on the successor's project. Checked
+        # before the pending-state check so a caller without downstream authority
+        # gets a uniform 403 and cannot probe the edge's acceptance state.
+        successor_project_id = dependency.successor.project_id
+        role = effective_project_role(request, successor_project_id)
+        if role is None or role < Role.SCHEDULER:
+            raise PermissionDenied(
+                "Only a Resource Manager+ on the successor's project can "
+                "accept or reject this cross-project dependency."
+            )
+
+        # Archived successor project is read-only (#530); the consent action is a
+        # write, so block it like every other dependency mutation.
+        if _is_project_archived(request, successor_project_id):
+            raise PermissionDenied("Cannot act on a dependency in an archived project.")
+
+        if not dependency.pending_acceptance:
+            raise DRFValidationError("This dependency is not pending acceptance.")
+
+        predecessor_pid = str(dependency.predecessor.project_id)
+        successor_pid = str(successor_project_id)
+        dep_id = str(dependency.pk)
+
+        # Both endpoints are notified; accept/reject only ever happen on a
+        # cross-project edge, whose two projects are distinct. Literal event
+        # types (one direct broadcast_board_event call per branch) so the WS
+        # freeze-test AST scanner registers them — see FROZEN_WS_EVENT_TYPES.
+        if accept:
+            dependency.pending_acceptance = False
+            dependency.accepted_by = request.user
+            dependency.accepted_at = timezone.now()
+            dependency.save()
+            # A now-accepted cross edge becomes eligible for the (forthcoming D3)
+            # program-scoped pass; recompute both endpoint projects. Coalesced by
+            # the drain.
+            transaction.on_commit(
+                lambda: _enqueue_recalculate(
+                    predecessor_pid, reason=ScheduleRequestReason.DEPENDENCY_CHANGE
+                )
+            )
+            transaction.on_commit(
+                lambda: _enqueue_recalculate(
+                    successor_pid, reason=ScheduleRequestReason.DEPENDENCY_CHANGE
+                )
+            )
+            transaction.on_commit(
+                lambda: broadcast_board_event(
+                    predecessor_pid, "dependency_accepted", {"id": dep_id}
+                )
+            )
+            transaction.on_commit(
+                lambda: broadcast_board_event(successor_pid, "dependency_accepted", {"id": dep_id})
+            )
+        else:
+            dependency.soft_delete()
+            transaction.on_commit(
+                lambda: broadcast_board_event(
+                    predecessor_pid, "dependency_rejected", {"id": dep_id}
+                )
+            )
+            transaction.on_commit(
+                lambda: broadcast_board_event(successor_pid, "dependency_rejected", {"id": dep_id})
+            )
+
+        serializer = self.get_serializer(dependency)
+        return Response(serializer.data)
 
 
 @extend_schema_view(

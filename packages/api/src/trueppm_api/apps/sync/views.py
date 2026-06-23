@@ -156,8 +156,17 @@ class ProjectSyncView(IdempotencyMixin, APIView):
                 SyncTaskSerializer,
             ),
             "dependencies": self._collect(
+                # Same-project edges only. Cross-project edges (ADR-0120) are
+                # deliberately excluded from the single-project offline delta:
+                # their successor task lives in a project this client may not have
+                # synced, and the offline WASM recompute is single-project. Offline
+                # cross-project scheduling arrives with the program-sync slice
+                # (D3/D4); until then the sync payload stays byte-identical to the
+                # pre-cross-project behaviour.
                 Dependency.objects.filter(
-                    predecessor__project=project, server_version__gt=since
+                    predecessor__project=project,
+                    successor__project=project,
+                    server_version__gt=since,
                 ).select_related("predecessor"),
                 SyncDependencySerializer,
             ),

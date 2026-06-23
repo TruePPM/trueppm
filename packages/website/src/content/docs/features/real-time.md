@@ -57,6 +57,8 @@ A schedule recompute broadcasts two events when the CPM run commits:
 | `dependency_created` | `{"id": "..."}` |
 | `dependency_updated` | `{"id": "..."}` |
 | `dependency_deleted` | `{"id": "..."}` |
+| `dependency_accepted` | `{"id": "..."}` |
+| `dependency_rejected` | `{"id": "..."}` |
 
 ### Risks
 

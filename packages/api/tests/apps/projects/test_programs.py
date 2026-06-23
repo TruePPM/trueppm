@@ -776,3 +776,147 @@ def test_serializer_exposes_real_health(owner: object, calendar: Calendar) -> No
     assert resp.status_code == 200, resp.content
     row = next(r for r in resp.data["results"] if r["id"] == str(project.pk))
     assert row["health"] == Health.AT_RISK
+
+
+# ---------------------------------------------------------------------------
+# #560 — Program.target_date + per-project overdue / at-risk rollup
+# ---------------------------------------------------------------------------
+
+
+def _task(
+    project: Project,
+    name: str,
+    *,
+    status: str = TaskStatus.IN_PROGRESS,
+    total_float: int | None = None,
+    early_finish: date | None = None,
+    is_deleted: bool = False,
+) -> Task:
+    return Task.objects.create(
+        project=project,
+        name=name,
+        wbs_path=name,
+        duration=1,
+        status=status,
+        total_float=total_float,
+        early_finish=early_finish,
+        is_deleted=is_deleted,
+    )
+
+
+@pytest.mark.django_db
+def test_program_target_date_defaults_to_null(owner: object) -> None:
+    program = _create_program(_client(owner))
+    resp = _client(owner).get(f"/api/v1/programs/{program.pk}/")
+    assert resp.status_code == 200
+    assert resp.data["target_date"] is None
+
+
+@pytest.mark.django_db
+def test_program_admin_can_set_and_clear_target_date(owner: object) -> None:
+    program = _create_program(_client(owner))  # creator is OWNER (>= ADMIN)
+    resp = _client(owner).patch(
+        f"/api/v1/programs/{program.pk}/",
+        {"target_date": "2026-12-31"},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.content
+    assert resp.data["target_date"] == "2026-12-31"
+    program.refresh_from_db()
+    assert program.target_date == date(2026, 12, 31)
+
+    # Clearing back to null is honored (open-ended program).
+    resp = _client(owner).patch(
+        f"/api/v1/programs/{program.pk}/",
+        {"target_date": None},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.content
+    assert resp.data["target_date"] is None
+
+
+@pytest.mark.django_db
+def test_program_member_cannot_set_target_date(owner: object, other_user: object) -> None:
+    # A plain Member is below the IsProgramAdmin gate on update — write blocked.
+    program = _create_program(_client(owner))
+    ProgramMembership.objects.create(program=program, user=other_user, role=Role.MEMBER)
+    resp = _client(other_user).patch(
+        f"/api/v1/programs/{program.pk}/",
+        {"target_date": "2026-12-31"},
+        format="json",
+    )
+    assert resp.status_code == 403
+    program.refresh_from_db()
+    assert program.target_date is None
+
+
+@pytest.mark.django_db
+def test_projects_endpoint_annotates_overdue_and_at_risk_counts(
+    owner: object, calendar: Calendar
+) -> None:
+    program = _create_program(_client(owner))
+    project = Project.objects.create(
+        name="A", start_date=date(2026, 4, 1), calendar=calendar, program=program
+    )
+    past = date(2020, 1, 1)
+    future = date(2099, 1, 1)
+    # overdue only (past finish, ample float)
+    _task(project, "overdue", total_float=20, early_finish=past)
+    # at-risk only (tight float, future finish)
+    _task(project, "atrisk", total_float=2, early_finish=future)
+    # both overdue AND at-risk (already late = negative float)
+    _task(project, "both", total_float=-1, early_finish=past)
+    # excluded: COMPLETE despite past finish
+    _task(project, "done", status=TaskStatus.COMPLETE, total_float=-5, early_finish=past)
+    # excluded: soft-deleted despite past finish + tight float
+    _task(project, "gone", total_float=0, early_finish=past, is_deleted=True)
+    # neither (healthy)
+    _task(project, "healthy", total_float=30, early_finish=future)
+
+    resp = _client(owner).get(f"/api/v1/programs/{program.pk}/projects/")
+    assert resp.status_code == 200, resp.content
+    row = next(r for r in resp.data if r["id"] == str(project.pk))
+    assert row["overdue_count"] == 2  # overdue + both
+    assert row["at_risk_count"] == 2  # atrisk + both
+
+
+@pytest.mark.django_db
+def test_projects_endpoint_counts_zero_with_no_qualifying_tasks(
+    owner: object, calendar: Calendar
+) -> None:
+    program = _create_program(_client(owner))
+    project = Project.objects.create(
+        name="Empty", start_date=date(2026, 4, 1), calendar=calendar, program=program
+    )
+    _task(project, "healthy", total_float=30, early_finish=date(2099, 1, 1))
+
+    resp = _client(owner).get(f"/api/v1/programs/{program.pk}/projects/")
+    row = next(r for r in resp.data if r["id"] == str(project.pk))
+    assert row["overdue_count"] == 0
+    assert row["at_risk_count"] == 0
+
+
+@pytest.mark.django_db
+def test_projects_endpoint_count_annotations_are_not_n_plus_one(
+    owner: object, calendar: Calendar
+) -> None:
+    # The two conditional COUNTs must ride the single list query, not a per-row
+    # follow-up — adding more projects must not add queries.
+    program = _create_program(_client(owner))
+    for i in range(4):
+        p = Project.objects.create(
+            name=f"P{i}",
+            start_date=date(2026, 4, 1),
+            calendar=calendar,
+            program=program,
+        )
+        _task(p, f"od{i}", total_float=1, early_finish=date(2020, 1, 1))
+
+    client = _client(owner)
+    with CaptureQueriesContext(connection) as ctx:
+        resp = client.get(f"/api/v1/programs/{program.pk}/projects/")
+    assert resp.status_code == 200
+    assert len(resp.data) == 4
+    # Bounded: the list query + permission/object lookups, constant regardless of
+    # project count. Generous ceiling guards against a regression to per-row counts.
+    assert len(ctx.captured_queries) <= 12, len(ctx.captured_queries)

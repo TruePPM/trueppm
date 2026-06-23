@@ -207,9 +207,9 @@ See `CLAUDE.md` for coding conventions, two-repo rules, and the complete develop
 
 ## Open-core model
 
-**Community edition** (this repo) is Apache 2.0 — the scheduling engine (CPM + Monte Carlo, standalone on PyPI), Schedule (Gantt), Board / Kanban, Sprints (full lifecycle + velocity + burndown + retro), Programs, MS Project import/export, offline sync, real-time collaboration, 5-role RBAC, REST/WS API, and the Helm chart. Everything one PM or program team needs to run their work.
+**Community edition** (this repo) is Apache 2.0 — the scheduling engine (CPM + Monte Carlo, standalone on PyPI), Schedule (Gantt), Board / Kanban, Sprints (full lifecycle + velocity + burndown + retro), Programs, MS Project import/export, offline sync, real-time collaboration, 5-role RBAC, basic single sign-on (OIDC/OAuth against your own IdP), REST/WS API, and the Helm chart. Everything one PM or program team needs to run their work.
 
-**Enterprise edition** (separate repo, proprietary) adds what an *organization* needs to govern a portfolio across many programs: portfolio analytics, SSO/SAML/OIDC, an immutable audit trail, cross-program resource leveling, AI scheduling, and Jira/GitLab/ServiceNow connectors.
+**Enterprise edition** (separate repo, proprietary) adds what an *organization* needs to govern a portfolio across many programs: portfolio analytics, org identity governance (SAML/SCIM/LDAP directory sync, enforced org-wide SSO), an immutable audit trail, cross-program resource leveling, AI scheduling, and Jira/GitLab/ServiceNow connectors.
 
 The community edition is fully functional on its own — it never imports from the enterprise repo. The dependency is strictly one-way.
 

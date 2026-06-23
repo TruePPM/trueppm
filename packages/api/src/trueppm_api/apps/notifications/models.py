@@ -75,6 +75,19 @@ class NotificationEventType(models.TextChoices):
     # Schedule-canvas reschedule of a sprint-mate's task (#497) — the rest of the
     # ACTIVE sprint team learns a committed date moved. In-app only for v1.
     SPRINT_TASK_RESCHEDULED = "sprint.task_rescheduled", "Task in my sprint rescheduled"
+    # Signal-privacy ceiling-raise ratification (#1275, ADR-0104 Amendment B) — a
+    # team-owned vote to widen a signal's visibility. "Opened" reaches eligible
+    # voters so the 72h window is discoverable off the Settings page; "resolved"
+    # reaches voters + the proposer with the outcome. In-app ON, email opt-in OFF
+    # (Priya's hard-NO was on un-opted email, not on an in-app inbox row).
+    SIGNAL_CEILING_PROPOSAL_OPENED = (
+        "signal.ceiling_proposal_opened",
+        "Team signal visibility proposal opened",
+    )
+    SIGNAL_CEILING_PROPOSAL_RESOLVED = (
+        "signal.ceiling_proposal_resolved",
+        "Team signal visibility proposal resolved",
+    )
 
 
 class NotificationChannel(models.TextChoices):
@@ -380,6 +393,13 @@ DEFAULT_PREFERENCES: list[tuple[str, str, bool]] = [
     # #497 — in-app only for v1 (email digest/push explicitly out of scope).
     (NotificationEventType.SPRINT_TASK_RESCHEDULED, NotificationChannel.IN_APP, True),
     (NotificationEventType.SPRINT_TASK_RESCHEDULED, NotificationChannel.EMAIL, False),
+    # #1275 / ADR-0104 Amendment B — ceiling-raise proposal discovery. In-app ON so
+    # voters see the ask without navigating to Settings; email strictly opt-in OFF
+    # (Priya's hard-NO is preserved — un-opted email noise, not the in-app inbox).
+    (NotificationEventType.SIGNAL_CEILING_PROPOSAL_OPENED, NotificationChannel.IN_APP, True),
+    (NotificationEventType.SIGNAL_CEILING_PROPOSAL_OPENED, NotificationChannel.EMAIL, False),
+    (NotificationEventType.SIGNAL_CEILING_PROPOSAL_RESOLVED, NotificationChannel.IN_APP, True),
+    (NotificationEventType.SIGNAL_CEILING_PROPOSAL_RESOLVED, NotificationChannel.EMAIL, False),
 ]
 
 

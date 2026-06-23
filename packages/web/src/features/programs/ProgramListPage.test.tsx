@@ -65,6 +65,7 @@ function makeProgram(overrides: Partial<Program> = {}): Program {
     inherited_attachments_enabled: true,
     inherited_allowed_attachment_types: ['application/pdf'],
     health: 'AUTO',
+    target_date: null,
     visibility: 'WORKSPACE',
     color: null,
     lead: null,

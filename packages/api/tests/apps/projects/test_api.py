@@ -8,8 +8,8 @@ import pytest
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
-from trueppm_api.apps.access.models import ProjectMembership, Role
-from trueppm_api.apps.projects.models import Calendar, Dependency, Project, Task
+from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
+from trueppm_api.apps.projects.models import Calendar, Dependency, Program, Project, Task
 
 
 @pytest.fixture
@@ -685,3 +685,244 @@ class TestDependencyAPI:
             {"predecessor": str(foreign_a.pk), "successor": str(task.pk), "dep_type": "FS"},
         )
         assert r2.status_code == 403
+
+
+@pytest.mark.django_db
+class TestCrossProjectDependency:
+    """ADR-0120 D1/D2/D5 — same-program cross-project dependency edges.
+
+    D1: cross-project edges are valid when the two projects share a program;
+    cross-PROGRAM (and program-less) edges stay 400. D2: consent gate —
+    auto-accepted when the creator can schedule the successor, else pending +
+    inert until a downstream Scheduler accepts. D5: a minimal card names the
+    counterpart task across a project boundary.
+    """
+
+    def _program_pair(
+        self,
+        calendar: Calendar,
+        user: object,
+        *,
+        pred_role: int | None,
+        succ_role: int | None,
+        same_program: bool = True,
+    ) -> tuple[Task, Task, Program]:
+        """Two projects (each with one task) in one program (unless
+        ``same_program=False``), with ``user`` granted the given role on each."""
+        program = Program.objects.create(name="GA Launch")
+        succ_program = program if same_program else Program.objects.create(name="Other Program")
+        p_pred = Project.objects.create(
+            name="Security", start_date=date(2026, 3, 2), calendar=calendar, program=program
+        )
+        p_succ = Project.objects.create(
+            name="Marketing", start_date=date(2026, 3, 2), calendar=calendar, program=succ_program
+        )
+        if pred_role is not None:
+            ProjectMembership.objects.create(project=p_pred, user=user, role=pred_role)
+        if succ_role is not None:
+            ProjectMembership.objects.create(project=p_succ, user=user, role=succ_role)
+        pred_task = Task.objects.create(project=p_pred, name="Sign-off", duration=3)
+        succ_task = Task.objects.create(project=p_succ, name="Go-live", duration=2)
+        return pred_task, succ_task, program
+
+    @staticmethod
+    def _scheduler_client_on(project: Project, *, username: str) -> APIClient:
+        user = get_user_model().objects.create_user(username=username, password="pw")
+        ProjectMembership.objects.create(project=project, user=user, role=Role.SCHEDULER)
+        c = APIClient()
+        c.force_authenticate(user=user)
+        return c
+
+    def _post_edge(self, client: APIClient, pred: Task, succ: Task) -> object:
+        return client.post(
+            "/api/v1/dependencies/",
+            {"predecessor": str(pred.pk), "successor": str(succ.pk), "dep_type": "FS"},
+        )
+
+    # -- D1: validity -------------------------------------------------------
+
+    def test_same_program_edge_auto_accepted_when_scheduler_both(
+        self, client: APIClient, user: object, calendar: Calendar
+    ) -> None:
+        pred, succ, _ = self._program_pair(
+            calendar, user, pred_role=Role.SCHEDULER, succ_role=Role.SCHEDULER
+        )
+        r = self._post_edge(client, pred, succ)
+        assert r.status_code == 201, r.data
+        assert r.data["pending_acceptance"] is False
+        assert r.data["accepted_by"] is not None
+        assert r.data["accepted_at"] is not None
+        dep = Dependency.objects.get(pk=r.data["id"])
+        assert dep.predecessor_id == pred.pk and dep.successor_id == succ.pk
+        assert dep.accepted_by == user
+
+    def test_cross_program_edge_rejected_400(
+        self, client: APIClient, user: object, calendar: Calendar
+    ) -> None:
+        pred, succ, _ = self._program_pair(
+            calendar, user, pred_role=Role.OWNER, succ_role=Role.OWNER, same_program=False
+        )
+        r = self._post_edge(client, pred, succ)
+        assert r.status_code == 400
+        assert "same program" in str(r.data).lower()
+
+    # -- D2: consent --------------------------------------------------------
+
+    def test_pending_when_scheduler_on_predecessor_only(
+        self, client: APIClient, user: object, calendar: Calendar
+    ) -> None:
+        pred, succ, _ = self._program_pair(
+            calendar, user, pred_role=Role.SCHEDULER, succ_role=Role.MEMBER
+        )
+        r = self._post_edge(client, pred, succ)
+        assert r.status_code == 201, r.data
+        assert r.data["pending_acceptance"] is True
+        assert r.data["accepted_by"] is None
+
+    def test_program_viewer_without_schedule_authority_403(
+        self, client: APIClient, user: object, calendar: Calendar
+    ) -> None:
+        # Read access via program membership, but no Scheduler+ anywhere → 403.
+        pred, succ, program = self._program_pair(calendar, user, pred_role=None, succ_role=None)
+        ProgramMembership.objects.create(program=program, user=user, role=Role.VIEWER)
+        r = self._post_edge(client, pred, succ)
+        assert r.status_code == 403
+
+    def test_accept_by_successor_scheduler(
+        self, client: APIClient, user: object, calendar: Calendar
+    ) -> None:
+        pred, succ, _ = self._program_pair(
+            calendar, user, pred_role=Role.SCHEDULER, succ_role=Role.MEMBER
+        )
+        dep_id = self._post_edge(client, pred, succ).data["id"]
+        downstream = self._scheduler_client_on(succ.project, username="downstream")
+        r = downstream.post(f"/api/v1/dependencies/{dep_id}/accept/")
+        assert r.status_code == 200, r.data
+        assert r.data["pending_acceptance"] is False
+        assert r.data["accepted_by"] is not None
+        assert Dependency.objects.get(pk=dep_id).pending_acceptance is False
+
+    def test_accept_forbidden_without_successor_authority(
+        self, client: APIClient, user: object, calendar: Calendar
+    ) -> None:
+        pred, succ, _ = self._program_pair(
+            calendar, user, pred_role=Role.SCHEDULER, succ_role=Role.MEMBER
+        )
+        dep_id = self._post_edge(client, pred, succ).data["id"]
+        # Creator holds Scheduler on the predecessor, only Member on the
+        # successor → cannot self-accept their own pending edge.
+        r = client.post(f"/api/v1/dependencies/{dep_id}/accept/")
+        assert r.status_code == 403
+        assert Dependency.objects.get(pk=dep_id).pending_acceptance is True
+
+    def test_accept_non_pending_returns_400(
+        self, client: APIClient, user: object, calendar: Calendar
+    ) -> None:
+        pred, succ, _ = self._program_pair(
+            calendar, user, pred_role=Role.SCHEDULER, succ_role=Role.SCHEDULER
+        )
+        r = self._post_edge(client, pred, succ)
+        assert r.data["pending_acceptance"] is False
+        r2 = client.post(f"/api/v1/dependencies/{r.data['id']}/accept/")
+        assert r2.status_code == 400
+
+    def test_reject_soft_deletes_edge(
+        self, client: APIClient, user: object, calendar: Calendar
+    ) -> None:
+        pred, succ, _ = self._program_pair(
+            calendar, user, pred_role=Role.SCHEDULER, succ_role=Role.MEMBER
+        )
+        dep_id = self._post_edge(client, pred, succ).data["id"]
+        downstream = self._scheduler_client_on(succ.project, username="downstream2")
+        r = downstream.post(f"/api/v1/dependencies/{dep_id}/reject/")
+        assert r.status_code == 200, r.data
+        assert Dependency.objects.get(pk=dep_id).is_deleted is True
+
+    # -- D1: program-scoped cycle detection ---------------------------------
+
+    def test_cross_project_cycle_detected(
+        self, client: APIClient, user: object, calendar: Calendar
+    ) -> None:
+        pred, succ, _ = self._program_pair(
+            calendar, user, pred_role=Role.SCHEDULER, succ_role=Role.SCHEDULER
+        )
+        assert self._post_edge(client, pred, succ).status_code == 201
+        # The reverse cross edge would close a program-spanning cycle.
+        r = self._post_edge(client, succ, pred)
+        assert r.status_code == 400
+        assert r.data["detail"] == "cyclic_dependency"
+
+    # -- D5: minimal visibility card ----------------------------------------
+
+    def test_cross_project_edge_exposes_minimal_card(
+        self, client: APIClient, user: object, calendar: Calendar
+    ) -> None:
+        pred, succ, _ = self._program_pair(
+            calendar, user, pred_role=Role.SCHEDULER, succ_role=Role.SCHEDULER
+        )
+        card = self._post_edge(client, pred, succ).data["predecessor_card"]
+        assert card is not None
+        assert set(card.keys()) >= {
+            "id",
+            "title",
+            "hex_id",
+            "project_id",
+            "project_name",
+            "is_milestone",
+            "early_start",
+            "early_finish",
+            "is_critical",
+        }
+        # Only scheduling facts — never description/assignee/points/status.
+        assert "description" not in card and "assignee" not in card
+        assert card["title"] == "Sign-off"
+        assert card["project_name"] == "Security"
+
+    def test_same_project_edge_has_no_card(
+        self,
+        client: APIClient,
+        user: object,
+        project: Project,
+        membership: ProjectMembership,
+    ) -> None:
+        t1 = Task.objects.create(project=project, name="T1", duration=2)
+        t2 = Task.objects.create(project=project, name="T2", duration=2)
+        r = self._post_edge(client, t1, t2)
+        assert r.status_code == 201, r.data
+        assert r.data["predecessor_card"] is None
+        assert r.data["successor_card"] is None
+        assert r.data["pending_acceptance"] is False
+
+    # -- D2: update-path consent (repoint cannot bypass the gate) ------------
+
+    def test_repoint_into_cross_project_requires_consent(
+        self, client: APIClient, user: object, calendar: Calendar
+    ) -> None:
+        # Scheduler on the predecessor project, only Member on the successor.
+        pred, succ, _ = self._program_pair(
+            calendar, user, pred_role=Role.SCHEDULER, succ_role=Role.MEMBER
+        )
+        # Start with an accepted same-project edge in the predecessor's project.
+        sibling = Task.objects.create(project=pred.project, name="Sibling", duration=1)
+        create = self._post_edge(client, pred, sibling)
+        assert create.status_code == 201, create.data
+        assert create.data["pending_acceptance"] is False
+        dep_id = create.data["id"]
+        # Repointing the successor cross-project must re-earn consent — it lands
+        # pending (inert), never live, even though the patcher is the predecessor
+        # scheduler. This is the update-path consent-bypass guard.
+        r = client.patch(f"/api/v1/dependencies/{dep_id}/", {"successor": str(succ.pk)})
+        assert r.status_code == 200, r.data
+        assert r.data["pending_acceptance"] is True
+        assert Dependency.objects.get(pk=dep_id).pending_acceptance is True
+
+    def test_create_on_archived_project_rejected(
+        self, client: APIClient, user: object, calendar: Calendar
+    ) -> None:
+        pred, succ, _ = self._program_pair(
+            calendar, user, pred_role=Role.SCHEDULER, succ_role=Role.SCHEDULER
+        )
+        pred.project.is_archived = True
+        pred.project.save(update_fields=["is_archived"])
+        r = self._post_edge(client, pred, succ)
+        assert r.status_code == 403

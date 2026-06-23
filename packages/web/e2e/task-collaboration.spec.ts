@@ -795,6 +795,7 @@ const FIXTURE_NOTIFICATION = {
     task_comment: 'c-source-1',
     created_at: '2026-05-19T12:00:00Z',
   },
+  event_type: '',
   project: PROJECT_ID,
   is_read: false,
   is_archived: false,
