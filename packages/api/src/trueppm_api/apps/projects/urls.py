@@ -23,6 +23,7 @@ from trueppm_api.apps.projects.signal_privacy_views import (
     SignalPrivacyRaiseCeilingView,
     SignalPrivacyRatchetDownView,
 )
+from trueppm_api.apps.projects.standup_views import StandupView
 from trueppm_api.apps.projects.views import (
     AcceptanceCriterionViewSet,
     AcceptanceResultIngestView,
@@ -149,6 +150,12 @@ urlpatterns = [
         "projects/<project_pk>/board/activity/",
         BoardActivityView.as_view(),
         name="project-board-activity",
+    ),
+    # Daily standup walk-the-board (ADR-0166 / #1278) — active sprint, per-assignee.
+    path(
+        "projects/<project_pk>/standup/",
+        StandupView.as_view(),
+        name="project-standup",
     ),
     # Presence endpoint — who is connected to this project's WebSocket
     path(

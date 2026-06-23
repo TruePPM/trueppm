@@ -19,6 +19,8 @@ import { sprintTimebox } from './sprintTimebox';
 interface BoardSprintHeaderProps {
   sprint: ApiSprint;
   projectId: string;
+  /** Opens the daily-standup walk-the-board mode (#1278). Omitted → button hidden. */
+  onOpenStandup?: () => void;
 }
 
 /** Format the sprint window as "Mar 4 – Mar 17" (mirrors BoardSprintSwitcher). */
@@ -36,7 +38,7 @@ function shortDate(iso: string): string {
   });
 }
 
-export function BoardSprintHeader({ sprint, projectId }: BoardSprintHeaderProps) {
+export function BoardSprintHeader({ sprint, projectId, onOpenStandup }: BoardSprintHeaderProps) {
   const range = dateRange(sprint);
   const tb = sprintTimebox(sprint.start_date, sprint.finish_date);
 
@@ -91,8 +93,17 @@ export function BoardSprintHeader({ sprint, projectId }: BoardSprintHeaderProps)
           )}
         </div>
 
-        {/* Compact burndown (right) */}
-        <div className="shrink-0">
+        {/* Standup entry + compact burndown (right) */}
+        <div className="flex shrink-0 items-center gap-3">
+          {onOpenStandup && (
+            <button
+              type="button"
+              onClick={onOpenStandup}
+              className="flex min-h-[44px] items-center rounded-md border border-neutral-border px-4 text-sm font-medium text-neutral-text-primary transition-colors hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            >
+              <span aria-hidden="true">▶ </span>Standup
+            </button>
+          )}
           <BurnChart compact sprintId={sprint.id} projectId={projectId} />
         </div>
       </div>

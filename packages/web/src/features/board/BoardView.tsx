@@ -87,6 +87,7 @@ import { ScheduleTaskDialog } from '@/features/schedule/ScheduleTaskDialog';
 import { CalmToolbar } from './CalmToolbar';
 import { SprintPanel } from './SprintPanel';
 import { BoardActivityPanel } from './activity/BoardActivityPanel';
+import { StandupMode } from './standup/StandupMode';
 import {
   useBoardToolbarPrefs,
   type BoardZoom,
@@ -1281,6 +1282,25 @@ export function BoardView() {
       return next;
     });
   }, [activityStorageKey]);
+  // Daily standup walk-the-board mode (#1278, ADR-0166). State lives in the URL
+  // (?standup=1) — a focused "drive the room" mode is shareable to a projector tab and
+  // survives refresh, unlike the localStorage-persisted activity rail.
+  const standupOpen = searchParams.get('standup') === '1';
+  const openStandup = useCallback(() => {
+    setSearchParams((prev: URLSearchParams) => {
+      prev.set('standup', '1');
+      return prev;
+    });
+  }, [setSearchParams]);
+  const closeStandup = useCallback(() => {
+    setSearchParams(
+      (prev: URLSearchParams) => {
+        prev.delete('standup');
+        return prev;
+      },
+      { replace: true },
+    );
+  }, [setSearchParams]);
   // editTaskId opens the unified TaskFormModal in edit mode (issue #305).
   // The popover's "Edit" footer action sets this; the modal owns the rest.
   const [editTaskId, setEditTaskId] = useState<string | null>(null);
@@ -2323,7 +2343,11 @@ export function BoardView() {
               + goal + compact burndown. Only when a sprint is selected, and never on a
               continuous-flow Kanban board (ADR-0164, issue 410) — that's sprint chrome. */}
           {selectedSprint && projectId && projectDetail?.board_cadence !== 'continuous' && (
-            <BoardSprintHeader sprint={selectedSprint} projectId={projectId} />
+            <BoardSprintHeader
+              sprint={selectedSprint}
+              projectId={projectId}
+              onOpenStandup={openStandup}
+            />
           )}
           {/* Closed-sprint read-only banner (#1141) — below the header, above the
               grid; drag-to-assign is disabled board-wide (see `readOnly`). */}
@@ -2824,6 +2848,17 @@ export function BoardView() {
             isTaskOpenable={(taskId) => taskIndex.has(taskId)}
           />
         </div>
+      )}
+
+      {/* Daily standup walk-the-board (ADR-0166, #1278) — a focused full-surface mode
+          driven by the active sprint's per-person walk; opens the same selectedTaskId
+          drawer when a card is clicked. Mounted off ?standup=1. */}
+      {projectId && standupOpen && (
+        <StandupMode
+          projectId={projectId}
+          onClose={closeStandup}
+          onOpenTask={(taskId) => setSelectedTaskId(taskId)}
+        />
       )}
 
       {/* Task edit modal (issue #305) — opened by the popover's "Edit"

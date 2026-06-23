@@ -12138,6 +12138,46 @@
                 }
             }
         },
+        "/api/v1/projects/{project_pk}/standup/": {
+            "get": {
+                "operationId": "v1_projects_standup_retrieve",
+                "description": "GET the active sprint's daily-standup walk (Viewer+, project members only).",
+                "summary": "Daily standup walk-the-board (active sprint, per-assignee buckets)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/StandupResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{project_pk}/task-runs/": {
             "get": {
                 "operationId": "v1_projects_task_runs_list",
@@ -30995,6 +31035,174 @@
                 ],
                 "type": "string",
                 "description": "* `completed` - Completed in sprint\n* `carried` - Carried to another sprint\n* `dropped` - Dropped (not carried forward)"
+            },
+            "StandupAssignee": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "id",
+                    "name"
+                ]
+            },
+            "StandupBucket": {
+                "type": "object",
+                "properties": {
+                    "assignee": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/StandupAssignee"
+                            }
+                        ],
+                        "nullable": true
+                    },
+                    "done": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/StandupCard"
+                        }
+                    },
+                    "in_progress": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/StandupCard"
+                        }
+                    },
+                    "blockers": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/StandupCard"
+                        }
+                    }
+                },
+                "required": [
+                    "assignee",
+                    "blockers",
+                    "done",
+                    "in_progress"
+                ]
+            },
+            "StandupCard": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "story_points": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "dwell_days": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "aging": {
+                        "type": "boolean"
+                    },
+                    "blocker_type": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "blocked_since": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "aging",
+                    "blocked_since",
+                    "blocker_type",
+                    "dwell_days",
+                    "id",
+                    "name",
+                    "status",
+                    "story_points"
+                ]
+            },
+            "StandupResponse": {
+                "type": "object",
+                "properties": {
+                    "active": {
+                        "type": "boolean"
+                    },
+                    "reason": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "sprint": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/StandupSprint"
+                            }
+                        ],
+                        "nullable": true
+                    },
+                    "generated_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "window_since": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "walk": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/StandupBucket"
+                        }
+                    }
+                },
+                "required": [
+                    "active",
+                    "generated_at",
+                    "reason",
+                    "sprint",
+                    "walk",
+                    "window_since"
+                ]
+            },
+            "StandupSprint": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "goal": {
+                        "type": "string"
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "finish_date": {
+                        "type": "string",
+                        "format": "date"
+                    }
+                },
+                "required": [
+                    "finish_date",
+                    "goal",
+                    "id",
+                    "name",
+                    "start_date"
+                ]
             },
             "StateEnum": {
                 "enum": [

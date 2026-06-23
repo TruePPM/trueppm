@@ -48,23 +48,29 @@ The board is your daily view. Five columns: **Backlog → To Do → In Progress 
 - Blocked indicator (red border if the task has an unresolved dependency)
 - Progress ring
 
-### Daily standup flow
+### Daily standup — walk the board
 
-1. Filter to the active sprint using the sprint filter in the toolbar
-2. Walk the board right-to-left: Review → In Progress → To Do
-3. Flag any blocked cards (red border = unresolved dependency or impediment)
-4. Check the WIP overload panel if any column is red — this is the conversation starter
+The active sprint board has a **Standup** button in the sprint panel header. It opens a focused walk-the-board mode that guides the team through each person one at a time, with three columns per teammate:
 
-→ See [WIP overload detection](/features/wip-overload/)
+- **Done since last working day** — calendar-aware (Monday includes Friday's completions)
+- **In progress today** — their current In Progress and Review cards
+- **Blockers** — blocked cards with blocker type and age; the private reason text is never shown on the shared screen
+
+Navigate with the Prev / Next stepper, the ← / → arrow keys, or click any dot in the person rail to jump to a teammate. The Sprint Goal is pinned at the top throughout. Press Esc to exit.
+
+→ See [Daily standup — walk the board](/features/daily-standup/)
 
 ### The daily delta panel
 
-The active sprint will carry a **Daily delta** panel — a server-computed "what changed since yesterday" read for the standup: status moves, new blockers, scope injected mid-sprint, the burndown swing, and per-person activity counts. It is pull-only and status-level: it will never show hours, durations, or edit counts.
+The Sprints view carries a **"what changed since yesterday"** delta panel — a team-wide, chronological view of status moves, new blockers, scope injected mid-sprint, the burndown swing, and per-person activity counts. It is pull-only and status-level. A window control lets you choose **24h**, **48h**, or **Since I last looked** (Friday-to-Monday replays the whole weekend). The standup walk-the-board footer links directly to this panel.
 
-- A **window control** will let you choose the look-back: **24h**, **48h**, or **Since I last looked** — the last option replays everything since you last opened the panel for this sprint (so a Friday-to-Monday gap shows the whole weekend). The choice is remembered locally per sprint, on your device only.
-- Each moved card, blocker, and injected story will open the task in a side drawer in place — no navigation away from the standup.
-- Injected scope will show its **point cost** and **epic tag**, plus a one-line sprint-load read (`committed → current`, and "now X% loaded") so a silent mid-sprint slip is visible.
-- The per-person counts are framed as a focus aid, not a scoreboard, and are deliberately not a ranked table. A **Viewer**-role team member will see only the team totals, never a per-person breakdown.
+→ See [Daily standup — what changed since yesterday](/features/sprints/#daily-standup--what-changed-since-yesterday)
+
+### WIP overload
+
+Check the WIP overload panel if any column turns amber or red — this is a natural conversation topic after walking the board.
+
+→ See [WIP overload detection](/features/wip-overload/)
 
 ## Velocity
 
