@@ -155,6 +155,13 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
     # branch (#960) for the sidebar row badge. ``None`` on unannotated paths
     # (retrieve/create) so no per-row query is triggered.
     open_task_count = serializers.SerializerMethodField()
+    # Per-project overdue / at-risk task counts (#560) — annotated only on the
+    # program-projects list branch (``GET /programs/{id}/projects/``) so the
+    # Projects tab reads like a standup dashboard. ``None`` on every other path
+    # (no per-row query). "Overdue" = incomplete past its CPM early_finish;
+    # "at-risk" reuses the canonical ≤5-working-days-of-float definition.
+    overdue_count = serializers.SerializerMethodField()
+    at_risk_count = serializers.SerializerMethodField()
     # Read-only nested user payload so the General settings page can render the
     # lead's name + initials without a second per-project user fetch. Null when
     # ``lead`` is unset. The write side stays on the plain ``lead`` UUID field —
@@ -293,6 +300,8 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "member_count",
             "percent_complete",
             "open_task_count",
+            "overdue_count",
+            "at_risk_count",
             # Lifecycle (#530) — read-only; flipped via /archive/ and /unarchive/.
             "is_archived",
             "archived_at",
@@ -354,6 +363,17 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         """Count of non-deleted, not-yet-COMPLETE tasks — annotated only on the
         list branch (#960). ``None`` elsewhere; never triggers a per-row query."""
         return getattr(obj, "open_task_count", None)
+
+    def get_overdue_count(self, obj: Project) -> int | None:
+        """Incomplete tasks past their CPM ``early_finish`` (#560) — annotated
+        only on the program-projects branch. ``None`` elsewhere."""
+        return getattr(obj, "overdue_count", None)
+
+    def get_at_risk_count(self, obj: Project) -> int | None:
+        """Incomplete tasks with ≤5 working days of float (#560) — the canonical
+        at-risk definition (cf. ProjectViewSet.status_summary, program_rollup).
+        Annotated only on the program-projects branch. ``None`` elsewhere."""
+        return getattr(obj, "at_risk_count", None)
 
     def validate_code(self, value: str) -> str:
         """Project code format: uppercase A-Z, 0-9, and hyphen, ≤12 chars.
@@ -863,6 +883,9 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             "effective_allowed_attachment_types",
             "inherited_allowed_attachment_types",
             "health",
+            # Headline target finish date (#560). Read/write; ADMIN+ to set
+            # (the program viewset gates update/partial_update at IsProgramAdmin).
+            "target_date",
             "visibility",
             "color",
             "lead",

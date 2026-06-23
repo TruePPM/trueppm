@@ -70,6 +70,7 @@ function makeProgram(overrides: Partial<Program> = {}): Program {
     inherited_attachments_enabled: true,
     inherited_allowed_attachment_types: ['application/pdf'],
     health: 'AUTO',
+    target_date: null,
     visibility: 'WORKSPACE',
     color: null,
     lead: 'u-1',
@@ -219,6 +220,7 @@ describe('ProgramGeneralPage (settings)', () => {
         description: 'Q3 platform rebuild',
         code: 'PH2',
         health: 'CRITICAL',
+        target_date: null,
         methodology: 'HYBRID',
         iteration_label: null,
         public_sharing: null,
@@ -231,6 +233,45 @@ describe('ProgramGeneralPage (settings)', () => {
         mc_history_attribution_audience: null,
       },
     });
+  });
+
+  it('seeds, edits, and saves the target date as an ISO string (#560)', async () => {
+    const user = userEvent.setup();
+    useProgram.mockReturnValue({ data: makeProgram({ target_date: '2026-09-30' }) });
+    renderPage();
+
+    const input = screen.getByLabelText('Program target date');
+    expect(input).toHaveValue('2026-09-30'); // seeded from the API
+    expect(useSettingsSaveStore.getState().dirty).toBe(false);
+
+    await user.clear(input);
+    await user.type(input, '2026-12-31');
+    expect(useSettingsSaveStore.getState().dirty).toBe(true);
+
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+    const saved = mutateAsync.mock.calls.at(-1)?.[0] as {
+      programId: string;
+      patch: { target_date: string | null };
+    };
+    expect(saved.programId).toBe('p-1');
+    expect(saved.patch.target_date).toBe('2026-12-31');
+  });
+
+  it('normalizes a cleared target date to null on save (#560)', async () => {
+    const user = userEvent.setup();
+    useProgram.mockReturnValue({ data: makeProgram({ target_date: '2026-09-30' }) });
+    renderPage();
+
+    await user.clear(screen.getByLabelText('Program target date'));
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+    const saved = mutateAsync.mock.calls.at(-1)?.[0] as {
+      patch: { target_date: string | null };
+    };
+    expect(saved.patch.target_date).toBeNull();
   });
 
   it('selecting an accent swatch marks the form dirty and saves the chosen hex', async () => {
@@ -259,6 +300,7 @@ describe('ProgramGeneralPage (settings)', () => {
         description: 'Q3 platform rebuild',
         code: 'PH2',
         health: 'AUTO',
+        target_date: null,
         methodology: 'HYBRID',
         iteration_label: null,
         public_sharing: null,
@@ -296,6 +338,7 @@ describe('ProgramGeneralPage (settings)', () => {
         description: 'Q3 platform rebuild',
         code: 'PH2',
         health: 'AUTO',
+        target_date: null,
         methodology: 'HYBRID',
         iteration_label: null,
         public_sharing: null,

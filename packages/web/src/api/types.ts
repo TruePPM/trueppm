@@ -184,6 +184,9 @@ export interface Program {
   inherited_allowed_attachment_types: string[];
   /** PM health override; AUTO defers to the rollup. */
   health: ProgramHealth;
+  /** Headline target finish date as an ISO `YYYY-MM-DD` string, or null when the
+   *  program is open-ended (issue 560). Read/write; ADMIN+ to set. */
+  target_date: string | null;
   /** Workspace or private listing scope. */
   visibility: ProgramVisibility;
   /** Accent color as #RRGGBB hex, or null when unset (#698). */

@@ -50,6 +50,7 @@ export interface UpdateProgramInput {
       | 'attachments_enabled'
       | 'allowed_attachment_types'
       | 'health'
+      | 'target_date'
       | 'visibility'
       | 'lead'
       | 'color'
