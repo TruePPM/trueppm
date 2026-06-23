@@ -109,5 +109,5 @@ class Migration(migrations.Migration):
             name="role",
             field=models.IntegerField(choices=NEW_CHOICES),
         ),
-        migrations.RunPython(respace_ordinals, reverse_ordinals),
+        migrations.RunPython(respace_ordinals, reverse_ordinals, elidable=True),
     ]

@@ -31,5 +31,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(backfill_sprint_to_inherit, restore_inherit_to_sprint),
+        migrations.RunPython(backfill_sprint_to_inherit, restore_inherit_to_sprint, elidable=True),
     ]

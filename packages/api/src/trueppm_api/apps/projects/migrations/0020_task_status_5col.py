@@ -61,5 +61,5 @@ class Migration(migrations.Migration):
             ),
         ),
         # 3. Data migration: ON_HOLD → BACKLOG
-        migrations.RunPython(_migrate_on_hold_to_backlog, _reverse_migrate),
+        migrations.RunPython(_migrate_on_hold_to_backlog, _reverse_migrate, elidable=True),
     ]

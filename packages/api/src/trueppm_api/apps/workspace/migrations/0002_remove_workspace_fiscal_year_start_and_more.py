@@ -161,7 +161,7 @@ class Migration(migrations.Migration):
                 ],
             ),
         ),
-        migrations.RunPython(_forward, _reverse),
+        migrations.RunPython(_forward, _reverse, elidable=True),
         migrations.RemoveField(
             model_name="workspace",
             name="fiscal_year_start",

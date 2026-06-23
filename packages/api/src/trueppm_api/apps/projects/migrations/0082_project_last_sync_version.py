@@ -86,5 +86,5 @@ class Migration(migrations.Migration):
             name="last_sync_version",
             field=models.BigIntegerField(default=0, editable=False),
         ),
-        migrations.RunPython(_backfill, migrations.RunPython.noop),
+        migrations.RunPython(_backfill, migrations.RunPython.noop, elidable=True),
     ]

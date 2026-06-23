@@ -89,5 +89,5 @@ class Migration(migrations.Migration):
             name="risk_sequence",
             field=models.BigIntegerField(default=0, editable=False),
         ),
-        migrations.RunPython(backfill_risk_short_ids, reverse_backfill),
+        migrations.RunPython(backfill_risk_short_ids, reverse_backfill, elidable=True),
     ]
