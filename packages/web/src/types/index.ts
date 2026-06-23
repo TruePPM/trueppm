@@ -829,7 +829,7 @@ export interface TaskNote {
   body: string;
   pinned: boolean;
   /**
-   * Flags a note as a decision (ADR-0165, issue 748) — promotes it into the project and
+   * Flags a note as a decision (ADR-0167, issue 748) — promotes it into the project and
    * sprint Decisions views. Toggled via the decision action (mirrors pin); surfaced as
    * a one-tap chip on the note row.
    */
@@ -850,7 +850,7 @@ export interface DecisionSprintContext {
 
 /**
  * A decision-flagged note as returned by the project Decisions list
- * (`GET /projects/{id}/decisions/`, ADR-0165, issue 748) — the note plus the task and
+ * (`GET /projects/{id}/decisions/`, ADR-0167, issue 748) — the note plus the task and
  * sprint context the Decisions view groups and links by.
  */
 export interface DecisionNote {

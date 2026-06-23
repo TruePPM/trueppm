@@ -1,4 +1,4 @@
-"""Decisions-view visibility consent endpoint (ADR-0165 §3, #748).
+"""Decisions-view visibility consent endpoint (ADR-0167 §3, #748).
 
 Surface:
   GET   /api/v1/projects/<project_pk>/decisions-policy/   — read posture (+ can_edit)
@@ -80,7 +80,7 @@ class ProjectDecisionsPolicyView(APIView):
     def patch(self, request: Request, project_pk: str) -> Response:
         project = self._project(project_pk)
         role = _membership_role(request, project.pk)
-        # Team-admin consent (ADR-0165 §3): only a project Admin+ may widen or narrow the
+        # Team-admin consent (ADR-0167 §3): only a project Admin+ may widen or narrow the
         # team's upward exposure. Read stays any-member; the write is the consent act.
         if role is None or role < Role.ADMIN:
             raise PermissionDenied("Only a project admin can change who sees the Decisions view.")

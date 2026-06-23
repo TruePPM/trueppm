@@ -1,4 +1,4 @@
-"""Tests for the Decisions feature (ADR-0165, #748).
+"""Tests for the Decisions feature (ADR-0167, #748).
 
 Covers the three surfaces #748 adds on top of the shipped Notes sub-resource
 (ADR-0143, #740):

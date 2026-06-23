@@ -332,7 +332,7 @@ describe('NotesSection — list semantics', () => {
   });
 });
 
-describe('NotesSection — decision chip (ADR-0165, #748)', () => {
+describe('NotesSection — decision chip (ADR-0167, #748)', () => {
   it('calls the decision mutation with the note id when the chip is clicked', () => {
     const mutate = vi.fn();
     useDecisionMock.mockReturnValue({ mutate, isPending: false });

@@ -3553,7 +3553,7 @@ class ProjectSignalPrivacyPolicy(VersionedModel):
 
 
 class ProjectDecisionsPolicy(VersionedModel):
-    """Per-project visibility posture for the Decisions view (ADR-0165, #748).
+    """Per-project visibility posture for the Decisions view (ADR-0167, #748).
 
     One row per Project (1:1), created lazily on first read via ``get_or_create`` so
     existing projects need no data migration (the ``ProjectSignalPrivacyPolicy`` idiom).
@@ -3563,7 +3563,7 @@ class ProjectDecisionsPolicy(VersionedModel):
     (``Role.MEMBER`` and above) only; an *oversight reader* — a Viewer, or an Enterprise
     read-augmented/auditor role in the reserved 1–99 ordinal band (ADR-0072) — sees it only
     once a project Admin opts in here. This is single-project, team-owned consent (Morgan's
-    resolution, ADR-0165 §3), never org policy. Cross-project Decision rollup stays
+    resolution, ADR-0167 §3), never org policy. Cross-project Decision rollup stays
     Enterprise.
 
     The signal-privacy ladder (ADR-0104) is deliberately *not* reused: its rungs exclude

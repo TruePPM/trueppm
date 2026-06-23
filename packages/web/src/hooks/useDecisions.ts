@@ -1,5 +1,5 @@
 /**
- * Hooks for the project + sprint Decisions views (ADR-0165, issue 748).
+ * Hooks for the project + sprint Decisions views (ADR-0167, issue 748).
  *
  * `useDecisions` reads the paginated decision-flagged notes for a project, optionally
  * scoped to one sprint (the sprint view passes the active sprint id; the project view

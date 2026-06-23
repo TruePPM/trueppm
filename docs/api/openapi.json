@@ -6792,8 +6792,8 @@
         "/api/v1/projects/{id}/decisions/": {
             "get": {
                 "operationId": "v1_projects_decisions_list",
-                "description": "Paginated list of decision-flagged task notes for the project (ADR-0165 §2).\n\nServes both Decisions views under one gate: no ``sprint`` param → every decision\nacross the project, **including closed sprints** (the project view); ``?sprint=<id>``\n→ that sprint's decisions (the sprint view, the web passes the active sprint id).\nVisibility is team-owned — an oversight reader (a non-team, sub-Admin project\nmember) is suppressed with 403 until the team opts in via\n``ProjectDecisionsPolicy.oversight_visible``. The gate runs before any filtering so\n``?sprint`` can never be a hole around it.",
-                "summary": "Decision-flagged notes for this project (ADR-0165, #748)",
+                "description": "Paginated list of decision-flagged task notes for the project (ADR-0167 §2).\n\nServes both Decisions views under one gate: no ``sprint`` param → every decision\nacross the project, **including closed sprints** (the project view); ``?sprint=<id>``\n→ that sprint's decisions (the sprint view, the web passes the active sprint id).\nVisibility is team-owned — an oversight reader (a non-team, sub-Admin project\nmember) is suppressed with 403 until the team opts in via\n``ProjectDecisionsPolicy.oversight_visible``. The gate runs before any filtering so\n``?sprint`` can never be a hole around it.",
+                "summary": "Decision-flagged notes for this project (ADR-0167, #748)",
                 "parameters": [
                     {
                         "in": "path",
@@ -14000,8 +14000,8 @@
         "/api/v1/projects/{project_pk}/tasks/{task_pk}/notes/{id}/decision/": {
             "post": {
                 "operationId": "v1_projects_tasks_notes_decision_create",
-                "description": "Toggle this note's ``decision`` flag — the seam that promotes a note into the\nproject/sprint Decisions log (ADR-0165).\n\nCuration, not authorship — any project writer (Member+) may flag/unflag any note,\nexempt from the author-only 15-min edit window, exactly like ``pin``. The flag is\nthe only structured Decisions marker (no taxonomy). ``TaskNote`` is intentionally\nnot a ``VersionedModel`` (ADR-0143), so there is no ``server_version`` to bump;\nclients reconcile via REST refetch + the board broadcast below.",
-                "summary": "Toggle the decision flag on a note (ADR-0165, #748)",
+                "description": "Toggle this note's ``decision`` flag — the seam that promotes a note into the\nproject/sprint Decisions log (ADR-0167).\n\nCuration, not authorship — any project writer (Member+) may flag/unflag any note,\nexempt from the author-only 15-min edit window, exactly like ``pin``. The flag is\nthe only structured Decisions marker (no taxonomy). ``TaskNote`` is intentionally\nnot a ``VersionedModel`` (ADR-0143), so there is no ``server_version`` to bump;\nclients reconcile via REST refetch + the board broadcast below.",
+                "summary": "Toggle the decision flag on a note (ADR-0167, #748)",
                 "parameters": [
                     {
                         "in": "path",
@@ -23013,7 +23013,7 @@
             },
             "DecisionNote": {
                 "type": "object",
-                "description": "Read-only Decisions-view row (ADR-0165, #748).\n\nA decision-flagged task note plus the task + sprint context the web client needs to\ngroup by sprint and link back to the task drawer. Read-only: the ``decision`` flag is\ntoggled via ``TaskNoteViewSet.decision`` (mirroring ``pin``), never written here.",
+                "description": "Read-only Decisions-view row (ADR-0167, #748).\n\nA decision-flagged task note plus the task + sprint context the web client needs to\ngroup by sprint and link back to the task drawer. Read-only: the ``decision`` flag is\ntoggled via ``TaskNoteViewSet.decision`` (mirroring ``pin``), never written here.",
                 "properties": {
                     "id": {
                         "type": "string",

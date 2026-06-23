@@ -1,4 +1,4 @@
-# ADR-0165: Project + Sprint Decisions Views with Team-Owned Oversight Consent
+# ADR-0167: Project + Sprint Decisions Views with Team-Owned Oversight Consent
 
 ## Status
 Proposed

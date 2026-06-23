@@ -5984,7 +5984,7 @@ class _DecisionSprintContextSerializer(serializers.Serializer[Any]):
 
 
 class DecisionNoteSerializer(serializers.ModelSerializer[TaskNote]):
-    """Read-only Decisions-view row (ADR-0165, #748).
+    """Read-only Decisions-view row (ADR-0167, #748).
 
     A decision-flagged task note plus the task + sprint context the web client needs to
     group by sprint and link back to the task drawer. Read-only: the ``decision`` flag is

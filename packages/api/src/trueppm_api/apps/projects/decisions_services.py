@@ -1,4 +1,4 @@
-"""Decisions-view visibility gate + queryset helpers (ADR-0165, #748).
+"""Decisions-view visibility gate + queryset helpers (ADR-0167, #748).
 
 The Decisions view surfaces every task note flagged ``decision=True`` for a project,
 optionally scoped to one sprint. Visibility is team-owned: by default the list is
@@ -39,7 +39,7 @@ def can_read_decisions(
     *,
     policy: ProjectDecisionsPolicy | None = None,
 ) -> bool:
-    """Whether the requester may read the project's Decisions view (ADR-0165 §3).
+    """Whether the requester may read the project's Decisions view (ADR-0167 §3).
 
     "Team + PM" = ``Role.MEMBER`` (Team Member) and above — the project's contributors and
     managers, who see the log by default. A requester below the Member band — a Viewer, or

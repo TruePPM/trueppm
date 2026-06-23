@@ -295,7 +295,7 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
         # projects out of the landing result, so recording one is harmless.
         if self.action == "visit":
             return [IsAuthenticated(), IsProjectMember()]
-        # Decisions list (ADR-0165, #748): any project member reaches the endpoint; the
+        # Decisions list (ADR-0167, #748): any project member reaches the endpoint; the
         # finer team-vs-oversight read gate is enforced in the action body via
         # `can_read_decisions` (a Viewer is suppressed with 403 unless the team opted in).
         # Stated explicitly so the body-level gate can't be silently widened by a change
@@ -1594,7 +1594,7 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
         return Response(project_blocked_rollup(project, **filters), status=status.HTTP_200_OK)
 
     @extend_schema(
-        summary="Decision-flagged notes for this project (ADR-0165, #748)",
+        summary="Decision-flagged notes for this project (ADR-0167, #748)",
         parameters=[
             OpenApiParameter(
                 name="sprint",
@@ -1611,7 +1611,7 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
     )
     @action(detail=True, methods=["get"], url_path="decisions")
     def decisions(self, request: Request, pk: str | None = None) -> Response:
-        """Paginated list of decision-flagged task notes for the project (ADR-0165 §2).
+        """Paginated list of decision-flagged task notes for the project (ADR-0167 §2).
 
         Serves both Decisions views under one gate: no ``sprint`` param → every decision
         across the project, **including closed sprints** (the project view); ``?sprint=<id>``
@@ -10619,7 +10619,7 @@ class TaskNoteViewSet(
         return Response(self.get_serializer(note).data, status=status.HTTP_200_OK)
 
     @extend_schema(
-        summary="Toggle the decision flag on a note (ADR-0165, #748)",
+        summary="Toggle the decision flag on a note (ADR-0167, #748)",
         request=None,
         responses={
             200: TaskNoteSerializer,
@@ -10630,7 +10630,7 @@ class TaskNoteViewSet(
     @action(detail=True, methods=["post"], url_path="decision")
     def decision(self, request: Request, project_pk: str, task_pk: str, pk: str) -> Response:
         """Toggle this note's ``decision`` flag — the seam that promotes a note into the
-        project/sprint Decisions log (ADR-0165).
+        project/sprint Decisions log (ADR-0167).
 
         Curation, not authorship — any project writer (Member+) may flag/unflag any note,
         exempt from the author-only 15-min edit window, exactly like ``pin``. The flag is

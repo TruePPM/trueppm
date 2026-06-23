@@ -8,7 +8,7 @@
  * fetched list — matches stay full opacity, non-matches dim to 0.3 (they remain
  * visible and readable) with a live "N of M" counter.
  *
- * The `decision` flag (ADR-0165, issue 748) is surfaced as a one-tap chip alongside pin:
+ * The `decision` flag (ADR-0167, issue 748) is surfaced as a one-tap chip alongside pin:
  * any MEMBER+ may flag a note as a decision, promoting it into the project/sprint
  * Decisions views. Read-only viewers see a static "Decision" badge when flagged.
  */

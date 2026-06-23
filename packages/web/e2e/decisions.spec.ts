@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * #748 — Decisions views (ADR-0165).
+ * #748 — Decisions views (ADR-0167).
  *
  * Golden path: Reports → Decisions tab → decision-flagged notes render grouped by
  * sprint, with the scope segmented control and (for an admin) the oversight-visibility

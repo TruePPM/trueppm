@@ -392,7 +392,7 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         }
       }
 
-      // --- Task note events (ADR-0143, issue 740; decision toggle ADR-0165, issue 748) ---
+      // --- Task note events (ADR-0143, issue 740; decision toggle ADR-0167, issue 748) ---
       // A note create/edit/pin/delete invalidates the per-task notes list AND the
       // task list/board (the `latest_note_at` freshness chip is annotated on the
       // task serializer, so peers' cards re-fetch to show the new timestamp). A

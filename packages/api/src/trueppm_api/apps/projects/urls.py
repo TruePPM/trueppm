@@ -294,7 +294,7 @@ urlpatterns = [
         SignalCeilingProposalWithdrawView.as_view(),
         name="project-signal-ceiling-proposal-withdraw",
     ),
-    # Decisions-view visibility policy — singleton per project (ADR-0165, #748).
+    # Decisions-view visibility policy — singleton per project (ADR-0167, #748).
     path(
         "projects/<project_pk>/decisions-policy/",
         ProjectDecisionsPolicyView.as_view(),
@@ -687,7 +687,7 @@ urlpatterns = [
         TaskNoteViewSet.as_view({"post": "pin"}),
         name="project-task-notes-pin",
     ),
-    # Decision flag — promotes a note into the project/sprint Decisions log (ADR-0165, #748)
+    # Decision flag — promotes a note into the project/sprint Decisions log (ADR-0167, #748)
     path(
         "projects/<project_pk>/tasks/<task_pk>/notes/<pk>/decision/",
         TaskNoteViewSet.as_view({"post": "decision"}),
