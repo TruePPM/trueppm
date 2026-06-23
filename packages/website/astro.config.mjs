@@ -153,6 +153,7 @@ export default defineConfig({
                 { slug: "features/workshops" },
                 { slug: "features/sprints" },
                 { slug: "features/plan-sprint" },
+                { slug: "features/estimation-poker" },
                 { slug: "features/sprint-backlog" },
                 { slug: "features/sprint-burndown" },
                 { slug: "features/sprint-milestone-rollup" },

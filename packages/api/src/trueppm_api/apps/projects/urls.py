@@ -14,6 +14,14 @@ from trueppm_api.apps.projects.ceremony_views import (
     ProjectGuardrailPolicyView,
 )
 from trueppm_api.apps.projects.decisions_views import ProjectDecisionsPolicyView
+from trueppm_api.apps.projects.poker_views import (
+    PokerCancelView,
+    PokerCommitView,
+    PokerReopenView,
+    PokerRevealView,
+    PokerVoteView,
+    SprintPokerView,
+)
 from trueppm_api.apps.projects.program_views import ProgramViewSet
 from trueppm_api.apps.projects.signal_privacy_views import (
     SignalCeilingProposalListView,
@@ -350,6 +358,17 @@ urlpatterns = [
         SprintViewSet.as_view({"get": "outcome"}),
         name="sprints-outcome",
     ),
+    # Estimation poker (ADR-0179, #863) — sprint-planning Fibonacci voting.
+    path(
+        "sprints/<sprint_pk>/poker/",
+        SprintPokerView.as_view(),
+        name="sprint-poker",
+    ),
+    path("poker/<pk>/vote/", PokerVoteView.as_view(), name="poker-vote"),
+    path("poker/<pk>/reveal/", PokerRevealView.as_view(), name="poker-reveal"),
+    path("poker/<pk>/reopen/", PokerReopenView.as_view(), name="poker-reopen"),
+    path("poker/<pk>/commit/", PokerCommitView.as_view(), name="poker-commit"),
+    path("poker/<pk>/cancel/", PokerCancelView.as_view(), name="poker-cancel"),
     # Sprint Review demo-list curation (ADR-0118, #924)
     path(
         "sprint-task-outcomes/<pk>/toggle-demo/",

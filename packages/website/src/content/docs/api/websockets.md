@@ -97,7 +97,7 @@ include:
 - **Risks**: `risk_created`, `risk_updated`, `risk_deleted`, `risks_imported`
 - **Sprints**: `sprint_created`, `sprint_updated`, `sprint_deleted`,
   `sprint_activated`, `sprint_cancelled`, `sprint_closed`, `sprint_reranked`,
-  `milestone_rollup_updated`
+  `milestone_rollup_updated`, `poker_session_updated`
 - **Comments / attachments**: `task_comment_created`, `task_comment_updated`,
   `task_comment_deleted`, `task_attachment_created`, `task_attachment_deleted`,
   `comment_created`

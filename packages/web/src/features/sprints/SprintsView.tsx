@@ -22,6 +22,7 @@ import { SprintHeader } from './SprintHeader';
 import { SprintGoalCard } from './SprintGoalCard';
 import { AdvancingToMilestoneCard } from './AdvancingToMilestoneCard';
 import { SprintPlanningBridge } from './SprintPlanningBridge';
+import { EstimationPokerCard } from './poker/EstimationPokerCard';
 import { IncomingCarryoverCard } from './IncomingCarryoverCard';
 import { SprintTimelineStrip } from './SprintTimelineStrip';
 import { BurnChart } from '@/features/reports/BurnChart';
@@ -490,14 +491,24 @@ export function SprintsView() {
                 agile→waterfall link is explicit at planning time. ACTIVE/CLOSED
                 keep the standard goal + milestone grid. */}
             {selectedSprint.state === 'PLANNED' ? (
-              <SprintPlanningBridge
-                sprint={selectedSprint}
-                projectId={projectId ?? ''}
-                canEdit={canEditGoal}
-                sprintTaskIds={
-                  selectedSprint.id === plannedSprint?.id ? plannedTaskIds : []
-                }
-              />
+              <>
+                <SprintPlanningBridge
+                  sprint={selectedSprint}
+                  projectId={projectId ?? ''}
+                  canEdit={canEditGoal}
+                  sprintTaskIds={
+                    selectedSprint.id === plannedSprint?.id ? plannedTaskIds : []
+                  }
+                />
+                {/* Estimation poker (ADR-0179, #863) — size unestimated candidates in-place. */}
+                <EstimationPokerCard
+                  sprintId={selectedSprint.id}
+                  candidates={
+                    selectedSprint.id === plannedSprint?.id ? plannedBacklogTasks : []
+                  }
+                  canFacilitate={canManageScope}
+                />
+              </>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
                 <div className="md:col-span-3">

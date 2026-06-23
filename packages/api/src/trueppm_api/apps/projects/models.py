@@ -3730,6 +3730,132 @@ class SignalCeilingRaiseVote(models.Model):
         return f"SignalCeilingRaiseVote({self.voter_id}: {self.choice})"
 
 
+class PokerSessionState(models.TextChoices):
+    """Lifecycle of one estimation-poker round on a single task (ADR-0179, #863).
+
+    ``open`` is the only state a vote can be cast in. ``revealed`` exposes the votes for
+    the discussion; the facilitator may ``reopen`` (revealed → open) for a re-vote, or
+    ``commit`` the agreed points (terminal). ``cancelled`` abandons the round (terminal).
+    """
+
+    OPEN = "open", "Open for voting"
+    REVEALED = "revealed", "Revealed"
+    COMMITTED = "committed", "Committed"
+    CANCELLED = "cancelled", "Cancelled"
+
+
+# The Fibonacci card set a vote value is validated against (serializer-enforced). ``null``
+# is the "?" / unsure card. Kept here so the model, serializer, and tests share one source.
+POKER_CARD_VALUES: tuple[int, ...] = (1, 2, 3, 5, 8, 13, 21)
+
+
+class PokerSession(models.Model):
+    """One estimation-poker round on a single task during sprint planning (ADR-0179, #863).
+
+    A facilitator (Scrum-Master/Product-Owner facet or Admin) opens a session for an
+    unestimated candidate; team members vote on a Fibonacci card hidden until reveal; the
+    facilitator commits the agreed value, which writes ``Task.story_points``.
+
+    Plain ``models.Model`` — a single-team ceremony record, NOT a ``VersionedModel`` and
+    deliberately NOT in the sync union or any project export (the ``SignalCeilingRaise*``
+    posture). Votes are surfaced only within their own session's reveal; there is no
+    cross-session or per-user aggregation, so individual votes never become a standing
+    "who votes high/low" signal (ADR-0179 §1, Morgan's privacy boundary).
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    sprint = models.ForeignKey(
+        Sprint,
+        on_delete=models.CASCADE,
+        related_name="poker_sessions",
+    )
+    task = models.ForeignKey(
+        Task,
+        on_delete=models.CASCADE,
+        related_name="poker_sessions",
+    )
+    state = models.CharField(
+        max_length=12,
+        choices=PokerSessionState.choices,
+        default=PokerSessionState.OPEN,
+        db_index=True,
+    )
+    # Set on commit — the agreed value written to Task.story_points (kept here as the
+    # ceremony record of what the round concluded).
+    committed_points = models.PositiveSmallIntegerField(null=True, blank=True)
+    started_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="opened_poker_sessions",
+    )
+    started_at = models.DateTimeField(auto_now_add=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
+
+    objects = models.Manager()
+
+    class Meta:
+        db_table = "projects_poker_session"
+        ordering = ["-started_at"]
+        constraints = [
+            # A task can be in at most one *live* (open or revealed) round at a time;
+            # committed/cancelled rounds are historical and don't block a new one.
+            models.UniqueConstraint(
+                fields=["task"],
+                condition=models.Q(state__in=["open", "revealed"]),
+                name="poker_one_live_per_task",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["sprint", "state"], name="poker_sprint_state_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"PokerSession({self.id}, task={self.task_id}, {self.state})"
+
+
+class PokerVote(models.Model):
+    """One participant's estimate in a poker round (ADR-0179, #863).
+
+    One vote per member (``unique(session, voter)``), changeable via upsert while the
+    session is ``open`` — the ``SignalCeilingRaiseVote`` template. ``value`` is a Fibonacci
+    card (:data:`POKER_CARD_VALUES`) or ``null`` for the "?" / unsure card. Plain
+    ``models.Model``; never synced, exported, or aggregated across sessions (ADR-0179 §1).
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    session = models.ForeignKey(
+        PokerSession,
+        on_delete=models.CASCADE,
+        related_name="votes",
+    )
+    voter = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="poker_votes",
+    )
+    # null == the "?" / unsure card; a non-null value is one of POKER_CARD_VALUES.
+    value = models.PositiveSmallIntegerField(null=True, blank=True)
+    comment = models.CharField(max_length=280, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    objects = models.Manager()
+
+    class Meta:
+        db_table = "projects_poker_vote"
+        ordering = ["created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["session", "voter"],
+                name="poker_one_vote_per_member",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"PokerVote({self.voter_id}: {self.value})"
+
+
 # ---------------------------------------------------------------------------
 # Inbound task-sync — ADR-0068 / issue #500 (Gap 3 of ADR-0065)
 # ---------------------------------------------------------------------------

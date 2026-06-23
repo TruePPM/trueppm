@@ -133,6 +133,19 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
   });
 
+  it('invalidates poker and the sprint backlog on poker_session_updated (#863)', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatchEvent('poker_session_updated');
+    flushDebounce();
+
+    // The payload carries no sprint_id, so every mounted poker query is invalidated;
+    // a commit also writes story_points, so the planning backlog refreshes.
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['poker'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['sprint-backlog', 'proj-1'] });
+  });
+
   it('invalidates dependencies and tasks on dependency_updated', () => {
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
     renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
