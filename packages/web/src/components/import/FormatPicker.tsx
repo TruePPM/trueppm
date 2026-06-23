@@ -32,7 +32,7 @@ export function FormatPicker({ guidanceOpen, onToggleGuidance }: FormatPickerPro
             className="cursor-not-allowed rounded-card border border-neutral-border bg-neutral-surface-raised p-3 opacity-60"
           >
             <p className="text-sm font-medium text-neutral-text-primary">TruePPM</p>
-            <span className="mt-1 inline-block rounded bg-neutral-surface px-1.5 py-0.5 text-[11px] font-medium text-neutral-text-secondary">
+            <span className="mt-1 inline-block rounded-chip bg-neutral-surface px-1.5 py-0.5 text-[11px] font-medium text-neutral-text-secondary">
               Coming soon
             </span>
           </div>
@@ -56,7 +56,7 @@ export function FormatPicker({ guidanceOpen, onToggleGuidance }: FormatPickerPro
             role="radio"
             aria-checked
             tabIndex={0}
-            className="flex items-center justify-between rounded border border-neutral-border px-3 py-2
+            className="flex items-center justify-between rounded-card border border-neutral-border px-3 py-2
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
           >
             <span className="text-sm text-neutral-text-primary">
@@ -77,13 +77,13 @@ export function FormatPicker({ guidanceOpen, onToggleGuidance }: FormatPickerPro
               aria-checked={false}
               aria-disabled
               aria-describedby={GUIDANCE_ID}
-              className="flex cursor-not-allowed items-center justify-between rounded border border-neutral-border px-3 py-2 opacity-60"
+              className="flex cursor-not-allowed items-center justify-between rounded-card border border-neutral-border px-3 py-2 opacity-60"
             >
               <span className="text-sm text-neutral-text-primary">
                 <span className="font-medium">{ext}</span>{' '}
                 <span className="text-neutral-text-secondary">{label}</span>
               </span>
-              <span className="rounded bg-neutral-surface-raised px-1.5 py-0.5 text-[11px] font-medium text-neutral-text-secondary">
+              <span className="rounded-chip bg-neutral-surface-raised px-1.5 py-0.5 text-[11px] font-medium text-neutral-text-secondary">
                 Not yet supported
               </span>
             </div>
@@ -103,7 +103,7 @@ export function FormatPicker({ guidanceOpen, onToggleGuidance }: FormatPickerPro
         <div
           id={GUIDANCE_ID}
           hidden={!guidanceOpen}
-          className="mt-1 rounded border border-neutral-border bg-neutral-surface-raised p-3 text-xs text-neutral-text-secondary"
+          className="mt-1 rounded-card border border-neutral-border bg-neutral-surface-raised p-3 text-xs text-neutral-text-secondary"
         >
           In MS Project (desktop): <strong>File → Save As</strong>, choose{' '}
           <strong>XML Format (*.xml)</strong>, then <strong>Save</strong>. Upload that{' '}

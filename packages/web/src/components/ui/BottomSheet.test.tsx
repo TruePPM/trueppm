@@ -94,7 +94,7 @@ describe('<BottomSheet>', () => {
     expect(dialog.className).toContain('rounded-none');
   });
 
-  it('uses bottom-0 / max-h-[85vh] / rounded-t-xl when size="auto" or "large"', () => {
+  it('uses bottom-0 / max-h-[85vh] / rounded-t-card when size="auto" or "large"', () => {
     const { rerender } = render(
       <BottomSheet isOpen onClose={vi.fn()} ariaLabel="Test" size="auto">
         <p>x</p>
@@ -103,7 +103,7 @@ describe('<BottomSheet>', () => {
     let dialog = screen.getByRole('dialog');
     expect(dialog.className).toContain('bottom-0');
     expect(dialog.className).toContain('max-h-[85vh]');
-    expect(dialog.className).toContain('rounded-t-xl');
+    expect(dialog.className).toContain('rounded-t-card');
 
     rerender(
       <BottomSheet isOpen onClose={vi.fn()} ariaLabel="Test" size="large">

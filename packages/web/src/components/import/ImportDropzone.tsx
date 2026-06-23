@@ -113,7 +113,7 @@ export function ImportDropzone({
             onClear();
           }}
           disabled={disabled}
-          className="rounded px-2 py-1 text-xs font-medium text-neutral-text-secondary
+          className="rounded-control px-2 py-1 text-xs font-medium text-neutral-text-secondary
             hover:text-neutral-text-primary disabled:opacity-50
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
         >

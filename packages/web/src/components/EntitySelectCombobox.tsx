@@ -193,13 +193,13 @@ export function EntitySelectCombobox({
         aria-haspopup="listbox"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
-        className="ml-1 rounded text-[12px] font-medium text-brand-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+        className="ml-1 rounded-control text-[12px] font-medium text-brand-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
       >
         {value ? triggerLabel.set : triggerLabel.unset}
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full z-20 mt-1 w-[260px] max-w-[calc(100vw-2rem)] rounded border border-neutral-border bg-neutral-surface">
+        <div className="absolute left-0 top-full z-20 mt-1 w-[260px] max-w-[calc(100vw-2rem)] rounded-card border border-neutral-border bg-neutral-surface">
           {/* Icon-prefixed search box — ring on the wrapper (rule 157). */}
           <div className="flex h-7 items-center gap-1.5 border-b border-neutral-border px-2 focus-within:ring-2 focus-within:ring-inset focus-within:ring-brand-primary">
             <svg

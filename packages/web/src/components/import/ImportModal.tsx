@@ -150,7 +150,7 @@ export function ImportModal({ projectId, onClose }: Props) {
                 <button
                   type="button"
                   onClick={onClose}
-                  className="h-9 rounded bg-brand-primary px-4 text-sm font-medium text-white
+                  className="h-9 rounded-control bg-brand-primary px-4 text-sm font-medium text-white
                     hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2
                     focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary"
                 >
@@ -169,7 +169,7 @@ export function ImportModal({ projectId, onClose }: Props) {
                 <button
                   type="button"
                   onClick={onClose}
-                  className="h-9 rounded border border-neutral-border px-4 text-sm font-medium
+                  className="h-9 rounded-control border border-neutral-border px-4 text-sm font-medium
                     text-neutral-text-secondary hover:text-neutral-text-primary
                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
                 >
@@ -178,7 +178,7 @@ export function ImportModal({ projectId, onClose }: Props) {
                 <button
                   type="button"
                   onClick={tryAgain}
-                  className="h-9 rounded bg-brand-primary px-4 text-sm font-medium text-white
+                  className="h-9 rounded-control bg-brand-primary px-4 text-sm font-medium text-white
                     hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2
                     focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary"
                 >
@@ -220,7 +220,7 @@ export function ImportModal({ projectId, onClose }: Props) {
                   deployments ship it. Warn rather than block — the API still
                   accepts .mpp where the toolchain is present. */}
               {isMpp && (
-                <p className="rounded border border-semantic-warning/40 bg-semantic-warning-bg p-2 text-xs text-neutral-text-secondary">
+                <p className="rounded-card border border-semantic-warning/40 bg-semantic-warning-bg p-2 text-xs text-neutral-text-secondary">
                   .mpp import needs the MS Project toolchain on the server. If the import fails,
                   open the file in MS Project and save it as XML, then upload the .xml instead.
                 </p>
@@ -230,7 +230,7 @@ export function ImportModal({ projectId, onClose }: Props) {
                 <button
                   type="button"
                   onClick={onClose}
-                  className="h-9 rounded border border-neutral-border px-4 text-sm font-medium
+                  className="h-9 rounded-control border border-neutral-border px-4 text-sm font-medium
                     text-neutral-text-secondary hover:text-neutral-text-primary
                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
                 >
@@ -240,7 +240,7 @@ export function ImportModal({ projectId, onClose }: Props) {
                   type="button"
                   onClick={handleImport}
                   disabled={!file}
-                  className="h-9 rounded bg-brand-primary px-4 text-sm font-medium text-white
+                  className="h-9 rounded-control bg-brand-primary px-4 text-sm font-medium text-white
                     hover:bg-brand-primary-dark disabled:cursor-not-allowed disabled:opacity-50
                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white
                     focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary"
