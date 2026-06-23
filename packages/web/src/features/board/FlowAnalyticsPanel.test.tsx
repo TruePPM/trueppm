@@ -3,7 +3,8 @@ import { screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { renderWithProviders } from '@/test/utils';
-import type { FlowMetrics } from '@/hooks/useSprints';
+import type { FlowMetrics, SprintForecast } from '@/hooks/useSprints';
+import { formatShortDate } from '@/features/sprints/sprintMath';
 import { FlowAnalyticsPanel } from './FlowAnalyticsPanel';
 
 // Recharts needs ResizeObserver + real dimensions; stub ResponsiveContainer so it
@@ -19,13 +20,37 @@ vi.mock('recharts', async (importOriginal) => {
 });
 
 const useFlowMetricsMock = vi.hoisted(() => vi.fn());
+const useSprintForecastMock = vi.hoisted(() => vi.fn());
 vi.mock('@/hooks/useSprints', () => ({
   useFlowMetrics: useFlowMetricsMock,
+  useSprintForecast: useSprintForecastMock,
 }));
 
 function setMetrics(data: FlowMetrics | undefined, extra: { isLoading?: boolean; isError?: boolean } = {}) {
   useFlowMetricsMock.mockReturnValue({ data, isLoading: false, isError: false, ...extra });
 }
+
+function setForecast(
+  data: SprintForecast | undefined,
+  extra: { isLoading?: boolean; isError?: boolean } = {},
+) {
+  useSprintForecastMock.mockReturnValue({ data, isLoading: false, isError: false, ...extra });
+}
+
+const FORECAST_READY: SprintForecast = {
+  status: 'ready',
+  remaining_points: null,
+  remaining_count: 18,
+  sample_count: 8,
+  p50_sprints: null,
+  p80_sprints: null,
+  p50_date: '2026-07-28',
+  p80_date: '2026-08-11',
+  p95_date: '2026-08-25',
+  basis: 'monte_carlo',
+  forecast_basis: 'throughput',
+  velocity_suppressed: false,
+};
 
 const POPULATED: FlowMetrics = {
   window_days: 90,
@@ -49,6 +74,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   window.localStorage.clear();
   setMetrics(undefined);
+  setForecast(undefined);
 });
 
 function expand() {
@@ -114,5 +140,93 @@ describe('FlowAnalyticsPanel', () => {
     expect(note.textContent).toContain('3 bulk-moved');
     expect(note.textContent).toContain('1 missing transitions');
     expect(note.textContent).not.toContain('backdated');
+  });
+});
+
+describe('FlowAnalyticsPanel — throughput forecast (issue 1280)', () => {
+  it('does not render the forecast card for a sprint-cadence board (unaffected)', () => {
+    setMetrics(POPULATED);
+    setForecast(FORECAST_READY);
+    // No boardCadence prop → defaults to a non-continuous board.
+    renderWithProviders(<FlowAnalyticsPanel projectId="p1" boardCadence="sprint" />);
+    expand();
+    expect(screen.queryByTestId('throughput-forecast')).toBeNull();
+  });
+
+  it('headlines P80 as "~N weeks / by <date>" for a continuous board', () => {
+    // Freeze "now" at a UTC instant so the derived week count is deterministic
+    // regardless of the test runner's timezone: 2026-06-30 → P80 2026-08-11 is
+    // exactly 42 days = 6 weeks (weeksFromNow compares UTC midnights, web-rule 189).
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-06-30T00:00:00Z'));
+    try {
+      setMetrics(POPULATED);
+      setForecast(FORECAST_READY);
+      renderWithProviders(<FlowAnalyticsPanel projectId="p1" boardCadence="continuous" />);
+      expand();
+      const card = screen.getByTestId('throughput-forecast-ready');
+      // P80 is the headline: "~6 weeks — by <P80 date> (P80)".
+      expect(card.textContent).toMatch(/~\s*6\s*weeks/);
+      expect(card.textContent).toContain(formatShortDate('2026-08-11'));
+      expect(card.textContent).toContain('(P80)');
+      // Remaining scope is surfaced.
+      expect(card.textContent).toContain('18');
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it('shows all three percentiles (P50/P80/P95) in the detail line', () => {
+    setMetrics(POPULATED);
+    setForecast(FORECAST_READY);
+    renderWithProviders(<FlowAnalyticsPanel projectId="p1" boardCadence="continuous" />);
+    expand();
+    const card = screen.getByTestId('throughput-forecast');
+    expect(card.textContent).toContain(formatShortDate('2026-07-28')); // P50
+    expect(card.textContent).toContain(formatShortDate('2026-08-25')); // P95
+    expect(card.textContent).toContain('weekly throughput');
+  });
+
+  it('explains the honest insufficiency state instead of a fake forecast', () => {
+    setMetrics(POPULATED);
+    setForecast({
+      ...FORECAST_READY,
+      status: 'insufficient_flow_history',
+      sample_count: 2,
+      p50_date: null,
+      p80_date: null,
+      p95_date: null,
+    });
+    renderWithProviders(<FlowAnalyticsPanel projectId="p1" boardCadence="continuous" />);
+    expand();
+    expect(screen.getByTestId('throughput-forecast-insufficient')).toBeTruthy();
+    expect(screen.queryByTestId('throughput-forecast-ready')).toBeNull();
+  });
+
+  it('renders a team-private message when the velocity signal is suppressed (ADR-0104)', () => {
+    setMetrics(POPULATED);
+    setForecast({
+      ...FORECAST_READY,
+      velocity_suppressed: true,
+      remaining_count: null,
+      sample_count: 0,
+      p50_date: null,
+      p80_date: null,
+      p95_date: null,
+    });
+    renderWithProviders(<FlowAnalyticsPanel projectId="p1" boardCadence="continuous" />);
+    expand();
+    expect(screen.getByTestId('throughput-forecast-suppressed')).toBeTruthy();
+    // No forecast numbers leak through the privacy wall.
+    expect(screen.queryByTestId('throughput-forecast-ready')).toBeNull();
+  });
+
+  it('surfaces a forecast fetch error inline without breaking the charts', () => {
+    setMetrics(POPULATED);
+    setForecast(undefined, { isError: true });
+    renderWithProviders(<FlowAnalyticsPanel projectId="p1" boardCadence="continuous" />);
+    expand();
+    expect(screen.getByTestId('throughput-forecast-error')).toBeTruthy();
+    // The historical charts still render — the forecast error is isolated.
+    expect(screen.getByTestId('flow-analytics-charts')).toBeTruthy();
   });
 });

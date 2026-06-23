@@ -231,6 +231,9 @@ vi.mock('@/hooks/useSprints', () => ({
   useProjectVelocity: () => ({ data: undefined, isLoading: false }),
   // FlowAnalyticsPanel (collapsed by default) calls this on every render (#1188).
   useFlowMetrics: () => ({ data: undefined, isLoading: false, isError: false }),
+  // FlowAnalyticsPanel also calls useSprintForecast unconditionally for the
+  // throughput forecast card (issue 1280); stub it so the panel renders offline.
+  useSprintForecast: () => ({ data: undefined, isLoading: false, isError: false }),
   useSprintMutations: () => ({
     createSprint: { mutate: () => undefined, isPending: false },
     closeSprint: { mutate: () => undefined, isPending: false },

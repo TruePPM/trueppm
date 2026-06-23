@@ -2429,7 +2429,12 @@ export function BoardView() {
                 )}
                 {/* Flow analytics (ADR-0137, issue 1188) — collapsed by default;
                 team-private behind the ADR-0104 flow_metrics signal. */}
-                {projectId && <FlowAnalyticsPanel projectId={projectId} />}
+                {projectId && (
+                  <FlowAnalyticsPanel
+                    projectId={projectId}
+                    boardCadence={projectDetail?.board_cadence}
+                  />
+                )}
                 {/* Sticky column headers */}
                 <div
                   className="grid gap-[var(--board-col-gap,0.5rem)] px-2 py-1.5 border-b-2 border-neutral-border/60 bg-neutral-surface sticky top-0 z-10"
