@@ -537,7 +537,9 @@ def _run_schedule(
     try:
         db_project = (
             Project.objects.select_related("calendar")
-            .prefetch_related("tasks", "tasks__predecessors")
+            # tasks__sprint: build_sched_tasks reads each task's sprint.start_date
+            # for the ADR-0168 sprint-window floor; prefetch it to avoid an N+1.
+            .prefetch_related("tasks", "tasks__sprint", "tasks__predecessors")
             .get(pk=project_id)
         )
     except Project.DoesNotExist:

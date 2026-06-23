@@ -9,7 +9,7 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
-from trueppm_api.apps.projects.models import Calendar, Project, Task
+from trueppm_api.apps.projects.models import Calendar, Project, Sprint, SprintState, Task
 
 User = get_user_model()
 
@@ -421,6 +421,69 @@ class TestBuildSchedTasksSuggestApprove:
         # OPEN / PM_ONLY modes never withhold (suggest_approve=False).
         [sched] = build_sched_tasks([task], suggest_approve=False)
         assert sched.most_likely_duration == timedelta(days=5)
+
+
+# ---------------------------------------------------------------------------
+# build_sched_tasks — sprint-window SNET floor (ADR-0168, #1284)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestBuildSchedTasksSprintFloor:
+    """The shared converter floors a sprint-assigned, schedulable task at its
+    sprint's start_date when it has no explicit planned_start (ADR-0168), so agile
+    work positions in its sprint window instead of the project origin. The floor is
+    engine input only — it is never written back to Task.planned_start."""
+
+    def _sprint(self, project: Project) -> Sprint:
+        return Sprint.objects.create(
+            project=project,
+            name="S1",
+            start_date=date(2026, 2, 2),
+            finish_date=date(2026, 2, 13),
+            state=SprintState.ACTIVE,
+        )
+
+    def test_sprint_start_floors_undated_task(self, project: Project) -> None:
+        from trueppm_api.apps.scheduling.services import build_sched_tasks
+
+        task = Task.objects.create(
+            project=project, name="Story", duration=3, sprint=self._sprint(project)
+        )
+        [sched] = build_sched_tasks([task], suggest_approve=False)
+        assert sched.planned_start == date(2026, 2, 2)
+
+    def test_explicit_planned_start_wins_over_sprint(self, project: Project) -> None:
+        from trueppm_api.apps.scheduling.services import build_sched_tasks
+
+        task = Task.objects.create(
+            project=project,
+            name="Story",
+            duration=3,
+            sprint=self._sprint(project),
+            planned_start=date(2026, 1, 19),
+        )
+        [sched] = build_sched_tasks([task], suggest_approve=False)
+        # An explicit SNET (ADR-0014) always wins over the synthetic sprint floor.
+        assert sched.planned_start == date(2026, 1, 19)
+
+    def test_task_without_sprint_has_no_floor(self, project: Project) -> None:
+        from trueppm_api.apps.scheduling.services import build_sched_tasks
+
+        task = Task.objects.create(project=project, name="Loose", duration=3)
+        [sched] = build_sched_tasks([task], suggest_approve=False)
+        assert sched.planned_start is None
+
+    def test_sprint_milestone_is_not_floored(self, project: Project) -> None:
+        from trueppm_api.apps.scheduling.services import build_sched_tasks
+
+        # A sprint milestone (review/demo gate) belongs at the sprint end, not its
+        # start, and is bound explicitly (ADR-0106) — so it is excluded from the floor.
+        ms = Task.objects.create(
+            project=project, name="Demo", is_milestone=True, sprint=self._sprint(project)
+        )
+        [sched] = build_sched_tasks([ms], suggest_approve=False)
+        assert sched.planned_start is None
 
 
 # ---------------------------------------------------------------------------

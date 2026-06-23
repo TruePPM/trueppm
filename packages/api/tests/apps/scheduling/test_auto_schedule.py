@@ -10,7 +10,7 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
-from trueppm_api.apps.projects.models import Calendar, Project, Task
+from trueppm_api.apps.projects.models import Calendar, Project, Sprint, SprintState, Task
 
 User = get_user_model()
 
@@ -546,3 +546,100 @@ def test_incremental_benchmark_500_tasks_5_changes() -> None:
         f"This likely means the change ratio threshold tripped or the incremental "
         f"path regressed to full-write."
     )
+
+
+# ---------------------------------------------------------------------------
+# Sprint-window SNET floor end-to-end (ADR-0168, #1284): a sprint-assigned task
+# with no planned_start positions in its sprint window, not the project origin.
+# ---------------------------------------------------------------------------
+
+
+def _run_recalc(project: Project) -> None:
+    """Run recalculate_schedule end-to-end with the idempotency lock acquired and
+    the side-effecting broadcasts/webhooks patched out (mirrors the completed-task
+    span test above)."""
+    from trueppm_api.apps.scheduling.tasks import recalculate_schedule
+
+    mock_redis = MagicMock()
+    mock_redis.set.return_value = "OK"  # lock acquired → task body runs
+    with (
+        patch("trueppm_api.core.idempotent.redis_lib") as mock_redis_module,
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
+    ):
+        mock_redis_module.from_url.return_value = mock_redis
+        recalculate_schedule.run(str(project.pk))
+
+
+def _active_sprint(project: Project, start: date, finish: date) -> Sprint:
+    return Sprint.objects.create(
+        project=project,
+        name="S",
+        start_date=start,
+        finish_date=finish,
+        state=SprintState.ACTIVE,
+    )
+
+
+@pytest.mark.django_db
+def test_sprint_assigned_task_floors_at_sprint_start(project: Project) -> None:
+    """A sprint-assigned task with no planned_start positions at its sprint start
+    (project starts Mon 2026-01-05; the sprint starts four weeks later)."""
+    sprint = _active_sprint(project, date(2026, 2, 2), date(2026, 2, 13))
+    story = Task.objects.create(project=project, name="Story", duration=3, sprint=sprint)
+
+    _run_recalc(project)
+
+    story.refresh_from_db()
+    # Floored at the sprint start (Mon 2026-02-02), not the project origin.
+    assert story.early_start == date(2026, 2, 2)
+    # Three working days: 02-02, 02-03, 02-04.
+    assert story.early_finish == date(2026, 2, 4)
+    # The floor is engine input only — the stored field stays null (ADR-0168).
+    assert story.planned_start is None
+
+
+@pytest.mark.django_db
+def test_task_without_sprint_still_floors_at_project_start(project: Project) -> None:
+    """Regression guard: the floor only applies to sprint-assigned tasks; a loose
+    task with no planned_start still floors at the project start."""
+    loose = Task.objects.create(project=project, name="Loose", duration=3)
+
+    _run_recalc(project)
+
+    loose.refresh_from_db()
+    assert loose.early_start == date(2026, 1, 5)
+
+
+@pytest.mark.django_db
+def test_dependency_later_than_sprint_floor_wins(project: Project) -> None:
+    """A predecessor that finishes after the sprint start pushes the successor past
+    its sprint floor — the existing max(es_constraints) resolves precedence."""
+    from trueppm_api.apps.projects.models import Dependency
+
+    sprint = _active_sprint(project, date(2026, 2, 2), date(2026, 2, 13))
+    # Predecessor pinned far past the sprint: Mon 2026-03-02 + 2 wd → ends Tue 03-03.
+    pred = Task.objects.create(
+        project=project, name="Pred", duration=2, planned_start=date(2026, 3, 2)
+    )
+    succ = Task.objects.create(project=project, name="Succ", duration=3, sprint=sprint)
+    Dependency.objects.create(predecessor=pred, successor=succ, dep_type="FS", lag=0)
+
+    _run_recalc(project)
+
+    succ.refresh_from_db()
+    # max(sprint floor 02-02, pred finish 03-03 + 1 wd = 03-04) → the dependency wins.
+    assert succ.early_start == date(2026, 3, 4)
+
+
+@pytest.mark.django_db
+def test_sprint_milestone_not_floored_at_sprint_start(project: Project) -> None:
+    """A milestone is excluded from the sprint floor (a sprint review/demo gate
+    belongs at the sprint end, ADR-0106) — it floors at the project start instead."""
+    sprint = _active_sprint(project, date(2026, 2, 2), date(2026, 2, 13))
+    ms = Task.objects.create(project=project, name="Demo", is_milestone=True, sprint=sprint)
+
+    _run_recalc(project)
+
+    ms.refresh_from_db()
+    assert ms.early_start == date(2026, 1, 5)
