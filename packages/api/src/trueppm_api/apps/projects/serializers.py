@@ -5968,6 +5968,59 @@ class TaskNoteSerializer(serializers.ModelSerializer[TaskNote]):
         return super().update(instance, validated_data)
 
 
+class _DecisionTaskContextSerializer(serializers.Serializer[Any]):
+    """Minimal task context for a Decisions-view row — the click-through target."""
+
+    id = serializers.UUIDField(source="task_id", read_only=True)
+    name = serializers.CharField(source="task.name", read_only=True)
+
+
+class _DecisionSprintContextSerializer(serializers.Serializer[Any]):
+    """Minimal sprint context for grouping a Decisions-view row (null = backlog)."""
+
+    id = serializers.UUIDField(source="task.sprint_id", read_only=True, allow_null=True)
+    name = serializers.CharField(source="task.sprint.name", read_only=True, allow_null=True)
+    state = serializers.CharField(source="task.sprint.state", read_only=True, allow_null=True)
+
+
+class DecisionNoteSerializer(serializers.ModelSerializer[TaskNote]):
+    """Read-only Decisions-view row (ADR-0167, #748).
+
+    A decision-flagged task note plus the task + sprint context the web client needs to
+    group by sprint and link back to the task drawer. Read-only: the ``decision`` flag is
+    toggled via ``TaskNoteViewSet.decision`` (mirroring ``pin``), never written here.
+    """
+
+    author = _MentionAuthorMiniSerializer(read_only=True)
+    task = serializers.SerializerMethodField()
+    sprint = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TaskNote
+        fields = [
+            "id",
+            "body",
+            "decision",
+            "pinned",
+            "author",
+            "edited_at",
+            "created_at",
+            "task",
+            "sprint",
+        ]
+        read_only_fields = fields
+
+    def get_task(self, obj: TaskNote) -> dict[str, Any]:
+        return _DecisionTaskContextSerializer(obj).data
+
+    def get_sprint(self, obj: TaskNote) -> dict[str, Any] | None:
+        # Backlog notes have no sprint — return null so the client buckets them into
+        # the "(No sprint)" group rather than rendering an empty sprint header.
+        if obj.task.sprint_id is None:
+            return None
+        return _DecisionSprintContextSerializer(obj).data
+
+
 class CommentAcknowledgementSerializer(serializers.ModelSerializer[CommentAcknowledgement]):
     """One-shot ack chip. No user-supplied fields — the viewset sets user from request."""
 

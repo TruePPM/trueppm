@@ -8,7 +8,9 @@
  * fetched list — matches stay full opacity, non-matches dim to 0.3 (they remain
  * visible and readable) with a live "N of M" counter.
  *
- * The `decision` field (the issue 748 seam) is intentionally NOT surfaced here.
+ * The `decision` flag (ADR-0167, issue 748) is surfaced as a one-tap chip alongside pin:
+ * any MEMBER+ may flag a note as a decision, promoting it into the project/sprint
+ * Decisions views. Read-only viewers see a static "Decision" badge when flagged.
  */
 
 import type { ReactElement } from 'react';
@@ -20,6 +22,7 @@ import {
   useDeleteNote,
   usePinNote,
   useTaskNotes,
+  useToggleDecision,
   useUpdateNote,
 } from '@/hooks/useTaskNotes';
 import { useNotesSearch } from '@/hooks/useNotesSearch';
@@ -87,6 +90,7 @@ function NoteRow({
   matches,
 }: NoteRowProps) {
   const pin = usePinNote();
+  const decision = useToggleDecision();
   const del = useDeleteNote();
   const update = useUpdateNote();
   const [isEditing, setIsEditing] = useState(false);
@@ -111,13 +115,21 @@ function NoteRow({
         note.pinned ? 'border-brand-primary/40' : 'border-neutral-border'
       } ${matches ? 'opacity-100' : 'opacity-30'}`}
       aria-label={`Note by ${author}, ${ts}${note.pinned ? ', pinned' : ''}${
-        wasEdited ? ', edited' : ''
-      }`}
+        note.decision ? ', decision' : ''
+      }${wasEdited ? ', edited' : ''}`}
     >
       <div className="flex items-baseline gap-2 flex-wrap">
         {note.pinned && (
           <span className="text-xs text-brand-primary" title="Pinned" aria-hidden="true">
             📌
+          </span>
+        )}
+        {note.decision && (
+          <span
+            className="rounded bg-brand-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-brand-primary"
+            title="Decision"
+          >
+            <span aria-hidden="true">⚖</span> Decision
           </span>
         )}
         <span className="text-sm font-medium text-neutral-text-primary">{author}</span>
@@ -199,6 +211,23 @@ function NoteRow({
               }`}
           >
             {note.pinned ? '📌 Pinned' : '📌 Pin'}
+          </button>
+          <button
+            type="button"
+            onClick={() => decision.mutate({ projectId, taskId, noteId: note.id })}
+            disabled={decision.isPending}
+            aria-pressed={note.decision}
+            aria-label={note.decision ? 'Unmark as decision' : 'Mark as decision'}
+            className={`text-xs border rounded px-2 h-7 font-medium
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
+              disabled:opacity-50
+              ${
+                note.decision
+                  ? 'border-brand-primary/40 text-brand-primary bg-brand-primary/10'
+                  : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface'
+              }`}
+          >
+            ⚖ Decision
           </button>
           {canEditBody && (
             <button

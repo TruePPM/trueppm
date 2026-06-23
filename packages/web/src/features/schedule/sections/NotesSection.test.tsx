@@ -6,6 +6,7 @@ import { NotesSection } from './NotesSection';
 
 const useNotesMock = vi.hoisted(() => vi.fn());
 const usePinMock = vi.hoisted(() => vi.fn());
+const useDecisionMock = vi.hoisted(() => vi.fn());
 const useDeleteMock = vi.hoisted(() => vi.fn());
 const useUpdateMock = vi.hoisted(() => vi.fn());
 const useCreateMock = vi.hoisted(() => vi.fn());
@@ -14,6 +15,7 @@ const useCurrentUserMock = vi.hoisted(() => vi.fn());
 vi.mock('@/hooks/useTaskNotes', () => ({
   useTaskNotes: useNotesMock,
   usePinNote: usePinMock,
+  useToggleDecision: useDecisionMock,
   useDeleteNote: useDeleteMock,
   useUpdateNote: useUpdateMock,
   useCreateNote: useCreateMock,
@@ -43,6 +45,7 @@ function note(overrides: Partial<TaskNote> = {}): TaskNote {
 beforeEach(() => {
   vi.clearAllMocks();
   usePinMock.mockReturnValue({ mutate: vi.fn(), isPending: false });
+  useDecisionMock.mockReturnValue({ mutate: vi.fn(), isPending: false });
   useDeleteMock.mockReturnValue({ mutate: vi.fn(), isPending: false });
   useUpdateMock.mockReturnValue({ mutate: vi.fn(), isPending: false, isError: false });
   useCreateMock.mockReturnValue({ mutate: vi.fn(), isPending: false, isError: false });
@@ -326,5 +329,46 @@ describe('NotesSection — list semantics', () => {
     render(<NotesSection taskId="t1" projectId="p1" />);
     const list = screen.getByRole('list', { name: 'Notes — 2 total' });
     expect(within(list).getAllByRole('listitem')).toHaveLength(2);
+  });
+});
+
+describe('NotesSection — decision chip (ADR-0167, #748)', () => {
+  it('calls the decision mutation with the note id when the chip is clicked', () => {
+    const mutate = vi.fn();
+    useDecisionMock.mockReturnValue({ mutate, isPending: false });
+    useNotesMock.mockReturnValue({
+      notes: [note({ id: 'n9', decision: false })],
+      isLoading: false,
+      error: null,
+    });
+    render(<NotesSection taskId="t1" projectId="p1" canEdit userRole={ROLE_MEMBER} />);
+    fireEvent.click(screen.getByLabelText('Mark as decision'));
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: 'p1', taskId: 't1', noteId: 'n9' }),
+    );
+  });
+
+  it('reflects the flagged state via aria-pressed and the header badge', () => {
+    useNotesMock.mockReturnValue({
+      notes: [note({ id: 'n9', decision: true })],
+      isLoading: false,
+      error: null,
+    });
+    render(<NotesSection taskId="t1" projectId="p1" canEdit userRole={ROLE_MEMBER} />);
+    expect(screen.getByLabelText('Unmark as decision').getAttribute('aria-pressed')).toBe('true');
+    // The row's aria-label announces the decision state.
+    expect(screen.getByRole('listitem', { name: /decision/ })).toBeTruthy();
+  });
+
+  it('shows a read-only Decision badge but no toggle for a viewer', () => {
+    useNotesMock.mockReturnValue({
+      notes: [note({ id: 'n9', decision: true })],
+      isLoading: false,
+      error: null,
+    });
+    render(<NotesSection taskId="t1" projectId="p1" canEdit={false} userRole={ROLE_VIEWER} />);
+    expect(screen.getByTitle('Decision')).toBeTruthy();
+    expect(screen.queryByLabelText('Unmark as decision')).toBeNull();
+    expect(screen.queryByLabelText('Mark as decision')).toBeNull();
   });
 });

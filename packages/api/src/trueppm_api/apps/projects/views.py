@@ -118,6 +118,7 @@ from trueppm_api.apps.projects.serializers import (
     CommentAcknowledgementSerializer,
     CommentReactionSerializer,
     CycleDetectedError,
+    DecisionNoteSerializer,
     DependencySerializer,
     FlowMetricsSerializer,
     ForecastSnapshotSerializer,
@@ -294,6 +295,13 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
         # projects out of the landing result, so recording one is harmless.
         if self.action == "visit":
             return [IsAuthenticated(), IsProjectMember()]
+        # Decisions list (ADR-0167, #748): any project member reaches the endpoint; the
+        # finer team-vs-oversight read gate is enforced in the action body via
+        # `can_read_decisions` (a Viewer is suppressed with 403 unless the team opted in).
+        # Stated explicitly so the body-level gate can't be silently widened by a change
+        # to the default clause below.
+        if self.action == "decisions":
+            return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
         # Project export (#967, ADR-0109 addendum): read-only data portability,
         # open to any member (Viewer+) and available on archived projects too —
         # it skips IsProjectNotArchived (like `visit`), mirroring program export's
@@ -1584,6 +1592,63 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
         self.check_object_permissions(request, project)
         filters = parse_blocked_filters(request.query_params)
         return Response(project_blocked_rollup(project, **filters), status=status.HTTP_200_OK)
+
+    @extend_schema(
+        summary="Decision-flagged notes for this project (ADR-0167, #748)",
+        parameters=[
+            OpenApiParameter(
+                name="sprint",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Scope to one sprint's decisions. Omit for the whole project "
+                    "(including closed sprints)."
+                ),
+            )
+        ],
+        responses={200: DecisionNoteSerializer(many=True)},
+    )
+    @action(detail=True, methods=["get"], url_path="decisions")
+    def decisions(self, request: Request, pk: str | None = None) -> Response:
+        """Paginated list of decision-flagged task notes for the project (ADR-0167 §2).
+
+        Serves both Decisions views under one gate: no ``sprint`` param → every decision
+        across the project, **including closed sprints** (the project view); ``?sprint=<id>``
+        → that sprint's decisions (the sprint view, the web passes the active sprint id).
+        Visibility is team-owned — an oversight reader (a non-team, sub-Admin project
+        member) is suppressed with 403 until the team opts in via
+        ``ProjectDecisionsPolicy.oversight_visible``. The gate runs before any filtering so
+        ``?sprint`` can never be a hole around it.
+        """
+        from rest_framework.exceptions import PermissionDenied
+
+        from trueppm_api.apps.projects.decisions_services import (
+            can_read_decisions,
+            decision_notes_queryset,
+        )
+
+        project = self.get_object()
+        self.check_object_permissions(request, project)
+        if not can_read_decisions(request, project.pk):
+            raise PermissionDenied(
+                "Decisions are visible to the team and project managers. A project admin "
+                "can extend visibility to oversight stakeholders."
+            )
+        sprint_id = request.query_params.get("sprint")
+        if sprint_id:
+            try:
+                uuid.UUID(sprint_id)
+            except (ValueError, TypeError):
+                return Response(
+                    {"detail": "Invalid sprint id."}, status=status.HTTP_400_BAD_REQUEST
+                )
+        qs = decision_notes_queryset(project.pk, sprint_id=sprint_id or None)
+        page = self.paginate_queryset(qs)
+        serializer = DecisionNoteSerializer(page if page is not None else qs, many=True)
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     @extend_schema(
         summary="Get the project integrations summary",
@@ -10436,7 +10501,7 @@ class TaskNoteViewSet(
         ).select_related("author", "deleted_by", "task")
 
     def get_permissions(self) -> list[BasePermission]:
-        if self.action in ("create", "partial_update", "update", "destroy", "pin"):
+        if self.action in ("create", "partial_update", "update", "destroy", "pin", "decision"):
             return [IsAuthenticated(), IsProjectMemberWrite(), IsProjectNotArchived()]
         return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
 
@@ -10549,6 +10614,47 @@ class TaskNoteViewSet(
                 project_id_str,
                 "task_note_pinned",
                 {"id": note_id_str, "task_id": task_id_str, "pinned": pinned_now},
+            )
+        )
+        return Response(self.get_serializer(note).data, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        summary="Toggle the decision flag on a note (ADR-0167, #748)",
+        request=None,
+        responses={
+            200: TaskNoteSerializer,
+            401: OpenApiResponse(description="Authentication required."),
+            404: OpenApiResponse(description="Note not found."),
+        },
+    )
+    @action(detail=True, methods=["post"], url_path="decision")
+    def decision(self, request: Request, project_pk: str, task_pk: str, pk: str) -> Response:
+        """Toggle this note's ``decision`` flag — the seam that promotes a note into the
+        project/sprint Decisions log (ADR-0167).
+
+        Curation, not authorship — any project writer (Member+) may flag/unflag any note,
+        exempt from the author-only 15-min edit window, exactly like ``pin``. The flag is
+        the only structured Decisions marker (no taxonomy). ``TaskNote`` is intentionally
+        not a ``VersionedModel`` (ADR-0143), so there is no ``server_version`` to bump;
+        clients reconcile via REST refetch + the board broadcast below.
+        """
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        note = self.get_object()
+        note.decision = not note.decision
+        note.save(update_fields=["decision"])
+        # Snapshot plain values BEFORE the on_commit lambda (broadcast-check H-1). The
+        # event carries no note body — a board event is never a place to read note text
+        # (ADR-0124 privacy idiom); the Decisions list itself is REST-gated.
+        project_id_str = str(project_pk)
+        task_id_str = str(task_pk)
+        note_id_str = str(note.pk)
+        decision_now = note.decision
+        transaction.on_commit(
+            lambda: broadcast_board_event(
+                project_id_str,
+                "task_note_decision_toggled",
+                {"id": note_id_str, "task_id": task_id_str, "decision": decision_now},
             )
         )
         return Response(self.get_serializer(note).data, status=status.HTTP_200_OK)

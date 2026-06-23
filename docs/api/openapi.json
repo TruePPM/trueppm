@@ -6789,6 +6789,84 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/decisions/": {
+            "get": {
+                "operationId": "v1_projects_decisions_list",
+                "description": "Paginated list of decision-flagged task notes for the project (ADR-0167 §2).\n\nServes both Decisions views under one gate: no ``sprint`` param → every decision\nacross the project, **including closed sprints** (the project view); ``?sprint=<id>``\n→ that sprint's decisions (the sprint view, the web passes the active sprint id).\nVisibility is team-owned — an oversight reader (a non-team, sub-Admin project\nmember) is suppressed with 403 until the team opts in via\n``ProjectDecisionsPolicy.oversight_visible``. The gate runs before any filtering so\n``?sprint`` can never be a hole around it.",
+                "summary": "Decision-flagged notes for this project (ADR-0167, #748)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this project.",
+                        "required": true
+                    },
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "sprint",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "Scope to one sprint's decisions. Omit for the whole project (including closed sprints)."
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedDecisionNoteList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/export/": {
             "get": {
                 "operationId": "v1_projects_export_retrieve",
@@ -9509,6 +9587,103 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/BoardActivityResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{project_pk}/decisions-policy/": {
+            "get": {
+                "operationId": "v1_projects_decisions_policy_retrieve",
+                "description": "GET the decisions-visibility posture; PATCH ``oversight_visible`` (Admin+).",
+                "summary": "Read the Decisions-view visibility posture",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DecisionsPolicyRead"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "v1_projects_decisions_policy_partial_update",
+                "description": "GET the decisions-visibility posture; PATCH ``oversight_visible`` (Admin+).",
+                "summary": "Set whether oversight readers may see the Decisions view (Admin+)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedDecisionsPolicyWriteRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedDecisionsPolicyWriteRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedDecisionsPolicyWriteRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DecisionsPolicyRead"
                                 }
                             }
                         },
@@ -13818,6 +13993,71 @@
                 "responses": {
                     "204": {
                         "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{project_pk}/tasks/{task_pk}/notes/{id}/decision/": {
+            "post": {
+                "operationId": "v1_projects_tasks_notes_decision_create",
+                "description": "Toggle this note's ``decision`` flag — the seam that promotes a note into the\nproject/sprint Decisions log (ADR-0167).\n\nCuration, not authorship — any project writer (Member+) may flag/unflag any note,\nexempt from the author-only 15-min edit window, exactly like ``pin``. The flag is\nthe only structured Decisions marker (no taxonomy). ``TaskNote`` is intentionally\nnot a ``VersionedModel`` (ADR-0143), so there is no ``server_version`` to bump;\nclients reconcile via REST refetch + the board broadcast below.",
+                "summary": "Toggle the decision flag on a note (ADR-0167, #748)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task note.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "task_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskNote"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "401": {
+                        "description": "Authentication required."
+                    },
+                    "404": {
+                        "description": "Note not found."
                     }
                 }
             }
@@ -22771,6 +23011,86 @@
                     "reason"
                 ]
             },
+            "DecisionNote": {
+                "type": "object",
+                "description": "Read-only Decisions-view row (ADR-0167, #748).\n\nA decision-flagged task note plus the task + sprint context the web client needs to\ngroup by sprint and link back to the task drawer. Read-only: the ``decision`` flag is\ntoggled via ``TaskNoteViewSet.decision`` (mirroring ``pin``), never written here.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "body": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "decision": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "pinned": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "author": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/_MentionAuthorMini"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "edited_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "task": {
+                        "type": "object",
+                        "additionalProperties": {},
+                        "readOnly": true
+                    },
+                    "sprint": {
+                        "type": "object",
+                        "additionalProperties": {},
+                        "nullable": true,
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "author",
+                    "body",
+                    "created_at",
+                    "decision",
+                    "edited_at",
+                    "id",
+                    "pinned",
+                    "sprint",
+                    "task"
+                ]
+            },
+            "DecisionsPolicyRead": {
+                "type": "object",
+                "description": "Read shape: the current posture plus whether the requester may change it.",
+                "properties": {
+                    "oversight_visible": {
+                        "type": "boolean"
+                    },
+                    "can_edit": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "can_edit",
+                    "oversight_visible"
+                ]
+            },
             "DefaultLandingEnum": {
                 "enum": [
                     "auto",
@@ -24373,6 +24693,37 @@
                     }
                 }
             },
+            "PaginatedDecisionNoteList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/DecisionNote"
+                        }
+                    }
+                }
+            },
             "PaginatedDependencyList": {
                 "type": "object",
                 "required": [
@@ -25521,6 +25872,15 @@
                         "maxLength": 64
                     },
                     "enabled": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "PatchedDecisionsPolicyWriteRequest": {
+                "type": "object",
+                "description": "PATCH body — flip the team's single oversight-visibility switch.",
+                "properties": {
+                    "oversight_visible": {
                         "type": "boolean"
                     }
                 }

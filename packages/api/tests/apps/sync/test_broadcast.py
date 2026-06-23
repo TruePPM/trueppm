@@ -193,6 +193,7 @@ FROZEN_WS_EVENT_TYPES = frozenset(
         "task_link_deleted",
         "task_link_updated",
         "task_note_created",
+        "task_note_decision_toggled",
         "task_note_deleted",
         "task_note_pinned",
         "task_note_updated",

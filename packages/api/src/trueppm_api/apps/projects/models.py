@@ -3552,6 +3552,47 @@ class ProjectSignalPrivacyPolicy(VersionedModel):
         return self.resolved(signal_key)["ceiling"]
 
 
+class ProjectDecisionsPolicy(VersionedModel):
+    """Per-project visibility posture for the Decisions view (ADR-0167, #748).
+
+    One row per Project (1:1), created lazily on first read via ``get_or_create`` so
+    existing projects need no data migration (the ``ProjectSignalPrivacyPolicy`` idiom).
+
+    ``oversight_visible`` is the team's single upward-exposure switch for the project
+    Decisions view. Default-closed: the Decisions list is visible to the "team + PM" band
+    (``Role.MEMBER`` and above) only; an *oversight reader* — a Viewer, or an Enterprise
+    read-augmented/auditor role in the reserved 1–99 ordinal band (ADR-0072) — sees it only
+    once a project Admin opts in here. This is single-project, team-owned consent (Morgan's
+    resolution, ADR-0167 §3), never org policy. Cross-project Decision rollup stays
+    Enterprise.
+
+    The signal-privacy ladder (ADR-0104) is deliberately *not* reused: its rungs exclude
+    the PM by default and its top rung is cross-team ``PROGRAM_SHARED`` (Enterprise),
+    whereas this gate is a two-state, team+PM-by-default switch.
+    """
+
+    project = models.OneToOneField(
+        Project,
+        on_delete=models.CASCADE,
+        related_name="decisions_policy",
+    )
+    oversight_visible = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_BASE)
+
+    # Declared explicitly so django-stubs resolves the manager / project_id on a
+    # VersionedModel subclass that also carries HistoricalRecords (project memory
+    # feedback_cross_app_versionedmodel_stubs).
+    objects = models.Manager()
+
+    class Meta:
+        db_table = "projects_decisions_policy"
+
+    def __str__(self) -> str:
+        return f"ProjectDecisionsPolicy({self.pk})"
+
+
 class CeilingRaiseStatus(models.TextChoices):
     """Lifecycle of a ceiling-raise ratification proposal (ADR-0104 Amendment A, #930).
 
