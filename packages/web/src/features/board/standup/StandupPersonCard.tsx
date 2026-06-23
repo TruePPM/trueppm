@@ -1,5 +1,5 @@
 /**
- * One teammate's panel in the standup walk (ADR-0166, #1278): three buckets — Done
+ * One teammate's panel in the standup walk (ADR-0166, issue 1278): three buckets — Done
  * since the last working day / In progress today / Blockers — each a calm column the
  * Scrum Master reads out loud.
  *

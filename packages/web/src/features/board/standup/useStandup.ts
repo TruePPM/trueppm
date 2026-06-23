@@ -1,5 +1,5 @@
 /**
- * Data hook + types for the daily standup walk-the-board surface (ADR-0166, #1278).
+ * Data hook + types for the daily standup walk-the-board surface (ADR-0166, issue 1278).
  *
  * Consumes the read API `GET /projects/{id}/standup/`: the active sprint's per-assignee
  * walk (done-since-last-working-day / in-progress-today / blockers), assembled
@@ -23,7 +23,7 @@ export interface StandupCard {
   story_points: number | null;
   /** Full days the card has sat in its current column, or null when never stamped. */
   dwell_days: number | null;
-  /** True when dwell exceeds the column's configured age threshold (#410 / #992). */
+  /** True when dwell exceeds the column's configured age threshold (issue 410 / issue 992). */
   aging: boolean;
   /** Structured impediment class — never the private free-text reason (ADR-0124). */
   blocker_type: BlockerType | null;

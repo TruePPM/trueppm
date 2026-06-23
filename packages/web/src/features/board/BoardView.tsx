@@ -1282,7 +1282,7 @@ export function BoardView() {
       return next;
     });
   }, [activityStorageKey]);
-  // Daily standup walk-the-board mode (#1278, ADR-0166). State lives in the URL
+  // Daily standup walk-the-board mode (issue 1278, ADR-0166). State lives in the URL
   // (?standup=1) — a focused "drive the room" mode is shareable to a projector tab and
   // survives refresh, unlike the localStorage-persisted activity rail.
   const standupOpen = searchParams.get('standup') === '1';
@@ -2850,7 +2850,7 @@ export function BoardView() {
         </div>
       )}
 
-      {/* Daily standup walk-the-board (ADR-0166, #1278) — a focused full-surface mode
+      {/* Daily standup walk-the-board (ADR-0166, issue 1278) — a focused full-surface mode
           driven by the active sprint's per-person walk; opens the same selectedTaskId
           drawer when a card is clicked. Mounted off ?standup=1. */}
       {projectId && standupOpen && (

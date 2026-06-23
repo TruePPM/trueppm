@@ -19,7 +19,7 @@ import { sprintTimebox } from './sprintTimebox';
 interface BoardSprintHeaderProps {
   sprint: ApiSprint;
   projectId: string;
-  /** Opens the daily-standup walk-the-board mode (#1278). Omitted → button hidden. */
+  /** Opens the daily-standup walk-the-board mode (issue 1278). Omitted → button hidden. */
   onOpenStandup?: () => void;
 }
 

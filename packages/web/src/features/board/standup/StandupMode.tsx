@@ -1,5 +1,5 @@
 /**
- * Daily standup walk-the-board mode (ADR-0166, #1278).
+ * Daily standup walk-the-board mode (ADR-0166, issue 1278).
  *
  * A focused, full-surface "drive the room" overlay (often projected) that walks the
  * active sprint one teammate at a time. The Scrum Master steps person-to-person with

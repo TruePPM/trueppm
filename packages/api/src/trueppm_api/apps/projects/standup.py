@@ -218,7 +218,7 @@ def _last_working_day_start(project: Project, sprint: Sprint, now: _dt.datetime)
     start = timezone.make_aware(
         _dt.datetime.combine(day, _dt.time.min), timezone.get_current_timezone()
     )
-    activated = getattr(sprint, "activated_at", None)
+    activated = sprint.activated_at
     if activated is not None and activated > start:
         return activated
     return start
@@ -267,11 +267,14 @@ def _column_age_thresholds(project: Project) -> dict[str, Any]:
     cfg = getattr(project, "board_column_config", None)
     if cfg is None:
         return {}
-    return {
-        col.get("status"): col.get("age_threshold_days")
-        for col in cfg.columns
-        if isinstance(col, dict) and col.get("status")
-    }
+    result: dict[str, Any] = {}
+    for col in cfg.columns:
+        if not isinstance(col, dict):
+            continue
+        status = col.get("status")
+        if status:
+            result[str(status)] = col.get("age_threshold_days")
+    return result
 
 
 def _card(task: Any, now: _dt.datetime, thresholds: dict[str, Any]) -> dict[str, Any]:
