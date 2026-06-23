@@ -31,8 +31,8 @@ We will credit reporters in the release notes unless anonymity is requested.
 | Version | Security patches |
 |---------|-----------------|
 | `main` (unreleased) | ✅ Active |
-| `0.1.x` (current alpha) | ✅ Active |
-| < `0.1.0` | ❌ No support |
+| `0.2.x` (current alpha) | ✅ Active |
+| < `0.2.0` | ❌ No support |
 
 Once `1.0.0` is released, the two most recent minor versions will receive security backports.
 
