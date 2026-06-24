@@ -110,6 +110,11 @@ const ProgramViewProjectsPage = lazy(() =>
     default: m.ProgramProjectsPage,
   })),
 );
+const ProgramSchedulePage = lazy(() =>
+  import('@/features/programs/schedule/ProgramSchedulePage').then((m) => ({
+    default: m.ProgramSchedulePage,
+  })),
+);
 const ProgramResourcesPage = lazy(() =>
   import('@/features/programs/resources/ProgramResourcesPage').then((m) => ({
     default: m.ProgramResourcesPage,
@@ -492,6 +497,14 @@ export const router = createBrowserRouter([
                 element: (
                   <Suspense fallback={<RouteLoadingFallback />}>
                     <ProgramViewProjectsPage />
+                  </Suspense>
+                ),
+              },
+              {
+                path: 'schedule',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <ProgramSchedulePage />
                   </Suspense>
                 ),
               },
