@@ -1,6 +1,7 @@
 import { Link } from 'react-router';
 import { formatShortDate } from '@/features/sprints/sprintMath';
 import { useProjectForecast, type ProjectForecast } from '@/hooks/useSprints';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 
 /** Closed sprints needed before the velocity band (and a delivery date) is defensible. */
 const FORECAST_SPRINT_FLOOR = 3;
@@ -124,6 +125,7 @@ function BacklogForecast({
   forecast: ProjectForecast;
   projectId: string;
 }) {
+  const itl = useIterationLabel(projectId);
   const { sprints_to_complete_low: low, sprints_to_complete_high: high } = forecast;
   if (low == null || high == null) {
     return <ForecastWarmup forecast={forecast} projectId={projectId} />;
@@ -137,7 +139,7 @@ function BacklogForecast({
   const date = cadence != null ? projectDate(high, cadence) : null;
   return (
     <span>
-      At current pace, {range} more sprint{high === 1 ? '' : 's'} to clear {remaining} pts
+      At current pace, {range} more {high === 1 ? itl.lower : itl.lowerPlural} to clear {remaining} pts
       {date && (
         <>
           {' '}

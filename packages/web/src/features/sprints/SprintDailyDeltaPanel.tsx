@@ -4,6 +4,7 @@ import {
   useSprintDailyDelta,
   type SprintDailyDelta,
 } from '@/hooks/useSprints';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import { blockerTypeLabel, formatBlockedAge } from '@/lib/blocker';
 import { ScopeChangeDrawer } from './ScopeChangeDrawer';
@@ -300,6 +301,7 @@ function BurndownRow({
 
 /** Sprint-load indicator (#1127): committed → current, Δ, and "now X% loaded". */
 function SprintLoadRow({ load }: { load: SprintDailyDelta['sprint_load'] }) {
+  const itl = useIterationLabel();
   // Velocity-gated: when the point figures are suppressed there is nothing to show.
   if (load.committed_points == null && load.current_points == null) return null;
   const committed = load.committed_points;
@@ -309,7 +311,7 @@ function SprintLoadRow({ load }: { load: SprintDailyDelta['sprint_load'] }) {
   const overloaded = pct != null && pct > 100;
   return (
     <div className="px-3 py-2 text-sm flex items-center gap-2">
-      <span className="text-xs text-neutral-text-secondary w-24 shrink-0">Sprint load</span>
+      <span className="text-xs text-neutral-text-secondary w-24 shrink-0">{itl.singular} load</span>
       <span className="tppm-mono text-neutral-text-primary">
         {committed ?? '—'} → {current ?? '—'}
         {delta != null && delta !== 0 && (

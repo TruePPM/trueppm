@@ -12,6 +12,7 @@ import { BoardProgressRing } from './BoardProgressRing';
 import { formatShortDate } from '@/features/schedule/scheduleUtils';
 import { formatRelative } from '@/lib/formatRelative';
 import { severityRagBand } from '@/hooks/useTaskDependencies';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { isTaskScheduled } from '@/lib/task';
 import { PendingAcceptanceChip } from './PendingAcceptanceChip';
 import { ReadinessChip } from './ReadinessChip';
@@ -195,6 +196,7 @@ export function BoardCard({
   scopeActions,
   readOnly = false,
 }: BoardCardProps) {
+  const itl = useIterationLabel();
   // A closed-sprint board disables drag-to-assign (#1141): dnd-kit returns empty
   // listeners/attributes when disabled, so the card keeps click-to-open + scroll
   // but can never be dragged into the closed sprint's scope.
@@ -456,7 +458,7 @@ export function BoardCard({
                 scopeActions.onReject(task);
               }}
             >
-              Reject from sprint
+              Reject from {itl.lower}
             </button>
           )}
           <button
@@ -513,8 +515,8 @@ export function BoardCard({
           e.stopPropagation();
           scopeActions.onAccept(task);
         }}
-        aria-label={`Accept ${task.name} into the sprint`}
-        title="Accept into the sprint"
+        aria-label={`Accept ${task.name} into the ${itl.lower}`}
+        title={`Accept into the ${itl.lower}`}
         className="absolute top-2 right-9 w-6 h-6 flex items-center justify-center rounded-control
           text-brand-primary hover:bg-brand-primary/10
           before:absolute before:inset-[-10px] before:content-['']

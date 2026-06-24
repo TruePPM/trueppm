@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState, type RefObject } from 'react';
 import type { Task } from '@/types';
 import { usePromoteTask } from '@/hooks/useTaskMutations';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import { formatShortDate } from './scheduleUtils';
 
@@ -45,6 +46,7 @@ export function ScheduleTaskDialog({
   ariaLiveRef,
   onClose,
 }: ScheduleTaskDialogProps) {
+  const itl = useIterationLabel();
   const promote = usePromoteTask();
   const setActionToast = useScheduleStore((s) => s.setScheduleActionToast);
 
@@ -121,20 +123,20 @@ export function ScheduleTaskDialog({
         onSuccess: () => {
           const label = formatShortDate(date);
           setActionToast({
-            message: `Added '${task.name}' to the sprint, starting ${label}`,
+            message: `Added '${task.name}' to the ${itl.lower}, starting ${label}`,
           });
           if (ariaLiveRef?.current) {
-            ariaLiveRef.current.textContent = `Added ${task.name} to the sprint, starting ${label}.`;
+            ariaLiveRef.current.textContent = `Added ${task.name} to the ${itl.lower}, starting ${label}.`;
           }
           onClose();
         },
         onError: () => {
           // Keep the dialog open with an inline error so the user can retry.
-          setError("Couldn't add this item to the sprint. Try again.");
+          setError(`Couldn't add this item to the ${itl.lower}. Try again.`);
         },
       },
     );
-  }, [date, task.id, task.name, projectId, promote, setActionToast, ariaLiveRef, onClose]);
+  }, [date, task.id, task.name, projectId, promote, setActionToast, ariaLiveRef, onClose, itl.lower]);
 
   const scheduleDisabled = !date || offline || promote.isPending;
 
@@ -156,7 +158,7 @@ export function ScheduleTaskDialog({
             id={titleId}
             className="flex-1 min-w-0 text-sm font-semibold text-neutral-text-primary truncate"
           >
-            Add &ldquo;{task.name}&rdquo; to a sprint
+            Add &ldquo;{task.name}&rdquo; to a {itl.lower}
           </h2>
           <button
             type="button"
@@ -173,7 +175,7 @@ export function ScheduleTaskDialog({
         </div>
 
         <p id={helperId} className="text-xs text-neutral-text-secondary mb-4">
-          This commits the idea from your backlog to a sprint, starting on the
+          This commits the idea from your backlog to a {itl.lower}, starting on the
           target date you pick below.
         </p>
 
@@ -219,7 +221,7 @@ export function ScheduleTaskDialog({
               disabled:opacity-40 disabled:cursor-not-allowed
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >
-            {promote.isPending ? 'Adding…' : 'Add to sprint'}
+            {promote.isPending ? 'Adding…' : `Add to ${itl.lower}`}
           </button>
         </div>
       </div>

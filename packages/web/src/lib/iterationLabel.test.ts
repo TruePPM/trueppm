@@ -34,6 +34,35 @@ describe('iterationLabelForms', () => {
     expect(iterationLabelForms('Batch').lowerPlural).toBe('batches');
   });
 
+  it('preserves acronym casing in the lower forms (PI, not pi)', () => {
+    expect(iterationLabelForms('PI')).toEqual({
+      singular: 'PI',
+      plural: 'PIs',
+      lower: 'PI',
+      lowerPlural: 'PIs',
+      possessive: "PI's",
+    });
+  });
+
+  // The acronym rule is "any all-caps token", not a preset list — a company
+  // that prefers a custom acronym (e.g. "ITER" over "Iteration") gets the same
+  // casing preservation as the well-known "PI".
+  it.each([
+    ['FAT', 'FATs'],
+    ['ITER', 'ITERs'],
+    ['CYC', 'CYCs'],
+  ])('preserves casing for custom all-caps acronym %s', (singular, lowerPlural) => {
+    const forms = iterationLabelForms(singular);
+    expect(forms.lower).toBe(singular);
+    expect(forms.lowerPlural).toBe(lowerPlural);
+  });
+
+  it('still lowercases an ordinary mixed-case shortening (Iter → iter)', () => {
+    // Only ALL-caps is treated as an acronym; a mixed-case label lowercases
+    // normally, so the rule stays predictable ("type it in caps to keep caps").
+    expect(iterationLabelForms('Iter').lower).toBe('iter');
+  });
+
   it('builds the possessive form', () => {
     expect(iterationLabelForms('Iteration').possessive).toBe("Iteration's");
   });

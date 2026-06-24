@@ -6,6 +6,7 @@
  */
 
 import type { DorState, Task } from '@/types';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { PendingAcceptanceChip } from '@/features/board/PendingAcceptanceChip';
 
 const DOR_STYLE: Record<DorState, { cls: string; label: string }> = {
@@ -76,12 +77,13 @@ export function AcMeter({ met, total }: { met: number; total: number }) {
  * The text label is the WCAG 1.4.1 signal — never color alone (rule 7/120).
  */
 export function SprintCommitmentChip({ story }: { story: Task }) {
+  const itl = useIterationLabel();
   if (story.sprintPending) return <PendingAcceptanceChip />;
   if (story.sprintId) {
     return (
       <span
         className="inline-flex items-center whitespace-nowrap rounded-chip bg-brand-primary/10 px-2 py-0.5 text-[11px] font-semibold text-brand-primary"
-        title="Committed to a sprint"
+        title={`Committed to a ${itl.lower}`}
       >
         Pulled
       </span>
@@ -90,7 +92,7 @@ export function SprintCommitmentChip({ story }: { story: Task }) {
   return (
     <span
       className="inline-flex items-center whitespace-nowrap rounded-chip border border-dashed border-neutral-border px-2 py-0.5 text-[11px] font-semibold text-neutral-text-secondary"
-      title="A backlog candidate — not yet committed to a sprint"
+      title={`A backlog candidate — not yet committed to a ${itl.lower}`}
     >
       Proposed
     </span>

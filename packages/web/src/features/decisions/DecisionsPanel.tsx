@@ -11,6 +11,7 @@
 
 import { useMemo, useState } from 'react';
 import { useDecisions } from '@/hooks/useDecisions';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useSprints } from '@/hooks/useSprints';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import { formatRelative } from '@/lib/formatRelative';
@@ -66,6 +67,7 @@ function DecisionRow({ decision }: { decision: DecisionNote }) {
 }
 
 export function DecisionsPanel({ projectId }: { projectId: string }) {
+  const itl = useIterationLabel();
   const [scope, setScope] = useState<Scope>('all');
   const { sprints } = useSprints(projectId);
   const activeSprint = useMemo(() => sprints.find((s) => s.state === 'ACTIVE') ?? null, [sprints]);
@@ -92,7 +94,7 @@ export function DecisionsPanel({ projectId }: { projectId: string }) {
         {(
           [
             { key: 'all', label: 'All decisions' },
-            { key: 'sprint', label: 'Current sprint' },
+            { key: 'sprint', label: `Current ${itl.lower}` },
           ] as const
         ).map((opt) => {
           const selected = effectiveScope === opt.key;
@@ -104,7 +106,7 @@ export function DecisionsPanel({ projectId }: { projectId: string }) {
               role="radio"
               aria-checked={selected}
               disabled={disabled}
-              title={disabled ? 'No active sprint' : undefined}
+              title={disabled ? `No active ${itl.lower}` : undefined}
               onClick={() => setScope(opt.key)}
               tabIndex={selected ? 0 : -1}
               className={`rounded px-3 h-7 text-xs font-medium

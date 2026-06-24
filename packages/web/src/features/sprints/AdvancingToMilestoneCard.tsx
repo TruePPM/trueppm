@@ -85,7 +85,7 @@ export function AdvancingToMilestoneCard({ sprint, projectId, predecessorsInSpri
             <p className="text-xs text-neutral-text-secondary">
               <span className="tppm-mono">{predecessorsInSprint.inSprint}</span> of{' '}
               <span className="tppm-mono">{predecessorsInSprint.total}</span> predecessor
-              {predecessorsInSprint.total === 1 ? ' task' : ' tasks'} land in this sprint
+              {predecessorsInSprint.total === 1 ? ' task' : ' tasks'} land in this {itl.lower}
             </p>
           )}
 

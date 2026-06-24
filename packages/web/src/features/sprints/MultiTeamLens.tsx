@@ -34,7 +34,9 @@ export function MultiTeamLens({ entries }: Props) {
         </h2>
         <p className="text-xs text-neutral-text-secondary">
           <span className="tppm-mono text-neutral-text-primary">{entries.length}</span>{' '}
-          active sprint{entries.length === 1 ? '' : 's'} · sorted most behind first
+          {/* "active sprint(s)" is intentionally generic: My Teams aggregates across
+              multiple projects, so no single project's iteration label applies. */}
+          {entries.length === 1 ? 'active sprint' : 'active sprints'} · sorted most behind first
         </p>
       </header>
 
@@ -47,7 +49,8 @@ export function MultiTeamLens({ entries }: Props) {
             No active assignments across your teams
           </p>
           <p className="mt-1 text-xs text-neutral-text-secondary">
-            You&apos;ll see a card for each project where you have tasks in an active sprint.
+            {/* Generic "sprint" wording is intentional — cross-project My Teams aggregate. */}
+            {"You'll see a card for each project where you have tasks in an active sprint."}
           </p>
         </div>
       ) : (

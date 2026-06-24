@@ -3,7 +3,8 @@
  * conditionals, priority rank, assignee overflow, "Move to Done?" nudge, and
  * the overflow menu / "Move to" submenu interaction (rule 105).
  */
-import { render, screen, fireEvent } from '@testing-library/react';
+import { screen, fireEvent } from '@testing-library/react';
+import { renderWithProviders as render } from '@/test/utils';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { DndContext } from '@dnd-kit/core';
 import type { ComponentProps, ReactNode } from 'react';

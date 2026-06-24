@@ -1,4 +1,5 @@
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
+import { renderWithProviders as render } from '@/test/utils';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { IncomingCarryoverCard } from './IncomingCarryoverCard';
 import { useIncomingCarryover, type IncomingCarryover } from '@/hooks/useSprints';

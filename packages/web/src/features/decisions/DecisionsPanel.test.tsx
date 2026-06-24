@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { screen, fireEvent } from '@testing-library/react';
+import { renderWithProviders as render } from '@/test/utils';
 import type { DecisionNote } from '@/types';
 import { DecisionsPanel } from './DecisionsPanel';
 

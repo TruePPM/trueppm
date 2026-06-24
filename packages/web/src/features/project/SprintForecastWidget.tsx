@@ -10,6 +10,7 @@
  */
 import { formatShortDate } from '@/features/sprints/sprintMath';
 import { useSprintForecast } from '@/hooks/useSprints';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 
 interface Props {
   projectId: string;
@@ -33,6 +34,7 @@ export function SprintForecastWidget({ projectId }: Props) {
 }
 
 function Body({ data }: { data: NonNullable<ReturnType<typeof useSprintForecast>['data']> }) {
+  const itl = useIterationLabel();
   if (data.velocity_suppressed) {
     return (
       <p className="text-sm text-neutral-text-secondary" data-testid="forecast-suppressed">
@@ -52,7 +54,7 @@ function Body({ data }: { data: NonNullable<ReturnType<typeof useSprintForecast>
   if (data.status === 'warming_up' || data.p50_date === null || data.p80_date === null) {
     return (
       <p className="text-sm text-neutral-text-secondary" data-testid="forecast-warming-up">
-        A backlog forecast appears once at least two sprints have closed
+        A backlog forecast appears once at least two {itl.lowerPlural} have closed
         {data.sample_count > 0 ? (
           <>
             {' '}
@@ -78,11 +80,11 @@ function Body({ data }: { data: NonNullable<ReturnType<typeof useSprintForecast>
         <span className="tppm-mono font-semibold">{formatShortDate(data.p50_date)}</span>.
       </p>
       <p className="text-xs text-neutral-text-secondary">
-        P50 ≈ <span className="tppm-mono">{data.p50_sprints}</span> sprint
-        {data.p50_sprints === 1 ? '' : 's'} · P80{' '}
+        P50 ≈ <span className="tppm-mono">{data.p50_sprints}</span>{' '}
+        {data.p50_sprints === 1 ? itl.lower : itl.lowerPlural} · P80{' '}
         <span className="tppm-mono">{formatShortDate(data.p80_date)}</span> (
-        <span className="tppm-mono">{data.p80_sprints}</span> sprint
-        {data.p80_sprints === 1 ? '' : 's'}) · Monte&nbsp;Carlo over velocity
+        <span className="tppm-mono">{data.p80_sprints}</span>{' '}
+        {data.p80_sprints === 1 ? itl.lower : itl.lowerPlural}) · Monte&nbsp;Carlo over velocity
       </p>
     </div>
   );

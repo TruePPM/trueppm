@@ -21,9 +21,15 @@ export interface IterationLabelForms {
   singular: string;
   /** Naive English plural, e.g. "Iterations" — tab label, "No {Xs} yet". */
   plural: string;
-  /** Lowercased singular, e.g. "iteration" — mid-sentence "Close {x}". */
+  /**
+   * Lowercased singular for mid-sentence copy ("Close {x}"), e.g. "iteration".
+   * An all-caps acronym keeps its casing — "PI", never "pi".
+   */
   lower: string;
-  /** Lowercased plural, e.g. "iterations" — "Last 8 {xs}". */
+  /**
+   * Lowercased plural for count copy ("Last 8 {xs}"), e.g. "iterations".
+   * An all-caps acronym keeps its casing — "PIs", never "pis".
+   */
   lowerPlural: string;
   /** Possessive singular, e.g. "Iteration's" — "the {X's} commitment". */
   possessive: string;
@@ -47,19 +53,36 @@ function pluralize(singular: string): string {
 }
 
 /**
+ * Whether the stored label is an acronym — every cased letter is uppercase
+ * (e.g. "PI", "FAT"). Acronyms must keep their casing in the lowercase forms:
+ * a Program Increment reads "close the PI", never "close the pi".
+ *
+ * A mixed-case multi-word label with an embedded acronym (e.g. "PI Cycle") is
+ * treated as an ordinary phrase and lowercased — an accepted v1 limitation, in
+ * the same spirit as the irregular-plural note above.
+ */
+function isAcronym(label: string): boolean {
+  return label === label.toUpperCase() && label !== label.toLowerCase();
+}
+
+/**
  * Derive every display form from the stored singular label.
  *
  * Trims input and falls back to "Sprint" when blank/absent, so callers never
  * have to guard — `iterationLabelForms(project?.iteration_label)` is safe.
+ *
+ * All-caps acronyms ("PI") keep their casing in the lower/lowerPlural forms;
+ * ordinary nouns ("Sprint") are lowercased as before.
  */
 export function iterationLabelForms(stored: string | null | undefined): IterationLabelForms {
   const singular = (stored ?? '').trim() || DEFAULT_ITERATION_LABEL;
   const plural = pluralize(singular);
+  const acronym = isAcronym(singular);
   return {
     singular,
     plural,
-    lower: singular.toLowerCase(),
-    lowerPlural: plural.toLowerCase(),
+    lower: acronym ? singular : singular.toLowerCase(),
+    lowerPlural: acronym ? plural : plural.toLowerCase(),
     possessive: `${singular}'s`,
   };
 }

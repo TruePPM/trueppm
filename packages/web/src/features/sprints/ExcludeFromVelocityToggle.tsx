@@ -1,4 +1,5 @@
 import { useSprintMutations } from '@/hooks/useSprints';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 import type { ApiSprint } from '@/types';
 
 interface Props {
@@ -23,6 +24,7 @@ interface Props {
  * than hidden so an excluded sprint never looks broken (VoC Priya).
  */
 export function ExcludeFromVelocityToggle({ sprint, projectId, canEdit }: Props) {
+  const itl = useIterationLabel();
   const { updateSprint } = useSprintMutations(projectId);
   const on = sprint.exclude_from_velocity ?? false;
   const pending = updateSprint.isPending;
@@ -46,10 +48,10 @@ export function ExcludeFromVelocityToggle({ sprint, projectId, canEdit }: Props)
           Exclude from velocity
         </span>
         <span className="text-xs text-neutral-text-secondary">
-          Keeps this sprint out of your velocity average and delivery forecast.
-          Use it for a setup or ramp-up sprint (a “Sprint 0”) whose low
-          throughput would otherwise drag the numbers down — the sprint still
-          appears in your history.
+          Keeps this {itl.lower} out of your velocity average and delivery
+          forecast. Use it for a setup or ramp-up {itl.lower} (a “
+          {itl.singular} 0”) whose low throughput would otherwise drag the
+          numbers down — the {itl.lower} still appears in your history.
         </span>
       </div>
       <button

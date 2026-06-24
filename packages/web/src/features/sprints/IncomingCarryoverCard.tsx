@@ -1,4 +1,5 @@
 import { useIncomingCarryover } from '@/hooks/useSprints';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 
 interface Props {
   /** The PLANNED sprint whose incoming carryover we preview. */
@@ -19,6 +20,7 @@ interface Props {
  */
 export function IncomingCarryoverCard({ sprintId, currentSprintShortId }: Props) {
   const { data, isLoading } = useIncomingCarryover(sprintId);
+  const itl = useIterationLabel();
   if (isLoading || !data || data.tasks.length === 0 || data.prior_sprint === null) {
     return null;
   }
@@ -43,7 +45,7 @@ export function IncomingCarryoverCard({ sprintId, currentSprintShortId }: Props)
         </h2>
         <span
           className="tppm-mono text-xs px-2 py-0.5 rounded-full bg-semantic-at-risk-bg text-semantic-at-risk"
-          aria-label={`${tasks.length} unfinished ${tasks.length === 1 ? 'task' : 'tasks'} from the prior sprint`}
+          aria-label={`${tasks.length} unfinished ${tasks.length === 1 ? 'task' : 'tasks'} from the prior ${itl.lower}`}
         >
           {tasks.length} {tasks.length === 1 ? 'task' : 'tasks'}
         </span>
@@ -59,8 +61,8 @@ export function IncomingCarryoverCard({ sprintId, currentSprintShortId }: Props)
               role="img"
               aria-label={
                 t.pulled_in_to_current
-                  ? 'Rolled into this sprint'
-                  : 'Not rolled into this sprint'
+                  ? `Rolled into this ${itl.lower}`
+                  : `Not rolled into this ${itl.lower}`
               }
               className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] font-bold ${
                 t.pulled_in_to_current

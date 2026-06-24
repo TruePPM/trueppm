@@ -157,6 +157,7 @@ function TaskListRowInner({
   sourceSprint,
 }: Props) {
   const projectId = useProjectId() ?? '';
+  const itl = useIterationLabel(projectId);
   const selectedTaskId = useScheduleStore((s) => s.selectedTaskId);
   const setSelectedTaskId = useScheduleStore((s) => s.setSelectedTaskId);
   const setScheduleError = useScheduleStore((s) => s.setScheduleError);
@@ -1089,7 +1090,7 @@ function TaskListRowInner({
                     onError: (err) => {
                       if (parseProgressAnchorError(err)) {
                         setScheduleError(
-                          `Set a Planned Start date (or assign a sprint) before recording progress.`,
+                          `Set a Planned Start date (or assign a ${itl.lower}) before recording progress.`,
                         );
                         setTimeout(() => setScheduleError(null), 5000);
                       } else if (parseMilestoneRollupLockedError(err)) {
