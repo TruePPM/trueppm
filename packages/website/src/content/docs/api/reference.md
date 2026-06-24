@@ -181,6 +181,7 @@ A program is a container for related projects (see [Programs](/features/programs
 | POST | `/api/v1/programs/bulk-fields/` | Bulk-set inherited settings (methodology, iteration label, risk policy) across multiple programs; body `{"ids": [...], "fields": {...}}` — only the named rows and fields change (Workspace Admin) |
 | POST | `/api/v1/programs/{id}/bulk-project-fields/` | Bulk-set inherited settings (methodology, iteration label) across this program's projects; body `{"ids": [...], "fields": {...}}` (Program Admin) |
 | GET | `/api/v1/programs/{id}/resource-contention/` | Within-program resource contention across member projects (Scheduler+; optional `?start=` / `?end=` window, repeatable `?resource=` / `?status=`) |
+| GET | `/api/v1/programs/{id}/schedule/` | Program-true cross-project critical path — merges every member project's tasks and every accepted cross-project dependency into one CPM run, computed on read. Tasks in projects you cannot read are redacted to a minimal card (title + forecast dates only); links are flagged cross-project (any program member) |
 | POST | `/api/v1/programs/{id}/split/` | Split a program into sub-programs — **planned, not yet implemented** (returns `501`) |
 
 The import and load-sample endpoints return `201 Created` with the new program;
