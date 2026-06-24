@@ -434,11 +434,27 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
     def perform_update(self, serializer: BaseSerializer[Project]) -> None:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
+        # Capture the persisted calendar before save() mutates the instance in
+        # place. CPM lag is calendar-aware (ADR-0027), so swapping the working
+        # calendar shifts every task's working-day math — it is a scheduling
+        # input change and must trigger a full recompute, exactly like a
+        # dependency edit. Without this, edited task dates/floats silently stay
+        # computed against the old calendar until some unrelated change forces a
+        # recompute (#1267).
+        old_calendar_id = serializer.instance.calendar_id if serializer.instance else None
+
         instance = serializer.save()
         project_id = str(instance.pk)
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "project_updated", {"id": project_id})
         )
+
+        if instance.calendar_id != old_calendar_id:
+            transaction.on_commit(
+                lambda: _enqueue_recalculate(
+                    project_id, reason=ScheduleRequestReason.CALENDAR_CHANGE
+                )
+            )
 
     def perform_destroy(self, instance: Project) -> None:
         """Delete a project — soft by default, hard when ``?force=true``.

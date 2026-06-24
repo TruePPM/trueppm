@@ -260,6 +260,65 @@ def test_task_create_records_task_change_reason(
     assert req.reason == ScheduleRequestReason.TASK_CHANGE
 
 
+@pytest.mark.django_db(transaction=True)
+def test_project_calendar_change_enqueues_recalc(
+    user: object, project: Project, calendar: Calendar
+) -> None:
+    """Swapping a project's working calendar enqueues a CALENDAR_CHANGE recompute.
+
+    CPM lag is calendar-aware, so the calendar is a scheduling input — editing it
+    must trigger a recalculation (#1267). The calendar is an Admin-only general
+    setting, so the caller holds ADMIN.
+    """
+    from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestReason
+
+    ScheduleRequest.objects.all().delete()
+    ProjectMembership.objects.create(project=project, user=user, role=Role.ADMIN)
+    other_calendar = Calendar.objects.create(name="Four-Day Week")
+    c = APIClient()
+    c.force_authenticate(user=user)
+
+    with patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule") as mock_task:
+        mock_task.delay = MagicMock(return_value=MagicMock(id="celery-id"))
+        resp = c.patch(
+            f"/api/v1/projects/{project.pk}/",
+            {"calendar": str(other_calendar.pk)},
+        )
+        assert resp.status_code == 200
+
+    req = ScheduleRequest.objects.get(project=project)
+    assert req.reason == ScheduleRequestReason.CALENDAR_CHANGE
+
+
+@pytest.mark.django_db(transaction=True)
+def test_project_update_without_calendar_change_does_not_enqueue(
+    user: object, project: Project, calendar: Calendar
+) -> None:
+    """A project edit that leaves the calendar unchanged enqueues no recompute.
+
+    Guards against re-running CPM on every project-settings save — only a genuine
+    calendar swap is a scheduling-input change (#1267).
+    """
+    from trueppm_api.apps.scheduling.models import ScheduleRequest
+
+    ScheduleRequest.objects.all().delete()
+    ProjectMembership.objects.create(project=project, user=user, role=Role.ADMIN)
+    c = APIClient()
+    c.force_authenticate(user=user)
+
+    with patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule") as mock_task:
+        mock_task.delay = MagicMock(return_value=MagicMock(id="celery-id"))
+        # Re-submit the same calendar alongside a name edit: calendar_id is
+        # unchanged, so the guard must skip the enqueue.
+        resp = c.patch(
+            f"/api/v1/projects/{project.pk}/",
+            {"name": "Renamed", "calendar": str(calendar.pk)},
+        )
+        assert resp.status_code == 200
+
+    assert ScheduleRequest.objects.filter(project=project).count() == 0
+
+
 # ---------------------------------------------------------------------------
 # Manual trigger endpoint
 # ---------------------------------------------------------------------------

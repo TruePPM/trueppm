@@ -22,6 +22,9 @@ class ScheduleRequestReason(models.TextChoices):
 
     TASK_CHANGE = "task_change", "Task Change"
     DEPENDENCY_CHANGE = "dependency_change", "Dependency Change"
+    # A project's working calendar is a CPM input — lag is calendar-aware — so a
+    # calendar swap shifts every task's working-day math and forces a full recompute.
+    CALENDAR_CHANGE = "calendar_change", "Calendar Change"
     SPRINT_CLOSED = "sprint_closed", "Sprint Closed"
     MANUAL = "manual", "Manual"
 
