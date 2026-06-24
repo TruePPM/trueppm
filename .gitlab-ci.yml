@@ -1698,10 +1698,15 @@ scheduler:sbom:
   # tool when the cached image is stale — making the job robust to image churn.
   #
   # The SBOM describes the RUNTIME closure only (networkx + numpy), not dev
-  # tooling, so it is generated from a fresh runtime-only venv rather than the
-  # image's scheduler[dev] environment. cyclonedx-py points at that venv's
-  # interpreter, keeping the tool's own deps out of the SBOM. Switch to locked
-  # generation once the scheduler ships a committed uv.lock (TODO(#1153)).
+  # tooling. It is materialized from the committed packages/scheduler/uv.lock
+  # via `uv sync --frozen` — the SAME lockfile security:osv audits — so the SBOM
+  # records the exact, hash-verified resolved versions rather than whatever a
+  # fresh PyPI resolve happens to return at run time. `--no-editable` installs
+  # the project as a built wheel (matching the published artifact); the `dev`
+  # extra is opt-in, so a default sync excludes it. cyclonedx-py then describes
+  # that locked venv — same analyzer + output shape as before, deterministic
+  # input. (uv is pinned to the same 0.9.5 as the api/scheduler uv-lock-check
+  # jobs; it is not baked into the ci-scheduler image, so it installs here.)
   extends: .scheduler
   stage: security
   <<: *rules-scheduler
@@ -1710,17 +1715,19 @@ scheduler:sbom:
     <<: *scheduler-cache
     policy: pull
   before_script:
-    - pip install --quiet cyclonedx-bom==7.3.0
+    - pip install --quiet cyclonedx-bom==7.3.0 uv==0.9.5
   script:
-    - python -m venv /tmp/sbom-venv
-    - /tmp/sbom-venv/bin/pip install --quiet ./packages/scheduler
-    - cyclonedx-py environment /tmp/sbom-venv/bin/python
+    # only-system pins uv to the image's resident CPython 3.11 instead of
+    # downloading a managed interpreter; the locked versions are interpreter-
+    # independent, but this keeps the job hermetic.
+    - UV_PYTHON_PREFERENCE=only-system uv sync --frozen --no-editable --project packages/scheduler
+    - cyclonedx-py environment packages/scheduler/.venv/bin/python
         --validate
         --output-format JSON
         --output-reproducible
         --sv 1.6
         -o packages/scheduler/sbom.cdx.json
-    - echo "SBOM generated + validated:" && head -c 400 packages/scheduler/sbom.cdx.json
+    - echo "SBOM generated + validated (locked from uv.lock):" && head -c 400 packages/scheduler/sbom.cdx.json
   artifacts:
     paths:
       - packages/scheduler/sbom.cdx.json
@@ -2089,7 +2096,9 @@ scheduler:publish:
     # image (.gitlab/ci-images/scheduler.Dockerfile); this job runs on the
     # python:3.11-slim base, so it installs the tooling here. twine>=6.1 uploads
     # PEP 740 attestation sidecars; pypi-attestations signs them via Sigstore.
-    - pip install build "twine>=6.1" cyclonedx-bom==7.3.0 pypi-attestations --quiet
+    # uv (pinned to 0.9.5, matching the uv-lock-check jobs) materializes the
+    # locked SBOM input below.
+    - pip install build "twine>=6.1" cyclonedx-bom==7.3.0 pypi-attestations uv==0.9.5 --quiet
   script:
     # Verify the tag version matches the version declared in pyproject.toml.
     # Mismatches (e.g. forgot to bump the version) fail fast before uploading.
@@ -2109,13 +2118,15 @@ scheduler:publish:
       echo "Version check passed: $PKG_VERSION"
     - cd packages/scheduler
     - python -m build
-    # Generate + validate the CycloneDX SBOM from the built runtime closure
-    # BEFORE uploading (#936). Ordering matters: never let twine succeed (the
-    # release goes live) and then fail the job on a malformed SBOM. A fresh
-    # runtime-only venv keeps build/dev tooling out of the published SBOM.
-    - python -m venv /tmp/sbom-venv
-    - /tmp/sbom-venv/bin/pip install --quiet .
-    - cyclonedx-py environment /tmp/sbom-venv/bin/python --validate --output-format JSON --output-reproducible --sv 1.6 -o dist/sbom.cdx.json
+    # Generate + validate the CycloneDX SBOM BEFORE uploading (#936). Ordering
+    # matters: never let twine succeed (the release goes live) and then fail the
+    # job on a malformed SBOM. The runtime closure is materialized from the
+    # committed uv.lock (`uv sync --frozen --no-editable`, hash-verified) — the
+    # same locked, OSV-audited surface scheduler:sbom describes on MRs/main — so
+    # the published SBOM is reproducible rather than a fresh PyPI resolve. The
+    # `dev` extra is opt-in, so a default sync keeps build/dev tooling out.
+    - UV_PYTHON_PREFERENCE=only-system uv sync --frozen --no-editable
+    - cyclonedx-py environment .venv/bin/python --validate --output-format JSON --output-reproducible --sv 1.6 -o dist/sbom.cdx.json
     # Sign PEP 740 attestations for the SAME sdist + wheel uploaded below — the
     # exact artifacts the SBOM is generated from — NOT the SBOM itself, which is
     # not a PyPI distribution file (the explicit *.tar.gz / *.whl globs exclude
