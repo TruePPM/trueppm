@@ -13,7 +13,7 @@ import {
  * reads instead of the literal "Sprint" — so the relabel is configurable. The
  * `no-restricted-syntax` iteration-label gate in eslint.config.js mechanically
  * enforces it: hard-coded "sprint" in JSX text or display attributes on the
- * container feature surfaces fails `web:lint` (#1287).
+ * container feature surfaces fails `web:lint` (issue 1287).
  *
  * `projectId` defaults to the current route's project (`useProjectId`), so most
  * call sites use it with no arguments. While the project query is loading or
