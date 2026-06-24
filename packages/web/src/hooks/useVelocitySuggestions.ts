@@ -57,7 +57,7 @@ export function useVelocitySuggestions(taskId: string | undefined) {
  * (the endpoint is membership-gated server-side; the rows carry `sprint_id`).
  * The sprint-surface reforecast panel filters these to a single sprint so the
  * Scrum Master who just closed a sprint can accept/dismiss the velocity→duration
- * reforecast in place, instead of opening each task's drawer (#1290). The cache
+ * reforecast in place, instead of opening each task's drawer (issue 1290). The cache
  * key is project-agnostic — the response is the same regardless of which project
  * surface mounts it — but the fetch is gated on being inside a project route.
  */

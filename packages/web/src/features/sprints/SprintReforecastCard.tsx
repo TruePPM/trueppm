@@ -25,7 +25,7 @@ interface Props {
 }
 
 /**
- * Velocity reforecast panel for the sprint surface (#1290).
+ * Velocity reforecast panel for the sprint surface (issue 1290).
  *
  * The ADR-0065 velocity→duration accept/dismiss loop already exists, but only in
  * the Schedule task drawer (`EstimatesTab`) — so a Scrum Master who closes a
