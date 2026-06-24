@@ -100,7 +100,7 @@ export function AttachmentDropZone({ onFile, onError, allowedMimes, disabled, al
       onDragLeave={onDragLeave}
       onDrop={onDrop}
       aria-hidden={!visible}
-      className={`rounded border-2 border-dashed text-xs text-center transition-opacity
+      className={`rounded-card border-2 border-dashed text-xs text-center transition-opacity
         ${visible ? 'opacity-100 p-3' : 'opacity-0 h-0 overflow-hidden p-0 border-0'}
         ${dragOver ? 'border-brand-primary bg-brand-primary/5' : 'border-neutral-border bg-neutral-surface'}
         ${disabled ? 'opacity-50' : ''}`}

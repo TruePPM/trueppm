@@ -31,7 +31,7 @@ export function GuardrailNotice({ warnings, onUndo, onKeep }: Props) {
     <div
       role="status"
       aria-live="polite"
-      className="rounded border-l-2 border-semantic-at-risk bg-sem-at-risk-bg px-3 py-2 space-y-2"
+      className="rounded-card border-l-2 border-semantic-at-risk bg-sem-at-risk-bg px-3 py-2 space-y-2"
     >
       <ul className="space-y-1">
         {warnings.map((w) => (
@@ -48,7 +48,7 @@ export function GuardrailNotice({ warnings, onUndo, onKeep }: Props) {
         <button
           type="button"
           onClick={() => onKeep(reason)}
-          className="min-h-[44px] sm:min-h-0 sm:h-8 px-3 rounded text-xs font-medium
+          className="min-h-[44px] sm:min-h-0 sm:h-8 px-3 rounded-control text-xs font-medium
             border border-neutral-border text-neutral-text-primary hover:bg-neutral-surface-raised
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         >
@@ -57,7 +57,7 @@ export function GuardrailNotice({ warnings, onUndo, onKeep }: Props) {
         <button
           type="button"
           onClick={onUndo}
-          className="min-h-[44px] sm:min-h-0 sm:h-8 px-3 rounded text-xs font-medium
+          className="min-h-[44px] sm:min-h-0 sm:h-8 px-3 rounded-control text-xs font-medium
             text-neutral-text-secondary hover:text-neutral-text-primary
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         >
@@ -72,7 +72,7 @@ export function GuardrailNotice({ warnings, onUndo, onKeep }: Props) {
           onChange={(e) => setReason(e.target.value)}
           placeholder="Add a note (optional)"
           aria-label="Override note (optional)"
-          className="w-full h-8 rounded border border-neutral-border bg-neutral-surface px-2 text-xs
+          className="w-full h-8 rounded-control border border-neutral-border bg-neutral-surface px-2 text-xs
             text-neutral-text-primary placeholder:text-neutral-text-secondary
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         />
@@ -81,7 +81,7 @@ export function GuardrailNotice({ warnings, onUndo, onKeep }: Props) {
           type="button"
           onClick={() => setShowReason(true)}
           className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded"
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded-control"
         >
           ▸ Add a note (optional)
         </button>

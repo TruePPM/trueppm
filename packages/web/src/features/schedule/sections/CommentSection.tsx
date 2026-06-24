@@ -67,7 +67,7 @@ function renderBody(body: string, attachmentIndex: Map<string, TaskAttachment>):
       return [
         <span
           key={`att-${idx}`}
-          className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border
+          className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-chip border
             border-neutral-border bg-neutral-surface align-baseline"
           title={`Attachment: ${name}`}
         >
@@ -183,7 +183,7 @@ function CommentRow({
 
   return (
     <li
-      className={`flex flex-col gap-1 p-3 rounded border border-neutral-border bg-neutral-surface-raised ${
+      className={`flex flex-col gap-1 p-3 rounded-card border border-neutral-border bg-neutral-surface-raised ${
         depth > 0 ? 'ml-6 border-l-2 border-l-neutral-border/60' : ''
       }`}
       aria-label={`Comment by ${author}, ${ts}${wasEdited ? ', edited' : ''}`}
@@ -204,7 +204,7 @@ function CommentRow({
             <button
               type="button"
               onClick={onReplyClick}
-              className="text-xs border border-neutral-border rounded px-2 h-7 font-medium
+              className="text-xs border border-neutral-border rounded-control px-2 h-7 font-medium
                 text-neutral-text-secondary hover:bg-neutral-surface
                 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none"
               aria-label="Reply to this comment"
@@ -222,7 +222,7 @@ function CommentRow({
                 ? 'Remove your acknowledgement'
                 : 'Acknowledge this comment'
             }
-            className={`text-xs border rounded px-2 h-7 font-medium
+            className={`text-xs border rounded-control px-2 h-7 font-medium
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
               disabled:opacity-50
               ${
@@ -241,7 +241,7 @@ function CommentRow({
             onClick={handleReact}
             disabled={react.isPending}
             aria-label="React with 👍"
-            className="text-xs border border-neutral-border rounded px-2 h-7 font-medium
+            className="text-xs border border-neutral-border rounded-control px-2 h-7 font-medium
               text-neutral-text-secondary hover:bg-neutral-surface
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
               disabled:opacity-50"
@@ -307,7 +307,7 @@ export function CommentSection({ taskId, projectId, userRole, canEdit }: DrawerS
         {[0, 1, 2].map((i) => (
           <div
             key={i}
-            className="h-16 rounded border border-neutral-border animate-pulse bg-neutral-surface-raised"
+            className="h-16 rounded-card border border-neutral-border animate-pulse bg-neutral-surface-raised"
           />
         ))}
       </div>

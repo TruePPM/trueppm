@@ -53,7 +53,7 @@ export class SectionErrorBoundary extends Component<Props, State> {
           <button
             type="button"
             onClick={this.handleRetry}
-            className="px-2 py-1 rounded text-xs border border-neutral-border
+            className="px-2 py-1 rounded-control text-xs border border-neutral-border
               text-neutral-text-primary hover:bg-neutral-surface-raised
               focus-visible:outline-none focus-visible:ring-2
               focus-visible:ring-brand-primary focus-visible:ring-offset-1"

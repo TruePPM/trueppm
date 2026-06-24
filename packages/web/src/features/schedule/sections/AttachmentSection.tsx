@@ -143,7 +143,7 @@ function AttachmentRow({ attachment, projectId, taskId, canEdit }: AttachmentRow
 
   return (
     <li
-      className="flex flex-col gap-1 p-3 rounded border border-neutral-border bg-neutral-surface-raised"
+      className="flex flex-col gap-1 p-3 rounded-card border border-neutral-border bg-neutral-surface-raised"
       aria-label={`Attachment: ${displayName}`}
     >
       <div className="flex items-start gap-2 min-w-0">
@@ -170,7 +170,7 @@ function AttachmentRow({ attachment, projectId, taskId, canEdit }: AttachmentRow
           type="button"
           onClick={handleDownload}
           disabled={signedUrl.isPending}
-          className="text-xs border border-neutral-border rounded px-2 h-7 font-medium
+          className="text-xs border border-neutral-border rounded-control px-2 h-7 font-medium
             text-neutral-text-primary hover:bg-neutral-surface
             focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track
             focus-visible:outline-none disabled:opacity-50"
@@ -184,7 +184,7 @@ function AttachmentRow({ attachment, projectId, taskId, canEdit }: AttachmentRow
             type="button"
             onClick={() => setConfirmingDelete(true)}
             className="text-xs text-neutral-text-secondary hover:text-semantic-critical
-              rounded px-2 h-7
+              rounded-control px-2 h-7
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track
               focus-visible:outline-none"
             aria-label={`Delete ${displayName}`}
@@ -197,7 +197,7 @@ function AttachmentRow({ attachment, projectId, taskId, canEdit }: AttachmentRow
               type="button"
               onClick={handleDelete}
               disabled={deleteAttachment.isPending}
-              className="text-xs bg-semantic-critical text-white rounded px-2 h-7 font-medium
+              className="text-xs bg-semantic-critical text-white rounded-control px-2 h-7 font-medium
                 hover:opacity-90 disabled:opacity-50
                 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track
                 focus-visible:outline-none"
@@ -208,7 +208,7 @@ function AttachmentRow({ attachment, projectId, taskId, canEdit }: AttachmentRow
             <button
               type="button"
               onClick={() => setConfirmingDelete(false)}
-              className="text-xs text-neutral-text-secondary rounded px-2 h-7
+              className="text-xs text-neutral-text-secondary rounded-control px-2 h-7
                 hover:bg-neutral-surface
                 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track
                 focus-visible:outline-none"
@@ -351,7 +351,7 @@ export function AttachmentSection({
           {[0, 1].map((i) => (
             <div
               key={i}
-              className="h-16 rounded border border-neutral-border animate-pulse bg-neutral-surface-raised"
+              className="h-16 rounded-card border border-neutral-border animate-pulse bg-neutral-surface-raised"
             />
           ))}
         </div>
@@ -404,7 +404,7 @@ export function AttachmentSection({
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={uploadBlocked}
-              className="text-xs border border-neutral-border rounded px-3 h-7 font-medium
+              className="text-xs border border-neutral-border rounded-control px-3 h-7 font-medium
                 shrink-0 whitespace-nowrap
                 text-neutral-text-primary hover:bg-neutral-surface
                 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
@@ -416,7 +416,7 @@ export function AttachmentSection({
               type="button"
               onClick={() => setLinkModalOpen(true)}
               disabled={uploadBlocked}
-              className="text-xs border border-neutral-border rounded px-3 h-7 font-medium
+              className="text-xs border border-neutral-border rounded-control px-3 h-7 font-medium
                 shrink-0 whitespace-nowrap
                 text-neutral-text-primary hover:bg-neutral-surface
                 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none

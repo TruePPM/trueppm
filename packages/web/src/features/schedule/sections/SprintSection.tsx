@@ -15,7 +15,7 @@ import { GuardrailNotice } from './GuardrailNotice';
 import { GuardrailBlock } from './GuardrailBlock';
 
 const SELECT_CLASS =
-  'w-full h-9 rounded border border-neutral-border bg-neutral-surface px-3 ' +
+  'w-full h-9 rounded-control border border-neutral-border bg-neutral-surface px-3 ' +
   'text-sm text-neutral-text-primary ' +
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1';
 
@@ -105,7 +105,7 @@ export function SprintSection({ taskId, projectId, userRole, canEdit }: DrawerSe
       <div>
         <div className={LABEL_CLASS}>{itl.singular}</div>
         {isLoading ? (
-          <div className="h-9 rounded bg-neutral-surface-raised animate-pulse w-full" aria-label={`Loading ${itl.lowerPlural}`} />
+          <div className="h-9 rounded-control bg-neutral-surface-raised animate-pulse w-full" aria-label={`Loading ${itl.lowerPlural}`} />
         ) : !editable ? (
           // Read-only: show the assigned iteration name as static text (the
           // state badge / dates / remove control render separately below).
@@ -150,7 +150,7 @@ export function SprintSection({ taskId, projectId, userRole, canEdit }: DrawerSe
           <div className="flex items-center gap-2 min-w-0">
             <span
               className={[
-                'inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium border',
+                'inline-flex items-center px-1.5 py-0.5 rounded-chip text-xs font-medium border',
                 currentSprint.state === 'ACTIVE'
                   ? 'border-semantic-on-track/40 text-semantic-on-track'
                   : 'border-neutral-border text-neutral-text-secondary',
@@ -168,7 +168,7 @@ export function SprintSection({ taskId, projectId, userRole, canEdit }: DrawerSe
               onClick={handleRemove}
               disabled={isPending}
               aria-label={`Remove from ${itl.lower}`}
-              className="text-xs text-neutral-text-secondary hover:text-semantic-critical rounded shrink-0
+              className="text-xs text-neutral-text-secondary hover:text-semantic-critical rounded-control shrink-0
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
                 disabled:opacity-50 disabled:cursor-not-allowed"
             >

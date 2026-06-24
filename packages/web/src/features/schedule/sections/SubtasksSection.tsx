@@ -21,7 +21,7 @@ const LABEL_CLASS =
 function SubtaskRow({ subtask }: { subtask: Task }) {
   const isComplete = subtask.status === 'COMPLETE';
   return (
-    <div className="flex items-center gap-2 py-1.5 px-1 rounded hover:bg-neutral-surface-raised">
+    <div className="flex items-center gap-2 py-1.5 px-1 rounded-card hover:bg-neutral-surface-raised">
       <span
         className={[
           'mt-px h-2 w-2 rounded-full shrink-0',
@@ -70,7 +70,7 @@ export function SubtasksSection({ taskId, projectId, userRole, canEdit }: Drawer
   // Depth-1 guard — show an informational message instead of the create form.
   if (task.isSubtask) {
     return (
-      <div className="rounded border border-neutral-border bg-neutral-surface-raised px-3 py-2">
+      <div className="rounded-card border border-neutral-border bg-neutral-surface-raised px-3 py-2">
         <p className="text-xs text-neutral-text-secondary">
           Subtasks cannot be nested — this task is already a subtask.
         </p>
@@ -188,7 +188,7 @@ export function SubtasksSection({ taskId, projectId, userRole, canEdit }: Drawer
             disabled={isPending}
             aria-label="New subtask name"
             className={[
-              'flex-1 h-8 rounded border border-neutral-border bg-neutral-surface px-2 text-sm text-neutral-text-primary',
+              'flex-1 h-8 rounded-control border border-neutral-border bg-neutral-surface px-2 text-sm text-neutral-text-primary',
               'placeholder:text-neutral-text-disabled',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
               'disabled:opacity-50 disabled:cursor-not-allowed',
@@ -207,7 +207,7 @@ export function SubtasksSection({ taskId, projectId, userRole, canEdit }: Drawer
             onClick={cancelAdding}
             aria-label="Cancel adding subtask"
             className={[
-              'h-8 px-2 rounded text-sm text-neutral-text-secondary hover:text-neutral-text-primary',
+              'h-8 px-2 rounded-control text-sm text-neutral-text-secondary hover:text-neutral-text-primary',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
             ].join(' ')}
           >
@@ -219,7 +219,7 @@ export function SubtasksSection({ taskId, projectId, userRole, canEdit }: Drawer
           type="button"
           onClick={startAdding}
           className={[
-            'text-xs font-medium text-brand-primary hover:text-brand-primary/80 rounded',
+            'text-xs font-medium text-brand-primary hover:text-brand-primary/80 rounded-control',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
           ].join(' ')}
         >

@@ -110,7 +110,7 @@ export function MentionAutocomplete({
         id={listboxId}
         role="listbox"
         aria-label="Mention suggestions"
-        className="absolute z-50 min-w-[240px] bg-neutral-surface border border-neutral-border rounded p-1"
+        className="absolute z-50 min-w-[240px] bg-neutral-surface border border-neutral-border rounded-card p-1"
       >
         <div className="px-2 py-1.5 text-xs text-neutral-text-secondary">No matches</div>
       </div>
@@ -123,7 +123,7 @@ export function MentionAutocomplete({
       role="listbox"
       aria-label="Mention suggestions"
       className="absolute z-50 min-w-[240px] max-h-[280px] overflow-y-auto bg-neutral-surface
-        border border-neutral-border rounded p-1 list-none"
+        border border-neutral-border rounded-card p-1 list-none"
     >
       {suggestions.map((s, idx) => {
         const active = idx === highlightIndex;
@@ -134,7 +134,7 @@ export function MentionAutocomplete({
             role="option"
             aria-selected={active}
             aria-disabled={s.disabled}
-            className={`flex items-baseline gap-2 px-2 py-1.5 rounded text-xs cursor-pointer
+            className={`flex items-baseline gap-2 px-2 py-1.5 rounded-control text-xs cursor-pointer
               ${active && !s.disabled ? 'bg-brand-primary/10 text-neutral-text-primary' : ''}
               ${s.disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-neutral-surface-raised'}`}
             onMouseDown={(e) => {

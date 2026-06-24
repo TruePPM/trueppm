@@ -59,7 +59,7 @@ export function NotesComposer({ projectId, taskId }: Props) {
 
   return (
     <div
-      className="flex flex-col gap-2 p-3 rounded border border-neutral-border bg-neutral-surface-raised"
+      className="flex flex-col gap-2 p-3 rounded-card border border-neutral-border bg-neutral-surface-raised"
       aria-label="Note composer"
     >
       <label className="sr-only" htmlFor={`note-body-${taskId}`}>
@@ -74,7 +74,7 @@ export function NotesComposer({ projectId, taskId }: Props) {
         placeholder="Capture a decision or the why behind this work."
         disabled={createNote.isPending}
         aria-describedby={`note-counter-${taskId}`}
-        className="text-sm bg-neutral-surface border border-neutral-border rounded p-2
+        className="text-sm bg-neutral-surface border border-neutral-border rounded-control p-2
           text-neutral-text-primary placeholder:text-neutral-text-disabled
           focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
           disabled:opacity-50 resize-y min-h-[60px]"

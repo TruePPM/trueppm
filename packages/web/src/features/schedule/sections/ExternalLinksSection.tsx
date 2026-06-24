@@ -113,7 +113,7 @@ function TypeChip({ type }: { type: string }) {
   const label = previewTypeLabel(type);
   return (
     <span
-      className="inline-flex items-center rounded bg-neutral-surface-sunken px-1.5 py-0.5
+      className="inline-flex items-center rounded-chip bg-neutral-surface-sunken px-1.5 py-0.5
         text-[11px] font-medium text-neutral-text-secondary"
       aria-label={`File type: ${label}`}
     >
@@ -150,7 +150,7 @@ function FilePreview({ link }: { link: TaskExternalLink }) {
     <div className="flex items-start gap-2">
       <div
         className="flex h-14 w-14 flex-shrink-0 items-center justify-center overflow-hidden
-          rounded border border-neutral-border bg-neutral-surface-sunken"
+          rounded-card border border-neutral-border bg-neutral-surface-sunken"
       >
         {showImage ? (
           <img
@@ -201,7 +201,7 @@ function LabelPills({ labels }: { labels: string[] }) {
       {labels.map((label, i) => (
         <li
           key={`${label}-${i}`}
-          className="inline-flex items-center rounded bg-neutral-surface-sunken px-1.5 py-0.5
+          className="inline-flex items-center rounded-chip bg-neutral-surface-sunken px-1.5 py-0.5
             text-xs text-neutral-text-secondary"
         >
           {label}
@@ -241,14 +241,14 @@ function LabelChipInput({ labels, onChange }: LabelChipInputProps) {
 
   return (
     <div
-      className="flex flex-wrap items-center gap-1 rounded border border-neutral-border
+      className="flex flex-wrap items-center gap-1 rounded-card border border-neutral-border
         bg-neutral-surface px-2 py-1
         focus-within:ring-2 focus-within:ring-brand-primary focus-within:ring-offset-1 dark:focus-within:ring-semantic-on-track"
     >
       {labels.map((label, i) => (
         <span
           key={`${label}-${i}`}
-          className="inline-flex items-center gap-1 rounded bg-neutral-surface-sunken px-1.5 py-0.5
+          className="inline-flex items-center gap-1 rounded-chip bg-neutral-surface-sunken px-1.5 py-0.5
             text-xs text-neutral-text-secondary"
         >
           {label}
@@ -256,7 +256,7 @@ function LabelChipInput({ labels, onChange }: LabelChipInputProps) {
             type="button"
             onClick={() => removeAt(i)}
             aria-label={`Remove label ${label}`}
-            className="rounded text-neutral-text-secondary hover:text-semantic-critical
+            className="rounded-control text-neutral-text-secondary hover:text-semantic-critical
               focus-visible:ring-2 focus-visible:ring-brand-primary dark:focus-visible:ring-semantic-on-track focus-visible:outline-none"
           >
             ×
@@ -354,7 +354,7 @@ function ExternalLinkRow({ link, projectId, taskId, canEdit }: ExternalLinkRowPr
   if (editing) {
     return (
       <li
-        className="flex flex-col gap-2 p-3 rounded border border-neutral-border bg-neutral-surface-raised"
+        className="flex flex-col gap-2 p-3 rounded-card border border-neutral-border bg-neutral-surface-raised"
         aria-label={`Edit link: ${title}`}
       >
         <input
@@ -364,7 +364,7 @@ function ExternalLinkRow({ link, projectId, taskId, canEdit }: ExternalLinkRowPr
           maxLength={512}
           placeholder="Title (optional)"
           aria-label="Link title"
-          className="h-8 px-2 text-sm rounded border border-neutral-border bg-neutral-surface
+          className="h-8 px-2 text-sm rounded-control border border-neutral-border bg-neutral-surface
             text-neutral-text-primary placeholder:text-neutral-text-secondary
             focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none"
         />
@@ -374,7 +374,7 @@ function ExternalLinkRow({ link, projectId, taskId, canEdit }: ExternalLinkRowPr
             type="button"
             onClick={handleSaveEdit}
             disabled={update.isPending}
-            className="text-xs border border-neutral-border rounded px-3 h-8 font-medium
+            className="text-xs border border-neutral-border rounded-control px-3 h-8 font-medium
               text-neutral-text-primary hover:bg-neutral-surface disabled:opacity-50
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none"
           >
@@ -383,7 +383,7 @@ function ExternalLinkRow({ link, projectId, taskId, canEdit }: ExternalLinkRowPr
           <button
             type="button"
             onClick={() => setEditing(false)}
-            className="text-xs text-neutral-text-secondary rounded px-3 h-8 hover:bg-neutral-surface
+            className="text-xs text-neutral-text-secondary rounded-control px-3 h-8 hover:bg-neutral-surface
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none"
           >
             Cancel
@@ -400,7 +400,7 @@ function ExternalLinkRow({ link, projectId, taskId, canEdit }: ExternalLinkRowPr
 
   return (
     <li
-      className="flex flex-col gap-1 p-3 rounded border border-neutral-border bg-neutral-surface-raised"
+      className="flex flex-col gap-1 p-3 rounded-card border border-neutral-border bg-neutral-surface-raised"
       aria-label={`Link: ${title}`}
     >
       <div className="flex items-start gap-2 min-w-0">
@@ -413,7 +413,7 @@ function ExternalLinkRow({ link, projectId, taskId, canEdit }: ExternalLinkRowPr
             target="_blank"
             rel="noopener noreferrer"
             className="text-sm font-medium text-neutral-text-primary truncate hover:underline
-              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none rounded"
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none rounded-control"
           >
             {title}
             <span className="sr-only"> (opens in new tab)</span>
@@ -441,7 +441,7 @@ function ExternalLinkRow({ link, projectId, taskId, canEdit }: ExternalLinkRowPr
             type="button"
             onClick={handleRefresh}
             disabled={refresh.isPending}
-            className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary rounded px-2 h-7
+            className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary rounded-control px-2 h-7
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none disabled:opacity-50"
             aria-label={`Refresh status for ${title}`}
           >
@@ -453,7 +453,7 @@ function ExternalLinkRow({ link, projectId, taskId, canEdit }: ExternalLinkRowPr
             <button
               type="button"
               onClick={startEdit}
-              className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary rounded px-2 h-7
+              className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary rounded-control px-2 h-7
                 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none"
               aria-label={`Edit ${title}`}
             >
@@ -465,7 +465,7 @@ function ExternalLinkRow({ link, projectId, taskId, canEdit }: ExternalLinkRowPr
               <button
                 type="button"
                 onClick={() => setConfirmingDelete(true)}
-                className="text-xs text-neutral-text-secondary hover:text-semantic-critical rounded px-2 h-7
+                className="text-xs text-neutral-text-secondary hover:text-semantic-critical rounded-control px-2 h-7
                   focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none"
                 aria-label={`Delete ${title}`}
               >
@@ -477,7 +477,7 @@ function ExternalLinkRow({ link, projectId, taskId, canEdit }: ExternalLinkRowPr
                   type="button"
                   onClick={handleDelete}
                   disabled={remove.isPending}
-                  className="text-xs bg-semantic-critical text-white rounded px-2 h-7 font-medium
+                  className="text-xs bg-semantic-critical text-white rounded-control px-2 h-7 font-medium
                     hover:opacity-90 disabled:opacity-50
                     focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none"
                   aria-label={`Confirm delete ${title}`}
@@ -487,7 +487,7 @@ function ExternalLinkRow({ link, projectId, taskId, canEdit }: ExternalLinkRowPr
                 <button
                   type="button"
                   onClick={() => setConfirmingDelete(false)}
-                  className="text-xs text-neutral-text-secondary rounded px-2 h-7 hover:bg-neutral-surface
+                  className="text-xs text-neutral-text-secondary rounded-control px-2 h-7 hover:bg-neutral-surface
                     focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none"
                 >
                   Cancel
@@ -569,7 +569,7 @@ function AddLinkInput({ projectId, taskId }: AddLinkInputProps) {
           placeholder="Paste a GitLab, GitHub, or any URL…"
           aria-label="Add a link URL"
           aria-describedby="external-link-hint"
-          className="flex-1 h-9 px-2 text-sm rounded border border-neutral-border bg-neutral-surface
+          className="flex-1 h-9 px-2 text-sm rounded-control border border-neutral-border bg-neutral-surface
             text-neutral-text-primary placeholder:text-neutral-text-secondary
             focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none"
         />
@@ -577,7 +577,7 @@ function AddLinkInput({ projectId, taskId }: AddLinkInputProps) {
           type="button"
           onClick={handleSubmit}
           disabled={!detected || create.isPending}
-          className="text-xs border border-neutral-border rounded px-3 h-9 font-medium
+          className="text-xs border border-neutral-border rounded-control px-3 h-9 font-medium
             text-neutral-text-primary hover:bg-neutral-surface
             focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none disabled:opacity-50"
         >
@@ -599,7 +599,7 @@ function AddLinkInput({ projectId, taskId }: AddLinkInputProps) {
             maxLength={512}
             placeholder="Title (optional)"
             aria-label="Link title"
-            className="h-8 px-2 text-sm rounded border border-neutral-border bg-neutral-surface
+            className="h-8 px-2 text-sm rounded-control border border-neutral-border bg-neutral-surface
               text-neutral-text-primary placeholder:text-neutral-text-secondary
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none"
           />
@@ -648,7 +648,7 @@ export function ExternalLinksSection({
           {[0, 1].map((i) => (
             <div
               key={i}
-              className="h-16 rounded border border-neutral-border animate-pulse bg-neutral-surface-raised"
+              className="h-16 rounded-card border border-neutral-border animate-pulse bg-neutral-surface-raised"
             />
           ))}
         </div>
@@ -664,7 +664,7 @@ export function ExternalLinksSection({
         <p
           role="note"
           className="text-xs text-neutral-text-secondary border border-dashed border-neutral-border
-            bg-neutral-surface-sunken rounded px-4 py-3"
+            bg-neutral-surface-sunken rounded-card px-4 py-3"
         >
           🔗 Paste a GitLab, GitHub, Drive, Dropbox, Box, or OneDrive URL. Git links show live
           status; cloud-file links show a preview. Add a title and labels.
