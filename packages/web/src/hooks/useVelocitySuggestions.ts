@@ -101,7 +101,7 @@ export function useAcceptSprintVelocitySuggestion(projectId: string) {
   });
 }
 
-export function useDismissSprintVelocitySuggestion(projectId: string) {
+export function useDismissSprintVelocitySuggestion() {
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -111,12 +111,10 @@ export function useDismissSprintVelocitySuggestion(projectId: string) {
       );
       return res.data;
     },
+    // Dismiss is audit-only — it never touches the task — so it only needs to drop
+    // the settled row out of the pending lists; no task-cache refresh.
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['velocity-suggestions'] });
-      // Keep projectId in the signature so callers wire the same surface and a
-      // future optimistic update has the project handle; the dismiss is audit-only
-      // so no task refresh is needed today.
-      void projectId;
     },
   });
 }

@@ -57,7 +57,7 @@ export function RetroActionItems({
       </div>
 
       {items.length === 0 ? (
-        <p className="text-xs italic text-neutral-text-disabled">No action items yet.</p>
+        <p className="text-xs italic text-neutral-text-secondary">No action items yet.</p>
       ) : (
         <ul className="flex flex-col gap-2">
           {items.map((item, idx) => {
@@ -117,7 +117,7 @@ export function RetroActionItems({
                   </button>
                 ) : (
                   <span
-                    className="text-xs text-neutral-text-disabled italic whitespace-nowrap px-2"
+                    className="text-xs text-neutral-text-secondary italic whitespace-nowrap px-2"
                     title="Save retro first to enable promote"
                   >
                     Save first

@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 
+import { Button } from '@/components/Button';
 import {
   useAcceptSprintVelocitySuggestion,
   useDismissSprintVelocitySuggestion,
@@ -44,7 +45,7 @@ interface Props {
 export function SprintReforecastCard({ projectId, sprintId, sprintName, tasks, canManage }: Props) {
   const { data: suggestions } = usePendingVelocitySuggestions(canManage ? projectId : undefined);
   const accept = useAcceptSprintVelocitySuggestion(projectId);
-  const dismiss = useDismissSprintVelocitySuggestion(projectId);
+  const dismiss = useDismissSprintVelocitySuggestion();
 
   const tasksById = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
 
@@ -63,7 +64,6 @@ export function SprintReforecastCard({ projectId, sprintId, sprintName, tasks, c
 
   return (
     <section
-      role="region"
       aria-label="Velocity reforecast suggestions"
       data-testid="sprint-reforecast-card"
       className="rounded-lg border border-brand-primary/40 bg-brand-primary/5 p-3 flex flex-col gap-2.5"
@@ -110,30 +110,24 @@ export function SprintReforecastCard({ projectId, sprintId, sprintName, tasks, c
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-2">
-                <button
-                  type="button"
+                <Button
+                  variant="secondary"
+                  size="sm"
                   onClick={() => dismiss.mutate(s.id)}
                   disabled={busy}
                   aria-label={`Dismiss reforecast for ${task?.name ?? 'task'}`}
-                  className="h-8 px-3 rounded text-xs font-medium border border-neutral-border
-                    text-neutral-text-secondary bg-neutral-surface hover:bg-neutral-surface-raised
-                    disabled:opacity-50 disabled:cursor-not-allowed
-                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
                 >
                   Dismiss
-                </button>
-                <button
-                  type="button"
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
                   onClick={() => accept.mutate(s.id)}
                   disabled={busy}
                   aria-label={`Accept reforecast for ${task?.name ?? 'task'}`}
-                  className="h-8 px-3 rounded text-xs font-semibold border border-sage-600
-                    text-navy-900 bg-sage-500 dark:bg-sage-400 dark:text-navy-900 hover:bg-sage-600
-                    disabled:opacity-50 disabled:cursor-not-allowed
-                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
                 >
                   Accept
-                </button>
+                </Button>
               </div>
             </li>
           );
