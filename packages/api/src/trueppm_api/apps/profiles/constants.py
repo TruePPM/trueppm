@@ -27,6 +27,7 @@ HIDEABLE_VIEW_KEYS: frozenset[str] = frozenset(
         "grid",
         "calendar",
         # TRACK group
+        "today",
         "board",
         "risk",
         "reports",

@@ -11,6 +11,7 @@ import {
   BarChartIcon,
   WbsIcon,
   OverviewIcon,
+  TodayIcon,
 } from '@/components/Icons';
 
 export type ViewIconType = ComponentType<{ className?: string; 'aria-hidden'?: 'true' }>;
@@ -31,6 +32,8 @@ export interface ViewMeta {
  */
 export const VIEW_TAB_META: Record<string, ViewMeta> = {
   overview: { label: 'Overview', Icon: OverviewIcon },
+  // Unified Today split view (ADR-0180) — the `unified` role-context lens lands here.
+  today: { label: 'Today', Icon: TodayIcon },
   'product-backlog': { label: 'Backlog', Icon: WbsIcon },
   sprints: { label: 'Sprints', Icon: SprintIcon },
   schedule: { label: 'Schedule', Icon: GanttIcon },

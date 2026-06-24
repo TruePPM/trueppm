@@ -20,6 +20,9 @@ const ProjectOverviewPage = lazy(() =>
 const ScheduleView = lazy(() =>
   import('@/features/schedule/ScheduleView').then((m) => ({ default: m.ScheduleView })),
 );
+const TodayView = lazy(() =>
+  import('@/features/today/TodayView').then((m) => ({ default: m.TodayView })),
+);
 const TaskDetailPage = lazy(() =>
   import('@/features/schedule/TaskDetailPage').then((m) => ({ default: m.TaskDetailPage })),
 );
@@ -251,13 +254,22 @@ export const router = createBrowserRouter([
             element: <ProjectShell />,
             children: [
               // /projects/:projectId → lens-aware landing (issue 1263, ADR-0162):
-              // PM→schedule, Scrum Master→board, Unified→overview (ADR-0030 default).
+              // PM→schedule, Scrum Master→board, Unified→today (ADR-0180).
               { index: true, element: <ProjectIndexRedirect /> },
               {
                 path: 'overview',
                 element: (
                   <Suspense fallback={<RouteLoadingFallback />}>
                     <ProjectOverviewPage />
+                  </Suspense>
+                ),
+              },
+              {
+                // Unified Today split view (ADR-0180) — the `unified` lens lands here.
+                path: 'today',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <TodayView />
                   </Suspense>
                 ),
               },

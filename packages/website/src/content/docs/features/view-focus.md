@@ -17,7 +17,7 @@ There are three focuses, and **Unified Today** is the default:
 
 | Focus | Opens a project on | Leads the view bar with |
 |---|---|---|
-| **Unified Today** (default) | Overview | the standard order |
+| **Unified Today** (default) | the **Today** split view | the standard order |
 | **PM** | the Schedule | Schedule, then Grid |
 | **Scrum Master** | the Board | Board, then Sprints |
 
@@ -25,12 +25,36 @@ There are three focuses, and **Unified Today** is the default:
 
 - **Picks your default project view.** Open any project and you land on the surface your
   focus cares about — the Schedule in PM focus, the Board in Scrum Master focus, the
-  Overview in Unified Today. You can still navigate anywhere; this only changes where you
-  *start*.
+  **Today** split view in Unified Today. You can still navigate anywhere; this only
+  changes where you *start*.
 - **Emphasizes your view tabs.** Your focus moves its priority tabs to the front of the
   project view bar, so the views you reach for most are first. Nothing is hidden or
   removed — the same tabs are all there, just reordered. Unified Today keeps the standard
   order.
+
+## The Today view
+
+Unified Today focus opens each project on a purpose-built **Today** split screen — one
+place for the dual-hat PM + Scrum Master, so you stop bouncing between the Schedule and
+the Board:
+
+- **A schedule pulse on top** — a compact, read-only strip showing the project's
+  schedule health (On track / At risk / Critical), its SPI, percent complete, the count
+  of critical and late tasks, and the next milestone. It reads the same numbers as the
+  project Overview, so the two never disagree.
+- **The active sprint's progress, right on the pulse** — the strip carries a small chip
+  for the active sprint with a live progress bar. That progress is read straight from the
+  board below (how many committed tasks are done), so the agile team's delivery shows up
+  on the schedule view without anyone copying a number across. The link is one-way: the
+  board feeds the pulse, never the reverse, and nothing about the sprint can be edited
+  from the pulse.
+- **The sprint board below** — the full board you already use, unchanged, filling the
+  rest of the screen.
+
+`Today` is also a regular **Today** tab in the project view bar (in the *Track* group),
+so anyone can open it — Unified Today focus just makes it your starting point. On a
+project with no active sprint, the pulse simply reads "No active sprint" and the board
+shows its own empty state.
 
 ## What it does not do
 

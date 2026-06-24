@@ -64,7 +64,7 @@ async function setup(page: import('@playwright/test').Page) {
   await setupCatchAll(page);
   // /auth/me/ — the project-index redirect (ProjectIndexRedirect, ADR-0162) now
   // holds until this resolves, so it must be mocked. The neutral `unified` lens
-  // keeps the index → Overview behavior this spec asserts.
+  // lands the index on the Today split view (ADR-0180).
   await page.route('**/api/v1/auth/me/', (route) =>
     route.fulfill({
       status: 200,
@@ -252,11 +252,12 @@ test.describe('View switching', () => {
     await expect(page).toHaveURL(/\/grid$/, { timeout: 10_000 });
   });
 
-  test('navigating to /projects/:id with no view segment redirects to Overview (ADR-0030)', async ({ page }) => {
-    // React Router index route: <Navigate to="overview" replace /> — must redirect immediately.
+  test('navigating to /projects/:id with no view segment redirects to the lens default (Today for unified, ADR-0180)', async ({ page }) => {
+    // The project index is ProjectIndexRedirect → lensDefaultView(role_context).
+    // The mocked user is the neutral `unified` lens, which lands on the Today view.
     await page.goto(BASE_URL);
-    await expect(page).toHaveURL(/\/overview$/, { timeout: 5_000 });
-    await expect(page.getByRole('navigation', { name: 'View' }).getByRole('link', { name: 'Overview' }))
+    await expect(page).toHaveURL(/\/today$/, { timeout: 5_000 });
+    await expect(page.getByRole('navigation', { name: 'View' }).getByRole('link', { name: 'Today' }))
       .toHaveAttribute('aria-current', 'page');
   });
 
