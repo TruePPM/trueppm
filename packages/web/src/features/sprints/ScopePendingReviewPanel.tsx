@@ -226,7 +226,7 @@ export function ScopePendingReviewPanel({
           aria-labelledby="scope-bulk-confirm-title"
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-neutral-text-primary/40"
         >
-          <div className="w-[400px] max-w-full rounded-md border border-neutral-border bg-neutral-surface flex flex-col gap-3 p-5">
+          <div className="w-[400px] max-w-full rounded-card border border-neutral-border bg-neutral-surface flex flex-col gap-3 p-5">
             <h3
               id="scope-bulk-confirm-title"
               className="text-base font-semibold text-neutral-text-primary"

@@ -82,7 +82,7 @@ export function CloseSprintDialog({
       aria-labelledby="close-sprint-title"
       className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-neutral-text-primary/40"
     >
-      <div className="w-[440px] max-w-full rounded-md border border-neutral-border bg-neutral-surface flex flex-col gap-4 p-5">
+      <div className="w-[440px] max-w-full rounded-card border border-neutral-border bg-neutral-surface flex flex-col gap-4 p-5">
         <h2
           id="close-sprint-title"
           className="text-base font-semibold text-neutral-text-primary"
@@ -173,7 +173,7 @@ export function CloseSprintDialog({
         {pendingCount > 0 && (
           <fieldset
             role="status"
-            className="flex flex-col gap-2 text-sm rounded-md border border-neutral-border bg-neutral-surface-sunken p-3"
+            className="flex flex-col gap-2 text-sm rounded-card border border-neutral-border bg-neutral-surface-sunken p-3"
           >
             <legend className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary px-1">
               <span aria-hidden="true">○</span>{' '}

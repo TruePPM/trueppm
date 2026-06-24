@@ -111,7 +111,7 @@ export function SprintTimelineStrip({
           <button
             type="button"
             onClick={onPlanNext}
-            className="shrink-0 w-48 rounded-md border-2 border-dashed border-neutral-border
+            className="shrink-0 w-48 rounded-card border-2 border-dashed border-neutral-border
               bg-neutral-surface text-sm font-medium text-neutral-text-secondary
               hover:border-brand-primary/40 hover:text-brand-primary
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
@@ -189,7 +189,7 @@ function SprintCard({
   return (
     <article
       {...rest}
-      className={`relative shrink-0 w-56 rounded-md border p-3 flex flex-col gap-2 ${tone} ${ring}`}
+      className={`relative shrink-0 w-56 rounded-card border p-3 flex flex-col gap-2 ${tone} ${ring}`}
       aria-label={`${sprint.short_id_display} ${sprint.name}, ${variant}`}
       aria-current={isSelected || undefined}
     >
@@ -201,7 +201,7 @@ function SprintCard({
           type="button"
           onClick={() => onSelect(sprint.id)}
           aria-label={`Review ${sprint.short_id_display} ${sprint.name}`}
-          className="absolute inset-0 z-10 rounded-md
+          className="absolute inset-0 z-10 rounded-card
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         />
       )}

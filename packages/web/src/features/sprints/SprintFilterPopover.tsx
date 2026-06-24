@@ -133,7 +133,7 @@ export function SprintFilterPopover({ open, anchorRef, value, onChange, tasks, o
       role="dialog"
       aria-label={`Filter ${itl.lower} backlog`}
       style={pos ? { top: pos.top, left: pos.left } : { visibility: 'hidden' }}
-      className="fixed z-30 w-72 rounded-md border border-neutral-border bg-neutral-surface
+      className="fixed z-30 w-72 rounded-card border border-neutral-border bg-neutral-surface
         text-neutral-text-primary text-xs"
     >
       <div className="flex flex-col gap-3 p-3">

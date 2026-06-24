@@ -102,7 +102,7 @@ export function RetroColumn({
   return (
     <section
       aria-label={label}
-      className="flex flex-col gap-2 min-w-0 flex-1 rounded-md border border-neutral-border bg-neutral-surface-raised p-2"
+      className="flex flex-col gap-2 min-w-0 flex-1 rounded-card border border-neutral-border bg-neutral-surface-raised p-2"
     >
       <h3 className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary px-0.5">
         {label}

@@ -106,7 +106,7 @@ export function RetroPresenceChips() {
               ref={popoverRef}
               role="dialog"
               aria-label="More retro participants"
-              className="absolute left-0 top-full z-30 mt-2 w-56 rounded-md border border-neutral-border
+              className="absolute left-0 top-full z-30 mt-2 w-56 rounded-card border border-neutral-border
                 bg-neutral-surface text-neutral-text-primary text-xs shadow-pop"
             >
               <ul className="flex flex-col gap-1.5 p-2">

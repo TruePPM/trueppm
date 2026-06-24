@@ -128,7 +128,7 @@ function SprintReviewSection({
   }
 
   return (
-    <div className="rounded-md border border-neutral-border bg-neutral-surface" data-testid="sprint-review">
+    <div className="rounded-card border border-neutral-border bg-neutral-surface" data-testid="sprint-review">
       <h3 className="px-3 py-2 text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary border-b border-neutral-border">
         {itl.singular} review
       </h3>
@@ -566,7 +566,7 @@ function MilestoneSlipLine({ outcome }: { outcome: SprintOutcome }) {
     <p
       role="status"
       data-testid="milestone-slip-line"
-      className={`flex items-start gap-2 rounded-md border bg-neutral-surface px-3 py-2 text-sm text-neutral-text-primary ${tone}`}
+      className={`flex items-start gap-2 rounded-card border bg-neutral-surface px-3 py-2 text-sm text-neutral-text-primary ${tone}`}
     >
       <span aria-hidden="true">◆</span>
       <span>
@@ -580,7 +580,7 @@ function MilestoneSlipLine({ outcome }: { outcome: SprintOutcome }) {
 
 function OutcomeCard({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="rounded-md border border-neutral-border bg-neutral-surface-raised p-3 flex flex-col gap-1">
+    <div className="rounded-card border border-neutral-border bg-neutral-surface-raised p-3 flex flex-col gap-1">
       <span className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary">
         {label}
       </span>
@@ -651,7 +651,7 @@ function DidntShipList({ outcome }: { outcome: SprintOutcome }) {
     return (
       <p
         role="status"
-        className="rounded-md border border-dashed border-neutral-border bg-neutral-surface p-4 text-xs text-neutral-text-secondary"
+        className="rounded-card border border-dashed border-neutral-border bg-neutral-surface p-4 text-xs text-neutral-text-secondary"
       >
         Per-task membership was not recorded for this {itl.lower} (it closed
         before membership capture shipped).
@@ -662,7 +662,7 @@ function DidntShipList({ outcome }: { outcome: SprintOutcome }) {
     return (
       <p
         role="status"
-        className="rounded-md border border-neutral-border bg-neutral-surface p-4 text-xs text-neutral-text-secondary"
+        className="rounded-card border border-neutral-border bg-neutral-surface p-4 text-xs text-neutral-text-secondary"
       >
         <span aria-hidden="true">🎉 </span>Everything committed shipped.
       </p>
@@ -670,7 +670,7 @@ function DidntShipList({ outcome }: { outcome: SprintOutcome }) {
   }
 
   return (
-    <div className="rounded-md border border-neutral-border bg-neutral-surface" data-testid="didnt-ship">
+    <div className="rounded-card border border-neutral-border bg-neutral-surface" data-testid="didnt-ship">
       <h3 className="px-3 py-2 text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary border-b border-neutral-border">
         What didn&apos;t ship ({items.length})
         {sum.carried_count > 0 && <> · {sum.carried_count} carried</>}

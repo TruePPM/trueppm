@@ -29,7 +29,7 @@ export function TeamHealthPulse({ sprintId, canRespond }: Props) {
 
   if (trend.isLoading) {
     return (
-      <div className="h-24 rounded-md border border-neutral-border bg-neutral-surface-raised animate-pulse" />
+      <div className="h-24 rounded-card border border-neutral-border bg-neutral-surface-raised animate-pulse" />
     );
   }
 
@@ -41,7 +41,7 @@ export function TeamHealthPulse({ sprintId, canRespond }: Props) {
   return (
     <section
       aria-labelledby="pulse-heading"
-      className="rounded-md border border-neutral-border bg-neutral-surface-raised p-3 flex flex-col gap-3"
+      className="rounded-card border border-neutral-border bg-neutral-surface-raised p-3 flex flex-col gap-3"
     >
       <h3
         id="pulse-heading"
@@ -68,7 +68,7 @@ function PulseGatedWall() {
   return (
     <section
       aria-label="Team health"
-      className="rounded-md border border-neutral-border bg-neutral-surface-raised p-4 flex flex-col items-center gap-2 text-center"
+      className="rounded-card border border-neutral-border bg-neutral-surface-raised p-4 flex flex-col items-center gap-2 text-center"
     >
       <p className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary">
         <span aria-hidden="true">🔒 </span>Team health

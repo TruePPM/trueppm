@@ -42,7 +42,7 @@ export function ExcludeFromVelocityToggle({ sprint, projectId, canEdit }: Props)
     : 'Only a Scheduler or above can change this';
 
   return (
-    <div className="flex items-start justify-between gap-3 rounded-md border border-neutral-border bg-neutral-surface px-4 py-3">
+    <div className="flex items-start justify-between gap-3 rounded-card border border-neutral-border bg-neutral-surface px-4 py-3">
       <div className="min-w-0 flex flex-col gap-0.5">
         <span className="text-sm font-medium text-neutral-text-primary">
           Exclude from velocity

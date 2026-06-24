@@ -277,7 +277,7 @@ export function PromoteMilestoneDialog({
               ? `${itl.singular} already bound to a milestone`
               : `Promote ${itl.lower} to milestone`
           }
-          className={`w-full ${widthClass} max-h-[90vh] overflow-auto rounded-lg border border-neutral-border bg-neutral-surface pointer-events-auto`}
+          className={`w-full ${widthClass} max-h-[90vh] overflow-auto rounded-card border border-neutral-border bg-neutral-surface pointer-events-auto`}
         >
           {/* Header */}
           <div className="flex items-start justify-between gap-4 border-b border-neutral-border p-5">
@@ -345,7 +345,7 @@ export function PromoteMilestoneDialog({
                 {rebinding && (
                   <p
                     role="status"
-                    className="flex items-center gap-2 rounded-md bg-semantic-at-risk-bg px-3 py-2 text-xs text-semantic-at-risk"
+                    className="flex items-center gap-2 rounded-card bg-semantic-at-risk-bg px-3 py-2 text-xs text-semantic-at-risk"
                   >
                     <WarningIcon className="h-3 w-3 shrink-0" aria-hidden="true" />
                     Rebinding moves the reforecast off the current milestone. The old
@@ -357,7 +357,7 @@ export function PromoteMilestoneDialog({
                 <div
                   role="group"
                   aria-label="Milestone source"
-                  className="inline-flex gap-1 rounded-lg border border-neutral-border bg-neutral-surface-sunken p-1 self-start"
+                  className="inline-flex gap-1 rounded-control border border-neutral-border bg-neutral-surface-sunken p-1 self-start"
                 >
                   <ModeButton
                     ref={firstFieldRef}
@@ -463,7 +463,7 @@ const ModeButton = forwardRef<HTMLButtonElement, ModeButtonProps>(function ModeB
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[13px] font-semibold
+      className={`inline-flex items-center gap-1.5 rounded-control px-3 py-1.5 text-[13px] font-semibold
         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
         ${
           active
@@ -499,7 +499,7 @@ function CreateModeBody({
         <span className="text-xs font-medium uppercase tracking-wide text-neutral-text-secondary">
           New milestone
         </span>
-        <span className="flex items-center gap-2 rounded-md border border-neutral-border bg-neutral-surface px-3 h-9 focus-within:ring-2 focus-within:ring-brand-primary focus-within:ring-offset-1">
+        <span className="flex items-center gap-2 rounded-control border border-neutral-border bg-neutral-surface px-3 h-9 focus-within:ring-2 focus-within:ring-brand-primary focus-within:ring-offset-1">
           <FlagIcon className="h-3.5 w-3.5 shrink-0 text-brand-primary" />
           <input
             type="text"
@@ -516,7 +516,7 @@ function CreateModeBody({
         <span className="text-xs font-medium uppercase tracking-wide text-neutral-text-secondary">
           Target date
         </span>
-        <span className="flex items-center gap-2 rounded-md border border-neutral-border bg-neutral-surface px-3 h-9 focus-within:ring-2 focus-within:ring-brand-primary focus-within:ring-offset-1">
+        <span className="flex items-center gap-2 rounded-control border border-neutral-border bg-neutral-surface px-3 h-9 focus-within:ring-2 focus-within:ring-brand-primary focus-within:ring-offset-1">
           <CalendarIcon
             className="h-3.5 w-3.5 shrink-0 text-neutral-text-secondary"
             aria-hidden="true"
@@ -580,7 +580,7 @@ function BindModeBody({
         <span className="text-xs font-medium uppercase tracking-wide text-neutral-text-secondary">
           Schedule milestone
         </span>
-        <span className="flex items-center gap-2 rounded-md border border-neutral-border bg-neutral-surface px-3 h-9 focus-within:ring-2 focus-within:ring-brand-primary focus-within:ring-offset-1">
+        <span className="flex items-center gap-2 rounded-control border border-neutral-border bg-neutral-surface px-3 h-9 focus-within:ring-2 focus-within:ring-brand-primary focus-within:ring-offset-1">
           <SearchIcon className="h-3.5 w-3.5 shrink-0 text-neutral-text-secondary" aria-hidden="true" />
           <input
             type="text"
@@ -619,7 +619,7 @@ function BindModeBody({
                 tabIndex={rove ? 0 : -1}
                 onClick={() => onSelect(m.id)}
                 onKeyDown={handleRadioKeyDown}
-                className={`flex items-center gap-2.5 rounded-md border px-3 py-2 text-left
+                className={`flex items-center gap-2.5 rounded-control border px-3 py-2 text-left
                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
                   ${
                     on
@@ -737,7 +737,7 @@ function ReforecastPreviewPanel({
           )}
 
           {preview.unmodeledDependency && (
-            <p className="flex items-start gap-1.5 rounded-md bg-semantic-at-risk-bg px-2.5 py-2 text-xs text-semantic-at-risk">
+            <p className="flex items-start gap-1.5 rounded-card bg-semantic-at-risk-bg px-2.5 py-2 text-xs text-semantic-at-risk">
               <WarningIcon className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
               Excludes an upstream item not in this {label.lower} — the range may be optimistic.
             </p>
@@ -789,7 +789,7 @@ function PercentileBar({ preview }: { preview: ReforecastPreview }) {
   const labelClass = hit ? 'text-semantic-on-track' : 'text-semantic-at-risk';
 
   return (
-    <div className="rounded-md border border-neutral-border bg-neutral-surface p-3">
+    <div className="rounded-card border border-neutral-border bg-neutral-surface p-3">
       <div className="relative h-10">
         {/* track */}
         <div className="absolute inset-x-0 top-4 h-1.5 rounded-full bg-neutral-surface-sunken" />
@@ -851,7 +851,7 @@ function ConflictBody({
   return (
     <>
       <div className="flex flex-col gap-4 p-5">
-        <div className="flex items-start gap-3 rounded-md border border-semantic-at-risk/80 bg-semantic-at-risk-bg p-3">
+        <div className="flex items-start gap-3 rounded-card border border-semantic-at-risk/80 bg-semantic-at-risk-bg p-3">
           <WarningIcon className="mt-0.5 h-4 w-4 shrink-0 text-semantic-at-risk" aria-hidden="true" />
           <p className="text-xs leading-relaxed text-neutral-text-primary">
             {sprint.short_id_display} is bound to{' '}
@@ -862,7 +862,7 @@ function ConflictBody({
         </div>
 
         {detail && (
-          <div className="flex flex-col gap-1 rounded-md border border-neutral-border bg-neutral-surface p-3">
+          <div className="flex flex-col gap-1 rounded-card border border-neutral-border bg-neutral-surface p-3">
             <span className="text-xs font-medium uppercase tracking-wide text-neutral-text-disabled">
               Current milestone
             </span>

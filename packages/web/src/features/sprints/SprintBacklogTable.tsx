@@ -127,7 +127,7 @@ export function SprintBacklogTable({
       {tasks.length === 0 ? (
         <div
           role="status"
-          className="rounded-md border border-dashed border-neutral-border bg-neutral-surface-raised p-6 text-center flex flex-col items-center gap-3"
+          className="rounded-card border border-dashed border-neutral-border bg-neutral-surface-raised p-6 text-center flex flex-col items-center gap-3"
         >
           <p className="text-sm font-medium text-neutral-text-primary">
             No tasks committed to this {itl.lower} yet
