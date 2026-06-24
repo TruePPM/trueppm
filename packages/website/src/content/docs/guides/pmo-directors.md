@@ -25,7 +25,7 @@ Be precise about what this is and isn't: it is an *operational* log for running 
 
 ### Role-based access control
 
-TruePPM enforces a **five-role model** (Owner / Admin / Scheduler / Member / Viewer) on every project, at the engine level — not just hidden in the UI. People see and change only what their role allows. This is the access-control foundation. Basic OIDC/OAuth single sign-on against your own identity provider is in the community core (lands in 0.4); the org identity-*governance* layer — **SAML 2.0 federation, SCIM provisioning, LDAP/AD directory sync, and enforced org-wide SSO** — sits on top of it in the enterprise edition.
+TruePPM enforces a **five-role model** (Owner / Admin / Scheduler / Member / Viewer) on every project, at the engine level — not just hidden in the UI. People see and change only what their role allows. This is the access-control foundation. Basic OIDC/OAuth single sign-on against your own identity provider lands in the community core in 0.4; the org identity-*governance* layer — **SAML 2.0 federation, SCIM provisioning, LDAP/AD directory sync, and enforced org-wide SSO** — sits on top of it in the enterprise edition.
 
 → See [RBAC](/administration/rbac/) and [Sharing & access](/administration/sharing-and-access/)
 

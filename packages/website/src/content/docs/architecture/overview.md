@@ -103,7 +103,7 @@ grep -r "trueppm_enterprise" packages/
 # must return zero results
 ```
 
-**Community:** scheduling engine, CPM, Monte Carlo, Schedule (Gantt-style) UI, Board, Sprints workspace, program management (coordinating multiple projects within a program), basic single sign-on (OIDC/OAuth login against your own identity provider), mobile apps, offline sync, real-time, 5-role RBAC, REST/WS API, time tracking, baselines, Helm chart, MS Project import/export.
+**Community:** scheduling engine, CPM, Monte Carlo, Schedule (Gantt-style) UI, Board, Sprints workspace, program management (coordinating multiple projects within a program), baseline comparison, offline sync, real-time, 5-role RBAC, REST/WS API, Helm chart, MS Project import/export. On the Community roadmap but not yet shipped: basic single sign-on (OIDC/OAuth login against your own identity provider) and the mobile apps land in 0.4, time tracking in 0.5.
 
 **Enterprise (separate repo):** portfolio analytics and health scores, cross-program resource leveling, org identity governance (SAML 2.0 federation, SCIM provisioning, LDAP/AD directory sync, enforced org-wide SSO), immutable audit trail, custom roles, approval workflows, the org-wide Jira/GitLab/ServiceNow integration hub, AI scheduling, scenario modeling, multi-tenancy.
 

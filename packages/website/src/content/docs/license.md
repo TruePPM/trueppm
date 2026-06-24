@@ -15,11 +15,11 @@ The authoritative text is the [`LICENSE`](https://gitlab.com/trueppm/trueppm/-/b
 
 ## What "Community Edition" includes
 
-Everything a project manager and their team need to run a program is in the Apache 2.0 Community Edition: the scheduling engine (CPM, Monte Carlo), the schedule view, Kanban boards and sprints, real-time collaboration, offline sync, 5-role RBAC, basic single sign-on (OIDC/OAuth login against your own identity provider), time tracking, baselines, MS Project import/export, the REST and WebSocket API, and the Helm chart.
+Everything a project manager and their team need to run a program is in the Apache 2.0 Community Edition: the scheduling engine (CPM, Monte Carlo), the schedule view, Kanban boards and sprints, real-time collaboration, offline sync, 5-role RBAC, baseline comparison, MS Project import/export, the REST and WebSocket API, and the Helm chart. Two more Community-Edition capabilities are on the way but not yet shipped: basic single sign-on (OIDC/OAuth login against your own identity provider) lands in 0.4, and time tracking in 0.5 — both in the open core, not behind the enterprise boundary.
 
 ## The enterprise boundary
 
-TruePPM is open-core. Governance and portfolio features (org identity governance — SAML/SCIM/LDAP directory sync and enforced org-wide SSO — portfolio dashboards, cross-program resource leveling, approval workflows, the org-wide integration hub) are **proprietary** and live in a **separate repository** (`trueppm-enterprise`). Basic single sign-on (self-service OIDC/OAuth login against your own identity provider) is in the Apache 2.0 Community Edition, not the enterprise layer.
+TruePPM is open-core. Governance and portfolio features (org identity governance — SAML/SCIM/LDAP directory sync and enforced org-wide SSO — portfolio dashboards, cross-program resource leveling, approval workflows, the org-wide integration hub) are **proprietary** and live in a **separate repository** (`trueppm-enterprise`). Basic single sign-on (self-service OIDC/OAuth login against your own identity provider) belongs to the Apache 2.0 Community Edition — it lands in 0.4 — not the enterprise layer.
 
 The dependency is strictly one-way — enterprise code depends on the core, never the reverse. **The Community Edition never imports, links, or ships any proprietary code.** Cloning and running the open-source repository pulls in zero enterprise code. This separation is an architectural rule, not a packaging convenience: it is enforced in the codebase and documented in the [contributing guide](/contributing/guide/).
 
