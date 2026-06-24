@@ -149,7 +149,7 @@ export function RiskDrawer({ projectId, risk, isOpen, onClose, initialEditing }:
         aria-label={drawerTitle}
         className={[
           'md:hidden fixed inset-x-0 bottom-0 z-40',
-          'rounded-t-xl bg-neutral-surface border-t border-neutral-border',
+          'rounded-t-card bg-neutral-surface border-t border-neutral-border',
           'h-[85vh] flex flex-col',
           'transition-transform duration-200',
           isOpen ? 'translate-y-0' : 'translate-y-full',
@@ -215,7 +215,7 @@ function DrawerContent({
             <button
               type="button"
               onClick={onEdit}
-              className="h-8 px-3 rounded text-sm font-medium border border-neutral-border
+              className="h-8 px-3 rounded-control text-sm font-medium border border-neutral-border
                 text-neutral-text-secondary hover:text-neutral-text-primary
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
@@ -226,7 +226,7 @@ function DrawerContent({
             ref={closeButtonRef}
             type="button"
             onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded text-neutral-text-secondary
+            className="w-8 h-8 flex items-center justify-center rounded-control text-neutral-text-secondary
               hover:text-neutral-text-primary
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             aria-label="Close"
@@ -266,7 +266,7 @@ function RiskDetailView({ projectId, risk }: { projectId: string; risk: Risk }) 
         </p>
         <span
           className={[
-            'inline-flex items-center border rounded px-2 py-0.5 text-xs font-medium',
+            'inline-flex items-center border rounded-chip px-2 py-0.5 text-xs font-medium',
             statusClasses,
           ].join(' ')}
         >
@@ -305,7 +305,7 @@ function RiskDetailView({ projectId, risk }: { projectId: string; risk: Risk }) 
               <p className="text-xs font-medium text-neutral-text-secondary uppercase tracking-wide mb-1">
                 Category
               </p>
-              <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium
+              <span className="inline-flex items-center rounded-chip px-2 py-0.5 text-xs font-medium
                 bg-neutral-surface-raised text-neutral-text-secondary border border-neutral-border">
                 {CATEGORY_LABELS[risk.category]}
               </span>
@@ -318,7 +318,7 @@ function RiskDetailView({ projectId, risk }: { projectId: string; risk: Risk }) 
                 Response
               </p>
               {/* Filled pill — visually distinct from the outlined Status pill (ADR-0043) */}
-              <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium
+              <span className="inline-flex items-center rounded-chip px-2 py-0.5 text-xs font-medium
                 bg-brand-primary/10 text-brand-primary border border-brand-primary/20">
                 {RESPONSE_LABELS[risk.response]}
               </span>
@@ -411,7 +411,7 @@ function RiskNotesSection({ projectId, riskId }: { projectId: string; riskId: st
         className="w-full flex items-center justify-between text-xs font-medium
           text-neutral-text-secondary hover:text-neutral-text-primary
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-          focus-visible:ring-offset-1 rounded"
+          focus-visible:ring-offset-1 rounded-control"
       >
         <span>Notes {!isLoading && comments.length > 0 ? `(${comments.length})` : ''}</span>
         <svg
@@ -427,7 +427,7 @@ function RiskNotesSection({ projectId, riskId }: { projectId: string; riskId: st
         <div className="mt-3 flex flex-col gap-3">
           {/* Comment list */}
           {isLoading && (
-            <div className="h-8 rounded animate-pulse bg-neutral-border/30" aria-hidden="true" />
+            <div className="h-8 rounded-card animate-pulse bg-neutral-border/30" aria-hidden="true" />
           )}
           {!isLoading && comments.length === 0 && (
             <p className="text-xs text-neutral-text-disabled">No notes yet.</p>
@@ -484,7 +484,7 @@ function RiskNotesSection({ projectId, riskId }: { projectId: string; riskId: st
                 aria-label="Add a note"
                 placeholder="Add a note…"
                 disabled={createComment.isPending}
-                className="w-full border border-neutral-border rounded px-3 py-2
+                className="w-full border border-neutral-border rounded-control px-3 py-2
                   bg-neutral-surface text-neutral-text-primary text-sm resize-none
                   placeholder:text-neutral-text-disabled
                   focus-visible:outline-none focus-visible:ring-2
@@ -497,7 +497,7 @@ function RiskNotesSection({ projectId, riskId }: { projectId: string; riskId: st
               <button
                 type="submit"
                 disabled={createComment.isPending || !message.trim()}
-                className="self-end h-8 px-3 rounded text-xs font-medium
+                className="self-end h-8 px-3 rounded-control text-xs font-medium
                   bg-brand-primary border border-brand-primary-dark text-neutral-text-inverse
                   hover:bg-brand-primary-dark
                   focus-visible:outline-none focus-visible:ring-2
