@@ -160,7 +160,7 @@ the scoring column is a **frontend render** change only — no backend work.
    {"detail": "stale", "conflicts": [...]}` on optimistic-lock failure; `400` on unknown/
    non-backlog ids. Not a queued/202 response — the write is synchronous.
 6. **Outbox cleanup:** N/A — no outbox row.
-7. **Idempotency:** `IdempotencyMixin` (ADR-0083, inherited via `ProjectScopedViewSet`) makes a
+7. **Idempotency:** `IdempotencyMixin` (ADR-0170, inherited via `ProjectScopedViewSet`) makes a
    retried POST with the same `Idempotency-Key` return the stored response. Independently, the
    operation is naturally idempotent: re-applying the same target order writes nothing (each
    row already equals its computed rank → no-op skip), and the `server_version` check rejects a

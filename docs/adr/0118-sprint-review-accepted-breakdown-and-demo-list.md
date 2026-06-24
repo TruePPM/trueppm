@@ -3,13 +3,13 @@
 ## Status
 Proposed
 
-> **Extends ADR-0111** (Sprint Review API Foundation). ADR-0111 built the
+> **Extends ADR-0176** (Sprint Review API Foundation). ADR-0176 built the
 > consolidated `/outcome/` read, the `SprintTaskOutcome` membership-at-close
 > snapshot, `goal_outcome` (#983), and velocity-delta/burn (#984); #567 shipped
 > the `SprintClosedOutcome` UI. This ADR adds the **only two pieces #924 still
 > needs** — an *accepted-vs-not-accepted* breakdown and a *demo-ready list* — as a
 > purely additive layer on that foundation. It does not re-decide anything in
-> ADR-0111. Privacy composes with **ADR-0104** (velocity signal gate); acceptance
+> ADR-0176. Privacy composes with **ADR-0104** (velocity signal gate); acceptance
 > criteria are **ADR-0105**.
 
 ## Context
@@ -174,7 +174,7 @@ duplicate the ADR-0104 gate and risk a second, drifting privacy boundary
   with an accepted-vs-not card + a shipped-stories list carrying acceptance badges
   and a per-story demo toggle + the demo-list grouping; `useSprintOutcome` already
   fetches the read; a `useToggleDemo` mutation). No scheduler change. Mobile: the
-  review is an online read (ADR-0111) — `demo_ready` is online-only like the rest.
+  review is an online read (ADR-0176) — `demo_ready` is online-only like the rest.
 - **Migration required**: **yes** — one additive `BooleanField(default=False)` on
   `SprintTaskOutcome`; no backfill (existing rows default False = "not in the demo
   list", correct). `makemigrations` (next projects number **0070**; renumber if
@@ -184,7 +184,7 @@ duplicate the ADR-0104 gate and risk a second, drifting privacy boundary
   `toggle-demo` write route. Regenerate `docs/api/openapi.json` after merging
   origin/main.
 - **OSS or Enterprise**: **OSS.**
-- **Coordinate with**: ADR-0111 (the foundation this extends), ADR-0104 (the
+- **Coordinate with**: ADR-0176 (the foundation this extends), ADR-0104 (the
   velocity/point gate the new point fields reuse — do not add a second gate),
   ADR-0105 (`AcceptanceCriterion`, the accepted-vs-not basis), #851 retro board
   (whose review surface shares the closed-sprint workspace) — and the migration-

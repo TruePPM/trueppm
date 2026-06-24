@@ -82,7 +82,7 @@ export function MonteCarloSheet({ result, onClose }: Props) {
           <MonteCarloHistogram result={result} />
         </div>
 
-        {/* Forecast drift history (ADR-0109, #961) — collapsed by default on
+        {/* Forecast drift history (ADR-0175, #961) — collapsed by default on
             mobile so the current result stays the priority on a small screen. */}
         <ForecastHistorySection projectId={result.projectId} defaultExpanded={false} />
       </div>

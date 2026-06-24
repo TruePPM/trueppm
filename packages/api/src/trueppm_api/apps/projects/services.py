@@ -66,7 +66,7 @@ def shift_project_start_if_needed(project: Any, candidate_start: date | None) ->
 
 
 # ---------------------------------------------------------------------------
-# Program rollup config — methodology-aware defaults (ADR-0079, #527)
+# Program rollup config — methodology-aware defaults (ADR-0169, #527)
 # ---------------------------------------------------------------------------
 
 
@@ -975,7 +975,7 @@ def apply_carry_over(sprint: Any, carry_over_to: str) -> list[str]:
 
 
 def snapshot_sprint_task_outcomes(sprint: Any, *, carry_over_to: str) -> None:
-    """Record per-task membership-at-close for sprint review (ADR-0111 §2, #982).
+    """Record per-task membership-at-close for sprint review (ADR-0176 §2, #982).
 
     Writes one ``SprintTaskOutcome`` row for every task linked to ``sprint`` at
     close. MUST be called inside the close transaction, AFTER
@@ -1214,7 +1214,7 @@ def _milestone_slip_for_sprint(sprint: Any) -> dict[str, Any] | None:
 
 
 def sprint_outcome_payload(sprint: Any, request: Any) -> dict[str, Any]:
-    """Assemble the consolidated sprint-review read (#985, ADR-0111 §3).
+    """Assemble the consolidated sprint-review read (#985, ADR-0176 §3).
 
     Composes the closing membership ("what didn't ship", #982), the goal verdict
     (#983), the velocity delta + burn status (#984), the commitment aggregates,

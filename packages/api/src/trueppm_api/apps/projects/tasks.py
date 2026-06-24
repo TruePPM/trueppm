@@ -139,7 +139,7 @@ def close_sprint(self: object, request_id: str) -> None:
                 ]
             )
 
-            # ADR-0111 §2 (#982): snapshot the closing task membership BEFORE
+            # ADR-0176 §2 (#982): snapshot the closing task membership BEFORE
             # apply_carry_over mutates Task.sprint — otherwise "what didn't ship"
             # is destroyed (carried tasks move to the next sprint, dropped tasks
             # to the backlog). NOT wrapped in try/except: the audit is part of the

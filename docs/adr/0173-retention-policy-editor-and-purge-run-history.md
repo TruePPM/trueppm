@@ -1,4 +1,4 @@
-# ADR-0090: Runtime Retention Policy + Purge-Run History
+# ADR-0173: Runtime Retention Policy + Purge-Run History
 
 ## Status
 Proposed
@@ -6,7 +6,7 @@ Proposed
 ## Context
 
 Epic #691 ships a workspace-admin "System Health" operator UI. Its two read-only
-surfaces — #692 overview and #694 dead-letter inspector — landed under ADR-0087. That
+surfaces — #692 overview and #694 dead-letter inspector — landed under ADR-0172. That
 ADR **deliberately deferred** the third surface, #693 (retention & purge policy editor +
 purge log), noting it "requires a net-new DB-backed override model and a purge-run history
 model, plus an ADR-0081 amendment." This ADR is that work.
@@ -148,7 +148,7 @@ deferred to a follow-up issue — flagged to the user before implementation.
 ### E. Permission gate: `IsAdminUser` (Django `is_staff`)
 
 Keep `IsAdminUser`, consistent with every other `/health/*` endpoint (ADR-0081 §C,
-ADR-0087 §5). The issue says "workspace-admin gate" loosely, but this surface **deletes
+ADR-0172 §5). The issue says "workspace-admin gate" loosely, but this surface **deletes
 data on a single deployment** — deployment-operator (`is_staff`) is the correct, *higher*
 bar than a workspace `ADMIN` role, and the overview page that links here is already
 `is_staff`. Gating this one write surface on `WorkspaceRole.ADMIN` would split the operator
@@ -158,9 +158,9 @@ UI across two trust models. Deviation from the issue wording is explicit and jus
 
 A net-new model + write surface + coordinator + schedule is too much to fold into accepted
 ADR-0081. This ADR **amends ADR-0081 §A** (per-table → coordinator scheduling; settings →
-DB override) and **resolves ADR-0087 §3** (the `unknown` Retention-purge card). Number
-0090: 0089 is the highest accepted single number (0087/0088 each have parallel-branch
-duplicates).
+DB override) and **resolves ADR-0172 §3** (the `unknown` Retention-purge card). This ADR
+was originally authored as 0090; it was renumbered to **0173** to resolve a number
+collision with ADR-0090 (Recurring Tasks) — see #918.
 
 ### G. API contract (frontend consumes — all `IsAdminUser`)
 

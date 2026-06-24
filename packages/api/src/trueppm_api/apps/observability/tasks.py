@@ -92,7 +92,7 @@ def check_stale_heartbeat(self: object) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Retention purge coordinator (ADR-0090)
+# Retention purge coordinator (ADR-0173)
 # ---------------------------------------------------------------------------
 
 # Keep the purge-run history table self-bounded — no separate retention knob.
@@ -100,7 +100,7 @@ _PURGE_RUN_KEEP = 50
 
 
 def _should_run_scheduled(now: datetime | None = None) -> bool:
-    """Decide whether a scheduled purge is due (ADR-0090 §D self-gating).
+    """Decide whether a scheduled purge is due (ADR-0173 §D self-gating).
 
     Beat fires the coordinator every 30 min; this gate keeps it a no-op except
     inside the operator's configured window. Returns False when the schedule is
@@ -142,7 +142,7 @@ def _should_run_scheduled(now: datetime | None = None) -> bool:
 
 
 def _execute_run(run: PurgeRun, *, dry_run: bool) -> None:
-    """Run every operational table's purge into one PurgeRun (ADR-0090 §C).
+    """Run every operational table's purge into one PurgeRun (ADR-0173 §C).
 
     Honors the schedule's ``on_failure``: ``stop`` aborts on first table error;
     ``continue`` flags the failed table and proceeds. The run is ``ok`` when every
@@ -238,7 +238,7 @@ def _trim_runs() -> None:
 def run_retention_purge(self: object, run_id: str | None = None, dry_run: bool = False) -> None:
     """Coordinator: purge all five operational tables as one unified run.
 
-    Two entry points (ADR-0090 §C/§D):
+    Two entry points (ADR-0173 §C/§D):
 
     * **Scheduled** — Beat fires this with no ``run_id`` every 30 min; it self-gates
       on the configured window and creates its own ``PurgeRun`` when due.

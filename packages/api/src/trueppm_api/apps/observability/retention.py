@@ -1,4 +1,4 @@
-"""Retention-window metadata and the settings→override resolver (ADR-0090).
+"""Retention-window metadata and the settings→override resolver (ADR-0173).
 
 This module is deliberately **import-clean**: it pulls in nothing from the
 domain apps (webhooks, msproject, history, taskruns, sync), so those apps' purge
@@ -31,7 +31,7 @@ class RetentionSpec(TypedDict):
     disablable: bool
 
 
-# The five operational tables surfaced in the editor (ADR-0090 §A). Order is the
+# The five operational tables surfaced in the editor (ADR-0173 §A). Order is the
 # display order in the policy table. ``key`` matches the ADR-0081 settings name;
 # ``default`` mirrors ``settings/base.py`` so the resolver and the UI agree even
 # before any override row exists. ``disablable`` is False only for sync batches,

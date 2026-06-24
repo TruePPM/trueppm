@@ -1,5 +1,5 @@
 /**
- * Workspace > System health > Retention & purge (ADR-0090, #693).
+ * Workspace > System health > Retention & purge (ADR-0173, #693).
  *
  * Workspace-admin operator UI to tune per-table retention windows, configure the
  * purge schedule, run/preview purges on demand, and review recent runs. Renders

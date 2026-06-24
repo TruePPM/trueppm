@@ -1,4 +1,4 @@
-"""Serializers for the retention policy editor + purge runs (ADR-0090)."""
+"""Serializers for the retention policy editor + purge runs (ADR-0173)."""
 
 from __future__ import annotations
 

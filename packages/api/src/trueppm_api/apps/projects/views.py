@@ -331,7 +331,7 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
     def get_queryset(self) -> QuerySet[Project]:
         """Membership-scoped project list (from ``ProjectScopedViewSet``), with an
         optional ``?program__isnull=true`` branch for the Programs directory's
-        "Ungrouped projects" section (ADR-0083).
+        "Ungrouped projects" section (ADR-0171).
 
         The aggregates (``member_count``, ``percent_complete``) are attached ONLY
         on that branch — the default list stays a single unannotated query at
@@ -2294,7 +2294,7 @@ def _attach_target_milestone_rollups(sprints: list[Sprint]) -> None:
                 required=False,
                 description=(
                     "Filter by task type value (epic/story/task/bug/spike/tech_debt). "
-                    "Backs the board tech-debt filter (ADR-0135, #1076)."
+                    "Backs the board tech-debt filter (ADR-0178, #1076)."
                 ),
             ),
             OpenApiParameter(
@@ -2420,7 +2420,7 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         status = self.request.query_params.get("status")
         if status:
             qs = qs.filter(status=status)
-        # Task-type filter (ADR-0135, #1076) — backs the board tech-debt toggle
+        # Task-type filter (ADR-0178, #1076) — backs the board tech-debt toggle
         # and lets any client chart debt distinctly via ?type=tech_debt. An
         # unrecognized value simply matches nothing (consistent with ?status=).
         task_type = self.request.query_params.get("type")
@@ -2729,7 +2729,7 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         # Granular task events (#638). Each fires only when the relevant field
         # actually changed — a PATCH that doesn't touch the assignee/date does
         # not emit the specific event (keeps the at-least-once stream meaningful
-        # and the before/after snapshot is the idempotency guard, ADR-0083).
+        # and the before/after snapshot is the idempotency guard, ADR-0170).
         # The same field-change triggers ALSO drive per-user email/in-app
         # notifications (#639, ADR-0085) — a sibling dispatch to the new assignee
         # / task owner, never the actor.
@@ -7439,7 +7439,7 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
     @extend_schema(responses=SprintOutcomeSerializer)
     @action(detail=True, methods=["get"])
     def outcome(self, request: Request, pk: str | None = None) -> Response:
-        """Consolidated sprint-review read (#985, ADR-0111 §3).
+        """Consolidated sprint-review read (#985, ADR-0176 §3).
 
         One surface composing the goal verdict (#983), velocity delta + burn
         status (#984, ADR-0104 gated), the closing "didn't ship" membership
@@ -9421,7 +9421,7 @@ class TaskSyncView(IdempotencyMixin, APIView):
     1000 req/min during the first 60 minutes after token creation).
     """
 
-    # Exempt from the generic Idempotency-Key path (ADR-0083): inbound sync is already
+    # Exempt from the generic Idempotency-Key path (ADR-0170): inbound sync is already
     # idempotent by (project, source, external_id) upsert (ADR-0068), and requests carry
     # a token principal rather than a JWT/session user to scope keys by.
     idempotency_exempt = True
@@ -9650,7 +9650,7 @@ class ProjectApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
     ``token``.  Subsequent reads never expose it.
     """
 
-    # Exempt from the generic Idempotency-Key path (ADR-0083): the create response
+    # Exempt from the generic Idempotency-Key path (ADR-0170): the create response
     # carries the one-time plaintext token, which must never be persisted in the
     # idempotency store for replay. Token issuance is also throttled separately.
     idempotency_exempt = True

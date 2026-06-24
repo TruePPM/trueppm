@@ -1,4 +1,4 @@
-"""Initial migration for the idempotency app (ADR-0083)."""
+"""Initial migration for the idempotency app (ADR-0170)."""
 
 from __future__ import annotations
 

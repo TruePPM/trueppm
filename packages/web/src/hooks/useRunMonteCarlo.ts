@@ -15,7 +15,7 @@ interface RunOptions {
  * P80 pill) refetches in lockstep.
  *
  * Also invalidates `monte-carlo-history` so the new run prepends to the forecast
- * drift history (ADR-0109, #961) without a manual refresh.
+ * drift history (ADR-0175, #961) without a manual refresh.
  */
 export function useRunMonteCarlo(projectId: string | undefined) {
   const qc = useQueryClient();

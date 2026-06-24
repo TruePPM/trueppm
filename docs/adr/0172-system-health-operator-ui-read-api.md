@@ -1,4 +1,4 @@
-# ADR-0087: System Health Operator UI — Read API Surface
+# ADR-0172: System Health Operator UI — Read API Surface
 
 ## Status
 Proposed

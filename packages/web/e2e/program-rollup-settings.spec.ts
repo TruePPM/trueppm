@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * Program Settings → Rollup KPIs E2E (#527, ADR-0079).
+ * Program Settings → Rollup KPIs E2E (#527, ADR-0169).
  *
  * Verifies the settings surface is wired to ``/api/v1/programs/:id/rollup-config/``:
  * - The KPI list and aggregation policy radio render from the GET response.

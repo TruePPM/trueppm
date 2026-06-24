@@ -13,7 +13,7 @@ ADR-0036).
 
 **P3M layer**: Programs and Projects / Operations — single-project, single-team WBS
 computation. Fully **OSS**. No cross-program aggregation (that is the Enterprise program/
-portfolio rollup, ADR-0079/0088, which *consumes* this). `grep -r trueppm_enterprise
+portfolio rollup, ADR-0169/0088, which *consumes* this). `grep -r trueppm_enterprise
 packages/` is clean and stays clean.
 
 ### What already exists (verified on main, 2026-06-06)
@@ -187,7 +187,7 @@ them (honest: no baseline scope captured) — acceptable, documented.
   new computed `scope` block (`current_scope`, `baselined_scope`, `scope_delta`, `rollup_basis`);
   `percent_complete` now rejected (400) on a summary task write. Regenerate OpenAPI after merging
   main.
-- **OSS or Enterprise**: **OSS**. Enterprise program/portfolio rollup (ADR-0079/0088) consumes it.
+- **OSS or Enterprise**: **OSS**. Enterprise program/portfolio rollup (ADR-0169/0088) consumes it.
 - **Coordinate with**: ADR-0024 (this implements its open scope), ADR-0074 (reuse the milestone
   rollup + read-only pattern), ADR-0106 (`compute_milestone_rollup_payload` already owns
   milestone percent — §1 governs WBS-summary percent; a milestone that is also a summary keeps the

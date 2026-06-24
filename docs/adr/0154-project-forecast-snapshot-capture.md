@@ -8,7 +8,7 @@ Today a project's forecast — the deterministic CPM finish and (when a Monte Ca
 run has been triggered) the P50/P80/P95 finish-date percentiles — is recomputed on
 every schedule change but only the *latest* values survive. The CPM finish lands on
 `Task.early_finish` (overwritten each recompute); the probabilistic band lives in the
-`mc_latest:<pk>` Valkey cache (24 h TTL) and, since ADR-0109/0144, in a `MonteCarloRun`
+`mc_latest:<pk>` Valkey cache (24 h TTL) and, since ADR-0175/0144, in a `MonteCarloRun`
 row **only when a user explicitly runs Monte Carlo**. There is no continuous record of
 how a project's forecast *drifted* over time — the "we were saying end of June a month
 ago, now we're saying end of August" history that a PM uses to argue for scope cuts or
@@ -31,11 +31,11 @@ would corrupt their read contracts:
 | Model | Grain | Trigger | Retention | Why it does not fit #388 |
 |-------|-------|---------|-----------|--------------------------|
 | `projects.ForecastSnapshot` (ADR-0106 §5) | **milestone** | sprint reforecast-on-close / explicit refresh | latest-per-milestone + 90 d | Wrong grain; carries a velocity-privacy band + `confidence` enum; read is *latest-per-milestone*, not a project history series. No P95. |
-| `scheduling.MonteCarloRun` (ADR-0109/0144) | project | **explicit MC run only** | newest-N (default 100) per project | Only exists when someone runs MC. A project never forecast still needs CPM-finish drift. Flat newest-N cap loses the long tail the trend chart needs. No CPM-on-every-recompute capture. |
+| `scheduling.MonteCarloRun` (ADR-0175/0144) | project | **explicit MC run only** | newest-N (default 100) per project | Only exists when someone runs MC. A project never forecast still needs CPM-finish drift. Flat newest-N cap loses the long tail the trend chart needs. No CPM-on-every-recompute capture. |
 
 `ProjectForecastSnapshot` is the third, distinct concern: **CPM-primary, captured on every
 recompute regardless of whether MC ever ran**, with MC values copied best-effort from the
-most recent `MonteCarloRun`. It mirrors the precedent ADR-0109 itself set — a *new* model
+most recent `MonteCarloRun`. It mirrors the precedent ADR-0175 itself set — a *new* model
 rather than overloading `ForecastSnapshot`.
 
 ## Decision
@@ -121,7 +121,7 @@ forever). `prune_forecast_snapshots` runs nightly via Beat (04:15 UTC) calling
 identical logic is exposed as a `prune_forecast_snapshots` management command (with
 `--dry-run`) for operators. Per project, rows are scanned newest-first and the first row in
 each week/month bucket is the keeper — so the newest representative per period survives. A
-standalone nightly Beat entry (matching `purge-monte-carlo-runs-nightly`), not the ADR-0090
+standalone nightly Beat entry (matching `purge-monte-carlo-runs-nightly`), not the ADR-0173
 retention coordinator, because the tiered curve is forecast-specific, not a flat-window
 purge.
 

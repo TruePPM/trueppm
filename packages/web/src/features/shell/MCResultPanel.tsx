@@ -111,7 +111,7 @@ export function MCResultPanel({ result, onClose }: Props) {
           <MonteCarloHistogram result={result} />
         </div>
 
-        {/* Forecast drift history (ADR-0109, #961) */}
+        {/* Forecast drift history (ADR-0175, #961) */}
         <ForecastHistorySection projectId={result.projectId} />
       </div>
     </div>

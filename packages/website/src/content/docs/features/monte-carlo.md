@@ -90,7 +90,7 @@ GET /api/v1/projects/<project_id>/monte-carlo/latest/
 A single percentile date answers "when?" once. The more useful planning question
 is "is my confidence eroding?" — has the P80 finish slipped since you last looked?
 
-**Coming in 0.3** (ADR-0109), TruePPM will persist every project-level Monte
+**Coming in 0.3** (ADR-0175), TruePPM will persist every project-level Monte
 Carlo run so you can read finish-date *drift* over time: "my P80 was Aug 14 two
 weeks ago, now it's Aug 28." Each run is recorded with its P50/P80/P95 as of that
 moment, so the history is a true before/after, not just the latest snapshot.

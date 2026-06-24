@@ -20,7 +20,7 @@ def _history_purge_counts(
     """Return ``{model_name: rows}`` purged (or eligible, when ``dry_run``).
 
     The window comes from ``resolve_retention`` (operator override → the
-    HISTORY_RETENTION_DAYS default, ADR-0090); ``None`` disables the purge and
+    HISTORY_RETENTION_DAYS default, ADR-0173); ``None`` disables the purge and
     yields an empty dict. ``override_value`` forces a hypothetical window.
     """
     from trueppm_api.apps.observability.retention import resolve_retention
@@ -44,7 +44,7 @@ def _history_purge_counts(
 
 def _do_history_purge(*, dry_run: bool = False, override_value: int | None = None) -> int:
     """Total historical rows purged (or eligible, when ``dry_run``) across all
-    history tables. The coordinator-facing entry point (ADR-0090 §C)."""
+    history tables. The coordinator-facing entry point (ADR-0173 §C)."""
     return sum(_history_purge_counts(dry_run=dry_run, override_value=override_value).values())
 
 
@@ -66,7 +66,7 @@ def purge_old_history_records(self: object) -> dict[str, Any]:
     """Delete historical records older than the resolved HISTORY retention window.
 
     Still dispatchable directly, but no longer on its own Beat schedule — the
-    consolidated retention coordinator owns scheduled purging (ADR-0090 §C).
+    consolidated retention coordinator owns scheduled purging (ADR-0173 §C).
     Returns a summary dict for logging and monitoring.
 
     When the window resolves to None the task exits immediately — this disables

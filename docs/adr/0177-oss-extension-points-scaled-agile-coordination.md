@@ -1,4 +1,4 @@
-# ADR-0126: OSS Extension Points for a Scaled-Agile Coordination Layer
+# ADR-0177: OSS Extension Points for a Scaled-Agile Coordination Layer
 
 ## Status
 

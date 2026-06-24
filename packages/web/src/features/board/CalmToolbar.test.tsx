@@ -209,7 +209,7 @@ describe('CalmToolbar', () => {
     expect(onShowCostToggle).toHaveBeenCalled();
   });
 
-  // Acceptance: tech-debt lens (ADR-0135, #1076) ---------------------------
+  // Acceptance: tech-debt lens (ADR-0178, #1076) ---------------------------
   it('clicking the Tech debt pill toggles via onDebtOnlyToggle', async () => {
     const user = userEvent.setup();
     const onDebtOnlyToggle = vi.fn();

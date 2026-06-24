@@ -407,7 +407,7 @@ test.describe('Programs — overview rollup (#713)', () => {
   });
 });
 
-test.describe('Programs — ungrouped projects (#697, ADR-0083)', () => {
+test.describe('Programs — ungrouped projects (#697, ADR-0171)', () => {
   const STANDALONE_ID = 'e2e-standalone-uuid-00000697';
 
   const FIXTURE_UNGROUPED = {

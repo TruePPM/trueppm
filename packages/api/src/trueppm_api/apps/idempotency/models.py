@@ -1,4 +1,4 @@
-"""Models for client-driven HTTP idempotency (ADR-0083).
+"""Models for client-driven HTTP idempotency (ADR-0170).
 
 A single model, :class:`IdempotencyKey`, stores the response to an unsafe mutation
 (POST/PATCH/PUT/DELETE) that carried an ``Idempotency-Key`` header so a retry with the
@@ -19,7 +19,7 @@ class IdempotencyKey(models.Model):
     Does NOT inherit ``VersionedModel`` — this is a server-side request-dedup record,
     not synced to mobile clients.
 
-    Invariant (ADR-0083): a *committed* row is always ``status=COMPLETED``. The claim
+    Invariant (ADR-0170): a *committed* row is always ``status=COMPLETED``. The claim
     row is inserted (``PROCESSING``) and updated to ``COMPLETED`` inside the same
     ``ATOMIC_REQUESTS`` transaction as the mutation, so a rolled-back mutation (5xx /
     unhandled exception) leaves no row and a retry re-runs. The ``PROCESSING`` state is

@@ -297,7 +297,7 @@ def test_apply_carry_over_none_returns_empty(project: Project) -> None:
 
 
 # ---------------------------------------------------------------------------
-# SprintTaskOutcome — membership-at-close capture (ADR-0111, #982)
+# SprintTaskOutcome — membership-at-close capture (ADR-0176, #982)
 # ---------------------------------------------------------------------------
 
 

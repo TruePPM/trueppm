@@ -1,5 +1,5 @@
 """Models for Beat liveness observability (ADR-0081) and the retention policy
-editor + purge-run history (ADR-0090)."""
+editor + purge-run history (ADR-0173)."""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ class BeatHeartbeat(models.Model):
 
 
 class RetentionPolicy(models.Model):
-    """Operator override for one ADR-0081 retention window (ADR-0090 §A).
+    """Operator override for one ADR-0081 retention window (ADR-0173 §A).
 
     A row is an *override* layered over the ``settings.*`` default — its absence
     means "use the default", so a deployment that never opens the editor behaves
@@ -64,7 +64,7 @@ class RetentionPolicy(models.Model):
 
 
 class RetentionSchedule(models.Model):
-    """Singleton config for when the consolidated purge coordinator runs (ADR-0090 §D).
+    """Singleton config for when the consolidated purge coordinator runs (ADR-0173 §D).
 
     A single row (``singleton_key=1``) the coordinator self-gates on: it skips when
     ``frequency='off'``, before the configured ``time_of_day_utc`` window, or (when
@@ -99,12 +99,12 @@ class RetentionSchedule(models.Model):
 
 
 class PurgeRun(models.Model):
-    """One unified retention-purge run across the five operational tables (ADR-0090 §B).
+    """One unified retention-purge run across the five operational tables (ADR-0173 §B).
 
     The coordinator records a row per run — scheduled, manual, or dry-run — with a
     per-table breakdown in ``tables``. This is the backing for the "recent purges"
     log and flips the System Health Retention-purge card off ``unknown``
-    (resolves ADR-0087 §3). The table is self-bounding: the coordinator trims to
+    (resolves ADR-0172 §3). The table is self-bounding: the coordinator trims to
     the most recent rows after each run, so it needs no separate retention knob.
     """
 

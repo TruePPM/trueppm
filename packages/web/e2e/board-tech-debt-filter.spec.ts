@@ -1,5 +1,5 @@
 /**
- * Board tech-debt filter — ADR-0135, #1076.
+ * Board tech-debt filter — ADR-0178, #1076.
  *
  * Verifies the tech-debt visibility golden path:
  *   - A tech-debt task shows the "Tech Debt" badge on its board card face.

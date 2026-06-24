@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 
 /**
- * Workspace lifecycle hooks (#641, ADR-0092): transfer ownership, full export
+ * Workspace lifecycle hooks (#641, ADR-0174): transfer ownership, full export
  * (async, polled), and hard delete. Mirrors the project lifecycle mutations.
  */
 

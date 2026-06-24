@@ -16,7 +16,7 @@ The five findings that matter most:
 2. **Demo data is a snapshot, not a life.** The seed importer materializes final state at import time: every `django-simple-history` row is stamped "now" by the importing user, and the JSON seeds carry **fixed dates** (Atlas kickoff = 2026-01-05, already 5 months stale). The activity timeline (ADR-0096) of a freshly imported demo reads "one person did everything, today." Fixing this is the single highest-leverage demo investment — full design in §5.
 3. **The webhook event catalog has no agile events.** 11 event types, all task/dependency/schedule — no `sprint.activated`, `sprint.closed`, `card.moved`. For an "agile team" release with CI-adjacent integrations this is the API-first gap that bites first.
 4. **Sarah (PM persona #1) is dealbreaker-blocked until 1.0.** Her hard NO is "web-only / no real native mobile"; mobile is Android-first in 0.4, iPhone at 1.0 (Jan 2027). Either the roadmap or her first-priority billing needs to acknowledge this.
-5. **ADR numbering has collided** (duplicate 0079, 0083×3, 0087, 0088, 0090, 0091, 0092, 0109×2). Harmless today, but ADRs are the source of record and references like "per ADR-0083" are now ambiguous.
+5. **ADR numbering has collided** (duplicate 0079, 0083×3, 0087, 0088, 0090, 0091, 0092, 0109×2). Harmless today, but ADRs are the source of record and references like "per ADR-0083" are now ambiguous. _**Resolved by #918 (2026-06-23):** every live duplicate renumbered, all references re-pointed, and a `check-adr-collisions.sh` CI gate added to prevent recurrence._
 
 ---
 
@@ -59,7 +59,7 @@ TruePPM's stated position (ADR-0036): the tool for teams that *already run hybri
 
 | Methodology | Coverage | Evidence | Gaps |
 |---|---|---|---|
-| **Scrum** | Strong (~95%) | First-class `Sprint` state machine (PLANNED→ACTIVE→COMPLETED/CANCELLED) with goal, capacity, committed/completed snapshots, `goal_outcome`; burndown (`SprintBurnSnapshot`); velocity (rolling, team-owned per ADR-0104); retro + action-item→backlog promotion (ADR-0071); sprint review outcomes (`SprintTaskOutcome`, ADR-0111); scope-injection approve-gate (ADR-0102); carry-over on close. `projects/models.py`, `services.py`, `features/sprints/` (47 files) | Multi-team per project deferred to 0.6 (#599); velocity forecast is historical-only, no confidence band yet |
+| **Scrum** | Strong (~95%) | First-class `Sprint` state machine (PLANNED→ACTIVE→COMPLETED/CANCELLED) with goal, capacity, committed/completed snapshots, `goal_outcome`; burndown (`SprintBurnSnapshot`); velocity (rolling, team-owned per ADR-0104); retro + action-item→backlog promotion (ADR-0071); sprint review outcomes (`SprintTaskOutcome`, ADR-0176); scope-injection approve-gate (ADR-0102); carry-over on close. `projects/models.py`, `services.py`, `features/sprints/` (47 files) | Multi-team per project deferred to 0.6 (#599); velocity forecast is historical-only, no confidence band yet |
 | **Kanban** | Weak (~55%) | 5-status board, column rename/reorder/hide (`BoardColumnConfig`), swimlanes, `Task.status_changed_at` (stall detection), board saved views, real-time card sync | **No persisted per-column WIP limits** (columns JSON = `{status,label,visible}`; `Sprint.wip_limit` comment at models.py:2039 explicitly defers per-column limits and Kanban `delivery_mode` to #410). No CFD, no cycle/lead time, no classes of service, no flow forecasting (throughput-based) |
 | **Scrumban** | Moderate (~75%) | Sprint + always-live board coexist; sprint-level WIP threshold; backlog = `sprint=NULL` | Inherits every Kanban gap |
 | **Hybrid (flagship)** | Strong (~90%) | `GovernanceClass` + `DeliveryMode` per subtree; sprint↔milestone binding with immutable snapshot; `promote_sprint_to_milestone()`; velocity→CPM reforecast (ADR-0106, 0.3); methodology preset drives tab visibility (ADR-0041); rollup engine (ADR-0108) | `DeliveryMode` lacks KANBAN — a hybrid program with one flow team can't express it |
@@ -77,7 +77,7 @@ TruePPM's stated position (ADR-0036): the tool for teams that *already run hybri
 | Sustainable pace | **Strong and differentiated** | Capacity preflight, WIP threshold, overallocation heatmap, and — crucially — ADR-0104 team-signal privacy: velocity/pulse default to TEAM visibility, PMO is blocked by default. This is the anti-"velocity as surveillance" guard XP coaches ask for and almost no tool ships |
 | Collective ownership / pairing | **Absent** | `Task.assignee` is a single FK; `TaskResource` is capacity math, not co-ownership. No pairing concept anywhere |
 | Refactoring / tech debt | **Partial** | TaskType = EPIC/STORY/TASK/BUG/SPIKE — no tech-debt type or flag, so debt can't be tracked or charted distinctly |
-| On-site customer | **Strong** | PO facet on TeamMembership (#927), AC ceremony, sprint review outcome read (ADR-0111), prioritization scoring guarded off contributor views |
+| On-site customer | **Strong** | PO facet on TeamMembership (#927), AC ceremony, sprint review outcome read (ADR-0176), prioritization scoring guarded off contributor views |
 
 ### 3.3 What 0.3 needs to be *lovable* (gap list, prioritized)
 
@@ -161,7 +161,7 @@ Your requirement — *"history should show movements & actions since it was crea
 
 ## 7. Beyond-scope findings
 
-1. **ADR numbering collisions.** Duplicates: 0079 (×2), 0083 (×3), 0087, 0088, 0090, 0091, 0092 (×2 each), 0109 (×2); gaps at 0003–0009, 0095, 0098–0100. ADRs are the declared source of record and code comments cite them by number; "per ADR-0083" now has three referents. Fix cheaply: renumber the younger duplicates, add an index file, and a 5-line CI check that fails on duplicate prefixes.
+1. **ADR numbering collisions.** Duplicates: 0079 (×2), 0083 (×3), 0087, 0088, 0090, 0091, 0092 (×2 each), 0109 (×2); gaps at 0003–0009, 0095, 0098–0100. ADRs are the declared source of record and code comments cite them by number; "per ADR-0083" now has three referents. Fix cheaply: renumber the younger duplicates, add an index file, and a 5-line CI check that fails on duplicate prefixes. _**Resolved by #918 (2026-06-23):** the duplicates that were still live at fix time (0079, 0083×3, 0087, 0090, 0092, 0109, 0111, 0126, 0135) were renumbered by canonical external usage and the CI duplicate-prefix gate was added. An ADR index file remains a future nicety._
 2. **`changelog.d/` is empty** — including the README that `CLAUDE.md` says defines the naming convention. If fragments were assembled for a 0.2 release that hasn't actually tagged (see next), the changelog state and release state disagree.
 3. **0.2 stable slip vs version-tense rule.** Roadmap targeted 0.2 stable for Jun 8; packages remain 0.2.0-alpha.1 on Jun 10. The repo has a rule written in blood (issue #807) about past-tense claims for untagged versions. Run the prescribed grep over `packages/website/src/content/docs/` for "0.2" tense violations *now*, and update the roadmap's Underway/Shipped classification if the date slipped.
 4. **Scheduler PyPI status** is `Development Status :: Alpha` at 0.2.0a1 — consistent; just ensure README install instructions don't imply stable.
@@ -224,7 +224,7 @@ All 16 are correctly OSS (no cross-program/portfolio/SSO/audit-trail scope; #108
 
 **§2 verification resolutions:** (A) #410 is open and milestoned 0.3 — **not orphaned**. (B) `changelog.d/README.md` **exists** on main. (C) TODO sweep found **`TODO(#185)` points at a CLOSED issue** — a latent `lint:todo-grep` CI liability (the gate fails on closed-issue refs when that file is next touched); worth a one-off cleanup, not yet filed.
 
-**Scope boost:** #918 covers the original 7 ADR-number collisions but not the ADR-0109 duplicate, an ADR index file, or a CI duplicate-prefix guard — [noted on #918](https://gitlab.com/trueppm/trueppm/-/issues/918) for folding in (ADR numbers churned again during the Wave-4 merges).
+**Scope boost (resolved):** #918 was widened beyond the original 7 collisions to renumber every duplicate that was still live at fix time — the original set plus the 0109/0111/0126/0135 duplicates that churned in during the Wave-4 merges — and it adds the CI duplicate-prefix guard ([`scripts/check-adr-collisions.sh`](https://gitlab.com/trueppm/trueppm/-/issues/918)). A standalone ADR index file was left out of scope as a future nicety.
 
 ---
 

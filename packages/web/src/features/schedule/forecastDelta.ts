@@ -1,5 +1,5 @@
 /**
- * Formatting for Monte Carlo forecast-drift deltas (ADR-0109, issue 961).
+ * Formatting for Monte Carlo forecast-drift deltas (ADR-0175, issue 961).
  *
  * A delta is the change in a percentile finish date versus the immediately
  * previous (older) run, in days. Positive = the forecast slipped later (worse);

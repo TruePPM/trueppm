@@ -133,7 +133,7 @@ worker refine `name`/`start_date` from the parsed header.
    it wipes the project's tasks before bulk-create, so a duplicate execution converges
    to the same state. The view itself is creation (not idempotent across distinct
    uploads, by design — re-uploading a file creates a new project), so it is
-   Idempotency-Key-exempt like the existing import (ADR-0083).
+   Idempotency-Key-exempt like the existing import (ADR-0170).
 8. **Dead-letter / failure handling:** deterministic parse/validation errors →
    `ImportRequest` DEAD + `TaskRun` FAILED (terminal, no retry; user retries or deletes
    the shell). Infrastructure errors stay DISPATCHED for the drain to recover.

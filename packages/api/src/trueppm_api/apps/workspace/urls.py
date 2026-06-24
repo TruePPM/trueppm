@@ -26,11 +26,11 @@ from trueppm_api.apps.workspace.views import (
 )
 
 urlpatterns = [
-    # #517 — General settings (singleton); DELETE = hard delete (#641, ADR-0092)
+    # #517 — General settings (singleton); DELETE = hard delete (#641, ADR-0174)
     path("workspace/", WorkspaceSettingsView.as_view(), name="workspace-settings"),
     # #969 — Workspace logo (ADR-0149); GET public, POST/DELETE admin
     path("workspace/logo/", WorkspaceLogoView.as_view(), name="workspace-logo"),
-    # #641 — Lifecycle (ADR-0092)
+    # #641 — Lifecycle (ADR-0174)
     path(
         "workspace/transfer-ownership/",
         TransferOwnershipView.as_view(),

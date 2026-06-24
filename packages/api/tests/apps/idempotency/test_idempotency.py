@@ -1,4 +1,4 @@
-"""API tests for HTTP Idempotency-Key support (ADR-0083).
+"""API tests for HTTP Idempotency-Key support (ADR-0170).
 
 Covers the four acceptance behaviors — replay, mismatched-hash 422, missing-key no-op,
 expired-key re-run — plus exemptions, safe-method no-op, and a URLconf enforcement test
@@ -185,7 +185,7 @@ class TestPurge:
 
 
 # ---------------------------------------------------------------------------
-# Coverage enforcement — the teeth against silent gaps (ADR-0083)
+# Coverage enforcement — the teeth against silent gaps (ADR-0170)
 # ---------------------------------------------------------------------------
 
 
@@ -218,7 +218,7 @@ def _iter_view_classes() -> list[tuple[str, str | None, type, set[str]]]:
 
 # Function-based (@api_view) endpoints cannot carry the mixin via inheritance, so they are
 # allowlisted by URL name (their @api_view wrapper class is always "WrappedAPIView", which
-# is not distinguishable). All are intentionally not idempotency-protected (ADR-0083):
+# is not distinguishable). All are intentionally not idempotency-protected (ADR-0170):
 # - project-schedule (trigger_schedule) is already deduped by the ScheduleRequest outbox;
 # - project-monte-carlo (run_monte_carlo) is a read-only simulation that writes no state;
 # - retention-settings (retention_settings PATCH) updates a singleton config, so replaying it

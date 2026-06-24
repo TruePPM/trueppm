@@ -13,7 +13,7 @@ export interface ForecastDelta {
   p95: number | null;
 }
 
-/** One persisted Monte Carlo run in the project forecast history (ADR-0109). */
+/** One persisted Monte Carlo run in the project forecast history (ADR-0175). */
 export interface MonteCarloRunHistoryItem {
   id: string;
   takenAt: string;
@@ -91,7 +91,7 @@ function mapItem(w: MonteCarloRunWire): MonteCarloRunHistoryItem {
 
 /**
  * Fetch the project Monte Carlo run history (newest-first), so a PM can read
- * finish-date forecast drift over time (ADR-0109, issue 961; config ADR-0144, issue 1232).
+ * finish-date forecast drift over time (ADR-0175, issue 961; config ADR-0144, issue 1232).
  *
  * Calls `GET /projects/{pk}/monte-carlo/history/`. A 404 (project gone) is
  * surfaced as an empty list rather than an error. The envelope carries

@@ -19,7 +19,7 @@ so this ADR is a *reconciliation and extension*, not a new subsystem:
   nothing. Tab hiding is a **preference, not a permission** — routes are never gated, the
   API surface is unchanged, and **CPM always runs underneath** regardless of methodology.
   This *is* the per-project experience preset, in production today.
-- **ADR-0087(b) (Accepted)** establishes the `Workspace` singleton, which already carries
+- **ADR-0087 (Accepted)** establishes the `Workspace` singleton, which already carries
   `default_project_view` — direct precedent for a workspace-level default that seeds new
   projects. `PATCH /api/v1/workspace/` is gated on `IsWorkspaceAdmin`
   (`WorkspaceRole.ADMIN = 300`).

@@ -693,7 +693,7 @@ export interface ReviewShippedStory {
 }
 
 /**
- * Consolidated sprint-review read (#985, ADR-0111 §3). The single server-owned
+ * Consolidated sprint-review read (#985, ADR-0176 §3). The single server-owned
  * surface for review: commitment, goal verdict (#983), velocity Δ + burn status
  * (#984), the "didn't ship" list (#982), and a retro summary — nothing derived
  * client-side. `velocity` is null when the reader is below the velocity audience

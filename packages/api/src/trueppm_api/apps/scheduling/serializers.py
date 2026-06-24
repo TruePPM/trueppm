@@ -157,7 +157,7 @@ class VelocitySuggestionSerializer(serializers.ModelSerializer[VelocitySuggestio
 
 
 class MonteCarloRunSerializer(serializers.ModelSerializer[MonteCarloRun]):
-    """Read serializer for one project Monte Carlo run in the forecast history (ADR-0109).
+    """Read serializer for one project Monte Carlo run in the forecast history (ADR-0175).
 
     Two pieces of context the view must supply:
 

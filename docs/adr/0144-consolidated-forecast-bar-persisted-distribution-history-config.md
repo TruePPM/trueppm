@@ -27,7 +27,7 @@ problems, all reported together (#1231, #1232):
 
 3. **Missing histogram + no durable run history.** The full distribution
    (histogram buckets, confidence S-curve, duration-sensitivity tornado) lives **only**
-   in the 24h Valkey cache (`mc_latest:<pk>`). `MonteCarloRun` (ADR-0109) persists each
+   in the 24h Valkey cache (`mc_latest:<pk>`). `MonteCarloRun` (ADR-0175) persists each
    run's percentiles, CPM finish, n_simulations, taken_at, and triggered_by — but **not**
    the distribution. Once the cache TTL expires, the `/latest/` from-history fallback and
    every historical run return empty buckets, so `MonteCarloHistogram` shows misleading
@@ -50,7 +50,7 @@ blocker.
 
 P3M layer: Programs and Projects (OSS) — the scheduling engine forecast surface and its
 per-workspace configuration. Cross-program/portfolio rollup of forecast history remains
-Enterprise (ADR-0109 line, unchanged).
+Enterprise (ADR-0175 line, unchanged).
 
 ## Decision
 

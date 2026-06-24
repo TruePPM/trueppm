@@ -196,7 +196,7 @@ so the contract is fixed at design time.
    `code` holds the program slug; a matching program's subtree is replaced inside
    the transaction (ADR-0092 wipe-then-recreate). `validate_seed` itself is
    trivially idempotent (pure). The import endpoint additionally honors the
-   `Idempotency-Key` header via the ADR-0083 mixin to collapse duplicate uploads.
+   `Idempotency-Key` header via the ADR-0170 mixin to collapse duplicate uploads.
 8. **Dead-letter / failure handling:** any validation or persistence failure
    rolls back the whole `transaction.atomic()` — partial programs never persist.
    `validate_seed` raises `SeedValidationError` with the offending JSON path;
@@ -242,7 +242,7 @@ byte-identical to a re-export.
 **Scope.** This slice is the synchronous **JSON seed** export only. The richer
 bundle in #967's original AC — `.mpp`, attachments, time entries, audit log, and
 a queued-job/download-link state — is deferred to a follow-up issue; that path
-would adopt the async export-job pattern (ADR-0092 workspace export), not this
+would adopt the async export-job pattern (ADR-0174 workspace export), not this
 in-request `HttpResponse`.
 
 ### Durable Execution (project export)

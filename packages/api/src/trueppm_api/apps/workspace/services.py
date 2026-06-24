@@ -160,7 +160,7 @@ def record_audit_event(
 
 
 # ---------------------------------------------------------------------------
-# Lifecycle: transfer ownership / export / delete (ADR-0092, #641)
+# Lifecycle: transfer ownership / export / delete (ADR-0174, #641)
 # ---------------------------------------------------------------------------
 
 
@@ -242,7 +242,7 @@ def transfer_workspace_ownership(*, new_owner: Any, actor: Any) -> WorkspaceMemb
 
 
 def enqueue_workspace_export(*, requested_by: Any) -> WorkspaceExportJob:
-    """Create an export job row and best-effort dispatch the Celery task (ADR-0092).
+    """Create an export job row and best-effort dispatch the Celery task (ADR-0174).
 
     Follows the transactional-outbox convention (ADR-0080): the row commits with
     the request; ``.delay()`` is attempted in ``transaction.on_commit`` and broker
@@ -286,7 +286,7 @@ def enqueue_workspace_export(*, requested_by: Any) -> WorkspaceExportJob:
 
 
 def purge_workspace() -> None:
-    """Hard-delete every workspace-scoped row and the singleton itself (ADR-0092).
+    """Hard-delete every workspace-scoped row and the singleton itself (ADR-0174).
 
     Because ``Workspace.load()`` re-materializes the singleton on next access,
     deleting the row is a factory reset: the next request gets a fresh default

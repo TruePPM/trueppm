@@ -1,4 +1,4 @@
-"""Celery tasks for the idempotency app — retention purge (ADR-0083)."""
+"""Celery tasks for the idempotency app — retention purge (ADR-0170)."""
 
 from __future__ import annotations
 

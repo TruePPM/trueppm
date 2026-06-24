@@ -410,7 +410,7 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     }
     cache.set(f"mc_latest:{pk}", result_dict, timeout=86400)
 
-    # Persist this run for the forecast-drift history (ADR-0109, #961). Best-effort:
+    # Persist this run for the forecast-drift history (ADR-0175, #961). Best-effort:
     # a write failure inside the service is logged and swallowed so the simulation
     # result is still returned; the response carries the run id when persistence
     # succeeded.
@@ -450,7 +450,7 @@ class MonteCarloLatestView(APIView):
         """Return the latest cached Monte Carlo result for the project.
 
         Falls back to the most recent persisted ``MonteCarloRun`` when the 24-hour
-        cache has expired (ADR-0109): the latest forecast now survives past the
+        cache has expired (ADR-0175): the latest forecast now survives past the
         TTL. As of #1231 the run also persists its distribution, so when present the
         fallback returns the real ``histogram_buckets``/``confidence_curve``/
         ``sensitivity`` instead of empty arrays — the histogram survives cache
@@ -470,7 +470,7 @@ class MonteCarloLatestView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
         # cpm_finish + delta_vs_cpm survive the TTL because both are persisted on the
-        # run (ADR-0109). The distribution (#1231) now survives too when persisted:
+        # run (ADR-0175). The distribution (#1231) now survives too when persisted:
         # use the stored buckets/curve/sensitivity, falling back to empty arrays for
         # legacy runs that pre-date persistence (the frontend shows the empty-state
         # prose then). Response shape is unchanged (snake_case keys).
@@ -499,7 +499,7 @@ class MonteCarloLatestView(APIView):
 # Hard ceiling on a single forecast-history response, independent of the
 # retention cap. OSS retention (MC_HISTORY_CAP=100) is already below this; the
 # ceiling only bites the Enterprise unlimited-retention case so the endpoint can
-# never stream an unbounded payload (ADR-0109).
+# never stream an unbounded payload (ADR-0175).
 MC_HISTORY_RESPONSE_MAX = 500
 
 
@@ -520,7 +520,7 @@ MC_HISTORY_RESPONSE_MAX = 500
         200: OpenApiResponse(
             response=OpenApiTypes.OBJECT,
             description=(
-                "Project Monte Carlo run history (ADR-0109/0143). "
+                "Project Monte Carlo run history (ADR-0175/0143). "
                 "{results: [MonteCarloRun], cap: int|null, enabled: bool}. When the "
                 "per-workspace config disables history, enabled is false and results is "
                 "empty. Each run carries P50/P80/P95, cpm_finish, n_simulations, "
@@ -536,7 +536,7 @@ MC_HISTORY_RESPONSE_MAX = 500
     },
 )
 class MonteCarloHistoryView(APIView):
-    """Project Monte Carlo run history — forecast drift over time (ADR-0109, #961).
+    """Project Monte Carlo run history — forecast drift over time (ADR-0175, #961).
 
     Returns persisted runs newest-first, capped at ``settings.MC_HISTORY_CAP``,
     each with a computed-on-read per-percentile delta versus the immediately
@@ -732,7 +732,7 @@ class FailedTaskViewSet(IdempotencyMixin, ListModelMixin, RetrieveModelMixin, Ge
     tracebacks, args, and kwargs which may contain internal paths or partial
     secrets and must not be visible to unprivileged members.
 
-    The list endpoint backs the dead-letter inspector (#694, ADR-0087) and
+    The list endpoint backs the dead-letter inspector (#694, ADR-0172) and
     accepts read-only filters: ``?status=`` (one of the FailedTaskStatus
     values), ``?task_name=`` (case-insensitive substring), and
     ``?failed_after=`` / ``?failed_before=`` (ISO-8601, filtered on

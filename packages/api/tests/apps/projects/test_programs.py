@@ -614,7 +614,7 @@ def test_general_field_patch_requires_admin(owner: object, other_user: object) -
 
 
 # ---------------------------------------------------------------------------
-# Ungrouped projects filter — GET /projects/?program__isnull=true (ADR-0083, #697)
+# Ungrouped projects filter — GET /projects/?program__isnull=true (ADR-0171, #697)
 # ---------------------------------------------------------------------------
 
 
@@ -691,7 +691,7 @@ def test_default_project_list_does_not_annotate_aggregates(
     owner: object, calendar: Calendar
 ) -> None:
     # The hot /projects/ list stays lightweight — the aggregates are null unless
-    # the ungrouped branch is requested (ADR-0083).
+    # the ungrouped branch is requested (ADR-0171).
     project = _make_project(owner, calendar, name="Plain")
     Task.objects.create(project=project, name="A", percent_complete=100.0)
 

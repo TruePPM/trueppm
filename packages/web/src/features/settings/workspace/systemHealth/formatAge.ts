@@ -65,7 +65,7 @@ export function formatUpdatedAgo(dataUpdatedAt: number): string {
  *
  * Sizes shown in the retention editor are PostgreSQL estimates, so one decimal
  * place is plenty of precision. ``null`` renders as an em dash rather than a
- * misleading 0 (ADR-0090: bytes is best-effort).
+ * misleading 0 (ADR-0173: bytes is best-effort).
  */
 export function formatBytes(bytes: number | null): string {
   if (bytes === null) return '—';

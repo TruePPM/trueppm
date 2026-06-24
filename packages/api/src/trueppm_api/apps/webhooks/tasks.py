@@ -279,7 +279,7 @@ def _do_webhook_purge(*, dry_run: bool = False, override_value: int | None = Non
     Deletes only terminal (SUCCESS/FAILED) deliveries: PENDING rows may still be
     re-dispatched by the drain, so they are never purged regardless of age. The
     window comes from ``resolve_retention`` (operator override → settings default,
-    ADR-0090); ``None`` disables the purge entirely (unbounded retention).
+    ADR-0173); ``None`` disables the purge entirely (unbounded retention).
 
     Returns the number of rows deleted, or — when ``dry_run`` — the number that
     *would* be deleted. ``override_value`` forces a hypothetical window (used by the

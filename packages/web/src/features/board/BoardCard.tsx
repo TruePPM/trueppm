@@ -702,7 +702,7 @@ export function BoardCard({
           </div>
         )}
 
-        {/* Tech-debt badge (ADR-0135, #1076) — debt is the one type surfaced on
+        {/* Tech-debt badge (ADR-0178, #1076) — debt is the one type surfaced on
             the card face so a team can see remediation work at a glance; other
             types stay unbadged to keep the board calm. Neutral pill, word carries
             the meaning (rule 12). */}

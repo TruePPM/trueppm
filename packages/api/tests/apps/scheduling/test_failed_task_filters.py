@@ -1,4 +1,4 @@
-"""Tests for the dead-letter inspector list filters on FailedTaskViewSet (#694, ADR-0087).
+"""Tests for the dead-letter inspector list filters on FailedTaskViewSet (#694, ADR-0172).
 
 The inspector list adds read-only ?status / ?task_name / ?failed_after /
 ?failed_before filters. Invalid filter values degrade to "no filter" rather

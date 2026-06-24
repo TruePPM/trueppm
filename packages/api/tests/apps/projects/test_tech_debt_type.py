@@ -1,4 +1,4 @@
-"""Tests for the TECH_DEBT task type and its visibility surfaces (ADR-0135, #1076).
+"""Tests for the TECH_DEBT task type and its visibility surfaces (ADR-0178, #1076).
 
 Tech debt is a first-class TaskType so a team can track, filter, and chart
 remediation work distinctly. The key invariant under test is the one that
@@ -82,7 +82,7 @@ def test_tech_debt_counts_toward_committed_aggregates(project: Project) -> None:
 
     ``CommittedTaskManager`` (``Task.committed``) is the queryset behind every
     velocity / burndown / rollup aggregate. It excludes EPIC because an epic is a
-    grouping node, not work. ADR-0135 made debt the deliberate opposite: it must
+    grouping node, not work. ADR-0178 made debt the deliberate opposite: it must
     NOT join that exclusion, or velocity would understate consumed capacity.
     """
     debt = Task.objects.create(

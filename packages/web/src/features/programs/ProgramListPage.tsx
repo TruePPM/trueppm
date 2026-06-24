@@ -93,7 +93,7 @@ export function ProgramListPage() {
                 <ProgramCard key={p.id} program={p} />
               ))}
             </ul>
-            {/* Standalone projects that aren't in any program (ADR-0083, #697).
+            {/* Standalone projects that aren't in any program (ADR-0171, #697).
                 Self-hides when there are none. */}
             <UngroupedProjectsSection />
           </>

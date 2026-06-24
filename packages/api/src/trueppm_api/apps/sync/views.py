@@ -97,7 +97,7 @@ class ProjectSyncView(IdempotencyMixin, APIView):
         GET /api/v1/projects/{pk}/sync/?since=0
     """
 
-    # Exempt from the generic Idempotency-Key path (ADR-0083): the upload POST is already
+    # Exempt from the generic Idempotency-Key path (ADR-0170): the upload POST is already
     # idempotent by client_batch_id (SyncBatch dedup, ADR-0082); the generic header would
     # be redundant and the sync protocol uses its own batch id.
     idempotency_exempt = True

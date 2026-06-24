@@ -23,7 +23,7 @@ restarting pods:
 
 A UI change writes a **`RetentionPolicy` override** that takes precedence over the
 matching Django setting. The settings below remain the **defaults** — a deployment that
-never opens the editor behaves exactly as it did before (ADR-0090).
+never opens the editor behaves exactly as it did before (ADR-0173).
 
 **Lowering a window is irreversible.** Lowering a retention window makes more data
 **immediately purge-eligible** on the next run. The editor shows how many rows (and roughly
@@ -42,13 +42,13 @@ enforces it.
 | `TRUEPPM_SYNC_BATCH_RETENTION_HOURS` | `24` | hours | `SyncBatch` mobile-upload idempotency rows past the dedup window (ADR-0082) |
 
 **One purge coordinator, not five nightly jobs.** These five tables were previously purged
-by five separate nightly Beat jobs at staggered UTC times. As of ADR-0090 they are purged
+by five separate nightly Beat jobs at staggered UTC times. As of ADR-0173 they are purged
 by a **single retention purge coordinator** that runs all five as one unified run on the
 schedule below (default **02:00 UTC daily**). The per-table tasks still exist and remain
 dispatchable, but they are no longer independently scheduled.
 
 **Workspace export archives are purged separately.** A completed workspace export
-(Settings → Archive / Delete → *Export all data*, ADR-0092) writes a full `.tar.gz` to
+(Settings → Archive / Delete → *Export all data*, ADR-0174) writes a full `.tar.gz` to
 object storage. `TRUEPPM_EXPORT_RETENTION_DAYS` (default `7`; `None` disables) bounds how
 long the download link stays valid; past it the standalone nightly `purge_expired_exports`
 Beat task (04:20 UTC) deletes both the `WorkspaceExportJob` row **and** its stored archive

@@ -5,12 +5,12 @@ Accepted
 
 ## Context
 Issue #969 ("wire remaining Workspace settings actions") tracks the last unimplemented
-controls on the Workspace settings surface introduced by ADR-0087-b. Two remain:
+controls on the Workspace settings surface introduced by ADR-0087. Two remain:
 
 1. **Resend a pending invite.** The Members page shows pending `WorkspaceInvite` rows
    with disabled "Resend" (per-row) and "Resend all" (bulk header) buttons, both stubbed
    to #969. Today an admin whose invite email bounced or was lost has no recovery path
-   except revoke + re-create. The invite email outbox already exists (ADR-0087-b:
+   except revoke + re-create. The invite email outbox already exists (ADR-0087:
    `email_pending` / `email_sent_at` / `email_attempts`, drained by `drain_invite_emails`
    every 30 s); a resend is a re-queue into that same outbox.
 
@@ -164,7 +164,7 @@ bar and General page consume `logo_url`; absence → the existing letter-mark.
 
 ### Durable Execution
 1. **Broker-down behaviour:** Resend uses the **existing transactional-invite-outbox**
-   (ADR-0087-b). The resend handler flips the outbox columns inside the request
+   (ADR-0087). The resend handler flips the outbox columns inside the request
    transaction and makes a best-effort `drain_invite_emails.delay()` in
    `transaction.on_commit()`; a broker outage is invisible to the caller and recovered by
    the drain. Logo upload has **no async side effect** — synchronous file write, N/A.

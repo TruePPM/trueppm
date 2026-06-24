@@ -10,7 +10,7 @@ interface Props {
 }
 
 /**
- * Modal picker for moving a standalone project INTO a program (ADR-0083, #697).
+ * Modal picker for moving a standalone project INTO a program (ADR-0171, #697).
  *
  * This is the inverse of `AddProjectToProgramModal` (which picks a project for a
  * given program): here the project is fixed and the user picks the destination

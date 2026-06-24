@@ -404,6 +404,23 @@ lint:design-system-v2:
   script:
     - bash scripts/check-design-system-v2.sh
 
+lint:adr-collisions:
+  # ADR number-collision gate (#918). Fails if any two files under docs/adr/
+  # share a four-digit prefix — the recurring failure mode where parallel
+  # branches each grab "the next free number" off a stale main and silently
+  # corrupt the design-decision audit trail (a `per ADR-NNNN` reference stops
+  # resolving to a single file). The renumbering in #918 cleared the existing
+  # duplicates; this gate keeps them from coming back. ~1s.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+    - apk add --no-cache bash
+  script:
+    - bash scripts/check-adr-collisions.sh
+
 docs:version-accuracy:
   # Version-status tense gate (#807). A past/present-tense version claim in the
   # website docs ("shipped in 0.X", "added in 0.X", "In 0.X the Y is …") may

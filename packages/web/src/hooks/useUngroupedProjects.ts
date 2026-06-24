@@ -5,7 +5,7 @@ import type { PaginatedResponse } from '@/api/types';
 
 /**
  * A standalone (program-less) project as rendered in the Programs directory's
- * "Ungrouped projects" section (ADR-0083, #697). Enriched with the two
+ * "Ungrouped projects" section (ADR-0171, #697). Enriched with the two
  * aggregates the API annotates only on the `?program__isnull=true` branch.
  */
 export interface UngroupedProject {
@@ -60,7 +60,7 @@ function mapUngrouped(p: ApiUngroupedProject): UngroupedProject {
 
 /**
  * GET /api/v1/projects/?program__isnull=true — the current user's standalone
- * projects, RBAC-scoped to their memberships (ADR-0083).
+ * projects, RBAC-scoped to their memberships (ADR-0171).
  *
  * Keyed under `['projects', 'ungrouped']` so the existing
  * `useAssignProjectToProgram` invalidation of `['projects']` (a prefix match)

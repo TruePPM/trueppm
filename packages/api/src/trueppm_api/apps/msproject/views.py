@@ -146,7 +146,7 @@ class MsProjectImportView(IdempotencyMixin, APIView):
     the response includes the celery_task_id for progress tracking.
     """
 
-    # Exempt from the generic Idempotency-Key path (ADR-0083): this is a multipart
+    # Exempt from the generic Idempotency-Key path (ADR-0170): this is a multipart
     # upload, and the import is already deduped at the table level via ImportRequest.
     idempotency_exempt = True
     # IsProjectMember gates membership at the DRF layer (declarative, OpenAPI-visible);

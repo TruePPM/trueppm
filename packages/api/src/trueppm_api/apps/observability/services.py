@@ -1,9 +1,9 @@
-"""Service layer for the retention policy editor + purge runs (ADR-0090).
+"""Service layer for the retention policy editor + purge runs (ADR-0173).
 
 Read/write helpers behind the ``/health/retention/*`` endpoints, plus the
 durable dispatch of a manual/dry-run purge. Dispatch follows the house pattern:
 create the ``PurgeRun`` row, then fire the coordinator in ``transaction.on_commit``
-so the worker only adopts a row that has committed (ADR-0090 §Durable Execution).
+so the worker only adopts a row that has committed (ADR-0173 §Durable Execution).
 """
 
 from __future__ import annotations

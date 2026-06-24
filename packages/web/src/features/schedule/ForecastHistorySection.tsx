@@ -16,7 +16,7 @@ interface Props {
 const INITIAL_VISIBLE = 10;
 
 /**
- * Collapsible "Forecast history" section for the Monte Carlo surfaces (ADR-0109,
+ * Collapsible "Forecast history" section for the Monte Carlo surfaces (ADR-0175,
  * issue 961; persisted-distribution read-path ADR-0144, issue 1231). Read-only. Shows
  * persisted runs newest-first with a per-run delta vs the previous run so a PM
  * can read finish-date forecast drift over time, and lets a run be expanded to

@@ -100,7 +100,7 @@ def _register_task_soft_delete_receiver() -> None:
 def _register_program_rollup_seed_receiver() -> None:
     """Register the Program post_save receiver that seeds rollup config on create.
 
-    ADR-0079 / #527: a newly-created Program gets methodology-aware default
+    ADR-0169 / #527: a newly-created Program gets methodology-aware default
     rollup config (which KPIs roll up, which aggregation policy to use). The
     backfill of existing rows happens in migration 0041; this receiver covers
     every Program created after the migration.

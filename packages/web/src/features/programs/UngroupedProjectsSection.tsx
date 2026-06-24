@@ -59,7 +59,7 @@ function UngroupedRow({
 }
 
 /**
- * "Ungrouped projects" section on the Programs directory (ADR-0083, #697).
+ * "Ungrouped projects" section on the Programs directory (ADR-0171, #697).
  *
  * Surfaces the user's standalone projects (those not in any program) with a
  * one-click "Move to program" action. Self-hides when there are none — a clean

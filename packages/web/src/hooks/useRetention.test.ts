@@ -1,6 +1,6 @@
 /**
  * Unit tests for the retention hooks — query-key factory and API call shapes
- * for the GET/PATCH/impact/runs endpoints (ADR-0090).
+ * for the GET/PATCH/impact/runs endpoints (ADR-0173).
  */
 
 import { renderHook, waitFor } from '@testing-library/react';

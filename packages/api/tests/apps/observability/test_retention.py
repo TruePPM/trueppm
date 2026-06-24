@@ -1,4 +1,4 @@
-"""Tests for the retention policy editor + purge runs (#693, ADR-0090).
+"""Tests for the retention policy editor + purge runs (#693, ADR-0173).
 
 Covers:
   - IsAdminUser gating (401 unauth / 403 non-staff) on all four endpoints
