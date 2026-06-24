@@ -55,7 +55,7 @@ export function AdvancingToMilestoneCard({ sprint, projectId, predecessorsInSpri
   return (
     <section
       aria-labelledby="sprint-milestone-heading"
-      className="rounded-md border border-neutral-border bg-neutral-surface p-4 flex flex-col gap-3"
+      className="rounded-card border border-neutral-border bg-neutral-surface p-4 flex flex-col gap-3"
     >
       <h2
         id="sprint-milestone-heading"

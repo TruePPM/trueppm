@@ -34,7 +34,7 @@ export function IncomingCarryoverCard({ sprintId, currentSprintShortId }: Props)
   return (
     <section
       aria-labelledby="incoming-carryover-heading"
-      className="rounded-md border border-neutral-border bg-neutral-surface"
+      className="rounded-card border border-neutral-border bg-neutral-surface"
     >
       <header className="px-3 py-2 flex items-baseline justify-between gap-2 border-b border-neutral-border">
         <h2

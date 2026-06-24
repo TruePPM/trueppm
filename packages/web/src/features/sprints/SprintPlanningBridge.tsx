@@ -44,7 +44,7 @@ export function SprintPlanningBridge({ sprint, projectId, canEdit, sprintTaskIds
   return (
     <section
       aria-labelledby="sprint-planning-bridge-heading"
-      className="rounded-lg border border-brand-primary/20 bg-brand-primary/5 p-3 flex flex-col gap-3"
+      className="rounded-card border border-brand-primary/20 bg-brand-primary/5 p-3 flex flex-col gap-3"
     >
       <h2
         id="sprint-planning-bridge-heading"

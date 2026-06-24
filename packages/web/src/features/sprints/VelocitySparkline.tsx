@@ -46,7 +46,7 @@ export function VelocitySparkline({ velocity, isLoading = false }: Props) {
   if (isLoading) {
     return (
       <div
-        className="h-6 w-16 rounded-sm bg-neutral-surface-sunken"
+        className="h-6 w-16 rounded-chip bg-neutral-surface-sunken"
         role="status"
         aria-label="Loading velocity"
       />

@@ -44,7 +44,7 @@ export function VelocityPanel({ velocity }: Props) {
   return (
     <section
       aria-labelledby="velocity-panel-heading"
-      className="rounded-md border border-neutral-border bg-neutral-surface p-4 flex flex-col gap-3"
+      className="rounded-card border border-neutral-border bg-neutral-surface p-4 flex flex-col gap-3"
     >
       <div className="flex items-baseline justify-between gap-2 flex-wrap">
         <h2

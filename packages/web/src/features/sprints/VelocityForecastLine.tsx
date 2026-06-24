@@ -38,7 +38,7 @@ export function VelocityForecastLine({ projectId, targetMilestoneId, enabled }: 
   if (isLoading) {
     return (
       <div
-        className="mt-2 h-4 w-40 rounded-sm bg-neutral-surface-sunken"
+        className="mt-2 h-4 w-40 rounded-chip bg-neutral-surface-sunken"
         role="status"
         aria-label="Loading forecast"
       />

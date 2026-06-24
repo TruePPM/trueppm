@@ -43,7 +43,7 @@ export function MultiTeamLens({ entries }: Props) {
       {entries.length === 0 ? (
         <div
           role="status"
-          className="rounded-md border border-dashed border-neutral-border bg-neutral-surface-raised p-6 text-center"
+          className="rounded-card border border-dashed border-neutral-border bg-neutral-surface-raised p-6 text-center"
         >
           <p className="text-sm font-medium text-neutral-text-primary">
             No active assignments across your teams
@@ -80,7 +80,7 @@ function TeamCard({ entry }: { entry: MyActiveSprintEntry }) {
     <li>
       <Link
         to={`/projects/${entry.project_id}/sprints`}
-        className="block rounded-md border border-neutral-border bg-neutral-surface p-4 hover:border-brand-primary/40
+        className="block rounded-card border border-neutral-border bg-neutral-surface p-4 hover:border-brand-primary/40
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
       >
         <div className="flex items-baseline justify-between gap-2">

@@ -52,7 +52,7 @@ export function CapacityPreflight({ capacity, points }: Props) {
   return (
     <section
       aria-labelledby="capacity-preflight-heading"
-      className="rounded-md border border-neutral-border bg-neutral-surface p-4 flex flex-col gap-3"
+      className="rounded-card border border-neutral-border bg-neutral-surface p-4 flex flex-col gap-3"
     >
       <div className="flex items-center justify-between gap-2">
         <h2

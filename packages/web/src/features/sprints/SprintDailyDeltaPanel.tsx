@@ -114,10 +114,10 @@ export function SprintDailyDeltaPanel({ sprintId }: Props) {
       <section
         aria-labelledby="daily-delta-heading"
         data-testid="sprint-daily-delta"
-        className="rounded-md border border-neutral-border bg-neutral-surface flex flex-col"
+        className="rounded-card border border-neutral-border bg-neutral-surface flex flex-col"
       >
         <PanelHeader control={control} subtitle={null} />
-        <div className="h-24 m-2 rounded-md border border-neutral-border bg-neutral-surface-raised animate-pulse" />
+        <div className="h-24 m-2 rounded-card border border-neutral-border bg-neutral-surface-raised animate-pulse" />
       </section>
     );
   }
@@ -129,7 +129,7 @@ export function SprintDailyDeltaPanel({ sprintId }: Props) {
       <section
         aria-labelledby="daily-delta-heading"
         data-testid="sprint-daily-delta"
-        className="rounded-md border border-neutral-border bg-neutral-surface flex flex-col"
+        className="rounded-card border border-neutral-border bg-neutral-surface flex flex-col"
       >
         <PanelHeader control={control} subtitle={null} />
         <div role="alert" className="px-3 py-4 flex items-center justify-between gap-3 text-xs">
@@ -167,7 +167,7 @@ export function SprintDailyDeltaPanel({ sprintId }: Props) {
     <section
       aria-labelledby="daily-delta-heading"
       data-testid="sprint-daily-delta"
-      className="rounded-md border border-neutral-border bg-neutral-surface flex flex-col"
+      className="rounded-card border border-neutral-border bg-neutral-surface flex flex-col"
     >
       <PanelHeader control={control} subtitle={relativeSince(d.since)} />
 
@@ -234,7 +234,7 @@ function WindowControl({
     <div
       role="group"
       aria-label="Delta window"
-      className="inline-flex rounded-md border border-neutral-border overflow-hidden text-[11px]"
+      className="inline-flex rounded-chip border border-neutral-border overflow-hidden text-[11px]"
     >
       {WINDOW_OPTIONS.map((opt) => {
         const active = opt.mode === mode;

@@ -332,7 +332,7 @@ export function SprintsView() {
   }
 
   return (
-    <div className="flex flex-col h-full overflow-hidden bg-neutral-surface">
+    <div className="flex flex-col h-full overflow-hidden bg-app-canvas">
       <nav
         aria-label="Breadcrumb"
         className="px-6 pt-5 flex items-center justify-between gap-3"
@@ -428,7 +428,7 @@ export function SprintsView() {
       {capacityWarnings.length > 0 && (
         <div
           role="alert"
-          className="mx-6 mt-2 rounded-md border border-semantic-at-risk/40 bg-semantic-at-risk-bg
+          className="mx-6 mt-2 rounded-card border border-semantic-at-risk/40 bg-semantic-at-risk-bg
             text-semantic-at-risk px-3 py-2 text-xs flex items-start justify-between gap-3"
         >
           <div className="flex flex-col gap-1">
@@ -473,7 +473,7 @@ export function SprintsView() {
         {!isLoading && !error && sprints.length === 0 && (
           <div
             role="status"
-            className="rounded-md border border-dashed border-neutral-border bg-neutral-surface-raised p-6 text-center"
+            className="rounded-card border border-dashed border-neutral-border bg-neutral-surface-raised p-6 text-center"
           >
             <p className="text-sm font-medium text-neutral-text-primary">
               No {itl.lowerPlural} yet
@@ -611,7 +611,7 @@ export function SprintsView() {
             — the whole sprint-commitment conversation on one surface. */}
         {!isLoading && !error && selectedSprint?.id === plannedSprint?.id && plannedSprint && projectId && (
           <div className="px-6 grid grid-cols-1 lg:grid-cols-5 gap-4 items-start">
-            <div className="lg:col-span-3 rounded-md border border-neutral-border overflow-hidden">
+            <div className="lg:col-span-3 rounded-card border border-neutral-border overflow-hidden">
               <SprintBacklogTable
                 projectId={projectId}
                 sprintId={plannedSprint.id}
@@ -639,10 +639,10 @@ export function SprintsView() {
                 currentSprintShortId={plannedSprint.short_id_display}
               />
               {velocity.data && (
-                <details className="rounded-md border border-neutral-border bg-neutral-surface">
+                <details className="rounded-card border border-neutral-border bg-neutral-surface">
                   <summary
                     className="cursor-pointer px-4 py-2 text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary
-                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-md"
+                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-control"
                   >
                     Velocity
                   </summary>
@@ -736,7 +736,7 @@ function ChartSkeleton({ label }: { label: string }) {
     <div
       role="status"
       aria-label={`Loading ${label}`}
-      className="rounded-md border border-neutral-border bg-neutral-surface-raised p-4 min-h-[180px] flex items-center justify-center"
+      className="rounded-card border border-neutral-border bg-neutral-surface-raised p-4 min-h-[180px] flex items-center justify-center"
     >
       <span className="text-xs text-neutral-text-disabled">Loading {label}…</span>
     </div>

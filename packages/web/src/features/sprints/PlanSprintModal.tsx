@@ -173,7 +173,7 @@ export function PlanSprintModal({
           role="dialog"
           aria-modal="true"
           aria-label={isEdit ? `Edit planned ${itl.lower}` : `Plan next ${itl.lower}`}
-          className="w-full max-w-md rounded-lg border border-neutral-border bg-neutral-surface p-6 pointer-events-auto"
+          className="w-full max-w-md rounded-card border border-neutral-border bg-neutral-surface p-6 pointer-events-auto"
         >
           <h2 className="text-base font-semibold text-neutral-text-primary mb-4">
             {isEdit ? `Edit planned ${itl.lower}` : `Plan next ${itl.lower}`}

@@ -15,7 +15,7 @@ export function RetroSummaryCard({ summary }: Props) {
   return (
     <div
       role="status"
-      className="rounded-md border border-neutral-border bg-neutral-surface-raised p-4 flex flex-col items-center gap-2"
+      className="rounded-card border border-neutral-border bg-neutral-surface-raised p-4 flex flex-col items-center gap-2"
     >
       <p className="text-sm font-medium text-neutral-text-primary">
         This retrospective is private to the {itl.lower} team.

@@ -1,0 +1,1 @@
+Adopted the v2 design-system foundation across the **Sprints** surface (#1194): legacy Tailwind radii migrated to the semantic `rounded-card` / `rounded-control` / `rounded-chip` scale by role, and the Sprints view now renders on the warm `bg-app-canvas` page surface so its panels, cards, and dialogs (`bg-neutral-surface`) pop against it. Visual-only — no behavior change.
