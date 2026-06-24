@@ -10,8 +10,10 @@ import {
 /**
  * Resolve the active project's iteration-container label into all display forms
  * (ADR-0111, #862). This is the single chokepoint every sprint-container surface
- * reads instead of the literal "Sprint" — so the relabel is configurable and the
- * grep gate ("no hard-coded container 'Sprint'") is mechanically verifiable.
+ * reads instead of the literal "Sprint" — so the relabel is configurable. The
+ * `no-restricted-syntax` iteration-label gate in eslint.config.js mechanically
+ * enforces it: hard-coded "sprint" in JSX text or display attributes on the
+ * container feature surfaces fails `web:lint` (#1287).
  *
  * `projectId` defaults to the current route's project (`useProjectId`), so most
  * call sites use it with no arguments. While the project query is loading or

@@ -406,11 +406,12 @@ function LegendStrip() {
 }
 
 function ReadyLine() {
+  const itl = useIterationLabel();
   return (
     <div className="flex items-center gap-2.5 px-2 py-1.5">
       <span className="h-0 flex-1 border-t-2 border-dashed border-brand-primary" />
       <span className="text-xs font-bold uppercase tracking-wide text-brand-primary">
-        Next-sprint ready line
+        Next-{itl.lower} ready line
       </span>
       <span className="h-0 flex-1 border-t-2 border-dashed border-brand-primary" />
     </div>

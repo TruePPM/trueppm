@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
+import { renderWithProviders as render } from '@/test/utils';
 import { MemoryRouter } from 'react-router';
 
 vi.mock('@/hooks/useSprints', async () => {

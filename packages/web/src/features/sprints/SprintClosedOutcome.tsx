@@ -616,6 +616,7 @@ function GoalVerdict({ status }: { status: SprintOutcome['goal_outcome'] }) {
 }
 
 function DeltaValue({ delta }: { delta: number }) {
+  const itl = useIterationLabel();
   // A drop in velocity is a watch-signal (amber), not an error — reserve critical
   // red for genuine failure states (rule 145).
   const tone =
@@ -631,8 +632,8 @@ function DeltaValue({ delta }: { delta: number }) {
       className={`tppm-mono text-lg font-semibold ${tone}`}
       aria-label={
         delta === 0
-          ? 'Velocity unchanged vs prior sprint'
-          : `Velocity ${direction} ${Math.abs(delta)} points vs prior sprint`
+          ? `Velocity unchanged vs prior ${itl.lower}`
+          : `Velocity ${direction} ${Math.abs(delta)} points vs prior ${itl.lower}`
       }
     >
       <span aria-hidden="true">{arrow} </span>

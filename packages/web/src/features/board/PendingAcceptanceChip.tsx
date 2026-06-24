@@ -30,7 +30,13 @@ export function PendingAcceptanceChip({ compact = false, className }: Props) {
         'bg-neutral-surface-sunken text-neutral-text-secondary border border-neutral-border',
         className ?? '',
       ].join(' ')}
-      title="Added after the sprint started — awaiting acceptance. Not yet counted in the commitment."
+      title={
+        // This shared chip also renders in cross-project "My Work" (features/me),
+        // where no single project's iteration label applies — so the generic
+        // "sprint" wording is intentional rather than read from useIterationLabel().
+        // eslint-disable-next-line no-restricted-syntax -- see comment above
+        'Added after the sprint started — awaiting acceptance. Not yet counted in the commitment.'
+      }
       aria-label="Pending acceptance"
     >
       <span aria-hidden="true" className="leading-none">

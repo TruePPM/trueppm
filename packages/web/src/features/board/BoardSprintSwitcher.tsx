@@ -13,6 +13,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import type { ApiSprint, SprintState } from '@/types';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 
 interface BoardSprintSwitcherProps {
   sprints: ApiSprint[];
@@ -45,6 +46,7 @@ export function BoardSprintSwitcher({
   selectedSprintId,
   onSelectSprint,
 }: BoardSprintSwitcherProps) {
+  const itl = useIterationLabel();
   const [open, setOpen] = useState(false);
   // Disclosure: when true the full sprint list is expanded inline (#1141).
   const [showAll, setShowAll] = useState(false);
@@ -104,7 +106,7 @@ export function BoardSprintSwitcher({
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={selected ? `Sprint view: ${selected.name}` : 'Board scope: Project'}
+        aria-label={selected ? `${itl.singular} view: ${selected.name}` : 'Board scope: Project'}
         className={[
           'inline-flex h-7 items-center gap-1 rounded-control border px-2 text-xs font-medium',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',

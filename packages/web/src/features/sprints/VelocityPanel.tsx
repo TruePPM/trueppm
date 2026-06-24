@@ -58,7 +58,7 @@ export function VelocityPanel({ velocity }: Props) {
             <span
               className="tppm-mono text-xs px-2 py-0.5 rounded border border-dashed border-neutral-border bg-transparent text-neutral-text-secondary"
               title={`${excludedNames} excluded from this forecast — shown for history but not counted in the velocity average or band.`}
-              aria-label={`${excludedCount} sprint${excludedCount === 1 ? '' : 's'} excluded from this forecast: ${excludedNames}`}
+              aria-label={`${excludedCount} ${excludedCount === 1 ? itl.lower : itl.lowerPlural} excluded from this forecast: ${excludedNames}`}
             >
               ⌀ {excludedCount} excluded
             </span>
@@ -206,9 +206,9 @@ export function VelocityPanel({ velocity }: Props) {
       )}
 
       <p id="velocity-band-legend" className="sr-only">
-        Bar colour indicates sprint health: on track is 85 percent or more of
+        Bar colour indicates {itl.lower} health: on track is 85 percent or more of
         committed points completed, at risk is 60 to 85 percent, below target is
-        under 60 percent. Sprints marked excluded are held out of the velocity
+        under 60 percent. {itl.plural} marked excluded are held out of the velocity
         average and forecast.
         {avgY !== null && ' A dashed horizontal line marks the rolling average.'}
       </p>
