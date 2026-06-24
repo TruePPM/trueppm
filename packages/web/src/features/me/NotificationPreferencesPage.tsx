@@ -183,8 +183,8 @@ export function NotificationPreferencesPage() {
   if (isLoading) {
     return (
       <main aria-busy="true" aria-label="Loading notification preferences" className="p-6">
-        <div className="h-8 w-64 rounded bg-neutral-surface-raised animate-pulse mb-4" />
-        <div className="h-40 rounded border border-neutral-border bg-neutral-surface-raised animate-pulse" />
+        <div className="h-8 w-64 rounded-card bg-neutral-surface-raised animate-pulse mb-4" />
+        <div className="h-40 rounded-card border border-neutral-border bg-neutral-surface-raised animate-pulse" />
       </main>
     );
   }
@@ -225,7 +225,7 @@ export function NotificationPreferencesPage() {
       {isContributor && (
         <section
           aria-label="Signal-only notifications"
-          className="rounded border border-brand-primary/40 bg-brand-primary/5 p-4 flex flex-col gap-3"
+          className="rounded-card border border-brand-primary/40 bg-brand-primary/5 p-4 flex flex-col gap-3"
         >
           <div>
             <h2 className="text-sm font-semibold text-neutral-text-primary">Signal-only</h2>
@@ -241,7 +241,7 @@ export function NotificationPreferencesPage() {
                 applyPreset.mutate('signal_only', { onSuccess: () => setSavedAt(Date.now()) })
               }
               disabled={applyPreset.isPending}
-              className="h-9 px-3 rounded text-sm font-medium bg-brand-primary text-white
+              className="h-9 px-3 rounded-control text-sm font-medium bg-brand-primary text-white
                 hover:bg-brand-primary-dark disabled:opacity-60 disabled:cursor-progress
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
                 focus-visible:ring-offset-1"
@@ -252,7 +252,7 @@ export function NotificationPreferencesPage() {
               type="button"
               onClick={() => setShowFullMatrix((v) => !v)}
               aria-expanded={showFullMatrix}
-              className="h-9 px-2 rounded text-sm font-medium text-brand-primary
+              className="h-9 px-2 rounded-control text-sm font-medium text-brand-primary
                 hover:underline focus-visible:outline-none focus-visible:ring-2
                 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
@@ -265,7 +265,7 @@ export function NotificationPreferencesPage() {
       {/* Desktop matrix (≥ md): one row per event_type, one column per channel. */}
       {matrixVisible && (
       <>
-      <div className="hidden md:block border border-neutral-border rounded">
+      <div className="hidden md:block border border-neutral-border rounded-card">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-neutral-border">
@@ -334,7 +334,7 @@ export function NotificationPreferencesPage() {
             <section
               key={evt}
               aria-labelledby={`pref-event-${evt}`}
-              className="border border-neutral-border rounded p-3"
+              className="border border-neutral-border rounded-card p-3"
             >
               <h2
                 id={`pref-event-${evt}`}

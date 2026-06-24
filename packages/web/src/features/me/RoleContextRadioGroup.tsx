@@ -90,7 +90,7 @@ export function RoleContextRadioGroup({ value, onChange, label, disabled }: Prop
             disabled={disabled}
             tabIndex={i === focusIdx ? 0 : -1}
             onClick={() => onChange(opt.value)}
-            className={`flex min-h-[44px] items-start gap-3 rounded border p-3 text-left
+            className={`flex min-h-[44px] items-start gap-3 rounded-card border p-3 text-left
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
               disabled:cursor-not-allowed disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary
               ${

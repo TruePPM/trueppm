@@ -52,11 +52,11 @@ export function ConnectedAccountsPage() {
         aria-label="Loading connected accounts"
         className="p-6 max-w-3xl mx-auto"
       >
-        <div className="h-8 w-64 rounded bg-neutral-surface-raised animate-pulse mb-4" />
+        <div className="h-8 w-64 rounded-card bg-neutral-surface-raised animate-pulse mb-4" />
         <div className="space-y-3">
-          <div className="h-24 rounded border border-neutral-border bg-neutral-surface-raised animate-pulse" />
-          <div className="h-24 rounded border border-neutral-border bg-neutral-surface-raised animate-pulse" />
-          <div className="h-24 rounded border border-neutral-border bg-neutral-surface-raised animate-pulse" />
+          <div className="h-24 rounded-card border border-neutral-border bg-neutral-surface-raised animate-pulse" />
+          <div className="h-24 rounded-card border border-neutral-border bg-neutral-surface-raised animate-pulse" />
+          <div className="h-24 rounded-card border border-neutral-border bg-neutral-surface-raised animate-pulse" />
         </div>
       </main>
     );
@@ -164,7 +164,7 @@ function ProviderCard({ credential, onConnect, onRotate, onRevoke }: ProviderCar
   return (
     <li
       id={`provider-${credential.provider}`}
-      className="border border-neutral-border rounded-lg bg-neutral-surface-raised p-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"
+      className="border border-neutral-border rounded-card bg-neutral-surface-raised p-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"
     >
       <div className="min-w-0">
         <div className="flex items-center gap-2">
@@ -211,7 +211,7 @@ function ProviderCard({ credential, onConnect, onRotate, onRevoke }: ProviderCar
           <button
             type="button"
             onClick={onConnect}
-            className="h-8 px-3 rounded bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary focus-visible:outline-none"
+            className="h-8 px-3 rounded-control bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary focus-visible:outline-none"
           >
             Connect
           </button>
@@ -221,14 +221,14 @@ function ProviderCard({ credential, onConnect, onRotate, onRevoke }: ProviderCar
             <button
               type="button"
               onClick={onRotate}
-              className="h-8 px-3 rounded border border-neutral-border bg-transparent text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
+              className="h-8 px-3 rounded-control border border-neutral-border bg-transparent text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
             >
               Rotate
             </button>
             <button
               type="button"
               onClick={onRevoke}
-              className="h-8 px-3 rounded border border-semantic-critical/50 bg-transparent text-[13px] font-medium text-semantic-critical hover:bg-semantic-critical/10 focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1 focus-visible:outline-none"
+              className="h-8 px-3 rounded-control border border-semantic-critical/50 bg-transparent text-[13px] font-medium text-semantic-critical hover:bg-semantic-critical/10 focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1 focus-visible:outline-none"
             >
               Revoke
             </button>
@@ -319,7 +319,7 @@ function ConnectCredentialDialog({ provider, mode, onDismiss }: ConnectDialogPro
         if (e.target === e.currentTarget) onDismiss();
       }}
     >
-      <div className="bg-neutral-surface border border-neutral-border rounded-lg w-full max-w-md mx-4 p-5 motion-safe:animate-modal-scale-in">
+      <div className="bg-neutral-surface border border-neutral-border rounded-card w-full max-w-md mx-4 p-5 motion-safe:animate-modal-scale-in">
         <h2 id={titleId} className="text-sm font-semibold text-neutral-text-primary mb-2">
           {verb} {provider.name}
         </h2>
@@ -339,7 +339,7 @@ function ConnectCredentialDialog({ provider, mode, onDismiss }: ConnectDialogPro
               autoComplete="new-password"
               value={secret}
               onChange={(e) => setSecret(e.target.value)}
-              className="h-9 px-3 text-[13px] border border-neutral-border rounded bg-neutral-surface-raised focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
+              className="h-9 px-3 text-[13px] border border-neutral-border rounded-control bg-neutral-surface-raised focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
             />
           </label>
           <label className="flex flex-col gap-1">
@@ -351,7 +351,7 @@ function ConnectCredentialDialog({ provider, mode, onDismiss }: ConnectDialogPro
               placeholder="Leave blank for the default cloud host"
               value={baseUrl}
               onChange={(e) => setBaseUrl(e.target.value)}
-              className="h-9 px-3 text-[13px] border border-neutral-border rounded bg-neutral-surface-raised focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
+              className="h-9 px-3 text-[13px] border border-neutral-border rounded-control bg-neutral-surface-raised focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
             />
           </label>
           {error && (
@@ -363,14 +363,14 @@ function ConnectCredentialDialog({ provider, mode, onDismiss }: ConnectDialogPro
             <button
               type="button"
               onClick={onDismiss}
-              className="h-8 px-3 rounded border border-neutral-border bg-transparent text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
+              className="h-8 px-3 rounded-control border border-neutral-border bg-transparent text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={upsert.isPending || secret.trim() === ''}
-              className="h-8 px-3 rounded bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary focus-visible:outline-none"
+              className="h-8 px-3 rounded-control bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary focus-visible:outline-none"
             >
               {upsert.isPending ? 'Saving…' : verb}
             </button>
@@ -421,7 +421,7 @@ function RevokeCredentialDialog({
         if (e.target === e.currentTarget) onDismiss();
       }}
     >
-      <div className="bg-neutral-surface border border-neutral-border rounded-lg w-full max-w-sm mx-4 p-5 motion-safe:animate-modal-scale-in">
+      <div className="bg-neutral-surface border border-neutral-border rounded-card w-full max-w-sm mx-4 p-5 motion-safe:animate-modal-scale-in">
         <h2 id={titleId} className="text-sm font-semibold text-neutral-text-primary mb-2">
           Revoke {provider.name} credential?
         </h2>
@@ -434,7 +434,7 @@ function RevokeCredentialDialog({
             ref={cancelRef}
             type="button"
             onClick={onDismiss}
-            className="h-8 px-3 rounded bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary focus-visible:outline-none"
+            className="h-8 px-3 rounded-control bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary focus-visible:outline-none"
           >
             Keep credential
           </button>
@@ -447,7 +447,7 @@ function RevokeCredentialDialog({
                 { onSuccess: () => onDismiss() },
               );
             }}
-            className="h-8 px-3 rounded border border-semantic-critical/50 bg-transparent text-[13px] font-medium text-semantic-critical hover:bg-semantic-critical/10 disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1 focus-visible:outline-none"
+            className="h-8 px-3 rounded-control border border-semantic-critical/50 bg-transparent text-[13px] font-medium text-semantic-critical hover:bg-semantic-critical/10 disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1 focus-visible:outline-none"
           >
             {revoke.isPending ? 'Revoking…' : 'Revoke'}
           </button>
@@ -483,7 +483,7 @@ function EmptyStateHint() {
   return (
     <div
       role="note"
-      className="border border-dashed border-neutral-border rounded-lg bg-neutral-surface-sunken px-4 py-3 text-xs text-neutral-text-secondary"
+      className="border border-dashed border-neutral-border rounded-card bg-neutral-surface-sunken px-4 py-3 text-xs text-neutral-text-secondary"
     >
       <p className="font-medium text-neutral-text-primary mb-1">
         Why connect an account?

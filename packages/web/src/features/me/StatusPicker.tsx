@@ -60,7 +60,7 @@ export function StatusPicker({ taskName, current, onSelect, onClose }: Props) {
       role="dialog"
       aria-modal="true"
       aria-labelledby="status-picker-title"
-      className="absolute z-30 mt-1 w-56 rounded-md border border-neutral-border bg-neutral-surface
+      className="absolute z-30 mt-1 w-56 rounded-card border border-neutral-border bg-neutral-surface
                  focus-within:ring-2 focus-within:ring-brand-primary"
     >
       <div
@@ -103,7 +103,7 @@ export function StatusPicker({ taskName, current, onSelect, onClose }: Props) {
           onClick={onClose}
           className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
-            rounded px-1"
+            rounded-control px-1"
         >
           Cancel
         </button>

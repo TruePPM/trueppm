@@ -101,7 +101,7 @@ export function MyWorkSideColumn({
                 </span>
                 <Link
                   to={t.url}
-                  className="min-w-0 flex-1 truncate rounded-sm text-sm text-neutral-text-primary
+                  className="min-w-0 flex-1 truncate rounded-control text-sm text-neutral-text-primary
                     hover:underline focus-visible:outline-none focus-visible:ring-2
                     focus-visible:ring-brand-primary focus-visible:ring-offset-1"
                 >
