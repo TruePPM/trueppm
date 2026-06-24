@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { ROLE_MEMBER, ROLE_SCHEDULER } from '@/lib/roles';
+import { ROLE_ADMIN, ROLE_MEMBER, ROLE_SCHEDULER } from '@/lib/roles';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
@@ -16,6 +16,7 @@ import {
 } from '@/hooks/useSprints';
 import { ExcludeFromVelocityToggle } from './ExcludeFromVelocityToggle';
 import { SprintClosedOutcome } from './SprintClosedOutcome';
+import { SprintReforecastCard } from './SprintReforecastCard';
 import { SprintDailyDeltaPanel } from './SprintDailyDeltaPanel';
 import { BlockedRollupPanel } from '@/features/blocker/BlockedRollupPanel';
 import { SprintHeader } from './SprintHeader';
@@ -571,6 +572,15 @@ export function SprintsView() {
                   />
                 ) : (
                   <ChartSkeleton label="Sprint outcome" />
+                )}
+                {projectId && (
+                  <SprintReforecastCard
+                    projectId={projectId}
+                    sprintId={selectedSprint.id}
+                    sprintName={selectedSprint.name}
+                    tasks={projectTasks ?? []}
+                    canManage={(currentRole ?? -1) >= ROLE_ADMIN}
+                  />
                 )}
                 <BurnChart sprintId={selectedSprint.id} defaultVariant="burndown" />
               </div>

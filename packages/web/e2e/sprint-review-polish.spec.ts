@@ -212,6 +212,11 @@ async function setup(page: import('@playwright/test').Page) {
     ),
   );
   await page.route('**/api/v1/edition/', (route) => route.fulfill(json({ edition: 'community' })));
+  // The role-300 viewer mounts the closed-sprint SprintReforecastCard (#1290),
+  // which reads pending velocity suggestions; no reforecast in this spec → empty.
+  await page.route('**/api/v1/velocity-suggestions/**', (route) =>
+    route.fulfill(json({ count: 0, next: null, previous: null, results: [] })),
+  );
   await page.route('**/api/v1/auth/me/', (route) =>
     route.fulfill(
       json({ id: 'e2e-user', username: 'e2e', display_name: 'E2E', initials: 'E', email: 'e2e@example.com' }),
