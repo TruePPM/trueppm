@@ -171,11 +171,19 @@
       "tasks": [
         {
           "wbs_path": "1",
+          "name": "Core app experience",
+          "type": "epic",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "1.1",
           "name": "Onboarding flow",
           "type": "story",
           "status": "COMPLETE",
           "percent_complete": 100.0,
           "story_points": 2,
+          "parent_epic": "1",
           "assignee": "mei",
           "sprint": "au-sprint-1",
           "delivery_mode": "scrum",
@@ -183,12 +191,13 @@
           "dor": "ready"
         },
         {
-          "wbs_path": "2",
+          "wbs_path": "1.2",
           "name": "Push notifications",
           "type": "story",
           "status": "COMPLETE",
           "percent_complete": 100.0,
           "story_points": 3,
+          "parent_epic": "1",
           "assignee": "mei",
           "sprint": "au-sprint-2",
           "delivery_mode": "scrum",
@@ -196,12 +205,13 @@
           "dor": "ready"
         },
         {
-          "wbs_path": "3",
+          "wbs_path": "1.3",
           "name": "Offline cache",
           "type": "story",
           "status": "IN_PROGRESS",
           "percent_complete": 50.0,
           "story_points": 5,
+          "parent_epic": "1",
           "assignee": "mei",
           "sprint": "au-sprint-3",
           "delivery_mode": "scrum",
@@ -209,12 +219,258 @@
           "dor": "ready"
         },
         {
-          "wbs_path": "4",
+          "wbs_path": "1.4",
           "name": "Dark mode",
           "type": "story",
           "status": "BACKLOG",
           "percent_complete": 0.0,
           "story_points": 8,
+          "parent_epic": "1",
+          "assignee": "mei",
+          "sprint": "au-sprint-4",
+          "delivery_mode": "scrum",
+          "governance_class": "flow",
+          "dor": "idea"
+        },
+        {
+          "wbs_path": "1.5",
+          "name": "Biometric login",
+          "type": "story",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "story_points": 3,
+          "parent_epic": "1",
+          "assignee": "diego",
+          "sprint": "au-sprint-1",
+          "delivery_mode": "scrum",
+          "governance_class": "flow",
+          "dor": "ready"
+        },
+        {
+          "wbs_path": "2",
+          "name": "Profile & social",
+          "type": "epic",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "2.1",
+          "name": "Profile editor",
+          "type": "story",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "story_points": 5,
+          "parent_epic": "2",
+          "assignee": "diego",
+          "sprint": "au-sprint-2",
+          "delivery_mode": "scrum",
+          "governance_class": "flow",
+          "dor": "ready"
+        },
+        {
+          "wbs_path": "2.2",
+          "name": "Search",
+          "type": "story",
+          "status": "IN_PROGRESS",
+          "percent_complete": 50.0,
+          "story_points": 2,
+          "parent_epic": "2",
+          "assignee": "diego",
+          "sprint": "au-sprint-3",
+          "delivery_mode": "scrum",
+          "governance_class": "flow",
+          "dor": "ready"
+        },
+        {
+          "wbs_path": "2.3",
+          "name": "Share sheet",
+          "type": "story",
+          "status": "BACKLOG",
+          "percent_complete": 0.0,
+          "story_points": 8,
+          "parent_epic": "2",
+          "assignee": "diego",
+          "sprint": "au-sprint-4",
+          "delivery_mode": "scrum",
+          "governance_class": "flow",
+          "dor": "idea"
+        },
+        {
+          "wbs_path": "2.4",
+          "name": "In-app chat",
+          "type": "story",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "story_points": 2,
+          "parent_epic": "2",
+          "assignee": "nadia",
+          "sprint": "au-sprint-1",
+          "delivery_mode": "scrum",
+          "governance_class": "flow",
+          "dor": "ready"
+        },
+        {
+          "wbs_path": "2.5",
+          "name": "Settings sync",
+          "type": "story",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "story_points": 3,
+          "parent_epic": "2",
+          "assignee": "nadia",
+          "sprint": "au-sprint-2",
+          "delivery_mode": "scrum",
+          "governance_class": "flow",
+          "dor": "ready"
+        },
+        {
+          "wbs_path": "3",
+          "name": "Media & navigation",
+          "type": "epic",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "3.1",
+          "name": "Photo upload",
+          "type": "story",
+          "status": "IN_PROGRESS",
+          "percent_complete": 50.0,
+          "story_points": 5,
+          "parent_epic": "3",
+          "assignee": "nadia",
+          "sprint": "au-sprint-3",
+          "delivery_mode": "scrum",
+          "governance_class": "flow",
+          "dor": "ready"
+        },
+        {
+          "wbs_path": "3.2",
+          "name": "Map view",
+          "type": "story",
+          "status": "BACKLOG",
+          "percent_complete": 0.0,
+          "story_points": 8,
+          "parent_epic": "3",
+          "assignee": "nadia",
+          "sprint": "au-sprint-4",
+          "delivery_mode": "scrum",
+          "governance_class": "flow",
+          "dor": "idea"
+        },
+        {
+          "wbs_path": "3.3",
+          "name": "Calendar widget",
+          "type": "story",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "story_points": 3,
+          "parent_epic": "3",
+          "assignee": "tom",
+          "sprint": "au-sprint-1",
+          "delivery_mode": "scrum",
+          "governance_class": "flow",
+          "dor": "ready"
+        },
+        {
+          "wbs_path": "3.4",
+          "name": "Deep links",
+          "type": "story",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "story_points": 5,
+          "parent_epic": "3",
+          "assignee": "tom",
+          "sprint": "au-sprint-2",
+          "delivery_mode": "scrum",
+          "governance_class": "flow",
+          "dor": "ready"
+        },
+        {
+          "wbs_path": "3.5",
+          "name": "Crash reporting",
+          "type": "story",
+          "status": "IN_PROGRESS",
+          "percent_complete": 50.0,
+          "story_points": 2,
+          "parent_epic": "3",
+          "assignee": "tom",
+          "sprint": "au-sprint-3",
+          "delivery_mode": "scrum",
+          "governance_class": "flow",
+          "dor": "ready"
+        },
+        {
+          "wbs_path": "4",
+          "name": "Platform polish",
+          "type": "epic",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "4.1",
+          "name": "Localization",
+          "type": "story",
+          "status": "BACKLOG",
+          "percent_complete": 0.0,
+          "story_points": 8,
+          "parent_epic": "4",
+          "assignee": "tom",
+          "sprint": "au-sprint-4",
+          "delivery_mode": "scrum",
+          "governance_class": "flow",
+          "dor": "idea"
+        },
+        {
+          "wbs_path": "4.2",
+          "name": "Accessibility pass",
+          "type": "story",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "story_points": 2,
+          "parent_epic": "4",
+          "assignee": "mei",
+          "sprint": "au-sprint-1",
+          "delivery_mode": "scrum",
+          "governance_class": "flow",
+          "dor": "ready"
+        },
+        {
+          "wbs_path": "4.3",
+          "name": "Tablet layout",
+          "type": "story",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "story_points": 3,
+          "parent_epic": "4",
+          "assignee": "mei",
+          "sprint": "au-sprint-2",
+          "delivery_mode": "scrum",
+          "governance_class": "flow",
+          "dor": "ready"
+        },
+        {
+          "wbs_path": "4.4",
+          "name": "Widget gallery",
+          "type": "story",
+          "status": "IN_PROGRESS",
+          "percent_complete": 50.0,
+          "story_points": 5,
+          "parent_epic": "4",
+          "assignee": "mei",
+          "sprint": "au-sprint-3",
+          "delivery_mode": "scrum",
+          "governance_class": "flow",
+          "dor": "ready"
+        },
+        {
+          "wbs_path": "4.5",
+          "name": "App rating prompt",
+          "type": "story",
+          "status": "BACKLOG",
+          "percent_complete": 0.0,
+          "story_points": 8,
+          "parent_epic": "4",
           "assignee": "mei",
           "sprint": "au-sprint-4",
           "delivery_mode": "scrum",
@@ -223,12 +479,76 @@
         },
         {
           "wbs_path": "5",
-          "name": "Biometric login",
+          "name": "Growth & monetization",
+          "type": "epic",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "5.1",
+          "name": "Referral program",
           "type": "story",
           "status": "COMPLETE",
           "percent_complete": 100.0,
           "story_points": 3,
+          "parent_epic": "5",
           "assignee": "diego",
+          "sprint": "au-sprint-1",
+          "delivery_mode": "scrum",
+          "governance_class": "flow",
+          "dor": "ready"
+        },
+        {
+          "wbs_path": "5.2",
+          "name": "Payment sheet",
+          "type": "story",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "story_points": 5,
+          "parent_epic": "5",
+          "assignee": "diego",
+          "sprint": "au-sprint-2",
+          "delivery_mode": "scrum",
+          "governance_class": "flow",
+          "dor": "ready"
+        },
+        {
+          "wbs_path": "5.3",
+          "name": "Receipt export",
+          "type": "story",
+          "status": "IN_PROGRESS",
+          "percent_complete": 50.0,
+          "story_points": 2,
+          "parent_epic": "5",
+          "assignee": "diego",
+          "sprint": "au-sprint-3",
+          "delivery_mode": "scrum",
+          "governance_class": "flow",
+          "dor": "ready"
+        },
+        {
+          "wbs_path": "5.4",
+          "name": "Activity feed",
+          "type": "story",
+          "status": "BACKLOG",
+          "percent_complete": 0.0,
+          "story_points": 8,
+          "parent_epic": "5",
+          "assignee": "diego",
+          "sprint": "au-sprint-4",
+          "delivery_mode": "scrum",
+          "governance_class": "flow",
+          "dor": "idea"
+        },
+        {
+          "wbs_path": "5.5",
+          "name": "Bookmark sync",
+          "type": "story",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "story_points": 2,
+          "parent_epic": "5",
+          "assignee": "nadia",
           "sprint": "au-sprint-1",
           "delivery_mode": "scrum",
           "governance_class": "flow",
@@ -236,271 +556,19 @@
         },
         {
           "wbs_path": "6",
-          "name": "Profile editor",
-          "type": "story",
-          "status": "COMPLETE",
-          "percent_complete": 100.0,
-          "story_points": 5,
-          "assignee": "diego",
-          "sprint": "au-sprint-2",
+          "name": "Delight & interactions",
+          "type": "epic",
           "delivery_mode": "scrum",
-          "governance_class": "flow",
-          "dor": "ready"
+          "governance_class": "flow"
         },
         {
-          "wbs_path": "7",
-          "name": "Search",
-          "type": "story",
-          "status": "IN_PROGRESS",
-          "percent_complete": 50.0,
-          "story_points": 2,
-          "assignee": "diego",
-          "sprint": "au-sprint-3",
-          "delivery_mode": "scrum",
-          "governance_class": "flow",
-          "dor": "ready"
-        },
-        {
-          "wbs_path": "8",
-          "name": "Share sheet",
-          "type": "story",
-          "status": "BACKLOG",
-          "percent_complete": 0.0,
-          "story_points": 8,
-          "assignee": "diego",
-          "sprint": "au-sprint-4",
-          "delivery_mode": "scrum",
-          "governance_class": "flow",
-          "dor": "idea"
-        },
-        {
-          "wbs_path": "9",
-          "name": "In-app chat",
-          "type": "story",
-          "status": "COMPLETE",
-          "percent_complete": 100.0,
-          "story_points": 2,
-          "assignee": "nadia",
-          "sprint": "au-sprint-1",
-          "delivery_mode": "scrum",
-          "governance_class": "flow",
-          "dor": "ready"
-        },
-        {
-          "wbs_path": "10",
-          "name": "Settings sync",
-          "type": "story",
-          "status": "COMPLETE",
-          "percent_complete": 100.0,
-          "story_points": 3,
-          "assignee": "nadia",
-          "sprint": "au-sprint-2",
-          "delivery_mode": "scrum",
-          "governance_class": "flow",
-          "dor": "ready"
-        },
-        {
-          "wbs_path": "11",
-          "name": "Photo upload",
-          "type": "story",
-          "status": "IN_PROGRESS",
-          "percent_complete": 50.0,
-          "story_points": 5,
-          "assignee": "nadia",
-          "sprint": "au-sprint-3",
-          "delivery_mode": "scrum",
-          "governance_class": "flow",
-          "dor": "ready"
-        },
-        {
-          "wbs_path": "12",
-          "name": "Map view",
-          "type": "story",
-          "status": "BACKLOG",
-          "percent_complete": 0.0,
-          "story_points": 8,
-          "assignee": "nadia",
-          "sprint": "au-sprint-4",
-          "delivery_mode": "scrum",
-          "governance_class": "flow",
-          "dor": "idea"
-        },
-        {
-          "wbs_path": "13",
-          "name": "Calendar widget",
-          "type": "story",
-          "status": "COMPLETE",
-          "percent_complete": 100.0,
-          "story_points": 3,
-          "assignee": "tom",
-          "sprint": "au-sprint-1",
-          "delivery_mode": "scrum",
-          "governance_class": "flow",
-          "dor": "ready"
-        },
-        {
-          "wbs_path": "14",
-          "name": "Deep links",
-          "type": "story",
-          "status": "COMPLETE",
-          "percent_complete": 100.0,
-          "story_points": 5,
-          "assignee": "tom",
-          "sprint": "au-sprint-2",
-          "delivery_mode": "scrum",
-          "governance_class": "flow",
-          "dor": "ready"
-        },
-        {
-          "wbs_path": "15",
-          "name": "Crash reporting",
-          "type": "story",
-          "status": "IN_PROGRESS",
-          "percent_complete": 50.0,
-          "story_points": 2,
-          "assignee": "tom",
-          "sprint": "au-sprint-3",
-          "delivery_mode": "scrum",
-          "governance_class": "flow",
-          "dor": "ready"
-        },
-        {
-          "wbs_path": "16",
-          "name": "Localization",
-          "type": "story",
-          "status": "BACKLOG",
-          "percent_complete": 0.0,
-          "story_points": 8,
-          "assignee": "tom",
-          "sprint": "au-sprint-4",
-          "delivery_mode": "scrum",
-          "governance_class": "flow",
-          "dor": "idea"
-        },
-        {
-          "wbs_path": "17",
-          "name": "Accessibility pass",
-          "type": "story",
-          "status": "COMPLETE",
-          "percent_complete": 100.0,
-          "story_points": 2,
-          "assignee": "mei",
-          "sprint": "au-sprint-1",
-          "delivery_mode": "scrum",
-          "governance_class": "flow",
-          "dor": "ready"
-        },
-        {
-          "wbs_path": "18",
-          "name": "Tablet layout",
-          "type": "story",
-          "status": "COMPLETE",
-          "percent_complete": 100.0,
-          "story_points": 3,
-          "assignee": "mei",
-          "sprint": "au-sprint-2",
-          "delivery_mode": "scrum",
-          "governance_class": "flow",
-          "dor": "ready"
-        },
-        {
-          "wbs_path": "19",
-          "name": "Widget gallery",
-          "type": "story",
-          "status": "IN_PROGRESS",
-          "percent_complete": 50.0,
-          "story_points": 5,
-          "assignee": "mei",
-          "sprint": "au-sprint-3",
-          "delivery_mode": "scrum",
-          "governance_class": "flow",
-          "dor": "ready"
-        },
-        {
-          "wbs_path": "20",
-          "name": "App rating prompt",
-          "type": "story",
-          "status": "BACKLOG",
-          "percent_complete": 0.0,
-          "story_points": 8,
-          "assignee": "mei",
-          "sprint": "au-sprint-4",
-          "delivery_mode": "scrum",
-          "governance_class": "flow",
-          "dor": "idea"
-        },
-        {
-          "wbs_path": "21",
-          "name": "Referral program",
-          "type": "story",
-          "status": "COMPLETE",
-          "percent_complete": 100.0,
-          "story_points": 3,
-          "assignee": "diego",
-          "sprint": "au-sprint-1",
-          "delivery_mode": "scrum",
-          "governance_class": "flow",
-          "dor": "ready"
-        },
-        {
-          "wbs_path": "22",
-          "name": "Payment sheet",
-          "type": "story",
-          "status": "COMPLETE",
-          "percent_complete": 100.0,
-          "story_points": 5,
-          "assignee": "diego",
-          "sprint": "au-sprint-2",
-          "delivery_mode": "scrum",
-          "governance_class": "flow",
-          "dor": "ready"
-        },
-        {
-          "wbs_path": "23",
-          "name": "Receipt export",
-          "type": "story",
-          "status": "IN_PROGRESS",
-          "percent_complete": 50.0,
-          "story_points": 2,
-          "assignee": "diego",
-          "sprint": "au-sprint-3",
-          "delivery_mode": "scrum",
-          "governance_class": "flow",
-          "dor": "ready"
-        },
-        {
-          "wbs_path": "24",
-          "name": "Activity feed",
-          "type": "story",
-          "status": "BACKLOG",
-          "percent_complete": 0.0,
-          "story_points": 8,
-          "assignee": "diego",
-          "sprint": "au-sprint-4",
-          "delivery_mode": "scrum",
-          "governance_class": "flow",
-          "dor": "idea"
-        },
-        {
-          "wbs_path": "25",
-          "name": "Bookmark sync",
-          "type": "story",
-          "status": "COMPLETE",
-          "percent_complete": 100.0,
-          "story_points": 2,
-          "assignee": "nadia",
-          "sprint": "au-sprint-1",
-          "delivery_mode": "scrum",
-          "governance_class": "flow",
-          "dor": "ready"
-        },
-        {
-          "wbs_path": "26",
+          "wbs_path": "6.1",
           "name": "Voice search",
           "type": "story",
           "status": "COMPLETE",
           "percent_complete": 100.0,
           "story_points": 3,
+          "parent_epic": "6",
           "assignee": "nadia",
           "sprint": "au-sprint-2",
           "delivery_mode": "scrum",
@@ -508,12 +576,13 @@
           "dor": "ready"
         },
         {
-          "wbs_path": "27",
+          "wbs_path": "6.2",
           "name": "Haptics",
           "type": "story",
           "status": "IN_PROGRESS",
           "percent_complete": 50.0,
           "story_points": 5,
+          "parent_epic": "6",
           "assignee": "nadia",
           "sprint": "au-sprint-3",
           "delivery_mode": "scrum",
@@ -521,12 +590,13 @@
           "dor": "ready"
         },
         {
-          "wbs_path": "28",
+          "wbs_path": "6.3",
           "name": "Pull-to-refresh",
           "type": "story",
           "status": "BACKLOG",
           "percent_complete": 0.0,
           "story_points": 8,
+          "parent_epic": "6",
           "assignee": "nadia",
           "sprint": "au-sprint-4",
           "delivery_mode": "scrum",
@@ -534,12 +604,13 @@
           "dor": "idea"
         },
         {
-          "wbs_path": "29",
+          "wbs_path": "6.4",
           "name": "Skeleton loaders",
           "type": "story",
           "status": "COMPLETE",
           "percent_complete": 100.0,
           "story_points": 3,
+          "parent_epic": "6",
           "assignee": "tom",
           "sprint": "au-sprint-1",
           "delivery_mode": "scrum",
@@ -547,12 +618,13 @@
           "dor": "ready"
         },
         {
-          "wbs_path": "30",
+          "wbs_path": "6.5",
           "name": "Empty states",
           "type": "story",
           "status": "COMPLETE",
           "percent_complete": 100.0,
           "story_points": 5,
+          "parent_epic": "6",
           "assignee": "tom",
           "sprint": "au-sprint-2",
           "delivery_mode": "scrum",
@@ -615,8 +687,8 @@
           "response": "MITIGATE",
           "owner": "priya",
           "tasks": [
-            "8",
-            "19"
+            "2.3",
+            "4.4"
           ]
         },
         {
@@ -630,8 +702,8 @@
           "response": "MITIGATE",
           "owner": "sam",
           "tasks": [
-            "2",
-            "12"
+            "1.2",
+            "3.2"
           ]
         },
         {
@@ -644,7 +716,7 @@
           "response": "ACCEPT",
           "owner": "priya",
           "tasks": [
-            "5"
+            "1.5"
           ]
         },
         {
@@ -658,7 +730,7 @@
           "owner": "sam",
           "notes": "Pre-review checklist added; first submission approved on time.",
           "tasks": [
-            "20"
+            "4.5"
           ]
         }
       ]
@@ -674,98 +746,98 @@
     {
       "at": "A-34T09:30",
       "action": "task.comment",
-      "target": "task:aurora:1",
+      "target": "task:aurora:1.1",
       "actor": "mei",
       "body": "Starting onboarding — carousel plus the first-run empty state."
     },
     {
       "at": "A-33T10:00",
       "action": "task.status",
-      "target": "task:aurora:1",
+      "target": "task:aurora:1.1",
       "actor": "mei",
       "to": "IN_PROGRESS"
     },
     {
       "at": "A-30T15:00",
       "action": "task.comment",
-      "target": "task:aurora:1",
+      "target": "task:aurora:1.1",
       "actor": "mei",
       "body": "PR up for review (!142). First-run flow is feature-complete."
     },
     {
       "at": "A-30T15:30",
       "action": "task.status",
-      "target": "task:aurora:1",
+      "target": "task:aurora:1.1",
       "actor": "mei",
       "to": "REVIEW"
     },
     {
       "at": "A-29T11:00",
       "action": "task.comment",
-      "target": "task:aurora:1",
+      "target": "task:aurora:1.1",
       "actor": "tom",
       "body": "Review: the skip button doesn't persist the 'seen' flag on a cold start, so onboarding re-shows. Sending it back."
     },
     {
       "at": "A-29T11:30",
       "action": "task.status",
-      "target": "task:aurora:1",
+      "target": "task:aurora:1.1",
       "actor": "tom",
       "to": "IN_PROGRESS"
     },
     {
       "at": "A-27T14:00",
       "action": "task.comment",
-      "target": "task:aurora:1",
+      "target": "task:aurora:1.1",
       "actor": "mei",
       "body": "Fixed — onboarding-complete now persists to secure storage. Re-requesting review."
     },
     {
       "at": "A-27T14:30",
       "action": "task.status",
-      "target": "task:aurora:1",
+      "target": "task:aurora:1.1",
       "actor": "mei",
       "to": "REVIEW"
     },
     {
       "at": "A-26T16:00",
       "action": "task.comment",
-      "target": "task:aurora:1",
+      "target": "task:aurora:1.1",
       "actor": "tom",
       "body": "QA pass on iOS and Android. Merging."
     },
     {
       "at": "A-26T16:30",
       "action": "task.status",
-      "target": "task:aurora:1",
+      "target": "task:aurora:1.1",
       "actor": "tom",
       "to": "COMPLETE"
     },
     {
       "at": "A-33T09:00",
       "action": "task.comment",
-      "target": "task:aurora:5",
+      "target": "task:aurora:1.5",
       "actor": "diego",
       "body": "Spiking biometric auth; the secure-enclave path is unfamiliar to me."
     },
     {
       "at": "A-31T13:00",
       "action": "task.comment",
-      "target": "task:aurora:5",
+      "target": "task:aurora:1.5",
       "actor": "priya",
       "body": "Biometric know-how is concentrated in Mei — reassigning so we don't bottleneck a launch-critical story on a single spike."
     },
     {
       "at": "A-31T13:05",
       "action": "task.assign",
-      "target": "task:aurora:5",
+      "target": "task:aurora:1.5",
       "actor": "priya",
       "assignee": "mei"
     },
     {
       "at": "A-28T10:00",
       "action": "task.comment",
-      "target": "task:aurora:5",
+      "target": "task:aurora:1.5",
       "actor": "mei",
       "body": "Took over biometrics — Face ID and fingerprint enrolled behind a flag."
     },
@@ -785,7 +857,7 @@
     {
       "at": "A-19T09:00",
       "action": "task.comment",
-      "target": "task:aurora:2",
+      "target": "task:aurora:1.2",
       "actor": "mei",
       "body": "Push vendor had an overnight outage — integration tests are flaky. Watching their status page before I trust the happy path."
     },
@@ -799,28 +871,28 @@
     {
       "at": "A-16T10:00",
       "action": "task.comment",
-      "target": "task:aurora:2",
+      "target": "task:aurora:1.2",
       "actor": "sam",
       "body": "Mei is out for two days — Nadia to cover push notifications so the increment goal holds."
     },
     {
       "at": "A-16T10:05",
       "action": "task.assign",
-      "target": "task:aurora:2",
+      "target": "task:aurora:1.2",
       "actor": "sam",
       "assignee": "nadia"
     },
     {
       "at": "A-12T14:00",
       "action": "task.comment",
-      "target": "task:aurora:2",
+      "target": "task:aurora:1.2",
       "actor": "nadia",
       "body": "Vendor is back; added retry with backoff so a future outage degrades gracefully instead of failing sends. Handing back to Mei."
     },
     {
       "at": "A-12T14:05",
       "action": "task.assign",
-      "target": "task:aurora:2",
+      "target": "task:aurora:1.2",
       "actor": "nadia",
       "assignee": "mei"
     },
@@ -848,28 +920,28 @@
     {
       "at": "A-5T09:30",
       "action": "task.comment",
-      "target": "task:aurora:19",
+      "target": "task:aurora:4.4",
       "actor": "priya",
       "body": "Marketing needs the widget gallery in this increment for launch — pulling it into the sprint."
     },
     {
       "at": "A-5T09:35",
       "action": "sprint.scope_inject",
-      "target": "task:aurora:19",
+      "target": "task:aurora:4.4",
       "actor": "priya",
       "goal_impact": true
     },
     {
       "at": "A-4T11:00",
       "action": "task.comment",
-      "target": "task:aurora:19",
+      "target": "task:aurora:4.4",
       "actor": "sam",
       "body": "Talked it through at standup — we'll drop a lower-priority story to protect the goal. Accepting the injection."
     },
     {
       "at": "A-4T11:05",
       "action": "sprint.scope_resolve",
-      "target": "task:aurora:19",
+      "target": "task:aurora:4.4",
       "actor": "sam",
       "to": "ACCEPTED"
     },

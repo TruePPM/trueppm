@@ -136,71 +136,120 @@ def build_aurora() -> dict:
             sp["completed_points"] = vel
         sprints.append(sp)
 
-    features = [
-        "Onboarding flow",
-        "Push notifications",
-        "Offline cache",
-        "Dark mode",
-        "Biometric login",
-        "Profile editor",
-        "Search",
-        "Share sheet",
-        "In-app chat",
-        "Settings sync",
-        "Photo upload",
-        "Map view",
-        "Calendar widget",
-        "Deep links",
-        "Crash reporting",
-        "Localization",
-        "Accessibility pass",
-        "Tablet layout",
-        "Widget gallery",
-        "App rating prompt",
-        "Referral program",
-        "Payment sheet",
-        "Receipt export",
-        "Activity feed",
-        "Bookmark sync",
-        "Voice search",
-        "Haptics",
-        "Pull-to-refresh",
-        "Skeleton loaders",
-        "Empty states",
+    # The backlog is grouped into epics so the board and timeline read as themed
+    # initiatives, not a flat 30-story list — the epic → story hierarchy an agile
+    # team actually plans in (#617). Stories keep their original order, so a global
+    # story index (identical to the old flat index) still drives sprint / point /
+    # assignee placement and the authored event timeline below lands on the right
+    # work. Epics are grouping nodes only — excluded from velocity and CPM.
+    epics = [
+        (
+            "Core app experience",
+            [
+                "Onboarding flow",
+                "Push notifications",
+                "Offline cache",
+                "Dark mode",
+                "Biometric login",
+            ],
+        ),
+        (
+            "Profile & social",
+            ["Profile editor", "Search", "Share sheet", "In-app chat", "Settings sync"],
+        ),
+        (
+            "Media & navigation",
+            [
+                "Photo upload",
+                "Map view",
+                "Calendar widget",
+                "Deep links",
+                "Crash reporting",
+            ],
+        ),
+        (
+            "Platform polish",
+            [
+                "Localization",
+                "Accessibility pass",
+                "Tablet layout",
+                "Widget gallery",
+                "App rating prompt",
+            ],
+        ),
+        (
+            "Growth & monetization",
+            [
+                "Referral program",
+                "Payment sheet",
+                "Receipt export",
+                "Activity feed",
+                "Bookmark sync",
+            ],
+        ),
+        (
+            "Delight & interactions",
+            [
+                "Voice search",
+                "Haptics",
+                "Pull-to-refresh",
+                "Skeleton loaders",
+                "Empty states",
+            ],
+        ),
     ]
-    tasks = []
+    tasks: list[dict] = []
+    # Story name -> wbs_path, so the event/risk authoring below references a story
+    # by name and stays correct regardless of how the epic grouping is sliced.
+    wbs: dict[str, str] = {}
     points = [2, 3, 5, 8, 3, 5, 2, 8]
-    for i, name in enumerate(features):
-        sprint_idx = i % 4
-        state = states[sprint_idx]
-        status = {
-            "COMPLETED": "COMPLETE",
-            "ACTIVE": "IN_PROGRESS",
-            "PLANNED": "BACKLOG",
-        }[state]
+    story_idx = 0
+    for e_idx, (epic_name, feats) in enumerate(epics, start=1):
+        epic_wbs = str(e_idx)
         tasks.append(
             {
-                "wbs_path": str(i + 1),
-                "name": name,
-                "type": "story",
-                "status": status,
-                "percent_complete": {
-                    "COMPLETE": 100.0,
-                    "IN_PROGRESS": 50.0,
-                    "BACKLOG": 0.0,
-                }[status],
-                "story_points": points[i % len(points)],
-                # Spread each sprint's stories across the whole team rather than
-                # one dev per sprint (i // 4 advances once per sprint-row, so the
-                # four devs round-robin *within* every sprint). The event timeline
-                # then reassigns a few of these as the program plays out.
-                "assignee": devs[(i // len(devs)) % len(devs)],
-                "sprint": f"au-sprint-{sprint_idx + 1}",
+                "wbs_path": epic_wbs,
+                "name": epic_name,
+                "type": "epic",
                 "delivery_mode": "scrum",
                 "governance_class": "flow",
-                "dor": "ready" if state != "PLANNED" else "idea",
             }
         )
+        for s_idx, name in enumerate(feats, start=1):
+            sprint_idx = story_idx % 4
+            state = states[sprint_idx]
+            status = {
+                "COMPLETED": "COMPLETE",
+                "ACTIVE": "IN_PROGRESS",
+                "PLANNED": "BACKLOG",
+            }[state]
+            story_wbs = f"{e_idx}.{s_idx}"
+            wbs[name] = story_wbs
+            tasks.append(
+                {
+                    "wbs_path": story_wbs,
+                    "name": name,
+                    "type": "story",
+                    "status": status,
+                    "percent_complete": {
+                        "COMPLETE": 100.0,
+                        "IN_PROGRESS": 50.0,
+                        "BACKLOG": 0.0,
+                    }[status],
+                    "story_points": points[story_idx % len(points)],
+                    "parent_epic": epic_wbs,
+                    # Spread each sprint's stories across the whole team rather than
+                    # one dev per sprint (story_idx // 4 advances once per sprint-row,
+                    # so the four devs round-robin *within* every sprint). The event
+                    # timeline then reassigns a few of these as the program plays out.
+                    "assignee": devs[(story_idx // len(devs)) % len(devs)],
+                    "sprint": f"au-sprint-{sprint_idx + 1}",
+                    "delivery_mode": "scrum",
+                    "governance_class": "flow",
+                    "dor": "ready" if state != "PLANNED" else "idea",
+                }
+            )
+            story_idx += 1
 
     # --- event timeline ----------------------------------------------------
     # Authored beats layer the human story on top of the synthesizer's status
@@ -208,8 +257,8 @@ def build_aurora() -> dict:
     # scope injection, sprint goal verdicts, and risk-status lifecycles. Targets
     # are project-qualified (``task:aurora:<wbs>``). Offsets stay <= the anchor
     # (35) so nothing is forward-dated.
-    def task(wbs: str) -> str:
-        return f"task:aurora:{wbs}"
+    def task(path: str) -> str:
+        return f"task:aurora:{path}"
 
     def sprint(slug: str) -> str:
         return f"sprint:aurora:{slug}"
@@ -223,67 +272,103 @@ def build_aurora() -> dict:
         _ev(
             T(1, 9, 30),
             "task.comment",
-            task("1"),
+            task(wbs["Onboarding flow"]),
             "mei",
             body="Starting onboarding — carousel plus the first-run empty state.",
         ),
-        _ev(T(2, 10, 0), "task.status", task("1"), "mei", to="IN_PROGRESS"),
+        _ev(
+            T(2, 10, 0),
+            "task.status",
+            task(wbs["Onboarding flow"]),
+            "mei",
+            to="IN_PROGRESS",
+        ),
         _ev(
             T(5, 15, 0),
             "task.comment",
-            task("1"),
+            task(wbs["Onboarding flow"]),
             "mei",
             body="PR up for review (!142). First-run flow is feature-complete.",
         ),
-        _ev(T(5, 15, 30), "task.status", task("1"), "mei", to="REVIEW"),
+        _ev(
+            T(5, 15, 30),
+            "task.status",
+            task(wbs["Onboarding flow"]),
+            "mei",
+            to="REVIEW",
+        ),
         _ev(
             T(6, 11, 0),
             "task.comment",
-            task("1"),
+            task(wbs["Onboarding flow"]),
             "tom",
             body="Review: the skip button doesn't persist the 'seen' flag on a cold "
             "start, so onboarding re-shows. Sending it back.",
         ),
-        _ev(T(6, 11, 30), "task.status", task("1"), "tom", to="IN_PROGRESS"),
+        _ev(
+            T(6, 11, 30),
+            "task.status",
+            task(wbs["Onboarding flow"]),
+            "tom",
+            to="IN_PROGRESS",
+        ),
         _ev(
             T(8, 14, 0),
             "task.comment",
-            task("1"),
+            task(wbs["Onboarding flow"]),
             "mei",
             body="Fixed — onboarding-complete now persists to secure storage. "
             "Re-requesting review.",
         ),
-        _ev(T(8, 14, 30), "task.status", task("1"), "mei", to="REVIEW"),
+        _ev(
+            T(8, 14, 30),
+            "task.status",
+            task(wbs["Onboarding flow"]),
+            "mei",
+            to="REVIEW",
+        ),
         _ev(
             T(9, 16, 0),
             "task.comment",
-            task("1"),
+            task(wbs["Onboarding flow"]),
             "tom",
             body="QA pass on iOS and Android. Merging.",
         ),
-        _ev(T(9, 16, 30), "task.status", task("1"), "tom", to="COMPLETE"),
+        _ev(
+            T(9, 16, 30),
+            "task.status",
+            task(wbs["Onboarding flow"]),
+            "tom",
+            to="COMPLETE",
+        ),
         # Reassignment: Biometric login (wbs 5) started with Diego, but the
         # secure-enclave expertise sits with Mei — the key-person risk in action.
         _ev(
             T(2, 9, 0),
             "task.comment",
-            task("5"),
+            task(wbs["Biometric login"]),
             "diego",
             body="Spiking biometric auth; the secure-enclave path is unfamiliar to me.",
         ),
         _ev(
             T(4, 13, 0),
             "task.comment",
-            task("5"),
+            task(wbs["Biometric login"]),
             "priya",
             body="Biometric know-how is concentrated in Mei — reassigning so we don't "
             "bottleneck a launch-critical story on a single spike.",
         ),
-        _ev(T(4, 13, 5), "task.assign", task("5"), "priya", assignee="mei"),
+        _ev(
+            T(4, 13, 5),
+            "task.assign",
+            task(wbs["Biometric login"]),
+            "priya",
+            assignee="mei",
+        ),
         _ev(
             T(7, 10, 0),
             "task.comment",
-            task("5"),
+            task(wbs["Biometric login"]),
             "mei",
             body="Took over biometrics — Face ID and fingerprint enrolled behind a flag.",
         ),
@@ -299,7 +384,7 @@ def build_aurora() -> dict:
         _ev(
             T(16, 9, 0),
             "task.comment",
-            task("2"),
+            task(wbs["Push notifications"]),
             "mei",
             body="Push vendor had an overnight outage — integration tests are flaky. "
             "Watching their status page before I trust the happy path.",
@@ -308,21 +393,33 @@ def build_aurora() -> dict:
         _ev(
             T(19, 10, 0),
             "task.comment",
-            task("2"),
+            task(wbs["Push notifications"]),
             "sam",
             body="Mei is out for two days — Nadia to cover push notifications so the "
             "increment goal holds.",
         ),
-        _ev(T(19, 10, 5), "task.assign", task("2"), "sam", assignee="nadia"),
+        _ev(
+            T(19, 10, 5),
+            "task.assign",
+            task(wbs["Push notifications"]),
+            "sam",
+            assignee="nadia",
+        ),
         _ev(
             T(23, 14, 0),
             "task.comment",
-            task("2"),
+            task(wbs["Push notifications"]),
             "nadia",
             body="Vendor is back; added retry with backoff so a future outage degrades "
             "gracefully instead of failing sends. Handing back to Mei.",
         ),
-        _ev(T(23, 14, 5), "task.assign", task("2"), "nadia", assignee="mei"),
+        _ev(
+            T(23, 14, 5),
+            "task.assign",
+            task(wbs["Push notifications"]),
+            "nadia",
+            assignee="mei",
+        ),
         # Store-review risk resolves over the sprint as the checklist lands.
         _ev(T(15, 11, 0), "risk.status", "risk:store-review", "sam", to="MITIGATING"),
         _ev(T(26, 16, 0), "risk.status", "risk:store-review", "sam", to="RESOLVED"),
@@ -338,21 +435,33 @@ def build_aurora() -> dict:
         _ev(
             T(30, 9, 30),
             "task.comment",
-            task("19"),
+            task(wbs["Widget gallery"]),
             "priya",
             body="Marketing needs the widget gallery in this increment for launch — "
             "pulling it into the sprint.",
         ),
-        _ev(T(30, 9, 35), "sprint.scope_inject", task("19"), "priya", goal_impact=True),
+        _ev(
+            T(30, 9, 35),
+            "sprint.scope_inject",
+            task(wbs["Widget gallery"]),
+            "priya",
+            goal_impact=True,
+        ),
         _ev(
             T(31, 11, 0),
             "task.comment",
-            task("19"),
+            task(wbs["Widget gallery"]),
             "sam",
             body="Talked it through at standup — we'll drop a lower-priority story to "
             "protect the goal. Accepting the injection.",
         ),
-        _ev(T(31, 11, 5), "sprint.scope_resolve", task("19"), "sam", to="ACCEPTED"),
+        _ev(
+            T(31, 11, 5),
+            "sprint.scope_resolve",
+            task(wbs["Widget gallery"]),
+            "sam",
+            to="ACCEPTED",
+        ),
         _ev(T(31, 12, 0), "risk.status", "risk:scope-creep", "priya", to="MITIGATING"),
     ]
 
@@ -427,7 +536,7 @@ def build_aurora() -> dict:
                         "category": "ORGANIZATIONAL",
                         "response": "MITIGATE",
                         "owner": "priya",
-                        "tasks": ["8", "19"],
+                        "tasks": [wbs["Share sheet"], wbs["Widget gallery"]],
                     },
                     {
                         "slug": "external-api",
@@ -439,7 +548,7 @@ def build_aurora() -> dict:
                         "category": "EXTERNAL",
                         "response": "MITIGATE",
                         "owner": "sam",
-                        "tasks": ["2", "12"],
+                        "tasks": [wbs["Push notifications"], wbs["Map view"]],
                     },
                     {
                         "slug": "key-person",
@@ -450,7 +559,7 @@ def build_aurora() -> dict:
                         "category": "ORGANIZATIONAL",
                         "response": "ACCEPT",
                         "owner": "priya",
-                        "tasks": ["5"],
+                        "tasks": [wbs["Biometric login"]],
                     },
                     {
                         "slug": "store-review",
@@ -465,7 +574,7 @@ def build_aurora() -> dict:
                         "response": "MITIGATE",
                         "owner": "sam",
                         "notes": "Pre-review checklist added; first submission approved on time.",
-                        "tasks": ["20"],
+                        "tasks": [wbs["App rating prompt"]],
                     },
                 ],
             }

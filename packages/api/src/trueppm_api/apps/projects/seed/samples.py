@@ -60,8 +60,9 @@ SAMPLES: dict[str, Sample] = {
         key="aurora-mobile-app",
         title="Aurora Mobile App",
         description=(
-            "Agile-only — a mobile team running the sprint lifecycle with velocity history "
-            "and a Kanban board. No CPM, no estimates: the pure-scrum tour."
+            "Agile-only — a mobile team running the sprint lifecycle: an epic-grouped "
+            "backlog, velocity history, and a Kanban board. No CPM, no estimates: the "
+            "pure-scrum tour."
         ),
         filename="aurora-mobile-app.json",
     ),

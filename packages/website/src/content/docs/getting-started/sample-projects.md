@@ -92,8 +92,9 @@ Sarah's CPM plan on Migration Tooling. This is the bridge demo at program scale.
 
 #### Aurora Mobile App — agile-only
 
-A mobile product team running the sprint lifecycle: a board, a multi-sprint
-**velocity trend** with a spread, and a lightweight 4-risk register.
+A mobile product team running the sprint lifecycle: an **epic-grouped backlog**
+of user stories, a board, a multi-sprint **velocity trend** with a spread, and a
+lightweight 4-risk register.
 
 **Look at first:** the burndown of the closed sprints and the velocity chart —
 this is the pure-scrum tour, with no CPM or estimates to distract.

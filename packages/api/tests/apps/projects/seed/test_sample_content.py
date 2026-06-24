@@ -133,3 +133,20 @@ def test_an_agile_sample_rejects_an_injection() -> None:
             if e["action"] == "sprint.scope_resolve" and e.get("to") == "REJECTED":
                 rejected.append(stem)
     assert rejected, "no sample demonstrates a rejected mid-sprint injection"
+
+
+def test_agile_only_sample_groups_stories_under_epics() -> None:
+    # The agile-only flagship (#617) must read like a real backlog — stories
+    # grouped under epics, each carrying points — not a flat list. Atlas Platform
+    # Core also ships epics; Aurora is the *dedicated* agile-only showcase, so the
+    # epic → story hierarchy an agile team plans in is asserted here against the
+    # #613 "golden" bar.
+    proj = _load("aurora-mobile-app")["projects"][0]
+    tasks = proj["tasks"]
+    epics = {t["wbs_path"] for t in tasks if t.get("type") == "epic"}
+    stories = [t for t in tasks if t.get("type") == "story"]
+    assert len(epics) >= 3, f"aurora: {len(epics)} epics — backlog is not grouped"
+    assert stories, "aurora: no stories"
+    assert all(s.get("story_points") for s in stories), "aurora: a story has no points"
+    unparented = [s["wbs_path"] for s in stories if s.get("parent_epic") not in epics]
+    assert not unparented, f"aurora: stories not rolled up to an epic: {unparented}"
