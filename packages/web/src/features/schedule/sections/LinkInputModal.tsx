@@ -74,7 +74,7 @@ export function LinkInputModal({ open, onClose, onSubmit, submitting }: Props) {
       <form
         onSubmit={handleSubmit}
         className="flex flex-col gap-3 w-full max-w-md p-4 bg-neutral-surface
-          border border-neutral-border rounded"
+          border border-neutral-border rounded-card"
       >
         <h2 id="link-modal-title" className="text-sm font-semibold text-neutral-text-primary">
           Pin a link
@@ -90,7 +90,7 @@ export function LinkInputModal({ open, onClose, onSubmit, submitting }: Props) {
             required
             maxLength={2048}
             disabled={submitting}
-            className="text-sm bg-neutral-surface border border-neutral-border rounded p-2
+            className="text-sm bg-neutral-surface border border-neutral-border rounded-control p-2
               text-neutral-text-primary
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
               disabled:opacity-50"
@@ -105,7 +105,7 @@ export function LinkInputModal({ open, onClose, onSubmit, submitting }: Props) {
             placeholder="Drawing rev 3"
             maxLength={255}
             disabled={submitting}
-            className="text-sm bg-neutral-surface border border-neutral-border rounded p-2
+            className="text-sm bg-neutral-surface border border-neutral-border rounded-control p-2
               text-neutral-text-primary
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
               disabled:opacity-50"
@@ -121,7 +121,7 @@ export function LinkInputModal({ open, onClose, onSubmit, submitting }: Props) {
             type="button"
             onClick={onClose}
             disabled={submitting}
-            className="text-xs border border-neutral-border rounded px-3 h-7 font-medium
+            className="text-xs border border-neutral-border rounded-control px-3 h-7 font-medium
               text-neutral-text-secondary hover:bg-neutral-surface-raised
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
               disabled:opacity-50"

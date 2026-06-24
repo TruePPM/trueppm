@@ -50,7 +50,7 @@ function highlight(text: string, query: string): ReactElement[] {
     out.push(
       <mark
         key={`m-${k}`}
-        className="bg-brand-primary/20 text-neutral-text-primary rounded-sm px-0.5"
+        className="bg-brand-primary/20 text-neutral-text-primary rounded-chip px-0.5"
       >
         {text.slice(i, i + needle.length)}
       </mark>,
@@ -111,7 +111,7 @@ function NoteRow({
 
   return (
     <li
-      className={`flex flex-col gap-1 p-3 rounded border bg-neutral-surface-raised transition-opacity ${
+      className={`flex flex-col gap-1 p-3 rounded-card border bg-neutral-surface-raised transition-opacity ${
         note.pinned ? 'border-brand-primary/40' : 'border-neutral-border'
       } ${matches ? 'opacity-100' : 'opacity-30'}`}
       aria-label={`Note by ${author}, ${ts}${note.pinned ? ', pinned' : ''}${
@@ -126,7 +126,7 @@ function NoteRow({
         )}
         {note.decision && (
           <span
-            className="rounded bg-brand-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-brand-primary"
+            className="rounded-chip bg-brand-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-brand-primary"
             title="Decision"
           >
             <span aria-hidden="true">⚖</span> Decision
@@ -148,7 +148,7 @@ function NoteRow({
             onChange={(e) => setDraft(e.target.value)}
             rows={3}
             maxLength={MAX_BODY_CHARS}
-            className="text-sm bg-neutral-surface border border-neutral-border rounded p-2
+            className="text-sm bg-neutral-surface border border-neutral-border rounded-control p-2
               text-neutral-text-primary
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
               resize-y min-h-[60px]"
@@ -163,7 +163,7 @@ function NoteRow({
               type="button"
               onClick={handleSaveEdit}
               disabled={update.isPending || draft.trim().length === 0}
-              className="text-xs border border-brand-primary/40 text-brand-primary rounded px-3 h-7 font-medium
+              className="text-xs border border-brand-primary/40 text-brand-primary rounded-control px-3 h-7 font-medium
                 hover:bg-brand-primary/10
                 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
                 disabled:opacity-50"
@@ -177,7 +177,7 @@ function NoteRow({
                 setIsEditing(false);
               }}
               disabled={update.isPending}
-              className="text-xs border border-neutral-border rounded px-3 h-7 font-medium
+              className="text-xs border border-neutral-border rounded-control px-3 h-7 font-medium
                 text-neutral-text-secondary hover:bg-neutral-surface
                 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
                 disabled:opacity-50"
@@ -201,7 +201,7 @@ function NoteRow({
             disabled={pin.isPending}
             aria-pressed={note.pinned}
             aria-label={note.pinned ? 'Unpin this note' : 'Pin this note'}
-            className={`text-xs border rounded px-2 h-7 font-medium
+            className={`text-xs border rounded-control px-2 h-7 font-medium
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
               disabled:opacity-50
               ${
@@ -218,7 +218,7 @@ function NoteRow({
             disabled={decision.isPending}
             aria-pressed={note.decision}
             aria-label={note.decision ? 'Unmark as decision' : 'Mark as decision'}
-            className={`text-xs border rounded px-2 h-7 font-medium
+            className={`text-xs border rounded-control px-2 h-7 font-medium
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
               disabled:opacity-50
               ${
@@ -236,7 +236,7 @@ function NoteRow({
                 setDraft(note.body);
                 setIsEditing(true);
               }}
-              className="text-xs border border-neutral-border rounded px-2 h-7 font-medium
+              className="text-xs border border-neutral-border rounded-control px-2 h-7 font-medium
                 text-neutral-text-secondary hover:bg-neutral-surface
                 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none"
               aria-label="Edit this note"
@@ -249,7 +249,7 @@ function NoteRow({
               type="button"
               onClick={() => del.mutate({ projectId, taskId, noteId: note.id })}
               disabled={del.isPending}
-              className="text-xs border border-neutral-border rounded px-2 h-7 font-medium
+              className="text-xs border border-neutral-border rounded-control px-2 h-7 font-medium
                 text-neutral-text-secondary hover:bg-semantic-critical-bg hover:text-semantic-critical hover:border-semantic-critical/40
                 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
                 disabled:opacity-50"
@@ -290,7 +290,7 @@ export function NotesSection({ taskId, projectId, userRole, canEdit }: DrawerSec
         {[0, 1, 2].map((i) => (
           <div
             key={i}
-            className="h-16 rounded border border-neutral-border animate-pulse bg-neutral-surface-raised"
+            className="h-16 rounded-card border border-neutral-border animate-pulse bg-neutral-surface-raised"
           />
         ))}
       </div>
@@ -321,7 +321,7 @@ export function NotesSection({ taskId, projectId, userRole, canEdit }: DrawerSec
             }}
             placeholder="Search notes…"
             aria-label="Search notes"
-            className="flex-1 text-sm bg-neutral-surface border border-neutral-border rounded px-2 h-8
+            className="flex-1 text-sm bg-neutral-surface border border-neutral-border rounded-control px-2 h-8
               text-neutral-text-primary placeholder:text-neutral-text-disabled
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none"
           />

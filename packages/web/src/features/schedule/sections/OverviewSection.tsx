@@ -21,7 +21,7 @@ const LABEL_CLASS =
   'text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-2';
 
 const SELECT_CLASS =
-  'w-full h-9 rounded border border-neutral-border bg-neutral-surface px-3 ' +
+  'w-full h-9 rounded-control border border-neutral-border bg-neutral-surface px-3 ' +
   'text-sm text-neutral-text-primary ' +
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1';
 
@@ -191,7 +191,7 @@ export function OverviewSection({ taskId, projectId, userRole, canEdit }: Drawer
                 onBlur={handleProgressBlur}
                 className={[
                   'w-full accent-brand-primary cursor-pointer',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-control',
                   'disabled:opacity-50 disabled:cursor-not-allowed',
                 ].join(' ')}
               />
@@ -214,7 +214,7 @@ export function OverviewSection({ taskId, projectId, userRole, canEdit }: Drawer
                     if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
                   }}
                   className={[
-                    'w-14 h-8 rounded border border-neutral-border bg-neutral-surface px-2',
+                    'w-14 h-8 rounded-control border border-neutral-border bg-neutral-surface px-2',
                     'text-sm tppm-mono text-right text-neutral-text-primary',
                     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
                     'disabled:opacity-50 disabled:cursor-not-allowed',
