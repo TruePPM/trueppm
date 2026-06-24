@@ -32,7 +32,7 @@ export function Breadcrumb({ items, className }: { items: BreadcrumbItem[]; clas
               {item.to && !isLast ? (
                 <NavLink
                   to={item.to}
-                  className="min-w-0 truncate text-[13px] text-chrome-text-secondary hover:text-chrome-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface rounded"
+                  className="min-w-0 truncate text-[13px] text-chrome-text-secondary hover:text-chrome-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface rounded-control"
                 >
                   {item.label}
                 </NavLink>

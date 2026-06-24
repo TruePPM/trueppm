@@ -53,7 +53,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       ref={ref}
       type={type}
       className={[
-        'inline-flex items-center justify-center gap-1.5 rounded font-medium',
+        'inline-flex items-center justify-center gap-1.5 rounded-control font-medium',
         // `transition` (not `transition-colors`) so the active-press transform
         // animates alongside hover colors; the press is motion-safe-gated so
         // reduced-motion users get no movement (rule 70/180). v2 fluidity, ADR-0126.

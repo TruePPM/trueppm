@@ -97,8 +97,8 @@ export function BottomSheet({
   const heightClass = size === 'full'
     ? 'inset-0 rounded-none'
     : size === 'large'
-      ? 'inset-x-0 bottom-0 max-h-[85vh] rounded-t-xl'
-      : 'inset-x-0 bottom-0 max-h-[85vh] rounded-t-xl';
+      ? 'inset-x-0 bottom-0 max-h-[85vh] rounded-t-card'
+      : 'inset-x-0 bottom-0 max-h-[85vh] rounded-t-card';
 
   return (
     <>

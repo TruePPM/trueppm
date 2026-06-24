@@ -164,7 +164,7 @@ export function ToolbarOverflowMenu({
         onKeyDown={onTriggerKeyDown}
         className="
           inline-flex items-center justify-center
-          h-7 w-7 rounded border border-neutral-border
+          h-7 w-7 rounded-control border border-neutral-border
           text-neutral-text-secondary hover:text-neutral-text-primary
           hover:bg-neutral-surface-raised
           focus-visible:outline-none focus-visible:ring-2
@@ -187,7 +187,7 @@ export function ToolbarOverflowMenu({
           onKeyDown={onMenuKeyDown}
           className={[
             'absolute z-30 top-full mt-1 min-w-[200px]',
-            'rounded border border-neutral-border bg-neutral-surface',
+            'rounded-card border border-neutral-border bg-neutral-surface',
             'py-1',
             align === 'right' ? 'right-0' : 'left-0',
           ].join(' ')}

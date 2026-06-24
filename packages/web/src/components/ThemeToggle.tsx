@@ -88,7 +88,7 @@ export function ThemeToggle({ className }: { className?: string }) {
     <div
       role="group"
       aria-label="Color scheme"
-      className={['flex items-center border border-neutral-border rounded', className ?? ''].join(' ')}
+      className={['flex items-center border border-neutral-border rounded-control', className ?? ''].join(' ')}
     >
       {THEME_OPTIONS.map(({ value, label, icon }, i) => (
         <button
@@ -100,8 +100,8 @@ export function ThemeToggle({ className }: { className?: string }) {
           className={[
             'h-7 w-7 flex items-center justify-center text-xs',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface',
-            i === 0 ? 'rounded-l' : '',
-            i === THEME_OPTIONS.length - 1 ? 'rounded-r' : 'border-r border-neutral-border',
+            i === 0 ? 'rounded-l-control' : '',
+            i === THEME_OPTIONS.length - 1 ? 'rounded-r-control' : 'border-r border-neutral-border',
             theme === value
               ? 'bg-neutral-surface-sunken text-neutral-text-primary'
               : 'text-neutral-text-secondary hover:text-neutral-text-primary hover:bg-neutral-surface-raised',
