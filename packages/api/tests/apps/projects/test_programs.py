@@ -490,6 +490,36 @@ def test_retrieve_includes_new_general_fields_with_safe_defaults(owner: object) 
 
 
 @pytest.mark.django_db
+def test_serializer_exposes_risk_policy_fields(owner: object) -> None:
+    """The list/detail serializer surfaces the risk policy so the Workspace → Programs
+    bulk matrix (#1283) can display and diff each program's current value."""
+    program = _create_program(_client(owner))
+    resp = _client(owner).get(f"/api/v1/programs/{program.pk}/")
+    assert resp.status_code == 200
+    # Static migration defaults (#529): no methodology-aware seeding.
+    assert resp.data["risk_slip_propagation"] == "warn"
+    assert resp.data["risk_escalation_days"] == 3
+
+
+@pytest.mark.django_db
+def test_risk_policy_fields_read_only_on_program_serializer(owner: object) -> None:
+    """Risk policy is display-only on the main serializer — writes go through the
+    dedicated risk_policy action and the workspace bulk-fields endpoint (#1283), so a
+    plain PATCH must NOT mutate them even for an admin."""
+    program = _create_program(_client(owner))
+    resp = _client(owner).patch(
+        f"/api/v1/programs/{program.pk}/",
+        {"risk_slip_propagation": "block", "risk_escalation_days": 21},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.content
+    program.refresh_from_db()
+    # read_only_fields swallow the write silently — defaults are unchanged.
+    assert program.risk_slip_propagation == "warn"
+    assert program.risk_escalation_days == 3
+
+
+@pytest.mark.django_db
 def test_patch_persists_general_settings_fields(owner: object) -> None:
     program = _create_program(_client(owner))
     resp = _client(owner).patch(

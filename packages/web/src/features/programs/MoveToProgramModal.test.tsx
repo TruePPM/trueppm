@@ -47,6 +47,8 @@ function makeProgram(overrides: Partial<Program> = {}): Program {
     effective_allowed_attachment_types: ['application/pdf'],
     inherited_attachments_enabled: true,
     inherited_allowed_attachment_types: ['application/pdf'],
+    risk_slip_propagation: 'warn',
+    risk_escalation_days: 3,
     health: 'AUTO',
     target_date: null,
     visibility: 'WORKSPACE',

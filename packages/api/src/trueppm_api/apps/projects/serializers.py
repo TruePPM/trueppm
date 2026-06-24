@@ -883,6 +883,13 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             "inherited_attachments_enabled",
             "effective_allowed_attachment_types",
             "inherited_allowed_attachment_types",
+            # Risk & cross-project deps policy (#529). Read-only here so the
+            # Workspace → Programs bulk matrix (#1283) can show + diff each
+            # program's current value; writes stay on the dedicated risk_policy
+            # PATCH action and the workspace bulk-fields endpoint. Direct columns,
+            # not inheritable — no effective_*/inherited_* pair (default WARN / 3d).
+            "risk_slip_propagation",
+            "risk_escalation_days",
             "health",
             # Headline target finish date (#560). Read/write; ADMIN+ to set
             # (the program viewset gates update/partial_update at IsProgramAdmin).
@@ -933,6 +940,10 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             "inherited_attachments_enabled",
             "effective_allowed_attachment_types",
             "inherited_allowed_attachment_types",
+            # Risk policy is display-only on this serializer (#1283) — writes go
+            # through the dedicated risk_policy action / workspace bulk endpoint.
+            "risk_slip_propagation",
+            "risk_escalation_days",
             "is_closed",
             "closed_at",
             "closed_by",
