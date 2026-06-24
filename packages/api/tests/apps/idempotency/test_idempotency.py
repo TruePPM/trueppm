@@ -259,6 +259,11 @@ def _iter_view_classes() -> list[tuple[str, str | None, type, set[str]]]:
 #   oversight_visible boolean on the project's decisions-visibility policy singleton; setting the
 #   current value is a no-op and a replay converges to the same posture — the same naturally-
 #   idempotent settings-toggle shape as the signal-privacy views, with no replayable resource.
+# - sprint-poker / poker-vote / poker-reveal / poker-reopen / poker-commit / poker-cancel
+#   (estimation poker, ADR-0179 / #863) are the same ceremony shape as the signal-privacy votes:
+#   each runs under select_for_update + a status guard so a replay converges (vote is an upsert on
+#   unique(session, voter); reveal/reopen/commit/cancel are guarded state transitions; open is
+#   guarded by the poker_one_live_per_task partial-unique). No replayable resource to dedup.
 EXEMPT_URL_NAMES = frozenset(
     {
         "project-schedule",
@@ -274,6 +279,12 @@ EXEMPT_URL_NAMES = frozenset(
         "project-signal-ceiling-proposal-vote",
         "project-signal-ceiling-proposal-withdraw",
         "project-decisions-policy",
+        "sprint-poker",
+        "poker-vote",
+        "poker-reveal",
+        "poker-reopen",
+        "poker-commit",
+        "poker-cancel",
         "auth-me-profile",
     }
 )

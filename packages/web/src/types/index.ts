@@ -871,6 +871,34 @@ export interface DecisionsPolicy {
   can_edit: boolean;
 }
 
+/** A revealed poker vote (only present once the round is revealed/committed). */
+export interface PokerRevealedVote {
+  voter: CollabUserMini | null;
+  value: number | null;
+  comment: string;
+}
+
+export type PokerSessionState = 'open' | 'revealed' | 'committed' | 'cancelled';
+
+/**
+ * An estimation-poker round (ADR-0179, issue 863), privacy-filtered by state: while `open`,
+ * `votes` is empty and only `vote_count` + `my_vote` are exposed; on reveal `votes` lists
+ * every member's value.
+ */
+export interface PokerSession {
+  id: string;
+  task: { id: string; name: string };
+  state: PokerSessionState;
+  committed_points: number | null;
+  started_by: CollabUserMini | null;
+  started_at: string;
+  /** The caller's own vote — present so a page refresh restores the selected card. */
+  my_vote: { value: number | null; comment: string } | null;
+  vote_count: number;
+  participant_count: number;
+  votes: PokerRevealedVote[];
+}
+
 /** Per-user "I'm on it" ack — never triggers notification (ADR-0075 §A.3, Morgan blocker). */
 export interface CommentAcknowledgement {
   id: string;

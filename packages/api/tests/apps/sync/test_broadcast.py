@@ -147,6 +147,7 @@ FROZEN_WS_EVENT_TYPES = frozenset(
         "milestone_forecast_updated",
         "milestone_rollup_updated",
         "phases_reordered",
+        "poker_session_updated",
         "presence_join",
         "presence_leave",
         "program_closed",

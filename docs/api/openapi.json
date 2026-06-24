@@ -2546,6 +2546,241 @@
                 }
             }
         },
+        "/api/v1/poker/{id}/cancel/": {
+            "post": {
+                "operationId": "v1_poker_cancel_create",
+                "summary": "Cancel the round",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PokerSession"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/poker/{id}/commit/": {
+            "post": {
+                "operationId": "v1_poker_commit_create",
+                "summary": "Commit the agreed points (writes Task.story_points)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CommitPokerRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CommitPokerRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CommitPokerRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PokerSession"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/poker/{id}/reopen/": {
+            "post": {
+                "operationId": "v1_poker_reopen_create",
+                "summary": "Reopen for a re-vote",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PokerSession"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/poker/{id}/reveal/": {
+            "post": {
+                "operationId": "v1_poker_reveal_create",
+                "summary": "Reveal the votes",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PokerSession"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/poker/{id}/vote/": {
+            "post": {
+                "operationId": "v1_poker_vote_create",
+                "summary": "Cast or change my vote",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CastVoteRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CastVoteRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CastVoteRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PokerSession"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/programs/": {
             "get": {
                 "operationId": "v1_programs_list",
@@ -18303,6 +18538,110 @@
                 }
             }
         },
+        "/api/v1/sprints/{sprint_pk}/poker/": {
+            "get": {
+                "operationId": "v1_sprints_poker_list",
+                "description": "GET the sprint's live rounds; POST opens a new round (facilitator).",
+                "summary": "Live poker rounds for a sprint",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "sprint_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/PokerSession"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_sprints_poker_create",
+                "description": "GET the sprint's live rounds; POST opens a new round (facilitator).",
+                "summary": "Open an estimation-poker round for a task",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "sprint_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/OpenPokerRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/OpenPokerRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/OpenPokerRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PokerSession"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "409": {
+                        "description": "Already live."
+                    }
+                }
+            }
+        },
         "/api/v1/task-resources/": {
             "get": {
                 "operationId": "v1_task_resources_list",
@@ -22643,6 +22982,31 @@
                     "name"
                 ]
             },
+            "CastVoteRequest": {
+                "type": "object",
+                "description": "POST body — the caller's estimate (``value`` null = the \"?\" card).",
+                "properties": {
+                    "value": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/ValueEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "comment": {
+                        "type": "string",
+                        "default": "",
+                        "maxLength": 280
+                    }
+                },
+                "required": [
+                    "value"
+                ]
+            },
             "CategoryEnum": {
                 "enum": [
                     "TECHNICAL",
@@ -22953,6 +23317,18 @@
                 },
                 "required": [
                     "emoji"
+                ]
+            },
+            "CommitPokerRequest": {
+                "type": "object",
+                "description": "POST body — the agreed value written to ``Task.story_points``.",
+                "properties": {
+                    "points": {
+                        "$ref": "#/components/schemas/PointsEnum"
+                    }
+                },
+                "required": [
+                    "points"
                 ]
             },
             "CredentialSummary": {
@@ -24484,6 +24860,19 @@
                 ],
                 "type": "string",
                 "description": "* `continue` - Continue and flag the failed table\n* `stop` - Stop the run on first error"
+            },
+            "OpenPokerRequest": {
+                "type": "object",
+                "description": "POST body — open a round for one task.",
+                "properties": {
+                    "task": {
+                        "type": "string",
+                        "format": "uuid"
+                    }
+                },
+                "required": [
+                    "task"
+                ]
             },
             "PaginatedAcceptanceCriterionList": {
                 "type": "object",
@@ -27312,6 +27701,98 @@
                 "required": [
                     "name"
                 ]
+            },
+            "PointsEnum": {
+                "enum": [
+                    1,
+                    2,
+                    3,
+                    5,
+                    8,
+                    13,
+                    21
+                ],
+                "type": "integer",
+                "description": "* `1` - 1\n* `2` - 2\n* `3` - 3\n* `5` - 5\n* `8` - 8\n* `13` - 13\n* `21` - 21"
+            },
+            "PokerSession": {
+                "type": "object",
+                "description": "Privacy-filtered poker round (ADR-0179 §2).\n\nAlways returns the round's identity, the caller's own vote (``my_vote`` — survives a\nrefresh), and a ``vote_count``. The per-member ``votes`` list is returned ONLY once the\nround is revealed/committed; while ``open`` it is empty so no participant can read\nanother's value pre-reveal.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "task": {
+                        "type": "object",
+                        "additionalProperties": {},
+                        "readOnly": true
+                    },
+                    "state": {
+                        "$ref": "#/components/schemas/PokerSessionStateEnum"
+                    },
+                    "committed_points": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "started_by": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/_MentionAuthorMini"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "started_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "my_vote": {
+                        "type": "object",
+                        "additionalProperties": {},
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "vote_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "participant_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "votes": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": {}
+                        },
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "committed_points",
+                    "id",
+                    "my_vote",
+                    "participant_count",
+                    "started_at",
+                    "started_by",
+                    "state",
+                    "task",
+                    "vote_count",
+                    "votes"
+                ]
+            },
+            "PokerSessionStateEnum": {
+                "enum": [
+                    "open",
+                    "revealed",
+                    "committed",
+                    "cancelled"
+                ],
+                "type": "string",
+                "description": "* `open` - Open for voting\n* `revealed` - Revealed\n* `committed` - Committed\n* `cancelled` - Cancelled"
             },
             "PreviewTypeEnum": {
                 "enum": [
@@ -33209,6 +33690,19 @@
                     "initials",
                     "username"
                 ]
+            },
+            "ValueEnum": {
+                "enum": [
+                    1,
+                    2,
+                    3,
+                    5,
+                    8,
+                    13,
+                    21
+                ],
+                "type": "integer",
+                "description": "* `1` - 1\n* `2` - 2\n* `3` - 3\n* `5` - 5\n* `8` - 8\n* `13` - 13\n* `21` - 21"
             },
             "VelocitySuggestion": {
                 "type": "object",
