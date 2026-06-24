@@ -149,7 +149,7 @@ export function RiskRegisterView() {
 
   if (!projectId) {
     return (
-      <div className="flex h-full items-center justify-center bg-neutral-surface">
+      <div className="flex h-full items-center justify-center bg-app-canvas">
         <p className="text-sm text-neutral-text-secondary">Select a project to view risks.</p>
       </div>
     );
@@ -211,7 +211,7 @@ export function RiskRegisterView() {
   }
 
   return (
-    <div className="flex flex-col h-full overflow-hidden bg-neutral-surface">
+    <div className="flex flex-col h-full overflow-hidden bg-app-canvas">
       {/* ── Page header ──────────────────────────────────────────────────── */}
       <header className="flex items-start justify-between gap-4 px-6 pt-5 pb-4 shrink-0">
         {/* Breadcrumb + heading */}
@@ -235,7 +235,7 @@ export function RiskRegisterView() {
         <div className="hidden md:flex items-center gap-2 shrink-0 pt-1">
           {!isLoading && !error && criticalCount > 0 && (
             <span
-              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+              className="inline-flex items-center px-2 py-0.5 rounded-chip text-xs font-medium
                 bg-semantic-critical text-white"
               aria-label={`${criticalCount} critical risk${criticalCount !== 1 ? 's' : ''}`}
             >
@@ -244,7 +244,7 @@ export function RiskRegisterView() {
           )}
           {!isLoading && !error && highCount > 0 && (
             <span
-              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+              className="inline-flex items-center px-2 py-0.5 rounded-chip text-xs font-medium
                 bg-brand-accent-dark text-white"
               aria-label={`${highCount} high risk${highCount !== 1 ? 's' : ''}`}
             >
@@ -255,7 +255,7 @@ export function RiskRegisterView() {
           {/* Display — client-side severity-band visibility toggle (persisted).
               Hides low-severity rows from the table to declutter the register. */}
           <label
-            className="inline-flex items-center gap-2 h-8 px-3 rounded text-xs font-medium
+            className="inline-flex items-center gap-2 h-8 px-3 rounded-control text-xs font-medium
               border border-neutral-border text-neutral-text-primary bg-neutral-surface
               hover:bg-neutral-surface-raised cursor-pointer
               focus-within:ring-2 focus-within:ring-brand-primary focus-within:ring-offset-1"
@@ -264,7 +264,7 @@ export function RiskRegisterView() {
               type="checkbox"
               checked={isLowHidden}
               onChange={() => toggleSeverityBand('low')}
-              className="h-3.5 w-3.5 rounded border-neutral-border accent-brand-primary
+              className="h-3.5 w-3.5 rounded-chip border-neutral-border accent-brand-primary
                 focus-visible:outline-none"
             />
             Hide low severity
@@ -274,7 +274,7 @@ export function RiskRegisterView() {
             type="button"
             onClick={() => setShowHeatmap((v) => !v)}
             aria-pressed={showHeatmap}
-            className="inline-flex items-center gap-1 h-8 px-3 rounded text-xs font-medium
+            className="inline-flex items-center gap-1 h-8 px-3 rounded-control text-xs font-medium
               border border-neutral-border text-neutral-text-primary bg-neutral-surface
               hover:bg-neutral-surface-raised
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
@@ -295,7 +295,7 @@ export function RiskRegisterView() {
             <button
               type="button"
               onClick={() => setIsImportOpen(true)}
-              className="inline-flex items-center gap-1 h-8 px-3 rounded text-xs font-medium
+              className="inline-flex items-center gap-1 h-8 px-3 rounded-control text-xs font-medium
                 border border-neutral-border text-neutral-text-secondary bg-neutral-surface
                 hover:text-neutral-text-primary hover:bg-neutral-surface-raised
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
@@ -309,7 +309,7 @@ export function RiskRegisterView() {
             <button
               type="button"
               onClick={() => exportRisksToCSV(displayRisks, projectSlug)}
-              className="inline-flex items-center gap-1 h-8 px-3 rounded text-xs font-medium
+              className="inline-flex items-center gap-1 h-8 px-3 rounded-control text-xs font-medium
                 border border-neutral-border text-neutral-text-secondary bg-neutral-surface
                 hover:text-neutral-text-primary hover:bg-neutral-surface-raised
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
@@ -322,7 +322,7 @@ export function RiskRegisterView() {
           <button
             type="button"
             onClick={openCreate}
-            className="inline-flex items-center gap-1 h-8 px-3 rounded text-sm font-medium
+            className="inline-flex items-center gap-1 h-8 px-3 rounded-control text-sm font-medium
               text-neutral-text-inverse bg-brand-primary border border-brand-primary-dark
               hover:bg-brand-primary-dark
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
@@ -343,7 +343,7 @@ export function RiskRegisterView() {
               aria-haspopup="menu"
               aria-expanded={isOverflowOpen}
               aria-label="More actions"
-              className="inline-flex items-center justify-center w-10 h-10 rounded
+              className="inline-flex items-center justify-center w-10 h-10 rounded-control
                 text-neutral-text-secondary hover:text-neutral-text-primary hover:bg-neutral-surface-raised
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
                 dark:focus-visible:ring-semantic-on-track focus-visible:ring-offset-1"
@@ -355,7 +355,7 @@ export function RiskRegisterView() {
             {isOverflowOpen && (
               <div
                 role="menu"
-                className="absolute right-0 top-11 min-w-[180px] z-30 rounded-md
+                className="absolute right-0 top-11 min-w-[180px] z-30 rounded-card
                   bg-neutral-surface border border-neutral-border py-1"
               >
                 {canImport && (
@@ -399,7 +399,7 @@ export function RiskRegisterView() {
         <div className="md:hidden flex items-center gap-2 px-6 pb-3 shrink-0">
           {criticalCount > 0 && (
             <span
-              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+              className="inline-flex items-center px-2 py-0.5 rounded-chip text-xs font-medium
                 bg-semantic-critical text-white"
               aria-label={`${criticalCount} critical risk${criticalCount !== 1 ? 's' : ''}`}
             >
@@ -408,7 +408,7 @@ export function RiskRegisterView() {
           )}
           {highCount > 0 && (
             <span
-              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+              className="inline-flex items-center px-2 py-0.5 rounded-chip text-xs font-medium
                 bg-brand-accent-dark text-white"
               aria-label={`${highCount} high risk${highCount !== 1 ? 's' : ''}`}
             >
@@ -424,13 +424,13 @@ export function RiskRegisterView() {
         {showHeatmap && (
           <aside
             className="hidden lg:flex flex-col shrink-0 w-[440px]
-              border border-neutral-border rounded-lg p-5
-              bg-neutral-surface-raised overflow-auto"
+              border border-neutral-border rounded-card p-5
+              bg-neutral-surface overflow-auto"
             aria-label="Risk heatmap"
           >
             {isLoading && (
               <div
-                className="flex-1 rounded animate-pulse bg-neutral-border/30"
+                className="flex-1 rounded-card animate-pulse bg-neutral-border/30"
                 aria-hidden="true"
               />
             )}
@@ -452,7 +452,7 @@ export function RiskRegisterView() {
               {[0, 1, 2, 3].map((i) => (
                 <div
                   key={i}
-                  className="h-14 rounded bg-neutral-surface-raised animate-pulse border border-neutral-border"
+                  className="h-14 rounded-card bg-neutral-surface-raised animate-pulse border border-neutral-border"
                   aria-hidden="true"
                 />
               ))}
@@ -469,7 +469,7 @@ export function RiskRegisterView() {
               <button
                 type="button"
                 onClick={() => window.location.reload()}
-                className="h-8 px-3 rounded text-sm font-medium border border-neutral-border
+                className="h-8 px-3 rounded-control text-sm font-medium border border-neutral-border
                   text-neutral-text-secondary hover:text-neutral-text-primary
                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
                   dark:focus-visible:ring-semantic-on-track focus-visible:ring-offset-1"
@@ -519,7 +519,7 @@ export function RiskRegisterView() {
                   {filter !== 'all' && (
                     <span
                       className="inline-flex items-center gap-1 text-xs font-medium
-                      bg-brand-primary/10 text-brand-primary border border-brand-primary/20 rounded px-2 py-0.5"
+                      bg-brand-primary/10 text-brand-primary border border-brand-primary/20 rounded-chip px-2 py-0.5"
                     >
                       {RISK_FILTERS.find((f) => f.value === filter)?.label}
                       <button
@@ -528,7 +528,7 @@ export function RiskRegisterView() {
                         aria-label="Clear severity/ownership filter"
                         className="text-brand-primary hover:text-brand-primary-dark
                           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-                          focus-visible:ring-offset-1 rounded"
+                          focus-visible:ring-offset-1 rounded-control"
                       >
                         ✕
                       </button>
@@ -537,7 +537,7 @@ export function RiskRegisterView() {
                   {selectedCell && (
                     <span
                       className="inline-flex items-center gap-1 text-xs font-medium tppm-mono
-                      bg-brand-primary/10 text-brand-primary border border-brand-primary/20 rounded px-2 py-0.5"
+                      bg-brand-primary/10 text-brand-primary border border-brand-primary/20 rounded-chip px-2 py-0.5"
                     >
                       P{selectedCell.probability} × I{selectedCell.impact}
                       <button
@@ -546,7 +546,7 @@ export function RiskRegisterView() {
                         aria-label="Clear matrix cell filter"
                         className="text-brand-primary hover:text-brand-primary-dark
                           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-                          focus-visible:ring-offset-1 rounded"
+                          focus-visible:ring-offset-1 rounded-control"
                       >
                         ✕
                       </button>
@@ -560,7 +560,7 @@ export function RiskRegisterView() {
                     onClick={clearAllFilters}
                     className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary ml-1
                       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-                      focus-visible:ring-offset-1 rounded"
+                      focus-visible:ring-offset-1 rounded-control"
                   >
                     Clear all
                   </button>
@@ -586,7 +586,7 @@ export function RiskRegisterView() {
                     onClick={clearAllFilters}
                     className="text-sm text-brand-primary hover:underline
                       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-                      dark:focus-visible:ring-semantic-on-track focus-visible:ring-offset-1 rounded"
+                      dark:focus-visible:ring-semantic-on-track focus-visible:ring-offset-1 rounded-control"
                   >
                     Show all risks
                   </button>
@@ -594,7 +594,7 @@ export function RiskRegisterView() {
               )}
 
               {displayRisks.length > 0 && (
-                <div className="flex-1 overflow-auto rounded-lg border border-neutral-border">
+                <div className="flex-1 overflow-auto rounded-card border border-neutral-border bg-neutral-surface">
                   <table className="w-full text-sm border-collapse">
                     <thead className="sticky top-0 z-10">
                       <tr className="bg-neutral-surface-raised border-b border-neutral-border">
@@ -633,7 +633,7 @@ export function RiskRegisterView() {
                             className="inline-flex items-center gap-1 font-medium text-neutral-text-secondary
                             hover:text-neutral-text-primary text-xs uppercase tracking-wide
                             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-                            dark:focus-visible:ring-semantic-on-track focus-visible:ring-offset-1 rounded"
+                            dark:focus-visible:ring-semantic-on-track focus-visible:ring-offset-1 rounded-control"
                           >
                             Severity
                             <span aria-hidden="true" className="text-[10px] leading-none">
@@ -707,7 +707,7 @@ export function RiskRegisterView() {
                                   {STATUS_LABELS[risk.status]}
                                   {isOverdue && (
                                     <span
-                                      className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium
+                                      className="inline-flex items-center rounded-chip px-1.5 py-0.5 text-xs font-medium
                                 bg-semantic-at-risk-bg text-semantic-at-risk border border-semantic-at-risk/30"
                                     >
                                       Overdue
@@ -778,7 +778,7 @@ export function RiskRegisterView() {
                                   openRiskEdit(risk);
                                 }}
                                 className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100
-                            w-8 h-8 flex items-center justify-center rounded
+                            w-8 h-8 flex items-center justify-center rounded-control
                             text-neutral-text-secondary hover:text-neutral-text-primary
                             focus-visible:outline-none focus-visible:ring-2
                             focus-visible:ring-brand-primary focus-visible:ring-offset-1"

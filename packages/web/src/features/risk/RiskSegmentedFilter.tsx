@@ -63,7 +63,7 @@ export function RiskSegmentedFilter({
       aria-label="Filter risks"
       tabIndex={-1}
       onKeyDown={onKeyDown}
-      className="mb-2 flex shrink-0 items-center gap-1 self-start rounded-md border border-neutral-border bg-neutral-surface-sunken p-0.5"
+      className="mb-2 flex shrink-0 items-center gap-1 self-start rounded-control border border-neutral-border bg-neutral-surface-sunken p-0.5"
     >
       {RISK_FILTERS.map(({ value: optionValue, label }, i) => {
         const active = value === optionValue;
@@ -80,7 +80,7 @@ export function RiskSegmentedFilter({
             tabIndex={i === focusIdx ? 0 : -1}
             onClick={() => onChange(optionValue)}
             className={[
-              'inline-flex min-h-[44px] items-center justify-center rounded px-3 md:min-h-[32px]',
+              'inline-flex min-h-[44px] items-center justify-center rounded-chip px-3 md:min-h-[32px]',
               'text-xs font-medium transition-colors',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary',
               'dark:focus-visible:ring-semantic-on-track focus-visible:ring-offset-1',

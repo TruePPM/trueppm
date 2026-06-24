@@ -51,7 +51,7 @@ function IssueList({
     <div className="flex flex-col gap-1">
       <p className={`text-xs font-medium ${headingColor}`}>{title}</p>
       <ul
-        className={`max-h-32 overflow-y-auto rounded border ${boxColor} p-2 text-xs text-neutral-text-secondary`}
+        className={`max-h-32 overflow-y-auto rounded-card border ${boxColor} p-2 text-xs text-neutral-text-secondary`}
       >
         {issues.map((issue, i) => (
           <li key={`${issue.row}-${issue.field}-${i}`}>
@@ -185,7 +185,7 @@ export function RiskImportModal({ projectId, onClose }: Props) {
                 <button
                   type="button"
                   onClick={importAnother}
-                  className="h-9 rounded border border-neutral-border px-4 text-sm font-medium
+                  className="h-9 rounded-control border border-neutral-border px-4 text-sm font-medium
                     text-neutral-text-secondary hover:text-neutral-text-primary
                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
                 >
@@ -194,7 +194,7 @@ export function RiskImportModal({ projectId, onClose }: Props) {
                 <button
                   type="button"
                   onClick={onClose}
-                  className="h-9 rounded bg-brand-primary px-4 text-sm font-medium text-white
+                  className="h-9 rounded-control bg-brand-primary px-4 text-sm font-medium text-white
                     hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2
                     focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary"
                 >
@@ -213,7 +213,7 @@ export function RiskImportModal({ projectId, onClose }: Props) {
                 <button
                   type="button"
                   onClick={onClose}
-                  className="h-9 rounded border border-neutral-border px-4 text-sm font-medium
+                  className="h-9 rounded-control border border-neutral-border px-4 text-sm font-medium
                     text-neutral-text-secondary hover:text-neutral-text-primary
                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
                 >
@@ -222,7 +222,7 @@ export function RiskImportModal({ projectId, onClose }: Props) {
                 <button
                   type="button"
                   onClick={importAnother}
-                  className="h-9 rounded bg-brand-primary px-4 text-sm font-medium text-white
+                  className="h-9 rounded-control bg-brand-primary px-4 text-sm font-medium text-white
                     hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2
                     focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary"
                 >
@@ -264,7 +264,7 @@ export function RiskImportModal({ projectId, onClose }: Props) {
                 <button
                   type="button"
                   onClick={onClose}
-                  className="h-9 rounded border border-neutral-border px-4 text-sm font-medium
+                  className="h-9 rounded-control border border-neutral-border px-4 text-sm font-medium
                     text-neutral-text-secondary hover:text-neutral-text-primary
                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
                 >
@@ -274,7 +274,7 @@ export function RiskImportModal({ projectId, onClose }: Props) {
                   type="button"
                   onClick={handleImport}
                   disabled={!file}
-                  className="h-9 rounded bg-brand-primary px-4 text-sm font-medium text-white
+                  className="h-9 rounded-control bg-brand-primary px-4 text-sm font-medium text-white
                     hover:bg-brand-primary-dark disabled:cursor-not-allowed disabled:opacity-50
                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white
                     focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary"

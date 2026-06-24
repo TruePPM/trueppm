@@ -52,7 +52,7 @@ const RESPONSE_OPTIONS = [
 const PROBABILITY_IMPACT_OPTIONS = [1, 2, 3, 4, 5] as const;
 
 const INPUT_BASE =
-  'w-full border border-neutral-border rounded px-3 bg-neutral-surface ' +
+  'w-full border border-neutral-border rounded-control px-3 bg-neutral-surface ' +
   'text-neutral-text-primary text-sm ' +
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1';
 
@@ -218,7 +218,7 @@ export function RiskForm({ projectId, risk, onSuccess, onCancel }: RiskFormProps
       {/* Severity — read-only computed display */}
       <div className="flex flex-col gap-1">
         <span className="text-sm font-medium text-neutral-text-primary">Severity</span>
-        <div className="flex items-center gap-2 h-11 px-3 border border-neutral-border rounded bg-neutral-surface-raised">
+        <div className="flex items-center gap-2 h-11 px-3 border border-neutral-border rounded-control bg-neutral-surface-raised">
           <span className="text-sm text-neutral-text-secondary">{severity}</span>
           <RiskChip severity={severity} />
         </div>
@@ -239,12 +239,12 @@ export function RiskForm({ projectId, risk, onSuccess, onCancel }: RiskFormProps
       </div>
 
       {/* Advanced (risk framework) — collapsible */}
-      <div className="border border-neutral-border rounded">
+      <div className="border border-neutral-border rounded-card">
         <button
           type="button"
           onClick={() => setAdvancedOpen((o) => !o)}
           aria-expanded={advancedOpen}
-          className="w-full flex items-center justify-between px-3 h-10 text-sm font-medium rounded
+          className="w-full flex items-center justify-between px-3 h-10 text-sm font-medium rounded-control
             text-neutral-text-secondary hover:text-neutral-text-primary
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         >
@@ -370,7 +370,7 @@ export function RiskForm({ projectId, risk, onSuccess, onCancel }: RiskFormProps
       {mutationError && (
         <div
           role="alert"
-          className="rounded border border-semantic-critical/30 bg-semantic-critical-bg px-3 py-2"
+          className="rounded-card border border-semantic-critical/30 bg-semantic-critical-bg px-3 py-2"
         >
           <p className="text-sm text-semantic-critical">
             {mutationError instanceof Error
@@ -386,7 +386,7 @@ export function RiskForm({ projectId, risk, onSuccess, onCancel }: RiskFormProps
           type="button"
           onClick={onCancel}
           disabled={isPending}
-          className="h-10 px-4 rounded text-sm font-medium text-neutral-text-secondary
+          className="h-10 px-4 rounded-control text-sm font-medium text-neutral-text-secondary
             border border-neutral-border
             hover:text-neutral-text-primary
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
@@ -397,7 +397,7 @@ export function RiskForm({ projectId, risk, onSuccess, onCancel }: RiskFormProps
         <button
           type="submit"
           disabled={isPending}
-          className="h-10 px-4 rounded text-sm font-medium text-neutral-text-inverse
+          className="h-10 px-4 rounded-control text-sm font-medium text-neutral-text-inverse
             bg-brand-primary border border-brand-primary-dark
             hover:bg-brand-primary-dark
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1

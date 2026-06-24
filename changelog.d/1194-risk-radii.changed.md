@@ -1,0 +1,1 @@
+Adopted the v2 design-system foundation across the **Risk register** surface (#1194): legacy Tailwind radii migrated to the semantic `rounded-card` / `rounded-control` / `rounded-chip` scale by role, and the register now renders on the warm `bg-app-canvas` page surface with the heatmap and risk table as white cards that pop against it. Visual-only — no behavior change.
