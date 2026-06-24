@@ -58,7 +58,7 @@ function MatrixCell({ probability, impact }: { probability: number; impact: numb
 
   return (
     <div
-      className={`flex items-center justify-center rounded text-[11px] font-bold tppm-mono border ${THRESHOLD_STYLE[threshold]}`}
+      className={`flex items-center justify-center rounded-chip text-[11px] font-bold tppm-mono border ${THRESHOLD_STYLE[threshold]}`}
       style={{ height: 36 }}
       title={`P${probability} × I${impact} = ${score} (${THRESHOLD_LABELS[threshold]})`}
       aria-label={`Probability ${probability}, Impact ${impact}, score ${score}, ${THRESHOLD_LABELS[threshold]}`}
@@ -154,7 +154,7 @@ export function ProgramRiskPolicyPage() {
         action={
           !canEdit ? (
             <span
-              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-neutral-surface-sunken text-neutral-text-secondary"
+              className="inline-flex items-center px-2 py-0.5 rounded-chip text-xs font-medium bg-neutral-surface-sunken text-neutral-text-secondary"
               title="Only program admins can edit risk policy"
             >
               Read-only
@@ -172,7 +172,7 @@ export function ProgramRiskPolicyPage() {
           >
             Risk matrix (read-only — thresholds are org-wide)
           </h2>
-          <div className="bg-neutral-surface-raised border border-neutral-border rounded-lg p-4 overflow-x-auto">
+          <div className="bg-neutral-surface-raised border border-neutral-border rounded-card p-4 overflow-x-auto">
             <div
               className="grid gap-1"
               style={{ gridTemplateColumns: 'auto repeat(5, 1fr)', minWidth: 320 }}
@@ -201,7 +201,7 @@ export function ProgramRiskPolicyPage() {
               {(['low', 'medium', 'high', 'critical'] as Threshold[]).map((t) => (
                 <span
                   key={t}
-                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[11px] font-semibold ${THRESHOLD_STYLE[t]}`}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-chip border text-[11px] font-semibold ${THRESHOLD_STYLE[t]}`}
                 >
                   {THRESHOLD_LABELS[t]}
                 </span>
@@ -213,7 +213,7 @@ export function ProgramRiskPolicyPage() {
         {/* Slip propagation */}
         <section
           aria-labelledby="slip-heading"
-          className="bg-neutral-surface-raised border border-neutral-border rounded-lg overflow-hidden"
+          className="bg-neutral-surface-raised border border-neutral-border rounded-card overflow-hidden"
         >
           <div className="px-4 py-3 border-b border-neutral-border/55">
             <h2 id="slip-heading" className="text-[13px] font-semibold text-neutral-text-primary">
@@ -241,7 +241,7 @@ export function ProgramRiskPolicyPage() {
               <button
                 type="button"
                 onClick={() => void refetch()}
-                className="h-7 px-2 rounded border border-neutral-border text-xs font-medium text-neutral-text-secondary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                className="h-7 px-2 rounded-control border border-neutral-border text-xs font-medium text-neutral-text-secondary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               >
                 Retry
               </button>
@@ -255,7 +255,7 @@ export function ProgramRiskPolicyPage() {
                 <label
                   key={opt.id}
                   className={[
-                    'flex items-start gap-2.5 rounded p-2',
+                    'flex items-start gap-2.5 rounded-control p-2',
                     canEdit ? 'cursor-pointer hover:bg-neutral-surface-sunken' : 'opacity-80',
                   ].join(' ')}
                 >
@@ -308,7 +308,7 @@ export function ProgramRiskPolicyPage() {
                   const n = Number(e.target.value);
                   setDays(Number.isFinite(n) ? n : 0);
                 }}
-                className="w-20 h-8 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised tppm-mono text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:opacity-60"
+                className="w-20 h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised tppm-mono text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:opacity-60"
               />
               <span className="text-[13px] text-neutral-text-secondary">days</span>
               {!daysValid && (

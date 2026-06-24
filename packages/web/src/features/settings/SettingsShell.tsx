@@ -227,7 +227,7 @@ export function SettingsShell({
           <p className="text-xs font-semibold tracking-[.1em] uppercase text-neutral-text-secondary mb-1.5">
             Scope
           </p>
-          <div className="grid grid-cols-3 bg-neutral-surface-sunken rounded p-0.5 gap-0">
+          <div className="grid grid-cols-3 bg-neutral-surface-sunken rounded-control p-0.5 gap-0">
             {scopeLinks.map((sl) => {
               const isActive = scope === sl.scope;
               const isDisabled = !isActive && sl.to == null;
@@ -244,7 +244,7 @@ export function SettingsShell({
                     void navigate(sl.to);
                   }}
                   className={[
-                    'py-1.5 px-1 rounded text-xs font-medium text-center transition-colors',
+                    'py-1.5 px-1 rounded-control text-xs font-medium text-center transition-colors',
                     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
                     isActive
                       ? 'bg-neutral-surface text-neutral-text-primary'
@@ -260,7 +260,7 @@ export function SettingsShell({
           </div>
 
           {/* Context selector — switcher when >= 2 siblings (issue 776), else identity row. */}
-          <div className="mt-2 px-2 py-1.5 rounded flex items-center gap-1.5 bg-neutral-surface-sunken border border-neutral-border/55 text-xs min-w-0">
+          <div className="mt-2 px-2 py-1.5 rounded-card flex items-center gap-1.5 bg-neutral-surface-sunken border border-neutral-border/55 text-xs min-w-0">
             {contextOptions && contextOptions.length >= 2 ? (
               <SettingsContextSwitcher
                 contextName={contextName}
@@ -282,7 +282,7 @@ export function SettingsShell({
                   />
                 ) : (
                   <span
-                    className="w-3.5 h-3.5 rounded bg-brand-primary shrink-0 inline-flex items-center justify-center text-white text-[10px] font-bold"
+                    className="w-3.5 h-3.5 rounded-chip bg-brand-primary shrink-0 inline-flex items-center justify-center text-white text-[10px] font-bold"
                     aria-hidden="true"
                   >
                     tP
@@ -297,7 +297,7 @@ export function SettingsShell({
               type="button"
               onClick={handleCopyLink}
               aria-label="Copy link to settings"
-              className="shrink-0 inline-flex items-center justify-center w-6 h-6 -my-1 rounded text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              className="shrink-0 inline-flex items-center justify-center w-6 h-6 -my-1 rounded-control text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
               {copyConfirmed ? (
                 <svg
@@ -351,7 +351,7 @@ export function SettingsShell({
                 const isInline = !item.to;
                 const isActive = isInline && activeId === item.id;
                 const className = [
-                  'w-full flex items-center gap-2 px-2.5 py-[7px] rounded text-[13px] text-left transition-colors',
+                  'w-full flex items-center gap-2 px-2.5 py-[7px] rounded-control text-[13px] text-left transition-colors',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
                   isActive
                     ? 'font-semibold text-neutral-text-primary bg-neutral-surface-sunken -ml-0.5 pl-[9px] border-l-2 border-brand-primary'
@@ -393,7 +393,7 @@ export function SettingsShell({
             reserved so growing/shrinking sections never shift the panel (issue 776). */}
         <div
           ref={scrollRef}
-          className="flex-1 overflow-y-auto [scrollbar-gutter:stable] bg-neutral-surface scroll-smooth motion-reduce:scroll-auto"
+          className="flex-1 overflow-y-auto [scrollbar-gutter:stable] bg-app-canvas scroll-smooth motion-reduce:scroll-auto"
           data-testid="settings-content-scroll"
         >
           {children}
@@ -463,7 +463,7 @@ export function SettingsShell({
               onClick={() => void triggerSave()}
               disabled={isSaving}
               aria-keyshortcuts="Meta+S Control+S"
-              className="px-3.5 py-1.5 rounded bg-white text-brand-primary-dark text-[13px] font-semibold hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-60"
+              className="px-3.5 py-1.5 rounded-control bg-white text-brand-primary-dark text-[13px] font-semibold hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-60"
             >
               {isSaving ? 'Saving…' : 'Save changes'}
             </button>
@@ -576,7 +576,7 @@ interface SettingsCardProps {
 export function SettingsCard({ children, className = '' }: SettingsCardProps) {
   return (
     <div
-      className={`bg-neutral-surface-raised border border-neutral-border rounded-lg overflow-hidden ${className}`}
+      className={`bg-neutral-surface-raised border border-neutral-border rounded-card overflow-hidden ${className}`}
     >
       {children}
     </div>

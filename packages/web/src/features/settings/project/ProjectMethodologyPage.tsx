@@ -130,10 +130,10 @@ export function ProjectMethodologyPage() {
   if (projectLoading || !project || ws === undefined) {
     return (
       <div className="px-6 py-8 space-y-3">
-        <div className="h-16 rounded bg-neutral-surface-raised animate-pulse" />
+        <div className="h-16 rounded-card bg-neutral-surface-raised animate-pulse" />
         <div className="grid grid-cols-3 gap-3.5">
           {[1, 2, 3].map((i) => (
-            <div key={i} className="h-40 rounded bg-neutral-surface-raised animate-pulse" />
+            <div key={i} className="h-40 rounded-card bg-neutral-surface-raised animate-pulse" />
           ))}
         </div>
       </div>
@@ -152,7 +152,7 @@ export function ProjectMethodologyPage() {
 
       <div className="px-6 pb-8 max-w-[920px] space-y-6">
         {/* Inheritance context banner */}
-        <div className="rounded-lg border border-neutral-border bg-neutral-surface-sunken px-4 py-3">
+        <div className="rounded-card border border-neutral-border bg-neutral-surface-sunken px-4 py-3">
           {lockedByPolicy ? (
             <p className="text-[13px] text-neutral-text-primary">
               This workspace requires every project to use its default methodology —{' '}
@@ -196,7 +196,7 @@ export function ProjectMethodologyPage() {
                   role="radio"
                   aria-checked={isSelected}
                   className={[
-                    'text-left rounded-lg border p-4 transition-colors',
+                    'text-left rounded-card border p-4 transition-colors',
                     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
                     !canEdit ? 'cursor-not-allowed' : '',
                     isSelected
@@ -212,7 +212,7 @@ export function ProjectMethodologyPage() {
                 >
                   <div className="flex items-center justify-between mb-2">
                     <span
-                      className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold"
+                      className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-chip text-[11px] font-semibold"
                       style={{ background: m.accentBg, color: m.accent }}
                     >
                       <span

@@ -114,7 +114,7 @@ function CeremonyRow({
             aria-haspopup="menu"
             aria-expanded={menuOpen}
             aria-label={`More options for ${ceremony.name}`}
-            className="text-neutral-text-secondary text-[18px] leading-none px-1.5 py-0.5 rounded hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+            className="text-neutral-text-secondary text-[18px] leading-none px-1.5 py-0.5 rounded-control hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
           >
             ⋯
           </button>
@@ -123,7 +123,7 @@ function CeremonyRow({
           <div
             role="menu"
             tabIndex={-1}
-            className="absolute right-0 top-full mt-1 z-10 min-w-[140px] rounded-md border border-neutral-border bg-neutral-surface-raised py-1 text-[13px]"
+            className="absolute right-0 top-full mt-1 z-10 min-w-[140px] rounded-card border border-neutral-border bg-neutral-surface-raised py-1 text-[13px]"
             onMouseLeave={() => setMenuOpen(false)}
           >
             <button
@@ -158,14 +158,14 @@ function CeremonyRow({
                 onDelete();
                 setConfirmDelete(false);
               }}
-              className="h-7 px-2 rounded border border-semantic-critical text-xs font-semibold text-semantic-critical hover:bg-semantic-critical/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical"
+              className="h-7 px-2 rounded-control border border-semantic-critical text-xs font-semibold text-semantic-critical hover:bg-semantic-critical/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical"
             >
               Delete
             </button>
             <button
               type="button"
               onClick={() => setConfirmDelete(false)}
-              className="h-7 px-2 rounded border border-neutral-border text-xs font-medium text-neutral-text-secondary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+              className="h-7 px-2 rounded-control border border-neutral-border text-xs font-medium text-neutral-text-secondary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
             >
               Cancel
             </button>
@@ -235,7 +235,7 @@ export function ProgramCadencePage() {
             <button
               type="button"
               onClick={() => setAddOpen(true)}
-              className="px-3 py-1.5 rounded bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              className="px-3 py-1.5 rounded-control bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
               + Add ceremony
             </button>
@@ -286,7 +286,7 @@ export function ProgramCadencePage() {
                 <button
                   type="button"
                   onClick={() => setAddOpen(true)}
-                  className="mt-4 px-3 py-1.5 rounded bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                  className="mt-4 px-3 py-1.5 rounded-control bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
                 >
                   + Add your first ceremony
                 </button>
@@ -317,7 +317,7 @@ export function ProgramCadencePage() {
         {toggleError && (
           <div
             role="alert"
-            className="rounded border border-semantic-critical/40 bg-semantic-critical-bg px-3 py-2 text-xs text-semantic-critical"
+            className="rounded-card border border-semantic-critical/40 bg-semantic-critical-bg px-3 py-2 text-xs text-semantic-critical"
           >
             {toggleError}
           </div>
@@ -326,7 +326,7 @@ export function ProgramCadencePage() {
         {/* Phase gate calendar */}
         <section
           aria-labelledby="phasegate-heading"
-          className="bg-neutral-surface-raised border border-neutral-border rounded-lg p-4"
+          className="bg-neutral-surface-raised border border-neutral-border rounded-card p-4"
         >
           <h2
             id="phasegate-heading"
@@ -341,7 +341,7 @@ export function ProgramCadencePage() {
           <button
             type="button"
             onClick={() => setPhaseGateOpen(true)}
-            className="px-3 py-1.5 rounded border border-neutral-border text-[12px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+            className="px-3 py-1.5 rounded-control border border-neutral-border text-[12px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
           >
             {canEdit ? 'Configure gate template…' : 'View gate template…'}
           </button>

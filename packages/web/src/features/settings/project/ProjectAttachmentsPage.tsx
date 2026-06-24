@@ -132,7 +132,7 @@ export function ProjectAttachmentsPage() {
             {showEmptyAllowlistWarning && (
               <p
                 role="note"
-                className="text-[12px] text-semantic-at-risk bg-semantic-at-risk-bg border border-semantic-at-risk/30 rounded px-3 py-2"
+                className="text-[12px] text-semantic-at-risk bg-semantic-at-risk-bg border border-semantic-at-risk/30 rounded-card px-3 py-2"
               >
                 No types allowed — attachments are on, but no file can be uploaded.
               </p>

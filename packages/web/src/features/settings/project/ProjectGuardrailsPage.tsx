@@ -94,7 +94,7 @@ export function ProjectGuardrailsPage() {
             role="status"
             aria-live="polite"
             className={[
-              'rounded-lg border p-4 flex items-start gap-4',
+              'rounded-card border p-4 flex items-start gap-4',
               policy.acknowledgedByTeam
                 ? 'border-neutral-border bg-neutral-surface-raised'
                 : 'border-semantic-at-risk/40 bg-sem-at-risk-bg',
@@ -113,7 +113,7 @@ export function ProjectGuardrailsPage() {
             <button
               type="button"
               onClick={toggleAck}
-              className="shrink-0 min-h-[44px] sm:min-h-0 sm:h-9 px-3 rounded text-xs font-medium
+              className="shrink-0 min-h-[44px] sm:min-h-0 sm:h-9 px-3 rounded-control text-xs font-medium
                 border border-neutral-border text-neutral-text-primary hover:bg-neutral-surface-sunken
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
@@ -131,7 +131,7 @@ export function ProjectGuardrailsPage() {
 
         {/* Rule matrix. Each row exposes Warn / Block as a two-button choice;
             the advisory-only rule shows a fixed Warn pill (no Block path). */}
-        <div className="bg-neutral-surface-raised border border-neutral-border rounded-lg overflow-hidden">
+        <div className="bg-neutral-surface-raised border border-neutral-border rounded-card overflow-hidden">
           <div className="grid px-4 py-2.5 bg-neutral-surface-sunken border-b border-neutral-border/55
               text-[11px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary"
             style={{ gridTemplateColumns: '2fr 220px' }}>
@@ -162,7 +162,7 @@ export function ProjectGuardrailsPage() {
                 <div className="flex items-center justify-end gap-1.5">
                   {isAdvisoryOnly ? (
                     <span
-                      className="inline-flex items-center px-2.5 py-1 rounded text-[11px] font-medium
+                      className="inline-flex items-center px-2.5 py-1 rounded-chip text-[11px] font-medium
                         border border-neutral-border text-neutral-text-secondary bg-neutral-surface"
                       title="Advisory — cannot be escalated to a hard block"
                     >
@@ -233,7 +233,7 @@ function LevelPill({ label, active, disabled, onClick, tone, ...aria }: LevelPil
       className={[
         // Touch viewport: 44px tall (WCAG 2.5.5 AA); desktop collapses to 32px.
         'inline-flex items-center justify-center min-h-[44px] sm:min-h-0 sm:h-8 min-w-[68px]',
-        'px-2.5 rounded text-[11px] font-medium border transition-colors',
+        'px-2.5 rounded-control text-[11px] font-medium border transition-colors',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
         'disabled:opacity-50 disabled:cursor-not-allowed',
         active

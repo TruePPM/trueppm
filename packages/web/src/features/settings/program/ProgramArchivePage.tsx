@@ -42,7 +42,7 @@ function LifecycleCard({
   return (
     <div
       className={[
-        'rounded-lg border p-4',
+        'rounded-card border p-4',
         tone === 'warning'
           ? 'border-brand-accent bg-brand-accent-light'
           : 'border-neutral-border bg-neutral-surface-raised',
@@ -63,7 +63,7 @@ function LifecycleCard({
         disabled={disabled || busy || !onClick}
         title={disabled && !busy ? disabledReason : undefined}
         className={[
-          'px-3 py-1.5 rounded border border-neutral-border text-[12px] font-medium',
+          'px-3 py-1.5 rounded-control border border-neutral-border text-[12px] font-medium',
           'text-neutral-text-primary hover:bg-neutral-surface-sunken',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
           'disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed',
@@ -192,7 +192,7 @@ export function ProgramArchivePage() {
         />
 
         {/* Delete — critical zone */}
-        <div className="rounded-lg border border-semantic-critical bg-semantic-critical-bg p-4">
+        <div className="rounded-card border border-semantic-critical bg-semantic-critical-bg p-4">
           <h2 className="text-[13px] font-bold text-semantic-critical mb-1">
             Delete program — permanent
           </h2>
@@ -202,12 +202,12 @@ export function ProgramArchivePage() {
             unaffiliated projects. Program-level baselines, rollup KPIs, and audit entries are
             deleted.
           </p>
-          <div className="rounded border border-neutral-border bg-neutral-surface px-3 py-2.5 mb-3">
+          <div className="rounded-card border border-neutral-border bg-neutral-surface px-3 py-2.5 mb-3">
             <div className="text-[12px] text-neutral-text-secondary mb-2">
               To confirm, type the program {program?.code ? 'code' : 'name'}:
             </div>
             <div className="flex items-center gap-2">
-              <code className="px-2 py-0.5 rounded bg-neutral-surface-sunken border border-neutral-border tppm-mono text-[12px] text-neutral-text-primary">
+              <code className="px-2 py-0.5 rounded-chip bg-neutral-surface-sunken border border-neutral-border tppm-mono text-[12px] text-neutral-text-primary">
                 {confirmTarget || '…'}
               </code>
               <input
@@ -218,7 +218,7 @@ export function ProgramArchivePage() {
                 aria-label="Confirm delete by typing the program code or name"
                 disabled={!confirmTarget}
                 className={[
-                  'w-[240px] h-8 px-2.5 rounded border tppm-mono text-[12px] text-neutral-text-primary bg-neutral-surface-raised',
+                  'w-[240px] h-8 px-2.5 rounded-control border tppm-mono text-[12px] text-neutral-text-primary bg-neutral-surface-raised',
                   'placeholder:text-neutral-text-disabled',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical',
                   confirmText && !confirmed ? 'border-semantic-critical' : 'border-neutral-border',
@@ -231,7 +231,7 @@ export function ProgramArchivePage() {
             disabled={!confirmed || remove.isPending}
             onClick={onDelete}
             className={[
-              'px-4 py-2 rounded text-[13px] font-semibold text-white bg-semantic-critical transition-opacity',
+              'px-4 py-2 rounded-control text-[13px] font-semibold text-white bg-semantic-critical transition-opacity',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1',
               confirmed && !remove.isPending
                 ? 'opacity-100 hover:opacity-90'
