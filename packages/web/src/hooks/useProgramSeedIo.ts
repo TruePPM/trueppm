@@ -68,21 +68,47 @@ export function useImportProgramSeed(): UseMutationResult<Program, Error, File> 
 }
 
 /**
- * POST /api/v1/programs/load-sample/ — load the bundled demo program (#375).
+ * Response envelope for POST /programs/load-sample/ (issue 1054).
  *
- * The "Load demo data" empty-state action. Creates the Atlas hybrid-large
- * sample (owned by the caller) and invalidates both ``['programs']`` and
- * ``['projects']`` — the sample creates a program *and* its projects, and the
- * sidebar project list keys on ``['projects']`` (not a child of ``['programs']``),
- * so without the second invalidation the new projects only appear after a manual
- * page refresh. The per-program projects tab (``['programs', id, 'projects']``)
- * is already covered by the prefix-matching ``['programs']`` invalidation.
+ * `landing_project_id` is the project whose first open sprint was assigned to
+ * the caller — the board a contributor should land on so their work is visible.
+ * `null` when the sample has no open sprint (e.g. the waterfall-only sample), in
+ * which case the caller falls back to the program overview. `sample_key` echoes
+ * the loaded sample so the client renders the matching "Start exploring"
+ * guidance without guessing the server default.
  */
-export function useLoadSampleProgram(): UseMutationResult<Program, Error, string | undefined> {
+export interface LoadSampleResult {
+  program: Program;
+  landing_project_id: string | null;
+  sample_key: string;
+}
+
+/**
+ * POST /api/v1/programs/load-sample/ — load the bundled demo program (#375, issue 1054).
+ *
+ * The "Load demo data" empty-state action. Creates the sample (owned by the
+ * caller), assigns the caller the first open sprint's tasks server-side, and
+ * invalidates both ``['programs']`` and ``['projects']`` — the sample creates a
+ * program *and* its projects, and the sidebar project list keys on
+ * ``['projects']`` (not a child of ``['programs']``), so without the second
+ * invalidation the new projects only appear after a manual page refresh. The
+ * per-program projects tab (``['programs', id, 'projects']``) is already covered
+ * by the prefix-matching ``['programs']`` invalidation. Returns the
+ * {@link LoadSampleResult} envelope so the caller knows where to land the user
+ * and which sample's guidance to show.
+ */
+export function useLoadSampleProgram(): UseMutationResult<
+  LoadSampleResult,
+  Error,
+  string | undefined
+> {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (sample: string | undefined) => {
-      const res = await apiClient.post<Program>('/programs/load-sample/', sample ? { sample } : {});
+      const res = await apiClient.post<LoadSampleResult>(
+        '/programs/load-sample/',
+        sample ? { sample } : {},
+      );
       return res.data;
     },
     onSuccess: () => {

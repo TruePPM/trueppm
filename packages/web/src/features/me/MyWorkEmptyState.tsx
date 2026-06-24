@@ -49,7 +49,16 @@ function ExploreDemoButton({ disabled }: { disabled?: boolean }) {
   function explore() {
     setFailed(false);
     loadSample.mutate(undefined, {
-      onSuccess: (program) => void navigate(`/programs/${program.id}/overview`),
+      onSuccess: (result) => {
+        // Land a contributor on the board holding their freshly-assigned open
+        // sprint (so My Work-style work is immediately visible), not the PM-facing
+        // Program Overview. Fall back to overview when the sample has no open
+        // sprint. Carry the sample key so the "Start exploring" callout renders.
+        const dest = result.landing_project_id
+          ? `/projects/${result.landing_project_id}/board`
+          : `/programs/${result.program.id}/overview`;
+        void navigate(dest, { state: { startExploringSample: result.sample_key } });
+      },
       onError: () => setFailed(true),
     });
   }

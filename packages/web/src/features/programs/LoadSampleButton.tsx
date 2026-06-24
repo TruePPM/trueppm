@@ -27,7 +27,12 @@ export function LoadSampleButton({ variant = 'hero' }: LoadSampleButtonProps) {
     setFailed(false);
     setOpen(false);
     loadSample.mutate(key, {
-      onSuccess: (program) => void navigate(`/programs/${program.id}/overview`),
+      // PM/admin context stays on the program overview; carry the sample key so
+      // the "Start exploring" callout renders on the landing page (issue 1054).
+      onSuccess: (result) =>
+        void navigate(`/programs/${result.program.id}/overview`, {
+          state: { startExploringSample: result.sample_key },
+        }),
       onError: () => setFailed(true),
     });
   };

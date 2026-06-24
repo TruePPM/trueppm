@@ -10,8 +10,15 @@ vi.mock('@/hooks/useProgramSeedIo', () => ({
   useLoadSampleProgram: () => ({ mutate: loadSampleMutate, ...loadSampleState }),
 }));
 
+const navigateMock = vi.fn();
+vi.mock('react-router', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('react-router')>()),
+  useNavigate: () => navigateMock,
+}));
+
 beforeEach(() => {
   loadSampleMutate.mockReset();
+  navigateMock.mockReset();
   loadSampleState = { isPending: false };
   vi.restoreAllMocks();
 });
@@ -28,6 +35,40 @@ describe('MyWorkEmptyState v2 (#499 / ADR-0129)', () => {
     renderWithRouter(<MyWorkEmptyState hasProjects={false} />);
     fireEvent.click(screen.getByRole('button', { name: 'Explore a demo project' }));
     expect(loadSampleMutate).toHaveBeenCalledTimes(1);
+  });
+
+  it('flavor A — on success routes the contributor to the assigned board with the sample key (issue 1054)', () => {
+    loadSampleMutate.mockImplementation(
+      (_arg: unknown, opts: { onSuccess: (r: unknown) => void }) => {
+        opts.onSuccess({
+          program: { id: 'prog-1' },
+          landing_project_id: 'proj-9',
+          sample_key: 'atlas-platform-launch',
+        });
+      },
+    );
+    renderWithRouter(<MyWorkEmptyState hasProjects={false} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Explore a demo project' }));
+    expect(navigateMock).toHaveBeenCalledWith('/projects/proj-9/board', {
+      state: { startExploringSample: 'atlas-platform-launch' },
+    });
+  });
+
+  it('flavor A — falls back to the program overview when the sample has no open sprint (issue 1054)', () => {
+    loadSampleMutate.mockImplementation(
+      (_arg: unknown, opts: { onSuccess: (r: unknown) => void }) => {
+        opts.onSuccess({
+          program: { id: 'prog-1' },
+          landing_project_id: null,
+          sample_key: 'bayside-civic-center',
+        });
+      },
+    );
+    renderWithRouter(<MyWorkEmptyState hasProjects={false} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Explore a demo project' }));
+    expect(navigateMock).toHaveBeenCalledWith('/programs/prog-1/overview', {
+      state: { startExploringSample: 'bayside-civic-center' },
+    });
   });
 
   it('flavor B (has projects, no assignments) — refreshed copy, NO demo CTA', () => {

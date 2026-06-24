@@ -116,8 +116,10 @@ def test_load_sample_endpoint_requires_auth() -> None:
 def test_load_sample_endpoint_creates_program(owner: Any) -> None:
     resp = _client(owner).post("/api/v1/programs/load-sample/", {}, format="json")
     assert resp.status_code == 201, resp.content
-    assert resp.data["code"] == "atlas-platform-launch"
-    assert resp.data["is_sample"] is True
+    # The response is now a {program, landing_project_id, sample_key} envelope (#1054).
+    assert resp.data["sample_key"] == "atlas-platform-launch"
+    assert resp.data["program"]["code"] == "atlas-platform-launch"
+    assert resp.data["program"]["is_sample"] is True
 
 
 def test_load_sample_unknown_key_rejected(owner: Any) -> None:

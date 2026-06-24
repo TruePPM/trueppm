@@ -43,7 +43,14 @@ see — a ~30-minute walkthrough.
 
 The fastest way to see TruePPM with real data is a bundled demo. On a fresh
 install the **Programs** page shows a **Load demo data** button — it offers a
-short menu of samples; pick one and you land on a fully populated program.
+short menu of samples; pick one and you land on a fully populated program. A
+dismissable **Start exploring** guide appears on the landing page with a couple
+of suggested first steps for the sample you chose.
+
+You can also load a demo straight from **My Work** when you have nothing assigned
+yet: that path drops you on a project **Board** with the demo's first open sprint
+already assigned to you, so your own work is visible immediately rather than a
+PM-facing overview.
 
 While the first schedule pass runs after a load, the Schedule view shows a
 non-blocking *Recalculating…* badge, so dashed dates read as "processing", not

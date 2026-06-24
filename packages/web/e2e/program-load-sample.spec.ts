@@ -43,6 +43,16 @@ const FIXTURE_PROGRAM = {
   is_closed: false,
 };
 
+// load-sample now returns a {program, landing_project_id, sample_key} envelope
+// (#1054). From the Programs index the PM stays on the program overview, so
+// landing_project_id is null here; sample_key drives the "Start exploring"
+// callout on the landing page.
+const FIXTURE_LOAD_RESULT = {
+  program: FIXTURE_PROGRAM,
+  landing_project_id: null,
+  sample_key: 'atlas-platform-launch',
+};
+
 const pj = (o: unknown) => JSON.stringify(o);
 
 async function setup(page: Page) {
@@ -126,7 +136,7 @@ test.describe('Load demo data', () => {
   test('picks a sample and lands on the loaded program', async ({ page }) => {
     await setup(page);
     await page.route('**/api/v1/programs/load-sample/', (r) =>
-      r.fulfill({ status: 201, contentType: 'application/json', body: pj(FIXTURE_PROGRAM) }),
+      r.fulfill({ status: 201, contentType: 'application/json', body: pj(FIXTURE_LOAD_RESULT) }),
     );
     await page.goto('/programs');
 
@@ -137,6 +147,12 @@ test.describe('Load demo data', () => {
     await page.getByRole('menuitem', { name: /Atlas Platform Launch/i }).click();
 
     await expect(page).toHaveURL(new RegExp(`/programs/${PROGRAM_ID}/overview`));
+
+    // The post-load "Start exploring" guidance renders on the landing page,
+    // keyed to the loaded sample (#1054).
+    await expect(
+      page.getByRole('region', { name: 'Start exploring this demo' }),
+    ).toContainText('Start exploring — Atlas Platform Launch');
   });
 
   test('the sample projects appear in the sidebar without a manual refresh', async ({ page }) => {
@@ -173,7 +189,7 @@ test.describe('Load demo data', () => {
     );
     await page.route('**/api/v1/programs/load-sample/', (r) => {
       sampleLoaded = true;
-      r.fulfill({ status: 201, contentType: 'application/json', body: pj(FIXTURE_PROGRAM) });
+      r.fulfill({ status: 201, contentType: 'application/json', body: pj(FIXTURE_LOAD_RESULT) });
     });
 
     await page.goto('/programs');

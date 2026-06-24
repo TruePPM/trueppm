@@ -18,7 +18,13 @@ from typing import Any
 
 from django.db import transaction
 
-from trueppm_api.apps.projects.models import Program
+from trueppm_api.apps.projects.models import (
+    Program,
+    Project,
+    Sprint,
+    SprintState,
+    Task,
+)
 from trueppm_api.apps.projects.seed.importer import import_seed
 
 _SEEDS_DIR = Path(__file__).resolve().parent.parent / "fixtures" / "seeds"
@@ -111,3 +117,62 @@ def load_sample(key: str, *, owner: Any, create_users: bool = True) -> Program:
         # _replace_existing.
         program = import_seed(payload, owner=owner, create_users=create_users, is_sample=True)
     return program
+
+
+def _first_open_sprint(program: Program) -> Sprint | None:
+    """Return the program's earliest *open* sprint (ACTIVE, else PLANNED).
+
+    "Open" = a sprint a contributor can still pick up work in. ACTIVE wins over
+    PLANNED so a freshly-loaded demo drops the evaluator into the sprint that is
+    live *now*; within a state the earliest ``start_date`` is the natural first
+    one to walk. Returns ``None`` for an all-completed or sprintless sample
+    (e.g. the waterfall-only Bayside sample has no sprints).
+    """
+    base = Sprint.objects.filter(
+        project__program=program,
+        project__is_deleted=False,
+        is_deleted=False,
+    )
+    for state in (SprintState.ACTIVE, SprintState.PLANNED):
+        sprint = base.filter(state=state).order_by("start_date", "name").first()
+        if sprint is not None:
+            return sprint
+    return None
+
+
+def prepare_sample_for_user(program: Program, user: Any) -> Project | None:
+    """Assign the first open sprint's work to ``user`` so My Work is populated (#1054).
+
+    A contributor who loads a demo from the My Work empty state needs to *see
+    their own assigned work* immediately — otherwise the page they land on is as
+    empty as the one they left, and the adoption flywheel never starts. We take
+    the program's first open sprint (see :func:`_first_open_sprint`) and reassign
+    its non-milestone tasks to the loading user, returning the owning project so
+    the caller can land them on that board.
+
+    Idempotent: tasks already assigned to ``user`` are skipped, so re-loading the
+    same sample does not churn ``server_version``. Returns ``None`` when the
+    sample has no open sprint — the caller then falls back to the program
+    overview.
+    """
+    sprint = _first_open_sprint(program)
+    if sprint is None:
+        return None
+
+    # Milestones are gates, not work you pick up; leave them off a contributor's
+    # My Work list. Already-assigned tasks are skipped to keep the call idempotent.
+    tasks = list(
+        Task.objects.filter(sprint=sprint, is_deleted=False, is_milestone=False).exclude(
+            assignee=user
+        )
+    )
+    for task in tasks:
+        task.assignee = user
+        # Attribute the reassignment to the loading user in the audit history.
+        task._history_user = user  # type: ignore[attr-defined]
+        # save() force-bumps server_version (VersionedModel) so the sync delta
+        # carries the new assignee. No board broadcast is needed: the program was
+        # just created and has no live subscribers, and Task has no post_save
+        # broadcast signal — board events are emitted explicitly at the view layer.
+        task.save(update_fields=["assignee"])
+    return sprint.project
