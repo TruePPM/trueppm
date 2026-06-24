@@ -373,6 +373,67 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
     await expect(page.getByRole('link', { name: /Learn more/i })).toBeVisible();
   });
 
+  test('empty state — loading the demo lands the contributor on a board (#1054)', async ({
+    page,
+  }) => {
+    // 401-guard net first (last-registered-wins) so the board destination's
+    // unmocked reads don't 401 into the session-expired modal.
+    await page.route('**/api/v1/**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+      }),
+    );
+    await setupAuthenticatedPage(page);
+    await page.route('**/api/v1/projects/', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+      }),
+    );
+    await page.route('**/api/v1/me/active-sprints/', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+    );
+    await page.route('**/api/v1/me/work/**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          results: [],
+          next: null,
+          previous: null,
+          active_sprints: [],
+          due_today_count: 0,
+          server_version_high_water: 0,
+        }),
+      }),
+    );
+
+    // The contributor flow assigns the caller the first open sprint and routes
+    // them to that project's Board (not the PM-facing Program Overview).
+    const LANDING_PROJECT_ID = 'e2e-landing-00000000-0000-0000-0000-000000001054';
+    await page.route('**/api/v1/programs/load-sample/', (route) =>
+      route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          program: { id: 'e2e-prog-1054', name: 'Atlas Platform Launch' },
+          landing_project_id: LANDING_PROJECT_ID,
+          sample_key: 'atlas-platform-launch',
+        }),
+      }),
+    );
+
+    await page.goto('/me/work');
+    await page.getByRole('button', { name: 'Explore a demo project' }).click();
+
+    // Lands on the board holding the freshly-assigned open sprint — the URL is
+    // set by the SPA navigation regardless of how the board page then renders.
+    await expect(page).toHaveURL(new RegExp(`/projects/${LANDING_PROJECT_ID}/board`));
+  });
+
   test('empty state — projects exist but no assignments — shows the unassigned flavor', async ({
     page,
   }) => {

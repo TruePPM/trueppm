@@ -184,9 +184,13 @@ A program is a container for related projects (see [Programs](/features/programs
 | GET | `/api/v1/programs/{id}/schedule/` | Program-true cross-project critical path — merges every member project's tasks and every accepted cross-project dependency into one CPM run, computed on read. Tasks in projects you cannot read are redacted to a minimal card (title + forecast dates only); links are flagged cross-project (any program member) |
 | POST | `/api/v1/programs/{id}/split/` | Split a program into sub-programs — **planned, not yet implemented** (returns `501`) |
 
-The import and load-sample endpoints return `201 Created` with the new program;
-import returns `400` with an `errors` array on a malformed or oversized seed
-document. See [Sample projects](/getting-started/sample-projects/).
+The import endpoint returns `201 Created` with the new program; it returns `400`
+with an `errors` array on a malformed or oversized seed document. The load-sample
+endpoint returns `201 Created` with a `{program, landing_project_id, sample_key}`
+envelope — `landing_project_id` is the project board to land a contributor on so
+their assigned work is visible (`null` when the sample has no open sprint), and
+`sample_key` echoes the loaded sample. See
+[Sample projects](/getting-started/sample-projects/).
 
 The `rollup-config` and `risk-policy` endpoints use a method-level permission
 split: `GET` is open to any program member (closed programs remain readable for

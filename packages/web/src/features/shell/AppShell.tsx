@@ -9,6 +9,7 @@ import { StatusBar } from './StatusBar';
 import { BottomNav } from './BottomNav';
 import { SessionExpiredBanner } from './SessionExpiredBanner';
 import { OfflineBanner } from './OfflineBanner';
+import { StartExploringCallout } from './StartExploringCallout';
 import { CommandPalette } from './commandPalette/CommandPalette';
 import { useCommandPaletteHotkey } from './commandPalette/useCommandPaletteHotkey';
 import { useSidebarCollapseHotkey } from './useSidebarCollapseHotkey';
@@ -87,6 +88,9 @@ export function AppShell() {
               Content views render on the v2 app-canvas so cards (bg-neutral-surface)
               pop against it instead of disappearing into a flat white field (ADR-0126). */}
           <main id="main-content" className="flex-1 min-w-0 overflow-auto bg-app-canvas">
+            {/* Non-blocking post-load guidance — renders only right after a
+                sample load (reads router state), dismissable (issue 1054). */}
+            <StartExploringCallout />
             <Outlet />
           </main>
         </div>

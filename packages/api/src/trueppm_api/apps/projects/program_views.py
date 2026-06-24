@@ -23,7 +23,7 @@ from django.http import HttpResponse
 from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiResponse, extend_schema
-from rest_framework import status, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
@@ -69,6 +69,22 @@ from trueppm_api.apps.workspace.permissions import IsWorkspaceAdmin
 # enough for "one sub-program per project" on a large program, but caps the
 # unbounded-empty-program creation vector.
 _MAX_SPLITS = 50
+
+
+class LoadSampleResponseSerializer(serializers.Serializer[Any]):
+    """Response envelope for the load-sample action (#1054).
+
+    ``landing_project_id`` is the project whose first open sprint was assigned to
+    the caller — the board a contributor should land on so their assigned work is
+    immediately visible; ``null`` when the sample has no open sprint (e.g. the
+    waterfall-only sample), in which case the client falls back to the program
+    overview. ``sample_key`` echoes the loaded sample so the client renders the
+    matching "Start exploring" guidance without having to guess the default.
+    """
+
+    program = ProgramSerializer()
+    landing_project_id = serializers.UUIDField(allow_null=True)
+    sample_key = serializers.CharField()
 
 
 class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
@@ -468,20 +484,28 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
 
     @extend_schema(
         summary="Load a bundled sample program",
-        responses={201: ProgramSerializer},
+        responses={201: LoadSampleResponseSerializer},
     )
     @action(detail=False, methods=["post"], url_path="load-sample")
     def load_sample(self, request: Request) -> Response:
-        """Load a bundled sample program — the "Load demo data" action (#375).
+        """Load a bundled sample program — the "Load demo data" action (#375, #1054).
 
         Body: ``{"sample": "<key>"}`` (optional; defaults to the launch demo).
         The caller becomes OWNER (same authorization as ``create``). Demo
         persona accounts are created so the boards render fully.
+
+        The caller is then assigned the first open sprint's tasks (#1054) so a
+        contributor who loads the demo from My Work sees their own work right
+        away. The response is a ``{program, landing_project_id, sample_key}``
+        envelope: ``landing_project_id`` is the board to land that contributor on
+        (``null`` when the sample has no open sprint), and ``sample_key`` lets the
+        client render the matching post-load "Start exploring" guidance.
         """
         from trueppm_api.apps.projects.seed.samples import (
             DEFAULT_SAMPLE,
             UnknownSampleError,
             load_sample,
+            prepare_sample_for_user,
         )
 
         key = request.data.get("sample", DEFAULT_SAMPLE)
@@ -490,8 +514,19 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
         except UnknownSampleError as exc:
             return Response({"errors": [str(exc)]}, status=status.HTTP_400_BAD_REQUEST)
 
+        landing_project = prepare_sample_for_user(program, request.user)
+
         fresh = self.get_queryset().get(pk=program.pk)
-        return Response(ProgramSerializer(fresh).data, status=status.HTTP_201_CREATED)
+        return Response(
+            {
+                "program": ProgramSerializer(fresh).data,
+                "landing_project_id": (
+                    str(landing_project.id) if landing_project is not None else None
+                ),
+                "sample_key": key,
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
     @extend_schema(
         summary="Tear down a sample program",

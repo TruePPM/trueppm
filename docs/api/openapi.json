@@ -5853,7 +5853,7 @@
         "/api/v1/programs/load-sample/": {
             "post": {
                 "operationId": "v1_programs_load_sample_create",
-                "description": "Load a bundled sample program — the \"Load demo data\" action (#375).\n\nBody: ``{\"sample\": \"<key>\"}`` (optional; defaults to the launch demo).\nThe caller becomes OWNER (same authorization as ``create``). Demo\npersona accounts are created so the boards render fully.",
+                "description": "Load a bundled sample program — the \"Load demo data\" action (#375, #1054).\n\nBody: ``{\"sample\": \"<key>\"}`` (optional; defaults to the launch demo).\nThe caller becomes OWNER (same authorization as ``create``). Demo\npersona accounts are created so the boards render fully.\n\nThe caller is then assigned the first open sprint's tasks (#1054) so a\ncontributor who loads the demo from My Work sees their own work right\naway. The response is a ``{program, landing_project_id, sample_key}``\nenvelope: ``landing_project_id`` is the board to land that contributor on\n(``null`` when the sample has no open sprint), and ``sample_key`` lets the\nclient render the matching post-load \"Start exploring\" guidance.",
                 "summary": "Load a bundled sample program",
                 "tags": [
                     "v1"
@@ -5891,7 +5891,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Program"
+                                    "$ref": "#/components/schemas/LoadSampleResponse"
                                 }
                             }
                         },
@@ -24355,6 +24355,28 @@
                     "intent",
                     "path",
                     "resolved_by"
+                ]
+            },
+            "LoadSampleResponse": {
+                "type": "object",
+                "description": "Response envelope for the load-sample action (#1054).\n\n``landing_project_id`` is the project whose first open sprint was assigned to\nthe caller — the board a contributor should land on so their assigned work is\nimmediately visible; ``null`` when the sample has no open sprint (e.g. the\nwaterfall-only sample), in which case the client falls back to the program\noverview. ``sample_key`` echoes the loaded sample so the client renders the\nmatching \"Start exploring\" guidance without having to guess the default.",
+                "properties": {
+                    "program": {
+                        "$ref": "#/components/schemas/Program"
+                    },
+                    "landing_project_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "sample_key": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "landing_project_id",
+                    "program",
+                    "sample_key"
                 ]
             },
             "McHistoryAttributionAudienceEnum": {
