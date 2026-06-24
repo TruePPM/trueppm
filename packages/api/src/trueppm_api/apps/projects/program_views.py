@@ -120,10 +120,14 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
             if self.request.method == "PATCH":
                 return [IsAuthenticated(), IsProgramAdmin(), IsProgramNotClosed()]
             return [IsAuthenticated(), IsProgramMember()]
-        if self.action in ("rollup", "export"):
-            # Computed overview rollup / JSON export — read-only. Open to any
-            # member, including on closed programs (overview and data portability
-            # stay available for forensics/archival).
+        if self.action in ("rollup", "export", "schedule"):
+            # Computed overview rollup / JSON export / merged program schedule —
+            # read-only. Open to any program member, including on closed programs
+            # (overview, data portability, and the cross-project schedule stay
+            # available for forensics/archival). Per-project task redaction inside
+            # the schedule payload (ADR-0120 D5) is enforced in the action body,
+            # not here — a program member who cannot read a member project still
+            # reaches the endpoint but sees only that project's ExternalTaskCards.
             return [IsAuthenticated(), IsProgramMember()]
         if self.action == "resource_contention":
             # Resource allocation/contention data is Scheduler+ even on read
@@ -926,6 +930,52 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
 
         program = self.get_object()
         return Response(compute_program_rollup(program))
+
+    @extend_schema(
+        summary="Compute the program-true cross-project schedule",
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "Merged program schedule computed on read: project lanes, "
+                    "tasks (full for projects the caller can read, redacted "
+                    "ExternalTaskCard shape otherwise), leaf-level links flagged "
+                    "cross-project, and the program-true critical path."
+                ),
+            )
+        },
+    )
+    @action(detail=True, methods=["get"], url_path="schedule")
+    def schedule(self, request: Request, pk: str | None = None) -> Response:
+        """Merged, program-true critical path across the program's projects.
+
+        URL: ``GET /api/v1/programs/{pk}/schedule/``
+
+        Loads every member project's tasks and every accepted cross-project edge
+        into one engine graph and runs the deterministic CPM once (ADR-0120 D3
+        read side; render-don't-derive per ADR-0115) — the source the #1118
+        program schedule view consumes. Computed on demand; nothing is persisted,
+        so it always reflects current project state.
+
+        Permission: any program member (closed programs stay readable for
+        forensics). Tasks in member projects the requester cannot read are
+        redacted to the ADR-0120 D5 ExternalTaskCard shape — never their
+        description, assignee, status, or points, only title and program-true
+        CPM dates. ``can_access_project`` is the per-project membership predicate;
+        injecting it keeps the schedule service request-agnostic.
+        """
+        from trueppm_api.apps.access.permissions import _membership_role
+        from trueppm_api.apps.projects.program_schedule import compute_program_schedule
+
+        program = self.get_object()
+        return Response(
+            compute_program_schedule(
+                program,
+                can_access_project=lambda project_id: (
+                    _membership_role(request, project_id) is not None
+                ),
+            )
+        )
 
     @extend_schema(
         summary="Read or update the program risk & dependencies policy",

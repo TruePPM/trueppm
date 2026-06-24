@@ -300,3 +300,28 @@ goes unused. The pending state is the cheaper, auditable middle.
    `FailedTask` dead-letter path applies as-is; on permanent failure all
    coalesced member rows enter FAILED and the existing alerting fires; manual
    re-trigger via the existing MANUAL reason path.
+
+## Implementation note — D3 read surface lands first, on-read (#1117)
+
+The persisted D3 dispatch pass (write-back, `schedule_lock:program:{id}`,
+outbox coalescing, broadcast fan-out) is a large change. To unblock the D6 web
+view (#1118) without it, the **read side of D3 ships first** as a pure
+compute-on-read endpoint:
+
+`GET /api/v1/programs/{id}/schedule/` merges every member project's tasks and
+every **accepted** cross-project edge into one engine `Project` (each task tagged
+with its own project's calendar via the per-task-calendar substrate) and runs the
+deterministic `schedule()` **once per request**. It returns the program-true
+tasks (full, or the D5 `ExternalTaskCard` shape for member projects the caller
+cannot read), leaf-level links flagged `is_cross_project`, and the program-true
+`critical_path`. This is the render-don't-derive (ADR-0115) source #1118 consumes.
+
+It intentionally **does not persist**: no write-back, no program lock, no outbox.
+Per-project surfaces keep their per-project CPM until the persisted pass lands;
+this endpoint is the only program-true view in the interim. The trade-off is one
+CPM per request, bounded by a `MAX_PROGRAM_TASKS` guard (422 above it) — the
+persisted pass with caching is the eventual optimization, and it can back this
+exact response shape from stored fields without an API change. Pending
+(unaccepted) edges are excluded from the graph and the links list — an
+unconsented edge is not yet a modeled constraint (D2). Gate: `IsProgramMember`,
+matching `rollup`/`export`; closed programs stay readable for forensics. OSS.
