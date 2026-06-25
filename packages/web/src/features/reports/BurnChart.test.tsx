@@ -3,7 +3,7 @@ import { screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderWithProviders } from '@/test/utils';
-import { BurnChart } from './BurnChart';
+import { BurnChart, BurnTooltip } from './BurnChart';
 
 // Recharts uses ResizeObserver and SVG layout — stub ResponsiveContainer so
 // it renders children without needing real dimensions in jsdom.
@@ -478,5 +478,97 @@ describe('BurnChart — sprint with forecast', () => {
     renderWithProviders(<BurnChart sprintId="sp-err" />);
     await userEvent.setup().click(screen.getByRole('button', { name: /retry/i }));
     expect(refetch).toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BurnTooltip — regression for issue 1304. Recharts hands a custom `content`
+// element an ARRAY of series entries (the plotted row sits at
+// payload[0].payload). The tooltip used to cast that array straight to the data
+// point, so every field read undefined and printed 0 (Remaining/Ideal/Completed
+// all "0", delta "0 ahead"). These tests feed the real Recharts shape and assert
+// the actual numbers come through.
+// ---------------------------------------------------------------------------
+describe('BurnTooltip — reads the Recharts payload array', () => {
+  it('burndown: shows real Remaining + Ideal and the "ahead" delta, not 0', () => {
+    renderWithProviders(
+      <BurnTooltip
+        active
+        payload={[{ payload: { date: '2026-04-07', remaining: 12, completed: 28, scope: 40, ideal: 20 } }]}
+        label="2026-04-07"
+        variant="burndown"
+        metric="tasks"
+        scopeChanges={[]}
+      />,
+    );
+    expect(screen.getByText(/12 tasks/)).toBeInTheDocument(); // remaining
+    expect(screen.getByText(/20 tasks/)).toBeInTheDocument(); // ideal
+    expect(screen.getByText(/8 tasks ahead/)).toBeInTheDocument(); // ideal 20 − remaining 12
+    expect(screen.queryByText(/0 tasks ahead/)).not.toBeInTheDocument();
+  });
+
+  it('burndown: shows "behind" when remaining exceeds ideal', () => {
+    renderWithProviders(
+      <BurnTooltip
+        active
+        payload={[{ payload: { date: '2026-04-07', remaining: 30, completed: 10, scope: 40, ideal: 20 } }]}
+        label="2026-04-07"
+        variant="burndown"
+        metric="tasks"
+        scopeChanges={[]}
+      />,
+    );
+    expect(screen.getByText(/10 tasks behind/)).toBeInTheDocument(); // ideal 20 − remaining 30
+  });
+
+  it('burnup: shows the real Completed value', () => {
+    renderWithProviders(
+      <BurnTooltip
+        active
+        payload={[{ payload: { date: '2026-04-07', remaining: 12, completed: 28, scope: 40, ideal: 20 } }]}
+        label="2026-04-07"
+        variant="burnup"
+        metric="tasks"
+        scopeChanges={[]}
+      />,
+    );
+    expect(screen.getByText(/28 tasks/)).toBeInTheDocument();
+    expect(screen.queryByText(/Remaining/)).not.toBeInTheDocument();
+  });
+
+  it('points metric renders the pts unit with real values', () => {
+    renderWithProviders(
+      <BurnTooltip
+        active
+        payload={[{ payload: { date: '2026-04-07', remaining: 12, completed: 28, scope: 40, ideal: 20 } }]}
+        label="2026-04-07"
+        variant="burndown"
+        metric="points"
+        scopeChanges={[]}
+      />,
+    );
+    expect(screen.getByText(/12 pts/)).toBeInTheDocument();
+    expect(screen.getByText(/20 pts/)).toBeInTheDocument();
+  });
+
+  it('renders nothing when inactive', () => {
+    const { container } = renderWithProviders(
+      <BurnTooltip
+        active={false}
+        payload={[{ payload: { date: '2026-04-07', remaining: 12, completed: 28, scope: 40, ideal: 20 } }]}
+        label="2026-04-07"
+        variant="burndown"
+        metric="tasks"
+        scopeChanges={[]}
+      />,
+    );
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('renders nothing when the payload array is empty', () => {
+    const { container } = renderWithProviders(
+      <BurnTooltip active payload={[]} label="2026-04-07" variant="burndown" metric="tasks" scopeChanges={[]} />,
+    );
+    expect(container).toBeEmptyDOMElement();
   });
 });

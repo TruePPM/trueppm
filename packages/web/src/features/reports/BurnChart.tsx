@@ -262,13 +262,18 @@ function formatAxisDate(dateStr: string): string {
 // ---------------------------------------------------------------------------
 // Custom tooltip
 // ---------------------------------------------------------------------------
+// Recharts passes a custom tooltip `content` element an ARRAY of series
+// entries; the plotted data row lives at `payload[0].payload`. Typing it as a
+// bare NormPoint (and casting the array straight to that) read `undefined` off
+// every field, so the tooltip printed 0 for Remaining/Ideal/Completed
+// regardless of the data (issue 1304).
 interface TooltipPayload {
-  payload?: NormPoint;
+  payload?: ReadonlyArray<{ payload?: NormPoint }>;
   active?: boolean;
   label?: string;
 }
 
-function BurnTooltip({
+export function BurnTooltip({
   active,
   payload,
   label,
@@ -280,8 +285,8 @@ function BurnTooltip({
   metric: BurnMetric;
   scopeChanges: ScopeChange[];
 }) {
-  if (!active || !payload) return null;
-  const pt = payload as unknown as NormPoint;
+  const pt = payload?.[0]?.payload;
+  if (!active || !pt) return null;
   const unit = metric === 'points' ? 'pts' : 'tasks';
   const change = scopeChanges.find((c) => c.date === label);
   const idealVal = pt.ideal ?? 0;
