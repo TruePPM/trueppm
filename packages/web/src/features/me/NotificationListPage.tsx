@@ -47,7 +47,7 @@ export function NotificationListPage() {
             })
           }
           disabled={markAllRead.isPending}
-          className="ml-auto text-xs border border-neutral-border rounded px-3 h-7 font-medium
+          className="ml-auto text-xs border border-neutral-border rounded-control px-3 h-7 font-medium
             text-neutral-text-secondary hover:bg-neutral-surface-raised
             focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
             disabled:opacity-50"
@@ -75,7 +75,7 @@ export function NotificationListPage() {
               type="button"
               aria-selected={active}
               onClick={() => setFilter(f.value)}
-              className={`text-xs px-3 h-7 rounded border
+              className={`text-xs px-3 h-7 rounded-control border
                 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
                 ${
                   active
@@ -94,7 +94,7 @@ export function NotificationListPage() {
           {[0, 1, 2, 3].map((i) => (
             <div
               key={i}
-              className="h-20 rounded border border-neutral-border animate-pulse bg-neutral-surface-raised"
+              className="h-20 rounded-card border border-neutral-border animate-pulse bg-neutral-surface-raised"
             />
           ))}
         </div>
@@ -127,7 +127,7 @@ export function NotificationListPage() {
       <Link
         to="/me/settings/notifications"
         className="text-xs text-brand-primary underline-offset-2 hover:underline
-          focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none rounded
+          focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none rounded-control
           self-start"
       >
         Notification preferences →

@@ -54,7 +54,7 @@ function SuggestedGroup({ items }: { items: MyWorkRetroActionItem[] }) {
           return (
             <li
               key={it.suggestion_id}
-              className="rounded border border-neutral-border bg-neutral-surface-raised p-2 flex flex-col gap-1"
+              className="rounded-card border border-neutral-border bg-neutral-surface-raised p-2 flex flex-col gap-1"
             >
               <p className="text-sm font-medium text-neutral-text-primary">{it.text}</p>
               <p className="text-xs text-neutral-text-secondary">
@@ -69,7 +69,7 @@ function SuggestedGroup({ items }: { items: MyWorkRetroActionItem[] }) {
                     accept.mutate({ taskId: it.task_id, suggestionId: it.suggestion_id! })
                   }
                   disabled={accept.isPending}
-                  className="h-9 px-3 rounded text-xs font-medium bg-brand-primary text-white
+                  className="h-9 px-3 rounded-control text-xs font-medium bg-brand-primary text-white
                     disabled:opacity-50 disabled:cursor-not-allowed hover:bg-brand-primary-dark
                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white
                     focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary"
@@ -82,7 +82,7 @@ function SuggestedGroup({ items }: { items: MyWorkRetroActionItem[] }) {
                     decline.mutate({ taskId: it.task_id, suggestionId: it.suggestion_id! })
                   }
                   disabled={decline.isPending}
-                  className="h-9 px-3 rounded text-xs font-medium border border-neutral-border text-neutral-text-primary
+                  className="h-9 px-3 rounded-control text-xs font-medium border border-neutral-border text-neutral-text-primary
                     hover:bg-neutral-surface
                     disabled:opacity-50 disabled:cursor-not-allowed
                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"

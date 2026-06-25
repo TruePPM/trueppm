@@ -112,7 +112,7 @@ export function LandingPrimaryUsePrompt() {
   return (
     <section
       aria-label="Choose your home screen"
-      className={`relative mx-4 mt-4 mb-2 rounded-lg border border-brand-primary/40 bg-brand-primary/5 p-4 md:mx-6
+      className={`relative mx-4 mt-4 mb-2 rounded-card border border-brand-primary/40 bg-brand-primary/5 p-4 md:mx-6
         motion-safe:transition-opacity motion-safe:duration-300
         ${saved ? 'motion-safe:opacity-0' : ''}`}
     >
@@ -121,7 +121,7 @@ export function LandingPrimaryUsePrompt() {
         type="button"
         onClick={handleSkip}
         aria-label="Skip — decide later"
-        className="absolute right-2 top-2 inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded
+        className="absolute right-2 top-2 inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-control
           text-neutral-text-secondary hover:text-neutral-text-primary
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
       >

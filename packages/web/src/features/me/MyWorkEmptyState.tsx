@@ -33,7 +33,7 @@ function LearnMoreLink() {
       href={docsUrl('features/my-work')}
       className="inline-flex items-center gap-1 text-sm text-brand-primary hover:underline
         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-        focus-visible:ring-offset-1 rounded"
+        focus-visible:ring-offset-1 rounded-control"
     >
       Learn more →
     </a>

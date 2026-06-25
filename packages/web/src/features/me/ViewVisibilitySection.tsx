@@ -48,7 +48,7 @@ export function ViewVisibilitySection() {
   return (
     <section
       aria-labelledby="view-visibility-heading"
-      className="flex flex-col gap-3 rounded border border-neutral-border p-4"
+      className="flex flex-col gap-3 rounded-card border border-neutral-border p-4"
     >
       <div>
         <h2
@@ -101,7 +101,7 @@ export function ViewVisibilitySection() {
           onClick={() => commit([])}
           disabled={!canReset}
           title={canReset ? undefined : 'No views hidden'}
-          className="text-sm text-brand-primary hover:underline disabled:text-neutral-text-secondary disabled:no-underline disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
+          className="text-sm text-brand-primary hover:underline disabled:text-neutral-text-secondary disabled:no-underline disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-control"
         >
           Reset to default
         </button>

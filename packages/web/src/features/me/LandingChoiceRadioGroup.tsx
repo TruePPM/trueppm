@@ -159,7 +159,7 @@ export function LandingChoiceRadioGroup({
             // tabIndex: roving — only the focused option is in the tab order (rule 167).
             tabIndex={i === focusIdx ? 0 : -1}
             onClick={() => onChange(opt.value)}
-            className={`flex min-h-[44px] items-start gap-3 rounded border p-3 text-left
+            className={`flex min-h-[44px] items-start gap-3 rounded-card border p-3 text-left
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
               disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary
               disabled:border-neutral-border/55 disabled:cursor-not-allowed
@@ -196,7 +196,7 @@ export function LandingChoiceRadioGroup({
             disabled={autoOption.disabled === true || disabled === true}
             tabIndex={options.length === focusIdx ? 0 : -1}
             onClick={autoOption.onClick}
-            className={`flex min-h-[44px] w-full items-start gap-3 rounded border p-3 text-left
+            className={`flex min-h-[44px] w-full items-start gap-3 rounded-card border p-3 text-left
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
               disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary
               disabled:border-neutral-border/55 disabled:cursor-not-allowed

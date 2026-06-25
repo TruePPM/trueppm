@@ -103,7 +103,7 @@ export function MyWorkTaskRow({ task }: Props) {
           disabled={isComplete || updateStatus.isPending}
           aria-pressed={isComplete}
           aria-label={isComplete ? `${task.name} is complete` : `Mark ${task.name} complete`}
-          className="grid h-11 w-11 shrink-0 place-items-center rounded md:h-7 md:w-7
+          className="grid h-11 w-11 shrink-0 place-items-center rounded-control md:h-7 md:w-7
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
             disabled:cursor-default"
         >
@@ -138,7 +138,7 @@ export function MyWorkTaskRow({ task }: Props) {
           to={task.url}
           className="block text-sm font-medium text-neutral-text-primary leading-tight
             hover:underline focus-visible:outline-none focus-visible:ring-2
-            focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-sm"
+            focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-control"
         >
           {task.name}
         </Link>
@@ -146,7 +146,7 @@ export function MyWorkTaskRow({ task }: Props) {
           <Link
             to={`/projects/${task.project_id}/overview`}
             className="hover:underline focus-visible:outline-none focus-visible:ring-2
-              focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-sm"
+              focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-control"
           >
             {task.project_name}
           </Link>
@@ -174,13 +174,13 @@ export function MyWorkTaskRow({ task }: Props) {
         {task.is_blocked && (
           <p className="mt-1 flex flex-wrap items-start gap-1.5 text-xs text-semantic-critical">
             <span
-              className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 font-semibold
+              className="inline-flex shrink-0 items-center gap-1 rounded-chip px-1.5 py-0.5 font-semibold
                 bg-semantic-critical-bg border border-semantic-critical/40"
             >
               <span aria-hidden="true">●</span> <span>Blocked</span>
             </span>
             {task.blocker_type && (
-              <span className="inline-flex shrink-0 items-center rounded px-1.5 py-0.5 font-medium
+              <span className="inline-flex shrink-0 items-center rounded-chip px-1.5 py-0.5 font-medium
                 bg-neutral-surface-sunken text-neutral-text-secondary border border-neutral-border">
                 {blockerTypeLabel(task.blocker_type)}
               </span>
@@ -207,7 +207,7 @@ export function MyWorkTaskRow({ task }: Props) {
           aria-label={`Status: ${STATUS_LABEL[task.status]}, change`}
           disabled={updateStatus.isPending}
           className={[
-            'inline-flex h-7 min-w-[7rem] items-center justify-center gap-1 rounded',
+            'inline-flex h-7 min-w-[7rem] items-center justify-center gap-1 rounded-control',
             'border px-2 py-0.5 text-xs font-medium',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
             'disabled:opacity-60 disabled:cursor-progress',

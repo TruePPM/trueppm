@@ -181,7 +181,7 @@ export function MyWorkPage() {
       {error && (
         <div
           role="alert"
-          className="mx-4 mb-3 flex items-center justify-between gap-2 px-3 py-2 rounded
+          className="mx-4 mb-3 flex items-center justify-between gap-2 px-3 py-2 rounded-card
             border border-semantic-critical/40 bg-semantic-critical-bg text-semantic-critical text-sm md:mx-6"
         >
           <span>Couldn&rsquo;t load your work right now.</span>
@@ -189,7 +189,7 @@ export function MyWorkPage() {
             type="button"
             onClick={() => void refetch()}
             className="text-xs font-medium underline focus-visible:outline-none
-              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded px-1"
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-control px-1"
           >
             Retry
           </button>
@@ -236,7 +236,7 @@ export function MyWorkPage() {
                     type="button"
                     onClick={() => void fetchNextPage()}
                     disabled={isFetchingNextPage}
-                    className="h-9 px-4 rounded text-sm font-medium border border-neutral-border
+                    className="h-9 px-4 rounded-control text-sm font-medium border border-neutral-border
                       text-neutral-text-primary bg-neutral-surface hover:bg-neutral-surface-raised
                       disabled:opacity-60 disabled:cursor-progress
                       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
@@ -280,7 +280,7 @@ function LoadingSkeleton() {
         <li
           key={i}
           aria-hidden="true"
-          className="h-11 rounded bg-neutral-surface-sunken animate-pulse"
+          className="h-11 rounded-card bg-neutral-surface-sunken animate-pulse"
         />
       ))}
     </ul>

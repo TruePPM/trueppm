@@ -86,7 +86,7 @@ export function LandingContextHint() {
   return (
     <div
       role="status"
-      className="mx-4 mt-3 flex min-h-[44px] items-center gap-2 rounded border border-neutral-border
+      className="mx-4 mt-3 flex min-h-[44px] items-center gap-2 rounded-card border border-neutral-border
         bg-neutral-surface-raised px-3 py-3 text-xs text-neutral-text-secondary md:mx-6"
     >
       <span className="flex-1">
@@ -94,7 +94,7 @@ export function LandingContextHint() {
         <Link
           to="/me/settings/general"
           className="font-medium text-brand-primary hover:underline
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-control"
         >
           {linkLabel} →
         </Link>
@@ -104,7 +104,7 @@ export function LandingContextHint() {
         type="button"
         onClick={handleDismiss}
         aria-label="Dismiss"
-        className="inline-flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded
+        className="inline-flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-control
           text-neutral-text-secondary hover:text-neutral-text-primary
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
       >

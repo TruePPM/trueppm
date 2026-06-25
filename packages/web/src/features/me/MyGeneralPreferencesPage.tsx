@@ -33,7 +33,7 @@ const SAVED_TOAST_MS = 3000;
 function SettingsSubNav() {
   const linkClass = ({ isActive }: { isActive: boolean }) =>
     [
-      'text-sm rounded px-1 -mx-1',
+      'text-sm rounded-control px-1 -mx-1',
       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
       isActive
         ? 'font-medium text-neutral-text-primary'
@@ -140,7 +140,7 @@ export function MyGeneralPreferencesPage() {
 
       <section
         aria-labelledby="default-landing-heading"
-        className="flex flex-col gap-3 rounded border border-neutral-border p-4"
+        className="flex flex-col gap-3 rounded-card border border-neutral-border p-4"
       >
         <div>
           <h2
@@ -179,7 +179,7 @@ export function MyGeneralPreferencesPage() {
 
       <section
         aria-labelledby="view-focus-heading"
-        className="flex flex-col gap-3 rounded border border-neutral-border p-4"
+        className="flex flex-col gap-3 rounded-card border border-neutral-border p-4"
       >
         <div>
           <h2 id="view-focus-heading" className="text-sm font-semibold text-neutral-text-primary">
