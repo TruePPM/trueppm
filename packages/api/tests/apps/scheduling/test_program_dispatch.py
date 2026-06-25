@@ -136,6 +136,25 @@ def test_program_pass_stamps_recalculated_at_on_every_member(calendar: Calendar)
 
 
 @pytest.mark.django_db
+def test_program_pass_empty_program_still_coalesces_and_stamps(calendar: Calendar) -> None:
+    """A program whose member projects have no schedulable tasks takes the empty
+    path without crashing — it still marks the claimed outbox row done and stamps
+    recalculated_at."""
+    program = Program.objects.create(name="Shell only")
+    proj = Project.objects.create(
+        name="Shell", start_date=START, calendar=calendar, program=program
+    )
+    row = ScheduleRequest.objects.create(project=proj, status=ScheduleRequestStatus.DISPATCHED)
+
+    _run_program_schedule(str(program.pk))
+
+    row.refresh_from_db()
+    proj.refresh_from_db()
+    assert row.status == ScheduleRequestStatus.DONE
+    assert proj.recalculated_at is not None
+
+
+@pytest.mark.django_db
 def test_program_pass_broadcasts_cpm_complete_per_member(
     calendar: Calendar, django_capture_on_commit_callbacks: object
 ) -> None:

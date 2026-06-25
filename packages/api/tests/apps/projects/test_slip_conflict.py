@@ -162,6 +162,32 @@ def test_conflict_auto_resolves_when_slip_disappears(calendar: Calendar) -> None
 
 
 @pytest.mark.django_db
+def test_auto_resolved_conflict_reopens_on_new_slip(calendar: Calendar) -> None:
+    """An auto-resolved conflict that starts slipping again is re-opened as a fresh,
+    unacknowledged conflict so the badge re-lights."""
+    program, _a, _b, _a1, b1, sprint, _dep = _scenario(calendar)
+    _run_program_schedule(str(program.pk))
+
+    # Extend the sprint past the slip → the next pass auto-resolves the conflict.
+    b1.refresh_from_db()
+    Sprint.objects.filter(pk=sprint.pk).update(finish_date=b1.early_finish + timedelta(days=5))
+    _run_program_schedule(str(program.pk))
+    assert (
+        CrossProjectSlipConflict.objects.get(sprint=sprint, task=b1).resolution
+        == SlipConflictResolution.AUTO_RESOLVED
+    )
+
+    # Shrink it back → B1 slips again, the row re-opens.
+    Sprint.objects.filter(pk=sprint.pk).update(finish_date=START + timedelta(days=10))
+    _run_program_schedule(str(program.pk))
+
+    conflict = CrossProjectSlipConflict.objects.get(sprint=sprint, task=b1)
+    assert conflict.resolution == SlipConflictResolution.UNRESOLVED
+    assert conflict.resolved_at is None
+    assert conflict.is_open is True
+
+
+@pytest.mark.django_db
 def test_reslip_after_acknowledgment_reopens(calendar: Calendar) -> None:
     program, _a, _b, a1, b1, sprint, _dep = _scenario(calendar, upstream_duration=20)
     _run_program_schedule(str(program.pk))
