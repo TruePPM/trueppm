@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+import urllib.parse
+
 import environ
 
 from trueppm_api.core.security_checks import (
@@ -75,3 +78,18 @@ if _integration_key_errors:
     raise RuntimeError(
         "Refusing to start: " + "; ".join(str(e.msg) for e in _integration_key_errors)
     )
+
+# Warn when DATABASE_URL has no sslmode parameter in a non-DEBUG deployment.
+# Without sslmode=require the connection falls back to whatever the server
+# negotiates, which may be plaintext. This does not change the connection
+# behavior — operators running TLS at the proxy/sidecar layer (where the
+# app-to-DB link is already encrypted) may intentionally omit sslmode.
+_db_url_raw: str = env("DATABASE_URL", default="")
+if _db_url_raw:
+    _db_url_qs = urllib.parse.parse_qs(urllib.parse.urlparse(_db_url_raw).query)
+    if "sslmode" not in _db_url_qs:
+        logging.getLogger("trueppm.settings").warning(
+            "DATABASE_URL does not include sslmode=require. "
+            "Database connections may use unencrypted transport. "
+            "Set sslmode=require in DATABASE_URL or enforce TLS at the network layer."
+        )

@@ -79,9 +79,33 @@ Ensure WebSocket upgrade headers are forwarded correctly.
 - Use a strong, unique password for the `trueppm` database user
 - Enable PostgreSQL SSL in production
 
+**Encrypt the database connection.** TruePPM does not force TLS on the database
+link — the `sslmode` is whatever your `DATABASE_URL` specifies. For any
+deployment where the API and PostgreSQL are not on the same trusted host, append
+`?sslmode=require` (or stricter — `verify-ca` / `verify-full` with a CA bundle)
+to `DATABASE_URL`. When the API boots in a production configuration
+(`DEBUG=False`) with a `DATABASE_URL` that has no `sslmode`, it logs an advisory
+warning so the gap is visible in your logs rather than silent.
+
 The Helm chart generates a strong random password for the bundled PostgreSQL on
 first install rather than shipping a default credential — see
 [Helm secure-by-default](#helm-secure-by-default) below.
+
+## Outbound requests (SSRF boundary)
+
+Features that fetch a user- or admin-supplied URL — currently the outbound
+webhook delivery path — run behind an egress guard that rejects requests
+resolving to private, loopback, link-local, or otherwise non-public address
+ranges, blocking the common server-side request forgery (SSRF) vectors.
+
+The OSS guard validates the resolved address at request time. It does **not**
+pin that address for the life of the connection, so a name that resolves to a
+public IP at check time and a private IP a moment later (DNS-rebinding) is a
+residual, admin-gated risk accepted by design (ADR-0049 §6). Mitigate it at the
+network layer: run the API's outbound traffic through an egress proxy or
+NetworkPolicy that denies the internal ranges you care about, rather than
+relying on the application guard alone. Connection-time IP pinning is an
+Enterprise hardening.
 
 ## Cache (Valkey/Redis) security
 

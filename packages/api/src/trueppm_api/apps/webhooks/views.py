@@ -82,7 +82,11 @@ class WebhookViewSet(
 
     def get_queryset(self) -> QuerySet[Webhook]:
         project_pk = self.kwargs["project_pk"]
-        return Webhook.objects.filter(project_id=project_pk).order_by("-created_at")
+        return (
+            Webhook.objects.filter(project_id=project_pk)
+            .select_related("project", "created_by")
+            .order_by("-created_at")
+        )
 
     def perform_create(self, serializer: BaseSerializer[Webhook]) -> None:
         project_pk = self.kwargs["project_pk"]
@@ -199,7 +203,11 @@ class ProgramWebhookViewSet(WebhookViewSet):
 
     def get_queryset(self) -> QuerySet[Webhook]:
         program_pk = self.kwargs["program_pk"]
-        return Webhook.objects.filter(program_id=program_pk).order_by("-created_at")
+        return (
+            Webhook.objects.filter(program_id=program_pk)
+            .select_related("program", "created_by")
+            .order_by("-created_at")
+        )
 
     def perform_create(self, serializer: BaseSerializer[Webhook]) -> None:
         program_pk = self.kwargs["program_pk"]

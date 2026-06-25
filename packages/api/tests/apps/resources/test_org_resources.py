@@ -1,7 +1,8 @@
 """Tests for org-level resource management (issue #155).
 
 Covers: IsOrgAdmin permission gate, soft-delete, restore action,
-?include_deleted query param, and ?exclude_project filter.
+?include_deleted query param, ?exclude_project filter, and transaction
+atomicity on perform_destroy (perf-check R3).
 """
 
 from __future__ import annotations
@@ -345,3 +346,74 @@ class TestResourceEmailGate:
         res = admin_client.get("/api/v1/resources/?search=alice@example.com")
         assert res.status_code == 200
         assert any(r["id"] == str(resource.pk) for r in res.data["results"])
+
+
+# ---------------------------------------------------------------------------
+# Atomicity regression tests for ResourceViewSet.perform_destroy (R3)
+# ---------------------------------------------------------------------------
+
+
+class TestResourceSoftDeleteAtomicity:
+    """ResourceViewSet.perform_destroy must wrap the soft-delete save and the
+    per-project recalculation fan-out in a single transaction so that a failure
+    after the save() but before all enqueue calls cannot leave the resource
+    deactivated without its CPM recalcs firing (perf-check finding R3)."""
+
+    def test_soft_delete_and_enqueue_are_atomic(
+        self,
+        admin_client: APIClient,
+        project: Project,
+        resource: Resource,
+        calendar: Calendar,
+    ) -> None:
+        """A successful soft-delete must mark is_deleted=True AND not raise; the
+        transaction commits cleanly when no errors occur."""
+        from trueppm_api.apps.resources.models import TaskResource
+
+        task = Task.objects.create(
+            project=project,
+            name="Build feature",
+            planned_start="2025-01-01",
+            duration=8,
+        )
+        TaskResource.objects.create(task=task, resource=resource, units=1.0)
+
+        res = admin_client.delete(f"/api/v1/resources/{resource.pk}/")
+        assert res.status_code == 204
+        resource.refresh_from_db()
+        assert resource.is_deleted is True
+
+    def test_soft_delete_rolls_back_on_enqueue_error(
+        self,
+        admin_client: APIClient,
+        project: Project,
+        resource: Resource,
+        calendar: Calendar,
+    ) -> None:
+        """If _enqueue_recalculate raises inside perform_destroy, the entire
+        transaction must roll back — the resource must remain active."""
+        import contextlib
+        from unittest.mock import patch
+
+        from trueppm_api.apps.resources.models import TaskResource
+
+        task = Task.objects.create(
+            project=project,
+            name="Work item",
+            planned_start="2025-01-01",
+            duration=3,
+        )
+        TaskResource.objects.create(task=task, resource=resource, units=1.0)
+
+        with (
+            patch(
+                "trueppm_api.apps.resources.views._enqueue_recalculate",
+                side_effect=RuntimeError("broker down"),
+            ),
+            contextlib.suppress(RuntimeError),
+        ):
+            admin_client.delete(f"/api/v1/resources/{resource.pk}/")
+
+        # With atomic(), the is_deleted flag must have been rolled back.
+        resource.refresh_from_db()
+        assert resource.is_deleted is False

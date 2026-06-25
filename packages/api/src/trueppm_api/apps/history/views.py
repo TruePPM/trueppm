@@ -154,6 +154,14 @@ def _caller_can_see_user(request: Request, project: Project) -> bool:
         return False
 
 
+# Cap the number of history rows materialized in memory for the per-task and
+# per-project history list views.  Without this cap a task with thousands of
+# edits (a busy automated integration, or a re-import loop) would load the full
+# history table into Python on every page request. Shared with
+# ProjectHistorySummaryView's constant so both surfaces use the same bound.
+_MAX_HISTORY_ROWS = 5000
+
+
 class TaskHistoryListView(APIView):
     """Paginated change history for a single task.
 
@@ -162,6 +170,10 @@ class TaskHistoryListView(APIView):
     Permissions: any project member (Viewer+) may read. history_user details
     are visible only to Owner/Admin (role >= Role.ADMIN); lower-privilege callers
     receive null for that field.
+
+    At most ``_MAX_HISTORY_ROWS`` records are materialized; ``count_truncated``
+    in the response is ``true`` when the cap was hit so the client can surface
+    "showing recent activity" instead of implying a complete record.
     """
 
     # IsProjectNotArchived is deliberately omitted: history is a read-only audit
@@ -174,9 +186,14 @@ class TaskHistoryListView(APIView):
         self.check_object_permissions(request, project)
         task = get_object_or_404(Task, pk=task_pk, project_id=project_pk, is_deleted=False)
 
-        records: list[Any] = list(
-            task.history.order_by("-history_date").select_related("history_user")
+        # Fetch cap+1 so we can detect truncation, then trim.
+        raw: list[Any] = list(
+            task.history.order_by("-history_date").select_related("history_user")[
+                : _MAX_HISTORY_ROWS + 1
+            ]
         )
+        count_truncated = len(raw) > _MAX_HISTORY_ROWS
+        records = raw[:_MAX_HISTORY_ROWS]
 
         paginator = HistoryPagination()
         page: list[Any] = paginator.paginate_queryset(records, request, view=self) or records  # type: ignore[arg-type]
@@ -189,13 +206,18 @@ class TaskHistoryListView(APIView):
             many=True,
             context={"diffs": diffs, "hide_user": hide_user},
         )
-        return paginator.get_paginated_response(serializer.data)
+        response = paginator.get_paginated_response(serializer.data)
+        response.data["count_truncated"] = count_truncated
+        return response
 
 
 class ProjectHistoryListView(APIView):
     """Paginated change history for a project (project-level fields only).
 
     GET /api/v1/projects/{project_pk}/history/
+
+    At most ``_MAX_HISTORY_ROWS`` records are materialized; ``count_truncated``
+    in the response is ``true`` when the cap was hit.
     """
 
     # IsProjectNotArchived is deliberately omitted: history is a read-only audit
@@ -207,9 +229,14 @@ class ProjectHistoryListView(APIView):
         project = get_object_or_404(Project, pk=project_pk, is_deleted=False)
         self.check_object_permissions(request, project)
 
-        records: list[Any] = list(
-            project.history.order_by("-history_date").select_related("history_user")
+        # Fetch cap+1 so we can detect truncation, then trim.
+        raw: list[Any] = list(
+            project.history.order_by("-history_date").select_related("history_user")[
+                : _MAX_HISTORY_ROWS + 1
+            ]
         )
+        count_truncated = len(raw) > _MAX_HISTORY_ROWS
+        records = raw[:_MAX_HISTORY_ROWS]
 
         paginator = HistoryPagination()
         page: list[Any] = paginator.paginate_queryset(records, request, view=self) or records  # type: ignore[arg-type]
@@ -222,7 +249,9 @@ class ProjectHistoryListView(APIView):
             many=True,
             context={"diffs": diffs, "hide_user": hide_user},
         )
-        return paginator.get_paginated_response(serializer.data)
+        response = paginator.get_paginated_response(serializer.data)
+        response.data["count_truncated"] = count_truncated
+        return response
 
 
 class ProjectHistorySummaryView(APIView):

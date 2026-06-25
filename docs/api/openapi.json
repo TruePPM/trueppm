@@ -10445,7 +10445,7 @@
         "/api/v1/projects/{project_pk}/history/": {
             "get": {
                 "operationId": "v1_projects_history_retrieve",
-                "description": "Paginated change history for a project (project-level fields only).\n\nGET /api/v1/projects/{project_pk}/history/",
+                "description": "Paginated change history for a project (project-level fields only).\n\nGET /api/v1/projects/{project_pk}/history/\n\nAt most ``_MAX_HISTORY_ROWS`` records are materialized; ``count_truncated``\nin the response is ``true`` when the cap was hit.",
                 "parameters": [
                     {
                         "in": "path",
@@ -21236,7 +21236,7 @@
         "/api/v1/workspace/groups/": {
             "get": {
                 "operationId": "v1_workspace_groups_list",
-                "description": "GET/POST /api/v1/workspace/groups/ (#519). Read: any member; create: admin.",
+                "description": "GET/POST /api/v1/workspace/groups/ (#519). Read and create: admin only.",
                 "tags": [
                     "v1"
                 ],
@@ -21266,7 +21266,7 @@
             },
             "post": {
                 "operationId": "v1_workspace_groups_create",
-                "description": "GET/POST /api/v1/workspace/groups/ (#519). Read: any member; create: admin.",
+                "description": "GET/POST /api/v1/workspace/groups/ (#519). Read and create: admin only.",
                 "tags": [
                     "v1"
                 ],

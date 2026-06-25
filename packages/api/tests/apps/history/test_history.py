@@ -491,3 +491,63 @@ class TestHistorySummaryAPI:
         assert r2.status_code == 200
         # generated_at should differ (r2 was computed after the task save).
         assert r2.data["generated_at"] >= r1.data["generated_at"]
+
+
+# ---------------------------------------------------------------------------
+# History cap (perf-check finding #1318)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestHistoryCap:
+    """Verify _MAX_HISTORY_ROWS cap behaviour for TaskHistoryListView and
+    ProjectHistoryListView (perf-check finding #1318)."""
+
+    def test_task_history_cap_not_triggered_on_small_set(
+        self,
+        owner_client: APIClient,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """With fewer rows than the cap, count_truncated is False."""
+        task.name = "Pass 1"
+        task.save()
+        task.name = "Pass 2"
+        task.save()
+        r = owner_client.get(f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/")
+        assert r.status_code == 200
+        assert r.data.get("count_truncated") is False
+
+    def test_project_history_cap_not_triggered_on_small_set(
+        self,
+        owner_client: APIClient,
+        project: Project,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """With fewer rows than the cap, count_truncated is False."""
+        project.description = "First update"
+        project.save()
+        r = owner_client.get(f"/api/v1/projects/{project.pk}/history/")
+        assert r.status_code == 200
+        assert r.data.get("count_truncated") is False
+
+    def test_task_history_cap_activates_when_exceeded(
+        self,
+        owner_client: APIClient,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """When the cap is artificially set to 1 and 2 records exist,
+        count_truncated must be True and only 1 row is returned."""
+        from unittest.mock import patch
+
+        # Generate 2 records (create + one update).
+        task.name = "Updated name"
+        task.save()
+
+        with patch("trueppm_api.apps.projects.views._MAX_HISTORY_ROWS", 1):
+            r = owner_client.get(f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/")
+        assert r.status_code == 200
+        assert r.data.get("count_truncated") is True
