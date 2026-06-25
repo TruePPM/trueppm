@@ -211,6 +211,14 @@ CELERY_BEAT_SCHEDULE = {
         # 02:15 UTC — between the two existing purge jobs.
         "schedule": crontab(hour=2, minute=15),
     },
+    # Nightly cleanup: deletes acknowledged / auto-resolved CrossProjectSlipConflict
+    # rows 90 days past their resolution (ADR-0120 D4). Unresolved + unacknowledged
+    # conflicts are kept indefinitely — they are still live.
+    "purge-resolved-slip-conflicts-nightly": {
+        "task": "scheduling.purge_resolved_slip_conflicts",
+        # 02:25 UTC — after the Monte Carlo purge.
+        "schedule": crontab(hour=2, minute=25),
+    },
     # Nightly cleanup: trims project Monte Carlo run history to the newest
     # MC_HISTORY_CAP rows per project (ADR-0175, #961). No-ops when the cap is
     # None (Enterprise unlimited).

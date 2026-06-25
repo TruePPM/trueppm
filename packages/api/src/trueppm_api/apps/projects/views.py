@@ -85,6 +85,7 @@ from trueppm_api.apps.projects.models import (
     Calendar,
     CommentAcknowledgement,
     CommentReaction,
+    CrossProjectSlipConflict,
     Dependency,
     EstimateStatus,
     EstimationMode,
@@ -117,6 +118,7 @@ from trueppm_api.apps.projects.serializers import (
     CalendarSerializer,
     CommentAcknowledgementSerializer,
     CommentReactionSerializer,
+    CrossProjectSlipConflictSerializer,
     CycleDetectedError,
     DecisionNoteSerializer,
     DependencySerializer,
@@ -3983,11 +3985,25 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
         # default (accepted, not pending).
         consent = getattr(serializer, "_consent", None)
         instance = serializer.save(**consent) if consent else serializer.save()
-        project_id = str(instance.predecessor.project_id)
+        predecessor_pid = str(instance.predecessor.project_id)
+        successor_pid = str(instance.successor.project_id)
+        project_id = predecessor_pid
         dep_id = str(instance.pk)
-        transaction.on_commit(
-            lambda: _enqueue_recalculate(project_id, reason=ScheduleRequestReason.DEPENDENCY_CHANGE)
+        # ADR-0120 D3: an *accepted* cross-project edge changes the CPM input on
+        # both sides, so enqueue a recompute for each endpoint project; the
+        # dispatch path coalesces the two member requests into one program-scoped
+        # pass. A pending cross edge is inert (excluded from the gather) so only the
+        # predecessor's per-project recompute is enqueued, as for a same-project
+        # edge. The reason flags the cross-project provenance for forensics.
+        accepted_cross = predecessor_pid != successor_pid and not instance.pending_acceptance
+        recalc_reason = (
+            ScheduleRequestReason.CROSS_PROJECT_DEPENDENCY
+            if accepted_cross
+            else ScheduleRequestReason.DEPENDENCY_CHANGE
         )
+        transaction.on_commit(lambda: _enqueue_recalculate(predecessor_pid, reason=recalc_reason))
+        if accepted_cross:
+            transaction.on_commit(lambda: _enqueue_recalculate(successor_pid, reason=recalc_reason))
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "dependency_created", {"id": dep_id})
         )
@@ -4026,12 +4042,25 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
     def perform_destroy(self, instance: Dependency) -> None:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
-        project_id = str(instance.predecessor.project_id)
+        predecessor_pid = str(instance.predecessor.project_id)
+        successor_pid = str(instance.successor.project_id)
+        project_id = predecessor_pid
         dep_id = str(instance.pk)
-        instance.soft_delete()
-        transaction.on_commit(
-            lambda: _enqueue_recalculate(project_id, reason=ScheduleRequestReason.DEPENDENCY_CHANGE)
+        # ADR-0120 D3: deleting an *accepted* cross-project edge removes a
+        # constraint from both sides — and may un-escalate the program (if it was
+        # the last accepted cross edge), so each endpoint must recompute. The
+        # dispatch path re-evaluates the escalation predicate, so a now-edgeless
+        # program correctly falls back to per-project passes.
+        accepted_cross = predecessor_pid != successor_pid and not instance.pending_acceptance
+        recalc_reason = (
+            ScheduleRequestReason.CROSS_PROJECT_DEPENDENCY
+            if accepted_cross
+            else ScheduleRequestReason.DEPENDENCY_CHANGE
         )
+        instance.soft_delete()
+        transaction.on_commit(lambda: _enqueue_recalculate(predecessor_pid, reason=recalc_reason))
+        if accepted_cross:
+            transaction.on_commit(lambda: _enqueue_recalculate(successor_pid, reason=recalc_reason))
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "dependency_deleted", {"id": dep_id})
         )
@@ -4100,17 +4129,19 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
             dependency.accepted_by = request.user
             dependency.accepted_at = timezone.now()
             dependency.save()
-            # A now-accepted cross edge becomes eligible for the (forthcoming D3)
-            # program-scoped pass; recompute both endpoint projects. Coalesced by
-            # the drain.
+            # A now-accepted cross edge makes the program eligible for the
+            # program-scoped pass (ADR-0120 D3); recompute both endpoint projects.
+            # Each per-project dispatch self-escalates and the program run coalesces
+            # them — and that run upserts any D4 sprint-boundary slip conflict the
+            # newly-bound edge introduces.
             transaction.on_commit(
                 lambda: _enqueue_recalculate(
-                    predecessor_pid, reason=ScheduleRequestReason.DEPENDENCY_CHANGE
+                    predecessor_pid, reason=ScheduleRequestReason.CROSS_PROJECT_DEPENDENCY
                 )
             )
             transaction.on_commit(
                 lambda: _enqueue_recalculate(
-                    successor_pid, reason=ScheduleRequestReason.DEPENDENCY_CHANGE
+                    successor_pid, reason=ScheduleRequestReason.CROSS_PROJECT_DEPENDENCY
                 )
             )
             transaction.on_commit(
@@ -4134,6 +4165,137 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
 
         serializer = self.get_serializer(dependency)
         return Response(serializer.data)
+
+
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="project",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter to conflicts whose threatened task is in this project.",
+            ),
+            OpenApiParameter(
+                name="program",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter to conflicts across this program's member projects.",
+            ),
+            OpenApiParameter(
+                name="sprint",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter to conflicts threatening this sprint.",
+            ),
+            OpenApiParameter(
+                name="open",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="When true, only unresolved + unacknowledged conflicts (badge set).",
+            ),
+        ],
+    ),
+)
+class CrossProjectSlipConflictViewSet(
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    viewsets.GenericViewSet[CrossProjectSlipConflict],
+):
+    """Cross-project sprint-boundary slip conflicts (ADR-0120 D4).
+
+    Read + acknowledge only — a conflict is detected and resolved by the
+    program-scoped CPM pass, never written through the API. Scoped to conflicts in
+    projects the requester is a member of (object existence is not leaked across the
+    boundary). Acknowledgment is gated to the downstream project's scope manager
+    (Admin+ or the Scrum Master / Product Owner facet) and is management-inert:
+    there is no program/portfolio bypass path — only a real membership + facet on
+    the threatened project grants it (ADR-0102 §3).
+    """
+
+    serializer_class = CrossProjectSlipConflictSerializer
+    permission_classes = [IsAuthenticated]
+    queryset = CrossProjectSlipConflict.objects.all()
+
+    def get_queryset(self) -> QuerySet[CrossProjectSlipConflict]:
+        from trueppm_api.apps.projects.models import SlipConflictResolution
+
+        user = getattr(self.request, "user", None)
+        if user is None or not user.is_authenticated:
+            return CrossProjectSlipConflict.objects.none()
+        member_project_ids = ProjectMembership.objects.filter(
+            user=user, is_deleted=False
+        ).values_list("project_id", flat=True)
+        qs = (
+            CrossProjectSlipConflict.objects.select_related(
+                "sprint",
+                "task",
+                "dependency",
+                "dependency__predecessor",
+                "dependency__predecessor__project",
+                "acknowledged_by",
+            )
+            .filter(task__project_id__in=member_project_ids)
+            .order_by("-detected_at")
+        )
+        sprint_id = self.request.query_params.get("sprint")
+        if sprint_id:
+            qs = qs.filter(sprint_id=sprint_id)
+        project_id = self.request.query_params.get("project")
+        if project_id:
+            qs = qs.filter(task__project_id=project_id)
+        program_id = self.request.query_params.get("program")
+        if program_id:
+            qs = qs.filter(task__project__program_id=program_id)
+        open_only = self.request.query_params.get("open")
+        if open_only and open_only.lower() in ("1", "true"):
+            qs = qs.filter(
+                resolution=SlipConflictResolution.UNRESOLVED, acknowledged_at__isnull=True
+            )
+        return qs
+
+    @extend_schema(request=None, responses=CrossProjectSlipConflictSerializer)
+    @action(detail=True, methods=["post"], url_path="acknowledge")
+    def acknowledge(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Acknowledge a cross-project slip conflict (ADR-0120 D4).
+
+        An audit act — "seen, handling it" — *not* a schedule mutation: it never
+        moves the task, the sprint, or any commitment. Only the downstream project's
+        scope manager (Admin+ or SM/PO facet) may acknowledge; the resolution itself
+        happens through the team's own surfaces. Returns 400 if the conflict is
+        already resolved.
+        """
+        from django.contrib.auth.models import AnonymousUser
+        from rest_framework.exceptions import PermissionDenied
+        from rest_framework.exceptions import ValidationError as DRFValidationError
+
+        from trueppm_api.apps.access.permissions import (
+            can_manage_scope_with_facet,
+            effective_project_role,
+        )
+        from trueppm_api.apps.projects.models import SlipConflictResolution
+
+        conflict = self.get_object()
+        project_id = conflict.task.project_id
+        role = effective_project_role(request, project_id)
+        if not can_manage_scope_with_facet(request.user, project_id, role):
+            raise PermissionDenied(
+                "You need Admin or the Scrum Master / Product Owner facet on this "
+                "project to acknowledge a cross-project slip conflict."
+            )
+        if conflict.resolution != SlipConflictResolution.UNRESOLVED:
+            raise DRFValidationError("This conflict is no longer open.")
+        # Idempotent: re-acknowledging keeps the first acknowledger and timestamp.
+        if conflict.acknowledged_at is None:
+            user = request.user
+            conflict.acknowledged_by = None if isinstance(user, AnonymousUser) else user
+            conflict.acknowledged_at = timezone.now()
+            conflict.save(update_fields=["acknowledged_by", "acknowledged_at"])
+        return Response(self.get_serializer(conflict).data)
 
 
 @extend_schema_view(

@@ -25,6 +25,12 @@ class ScheduleRequestReason(models.TextChoices):
     # A project's working calendar is a CPM input — lag is calendar-aware — so a
     # calendar swap shifts every task's working-day math and forces a full recompute.
     CALENDAR_CHANGE = "calendar_change", "Calendar Change"
+    # An accepted cross-project edge mutated (created/accepted/deleted): the
+    # project's program now needs a merged, program-scoped recompute so the
+    # cross-project critical path stays program-true (ADR-0120 D3). Recorded on
+    # the outbox rows of *both* endpoint projects; the drain/dispatch coalesces
+    # them into one program-scoped pass.
+    CROSS_PROJECT_DEPENDENCY = "cross_project_dependency", "Cross-Project Dependency"
     SPRINT_CLOSED = "sprint_closed", "Sprint Closed"
     MANUAL = "manual", "Manual"
 

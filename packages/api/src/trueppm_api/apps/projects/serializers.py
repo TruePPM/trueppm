@@ -42,6 +42,7 @@ from trueppm_api.apps.projects.models import (
     CeremonyTemplate,
     CommentAcknowledgement,
     CommentReaction,
+    CrossProjectSlipConflict,
     CustomFieldType,
     Dependency,
     DurationChangePercentPolicy,
@@ -3441,6 +3442,84 @@ class ExternalTaskCardSerializer(serializers.Serializer[Any]):
     early_start = serializers.DateField(read_only=True, allow_null=True)
     early_finish = serializers.DateField(read_only=True, allow_null=True)
     is_critical = serializers.BooleanField(read_only=True, allow_null=True)
+
+
+class CrossProjectSlipConflictSerializer(serializers.ModelSerializer[CrossProjectSlipConflict]):
+    """Read-only view of a cross-project sprint-boundary slip conflict (ADR-0120 D4).
+
+    The downstream team's "what is threatening my sprint and why" answer in one
+    round trip: the threatened task, the sprint it overran, the program-true
+    ``pushed_to`` date, and the upstream cross-project task that caused it. The
+    upstream predecessor is exposed as the minimal D5 ``ExternalTaskCard`` shape
+    (name + project only) so the conflict reads even when the requester cannot open
+    the upstream project — never "blocked by [redacted]", never team-private data.
+    All fields are read-only; the only mutation is the ``acknowledge`` action.
+    """
+
+    sprint_name = serializers.CharField(source="sprint.name", read_only=True)
+    sprint_finish_date = serializers.DateField(source="sprint.finish_date", read_only=True)
+    project_id = serializers.UUIDField(source="task.project_id", read_only=True)
+    task_name = serializers.CharField(source="task.name", read_only=True)
+    task_hex_id = serializers.CharField(source="task.short_id", read_only=True)
+    upstream_task = serializers.SerializerMethodField()
+    acknowledged_by_name = serializers.SerializerMethodField()
+    is_open = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = CrossProjectSlipConflict
+        fields = [
+            "id",
+            "sprint",
+            "sprint_name",
+            "sprint_finish_date",
+            "task",
+            "task_name",
+            "task_hex_id",
+            "project_id",
+            "dependency",
+            "upstream_task",
+            "pushed_to",
+            "detected_at",
+            "re_slip_count",
+            "resolution",
+            "resolved_at",
+            "acknowledged_by",
+            "acknowledged_by_name",
+            "acknowledged_at",
+            "is_open",
+        ]
+        read_only_fields = fields
+
+    def get_upstream_task(self, obj: CrossProjectSlipConflict) -> dict[str, Any] | None:
+        """The cross-edge predecessor as the D5 ExternalTaskCard, or ``None`` if the
+        edge was deleted (the conflict auto-resolves on the next pass).
+
+        Carries the same bounded, non-sensitive scheduling facts as
+        :class:`ExternalTaskCardSerializer` — title + project + program-true CPM
+        dates — so the downstream SM sees *when* the upstream task finishes (the
+        cause of the slip), never its description/assignee/status/points.
+        """
+        dep = obj.dependency
+        if dep is None:
+            return None
+        pred = dep.predecessor
+        return {
+            "id": str(pred.id),
+            "title": pred.name,
+            "hex_id": pred.short_id,
+            "project_id": str(pred.project_id),
+            "project_name": pred.project.name if pred.project_id else "",
+            "is_milestone": pred.is_milestone,
+            "early_start": pred.early_start.isoformat() if pred.early_start else None,
+            "early_finish": pred.early_finish.isoformat() if pred.early_finish else None,
+            "is_critical": pred.is_critical,
+        }
+
+    def get_acknowledged_by_name(self, obj: CrossProjectSlipConflict) -> str | None:
+        user = obj.acknowledged_by
+        if user is None:
+            return None
+        return user.get_full_name() or user.get_username()
 
 
 class DependencySerializer(serializers.ModelSerializer[Dependency]):
