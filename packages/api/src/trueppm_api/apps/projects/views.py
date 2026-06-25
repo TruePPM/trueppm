@@ -4202,6 +4202,7 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
     ),
 )
 class CrossProjectSlipConflictViewSet(
+    IdempotencyMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
     viewsets.GenericViewSet[CrossProjectSlipConflict],

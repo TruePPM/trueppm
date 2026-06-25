@@ -16,7 +16,7 @@ from rest_framework.test import APIClient
 
 from trueppm_api.apps.projects.models import Project, Task
 from trueppm_api.apps.projects.seed.samples import load_sample
-from trueppm_api.apps.scheduling.tasks import _run_schedule
+from trueppm_api.apps.scheduling.tasks import _run_program_schedule
 
 pytestmark = pytest.mark.django_db
 
@@ -35,11 +35,16 @@ def test_atlas_demo_runs_cpm_and_monte_carlo(owner: Any, capsys: Any) -> None:
 
     print("\n=== Atlas Platform Launch — demo gate verification ===")
 
-    # 1. CPM: run the scheduler on each project; confirm it computes a schedule
-    #    (early dates populated) and, for the dependency-bearing streams, a
-    #    critical path.
+    # 1. CPM: schedule the program and confirm every stream gets early dates
+    #    (and, for the dependency-bearing streams, a critical path).
+    #
+    #    ADR-0120 D3: Atlas carries accepted cross-project edges, so a single-project
+    #    recompute escalates to the merged program-scoped pass and writes nothing on
+    #    its own — the program run is the sole writer while escalation holds. Drive
+    #    that pass directly (in production a Celery worker runs it async) so every
+    #    member project receives program-true floats and criticality before we assert.
+    _run_program_schedule(str(program.id))
     for project in projects:
-        _run_schedule(str(project.id))
         tasks = list(Task.objects.filter(project=project, is_deleted=False))
         scheduled = [t for t in tasks if t.early_start is not None and t.early_finish is not None]
         critical = [t for t in tasks if t.is_critical]
