@@ -56,7 +56,7 @@ export function CeilingProposalCard({
 
   return (
     <div
-      className="mt-3 rounded-lg border border-l-2 border-neutral-border border-l-semantic-warning bg-neutral-surface-raised p-3"
+      className="mt-3 rounded-card border border-l-2 border-neutral-border border-l-semantic-warning bg-neutral-surface-raised p-3"
       aria-label={`Pending ceiling raise for ${signalTitle}`}
     >
       <div className="flex items-baseline justify-between gap-2">

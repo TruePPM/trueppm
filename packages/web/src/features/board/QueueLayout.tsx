@@ -186,7 +186,7 @@ function PriorityBars({ rank }: { rank: number | undefined }) {
 function PhaseTag({ name, color }: { name: string; color: string }) {
   return (
     <span
-      className="inline-flex items-center gap-1 rounded-sm bg-neutral-surface-sunken px-1.5 py-0.5 text-[11px] font-medium text-neutral-text-secondary max-w-[120px]"
+      className="inline-flex items-center gap-1 rounded-chip bg-neutral-surface-sunken px-1.5 py-0.5 text-[11px] font-medium text-neutral-text-secondary max-w-[120px]"
       title={name}
     >
       <span
@@ -215,7 +215,7 @@ function ReadinessChip({ readiness }: { readiness: TaskReadiness }) {
   const inlineBg = readiness === 'ready' ? 'rgb(var(--brand-primary-light))' : undefined;
   return (
     <span
-      className={`inline-flex items-center rounded-sm uppercase tracking-wider font-semibold ${styles[readiness]}`}
+      className={`inline-flex items-center rounded-chip uppercase tracking-wider font-semibold ${styles[readiness]}`}
       style={{
         height: 16,
         padding: '0 6px',
@@ -368,7 +368,7 @@ export function QueueRow({ task, phaseName, phaseColor, isFocused, onFocus, onCl
           <span
             aria-label="On the critical path"
             title="On the critical path — a delay here delays the project end date"
-            className="inline-flex items-center rounded-sm border border-semantic-critical/40 px-1 text-[9.5px] font-bold uppercase tracking-wider text-semantic-critical"
+            className="inline-flex items-center rounded-chip border border-semantic-critical/40 px-1 text-[9.5px] font-bold uppercase tracking-wider text-semantic-critical"
             style={{ height: 14, lineHeight: 1, flexShrink: 0 }}
           >
             CP

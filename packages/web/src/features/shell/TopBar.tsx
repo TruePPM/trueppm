@@ -73,7 +73,7 @@ export function TopBar({ onHamburgerClick }: Props) {
     <img
       src={workspace.logoUrl}
       alt=""
-      className="w-4 h-4 rounded-sm object-contain shrink-0"
+      className="w-4 h-4 rounded-chip object-contain shrink-0"
     />
   ) : undefined;
 

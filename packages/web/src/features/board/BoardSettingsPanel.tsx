@@ -226,7 +226,7 @@ function ColumnRow({ col, err, readOnly, onChange }: RowProps) {
       <div className="flex items-center gap-2">
         <span
           aria-hidden="true"
-          className="inline-block w-3 h-3 rounded-sm border border-neutral-border"
+          className="inline-block w-3 h-3 rounded-chip border border-neutral-border"
           style={{ backgroundColor: col.color ?? 'transparent' }}
         />
         <span className="text-xs uppercase tracking-widest text-neutral-text-disabled tppm-mono">

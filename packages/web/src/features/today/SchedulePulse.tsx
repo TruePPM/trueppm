@@ -146,7 +146,7 @@ export function SchedulePulse({ projectId }: { projectId: string }) {
         {/* Sprint rollup chip — the board → schedule link. Right-aligned. */}
         <div className="ml-auto" data-testid="pulse-sprint">
           {sprint ? (
-            <div className="min-w-[200px] max-w-[280px] rounded-lg border border-neutral-border bg-neutral-surface px-3 py-1.5">
+            <div className="min-w-[200px] max-w-[280px] rounded-card border border-neutral-border bg-neutral-surface px-3 py-1.5">
               <div className="flex items-baseline justify-between gap-2">
                 <span className="truncate text-[12px] font-semibold text-neutral-text-primary">
                   {sprint.name}

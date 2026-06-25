@@ -83,7 +83,7 @@ function MiniGantt() {
               </div>
             ) : (
               <div
-                className={`absolute top-0 h-full rounded-sm ${BAR_COLOR[row.variant]} opacity-80`}
+                className={`absolute top-0 h-full rounded-chip ${BAR_COLOR[row.variant]} opacity-80`}
                 style={{ left: `${row.offsetPct}%`, width: `${row.widthPct}%` }}
               />
             )}
@@ -268,7 +268,7 @@ export function LoginPage() {
                 checked={rememberMe}
                 onChange={(e) => setRememberMe(e.target.checked)}
                 className="
-                  w-4 h-4 rounded-sm border border-neutral-border
+                  w-4 h-4 rounded-chip border border-neutral-border
                   bg-neutral-surface text-brand-primary
                   checked:bg-brand-primary checked:border-brand-primary
                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1

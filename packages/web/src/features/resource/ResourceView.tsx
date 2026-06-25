@@ -305,23 +305,23 @@ export function ResourceView({
             {/* Legend */}
             <div className="flex items-center gap-3" aria-label="Legend">
               <span className="flex items-center gap-1">
-                <span className="w-2.5 h-2.5 rounded-sm bg-brand-primary inline-block" aria-hidden="true" />
+                <span className="w-2.5 h-2.5 rounded-chip bg-brand-primary inline-block" aria-hidden="true" />
                 Normal
               </span>
               <span className="flex items-center gap-1">
                 <span
-                  className="w-2.5 h-2.5 rounded-sm bg-brand-primary inline-block"
+                  className="w-2.5 h-2.5 rounded-chip bg-brand-primary inline-block"
                   style={{ backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 2px, rgba(0,0,0,0.2) 2px, rgba(0,0,0,0.2) 4px)' }}
                   aria-hidden="true"
                 />
                 Partial (&lt;100%)
               </span>
               <span className="flex items-center gap-1">
-                <span className="w-2.5 h-2.5 rounded-sm bg-semantic-critical inline-block" aria-hidden="true" />
+                <span className="w-2.5 h-2.5 rounded-chip bg-semantic-critical inline-block" aria-hidden="true" />
                 Over-allocated
               </span>
               <span className="flex items-center gap-1">
-                <span className="w-2.5 h-2.5 rounded-sm bg-neutral-border inline-block" aria-hidden="true" />
+                <span className="w-2.5 h-2.5 rounded-chip bg-neutral-border inline-block" aria-hidden="true" />
                 Complete
               </span>
             </div>

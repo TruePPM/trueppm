@@ -129,7 +129,7 @@ export function RosterPage() {
             role="dialog"
             aria-modal="true"
             aria-label="Add team member"
-            className="bg-neutral-surface rounded-t-xl border-t border-neutral-border p-4 flex flex-col gap-3"
+            className="bg-neutral-surface rounded-t-card border-t border-neutral-border p-4 flex flex-col gap-3"
             style={{ maxHeight: '85vh' }}
           >
             <div
@@ -207,7 +207,7 @@ function RosterPageToolbar({
 
         {showAddCombobox && (
           <div className="absolute right-0 top-full mt-1 w-72 z-40 p-2
-            bg-neutral-surface border border-neutral-border rounded-md">
+            bg-neutral-surface border border-neutral-border rounded-card">
             <AddToRosterCombobox
               projectId={projectId}
               onSelect={onAddSelect}

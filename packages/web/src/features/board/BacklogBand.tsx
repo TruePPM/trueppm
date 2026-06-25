@@ -112,7 +112,7 @@ function ReadinessChip({ readiness }: ReadinessChipProps) {
   const inlineBg = readiness === 'ready' ? 'rgb(var(--brand-primary-light))' : undefined;
   return (
     <span
-      className={`inline-flex items-center rounded-sm uppercase tracking-wider font-semibold ${styles[readiness]}`}
+      className={`inline-flex items-center rounded-chip uppercase tracking-wider font-semibold ${styles[readiness]}`}
       style={{
         height: 16,
         padding: '0 6px',
@@ -280,7 +280,7 @@ export function BacklogCard({
           onClick={(e) => onClick(e.currentTarget)}
           {...attributes}
           {...listeners}
-          className={`flex w-full items-center gap-2 rounded-sm border border-neutral-border bg-neutral-surface px-2.5 py-1.5 text-left cursor-grab focus-visible:outline-none ${onSchedule ? 'pr-7' : ''} ${focusRing} ${dragOpacity}`}
+          className={`flex w-full items-center gap-2 rounded-control border border-neutral-border bg-neutral-surface px-2.5 py-1.5 text-left cursor-grab focus-visible:outline-none ${onSchedule ? 'pr-7' : ''} ${focusRing} ${dragOpacity}`}
         >
           <PriorityDot rank={task.priorityRank} />
           <span

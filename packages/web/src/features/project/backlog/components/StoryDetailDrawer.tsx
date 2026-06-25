@@ -163,7 +163,7 @@ export function StoryDetailDrawer({
         role="dialog"
         aria-modal="false"
         aria-label={story.name || 'Story detail'}
-        className="fixed inset-x-0 bottom-0 z-50 flex h-[85vh] flex-col rounded-t-xl border-t border-neutral-border bg-neutral-surface md:absolute md:inset-y-0 md:left-auto md:right-0 md:h-full md:w-[480px] md:rounded-none md:border-l md:border-t-0"
+        className="fixed inset-x-0 bottom-0 z-50 flex h-[85vh] flex-col rounded-t-card border-t border-neutral-border bg-neutral-surface md:absolute md:inset-y-0 md:left-auto md:right-0 md:h-full md:w-[480px] md:rounded-none md:border-l md:border-t-0"
       >
         {/* Mobile drag-handle affordance. */}
         <div

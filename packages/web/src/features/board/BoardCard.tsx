@@ -607,7 +607,7 @@ export function BoardCard({
         aria-label={`${task.name}, ${effectiveProgress}% complete${showCriticalState ? ', critical path' : ''}`}
       >
         <div
-          className={`absolute left-0 inset-y-0 w-1 rounded-l-md ${accentBarClass(task, showCriticalState)}`}
+          className={`absolute left-0 inset-y-0 w-1 rounded-l-card ${accentBarClass(task, showCriticalState)}`}
           aria-hidden="true"
         />
         <div className="pl-2.5 pr-8 py-2 flex items-center gap-1 min-w-0">
@@ -686,10 +686,10 @@ export function BoardCard({
       tabIndex={0}
       aria-label={`${task.name}, ${effectiveProgress}% complete${showCriticalState ? ', critical path' : ''}`}
     >
-      {/* Left accent bar — rounded-l-md matches card's border-radius so the bar
+      {/* Left accent bar — rounded-l-card matches card's border-radius so the bar
           respects the card corners without needing overflow-hidden on the parent. */}
       <div
-        className={`absolute left-0 inset-y-0 w-1 rounded-l-md ${accentBarClass(task, showCriticalState)}`}
+        className={`absolute left-0 inset-y-0 w-1 rounded-l-card ${accentBarClass(task, showCriticalState)}`}
         aria-hidden="true"
       />
 

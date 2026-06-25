@@ -110,7 +110,7 @@ export function ProjectTeamPage() {
           <div
             role="alertdialog"
             aria-label="Confirm reassignment"
-            className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-neutral-border bg-neutral-surface-raised px-4 py-3"
+            className="mb-4 flex items-center justify-between gap-3 rounded-card border border-neutral-border bg-neutral-surface-raised px-4 py-3"
           >
             <p className="text-[13px] text-neutral-text-primary">
               {pending.holderName} is currently {FACET_LABEL[pending.facet]}. Make{' '}
@@ -174,7 +174,7 @@ export function ProjectTeamPage() {
                 <span className="w-36">Product Owner</span>
               </div>
             )}
-            <ul className="divide-y divide-neutral-border rounded-lg border border-neutral-border">
+            <ul className="divide-y divide-neutral-border rounded-card border border-neutral-border">
               {members.length === 0 ? (
                 <li className="px-4 py-6 text-[13px] text-neutral-text-disabled">
                   No team members yet — add people in the Access tab.
