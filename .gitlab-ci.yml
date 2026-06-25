@@ -10,9 +10,17 @@ default:
   interruptible: true
   retry:
     max: 2
+    # Retry only on pure-infrastructure failure classes — never `script_failure`
+    # (#1212): a genuine test failure must fail fast, not re-run twice and waste
+    # minutes for a slow red signal. Everything below is the runner/GitLab
+    # platform misbehaving, where a retry cannot mask a real regression.
     when:
-      - runner_system_failure
-      - stuck_or_timeout_failure
+      - runner_system_failure   # runner died / lost connection
+      - stuck_or_timeout_failure # job stuck with no output, or hit timeout
+      - api_failure             # transient GitLab API comms failure
+      - scheduler_failure       # runner could not be assigned to the job
+      - stale_schedule          # scheduled-pipeline race (boundary:check runs on schedule)
+      - data_integrity_failure  # transient platform data error
   after_script:
     # Free workspace disk before cache upload to reduce runner disk pressure.
     # NOTE: this runner's builds_dir is under /tmp (/tmp/builds/...), so a bare
@@ -22,6 +30,15 @@ default:
     - find /tmp -mindepth 1 -maxdepth 1 ! -name builds -exec rm -rf {} + 2>/dev/null || true
 
 variables:
+  # Runner-managed phase durability (#1310). These heal the clone / artifact /
+  # cache phases that run *before* before_script — which neither retry() (it
+  # wraps only `script:` commands) nor default.retry's failure classes cover.
+  # All default to 1 (no retry). GET_SOURCES_ATTEMPTS specifically auto-heals
+  # the recurring `get_sources` HTTP 502 clone flake that was previously retried
+  # by hand (e.g. api:migration-numbering).
+  GET_SOURCES_ATTEMPTS: "3"        # git clone/fetch of the project source
+  ARTIFACT_DOWNLOAD_ATTEMPTS: "3"  # pulling artifacts from upstream DAG jobs
+  RESTORE_CACHE_ATTEMPTS: "3"      # restoring the pip/npm cache
   PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
   # Dependency-fetch durability (#1212). Public-registry blips (ECONNRESET,
   # timeouts) used to fail a whole job on first occurrence — `default.retry`
