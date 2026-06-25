@@ -22,9 +22,9 @@ interface Props {
 
 // sm/md are pure wayfinding dots (no label); only lg carries initials.
 const SIZE_CLASS: Record<Size, string> = {
-  sm: 'h-2.5 w-2.5 rounded-sm',
-  md: 'h-4 w-4 rounded-sm',
-  lg: 'h-9 w-9 rounded-md text-xs font-bold',
+  sm: 'h-2.5 w-2.5 rounded-chip',
+  md: 'h-4 w-4 rounded-chip',
+  lg: 'h-9 w-9 rounded-chip text-xs font-bold',
 };
 
 /**

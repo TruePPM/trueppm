@@ -29,7 +29,7 @@ export function BacklogToasts({ controller }: BacklogToastsProps) {
       <div className="pointer-events-none fixed inset-x-0 bottom-5 z-50 flex justify-center px-4">
         <div
           role="alert"
-          className="pointer-events-auto w-full max-w-[520px] rounded-md border border-l-[3px] border-semantic-critical bg-neutral-surface p-3"
+          className="pointer-events-auto w-full max-w-[520px] rounded-card border border-l-[3px] border-semantic-critical bg-neutral-surface p-3"
         >
           <div className="flex items-start gap-2.5">
             <WarningIcon
@@ -48,7 +48,7 @@ export function BacklogToasts({ controller }: BacklogToastsProps) {
                   : 'The project backlog rejected the task. Item has been reverted to Proposed.'}
               </p>
               {showDetails && (
-                <p className="mt-1.5 rounded bg-neutral-surface-sunken p-2 text-[11px] text-neutral-text-secondary">
+                <p className="mt-1.5 rounded-card bg-neutral-surface-sunken p-2 text-[11px] text-neutral-text-secondary">
                   {toast.message}
                 </p>
               )}
@@ -73,7 +73,7 @@ export function BacklogToasts({ controller }: BacklogToastsProps) {
               type="button"
               onClick={controller.dismissToast}
               aria-label="Dismiss"
-              className={`flex h-6 w-6 shrink-0 items-center justify-center rounded text-neutral-text-secondary hover:bg-neutral-surface-sunken ${FOCUS_RING}`}
+              className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-control text-neutral-text-secondary hover:bg-neutral-surface-sunken ${FOCUS_RING}`}
             >
               <CloseIcon aria-hidden="true" className="h-3.5 w-3.5" />
             </button>
@@ -87,7 +87,7 @@ export function BacklogToasts({ controller }: BacklogToastsProps) {
     <div className="pointer-events-none fixed inset-x-0 bottom-5 z-50 flex justify-center px-4">
       <div
         role="status"
-        className="pointer-events-auto flex items-center gap-3 rounded-md bg-neutral-text-primary px-4 py-2.5 text-sm text-neutral-text-inverse border border-neutral-border"
+        className="pointer-events-auto flex items-center gap-3 rounded-card bg-neutral-text-primary px-4 py-2.5 text-sm text-neutral-text-inverse border border-neutral-border"
       >
         <span>{toast.message}</span>
       </div>

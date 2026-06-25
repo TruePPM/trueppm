@@ -105,7 +105,7 @@ export function ProgramInviteForm({ programId }: Props) {
             aria-controls="program-invite-search-listbox"
             aria-expanded={showDropdown}
             className={[
-              'h-9 w-full rounded border bg-neutral-surface px-3 text-sm',
+              'h-9 w-full rounded-control border bg-neutral-surface px-3 text-sm',
               'text-neutral-text-primary placeholder:text-neutral-text-disabled',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
               selectedUser ? 'border-brand-primary' : 'border-neutral-border',
@@ -119,7 +119,7 @@ export function ProgramInviteForm({ programId }: Props) {
               role="listbox"
               aria-label="Search results"
               className={[
-                'absolute z-20 mt-1 w-full rounded border border-neutral-border',
+                'absolute z-20 mt-1 w-full rounded-card border border-neutral-border',
                 'bg-neutral-surface divide-y divide-neutral-border',
                 'max-h-52 overflow-y-auto',
               ].join(' ')}
@@ -195,7 +195,7 @@ export function ProgramInviteForm({ programId }: Props) {
           type="submit"
           disabled={!selectedUser || isPending}
           className={[
-            'h-9 shrink-0 rounded border border-brand-primary bg-brand-primary px-4 text-sm font-medium text-white',
+            'h-9 shrink-0 rounded-control border border-brand-primary bg-brand-primary px-4 text-sm font-medium text-white',
             'hover:bg-brand-primary/90 transition-colors',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
             'disabled:opacity-50 disabled:cursor-not-allowed',

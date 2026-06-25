@@ -135,7 +135,7 @@ export function DetailView({
           type="button"
           onClick={onClose}
           aria-label="Close details"
-          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded text-neutral-text-secondary hover:bg-neutral-surface-sunken ${FOCUS_RING}`}
+          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-control text-neutral-text-secondary hover:bg-neutral-surface-sunken ${FOCUS_RING}`}
         >
           <CloseIcon aria-hidden="true" className="h-4 w-4" />
         </button>
@@ -243,7 +243,7 @@ export function DetailView({
               {item.tags.map((tag) => (
                 <span
                   key={tag}
-                  className="rounded bg-neutral-surface-sunken px-1.5 py-0.5 text-[11px] text-neutral-text-secondary"
+                  className="rounded-chip bg-neutral-surface-sunken px-1.5 py-0.5 text-[11px] text-neutral-text-secondary"
                 >
                   {tag}
                 </span>
@@ -258,7 +258,7 @@ export function DetailView({
             <div className="text-xs font-semibold uppercase tracking-[0.06em] text-neutral-text-secondary">
               Linked task
             </div>
-            <div className="mt-1.5 flex items-center justify-between gap-2 rounded border border-neutral-border bg-neutral-surface-sunken px-3 py-2">
+            <div className="mt-1.5 flex items-center justify-between gap-2 rounded-card border border-neutral-border bg-neutral-surface-sunken px-3 py-2">
               <div className="flex min-w-0 items-center gap-2">
                 <span
                   aria-hidden="true"

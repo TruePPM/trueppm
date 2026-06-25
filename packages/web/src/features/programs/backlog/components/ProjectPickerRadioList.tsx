@@ -44,7 +44,7 @@ export function ProjectPickerRadioList({
     <div
       role="radiogroup"
       aria-label="Target project"
-      className="overflow-hidden rounded-md border border-neutral-border"
+      className="overflow-hidden rounded-card border border-neutral-border"
     >
       {projects.map((project, index) => {
         const selected = project.id === value;

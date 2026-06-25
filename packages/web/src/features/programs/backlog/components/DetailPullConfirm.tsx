@@ -61,7 +61,7 @@ export function DetailPullConfirm({
       {/* Header */}
       <div className="flex items-center justify-between gap-3 border-b border-neutral-border px-5 py-4">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="inline-flex h-[18px] items-center rounded bg-brand-primary px-1.5 text-xs font-semibold uppercase text-white">
+          <span className="inline-flex h-[18px] items-center rounded-chip bg-brand-primary px-1.5 text-xs font-semibold uppercase text-white">
             Pull
           </span>
           <span className="truncate text-[13px] font-semibold text-neutral-text-primary">
@@ -73,7 +73,7 @@ export function DetailPullConfirm({
           type="button"
           onClick={onCancel}
           aria-label="Cancel pull"
-          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded text-neutral-text-secondary hover:bg-neutral-surface-sunken ${FOCUS_RING}`}
+          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-control text-neutral-text-secondary hover:bg-neutral-surface-sunken ${FOCUS_RING}`}
         >
           <CloseIcon aria-hidden="true" className="h-4 w-4" />
         </button>
@@ -99,7 +99,7 @@ export function DetailPullConfirm({
               />
             </div>
 
-            <div className="rounded-md bg-neutral-surface-sunken p-3">
+            <div className="rounded-card bg-neutral-surface-sunken p-3">
               <div className="text-[11px] font-semibold text-neutral-text-primary">
                 What will happen
               </div>
@@ -112,7 +112,7 @@ export function DetailPullConfirm({
             </div>
           </>
         ) : (
-          <div className="rounded-md border border-neutral-border bg-neutral-surface-sunken p-4 text-center">
+          <div className="rounded-card border border-neutral-border bg-neutral-surface-sunken p-4 text-center">
             <p className="text-xs text-neutral-text-secondary">
               This program has no projects yet. Add a project to enable pulling.
             </p>

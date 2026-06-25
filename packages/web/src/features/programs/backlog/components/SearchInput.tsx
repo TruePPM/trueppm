@@ -58,8 +58,8 @@ export function SearchInput({
 
   return (
     <div
-      className={`relative flex items-center rounded-md border border-neutral-border bg-neutral-surface-sunken ${
-        fullWidth ? 'h-[34px] w-full rounded-lg' : 'h-[30px] min-w-[260px]'
+      className={`relative flex items-center rounded-control border border-neutral-border bg-neutral-surface-sunken ${
+        fullWidth ? 'h-[34px] w-full rounded-control' : 'h-[30px] min-w-[260px]'
       }`}
     >
       <SearchIcon
@@ -81,7 +81,7 @@ export function SearchInput({
           }
         }}
         className={`h-full flex-1 bg-transparent px-2 text-sm text-neutral-text-primary
-          placeholder:text-neutral-text-secondary focus:outline-none ${FOCUS_RING} rounded-md
+          placeholder:text-neutral-text-secondary focus:outline-none ${FOCUS_RING} rounded-control
           [&::-webkit-search-cancel-button]:hidden`}
       />
       {hasQuery && (
@@ -96,7 +96,7 @@ export function SearchInput({
             type="button"
             onClick={clear}
             aria-label="Clear search"
-            className={`mr-1.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-neutral-text-secondary
+            className={`mr-1.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-control text-neutral-text-secondary
               hover:bg-neutral-surface hover:text-neutral-text-primary ${FOCUS_RING}`}
           >
             <CloseIcon aria-hidden="true" className="h-3 w-3" />

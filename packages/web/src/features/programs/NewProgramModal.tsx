@@ -118,7 +118,7 @@ export function NewProgramModal({ onClose, onCreated }: Props) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="new-program-heading"
-        className="w-full max-w-md rounded-lg border border-neutral-border bg-neutral-surface p-6"
+        className="w-full max-w-md rounded-card border border-neutral-border bg-neutral-surface p-6"
       >
         <h2 id="new-program-heading" className="text-lg font-semibold text-neutral-text-primary">
           New program
@@ -138,7 +138,7 @@ export function NewProgramModal({ onClose, onCreated }: Props) {
               maxLength={255}
               required
               aria-required="true"
-              className="mt-1 block w-full rounded border border-neutral-border bg-neutral-surface px-3 py-2 text-sm
+              className="mt-1 block w-full rounded-control border border-neutral-border bg-neutral-surface px-3 py-2 text-sm
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             />
           </div>
@@ -152,7 +152,7 @@ export function NewProgramModal({ onClose, onCreated }: Props) {
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
-              className="mt-1 block w-full rounded border border-neutral-border bg-neutral-surface px-3 py-2 text-sm
+              className="mt-1 block w-full rounded-control border border-neutral-border bg-neutral-surface px-3 py-2 text-sm
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             />
           </div>
@@ -165,7 +165,7 @@ export function NewProgramModal({ onClose, onCreated }: Props) {
                   key={m.id}
                   htmlFor={`program-methodology-${m.id}`}
                   aria-label={`${m.label} — ${m.description}`}
-                  className="flex cursor-pointer items-start gap-3 rounded border border-neutral-border p-3
+                  className="flex cursor-pointer items-start gap-3 rounded-card border border-neutral-border p-3
                     has-[:checked]:border-brand-primary has-[:checked]:bg-brand-primary/5"
                 >
                   <input
@@ -196,7 +196,7 @@ export function NewProgramModal({ onClose, onCreated }: Props) {
               projects tab heading — see ux-design output. */}
           <p
             role="note"
-            className="rounded border border-neutral-border bg-neutral-surface-raised p-3 text-xs text-neutral-text-secondary"
+            className="rounded-card border border-neutral-border bg-neutral-surface-raised p-3 text-xs text-neutral-text-secondary"
           >
             <span aria-hidden="true">ⓘ </span>
             You will be added as Owner automatically. Project access is managed separately
@@ -214,7 +214,7 @@ export function NewProgramModal({ onClose, onCreated }: Props) {
             <button
               type="button"
               onClick={onClose}
-              className="h-9 rounded border border-neutral-border px-4 text-sm font-medium text-neutral-text-primary
+              className="h-9 rounded-control border border-neutral-border px-4 text-sm font-medium text-neutral-text-primary
                 hover:bg-neutral-surface-raised
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
@@ -223,7 +223,7 @@ export function NewProgramModal({ onClose, onCreated }: Props) {
             <button
               type="submit"
               disabled={createProgram.isPending}
-              className="h-9 rounded bg-brand-primary px-4 text-sm font-medium text-white
+              className="h-9 rounded-control bg-brand-primary px-4 text-sm font-medium text-white
                 hover:bg-brand-primary/90 disabled:opacity-60
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >

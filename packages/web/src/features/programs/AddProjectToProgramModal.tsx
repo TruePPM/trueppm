@@ -102,7 +102,7 @@ export function AddProjectToProgramModal({ programId, programName, onClose }: Pr
         role="dialog"
         aria-modal="true"
         aria-labelledby="add-project-heading"
-        className="flex w-full max-w-lg flex-col rounded-lg border border-neutral-border bg-neutral-surface"
+        className="flex w-full max-w-lg flex-col rounded-card border border-neutral-border bg-neutral-surface"
       >
         <header className="border-b border-neutral-border p-6">
           <h2 id="add-project-heading" className="text-lg font-semibold text-neutral-text-primary">
@@ -126,7 +126,7 @@ export function AddProjectToProgramModal({ programId, programName, onClose }: Pr
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search projects"
-            className="w-full rounded border border-neutral-border bg-neutral-surface px-3 py-2 text-sm
+            className="w-full rounded-control border border-neutral-border bg-neutral-surface px-3 py-2 text-sm
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           />
 
@@ -140,7 +140,7 @@ export function AddProjectToProgramModal({ programId, programName, onClose }: Pr
                 <div
                   key={i}
                   aria-hidden="true"
-                  className="h-9 animate-pulse rounded bg-neutral-surface-raised"
+                  className="h-9 animate-pulse rounded-control bg-neutral-surface-raised"
                 />
               ))}
             </div>
@@ -164,7 +164,7 @@ export function AddProjectToProgramModal({ programId, programName, onClose }: Pr
               <h3 className="mb-2 text-xs font-semibold uppercase tracking-widest text-neutral-text-secondary">
                 Standalone projects ({standalone.length})
               </h3>
-              <ul className="divide-y divide-neutral-border rounded border border-neutral-border">
+              <ul className="divide-y divide-neutral-border rounded-card border border-neutral-border">
                 {standalone.map((p) => (
                   <li key={p.id}>
                     <label className="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-neutral-surface-raised">
@@ -200,7 +200,7 @@ export function AddProjectToProgramModal({ programId, programName, onClose }: Pr
               <p className="mb-2 text-xs text-neutral-text-secondary">
                 Selecting one will move it to this program.
               </p>
-              <ul className="divide-y divide-neutral-border rounded border border-neutral-border">
+              <ul className="divide-y divide-neutral-border rounded-card border border-neutral-border">
                 {elsewhere.map((p) => (
                   <li key={p.id}>
                     <label className="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-neutral-surface-raised">
@@ -239,7 +239,7 @@ export function AddProjectToProgramModal({ programId, programName, onClose }: Pr
           <button
             type="button"
             onClick={onClose}
-            className="h-9 rounded border border-neutral-border px-4 text-sm font-medium text-neutral-text-primary
+            className="h-9 rounded-control border border-neutral-border px-4 text-sm font-medium text-neutral-text-primary
               hover:bg-neutral-surface-raised
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >
@@ -249,7 +249,7 @@ export function AddProjectToProgramModal({ programId, programName, onClose }: Pr
             type="button"
             onClick={() => void handleSubmit()}
             disabled={!selectedId || assignProject.isPending}
-            className="h-9 rounded bg-brand-primary px-4 text-sm font-medium text-white
+            className="h-9 rounded-control bg-brand-primary px-4 text-sm font-medium text-white
               hover:bg-brand-primary/90 disabled:opacity-50
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >

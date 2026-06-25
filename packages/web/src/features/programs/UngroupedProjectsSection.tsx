@@ -48,7 +48,7 @@ function UngroupedRow({
       <button
         type="button"
         onClick={() => onMove(project)}
-        className="ml-auto h-9 shrink-0 rounded border border-neutral-border px-3 text-xs font-medium text-neutral-text-primary
+        className="ml-auto h-9 shrink-0 rounded-control border border-neutral-border px-3 text-xs font-medium text-neutral-text-primary
           hover:bg-neutral-surface-raised
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
       >
@@ -80,7 +80,7 @@ export function UngroupedProjectsSection() {
         <h2 id="ungrouped-heading" className="text-sm font-semibold text-neutral-text-primary">
           Ungrouped projects
         </h2>
-        <span className="rounded border border-semantic-at-risk/80 bg-semantic-at-risk-bg px-2 py-0.5 text-xs font-medium text-semantic-at-risk">
+        <span className="rounded-chip border border-semantic-at-risk/80 bg-semantic-at-risk-bg px-2 py-0.5 text-xs font-medium text-semantic-at-risk">
           {projects.length} need a home
         </span>
         <p className="w-full text-xs text-neutral-text-secondary sm:ml-auto sm:w-auto">
@@ -90,7 +90,7 @@ export function UngroupedProjectsSection() {
 
       <ul
         aria-label="Ungrouped projects"
-        className="divide-y divide-neutral-border rounded-lg border border-neutral-border bg-neutral-surface"
+        className="divide-y divide-neutral-border rounded-card border border-neutral-border bg-neutral-surface"
       >
         {projects.map((p) => (
           <UngroupedRow key={p.id} project={p} onMove={setMoving} />

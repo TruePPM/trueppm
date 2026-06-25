@@ -101,7 +101,7 @@ export function PhaseGateConfigPanel({ programId, canEdit, onClose }: PhaseGateC
               onClick={onClose}
               aria-label="Close"
               disabled={update.isPending}
-              className="text-neutral-text-secondary text-[20px] leading-none px-2 py-0.5 rounded hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:opacity-50"
+              className="text-neutral-text-secondary text-[20px] leading-none px-2 py-0.5 rounded-control hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:opacity-50"
             >
               ✕
             </button>
@@ -111,7 +111,7 @@ export function PhaseGateConfigPanel({ programId, canEdit, onClose }: PhaseGateC
         {!canEdit && (
           <div
             role="status"
-            className="mx-5 mt-3 rounded border border-neutral-border bg-neutral-surface-sunken px-3 py-2 text-xs text-neutral-text-secondary"
+            className="mx-5 mt-3 rounded-card border border-neutral-border bg-neutral-surface-sunken px-3 py-2 text-xs text-neutral-text-secondary"
           >
             Read-only — only program admins can edit this template.
           </div>
@@ -141,7 +141,7 @@ export function PhaseGateConfigPanel({ programId, canEdit, onClose }: PhaseGateC
                   checked={enabled}
                   onChange={(e) => setEnabled(e.target.checked)}
                   disabled={!canEdit || update.isPending}
-                  className="rounded border-neutral-border text-brand-primary focus-visible:ring-2 focus-visible:ring-brand-primary disabled:opacity-50"
+                  className="rounded-control border-neutral-border text-brand-primary focus-visible:ring-2 focus-visible:ring-brand-primary disabled:opacity-50"
                 />
                 Enabled
               </label>
@@ -163,7 +163,7 @@ export function PhaseGateConfigPanel({ programId, canEdit, onClose }: PhaseGateC
                   placeholder="Subject: Gate review – {{milestone.name}}
 
 Hi team, we're reviewing the {{phase.name}} phase gate on {{date}}…"
-                  className="w-full px-2.5 py-1.5 rounded border border-neutral-border bg-neutral-surface-base text-[12px] font-mono leading-snug focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:opacity-50"
+                  className="w-full px-2.5 py-1.5 rounded-control border border-neutral-border bg-neutral-surface-base text-[12px] font-mono leading-snug focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:opacity-50"
                 />
                 <p className="text-[11px] text-neutral-text-secondary mt-1 leading-snug">
                   Available variables: <code>{'{{milestone.name}}'}</code>
@@ -179,7 +179,7 @@ Hi team, we're reviewing the {{phase.name}} phase gate on {{date}}…"
               {formError && (
                 <div
                   role="alert"
-                  className="rounded border border-semantic-critical/40 bg-semantic-critical-bg px-3 py-2 text-xs text-semantic-critical"
+                  className="rounded-card border border-semantic-critical/40 bg-semantic-critical-bg px-3 py-2 text-xs text-semantic-critical"
                 >
                   {formError}
                 </div>
@@ -194,7 +194,7 @@ Hi team, we're reviewing the {{phase.name}} phase gate on {{date}}…"
               type="button"
               onClick={onClose}
               disabled={update.isPending}
-              className="px-3 py-1.5 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              className="px-3 py-1.5 rounded-control border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
               Cancel
             </button>
@@ -204,7 +204,7 @@ Hi team, we're reviewing the {{phase.name}} phase gate on {{date}}…"
                 void handleSubmit(e as unknown as FormEvent);
               }}
               disabled={update.isPending}
-              className="px-3 py-1.5 rounded bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              className="px-3 py-1.5 rounded-control bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
               {update.isPending ? 'Saving…' : 'Save'}
             </button>

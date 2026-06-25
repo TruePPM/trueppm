@@ -76,7 +76,7 @@ export function ProgramProjectsPage() {
             <button
               type="button"
               onClick={() => setShowAddExistingModal(true)}
-              className="h-9 rounded border border-neutral-border bg-neutral-surface px-3 text-xs font-medium text-neutral-text-primary
+              className="h-9 rounded-control border border-neutral-border bg-neutral-surface px-3 text-xs font-medium text-neutral-text-primary
                 hover:bg-neutral-surface-raised
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
@@ -85,7 +85,7 @@ export function ProgramProjectsPage() {
             <button
               type="button"
               onClick={() => setShowImportModal(true)}
-              className="h-9 rounded border border-neutral-border bg-neutral-surface px-3 text-xs font-medium text-neutral-text-primary
+              className="h-9 rounded-control border border-neutral-border bg-neutral-surface px-3 text-xs font-medium text-neutral-text-primary
                 hover:bg-neutral-surface-raised
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
@@ -94,7 +94,7 @@ export function ProgramProjectsPage() {
             <button
               type="button"
               onClick={() => setShowNewProjectModal(true)}
-              className="h-9 rounded bg-brand-primary px-3 text-xs font-medium text-white
+              className="h-9 rounded-control bg-brand-primary px-3 text-xs font-medium text-white
                 hover:bg-brand-primary/90
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
@@ -105,7 +105,7 @@ export function ProgramProjectsPage() {
       </div>
 
       {/* Onboarding hint — second of three placements (ADR-0070 §Risks). */}
-      <p className="mb-4 rounded border border-neutral-border bg-neutral-surface-raised p-3 text-xs text-neutral-text-secondary">
+      <p className="mb-4 rounded-card border border-neutral-border bg-neutral-surface-raised p-3 text-xs text-neutral-text-secondary">
         <span aria-hidden="true">ⓘ </span>
         These projects belong to the program. Their member lists are managed separately on each
         project.
@@ -123,7 +123,7 @@ export function ProgramProjectsPage() {
             <div
               key={i}
               aria-hidden="true"
-              className="h-14 animate-pulse rounded border border-neutral-border bg-neutral-surface-raised"
+              className="h-14 animate-pulse rounded-card border border-neutral-border bg-neutral-surface-raised"
             />
           ))}
         </div>
@@ -136,7 +136,7 @@ export function ProgramProjectsPage() {
       )}
 
       {!isLoading && !error && projects && projects.length === 0 && (
-        <div className="rounded border border-neutral-border bg-neutral-surface-raised p-6 text-center">
+        <div className="rounded-card border border-neutral-border bg-neutral-surface-raised p-6 text-center">
           <p className="text-sm text-neutral-text-secondary">
             No projects in this program yet. Add an existing project, import one from MS Project, or
             create a new one and assign it here.
@@ -146,7 +146,7 @@ export function ProgramProjectsPage() {
               <button
                 type="button"
                 onClick={() => setShowAddExistingModal(true)}
-                className="h-9 rounded border border-neutral-border bg-neutral-surface px-4 text-xs font-medium text-neutral-text-primary
+                className="h-9 rounded-control border border-neutral-border bg-neutral-surface px-4 text-xs font-medium text-neutral-text-primary
                   hover:bg-neutral-surface-raised
                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               >
@@ -155,7 +155,7 @@ export function ProgramProjectsPage() {
               <button
                 type="button"
                 onClick={() => setShowImportModal(true)}
-                className="h-9 rounded border border-neutral-border bg-neutral-surface px-4 text-xs font-medium text-neutral-text-primary
+                className="h-9 rounded-control border border-neutral-border bg-neutral-surface px-4 text-xs font-medium text-neutral-text-primary
                   hover:bg-neutral-surface-raised
                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               >
@@ -164,7 +164,7 @@ export function ProgramProjectsPage() {
               <button
                 type="button"
                 onClick={() => setShowNewProjectModal(true)}
-                className="h-9 rounded bg-brand-primary px-4 text-xs font-medium text-white
+                className="h-9 rounded-control bg-brand-primary px-4 text-xs font-medium text-white
                   hover:bg-brand-primary/90
                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               >
@@ -178,7 +178,7 @@ export function ProgramProjectsPage() {
       {!isLoading && !error && projects && projects.length > 0 && (
         <ul
           aria-label="Projects in this program"
-          className="divide-y divide-neutral-border rounded border border-neutral-border bg-neutral-surface"
+          className="divide-y divide-neutral-border rounded-card border border-neutral-border bg-neutral-surface"
         >
           {projects.map((p) => (
             <li
@@ -202,7 +202,7 @@ export function ProgramProjectsPage() {
                   (rule 39/145). Informational — the row name carries the link. */}
               {(p.overdueCount ?? 0) > 0 && (
                 <span
-                  className="tppm-mono shrink-0 rounded border border-semantic-critical/40 px-1.5 py-0.5 text-xs text-semantic-critical"
+                  className="tppm-mono shrink-0 rounded-chip border border-semantic-critical/40 px-1.5 py-0.5 text-xs text-semantic-critical"
                   aria-label={`${p.overdueCount} overdue task${p.overdueCount === 1 ? '' : 's'}`}
                 >
                   {p.overdueCount} overdue
@@ -210,7 +210,7 @@ export function ProgramProjectsPage() {
               )}
               {(p.atRiskCount ?? 0) > 0 && (
                 <span
-                  className="tppm-mono shrink-0 rounded border border-semantic-at-risk/40 px-1.5 py-0.5 text-xs text-semantic-at-risk"
+                  className="tppm-mono shrink-0 rounded-chip border border-semantic-at-risk/40 px-1.5 py-0.5 text-xs text-semantic-at-risk"
                   aria-label={`${p.atRiskCount} at-risk task${p.atRiskCount === 1 ? '' : 's'}`}
                 >
                   {p.atRiskCount} at risk
@@ -222,7 +222,7 @@ export function ProgramProjectsPage() {
                   onClick={() => void handleRemove(p.id)}
                   disabled={removeProjectFromProgram.isPending}
                   aria-label={`Remove ${p.name} from this program`}
-                  className="h-8 rounded border border-neutral-border px-2 text-xs text-neutral-text-secondary
+                  className="h-8 rounded-control border border-neutral-border px-2 text-xs text-neutral-text-secondary
                     hover:bg-neutral-surface disabled:opacity-50
                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
                 >

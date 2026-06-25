@@ -55,11 +55,11 @@ export function ProgramBacklogPage() {
         <div className="border-b border-neutral-border bg-neutral-surface-raised px-6 py-4">
           <div
             aria-hidden="true"
-            className="h-3 w-28 animate-pulse rounded bg-neutral-surface-sunken"
+            className="h-3 w-28 animate-pulse rounded-chip bg-neutral-surface-sunken"
           />
           <div
             aria-hidden="true"
-            className="mt-2 h-5 w-24 animate-pulse rounded bg-neutral-surface-sunken"
+            className="mt-2 h-5 w-24 animate-pulse rounded-chip bg-neutral-surface-sunken"
           />
         </div>
         <div className="flex flex-1 items-center justify-center">

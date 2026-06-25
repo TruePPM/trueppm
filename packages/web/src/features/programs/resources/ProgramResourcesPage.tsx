@@ -56,7 +56,7 @@ export function ProgramResourcesPage() {
       {status === 'schedule-not-run' && (
         <div
           role="status"
-          className="rounded border border-neutral-border bg-neutral-surface-sunken px-4 py-6 text-center text-sm text-neutral-text-secondary"
+          className="rounded-card border border-neutral-border bg-neutral-surface-sunken px-4 py-6 text-center text-sm text-neutral-text-secondary"
         >
           No project in this program has a computed schedule yet. Run the scheduler on a member
           project to see resource contention across the program.
@@ -66,7 +66,7 @@ export function ProgramResourcesPage() {
       {status === 'error' && (
         <div
           role="alert"
-          className="rounded border border-semantic-critical/30 bg-semantic-critical-bg px-4 py-3 text-sm text-semantic-critical"
+          className="rounded-card border border-semantic-critical/30 bg-semantic-critical-bg px-4 py-3 text-sm text-semantic-critical"
         >
           Couldn&rsquo;t load resource contention. Try again.
         </div>
@@ -95,7 +95,7 @@ function ContentionList({ resources }: { resources: ProgramAllocationResource[] 
     return (
       <div
         role="status"
-        className="rounded border border-neutral-border bg-neutral-surface-sunken px-4 py-6 text-center text-sm text-neutral-text-secondary"
+        className="rounded-card border border-neutral-border bg-neutral-surface-sunken px-4 py-6 text-center text-sm text-neutral-text-secondary"
       >
         No one is assigned across this program&rsquo;s projects in the current window.
       </div>
@@ -132,7 +132,7 @@ function ResourceCard({
   const capacityPct = Math.round(maxUnits * 100);
 
   return (
-    <li className="rounded-md border border-neutral-border bg-neutral-surface p-4">
+    <li className="rounded-card border border-neutral-border bg-neutral-surface p-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-baseline gap-2 min-w-0">
           <span className="font-medium text-neutral-text-primary truncate">{resource.name}</span>

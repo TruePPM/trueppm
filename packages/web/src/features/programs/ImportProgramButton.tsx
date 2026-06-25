@@ -41,11 +41,11 @@ export function ImportProgramButton({ variant = 'header' }: ImportProgramButtonP
   const label = importSeed.isPending ? 'Importing…' : 'Import from JSON';
   const className =
     variant === 'header'
-      ? `h-9 rounded border border-neutral-border px-4 text-sm font-medium text-neutral-text-primary
+      ? `h-9 rounded-control border border-neutral-border px-4 text-sm font-medium text-neutral-text-primary
          hover:bg-neutral-surface-raised
          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
          disabled:opacity-60`
-      : `h-10 rounded border border-neutral-border px-5 text-sm font-medium text-neutral-text-primary
+      : `h-10 rounded-control border border-neutral-border px-5 text-sm font-medium text-neutral-text-primary
          hover:bg-neutral-surface-raised
          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
          disabled:opacity-60`;
@@ -76,7 +76,7 @@ export function ImportProgramButton({ variant = 'header' }: ImportProgramButtonP
       {errors.length > 0 && (
         <div
           role="alert"
-          className="mt-3 max-w-md rounded border border-semantic-critical/40 bg-semantic-critical/5 p-3 text-left"
+          className="mt-3 max-w-md rounded-card border border-semantic-critical/40 bg-semantic-critical/5 p-3 text-left"
         >
           <p className="text-sm font-medium text-semantic-critical">Could not import this file:</p>
           <ul className="mt-1 list-disc pl-5 text-xs text-neutral-text-secondary">

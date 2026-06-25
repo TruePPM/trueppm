@@ -31,7 +31,7 @@ export function ProgramListPage() {
           <button
             type="button"
             onClick={() => setShowCreate(true)}
-            className="h-9 rounded bg-brand-primary px-4 text-sm font-medium text-white
+            className="h-9 rounded-control bg-brand-primary px-4 text-sm font-medium text-white
               hover:bg-brand-primary/90
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >
@@ -47,7 +47,7 @@ export function ProgramListPage() {
               <li
                 key={i}
                 aria-hidden="true"
-                className="h-32 animate-pulse rounded-lg bg-neutral-surface-raised"
+                className="h-32 animate-pulse rounded-card bg-neutral-surface-raised"
               />
             ))}
           </ul>
@@ -73,7 +73,7 @@ export function ProgramListPage() {
               <button
                 type="button"
                 onClick={() => setShowCreate(true)}
-                className="h-10 rounded bg-brand-primary px-5 text-sm font-medium text-white
+                className="h-10 rounded-control bg-brand-primary px-5 text-sm font-medium text-white
                   hover:bg-brand-primary/90
                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               >

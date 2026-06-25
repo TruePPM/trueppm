@@ -112,7 +112,7 @@ export function BacklogListRow({
         {visibleTags.map((tag) => (
           <span
             key={tag}
-            className="hidden shrink-0 rounded bg-neutral-surface-sunken px-1.5 py-px text-xs text-neutral-text-secondary lg:inline"
+            className="hidden shrink-0 rounded-chip bg-neutral-surface-sunken px-1.5 py-px text-xs text-neutral-text-secondary lg:inline"
           >
             {tag}
           </span>
@@ -151,7 +151,7 @@ export function BacklogListRow({
               onPull();
             }}
             aria-label={`Pull ${item.title} to a project`}
-            className={`inline-flex h-6 items-center gap-1 rounded border border-neutral-border bg-neutral-surface
+            className={`inline-flex h-6 items-center gap-1 rounded-control border border-neutral-border bg-neutral-surface
               px-2 text-[11px] font-medium text-neutral-text-primary hover:border-brand-primary ${FOCUS_RING}`}
           >
             Pull
