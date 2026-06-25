@@ -1,3 +1,6 @@
+import { Link } from 'react-router';
+
+import { useProjectId } from '@/hooks/useProjectId';
 import type { SprintRetroActionItem } from '@/hooks/useSprints';
 
 export interface DraftActionItem {
@@ -36,6 +39,7 @@ export function RetroActionItems({
   onRemove,
   onPromote,
 }: Props) {
+  const projectId = useProjectId();
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-baseline justify-between">
@@ -53,7 +57,7 @@ export function RetroActionItems({
       </div>
 
       {items.length === 0 ? (
-        <p className="text-xs italic text-neutral-text-disabled">No action items yet.</p>
+        <p className="text-xs italic text-neutral-text-secondary">No action items yet.</p>
       ) : (
         <ul className="flex flex-col gap-2">
           {items.map((item, idx) => {
@@ -88,15 +92,15 @@ export function RetroActionItems({
                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
                 />
                 {isPromoted && persisted ? (
-                  <a
-                    href={`#task-${persisted.promoted_task_id}`}
-                    title={`Promoted to task ${persisted.promoted_task_id}`}
+                  <Link
+                    to={`/projects/${projectId}/schedule#task-${persisted.promoted_task_id}`}
+                    title={`Promoted to task ${persisted.promoted_task_id} — open in Schedule`}
                     className="tppm-mono text-xs px-1.5 py-0.5 rounded border border-semantic-on-track/40 text-semantic-on-track
                       whitespace-nowrap
                       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
                   >
                     → T-{persisted.promoted_task_id!.slice(0, 6)}
-                  </a>
+                  </Link>
                 ) : persisted ? (
                   <button
                     type="button"
@@ -113,7 +117,7 @@ export function RetroActionItems({
                   </button>
                 ) : (
                   <span
-                    className="text-xs text-neutral-text-disabled italic whitespace-nowrap px-2"
+                    className="text-xs text-neutral-text-secondary italic whitespace-nowrap px-2"
                     title="Save retro first to enable promote"
                   >
                     Save first

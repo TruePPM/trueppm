@@ -51,6 +51,75 @@ export function useVelocitySuggestions(taskId: string | undefined) {
 }
 
 /**
+ * GET /api/v1/velocity-suggestions/?pending=true
+ *
+ * Every pending velocity-calibration suggestion across the caller's projects
+ * (the endpoint is membership-gated server-side; the rows carry `sprint_id`).
+ * The sprint-surface reforecast panel filters these to a single sprint so the
+ * Scrum Master who just closed a sprint can accept/dismiss the velocity→duration
+ * reforecast in place, instead of opening each task's drawer (issue 1290). The cache
+ * key is project-agnostic — the response is the same regardless of which project
+ * surface mounts it — but the fetch is gated on being inside a project route.
+ */
+export function usePendingVelocitySuggestions(projectId: string | undefined) {
+  return useQuery({
+    queryKey: ['velocity-suggestions', 'pending'],
+    enabled: Boolean(projectId),
+    queryFn: async (): Promise<VelocitySuggestion[]> => {
+      const res = await apiClient.get<PaginatedResponse<VelocitySuggestion>>(
+        `/velocity-suggestions/?pending=true`,
+      );
+      return res.data.results;
+    },
+  });
+}
+
+/**
+ * Project-scoped accept/dismiss for the sprint-surface reforecast panel.
+ *
+ * Unlike the task-scoped {@link useAcceptVelocitySuggestion}/{@link useDismissVelocitySuggestion}
+ * (which the task drawer uses, keyed by one task), these invalidate *all*
+ * velocity-suggestion queries — both the task-scoped banners and the project
+ * pending list — so a settled suggestion drops out of every surface at once.
+ * Accept also refreshes the project tasks (`['tasks', projectId]`, shared by the
+ * drawer and useScheduleTasks) since `most_likely_duration` changed.
+ */
+export function useAcceptSprintVelocitySuggestion(projectId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (suggestionId: string) => {
+      const res = await apiClient.post<VelocitySuggestion>(
+        `/velocity-suggestions/${suggestionId}/accept/`,
+      );
+      return res.data;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['velocity-suggestions'] });
+      void queryClient.invalidateQueries({ queryKey: ['tasks', projectId] });
+    },
+  });
+}
+
+export function useDismissSprintVelocitySuggestion() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (suggestionId: string) => {
+      const res = await apiClient.post<VelocitySuggestion>(
+        `/velocity-suggestions/${suggestionId}/dismiss/`,
+      );
+      return res.data;
+    },
+    // Dismiss is audit-only — it never touches the task — so it only needs to drop
+    // the settled row out of the pending lists; no task-cache refresh.
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['velocity-suggestions'] });
+    },
+  });
+}
+
+/**
  * POST /api/v1/velocity-suggestions/{id}/accept/
  *
  * Applies the suggested duration to the task and enqueues a CPM recompute.

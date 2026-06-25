@@ -24,6 +24,9 @@ vi.mock('@/hooks/useSprints', async () => {
     useSprintMutations: vi.fn(),
   };
 });
+vi.mock('@/hooks/useScheduleTasks', () => ({
+  useScheduleTasks: vi.fn(),
+}));
 vi.mock('@/features/reports/BurnChart', () => ({
   BurnChart: ({ sprintId }: { sprintId: string }) => (
     <div data-testid="burn-chart">burn-chart:{sprintId}</div>
@@ -50,12 +53,27 @@ import {
   useSprintMutations,
   type ProjectVelocity,
 } from '@/hooks/useSprints';
+import { useScheduleTasks } from '@/hooks/useScheduleTasks';
+import type { Task } from '@/types';
 
 const useCurrentUserRoleMock = vi.mocked(useCurrentUserRole);
 const useActiveSprintMock = vi.mocked(useActiveSprint);
 const useProjectVelocityMock = vi.mocked(useProjectVelocity);
 const useProjectForecastMock = vi.mocked(useProjectForecast);
 const useSprintMutationsMock = vi.mocked(useSprintMutations);
+const useScheduleTasksMock = vi.mocked(useScheduleTasks);
+
+/** Minimal task for the critical-path count filter (sprintId/isCritical/plannedStart/isComplete). */
+function makeTask(over: Partial<Task>): Task {
+  return {
+    id: 'task-x',
+    sprintId: null,
+    isCritical: false,
+    isComplete: false,
+    plannedStart: '2026-06-01',
+    ...over,
+  } as unknown as Task;
+}
 
 function renderPanel(opts: {
   methodology?: 'WATERFALL' | 'AGILE' | 'HYBRID' | undefined;
@@ -63,6 +81,7 @@ function renderPanel(opts: {
   sprint?: ApiSprint | null;
   role?: number | null;
   velocity?: Partial<ProjectVelocity>;
+  tasks?: Task[];
 } = {}) {
   const {
     methodology = 'AGILE',
@@ -70,8 +89,10 @@ function renderPanel(opts: {
     sprint = makeSprint({ state: 'ACTIVE' }),
     role = ROLE_SCHEDULER,
     velocity,
+    tasks = [],
   } = opts;
   useActiveSprintMock.mockReturnValue({ sprint, isLoading: false });
+  useScheduleTasksMock.mockReturnValue({ tasks } as unknown as ReturnType<typeof useScheduleTasks>);
   useCurrentUserRoleMock.mockReturnValue({ role, isLoading: role === null });
   useProjectVelocityMock.mockReturnValue({
     data: velocity as ProjectVelocity | undefined,
@@ -98,6 +119,27 @@ beforeEach(() => {
 });
 
 describe('SprintPanel', () => {
+  it('shows the critical-path count for scheduled, incomplete critical tasks in the sprint (#549)', () => {
+    const sprint = makeSprint({ state: 'ACTIVE', id: 'sp-1' });
+    renderPanel({
+      sprint,
+      tasks: [
+        makeTask({ id: 't1', sprintId: 'sp-1', isCritical: true }),
+        makeTask({ id: 't2', sprintId: 'sp-1', isCritical: true }),
+        makeTask({ id: 't3', sprintId: 'sp-1', isCritical: false }), // not critical
+        makeTask({ id: 't4', sprintId: 'sp-1', isCritical: true, isComplete: true }), // complete
+        makeTask({ id: 't5', sprintId: 'other', isCritical: true }), // other sprint
+      ],
+    });
+    expect(screen.getByLabelText('2 tasks on the critical path')).toBeInTheDocument();
+  });
+
+  it('omits the critical-path count when no in-sprint critical work remains (#549)', () => {
+    const sprint = makeSprint({ state: 'ACTIVE', id: 'sp-1' });
+    renderPanel({ sprint, tasks: [makeTask({ id: 't1', sprintId: 'sp-1', isCritical: false })] });
+    expect(screen.queryByText(/on critical path/i)).not.toBeInTheDocument();
+  });
+
   it('renders nothing for WATERFALL projects', () => {
     const { container } = renderPanel({ methodology: 'WATERFALL' });
     expect(container).toBeEmptyDOMElement();

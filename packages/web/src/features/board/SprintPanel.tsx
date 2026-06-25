@@ -16,6 +16,7 @@ import { wipState } from '@/features/board/wip';
 import { useActiveSprint, useProjectVelocity, useSprintMutations } from '@/hooks/useSprints';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
+import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { ROLE_SCHEDULER } from '@/lib/roles';
 import type { ApiSprint, BoardCadence } from '@/types';
 
@@ -47,6 +48,8 @@ export function SprintPanel({ projectId, methodology, boardCadence }: Props) {
   const itl = useIterationLabel(projectId);
   const { role } = useCurrentUserRole(projectId);
   const { data: velocity, isLoading: velocityLoading } = useProjectVelocity(projectId);
+  // Deduped against the board's own ['tasks', projectId] query — no extra fetch.
+  const { tasks: projectTasks } = useScheduleTasks(projectId);
   const { updateSprint } = useSprintMutations(projectId);
   const isScheduler = role !== null && role >= ROLE_SCHEDULER;
   const storageKey = `trueppm.board.${projectId}.sprintPanel.open`;
@@ -94,6 +97,16 @@ export function SprintPanel({ projectId, methodology, boardCadence }: Props) {
     writeStoredOpen(storageKey, true);
   };
 
+  // The reverse hybrid bridge (issue 549): how much of the active sprint sits on the
+  // CPM critical path. Filtering to this sprint's tasks already excludes the
+  // issue-332 trap (uncommitted backlog ideas CPM auto-marks critical) — sprint
+  // membership *is* the schedule commitment — so no separate scheduled-gate is
+  // needed; completed work drops out. Aggregates the per-card CP signal the board
+  // already shows.
+  const criticalCount = (projectTasks ?? []).filter(
+    (t) => t.sprintId === sprint.id && t.isCritical && !t.isComplete,
+  ).length;
+
   return (
     <section
       aria-label={`Active ${itl.lower} summary`}
@@ -108,6 +121,7 @@ export function SprintPanel({ projectId, methodology, boardCadence }: Props) {
         canLinkMilestone={isScheduler && sprint.target_milestone == null}
         onLinkMilestone={() => setPromoting(true)}
         iterationLower={itl.lower}
+        criticalCount={criticalCount}
       />
       <div
         id={`sprint-panel-body-${sprint.id}`}
@@ -162,6 +176,8 @@ interface HeaderProps {
   canLinkMilestone: boolean;
   onLinkMilestone: () => void;
   iterationLower: string;
+  /** In-sprint tasks on the CPM critical path (issue 549) — the reverse bridge signal. */
+  criticalCount: number;
 }
 
 function Header({
@@ -172,6 +188,7 @@ function Header({
   canLinkMilestone,
   onLinkMilestone,
   iterationLower,
+  criticalCount,
 }: HeaderProps) {
   const daysRemaining = Math.max(0, daysUntil(sprint.finish_date));
   const { day: dayOf, total: totalDays } = sprintDayOf(sprint.start_date, sprint.finish_date);
@@ -220,6 +237,20 @@ function Header({
                 limit={sprint.wip_limit}
                 onClick={onWipChipClick}
               />
+            </>
+          )}
+          {criticalCount > 0 && (
+            <>
+              <span aria-hidden="true">·</span>
+              <span
+                className="inline-flex items-center gap-1 rounded border border-semantic-critical/40 px-1.5 text-semantic-critical"
+                title="On the critical path — a delay on any of these tasks delays the project end date"
+                aria-label={`${criticalCount} ${criticalCount === 1 ? 'task' : 'tasks'} on the critical path`}
+              >
+                <span aria-hidden="true">⚠</span>
+                <span className="tppm-mono">{criticalCount}</span>
+                <span>on critical path</span>
+              </span>
             </>
           )}
         </p>

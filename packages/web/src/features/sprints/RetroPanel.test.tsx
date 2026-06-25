@@ -1,7 +1,7 @@
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderWithProviders } from '@/test/utils';
+import { renderWithProviders, renderWithRouter } from '@/test/utils';
 import type {
   SaveRetroPayload,
   SprintRetroPayload,
@@ -151,7 +151,9 @@ describe('RetroPanel', () => {
       isLoading: false,
       error: null,
     });
-    renderWithProviders(<RetroPanel sprintId="sp-1" isClosed={true} />);
+    // Uses renderWithRouter: the promoted-task chip is now a react-router
+    // <Link> (was a dead #task- anchor), which requires a Router context.
+    renderWithRouter(<RetroPanel sprintId="sp-1" isClosed={true} />);
 
     expect(await screen.findByDisplayValue('Burndown skewed')).toBeInTheDocument();
     expect(screen.getByDisplayValue('Add deploy gate')).toBeInTheDocument();
