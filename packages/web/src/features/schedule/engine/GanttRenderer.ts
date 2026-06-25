@@ -516,6 +516,10 @@ export function drawTimelineHeader(
 
 /** Choose bar fill color based on task state. */
 function barFillColor(task: Task): string {
+  // Program schedule view (ADR-0182): redacted external tasks reuse the muted
+  // secondary text color so they read as "not yours"; their criticality is shown
+  // by a red outline in drawTaskBar, not a red fill.
+  if (task.isExternal) return _palette.textSecondary;
   if (task.isSummary) return _palette.barSummary;
   if (task.isComplete || task.progress >= 100) return _palette.barComplete;
   if (task.isCritical) return _palette.barCritical;
@@ -686,6 +690,36 @@ export function drawTaskBar(
   ctx.beginPath();
   ctx.roundRect(barLeft, barTop, barWidth, BAR_HEIGHT, 3);
   ctx.fill();
+
+  // Redacted external task (ADR-0120 D5 / ADR-0182): a task in a member project
+  // the viewer can't access. Diagonal hatch over the muted fill so it reads as
+  // "not yours"; criticality shows as a red OUTLINE (never red fill) so the
+  // program-true critical path stays visible without implying the detail is
+  // readable. The chip/initials below are naturally skipped (progress 0,
+  // NOT_STARTED, no assignees).
+  if (task.isExternal) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(barLeft, barTop, barWidth, BAR_HEIGHT, 3);
+    ctx.clip();
+    // A fixed translucent ink reads on the muted gray bar in both light and dark.
+    ctx.strokeStyle = 'rgba(0,0,0,0.28)';
+    ctx.lineWidth = 1;
+    for (let hx = barLeft - BAR_HEIGHT; hx < barLeft + barWidth; hx += 5) {
+      ctx.beginPath();
+      ctx.moveTo(hx, barTop + BAR_HEIGHT);
+      ctx.lineTo(hx + BAR_HEIGHT, barTop);
+      ctx.stroke();
+    }
+    ctx.restore();
+    if (task.isCritical) {
+      ctx.strokeStyle = _palette.barCritical;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.roundRect(barLeft + 0.75, barTop + 0.75, barWidth - 1.5, BAR_HEIGHT - 1.5, 3);
+      ctx.stroke();
+    }
+  }
 
   // Selection: 2px inset stroke ring
   if (isSelected) {
@@ -1240,6 +1274,10 @@ interface PendingPath {
   lineWidth: number;
   /** Hover-chain (#475) — non-chain arrows fade to 20% alpha. Defaults to 1. */
   alpha?: number;
+  /** Dash pattern for the connector line (ADR-0182) — set for cross-project
+   *  edges so they read distinctly. The arrowhead stays solid (it is filled,
+   *  not stroked). Undefined/empty → a solid line. */
+  lineDash?: number[];
   arrowhead?: { tipX: number; tipY: number; angle: number };
   bezier?: { cx1: number; cx2: number };
   /** Inclusive task-row span the path crosses, for the halo spatial index (#1000).
@@ -1388,6 +1426,9 @@ function drawPathWithHops(
   ctx.fillStyle = path.stroke;
   ctx.lineWidth = path.lineWidth;
   if (path.alpha !== undefined && path.alpha < 1) ctx.globalAlpha = path.alpha;
+  // Dashed connector for cross-project edges (ADR-0182). Applied only to the
+  // line strokes below; the arrowhead is a filled triangle, so it stays solid.
+  if (path.lineDash && path.lineDash.length > 0) ctx.setLineDash(path.lineDash);
 
   if (path.bezier) {
     const { cx1, cx2 } = path.bezier;
@@ -1742,6 +1783,7 @@ export function paintDependencyLayout(
     const isSelected = selectedTaskIds.has(link.sourceId) || selectedTaskIds.has(link.targetId);
     const role = arrowRole(link.sourceId, link.targetId, hoverChain);
     const { stroke, lineWidth, alpha } = arrowPen(isSelected, role);
+    const lineDash = linkDash(link);
     const arrowSize = 9;
     const tipX = tgt.isMilestone ? tgt.barLeft : tgt.barLeft - 1;
     const srcBox = boxFor(src, srcY, milestoneHalfDiag);
@@ -1753,6 +1795,7 @@ export function paintDependencyLayout(
       stroke,
       lineWidth,
       alpha,
+      lineDash,
       arrowhead: { tipX, tipY: tgtY, angle: 0 },
       rows: { min: Math.min(src.rowIndex, tgt.rowIndex), max: Math.max(src.rowIndex, tgt.rowIndex) },
     });
@@ -1808,6 +1851,9 @@ export function paintDependencyLayout(
       const isSelected = selectedTaskIds.has(link.sourceId) || selectedTaskIds.has(link.targetId);
       const role = arrowRole(link.sourceId, link.targetId, hoverChain);
       const { stroke, lineWidth, alpha } = arrowPen(isSelected, role);
+      // Each predecessor feeder carries its own cross-project dash; the shared
+      // trunk to the arrowhead stays solid (it is the target's converged inflow).
+      const lineDash = linkDash(link);
       const srcBox = boxFor(src, srcY, milestoneHalfDiag);
       const tgtBox = boxFor(tgt, tgtY, milestoneHalfDiag);
       if (offScreen(src.barRight, junctionX, srcY, junctionY, cpWidth, cpHeight)) continue;
@@ -1818,6 +1864,7 @@ export function paintDependencyLayout(
         stroke,
         lineWidth,
         alpha,
+        lineDash,
         rows: { min: Math.min(src.rowIndex, tgt.rowIndex), max: Math.max(src.rowIndex, tgt.rowIndex) },
       });
     }
@@ -1862,12 +1909,14 @@ export function paintDependencyLayout(
     const isSelected = selectedTaskIds.has(link.sourceId) || selectedTaskIds.has(link.targetId);
     const role = arrowRole(link.sourceId, link.targetId, hoverChain);
     const { stroke, lineWidth, alpha } = arrowPen(isSelected, role);
+    const lineDash = linkDash(link);
     const angle = Math.atan2(0, x2 - cx2);
     pendingPaths.push({
       pts: [{ x: x1, y: srcY }, { x: x2, y: tgtY }],
       stroke,
       lineWidth,
       alpha,
+      lineDash,
       arrowhead: { tipX: x2, tipY: tgtY, angle },
       bezier: { cx1, cx2 },
     });
@@ -1996,6 +2045,22 @@ function arrowPen(
   if (role === 'dim')
     return { stroke: _palette.arrowNormal, lineWidth: 2, alpha: CHAIN_ARROW_DIM_ALPHA };
   return { stroke: _palette.arrowNormal, lineWidth: 2, alpha: 1 };
+}
+
+/**
+ * Dash pattern for cross-project dependency edges (ADR-0182, issue 1118).
+ *
+ * A cross-project edge is drawn DASHED (charcoal, like every other connector —
+ * ADR-0063 rule 73: arrow color carries no semantics; only the dash does) so a
+ * cross-program handoff reads as a distinct kind of edge without colliding with
+ * the red-critical bars or the blue/green hover-chain pens. Within-project edges
+ * stay solid. The arrowhead is filled, so it stays solid either way.
+ */
+const CROSS_PROJECT_DASH = [6, 4];
+
+/** Dash pattern for a link, or undefined for a solid within-project edge. */
+function linkDash(link: TaskLink): number[] | undefined {
+  return link.crossProject ? CROSS_PROJECT_DASH : undefined;
 }
 
 /** RoutingBox for a task entry in the taskMap. */

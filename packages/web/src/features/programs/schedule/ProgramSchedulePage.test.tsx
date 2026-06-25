@@ -1,0 +1,143 @@
+import { render, screen } from '@testing-library/react';
+import { MemoryRouter, Route, Routes } from 'react-router';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { ProgramSchedulePage } from './ProgramSchedulePage';
+import type { ProgramSchedule } from '../hooks/useProgramSchedule';
+
+const useProgramSchedule = vi.fn<() => unknown>();
+vi.mock('../hooks/useProgramSchedule', async (orig) => {
+  const actual = await orig<typeof import('../hooks/useProgramSchedule')>();
+  return { ...actual, useProgramSchedule: () => useProgramSchedule() };
+});
+
+const useProgram = vi.fn<() => unknown>();
+vi.mock('@/hooks/useProgram', () => ({ useProgram: () => useProgram() }));
+
+const useBreakpoint = vi.fn(() => 'lg');
+vi.mock('@/hooks/useBreakpoint', () => ({ useBreakpoint: () => useBreakpoint() }));
+
+// Stub the canvas engine + live-sync sockets + zoom control — this is a
+// chrome/state test, not a rendering test (the engine has its own coverage).
+vi.mock('@/features/schedule/CanvasScheduleTimeline', () => ({
+  CanvasScheduleTimeline: () => <div data-testid="canvas-timeline" />,
+}));
+vi.mock('./ProgramScheduleLiveSync', () => ({ ProgramScheduleLiveSync: () => null }));
+vi.mock('@/features/schedule/ZoomControl', () => ({
+  ZoomControl: () => <div data-testid="zoom-control" />,
+}));
+
+function axiosError(status: number): unknown {
+  return { isAxiosError: true, response: { status } };
+}
+
+function queryResult(over: Record<string, unknown>) {
+  return {
+    data: undefined,
+    isLoading: false,
+    error: null,
+    refetch: vi.fn(),
+    isRefetching: false,
+    ...over,
+  };
+}
+
+const GOLDEN: ProgramSchedule = {
+  program_id: 'prog-1',
+  start_date: '2026-03-02',
+  finish_date: '2026-05-01',
+  projects: [
+    { id: 'proj-a', name: 'Helios Platform', accessible: true },
+    { id: 'proj-b', name: 'Helios Mobile', accessible: true },
+  ],
+  tasks: [
+    {
+      id: 't-a1',
+      name: 'Design API',
+      hex_id: 'A-1',
+      project_id: 'proj-a',
+      is_milestone: false,
+      is_external: false,
+      wbs_path: '1.1',
+      early_start: '2026-03-02',
+      early_finish: '2026-03-13',
+      late_start: '2026-03-02',
+      late_finish: '2026-03-13',
+      total_float_days: 0,
+      is_critical: true,
+    },
+  ],
+  links: [],
+  critical_path: ['t-a1'],
+  cross_project_edge_count: 0,
+};
+
+function renderPage() {
+  return render(
+    <MemoryRouter initialEntries={['/programs/prog-1/schedule']}>
+      <Routes>
+        <Route path="/programs/:programId/schedule" element={<ProgramSchedulePage />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+
+describe('ProgramSchedulePage', () => {
+  beforeEach(() => {
+    useBreakpoint.mockReturnValue('lg');
+    useProgram.mockReturnValue({ data: { id: 'prog-1', name: 'Helios' } });
+  });
+
+  it('shows a larger-screen notice on small viewports', () => {
+    useBreakpoint.mockReturnValue('sm');
+    useProgramSchedule.mockReturnValue(queryResult({ data: GOLDEN }));
+    renderPage();
+    expect(screen.getByText('Best viewed on a larger screen')).toBeInTheDocument();
+    expect(screen.queryByTestId('canvas-timeline')).not.toBeInTheDocument();
+  });
+
+  it('shows a loading skeleton while fetching', () => {
+    useProgramSchedule.mockReturnValue(queryResult({ isLoading: true }));
+    renderPage();
+    expect(screen.getByLabelText('Loading program schedule')).toBeInTheDocument();
+  });
+
+  it('renders the golden path: header, project count, legend, and canvas', () => {
+    useProgramSchedule.mockReturnValue(queryResult({ data: GOLDEN }));
+    renderPage();
+    expect(screen.getByRole('heading', { name: 'Program Schedule' })).toBeInTheDocument();
+    expect(screen.getByText(/Cross-project critical path across 2 projects/)).toBeInTheDocument();
+    expect(screen.getByTestId('canvas-timeline')).toBeInTheDocument();
+    expect(screen.getByText('Critical path')).toBeInTheDocument();
+  });
+
+  it('shows the empty state when there are no scheduled tasks', () => {
+    useProgramSchedule.mockReturnValue(queryResult({ data: { ...GOLDEN, tasks: [] } }));
+    renderPage();
+    expect(screen.getByText('No program schedule yet')).toBeInTheDocument();
+  });
+
+  it('falls back to the empty state for a defensive 409 (endpoint emits 200-empty, not 409)', () => {
+    useProgramSchedule.mockReturnValue(queryResult({ error: axiosError(409) }));
+    renderPage();
+    expect(screen.getByText('No program schedule yet')).toBeInTheDocument();
+  });
+
+  it('shows the too-large panel for a 422', () => {
+    useProgramSchedule.mockReturnValue(queryResult({ error: axiosError(422) }));
+    renderPage();
+    expect(screen.getByText('This program is too large to chart live')).toBeInTheDocument();
+  });
+
+  it('shows a forbidden message for a 403', () => {
+    useProgramSchedule.mockReturnValue(queryResult({ error: axiosError(403) }));
+    renderPage();
+    expect(screen.getByRole('alert')).toHaveTextContent(/don.t have access/i);
+  });
+
+  it('shows a retryable error for a network/5xx failure', () => {
+    useProgramSchedule.mockReturnValue(queryResult({ error: axiosError(500) }));
+    renderPage();
+    expect(screen.getByRole('alert')).toHaveTextContent(/Couldn.t load the program schedule/i);
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+  });
+});

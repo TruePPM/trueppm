@@ -92,6 +92,14 @@ export interface Task {
   isComplete: boolean;
   isSummary: boolean;
   isMilestone: boolean;
+  /**
+   * Program schedule view only (ADR-0182, issue 1118): this row is a task in a
+   * member project the viewer cannot access, redacted to the ADR-0120 D5
+   * ExternalTaskCard shape. The renderer paints it muted/hatched and the
+   * program page shows only the minimal hover card — never description,
+   * assignee, status, or points. `undefined`/`false` everywhere else.
+   */
+  isExternal?: boolean;
   status: TaskStatus;
   /**
    * Server-derived edit/delete capability for the requesting user (ADR-0133, 1144).
@@ -317,6 +325,14 @@ export interface TaskLink {
   /** Lag in working days (positive = delay, negative = lead). */
   lag: number;
   isCritical: boolean;
+  /**
+   * Program schedule view only (ADR-0182, issue 1118): this edge connects tasks in
+   * two different member projects of the same program (server-authoritative
+   * `is_cross_project`; render-don't-derive). The renderer draws it dashed in
+   * the brand accent so a cross-project handoff reads distinctly from a
+   * within-project edge. `undefined`/`false` in single-project views.
+   */
+  crossProject?: boolean;
 }
 
 /**
