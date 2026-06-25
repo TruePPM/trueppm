@@ -21,6 +21,20 @@ Create a GitLab merge request for the current branch.
 
 No arguments. Always targets `main`. Always uses `glab mr create`.
 
+### Who invokes this — user vs. agent
+
+`/mr` is **user-invoked only**: its frontmatter sets `disable-model-invocation: true`
+because opening an MR is a merge-adjacent side effect the user should trigger
+deliberately (the agent must never auto-merge — see the git-workflow rules). The
+agent therefore *cannot* call `/mr` through the Skill tool, and should not try.
+
+When an agent needs to open an MR as part of automated work (the "open an MR"
+workflow step), it **reproduces Steps 2–4 below directly** with `glab mr create` —
+same description structure, same heredoc, same `Closes #NNN` rule. Guidance
+elsewhere that says "always use `/mr`" means *produce the MR the `/mr` way*, not
+*call the skill*. This file is the canonical format for **both** paths, so the two
+stay identical. The same split applies to `/fix-mr` and `/release`.
+
 ---
 
 ## Step 1 — Gather context & pre-flight (Sonnet sub-agents, in parallel)
