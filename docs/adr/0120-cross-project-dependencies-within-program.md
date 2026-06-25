@@ -1,7 +1,12 @@
 # ADR-0120: Cross-Project Dependencies Within a Program — Program-Scoped CPM Pass
 
 ## Status
-Proposed
+Accepted — fully implemented in #1117. D1/D2/D5 (edges, consent gate,
+ExternalTaskCard) and the D3 read surface shipped first; the persisted D3
+dispatch pass (program-scoped recompute, `schedule_lock:program:{id}`, outbox
+coalescing, per-project write-back + broadcast fan-out) and the D4 sprint-boundary
+firewall (`CrossProjectSlipConflict`, acknowledge endpoint, ADR-0106 integration)
+landed in the final slice. D6 (the program schedule web view) is #1118.
 
 **Tracking:** [#1150](https://gitlab.com/trueppm/trueppm/-/issues/1150) — cross-project dependencies within a program (program-scoped CPM pass). Demo on-ramp: [#1151](https://gitlab.com/trueppm/trueppm/-/issues/1151) (the "1.0 GA Launch" sample program, `docs/specs/ga-launch-sample-program.spec.md`).
 

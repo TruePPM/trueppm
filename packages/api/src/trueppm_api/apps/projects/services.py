@@ -3138,7 +3138,13 @@ def _unmodeled_predecessors(milestone: Any) -> list[str]:
     belongs to a sprint that is **not** itself targeting this milestone — so the
     velocity-based reforecast has no completion signal for it and may read
     optimistically. A single predecessor scan over the dependency rows; no graph
-    walk, no cross-project read.
+    walk.
+
+    ADR-0120 integration: an *accepted* cross-project predecessor is genuinely
+    modeled — the program-scoped CPM pass (D3) schedules it with real dates — so it
+    no longer counts as unmodeled even though its sprint can never target this
+    project's milestone. A *pending* cross edge stays unmodeled: it is inert
+    (excluded from the program gather), so the reforecast still has no signal for it.
     """
     from trueppm_api.apps.projects.models import Dependency, Sprint
 
@@ -3147,13 +3153,24 @@ def _unmodeled_predecessors(milestone: Any) -> list[str]:
             "pk", flat=True
         )
     )
+    milestone_project_id = milestone.project_id
     unmodeled: list[str] = []
     for dep in (
         Dependency.objects.filter(successor_id=milestone.pk, predecessor__is_deleted=False)
         .select_related("predecessor")
-        .only("predecessor__id", "predecessor__sprint_id")
+        .only(
+            "pending_acceptance",
+            "predecessor__id",
+            "predecessor__sprint_id",
+            "predecessor__project_id",
+        )
     ):
         pred = dep.predecessor
+        if pred.project_id != milestone_project_id:
+            # Cross-project predecessor: modeled once accepted, unmodeled while pending.
+            if dep.pending_acceptance:
+                unmodeled.append(str(pred.pk))
+            continue
         if pred.sprint_id is None or pred.sprint_id not in targeting_sprint_ids:
             unmodeled.append(str(pred.pk))
     return unmodeled

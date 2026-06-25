@@ -2625,6 +2625,116 @@ class SprintBurnSnapshot(models.Model):
         return f"BurnSnapshot({self.sprint_id} @ {self.snapshot_date})"
 
 
+class SlipConflictResolution(models.TextChoices):
+    """Lifecycle state of a :class:`CrossProjectSlipConflict` (ADR-0120 D4)."""
+
+    UNRESOLVED = "unresolved", "Unresolved"
+    # The program pass re-ran and the task no longer slips past its sprint
+    # (moved out, sprint extended, edge rejected, or float absorbed the push).
+    # Kept for audit; excluded from the open-conflict badge.
+    AUTO_RESOLVED = "auto_resolved", "Auto-resolved"
+
+
+class CrossProjectSlipConflict(models.Model):
+    """A committed sprint task pushed past its boundary by a cross-project edge (ADR-0120 D4).
+
+    The sprint-boundary firewall. The program-scoped CPM pass (ADR-0120 D3)
+    computes honest dates — it never freezes them — so when an accepted
+    cross-project dependency pushes a task in an ACTIVE sprint past its
+    ``sprint.finish_date``, this row records the conflict for the **downstream**
+    team to acknowledge. Acknowledgment is an audit act ("seen, handling it"),
+    never a schedule mutation: the ripple can never alter ``Sprint`` dates,
+    task↔sprint membership, status, points, or any commitment math. The team
+    resolves it through their own surfaces (move the task, extend the sprint,
+    accept the risk). No actor outside the downstream project may acknowledge —
+    management-inert, ADR-0102 §3.
+
+    Plain ``models.Model`` (not ``VersionedModel``) — server-generated,
+    online-read, not on the mobile sync surface; mirrors ``SprintBurnSnapshot``.
+
+    Idempotent under re-run: the unique ``(sprint, task)`` key means each program
+    pass *upserts* one row per slipping task rather than duplicating. The
+    attributed ``dependency`` (the tightest-constraining cross edge, chosen
+    deterministically) is metadata, **not** part of the key — so a re-run that
+    attributes a different edge updates the row in place instead of spawning a
+    second one.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    sprint = models.ForeignKey(Sprint, on_delete=models.CASCADE, related_name="slip_conflicts")
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="slip_conflicts")
+    # The cross-project edge attributed as the tightest constraint pushing the
+    # task past its sprint. SET_NULL so deleting the edge does not destroy the
+    # audit row — the next program pass auto-resolves it instead.
+    dependency = models.ForeignKey(
+        "projects.Dependency",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="slip_conflicts",
+    )
+    # The program-true early_finish the task was pushed to. Strictly greater than
+    # the sprint's (inclusive) finish_date while the row is UNRESOLVED.
+    pushed_to = models.DateField()
+    detected_at = models.DateTimeField(auto_now_add=True)
+    # Bumped each time an already-acknowledged conflict slips *further* (pushed_to
+    # increases): the acknowledgment is cleared and the badge re-lights so the SM
+    # sees the conflict came back worse rather than a silent date change.
+    re_slip_count = models.PositiveIntegerField(default=0)
+    resolution = models.CharField(
+        max_length=16,
+        choices=SlipConflictResolution.choices,
+        default=SlipConflictResolution.UNRESOLVED,
+    )
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    # SET_NULL + related_name="+": acknowledgment attribution is optional audit
+    # metadata; deleting the actor's account never cascades away the conflict.
+    acknowledged_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    acknowledged_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "projects_crossprojectslipconflict"
+        ordering = ["-detected_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["sprint", "task"],
+                name="unique_slip_conflict_per_sprint_task",
+            ),
+        ]
+        indexes = [
+            # The open-conflict badge / acknowledge queue: unresolved + unacked.
+            models.Index(
+                fields=["resolution", "acknowledged_at"],
+                name="slip_conflict_open_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"SlipConflict(sprint={self.sprint_id}, task={self.task_id})"
+
+    @property
+    def project_id(self) -> object:
+        """Expose the downstream project so ``_get_project_id_from_obj`` resolves it.
+
+        The conflict has no direct Project FK; the threatened sprint's task is in
+        the downstream project, which is the project whose scope-manager facet
+        gates acknowledgment (ADR-0120 D4 / ADR-0102 §3). Mirrors the same pattern
+        on ``VelocitySuggestion``.
+        """
+        return self.task.project_id
+
+    @property
+    def is_open(self) -> bool:
+        """True when unresolved and not yet acknowledged — what the badge counts."""
+        return self.resolution == SlipConflictResolution.UNRESOLVED and self.acknowledged_at is None
+
+
 class SprintTaskDisposition(models.TextChoices):
     """What happened to a task that was a member of a sprint at its close (#982)."""
 

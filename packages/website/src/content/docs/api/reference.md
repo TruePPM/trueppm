@@ -264,13 +264,27 @@ workflow and error codes.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/v1/dependencies/` | List (filter: `?project=`, `?dep_type=FS`) |
+| GET | `/api/v1/dependencies/` | List (filter: `?project=`, `?dep_type=FS`, `?task=`) |
 | POST | `/api/v1/dependencies/` | Create |
 | GET | `/api/v1/dependencies/{id}/` | Retrieve |
 | PUT / PATCH | `/api/v1/dependencies/{id}/` | Update |
 | DELETE | `/api/v1/dependencies/{id}/` | Soft-delete |
+| POST | `/api/v1/dependencies/{id}/accept/` | Accept a pending cross-project edge (downstream Resource Manager+) |
+| POST | `/api/v1/dependencies/{id}/reject/` | Reject (soft-delete) a pending cross-project edge |
 
-Predecessor and successor must belong to the same project — cross-project edges return `HTTP 400`.
+Predecessor and successor may belong to the **same project** or to two projects in the **same [program](/features/programs/)**. Cross-**program** edges return `HTTP 400` (the [Enterprise boundary](/license/) is unchanged). A cross-project edge whose successor sits in a project the creator cannot schedule is created **pending**: it is inert until the downstream project's Resource Manager+ accepts it via `accept/`. Once accepted, the program's schedule recomputes across the boundary so floats and criticality are program-true on every member project's own schedule (not only the [program schedule view](/features/program-schedule/)).
+
+### Cross-project slip conflicts
+
+When an accepted cross-project dependency pushes a committed task in an **active sprint** past its sprint boundary, the program recompute records a **slip conflict** for the downstream team. The dates stay honest — the firewall never moves a sprint, its membership, or its commitment math; it only surfaces the conflict for the team to acknowledge and resolve their own way.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/slip-conflicts/` | List (filter: `?program=`, `?project=`, `?sprint=`, `?open=true`) — scoped to your member projects |
+| GET | `/api/v1/slip-conflicts/{id}/` | Retrieve |
+| POST | `/api/v1/slip-conflicts/{id}/acknowledge/` | Acknowledge (downstream Scrum Master / Product Owner facet, or Admin+) |
+
+Acknowledgment is an audit act — "seen, handling it" — not a schedule change; only a member of the threatened project with the Scrum Master / Product Owner facet (or Admin+) may acknowledge. A conflict that stops slipping (the task moves out, the sprint is extended, the edge is rejected) auto-resolves on the next recompute.
 
 ### Monte Carlo
 

@@ -16553,6 +16553,181 @@
                 }
             }
         },
+        "/api/v1/slip-conflicts/": {
+            "get": {
+                "operationId": "v1_slip_conflicts_list",
+                "description": "Cross-project sprint-boundary slip conflicts (ADR-0120 D4).\n\nRead + acknowledge only — a conflict is detected and resolved by the\nprogram-scoped CPM pass, never written through the API. Scoped to conflicts in\nprojects the requester is a member of (object existence is not leaked across the\nboundary). Acknowledgment is gated to the downstream project's scope manager\n(Admin+ or the Scrum Master / Product Owner facet) and is management-inert:\nthere is no program/portfolio bypass path — only a real membership + facet on\nthe threatened project grants it (ADR-0102 §3).",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "open",
+                        "schema": {
+                            "type": "boolean"
+                        },
+                        "description": "When true, only unresolved + unacknowledged conflicts (badge set)."
+                    },
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "program",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "Filter to conflicts across this program's member projects."
+                    },
+                    {
+                        "in": "query",
+                        "name": "project",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "Filter to conflicts whose threatened task is in this project."
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "sprint",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "Filter to conflicts threatening this sprint."
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedCrossProjectSlipConflictList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/slip-conflicts/{id}/": {
+            "get": {
+                "operationId": "v1_slip_conflicts_retrieve",
+                "description": "Cross-project sprint-boundary slip conflicts (ADR-0120 D4).\n\nRead + acknowledge only — a conflict is detected and resolved by the\nprogram-scoped CPM pass, never written through the API. Scoped to conflicts in\nprojects the requester is a member of (object existence is not leaked across the\nboundary). Acknowledgment is gated to the downstream project's scope manager\n(Admin+ or the Scrum Master / Product Owner facet) and is management-inert:\nthere is no program/portfolio bypass path — only a real membership + facet on\nthe threatened project grants it (ADR-0102 §3).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this cross project slip conflict.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CrossProjectSlipConflict"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/slip-conflicts/{id}/acknowledge/": {
+            "post": {
+                "operationId": "v1_slip_conflicts_acknowledge_create",
+                "description": "Acknowledge a cross-project slip conflict (ADR-0120 D4).\n\nAn audit act — \"seen, handling it\" — *not* a schedule mutation: it never\nmoves the task, the sprint, or any commitment. Only the downstream project's\nscope manager (Admin+ or SM/PO facet) may acknowledge; the resolution itself\nhappens through the team's own surfaces. Returns 400 if the conflict is\nalready resolved.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this cross project slip conflict.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CrossProjectSlipConflict"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/sprint-task-outcomes/{id}/flag-for-backlog/": {
             "post": {
                 "operationId": "v1_sprint_task_outcomes_flag_for_backlog_create",
@@ -23470,6 +23645,131 @@
                     "reason"
                 ]
             },
+            "CrossProjectSlipConflict": {
+                "type": "object",
+                "description": "Read-only view of a cross-project sprint-boundary slip conflict (ADR-0120 D4).\n\nThe downstream team's \"what is threatening my sprint and why\" answer in one\nround trip: the threatened task, the sprint it overran, the program-true\n``pushed_to`` date, and the upstream cross-project task that caused it. The\nupstream predecessor is exposed as the minimal D5 ``ExternalTaskCard`` shape\n(name + project only) so the conflict reads even when the requester cannot open\nthe upstream project — never \"blocked by [redacted]\", never team-private data.\nAll fields are read-only; the only mutation is the ``acknowledge`` action.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "sprint": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "sprint_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "sprint_finish_date": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true
+                    },
+                    "task": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "task_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "task_hex_id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "project_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "dependency": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "upstream_task": {
+                        "type": "object",
+                        "additionalProperties": {},
+                        "nullable": true,
+                        "description": "The cross-edge predecessor as the D5 ExternalTaskCard, or ``None`` if the\nedge was deleted (the conflict auto-resolves on the next pass).\n\nCarries the same bounded, non-sensitive scheduling facts as\n:class:`ExternalTaskCardSerializer` — title + project + program-true CPM\ndates — so the downstream SM sees *when* the upstream task finishes (the\ncause of the slip), never its description/assignee/status/points.",
+                        "readOnly": true
+                    },
+                    "pushed_to": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true
+                    },
+                    "detected_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "re_slip_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "resolution": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ResolutionEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "resolved_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "acknowledged_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "acknowledged_by_name": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "acknowledged_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "is_open": {
+                        "type": "boolean",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "acknowledged_at",
+                    "acknowledged_by",
+                    "acknowledged_by_name",
+                    "dependency",
+                    "detected_at",
+                    "id",
+                    "is_open",
+                    "project_id",
+                    "pushed_to",
+                    "re_slip_count",
+                    "resolution",
+                    "resolved_at",
+                    "sprint",
+                    "sprint_finish_date",
+                    "sprint_name",
+                    "task",
+                    "task_hex_id",
+                    "task_name",
+                    "upstream_task"
+                ]
+            },
             "DecisionNote": {
                 "type": "object",
                 "description": "Read-only Decisions-view row (ADR-0167, #748).\n\nA decision-flagged task note plus the task + sprint context the web client needs to\ngroup by sprint and link back to the task drawer. Read-only: the ``decision`` flag is\ntoggled via ``TaskNoteViewSet.decision`` (mirroring ``pin``), never written here.",
@@ -25183,6 +25483,37 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/CredentialSummary"
+                        }
+                    }
+                }
+            },
+            "PaginatedCrossProjectSlipConflictList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CrossProjectSlipConflict"
                         }
                     }
                 }
@@ -29976,6 +30307,14 @@
                     "velocity_high",
                     "velocity_low"
                 ]
+            },
+            "ResolutionEnum": {
+                "enum": [
+                    "unresolved",
+                    "auto_resolved"
+                ],
+                "type": "string",
+                "description": "* `unresolved` - Unresolved\n* `auto_resolved` - Auto-resolved"
             },
             "Resource": {
                 "type": "object",

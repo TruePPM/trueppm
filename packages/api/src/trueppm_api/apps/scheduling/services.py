@@ -442,6 +442,58 @@ def build_sched_tasks(db_tasks: list[Any], *, suggest_approve: bool) -> list[Any
     ]
 
 
+def apply_summary_rollups(
+    result_map: dict[str, Any],
+    summary_ids: set[str],
+    children_map: dict[str, list[str]],
+    db_task_by_id: dict[str, Any],
+) -> None:
+    """Add synthetic CPM rows for summary tasks to ``result_map`` in place (ADR-0105).
+
+    Summary tasks are excluded from the leaf CPM pass (they are grouping nodes, not
+    schedulable work), so their dates are *derived* from their leaf descendants:
+    ``early_start = min(leaf early_start)``, ``early_finish = max(leaf early_finish)``,
+    tightest float, critical if any leaf is critical. Shared by the single-project
+    write-back (``scheduling.tasks._run_schedule``) and the program-scoped write-back
+    (``recalculate_program_schedule``) so the two never drift (the #1185 class). The
+    merged ``children_map`` keys are globally-unique task ids, so this works
+    unchanged across the per-project and program graphs.
+    """
+    from datetime import timedelta
+
+    from trueppm_scheduler.engine import _collect_leaves
+    from trueppm_scheduler.models import Task as SchedTask
+
+    for sid in summary_ids:
+        leaves = _collect_leaves(sid, children_map)
+        leaf_results = [result_map[lid] for lid in leaves if lid in result_map]
+        if not leaf_results:
+            continue
+
+        es_dates = [t.early_start for t in leaf_results if t.early_start is not None]
+        ef_dates = [t.early_finish for t in leaf_results if t.early_finish is not None]
+        ls_dates = [t.late_start for t in leaf_results if t.late_start is not None]
+        lf_dates = [t.late_finish for t in leaf_results if t.late_finish is not None]
+        floats = [t.total_float for t in leaf_results if t.total_float is not None]
+
+        if not es_dates or not ef_dates:
+            continue
+
+        summary_sched = SchedTask(
+            id=sid,
+            name=db_task_by_id[sid].name if sid in db_task_by_id else sid,
+            duration=timedelta(days=0),
+        )
+        summary_sched.early_start = min(es_dates)
+        summary_sched.early_finish = max(ef_dates)
+        summary_sched.late_start = min(ls_dates) if ls_dates else summary_sched.early_start
+        summary_sched.late_finish = max(lf_dates) if lf_dates else summary_sched.early_finish
+        summary_sched.total_float = min(floats) if floats else timedelta(days=0)
+        summary_sched.free_float = timedelta(days=0)
+        summary_sched.is_critical = any(t.is_critical for t in leaf_results)
+        result_map[sid] = summary_sched
+
+
 # Capture-path dedup window (ADR-0154 §3): a recompute that produces an
 # unchanged forecast within this window of the previous snapshot is a no-op, so
 # a project recomputed many times during a heavy edit session does not write a

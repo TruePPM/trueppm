@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import timedelta
+from typing import Any
 
 import redis as redis_lib
 from celery.exceptions import SoftTimeLimitExceeded
@@ -203,6 +204,42 @@ def _do_purge() -> None:
         requested_at__lt=cutoff,
     ).delete()
     logger.info("purge_old_schedule_requests: deleted %d row(s)", deleted)
+
+
+@idempotent_task(
+    lock_key_template="purge_resolved_slip_conflicts",
+    lock_ttl=120,
+    on_contention="skip",
+    soft_time_limit=55,
+    time_limit=90,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    name="scheduling.purge_resolved_slip_conflicts",
+)
+def purge_resolved_slip_conflicts(self: object) -> None:
+    """Delete cross-project slip conflicts 90 days past resolution (ADR-0120 D4).
+
+    Runs nightly at 02:25 UTC. Removes ``CrossProjectSlipConflict`` rows whose
+    acknowledgment or auto-resolution is older than 90 days; unresolved and
+    unacknowledged rows are kept indefinitely (they are still live conflicts).
+    Idempotent: a re-run deletes nothing new.
+    """
+    _do_purge_resolved_slip_conflicts()
+
+
+def _do_purge_resolved_slip_conflicts() -> None:
+    """Business logic for purge_resolved_slip_conflicts — extracted for testability."""
+    from django.db.models import Q
+    from django.utils import timezone
+
+    from trueppm_api.apps.projects.models import CrossProjectSlipConflict
+
+    cutoff = timezone.now() - timedelta(days=90)
+    deleted, _ = CrossProjectSlipConflict.objects.filter(
+        Q(acknowledged_at__lt=cutoff) | Q(resolved_at__lt=cutoff)
+    ).delete()
+    if deleted:
+        logger.info("purge_resolved_slip_conflicts: deleted %d row(s)", deleted)
 
 
 @idempotent_task(
@@ -517,7 +554,6 @@ def _run_schedule(
     from trueppm_scheduler.models import Dependency as SchedDependency
     from trueppm_scheduler.models import DependencyType
     from trueppm_scheduler.models import Project as SchedProject
-    from trueppm_scheduler.models import Task as SchedTask
 
     from trueppm_api.apps.projects.models import (
         Dependency,
@@ -526,7 +562,7 @@ def _run_schedule(
         Task,
         TaskType,
     )
-    from trueppm_api.apps.scheduling.services import build_sched_tasks
+    from trueppm_api.apps.scheduling.services import apply_summary_rollups, build_sched_tasks
 
     def _update(pct: int, msg: str) -> None:
         if tracker is not None:
@@ -544,6 +580,16 @@ def _run_schedule(
         )
     except Project.DoesNotExist:
         logger.warning("recalculate_schedule: project %s not found, skipping", project_id)
+        return
+
+    # ADR-0120 D3: if this project belongs to a program that has ≥1 accepted
+    # cross-project edge, a single-project CPM would compute program-FALSE floats
+    # and criticality (it cannot see the cross-boundary demand). Escalate to the
+    # merged program-scoped pass and stop here, *before* any write — the program
+    # run is the sole writer for every member project while escalation holds, so no
+    # stale single-project dates are ever persisted. The DISPATCHED outbox row is
+    # left for the program run to mark done.
+    if _escalate_to_program(project_id, db_project.program_id):
         return
 
     # Exclude recurrence templates and their generated occurrences from the CPM feed.
@@ -652,40 +698,10 @@ def _run_schedule(
     # Build a map from task id string to computed CPM values.
     result_map = {t.id: t for t in result.tasks}
 
-    # Compute summary task dates by rolling up from their leaf descendants.
-    # Summary tasks are excluded from the CPM run, so we derive their dates
-    # from min(early_start) and max(early_finish) of all descendant leaves.
-    for sid in summary_ids:
-        from trueppm_scheduler.engine import _collect_leaves
-
-        leaves = _collect_leaves(sid, children_map)
-        leaf_results = [result_map[lid] for lid in leaves if lid in result_map]
-        if not leaf_results:
-            continue
-
-        es_dates = [t.early_start for t in leaf_results if t.early_start is not None]
-        ef_dates = [t.early_finish for t in leaf_results if t.early_finish is not None]
-        ls_dates = [t.late_start for t in leaf_results if t.late_start is not None]
-        lf_dates = [t.late_finish for t in leaf_results if t.late_finish is not None]
-        floats = [t.total_float for t in leaf_results if t.total_float is not None]
-
-        if not es_dates or not ef_dates:
-            continue
-
-        # Create a synthetic result entry for the summary task
-        summary_sched = SchedTask(
-            id=sid,
-            name=db_task_by_id[sid].name if sid in db_task_by_id else sid,
-            duration=timedelta(days=0),
-        )
-        summary_sched.early_start = min(es_dates)
-        summary_sched.early_finish = max(ef_dates)
-        summary_sched.late_start = min(ls_dates) if ls_dates else summary_sched.early_start
-        summary_sched.late_finish = max(lf_dates) if lf_dates else summary_sched.early_finish
-        summary_sched.total_float = min(floats) if floats else timedelta(days=0)
-        summary_sched.free_float = timedelta(days=0)
-        summary_sched.is_critical = any(t.is_critical for t in leaf_results)
-        result_map[sid] = summary_sched
+    # Compute summary task dates by rolling up from their leaf descendants
+    # (ADR-0105) via the shared helper, so this single-project write-back and the
+    # program-scoped write-back derive summary dates through identical code.
+    apply_summary_rollups(result_map, summary_ids, children_map, db_task_by_id)
 
     # Determine which tasks need their CPM results written back to the DB.
     #
@@ -801,6 +817,14 @@ def _run_schedule(
     # means clients only ever see dates that actually persisted; a rollback
     # broadcasts nothing. Default-arg binding pins the payloads so the deferred
     # callbacks can't late-bind a mutated value.
+    # ADR-0120 D3 pre-write guard: a cross-project edge may have been accepted
+    # while this single-project CPM was running. Re-check the escalation predicate
+    # immediately before the write — if the program now has an accepted cross edge,
+    # discard this (now program-FALSE) single-project result and hand off to the
+    # program pass rather than persisting stale single-project dates. Cheap EXISTS.
+    if _escalate_to_program(project_id, db_project.program_id):
+        return
+
     with transaction.atomic():
         Task.objects.bulk_update(
             tasks_to_update,
@@ -868,3 +892,283 @@ def _run_schedule(
         event_type="schedule.recalculated",
         payload={"project": project_id, **cpm_payload},
     )
+
+
+# ---------------------------------------------------------------------------
+# Program-scoped CPM dispatch pass — ADR-0120 D3 (#1117)
+# ---------------------------------------------------------------------------
+
+
+def _escalate_to_program(project_id: str, program_id: object) -> bool:
+    """Dispatch the program-scoped pass instead of a single-project one, if needed.
+
+    Returns ``True`` when the project's program has ≥1 accepted cross-project edge
+    (ADR-0120 D3) and a ``recalculate_program_schedule`` was dispatched (best
+    effort) — the caller must then return *without* writing single-project results,
+    because a single-project CPM cannot see the cross-boundary demand and would
+    persist program-FALSE floats/criticality. ``False`` keeps today's per-project
+    path. If the dispatch itself fails (broker down) the outbox row stays
+    DISPATCHED and the 10-minute orphan sweep re-escalates it — so this never
+    silently drops the recompute.
+    """
+    if program_id is None:
+        return False
+    from trueppm_api.apps.projects.program_schedule import program_has_accepted_cross_edges
+
+    if not program_has_accepted_cross_edges(program_id):
+        return False
+    try:
+        recalculate_program_schedule.delay(str(program_id))
+    except Exception:
+        logger.exception(
+            "recalculate_schedule: could not dispatch program pass for program %s "
+            "— orphan recovery will re-escalate within 10 min",
+            program_id,
+        )
+    return True
+
+
+@idempotent_task(
+    lock_key_template="schedule_lock:program:{0}",
+    lock_ttl=300,
+    on_contention="queue",
+    queue_countdown=10,
+    max_queue_attempts=30,
+    autoretry_for=_RETRIABLE,
+    retry_backoff=30,
+    retry_backoff_max=300,
+    retry_jitter=True,
+    max_retries=3,
+    soft_time_limit=480,
+    time_limit=600,
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+def recalculate_program_schedule(self: object, program_id: str) -> None:
+    """Run the merged, program-true CPM for one program and persist it (ADR-0120 D3).
+
+    Escalated to from ``recalculate_schedule`` whenever a member project's program
+    holds ≥1 accepted cross-project edge. It merges every member project's tasks
+    and every accepted cross edge into one engine graph (the shared
+    ``gather_program_schedule``), runs CPM once, writes program-true CPM fields back
+    to every member project, fans the ``cpm_complete`` / ``task_dates_updated``
+    broadcasts out to each member project's board channel (there is no program WS
+    channel in 0.3 — the program view subscribes per member project), upserts any
+    D4 sprint-boundary conflicts, and coalesces every member project's outbox row.
+
+    Idempotent: a pure recompute, safe to run twice. ``schedule_lock:program:{id}``
+    serializes program runs; ``max_queue_attempts`` is sized so contenders ride out
+    a held lock rather than dropping, and the outbox orphan sweep is the backstop on
+    a crash. The lock namespace is disjoint from the per-project ``schedule_lock:{id}``,
+    but a per-project task can never *write* while escalation holds (it self-aborts
+    at the pre-write guard), so the two never produce a torn write.
+    """
+    _run_program_schedule(program_id)
+
+
+def _member_cpm_delta(project_tasks: list[Any]) -> dict[str, object]:
+    """Build one project's ``task_dates_updated`` delta payload (ADR-0091 shape).
+
+    Mirrors the single-project delta exactly so a web client can splice program-pass
+    results into its task cache the same way; above ``CPM_DELTA_BROADCAST_CAP`` it
+    emits a ``truncated`` signal and lets the client re-fetch.
+    """
+    if len(project_tasks) > CPM_DELTA_BROADCAST_CAP:
+        return {"count": len(project_tasks), "truncated": True}
+    return {
+        "count": len(project_tasks),
+        "tasks": [
+            {
+                "id": str(t.id),
+                "early_start": t.early_start.isoformat() if t.early_start else None,
+                "early_finish": t.early_finish.isoformat() if t.early_finish else None,
+                "late_start": t.late_start.isoformat() if t.late_start else None,
+                "late_finish": t.late_finish.isoformat() if t.late_finish else None,
+                "total_float": t.total_float,
+                "free_float": t.free_float,
+                "is_critical": t.is_critical,
+                "planned_start": t.planned_start.isoformat() if t.planned_start else None,
+                "duration": t.duration,
+            }
+            for t in project_tasks
+        ],
+    }
+
+
+_PROGRAM_WRITE_FIELDS = [
+    "early_start",
+    "early_finish",
+    "late_start",
+    "late_finish",
+    "total_float",
+    "free_float",
+    "is_critical",
+    "duration",
+]
+
+
+def _run_program_schedule(program_id: str) -> None:
+    """Gather, run, and persist the program-true schedule for ``program_id``.
+
+    Extracted from the Celery task for testability — exercised directly by the
+    program-pass tests without a broker.
+    """
+    from django.db import transaction
+    from django.utils import timezone
+
+    from trueppm_api.apps.projects.models import Program, Project, Task
+    from trueppm_api.apps.projects.program_schedule import gather_program_schedule
+    from trueppm_api.apps.projects.slip_conflict import detect_and_upsert_slip_conflicts
+    from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
+    from trueppm_api.apps.scheduling.services import apply_summary_rollups
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+    from trueppm_api.apps.webhooks.dispatch import dispatch_webhooks
+
+    try:
+        program = Program.objects.get(pk=program_id, is_deleted=False)
+    except Program.DoesNotExist:
+        logger.warning("recalculate_program_schedule: program %s not found, skipping", program_id)
+        return
+
+    member_ids = list(
+        Project.objects.filter(program_id=program_id, is_deleted=False).values_list("id", flat=True)
+    )
+    if not member_ids:
+        return
+
+    # CLAIM before reading data: capture exactly the member outbox rows that are
+    # already DISPATCHED. Only these row ids are marked DONE at the end, so a row
+    # dispatched *after* this point (a concurrent edit while we run) is never
+    # swallowed — it lands a fresh row and is serviced by the next pass.
+    claimed_ids = list(
+        ScheduleRequest.objects.filter(
+            project_id__in=member_ids, status=ScheduleRequestStatus.DISPATCHED
+        ).values_list("id", flat=True)
+    )
+
+    graph = gather_program_schedule(program, enforce_max=False)
+
+    now = timezone.now()
+    tasks_to_update: list[Task] = []
+    if graph.result is not None:
+        result_map = graph.result_map
+        # Roll summary dates up from leaves through the shared helper (parity with
+        # the single-project write-back).
+        summary_ids = graph.summary_ids
+        apply_summary_rollups(result_map, summary_ids, graph.children_map, graph.db_task_by_id)
+        # Full write-back across every member project (the program pass is coarse;
+        # incremental subgraph writes are a later optimization). Field assignment
+        # mirrors _run_schedule exactly, including the milestone single-point
+        # normalisation and the summary calendar-day duration.
+        for db_task in graph.db_task_by_id.values():
+            sched = result_map.get(str(db_task.id))
+            if sched is None:
+                continue
+            db_task.early_start = sched.early_start
+            db_task.early_finish = sched.early_finish
+            db_task.late_start = sched.late_start
+            db_task.late_finish = sched.late_finish
+            db_task.total_float = sched.total_float.days if sched.total_float else None
+            db_task.free_float = sched.free_float.days if sched.free_float else None
+            db_task.is_critical = sched.is_critical
+            if db_task.is_milestone:
+                db_task.early_finish = db_task.early_start
+                db_task.late_finish = db_task.late_start
+            if str(db_task.id) in summary_ids and db_task.early_start and db_task.early_finish:
+                db_task.duration = max(1, (db_task.early_finish - db_task.early_start).days)
+            tasks_to_update.append(db_task)
+
+    # Group moved tasks by project for the per-project broadcasts.
+    by_project: dict[object, list[Task]] = {}
+    for t in tasks_to_update:
+        by_project.setdefault(t.project_id, []).append(t)
+
+    # Program-true critical path restricted to each project (clients consuming a
+    # project's cpm_complete expect that project's critical ids).
+    crit_order = list(graph.result.critical_path) if graph.result is not None else []
+
+    with transaction.atomic():
+        if tasks_to_update:
+            Task.objects.bulk_update(tasks_to_update, _PROGRAM_WRITE_FIELDS)
+
+        # Coalesce: mark exactly the claimed member outbox rows done (DISPATCHED →
+        # DONE). Filtering on DISPATCHED avoids racing the drain's orphan recovery.
+        if claimed_ids:
+            ScheduleRequest.objects.filter(
+                id__in=claimed_ids, status=ScheduleRequestStatus.DISPATCHED
+            ).update(status=ScheduleRequestStatus.DONE)
+
+        # Stamp recalculated_at on every member project so each project's Schedule
+        # view clears its "recalculating" badge (#1053), bulk to skip history.
+        Project.objects.filter(pk__in=member_ids).update(recalculated_at=now)
+
+        # D4 sprint-boundary firewall: detect and upsert cross-project slip
+        # conflicts in the same transaction as the write-back, so a conflict is
+        # never visible against dates that did not commit.
+        if graph.result is not None:
+            detect_and_upsert_slip_conflicts(graph)
+
+        # Per-project broadcasts + forecast capture, deferred to commit (#896) so
+        # clients only ever see dates that persisted. Default-arg binding pins each
+        # project's payload against late mutation.
+        for p in graph.member_projects:
+            pid = str(p.id)
+            project_tasks = by_project.get(p.id, [])
+            # The project's full program-true critical path — every critical task in
+            # this project, NOT just the ones whose dates moved this pass (a client
+            # that replaces its critical-path state on cpm_complete must get the whole
+            # set, matching the single-project _run_schedule which ships the full path).
+            project_crit = [
+                tid
+                for tid in crit_order
+                if tid in graph.db_task_by_id and graph.db_task_by_id[tid].project_id == p.id
+            ]
+            project_finish = max(
+                (t.early_finish for t in project_tasks if t.early_finish is not None),
+                default=None,
+            )
+            cpm_payload: dict[str, object] = {
+                "project_finish": project_finish.isoformat() if project_finish else None,
+                "critical_path": project_crit,
+            }
+            delta_payload = _member_cpm_delta(project_tasks)
+
+            def _cpm_complete(pid: str = pid, pay: dict[str, object] = cpm_payload) -> None:
+                broadcast_board_event(project_id=pid, event_type="cpm_complete", payload=pay)
+
+            def _dates(pid: str = pid, pay: dict[str, object] = delta_payload) -> None:
+                broadcast_board_event(project_id=pid, event_type="task_dates_updated", payload=pay)
+
+            def _capture(pid: str = pid) -> None:
+                from trueppm_api.apps.scheduling.models import ForecastSnapshotTrigger
+                from trueppm_api.apps.scheduling.services import safe_capture_forecast_snapshot
+
+                safe_capture_forecast_snapshot(pid, ForecastSnapshotTrigger.RECOMPUTE)
+
+            transaction.on_commit(_cpm_complete)
+            transaction.on_commit(_dates)
+            transaction.on_commit(_capture)
+
+    logger.info(
+        "recalculate_program_schedule: program %s — %d member project(s), %d task(s) updated",
+        program_id,
+        len(member_ids),
+        len(tasks_to_update),
+    )
+
+    # schedule.recalculated webhook per member project, after commit.
+    for p in graph.member_projects:
+        pid = str(p.id)
+        project_tasks = by_project.get(p.id, [])
+        project_finish = max(
+            (t.early_finish for t in project_tasks if t.early_finish is not None),
+            default=None,
+        )
+        dispatch_webhooks(
+            project_id=pid,
+            event_type="schedule.recalculated",
+            payload={
+                "project": pid,
+                "project_finish": project_finish.isoformat() if project_finish else None,
+            },
+        )
