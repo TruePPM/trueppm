@@ -1189,9 +1189,17 @@ api:testdb-dump:
 api:test:
   extends: .api
   stage: test
-  # Sharded across 4 runners with pytest-split; -n auto still fans each shard out
-  # across that runner's 4 cores, and pytest-django gives every xdist worker its
-  # own test DB (test_trueppm_test_gw0, _gw1, …) so isolation is preserved.
+  # Sharded into 4 groups with pytest-split; each shard fans out to a FIXED -n 4
+  # xdist workers (#1303). NOT -n auto: xdist's `auto` resolves to os.cpu_count()
+  # — the host logical-CPU count, ignoring any cgroup quota — so on a multi-slot
+  # runner (concurrency > 1) every co-tenant shard would grab the whole box
+  # (12–16 workers each) and thrash the cores, plus stack a postgres service per
+  # shard. A fixed -n 4 keeps the whole stage at 4 shards × 4 = 16 workers, which
+  # fits within the two-NUC fleet (6c/12t + 8c/16t) even when shards co-tenant,
+  # so the slowest shard — which gates api:coverage (it needs all 4) — runs at a
+  # deterministic speed instead of contending. Retune this if runner cores/
+  # concurrency change materially. pytest-django gives every xdist worker its own
+  # test DB (test_trueppm_test_gw0, _gw1, …) so isolation is preserved.
   # pytest-split reads the committed packages/api/.test_durations baseline and
   # rebalances the per-test timings into N groups at runtime, so the same
   # baseline works for any shard count — bumping 2→4 (#1120) needs no regen,
@@ -1241,7 +1249,7 @@ api:test:
     - psql "postgres://trueppm:trueppm@postgres/migrated" -f "$CI_PROJECT_DIR/testdb-schema.sql"
   script:
     - cd packages/api
-    - python -m pytest tests/ --tb=short -q -n auto
+    - python -m pytest tests/ --tb=short -q -n 4
         --splits "$CI_NODE_TOTAL" --group "$CI_NODE_INDEX"
         --cov=trueppm_api --cov-report=
   artifacts:
