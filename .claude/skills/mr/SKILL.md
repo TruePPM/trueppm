@@ -114,12 +114,19 @@ Do not pass `--web` (opens browser unnecessarily). Do not pass `--squash` or `--
 
 ## Step 4 — Confirm and report
 
-After creation, output:
+After creation, parse the MR number (the `!NNN`) from the `glab mr create` output URL and output:
 ```
 MR created: <URL>
+
+CI runs automatically on push. To watch the pipeline and auto-fix failures to green:
+  /fix-mr !<NNN>
 ```
 
-If the pipeline hasn't started yet, note that CI will run automatically on push.
+Always emit the `/fix-mr !<NNN>` follow-up line — it is a one-keystroke handoff to the
+pipeline-watch loop. Do **not** invoke `/fix-mr` yourself; both skills are user-invoked
+by design (`disable-model-invocation`), and the user decides whether to babysit this MR
+or batch it with others. If the pipeline hasn't started yet, note that CI will run
+automatically on push.
 
 ---
 
