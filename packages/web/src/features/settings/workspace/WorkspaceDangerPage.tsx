@@ -137,7 +137,7 @@ export function WorkspaceDangerPage() {
 
       <div className="px-6 pb-8 max-w-[720px] space-y-4">
         {/* Export ----------------------------------------------------------- */}
-        <div className="rounded-lg border border-neutral-border bg-neutral-surface-raised p-4">
+        <div className="rounded-card border border-neutral-border bg-neutral-surface-raised p-4">
           <h2 className="text-[14px] font-semibold text-neutral-text-primary">Export all data</h2>
           <p className="text-[13px] text-neutral-text-secondary mt-1 leading-snug">
             Download a full archive (JSON + attachments) of all workspace data: members, groups,
@@ -150,7 +150,7 @@ export function WorkspaceDangerPage() {
                 type="button"
                 onClick={() => void onDownload()}
                 disabled={downloading}
-                className="shrink-0 px-3 py-1.5 rounded border border-brand-primary text-[13px] font-medium text-brand-primary hover:bg-brand-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:opacity-60"
+                className="shrink-0 px-3 py-1.5 rounded-control border border-brand-primary text-[13px] font-medium text-brand-primary hover:bg-brand-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:opacity-60"
               >
                 {downloading ? 'Downloading…' : 'Download archive'}
               </button>
@@ -159,7 +159,7 @@ export function WorkspaceDangerPage() {
                 type="button"
                 onClick={onStartExport}
                 disabled={exportBusy}
-                className="shrink-0 px-3 py-1.5 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary"
+                className="shrink-0 px-3 py-1.5 rounded-control border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary"
               >
                 {exportBusy ? 'Building export…' : 'Export all data'}
               </button>
@@ -177,7 +177,7 @@ export function WorkspaceDangerPage() {
         </div>
 
         {/* Transfer ownership ---------------------------------------------- */}
-        <div className="rounded-lg border border-neutral-border bg-neutral-surface-raised p-4">
+        <div className="rounded-card border border-neutral-border bg-neutral-surface-raised p-4">
           <h2 className="text-[14px] font-semibold text-neutral-text-primary">
             Transfer ownership
           </h2>
@@ -194,7 +194,7 @@ export function WorkspaceDangerPage() {
               value={newOwnerId}
               onChange={(e) => setNewOwnerId(e.target.value)}
               disabled={transfer.isPending || transferCandidates.length === 0}
-              className="h-8 px-2 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:opacity-60"
+              className="h-8 px-2 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:opacity-60"
             >
               <option value="">
                 {transferCandidates.length === 0 ? 'No eligible members' : 'Select a member…'}
@@ -209,7 +209,7 @@ export function WorkspaceDangerPage() {
               type="button"
               onClick={onTransfer}
               disabled={!newOwnerId || transfer.isPending}
-              className="shrink-0 px-3 py-1.5 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary"
+              className="shrink-0 px-3 py-1.5 rounded-control border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary"
             >
               {transfer.isPending ? 'Transferring…' : 'Transfer ownership…'}
             </button>
@@ -217,7 +217,7 @@ export function WorkspaceDangerPage() {
         </div>
 
         {/* Delete — critical zone ------------------------------------------ */}
-        <div className="rounded-lg border border-semantic-critical bg-semantic-critical-bg p-4">
+        <div className="rounded-card border border-semantic-critical bg-semantic-critical-bg p-4">
           <h2 className="text-[14px] font-bold text-semantic-critical">
             Delete workspace — permanent
           </h2>
@@ -227,12 +227,12 @@ export function WorkspaceDangerPage() {
             project, task, baseline, group, and member. This cannot be undone. All members lose
             access immediately.
           </p>
-          <div className="rounded border border-neutral-border bg-neutral-surface px-3 py-2.5 mb-3">
+          <div className="rounded-card border border-neutral-border bg-neutral-surface px-3 py-2.5 mb-3">
             <div className="text-[12px] text-neutral-text-secondary mb-2">
               To confirm, type the workspace name:
             </div>
             <div className="flex items-center gap-2">
-              <code className="px-2 py-0.5 rounded bg-neutral-surface-sunken border border-neutral-border tppm-mono text-[12px] text-neutral-text-primary">
+              <code className="px-2 py-0.5 rounded-chip bg-neutral-surface-sunken border border-neutral-border tppm-mono text-[12px] text-neutral-text-primary">
                 {confirmTarget || '…'}
               </code>
               <input
@@ -243,7 +243,7 @@ export function WorkspaceDangerPage() {
                 aria-label="Confirm delete by typing the workspace name"
                 disabled={!confirmTarget}
                 className={[
-                  'w-[260px] h-8 px-2.5 rounded border tppm-mono text-[12px] text-neutral-text-primary bg-neutral-surface-raised',
+                  'w-[260px] h-8 px-2.5 rounded-control border tppm-mono text-[12px] text-neutral-text-primary bg-neutral-surface-raised',
                   'placeholder:text-neutral-text-disabled',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical',
                   confirmText && !confirmed ? 'border-semantic-critical' : 'border-neutral-border',
@@ -256,7 +256,7 @@ export function WorkspaceDangerPage() {
             disabled={!confirmed || remove.isPending}
             onClick={onDelete}
             className={[
-              'px-4 py-2 rounded text-[13px] font-semibold text-white bg-semantic-critical transition-opacity',
+              'px-4 py-2 rounded-control text-[13px] font-semibold text-white bg-semantic-critical transition-opacity',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1',
               confirmed && !remove.isPending
                 ? 'opacity-100 hover:opacity-90'
@@ -278,7 +278,7 @@ export function WorkspaceDangerPage() {
           role={toast.variant === 'error' ? 'alert' : 'status'}
           aria-live={toast.variant === 'error' ? 'assertive' : 'polite'}
           className={[
-            'fixed bottom-6 right-6 z-50 px-4 py-2.5 rounded border border-neutral-border text-[13px] font-medium',
+            'fixed bottom-6 right-6 z-50 px-4 py-2.5 rounded-card border border-neutral-border text-[13px] font-medium',
             toast.variant === 'error'
               ? 'bg-semantic-critical text-white'
               : 'bg-neutral-text-primary text-white',

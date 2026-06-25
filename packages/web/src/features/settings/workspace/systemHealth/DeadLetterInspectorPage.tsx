@@ -116,7 +116,7 @@ const STATUS_PILL_CLASS: Record<FailedTaskStatus, string> = {
 function StatusPill({ status }: { status: FailedTaskStatus }) {
   return (
     <span
-      className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold ${STATUS_PILL_CLASS[status]}`}
+      className={`inline-flex items-center px-2 py-0.5 rounded-chip text-[11px] font-semibold ${STATUS_PILL_CLASS[status]}`}
     >
       {STATUS_LABEL[status]}
     </span>
@@ -227,8 +227,8 @@ function ListSkeleton() {
         >
           <span className="w-2 h-2 rounded-full bg-neutral-surface-raised shrink-0" />
           <span className="flex-1">
-            <span className="block h-3.5 w-2/3 rounded bg-neutral-surface-raised" />
-            <span className="block mt-1.5 h-2.5 w-1/2 rounded bg-neutral-surface-raised" />
+            <span className="block h-3.5 w-2/3 rounded-chip bg-neutral-surface-raised" />
+            <span className="block mt-1.5 h-2.5 w-1/2 rounded-chip bg-neutral-surface-raised" />
           </span>
         </div>
       ))}
@@ -279,7 +279,7 @@ function DetailPane({ id }: { id: string }) {
       </div>
 
       {/* Attempt summary */}
-      <div className="rounded-lg border border-neutral-border overflow-hidden">
+      <div className="rounded-card border border-neutral-border overflow-hidden">
         <div className="px-4 py-2.5 bg-neutral-surface-sunken border-b border-neutral-border/55">
           <h3 className="text-[11px] font-semibold tracking-[.06em] uppercase text-neutral-text-secondary">
             Attempt summary
@@ -315,7 +315,7 @@ function DetailPane({ id }: { id: string }) {
       </div>
 
       {/* Last error */}
-      <div className="rounded-lg border border-neutral-border overflow-hidden">
+      <div className="rounded-card border border-neutral-border overflow-hidden">
         <div className="px-4 py-2.5 bg-neutral-surface-sunken border-b border-neutral-border/55">
           <h3 className="text-[11px] font-semibold tracking-[.06em] uppercase text-neutral-text-secondary">
             Last error
@@ -328,10 +328,10 @@ function DetailPane({ id }: { id: string }) {
           <p className="text-[12px] text-neutral-text-primary">{data.exception_message}</p>
           {data.traceback && (
             <details className="mt-2">
-              <summary className="cursor-pointer text-[12px] text-brand-primary font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track rounded">
+              <summary className="cursor-pointer text-[12px] text-brand-primary font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track rounded-control">
                 Traceback
               </summary>
-              <pre className="mt-2 p-3 rounded border border-neutral-border bg-neutral-surface-sunken text-[11px] font-mono text-neutral-text-secondary overflow-auto max-h-[40vh] whitespace-pre-wrap break-all">
+              <pre className="mt-2 p-3 rounded-card border border-neutral-border bg-neutral-surface-sunken text-[11px] font-mono text-neutral-text-secondary overflow-auto max-h-[40vh] whitespace-pre-wrap break-all">
                 {data.traceback}
               </pre>
             </details>
@@ -340,14 +340,14 @@ function DetailPane({ id }: { id: string }) {
       </div>
 
       {/* Payload viewer */}
-      <div className="rounded-lg border border-neutral-border overflow-hidden">
+      <div className="rounded-card border border-neutral-border overflow-hidden">
         <div className="px-4 py-2.5 bg-neutral-surface-sunken border-b border-neutral-border/55">
           <h3 className="text-[11px] font-semibold tracking-[.06em] uppercase text-neutral-text-secondary">
             Payload
           </h3>
         </div>
         <div className="p-3">
-          <pre className="font-mono text-[11px] text-neutral-text-secondary bg-neutral-surface-sunken rounded border border-neutral-border p-3 overflow-auto max-h-[40vh] whitespace-pre-wrap break-all">
+          <pre className="font-mono text-[11px] text-neutral-text-secondary bg-neutral-surface-sunken rounded-card border border-neutral-border p-3 overflow-auto max-h-[40vh] whitespace-pre-wrap break-all">
             {JSON.stringify({ args: data.args, kwargs: data.kwargs }, null, 2)}
           </pre>
         </div>
@@ -361,7 +361,7 @@ function DetailPane({ id }: { id: string }) {
 // ---------------------------------------------------------------------------
 
 const SELECT_CLASS =
-  'h-7 pl-2.5 pr-7 rounded border border-neutral-border text-[12px] text-neutral-text-secondary hover:text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track bg-neutral-surface-raised appearance-none bg-no-repeat bg-[right_0.45rem_center]';
+  'h-7 pl-2.5 pr-7 rounded-control border border-neutral-border text-[12px] text-neutral-text-secondary hover:text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track bg-neutral-surface-raised appearance-none bg-no-repeat bg-[right_0.45rem_center]';
 
 const SELECT_STYLE = {
   backgroundImage:
@@ -436,7 +436,7 @@ export function DeadLetterInspectorPage() {
       <div className="px-6 pt-4 pb-2 flex items-center gap-1.5 shrink-0">
         <Link
           to="/settings/health"
-          className="inline-flex items-center gap-1 text-[13px] text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track rounded"
+          className="inline-flex items-center gap-1 text-[13px] text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track rounded-control"
         >
           <ChevronLeftIcon />
           System health
@@ -469,7 +469,7 @@ export function DeadLetterInspectorPage() {
         <label htmlFor={taskNameInputId} className="sr-only">
           Search by task name
         </label>
-        <div className="flex items-center gap-2 h-7 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] w-[220px] focus-within:ring-2 focus-within:ring-brand-primary dark:focus-within:ring-semantic-on-track focus-within:border-brand-primary">
+        <div className="flex items-center gap-2 h-7 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] w-[220px] focus-within:ring-2 focus-within:ring-brand-primary dark:focus-within:ring-semantic-on-track focus-within:border-brand-primary">
           <svg
             width="11"
             height="11"
@@ -563,7 +563,7 @@ export function DeadLetterInspectorPage() {
               <button
                 type="button"
                 onClick={handleClearSelection}
-                className="inline-flex items-center gap-1 text-[13px] text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track rounded"
+                className="inline-flex items-center gap-1 text-[13px] text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track rounded-control"
               >
                 <ChevronLeftIcon />
                 Back to list

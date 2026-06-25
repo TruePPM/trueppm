@@ -26,8 +26,8 @@ export function WorkspaceEmailPage() {
         {isLoading ? (
           <SettingsCard>
             <div className="px-4 py-4 space-y-2" aria-busy="true" aria-label="Loading email settings">
-              <div className="h-3 w-1/2 bg-neutral-surface-sunken rounded animate-pulse" />
-              <div className="h-3 w-2/3 bg-neutral-surface-sunken rounded animate-pulse" />
+              <div className="h-3 w-1/2 bg-neutral-surface-sunken rounded-chip animate-pulse" />
+              <div className="h-3 w-2/3 bg-neutral-surface-sunken rounded-chip animate-pulse" />
             </div>
           </SettingsCard>
         ) : isError || !data ? (
@@ -39,7 +39,7 @@ export function WorkspaceEmailPage() {
               <button
                 type="button"
                 onClick={() => void refetch()}
-                className="h-7 px-3 text-[12px] font-medium border border-neutral-border rounded text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                className="h-7 px-3 text-[12px] font-medium border border-neutral-border rounded-control text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               >
                 Retry
               </button>

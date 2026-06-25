@@ -38,7 +38,7 @@ export function IntegrationsRedirect() {
   if (isLoading || !projects) {
     return (
       <div className="px-6 py-8">
-        <div className="h-4 w-1/3 bg-neutral-surface-sunken rounded animate-pulse" />
+        <div className="h-4 w-1/3 bg-neutral-surface-sunken rounded-chip animate-pulse" />
       </div>
     );
   }
@@ -58,7 +58,7 @@ export function IntegrationsRedirect() {
             <Link
               to="/projects/new"
               className="
-                inline-flex items-center h-8 px-3 rounded text-[13px] font-medium
+                inline-flex items-center h-8 px-3 rounded-control text-[13px] font-medium
                 bg-brand-primary text-white hover:bg-brand-primary-dark
                 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
               "
@@ -117,7 +117,7 @@ export function IntegrationsRedirect() {
       </SettingsCard>
       <p className="mt-3 text-[12px] text-neutral-text-secondary">
         Tip: bookmark{' '}
-        <code className="tppm-mono text-[11px] bg-neutral-surface-sunken rounded px-1.5 py-0.5">
+        <code className="tppm-mono text-[11px] bg-neutral-surface-sunken rounded-chip px-1.5 py-0.5">
           /projects/&lt;id&gt;/settings/integrations
         </code>{' '}
         to skip this step next time.

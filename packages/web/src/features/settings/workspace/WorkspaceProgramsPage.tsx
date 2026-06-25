@@ -101,7 +101,7 @@ export function WorkspaceProgramsPage() {
               <div
                 key={i}
                 aria-hidden="true"
-                className="h-12 animate-pulse rounded border border-neutral-border bg-neutral-surface-raised"
+                className="h-12 animate-pulse rounded-card border border-neutral-border bg-neutral-surface-raised"
               />
             ))}
           </div>
@@ -114,7 +114,7 @@ export function WorkspaceProgramsPage() {
         )}
 
         {!isLoading && !error && programs && programs.length === 0 && (
-          <div className="mt-4 rounded border border-neutral-border bg-neutral-surface-raised p-6 text-center">
+          <div className="mt-4 rounded-card border border-neutral-border bg-neutral-surface-raised p-6 text-center">
             <p className="text-sm text-neutral-text-secondary">No programs in this workspace yet.</p>
           </div>
         )}

@@ -120,7 +120,7 @@ export function WorkspaceMethodologyPage() {
     return (
       <div className="px-6 py-8 space-y-3">
         {[1, 2, 3].map((i) => (
-          <div key={i} className="h-24 rounded bg-neutral-surface-raised animate-pulse" />
+          <div key={i} className="h-24 rounded-card bg-neutral-surface-raised animate-pulse" />
         ))}
       </div>
     );
@@ -153,7 +153,7 @@ export function WorkspaceMethodologyPage() {
                   role="radio"
                   aria-checked={isSelected}
                   className={[
-                    'text-left rounded-lg border p-4 transition-colors',
+                    'text-left rounded-card border p-4 transition-colors',
                     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
                     isSelected
                       ? 'border-2 border-[currentColor]'
@@ -167,7 +167,7 @@ export function WorkspaceMethodologyPage() {
                 >
                   <div className="flex items-center justify-between mb-2">
                     <span
-                      className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold"
+                      className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-chip text-[11px] font-semibold"
                       style={{ background: m.accentBg, color: m.accent }}
                     >
                       <span
@@ -219,7 +219,7 @@ export function WorkspaceMethodologyPage() {
         {/* Override policy */}
         <section
           aria-labelledby="policy-heading"
-          className="rounded-lg border border-neutral-border bg-neutral-surface-raised overflow-hidden"
+          className="rounded-card border border-neutral-border bg-neutral-surface-raised overflow-hidden"
         >
           <div className="px-4 py-3 border-b border-neutral-border/55">
             <h2 id="policy-heading" className="text-[13px] font-semibold text-neutral-text-primary">
@@ -258,7 +258,7 @@ export function WorkspaceMethodologyPage() {
                 <label
                   key={opt.id}
                   className={[
-                    'flex items-start gap-2.5 rounded p-2 group',
+                    'flex items-start gap-2.5 rounded-card p-2 group',
                     disabled
                       ? 'cursor-not-allowed'
                       : 'cursor-pointer hover:bg-neutral-surface-sunken',
