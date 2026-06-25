@@ -1321,15 +1321,25 @@ api:test-durations:
 web:test:
   extends: .web
   stage: test
-  # Sharded across 2 runners (vitest splits by test file). The configured
-  # singleFork pool keeps each shard's jsdom heap bounded, and fewer files per
-  # shard eases the OOM pressure that forced singleFork in the first place. Each
+  # Sharded across 4 runners (vitest splits by test file). The configured
+  # singleFork pool (fileParallelism: false) keeps each shard's jsdom heap bounded;
+  # since the runner is single-core per shard, intra-shard parallelism would not
+  # help wall-clock and only reinflates the heap that forced singleFork — so the
+  # lever is shard count, not pool concurrency. Profiling (#1295) showed the suite
+  # is evenly distributed (no dominant spec; the two old shards ran 301s/302s — a
+  # <0.5% imbalance), so wall-clock per shard scales ~linearly with shard count.
+  # At parallel: 2 each shard ran ~301s — 2x the next-longest test job (api:test
+  # 4/4 at ~161s). At parallel: 4 each shard handles ~115 files (~150s), dropping
+  # web:test into the api:test band so it is no longer the critical-path leader;
+  # more shards also means fewer files per shard, which *eases* OOM pressure rather
+  # than adding to it. api:test already runs parallel: 4 on the same pool. Each
   # shard writes partial istanbul coverage (coverage-final.json) to
-  # coverage-<index>/; web:coverage stitches them for the diff-coverage gate. The
-  # `--` forwards the shard + output-dir flags to vitest while preserving the dir
-  # filter and coverage config from test:coverage.
+  # coverage-<index>/; web:coverage stitches them (merge-coverage.mjs discovers the
+  # coverage-<n>/ dirs dynamically — shard-count-agnostic) for the diff-coverage
+  # gate. The `--` forwards the shard + output-dir flags to vitest while preserving
+  # the dir filter and coverage config from test:coverage.
   needs: [web:lint, web:type-check, web:build]
-  parallel: 2
+  parallel: 4
   <<: *rules-web
   script:
     - npm run test:coverage --
