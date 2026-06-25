@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Any
+from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -15,6 +17,11 @@ from trueppm_api.apps.workspace.models import Group, GroupMembership
 User = get_user_model()
 
 GROUPS_URL = "/api/v1/workspace/groups/"
+
+# reconcile_group_access defers board broadcasts via transaction.on_commit and
+# resolves broadcast_board_event lazily from this module at send time, so this is
+# the correct patch target.
+_BROADCAST = "trueppm_api.apps.sync.broadcast.broadcast_board_event"
 
 
 @pytest.fixture
@@ -213,3 +220,95 @@ def test_deleting_group_revokes_grants(admin: object, project: Project, teammate
     assert (
         GroupMembership.objects.filter(group_id=gid, is_deleted=False).exists() is True
     )  # kept; group soft-deleted
+
+
+# --- resurrection + broadcast (reconcile_group_access internals, #784) -------
+
+
+@pytest.mark.django_db
+def test_readd_member_resurrects_soft_deleted_membership(
+    admin: object, project: Project, teammate: object
+) -> None:
+    """Re-adding a removed member must resurrect the SAME group-derived row.
+
+    ``unique_together(project, user)`` forbids a second ProjectMembership, so the
+    cascade flips the soft-deleted row back instead of inserting — a regression
+    here surfaces as an IntegrityError, which this guards against.
+    """
+    gid = _make_group(admin)
+    _client(admin).post(f"{GROUPS_URL}{gid}/members/", {"user": str(teammate.pk)}, format="json")
+    _client(admin).post(
+        f"{GROUPS_URL}{gid}/projects/",
+        {"project": str(project.pk), "role": Role.MEMBER},
+        format="json",
+    )
+    original_pk = _membership(project, teammate).pk
+
+    # Remove the member → the group-derived row is soft-deleted, not destroyed.
+    _client(admin).delete(f"{GROUPS_URL}{gid}/members/{teammate.pk}/")
+    assert _membership(project, teammate) is None
+    assert ProjectMembership.objects.filter(
+        project=project, user=teammate, is_deleted=True
+    ).exists()
+
+    # Re-add → cascade resurrects the row in place (same pk), no duplicate insert.
+    resp = _client(admin).post(
+        f"{GROUPS_URL}{gid}/members/", {"user": str(teammate.pk)}, format="json"
+    )
+    assert resp.status_code in (200, 201)
+    pm = _membership(project, teammate)
+    assert pm is not None
+    assert pm.pk == original_pk  # resurrected, not re-created
+    assert pm.role == Role.MEMBER
+    assert str(pm.source_group_id) == gid
+    assert (
+        ProjectMembership.objects.filter(project=project, user=teammate).count() == 1
+    )  # exactly one row throughout — never a second insert
+
+
+@pytest.mark.django_db
+def test_cascade_broadcasts_member_added_on_commit(
+    admin: object,
+    project: Project,
+    teammate: object,
+    django_capture_on_commit_callbacks: Any,
+) -> None:
+    """Granting access via the cascade defers a member_added board event on commit."""
+    gid = _make_group(admin)
+    _client(admin).post(f"{GROUPS_URL}{gid}/members/", {"user": str(teammate.pk)}, format="json")
+    with patch(_BROADCAST) as bcast, django_capture_on_commit_callbacks(execute=True):
+        _client(admin).post(
+            f"{GROUPS_URL}{gid}/projects/",
+            {"project": str(project.pk), "role": Role.MEMBER},
+            format="json",
+        )
+    added = [c for c in bcast.call_args_list if c.args[1] == "member_added"]
+    assert added, "expected a member_added broadcast from the cascade"
+    assert any(
+        c.args[0] == str(project.pk) and c.args[2].get("user_id") == str(teammate.pk) for c in added
+    )
+
+
+@pytest.mark.django_db
+def test_cascade_broadcasts_member_removed_on_commit(
+    admin: object,
+    project: Project,
+    teammate: object,
+    django_capture_on_commit_callbacks: Any,
+) -> None:
+    """Revoking a group-derived grant defers a member_removed board event on commit."""
+    gid = _make_group(admin)
+    _client(admin).post(f"{GROUPS_URL}{gid}/members/", {"user": str(teammate.pk)}, format="json")
+    _client(admin).post(
+        f"{GROUPS_URL}{gid}/projects/",
+        {"project": str(project.pk), "role": Role.MEMBER},
+        format="json",
+    )
+    with patch(_BROADCAST) as bcast, django_capture_on_commit_callbacks(execute=True):
+        _client(admin).delete(f"{GROUPS_URL}{gid}/members/{teammate.pk}/")
+    removed = [c for c in bcast.call_args_list if c.args[1] == "member_removed"]
+    assert removed, "expected a member_removed broadcast from the cascade"
+    assert any(
+        c.args[0] == str(project.pk) and c.args[2].get("user_id") == str(teammate.pk)
+        for c in removed
+    )

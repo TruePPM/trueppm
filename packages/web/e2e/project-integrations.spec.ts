@@ -145,6 +145,87 @@ test.describe('Project Integrations — CRUD UI', () => {
     await expect(dialog.getByRole('button', { name: 'Create webhook' })).toBeVisible();
   });
 
+  test('creates a webhook — POST dispatched and the new row appears', async ({ page }) => {
+    await commonRoutes(page, [FIXTURE_PROJECT]);
+    await listRoutes(page, { webhooks: [], tokens: [] });
+
+    const NEW_WEBHOOK = { ...WEBHOOK, id: 'wh-new', url: 'https://example.com/hooks/ci' };
+    // Stateful: GET returns [] until the POST lands, then the new row (the create
+    // hook invalidates + refetches the list).
+    let created = false;
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/webhooks/`, (r) => {
+      if (r.request().method() === 'POST') {
+        created = true;
+        return r.fulfill({ status: 201, contentType: 'application/json', body: pj(NEW_WEBHOOK) });
+      }
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: page1(created ? [NEW_WEBHOOK] : []),
+      });
+    });
+
+    await page.goto(`/projects/${PROJECT_ID}/settings/integrations`);
+    await page.getByRole('button', { name: 'New webhook' }).click();
+
+    const dialog = page.getByRole('dialog', { name: 'New webhook' });
+    await dialog.getByPlaceholder('hooks.slack.com/services').fill('https://example.com/hooks/ci');
+    await dialog.getByPlaceholder('whsec_').fill('whsec_supersecret');
+    await dialog.getByText('task.assigned', { exact: true }).click(); // subscribe to ≥1 event
+
+    const postReq = page.waitForRequest(
+      (req) =>
+        req.url().includes(`/projects/${PROJECT_ID}/webhooks/`) && req.method() === 'POST',
+    );
+    await dialog.getByRole('button', { name: 'Create webhook' }).click();
+    await postReq;
+
+    await expect(dialog).toBeHidden();
+    const section = page.locator('[data-settings-section="integrations"]');
+    await expect(section.getByText('https://example.com/hooks/ci')).toBeVisible();
+  });
+
+  test('deletes a webhook — confirm dispatches DELETE and the row disappears', async ({
+    page,
+  }) => {
+    await commonRoutes(page, [FIXTURE_PROJECT]);
+    await listRoutes(page, { webhooks: [], tokens: [] });
+
+    let deleted = false;
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/webhooks/`, (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: page1(deleted ? [] : [WEBHOOK]),
+      }),
+    );
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/webhooks/${WEBHOOK.id}/`, (r) => {
+      if (r.request().method() === 'DELETE') {
+        deleted = true;
+        return r.fulfill({ status: 204, contentType: 'application/json', body: '' });
+      }
+      return r.fulfill({ status: 200, contentType: 'application/json', body: pj(WEBHOOK) });
+    });
+
+    await page.goto(`/projects/${PROJECT_ID}/settings/integrations`);
+    const section = page.locator('[data-settings-section="integrations"]');
+    const row = section.getByRole('listitem').filter({ hasText: WEBHOOK.url });
+    await expect(row).toBeVisible();
+
+    await row.getByRole('button', { name: 'Delete' }).click();
+    const confirm = page.getByRole('alertdialog', { name: 'Delete webhook?' });
+    await expect(confirm).toBeVisible();
+
+    const delReq = page.waitForRequest(
+      (req) => req.url().includes(`/webhooks/${WEBHOOK.id}/`) && req.method() === 'DELETE',
+    );
+    await confirm.getByRole('button', { name: 'Delete webhook' }).click();
+    await delReq;
+
+    await expect(section.getByText(WEBHOOK.url)).toBeHidden();
+    await expect(section.getByText(/No webhooks yet/i)).toBeVisible();
+  });
+
   test('reveals a new API token exactly once', async ({ page }) => {
     await commonRoutes(page, [FIXTURE_PROJECT]);
     await listRoutes(page, { webhooks: [], tokens: [] });
