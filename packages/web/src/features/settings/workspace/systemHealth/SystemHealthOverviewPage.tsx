@@ -301,7 +301,7 @@ function CategoryIcon({ category }: { category: ScheduledTaskCategory }) {
 
 function ComponentCard({ component }: { component: SystemHealthComponent }) {
   return (
-    <div className="rounded-lg border border-neutral-border bg-neutral-surface-raised p-3.5 flex flex-col gap-2 min-w-0">
+    <div className="rounded-card border border-neutral-border bg-neutral-surface-raised p-3.5 flex flex-col gap-2 min-w-0">
       <div className="flex items-center gap-2">
         <StatusDot status={component.status} />
         <span className="text-[13px] font-semibold text-neutral-text-primary truncate">
@@ -342,16 +342,16 @@ function OverviewSkeleton() {
         {[1, 2, 3, 4, 5].map((i) => (
           <div
             key={i}
-            className="h-[90px] rounded-lg bg-neutral-surface-raised animate-pulse border border-neutral-border"
+            className="h-[90px] rounded-card bg-neutral-surface-raised animate-pulse border border-neutral-border"
           />
         ))}
       </div>
       {/* Beat panel */}
-      <div className="h-[180px] rounded-lg bg-neutral-surface-raised animate-pulse border border-neutral-border" />
+      <div className="h-[180px] rounded-card bg-neutral-surface-raised animate-pulse border border-neutral-border" />
       {/* Dead-letter + retention */}
       <div className="grid grid-cols-2 gap-3">
-        <div className="h-[120px] rounded-lg bg-neutral-surface-raised animate-pulse border border-neutral-border" />
-        <div className="h-[120px] rounded-lg bg-neutral-surface-raised animate-pulse border border-neutral-border" />
+        <div className="h-[120px] rounded-card bg-neutral-surface-raised animate-pulse border border-neutral-border" />
+        <div className="h-[120px] rounded-card bg-neutral-surface-raised animate-pulse border border-neutral-border" />
       </div>
     </div>
   );
@@ -400,7 +400,7 @@ export function SystemHealthOverviewPage() {
           <button
             type="button"
             onClick={() => void refetch()}
-            className="px-3 py-1.5 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track"
+            className="px-3 py-1.5 rounded-control border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track"
           >
             Retry
           </button>
@@ -425,7 +425,7 @@ export function SystemHealthOverviewPage() {
               type="button"
               onClick={() => void refetch()}
               disabled={isFetching}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-control border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track disabled:opacity-60"
             >
               <RefreshIcon spinning={isFetching} />
               {isFetching ? 'Refreshing…' : 'Force refresh'}
@@ -434,7 +434,7 @@ export function SystemHealthOverviewPage() {
               href={docsUrl('administration/system-health')}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-secondary hover:text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-control border border-neutral-border text-[13px] font-medium text-neutral-text-secondary hover:text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track"
             >
               Open runbook
               <ExternalLinkIcon />
@@ -605,7 +605,7 @@ export function SystemHealthOverviewPage() {
 
               <Link
                 to="/settings/health/dead-letters"
-                className="inline-flex items-center gap-1 text-[12px] font-semibold text-brand-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track rounded"
+                className="inline-flex items-center gap-1 text-[12px] font-semibold text-brand-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track rounded-control"
               >
                 Open inspector →
               </Link>
@@ -623,7 +623,7 @@ export function SystemHealthOverviewPage() {
               {health.retention.map((entry) => (
                 <FieldRow key={entry.key} label={entry.label}>
                   {entry.disabled ? (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-neutral-surface-sunken text-neutral-text-secondary border border-neutral-border">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-chip text-[11px] font-semibold bg-neutral-surface-sunken text-neutral-text-secondary border border-neutral-border">
                       Disabled
                     </span>
                   ) : (
@@ -635,7 +635,7 @@ export function SystemHealthOverviewPage() {
               ))}
               <Link
                 to="/settings/health/retention"
-                className="mt-3 inline-flex items-center gap-1 text-[12px] font-semibold text-brand-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track rounded"
+                className="mt-3 inline-flex items-center gap-1 text-[12px] font-semibold text-brand-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track rounded-control"
               >
                 Manage retention →
               </Link>

@@ -25,10 +25,10 @@ function GroupCard({ group, onDelete, hasError }: GroupCardProps) {
     .toUpperCase();
 
   return (
-    <div className="rounded-lg border border-neutral-border bg-neutral-surface-raised p-3.5">
+    <div className="rounded-card border border-neutral-border bg-neutral-surface-raised p-3.5">
       <div className="flex items-start gap-2.5">
         {/* Group icon */}
-        <span className="w-8 h-8 rounded-md bg-brand-primary-light text-brand-primary inline-flex items-center justify-center text-[13px] font-bold shrink-0">
+        <span className="w-8 h-8 rounded-chip bg-brand-primary-light text-brand-primary inline-flex items-center justify-center text-[13px] font-bold shrink-0">
           {abbrev}
         </span>
         <div className="flex-1 min-w-0">
@@ -37,7 +37,7 @@ function GroupCard({ group, onDelete, hasError }: GroupCardProps) {
             {group.description}
           </div>
         </div>
-        <span className="tppm-mono text-[11px] px-2 py-0.5 rounded bg-neutral-surface-sunken text-neutral-text-secondary font-semibold shrink-0">
+        <span className="tppm-mono text-[11px] px-2 py-0.5 rounded-chip bg-neutral-surface-sunken text-neutral-text-secondary font-semibold shrink-0">
           {group.memberCount} members
         </span>
         {confirming ? (
@@ -52,7 +52,7 @@ function GroupCard({ group, onDelete, hasError }: GroupCardProps) {
                 setConfirming(false);
                 onDelete(group.id);
               }}
-              className="text-semantic-critical font-semibold hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical rounded"
+              className="text-semantic-critical font-semibold hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical rounded-control"
             >
               Confirm
             </button>
@@ -62,7 +62,7 @@ function GroupCard({ group, onDelete, hasError }: GroupCardProps) {
             <button
               type="button"
               onClick={() => setConfirming(false)}
-              className="text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded"
+              className="text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded-control"
             >
               Cancel
             </button>
@@ -73,7 +73,7 @@ function GroupCard({ group, onDelete, hasError }: GroupCardProps) {
             onClick={() => setConfirming(true)}
             aria-label={`Delete group ${group.name}`}
             aria-expanded={confirming}
-            className="ml-1 text-[11px] text-neutral-text-disabled hover:text-semantic-critical focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical rounded shrink-0"
+            className="ml-1 text-[11px] text-neutral-text-disabled hover:text-semantic-critical focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical rounded-control shrink-0"
           >
             ✕
           </button>
@@ -144,7 +144,7 @@ function GroupCard({ group, onDelete, hasError }: GroupCardProps) {
         {group.projects.slice(0, 4).map((p) => (
           <span
             key={p}
-            className="text-[11px] px-2 py-0.5 rounded border border-neutral-border/55 bg-neutral-surface-sunken text-neutral-text-secondary"
+            className="text-[11px] px-2 py-0.5 rounded-chip border border-neutral-border/55 bg-neutral-surface-sunken text-neutral-text-secondary"
           >
             {p === 'all' ? 'All projects' : p}
           </span>
@@ -213,7 +213,7 @@ export function WorkspaceGroupsPage() {
                 type="button"
                 disabled
                 title="Directory sync is available in TruePPM Enterprise"
-                className="px-3 py-1.5 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
+                className="px-3 py-1.5 rounded-control border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
               >
                 Sync from directory
               </button>
@@ -222,7 +222,7 @@ export function WorkspaceGroupsPage() {
             <button
               type="button"
               onClick={() => setShowCreateForm((v) => !v)}
-              className="px-3 py-1.5 rounded bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              className="px-3 py-1.5 rounded-control bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
               + Create group
             </button>
@@ -234,7 +234,7 @@ export function WorkspaceGroupsPage() {
       {showCreateForm && (
         <form
           onSubmit={handleCreate}
-          className="mx-6 mb-4 p-4 rounded-lg border border-brand-primary bg-neutral-surface-raised flex flex-col gap-2"
+          className="mx-6 mb-4 p-4 rounded-card border border-brand-primary bg-neutral-surface-raised flex flex-col gap-2"
         >
           <p className="text-[13px] font-semibold text-neutral-text-primary">New group</p>
           <div className="flex gap-2 flex-wrap items-end">
@@ -252,7 +252,7 @@ export function WorkspaceGroupsPage() {
                 onChange={(e) => setNewGroupName(e.target.value)}
                 placeholder="e.g. Avionics"
                 required
-                className="h-8 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary w-[200px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary placeholder:text-neutral-text-disabled"
+                className="h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary w-[200px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary placeholder:text-neutral-text-disabled"
               />
             </div>
             <div className="flex flex-col gap-0.5">
@@ -268,13 +268,13 @@ export function WorkspaceGroupsPage() {
                 value={newGroupDesc}
                 onChange={(e) => setNewGroupDesc(e.target.value)}
                 placeholder="Optional"
-                className="h-8 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary w-[280px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary placeholder:text-neutral-text-disabled"
+                className="h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary w-[280px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary placeholder:text-neutral-text-disabled"
               />
             </div>
             <button
               type="submit"
               disabled={!newGroupName.trim() || createGroup.isPending}
-              className="h-8 px-3 rounded bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed disabled:cursor-not-allowed"
+              className="h-8 px-3 rounded-control bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed disabled:cursor-not-allowed"
             >
               {createGroup.isPending ? 'Creating…' : 'Create'}
             </button>
@@ -286,7 +286,7 @@ export function WorkspaceGroupsPage() {
                 setNewGroupDesc('');
                 setCreateError(false);
               }}
-              className="h-8 px-3 rounded border border-neutral-border text-[13px] text-neutral-text-secondary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+              className="h-8 px-3 rounded-control border border-neutral-border text-[13px] text-neutral-text-secondary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
             >
               Cancel
             </button>
@@ -305,7 +305,7 @@ export function WorkspaceGroupsPage() {
             {[1, 2, 3, 4].map((i) => (
               <div
                 key={i}
-                className="h-32 rounded-lg bg-neutral-surface-raised border border-neutral-border animate-pulse"
+                className="h-32 rounded-card bg-neutral-surface-raised border border-neutral-border animate-pulse"
               />
             ))}
           </div>

@@ -165,7 +165,7 @@ export function WorkspaceRolesPage() {
               <button
                 type="button"
                 onClick={exportRolesMatrixCsv}
-                className="px-3 py-1.5 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+                className="px-3 py-1.5 rounded-control border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
               >
                 Export matrix
               </button>
@@ -183,11 +183,11 @@ export function WorkspaceRolesPage() {
                 return (
                   <div
                     key={role}
-                    className="rounded-md border border-neutral-border bg-neutral-surface-raised p-3 flex flex-col gap-1.5"
+                    className="rounded-card border border-neutral-border bg-neutral-surface-raised p-3 flex flex-col gap-1.5"
                   >
                     <div className="flex items-center justify-between">
                       <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold ${bg} ${text}`}
+                        className={`inline-flex items-center px-2 py-0.5 rounded-chip text-[11px] font-semibold ${bg} ${text}`}
                       >
                         {role}
                       </span>
@@ -204,7 +204,7 @@ export function WorkspaceRolesPage() {
 
           {/* Matrix */}
           <div className="px-6 pb-8">
-            <div className="rounded-lg border border-neutral-border overflow-hidden">
+            <div className="rounded-card border border-neutral-border overflow-hidden">
               {/* Header */}
               <div
                 className="grid gap-2 px-4 py-2.5 bg-neutral-surface-sunken border-b border-neutral-border"

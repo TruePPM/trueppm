@@ -61,7 +61,7 @@ export function InviteAcceptPage() {
         {/* Brand */}
         <div className="flex items-center gap-2">
           <div
-            className="w-9 h-9 rounded bg-brand-primary text-white flex items-center justify-center text-sm font-bold shrink-0"
+            className="w-9 h-9 rounded-card bg-brand-primary text-white flex items-center justify-center text-sm font-bold shrink-0"
             aria-hidden="true"
           >
             tP
@@ -85,13 +85,13 @@ export function InviteAcceptPage() {
         {success !== null ? (
           <div
             role="status"
-            className="rounded-lg border border-semantic-on-track bg-semantic-on-track-bg p-4 text-sm text-neutral-text-primary"
+            className="rounded-card border border-semantic-on-track bg-semantic-on-track-bg p-4 text-sm text-neutral-text-primary"
           >
             {success}
             <div className="mt-3">
               <a
                 href="/login"
-                className="font-semibold text-brand-primary hover:text-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded"
+                className="font-semibold text-brand-primary hover:text-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded-control"
               >
                 Sign in →
               </a>
@@ -122,7 +122,7 @@ export function InviteAcceptPage() {
                 disabled={isSubmitting || !token}
                 placeholder="anna_khoury"
                 className="
-                  h-10 px-3 rounded border border-neutral-border
+                  h-10 px-3 rounded-control border border-neutral-border
                   bg-neutral-surface text-neutral-text-primary text-sm
                   placeholder:text-neutral-text-disabled
                   focus-visible:outline-none focus-visible:border-brand-primary
@@ -148,7 +148,7 @@ export function InviteAcceptPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 disabled={isSubmitting || !token}
                 className="
-                  h-10 px-3 rounded border border-neutral-border
+                  h-10 px-3 rounded-control border border-neutral-border
                   bg-neutral-surface text-neutral-text-primary text-sm font-mono
                   focus-visible:outline-none focus-visible:border-brand-primary
                   focus-visible:ring-2 focus-visible:ring-brand-primary
@@ -167,7 +167,7 @@ export function InviteAcceptPage() {
               type="submit"
               disabled={isSubmitting || !token}
               className="
-                h-11 w-full rounded bg-brand-primary text-white
+                h-11 w-full rounded-control bg-brand-primary text-white
                 text-sm font-semibold
                 hover:bg-brand-primary-dark
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1

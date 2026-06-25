@@ -60,7 +60,7 @@ const TIMEZONE_OPTIONS = [
 const DEFAULT_VIEW_OPTIONS = ['Overview', 'Board', 'Schedule', 'WBS', 'Table', 'Calendar'];
 
 const SELECT_CLASS =
-  'h-8 pl-2.5 pr-7 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary appearance-none bg-no-repeat bg-[right_0.45rem_center] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary';
+  'h-8 pl-2.5 pr-7 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary appearance-none bg-no-repeat bg-[right_0.45rem_center] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary';
 const SELECT_STYLE = {
   backgroundImage:
     "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='11' height='11' viewBox='0 0 16 16'><path d='M4 6l4 4 4-4' stroke='%23667085' stroke-width='2' stroke-linecap='round' fill='none' /></svg>\")",
@@ -243,7 +243,7 @@ export function WorkspaceGeneralPage() {
     return (
       <div className="px-6 py-8 space-y-3">
         {[1, 2, 3, 4].map((i) => (
-          <div key={i} className="h-10 rounded bg-neutral-surface-raised animate-pulse" />
+          <div key={i} className="h-10 rounded-control bg-neutral-surface-raised animate-pulse" />
         ))}
       </div>
     );
@@ -264,7 +264,7 @@ export function WorkspaceGeneralPage() {
               type="button"
               disabled
               title="Workspace change history is available in TruePPM Enterprise"
-              className="px-3 py-1.5 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
+              className="px-3 py-1.5 rounded-control border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
             >
               View change history
             </button>
@@ -279,12 +279,12 @@ export function WorkspaceGeneralPage() {
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="w-full max-w-[420px] h-8 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary"
+            className="w-full max-w-[420px] h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary"
           />
         </FieldRow>
 
         <FieldRow label="Subdomain" hint="Members sign in here.">
-          <div className="flex items-center h-8 rounded border border-neutral-border bg-neutral-surface-raised px-2.5 w-full max-w-[420px] gap-1 text-[13px]">
+          <div className="flex items-center h-8 rounded-control border border-neutral-border bg-neutral-surface-raised px-2.5 w-full max-w-[420px] gap-1 text-[13px]">
             <span className="text-neutral-text-secondary shrink-0">https://</span>
             <span className="font-mono text-neutral-text-primary">{ws.subdomain}</span>
             <span className="text-neutral-text-secondary shrink-0">.trueppm.app</span>
@@ -341,7 +341,7 @@ export function WorkspaceGeneralPage() {
                 aria-pressed={workWeek[i]}
                 aria-label={DAY_NAMES[i]}
                 className={[
-                  'w-8 h-8 rounded text-[12px] font-semibold border transition-colors',
+                  'w-8 h-8 rounded-control text-[12px] font-semibold border transition-colors',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
                   workWeek[i]
                     ? 'bg-brand-primary text-white border-brand-primary-dark'
@@ -419,7 +419,7 @@ export function WorkspaceGeneralPage() {
 
         <FieldRow label="Holiday calendar">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-brand-primary-light text-brand-primary text-[12px] font-medium">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-chip bg-brand-primary-light text-brand-primary text-[12px] font-medium">
               US federal · 2026
             </span>
             {/* Holiday-calendar management depends on composable calendars (#906);
@@ -428,7 +428,7 @@ export function WorkspaceGeneralPage() {
               type="button"
               disabled
               title="Adding a holiday calendar isn't available yet — tracked in #906"
-              className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-neutral-border text-[12px] text-neutral-text-secondary hover:text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-control border border-neutral-border text-[12px] text-neutral-text-secondary hover:text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
             >
               + Add calendar
             </button>
@@ -487,7 +487,7 @@ export function WorkspaceGeneralPage() {
               value={mcHistoryRetentionCap}
               aria-label="Run history limit"
               onChange={(e) => setMcHistoryRetentionCap(clampRetention(e.target.valueAsNumber))}
-              className="w-[120px] h-8 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary"
+              className="w-[120px] h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary"
             />
             <span className="text-[12px] text-neutral-text-secondary">
               Between {MC_HISTORY_RETENTION_MIN} and {MC_HISTORY_RETENTION_MAX} runs.

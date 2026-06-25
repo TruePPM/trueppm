@@ -64,7 +64,7 @@ function Toggle({
       aria-label={label}
       disabled={disabled}
       onClick={() => onChange(!on)}
-      className="inline-flex items-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded disabled:opacity-40 disabled:cursor-not-allowed"
+      className="inline-flex items-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-control disabled:opacity-40 disabled:cursor-not-allowed"
     >
       <span
         className={[
@@ -131,7 +131,7 @@ function PolicyRow({
           <div className="text-[13px] font-medium text-neutral-text-primary flex items-center gap-1.5">
             {meta.label}
             {lowered && (
-              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-semibold bg-semantic-at-risk-bg text-semantic-at-risk uppercase tracking-wide">
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded-chip text-[11px] font-semibold bg-semantic-at-risk-bg text-semantic-at-risk uppercase tracking-wide">
                 Lowering
               </span>
             )}
@@ -152,7 +152,7 @@ function PolicyRow({
               disabled={!edit.enabled}
               aria-describedby={lowered ? warnId : undefined}
               onChange={(e) => onValueChange(Math.max(1, Number(e.target.value) || 1))}
-              className="w-[72px] h-8 px-2 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary tppm-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary disabled:opacity-40"
+              className="w-[72px] h-8 px-2 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary tppm-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary disabled:opacity-40"
             />
             <span className="text-[12px] text-neutral-text-secondary">{meta.unit}</span>
           </span>
@@ -183,7 +183,7 @@ function PolicyRow({
             <div
               id={warnId}
               role="status"
-              className="rounded border border-semantic-at-risk/40 bg-semantic-at-risk-bg px-3 py-2 text-[12px] text-neutral-text-primary"
+              className="rounded-card border border-semantic-at-risk/40 bg-semantic-at-risk-bg px-3 py-2 text-[12px] text-neutral-text-primary"
             >
               {impact.isFetching ? (
                 <span className="text-neutral-text-secondary">Checking impact…</span>
@@ -328,7 +328,7 @@ function ConfirmRunDialog({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={bodyId}
-        className="w-full max-w-md rounded-lg bg-neutral-surface-raised border border-neutral-border p-5"
+        className="w-full max-w-md rounded-card bg-neutral-surface-raised border border-neutral-border p-5"
       >
         <h2 id={titleId} className="text-[15px] font-semibold text-neutral-text-primary">
           Run purge now?
@@ -342,14 +342,14 @@ function ConfirmRunDialog({
             ref={cancelRef}
             type="button"
             onClick={onCancel}
-            className="px-3 py-1.5 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            className="px-3 py-1.5 rounded-control border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >
             Cancel
           </button>
           <button
             type="button"
             onClick={onConfirm}
-            className="px-3 py-1.5 rounded bg-semantic-critical text-white text-[13px] font-semibold hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1"
+            className="px-3 py-1.5 rounded-control bg-semantic-critical text-white text-[13px] font-semibold hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1"
           >
             Run purge
           </button>
@@ -421,9 +421,9 @@ export function RetentionPurgePage() {
   if (isLoading) {
     return (
       <div className="px-6 py-5 space-y-5" aria-busy="true" aria-label="Loading retention settings">
-        <div className="h-[260px] rounded-lg bg-neutral-surface-raised animate-pulse border border-neutral-border" />
-        <div className="h-[150px] rounded-lg bg-neutral-surface-raised animate-pulse border border-neutral-border" />
-        <div className="h-[180px] rounded-lg bg-neutral-surface-raised animate-pulse border border-neutral-border" />
+        <div className="h-[260px] rounded-card bg-neutral-surface-raised animate-pulse border border-neutral-border" />
+        <div className="h-[150px] rounded-card bg-neutral-surface-raised animate-pulse border border-neutral-border" />
+        <div className="h-[180px] rounded-card bg-neutral-surface-raised animate-pulse border border-neutral-border" />
       </div>
     );
   }
@@ -441,7 +441,7 @@ export function RetentionPurgePage() {
           <button
             type="button"
             onClick={() => void refetch()}
-            className="px-3 py-1.5 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            className="px-3 py-1.5 rounded-control border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >
             Retry
           </button>
@@ -465,7 +465,7 @@ export function RetentionPurgePage() {
               type="button"
               onClick={() => void triggerRun(true)}
               disabled={runPurge.isPending}
-              className="px-3 py-1.5 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:opacity-60"
+              className="px-3 py-1.5 rounded-control border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:opacity-60"
             >
               Dry run
             </button>
@@ -473,7 +473,7 @@ export function RetentionPurgePage() {
               type="button"
               onClick={() => setConfirmOpen(true)}
               disabled={runPurge.isPending}
-              className="px-3 py-1.5 rounded border border-semantic-critical text-[13px] font-semibold text-semantic-critical hover:bg-semantic-critical-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1 disabled:opacity-60"
+              className="px-3 py-1.5 rounded-control border border-semantic-critical text-[13px] font-semibold text-semantic-critical hover:bg-semantic-critical-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1 disabled:opacity-60"
             >
               Run purge now
             </button>
@@ -485,7 +485,7 @@ export function RetentionPurgePage() {
         {actionMsg && (
           <div
             role="status"
-            className="rounded border border-brand-primary/40 bg-brand-primary-light px-3 py-2 text-[13px] text-brand-primary"
+            className="rounded-card border border-brand-primary/40 bg-brand-primary-light px-3 py-2 text-[13px] text-brand-primary"
           >
             {actionMsg}
           </div>
@@ -596,7 +596,7 @@ function ScheduleFields({
       {/* Frequency */}
       <div className="flex items-center gap-4">
         <span className="text-[13px] font-medium text-neutral-text-primary w-32 shrink-0">Frequency</span>
-        <div className="inline-flex rounded border border-neutral-border overflow-hidden" role="radiogroup" aria-label="Purge frequency">
+        <div className="inline-flex rounded-control border border-neutral-border overflow-hidden" role="radiogroup" aria-label="Purge frequency">
           {FREQUENCIES.map((f) => (
             <button
               key={f.value}
@@ -634,7 +634,7 @@ function ScheduleFields({
             id={dowId}
             value={schedule.day_of_week ?? 0}
             onChange={(e) => onChange({ ...schedule, day_of_week: Number(e.target.value) })}
-            className="h-8 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+            className="h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
           >
             {DOW.map((d, i) => (
               <option key={d} value={i}>
@@ -661,7 +661,7 @@ function ScheduleFields({
               time_of_day_utc: e.target.value.length === 5 ? `${e.target.value}:00` : e.target.value,
             })
           }
-          className="h-8 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary tppm-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:cursor-not-allowed"
+          className="h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary tppm-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:cursor-not-allowed"
         />
         <span className="text-[12px] text-neutral-text-secondary">Runs at this UTC time — no DST shift.</span>
       </div>
