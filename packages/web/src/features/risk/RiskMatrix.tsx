@@ -121,7 +121,7 @@ export function RiskMatrix({ risks, selectedCell, onCellSelect }: RiskMatrixProp
             {LEGEND.map(({ label, range, swatchClass }) => (
               <div key={label} className="flex items-center gap-2.5">
                 <span
-                  className={['w-3 h-3 rounded-sm shrink-0', swatchClass].join(' ')}
+                  className={['w-3 h-3 rounded-chip shrink-0', swatchClass].join(' ')}
                   aria-hidden="true"
                 />
                 <dt className="text-xs font-medium text-neutral-text-primary">{label}</dt>

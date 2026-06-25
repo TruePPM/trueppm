@@ -36,7 +36,7 @@ function Spark({ heights }: { heights: number[] }) {
         <span
           key={i}
           className={[
-            'flex-1 rounded-t-sm',
+            'flex-1 rounded-t-chip',
             i === heights.length - 1 ? 'bg-brand-primary' : 'bg-brand-primary/30',
           ].join(' ')}
           style={{ height: `${Math.round(Math.max(0.06, Math.min(1, h)) * 100)}%` }}

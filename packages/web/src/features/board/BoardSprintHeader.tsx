@@ -99,7 +99,7 @@ export function BoardSprintHeader({ sprint, projectId, onOpenStandup }: BoardSpr
             <button
               type="button"
               onClick={onOpenStandup}
-              className="flex min-h-[44px] items-center rounded-md border border-neutral-border px-4 text-sm font-medium text-neutral-text-primary transition-colors hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              className="flex min-h-[44px] items-center rounded-control border border-neutral-border px-4 text-sm font-medium text-neutral-text-primary transition-colors hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
               <span aria-hidden="true">▶ </span>Standup
             </button>

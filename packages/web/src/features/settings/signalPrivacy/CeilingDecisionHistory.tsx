@@ -39,7 +39,7 @@ export function CeilingDecisionHistory({ projectId }: CeilingDecisionHistoryProp
   const resolved: CeilingProposal[] = (data ?? []).filter((p) => p.status !== 'open');
 
   return (
-    <section className="mt-4 rounded-lg border border-neutral-border">
+    <section className="mt-4 rounded-card border border-neutral-border">
       <button
         type="button"
         aria-expanded={open}

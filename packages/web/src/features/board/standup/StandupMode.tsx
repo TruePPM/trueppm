@@ -172,7 +172,7 @@ function Header({
       <button
         type="button"
         onClick={onClose}
-        className="flex min-h-[44px] shrink-0 items-center rounded-md border border-neutral-border px-4 text-sm text-neutral-text-primary transition-colors hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+        className="flex min-h-[44px] shrink-0 items-center rounded-control border border-neutral-border px-4 text-sm text-neutral-text-primary transition-colors hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
       >
         Exit standup
       </button>
@@ -245,7 +245,7 @@ function Stepper({
         onClick={() => onStep(-1)}
         disabled={current === 0}
         aria-label="Previous teammate"
-        className="flex min-h-[44px] items-center rounded-md border border-neutral-border px-6 text-sm text-neutral-text-primary transition-colors hover:bg-neutral-surface-raised disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+        className="flex min-h-[44px] items-center rounded-control border border-neutral-border px-6 text-sm text-neutral-text-primary transition-colors hover:bg-neutral-surface-raised disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
       >
         ← Prev
       </button>
@@ -257,7 +257,7 @@ function Stepper({
         onClick={() => onStep(1)}
         disabled={current >= count - 1}
         aria-label="Next teammate"
-        className="flex min-h-[44px] items-center rounded-md border border-neutral-border px-6 text-sm text-neutral-text-primary transition-colors hover:bg-neutral-surface-raised disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+        className="flex min-h-[44px] items-center rounded-control border border-neutral-border px-6 text-sm text-neutral-text-primary transition-colors hover:bg-neutral-surface-raised disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
       >
         Next →
       </button>
@@ -325,7 +325,7 @@ function Skeleton() {
     <div className="mx-auto w-full max-w-5xl flex-1 px-4 py-4" aria-hidden="true">
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         {[0, 1, 2].map((i) => (
-          <div key={i} className="rounded-lg border border-neutral-border bg-neutral-surface p-3">
+          <div key={i} className="rounded-card border border-neutral-border bg-neutral-surface p-3">
             <div className="h-4 w-2/3 rounded bg-neutral-surface-sunken" />
             <div className="mt-3 h-10 rounded bg-neutral-surface-sunken" />
             <div className="mt-2 h-10 rounded bg-neutral-surface-sunken" />

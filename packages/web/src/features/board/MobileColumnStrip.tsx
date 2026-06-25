@@ -78,7 +78,7 @@ export function MobileColumnStrip({ segments, activeIndex, onJump }: MobileColum
             <span
               aria-hidden="true"
               className={[
-                'w-full h-[3px] rounded-sm transition-colors duration-150',
+                'w-full h-[3px] rounded-chip transition-colors duration-150',
                 active ? 'bg-neutral-text-primary' : 'bg-neutral-border',
               ].join(' ')}
             />

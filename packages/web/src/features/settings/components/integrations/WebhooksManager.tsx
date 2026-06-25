@@ -240,7 +240,7 @@ export function ConfirmDialog({
         if (e.target === e.currentTarget && !pending) onCancel();
       }}
     >
-      <div className="bg-neutral-surface border border-neutral-border rounded-lg w-full max-w-sm p-5">
+      <div className="bg-neutral-surface border border-neutral-border rounded-card w-full max-w-sm p-5">
         <h2 className="text-sm font-semibold text-neutral-text-primary mb-2">{title}</h2>
         <p className="text-xs text-neutral-text-secondary mb-4">{body}</p>
         <div className="flex justify-end gap-2">

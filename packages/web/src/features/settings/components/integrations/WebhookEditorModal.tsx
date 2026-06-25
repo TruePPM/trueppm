@@ -109,7 +109,7 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
         if (e.target === e.currentTarget && !saving) onClose();
       }}
     >
-      <div className="bg-neutral-surface border border-neutral-border rounded-lg w-full max-w-3xl max-h-[90vh] overflow-auto motion-safe:animate-modal-scale-in">
+      <div className="bg-neutral-surface border border-neutral-border rounded-card w-full max-w-3xl max-h-[90vh] overflow-auto motion-safe:animate-modal-scale-in">
         <div className="px-5 pt-4 pb-3 border-b border-neutral-border flex items-start justify-between">
           <div>
             <h2
@@ -293,7 +293,7 @@ function SlackPreview() {
       {/* The hex colors below are deliberate Slack-message fidelity (Slack's own
           palette), not TruePPM chrome — intentionally exempt from web CLAUDE.md
           rule 8. The avatar/accent use TruePPM brand tokens. */}
-      <div className="bg-white border border-[#E4E4E0] rounded-lg p-3.5 text-[13px] text-[#1d1c1d] leading-snug">
+      <div className="bg-white border border-[#E4E4E0] rounded-card p-3.5 text-[13px] text-[#1d1c1d] leading-snug">
         <div className="flex gap-2.5 mb-2">
           <span className="w-8 h-8 rounded bg-brand-primary text-white inline-flex items-center justify-center font-bold text-[13px] shrink-0">
             tP

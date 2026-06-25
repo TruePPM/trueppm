@@ -258,7 +258,7 @@ export function ResourceOverallocationDrawer({ target, isOpen, onClose }: Props)
         aria-hidden={!isOpen}
         className={[
           'md:hidden fixed inset-x-0 bottom-0 z-40',
-          'rounded-t-xl bg-neutral-surface border-t border-neutral-border',
+          'rounded-t-card bg-neutral-surface border-t border-neutral-border',
           'h-[85vh] flex flex-col',
           'transition-transform duration-200',
           isOpen ? 'translate-y-0' : 'translate-y-full',

@@ -53,7 +53,7 @@ function Bucket({
   onOpenTask: (taskId: string) => void;
 }) {
   return (
-    <section className="rounded-lg border border-neutral-border bg-neutral-surface p-3">
+    <section className="rounded-card border border-neutral-border bg-neutral-surface p-3">
       <h3 className="flex items-baseline justify-between text-sm font-semibold text-neutral-text-primary">
         <span>{title}</span>
         {/* Count is read by AT (not aria-hidden) so a section-navigating screen-reader
@@ -96,7 +96,7 @@ function CardRow({
       type="button"
       onClick={() => onOpenTask(card.id)}
       data-testid="standup-card"
-      className="w-full rounded-md border border-neutral-border bg-neutral-surface-sunken px-2.5 py-2 text-left transition-colors hover:border-brand-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+      className="w-full rounded-control border border-neutral-border bg-neutral-surface-sunken px-2.5 py-2 text-left transition-colors hover:border-brand-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
     >
       <span className="flex items-center gap-1.5 text-sm text-neutral-text-primary">
         {tone === 'done' && (

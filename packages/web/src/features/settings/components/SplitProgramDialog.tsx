@@ -127,7 +127,7 @@ export function SplitProgramDialog({
         if (e.target === e.currentTarget) onCancel();
       }}
     >
-      <div className="mx-4 flex max-h-[85vh] w-full max-w-lg flex-col rounded-lg border border-neutral-border bg-neutral-surface motion-safe:animate-modal-scale-in">
+      <div className="mx-4 flex max-h-[85vh] w-full max-w-lg flex-col rounded-card border border-neutral-border bg-neutral-surface motion-safe:animate-modal-scale-in">
         <div className="shrink-0 p-5 pb-3">
           <h2
             id="split-dialog-title"

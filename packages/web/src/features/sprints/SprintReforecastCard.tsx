@@ -66,7 +66,7 @@ export function SprintReforecastCard({ projectId, sprintId, sprintName, tasks, c
     <section
       aria-label="Velocity reforecast suggestions"
       data-testid="sprint-reforecast-card"
-      className="rounded-lg border border-brand-primary/40 bg-brand-primary/5 p-3 flex flex-col gap-2.5"
+      className="rounded-card border border-brand-primary/40 bg-brand-primary/5 p-3 flex flex-col gap-2.5"
     >
       <div className="flex items-start gap-2">
         <span className="text-brand-primary text-lg leading-none mt-0.5" aria-hidden="true">
