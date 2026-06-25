@@ -32,7 +32,7 @@ export function BacklogDemoteConfirmDialog({ onConfirm, onCancel }: Props) {
         aria-modal="true"
         aria-labelledby="demote-title"
         aria-describedby="demote-desc"
-        className="relative z-10 rounded-lg bg-neutral-surface border border-neutral-border shadow-none p-6 w-[340px]"
+        className="relative z-10 rounded-card bg-neutral-surface border border-neutral-border shadow-none p-6 w-[340px]"
       >
         <h2 id="demote-title" className="text-sm font-semibold text-neutral-text-primary mb-2">
           Move to Backlog?
@@ -45,7 +45,7 @@ export function BacklogDemoteConfirmDialog({ onConfirm, onCancel }: Props) {
             ref={cancelRef}
             type="button"
             onClick={onCancel}
-            className="border border-neutral-border rounded h-8 px-4 text-xs font-medium text-neutral-text-primary
+            className="border border-neutral-border rounded-control h-8 px-4 text-xs font-medium text-neutral-text-primary
               hover:bg-neutral-surface-raised
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >
@@ -54,7 +54,7 @@ export function BacklogDemoteConfirmDialog({ onConfirm, onCancel }: Props) {
           <button
             type="button"
             onClick={onConfirm}
-            className="border border-semantic-at-risk/40 rounded h-8 px-4 text-xs font-medium text-semantic-at-risk
+            className="border border-semantic-at-risk/40 rounded-control h-8 px-4 text-xs font-medium text-semantic-at-risk
               hover:bg-semantic-at-risk-bg
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-at-risk focus-visible:ring-offset-1"
           >

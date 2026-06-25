@@ -122,7 +122,7 @@ export function SprintPrompt({ open, projectId, onSelect, onDismiss }: Props) {
       role="dialog"
       aria-modal="false"
       aria-label={step === 'sprint' ? `Assign to ${itl.lower}` : 'Story points'}
-      className="absolute top-full left-0 z-50 w-[260px] mt-0.5 rounded border border-chrome-border
+      className="absolute top-full left-0 z-50 w-[260px] mt-0.5 rounded-card border border-chrome-border
         bg-chrome-surface-raised p-2 space-y-0.5"
     >
       {step === 'sprint' ? (
@@ -132,7 +132,7 @@ export function SprintPrompt({ open, projectId, onSelect, onDismiss }: Props) {
             <button
               key={opt.sprintId ?? 'backlog'}
               type="button"
-              className="w-full text-left text-xs px-2 py-1.5 rounded
+              className="w-full text-left text-xs px-2 py-1.5 rounded-control
                 hover:bg-brand-primary/10 text-chrome-text-primary
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
                 focus-visible:ring-offset-1"
@@ -170,7 +170,7 @@ export function SprintPrompt({ open, projectId, onSelect, onDismiss }: Props) {
                 if (e.key === 'Enter') { e.preventDefault(); commitPoints(); }
               }}
               className="w-20 h-8 px-2 text-sm tppm-mono text-neutral-text-primary bg-neutral-surface
-                border border-neutral-border rounded focus-visible:ring-2 focus-visible:ring-brand-primary
+                border border-neutral-border rounded-control focus-visible:ring-2 focus-visible:ring-brand-primary
                 focus-visible:outline-none placeholder:text-neutral-text-disabled"
               aria-label="Story points (optional)"
             />

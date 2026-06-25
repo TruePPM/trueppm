@@ -63,7 +63,7 @@ export function NameAutocomplete({ query, suggestions, onSelect, onDismiss }: Pr
       ref={listRef}
       role="listbox"
       aria-label="Task name suggestions"
-      className="absolute top-full left-0 z-50 w-[280px] mt-0.5 rounded border border-chrome-border
+      className="absolute top-full left-0 z-50 w-[280px] mt-0.5 rounded-card border border-chrome-border
         bg-chrome-surface-raised overflow-hidden"
     >
       {matches.map((name, i) => (

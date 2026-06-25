@@ -105,7 +105,7 @@ export function MonteCarloGanttMarkers({ result, scaleData, canvasScrollRef }: P
             title={`${label}: ${fmtLong(isoDate)}`}
           >
             <span
-              className={`absolute top-1 left-1 whitespace-nowrap text-xs font-medium border rounded px-1.5 py-px bg-neutral-surface ${chipClass}`}
+              className={`absolute top-1 left-1 whitespace-nowrap text-xs font-medium border rounded-chip px-1.5 py-px bg-neutral-surface ${chipClass}`}
             >
               {label}: {fmtShort(isoDate)}
             </span>

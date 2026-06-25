@@ -728,7 +728,7 @@ function TaskListRowInner({
             aria-label={isExpanded ? `Collapse ${task.name}` : `Expand ${task.name}`}
             className="shrink-0 w-4 h-4 flex items-center justify-center mr-0.5
               text-neutral-text-secondary hover:text-neutral-text-primary
-              focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand-primary dark:focus-visible:ring-semantic-on-track rounded"
+              focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand-primary dark:focus-visible:ring-semantic-on-track rounded-control"
           >
             <svg
               width="8"
@@ -812,7 +812,7 @@ function TaskListRowInner({
                 cancelEdit();
               }
             }}
-            className="flex-1 min-w-0 bg-brand-primary/10 text-neutral-text-primary text-xs px-1 rounded
+            className="flex-1 min-w-0 bg-brand-primary/10 text-neutral-text-primary text-xs px-1 rounded-control
               outline-none ring-1 ring-brand-primary truncate"
             style={{ height: 20 }}
             aria-label={`Rename task ${task.name}`}
@@ -850,7 +850,7 @@ function TaskListRowInner({
             )}
             {hasMissingDatesWarning && (
               <span
-                className="inline-flex shrink-0 items-center gap-0.5 px-1 py-px rounded text-xs font-medium text-semantic-at-risk border border-semantic-at-risk/40"
+                className="inline-flex shrink-0 items-center gap-0.5 px-1 py-px rounded-chip text-xs font-medium text-semantic-at-risk border border-semantic-at-risk/40"
                 title="This task is in progress but has no schedule dates. Set a start date or move it to To Do."
                 aria-label="Missing schedule dates"
                 data-testid="missing-dates-chip"
@@ -900,7 +900,7 @@ function TaskListRowInner({
               >
                 {depChips.predsCount > 0 && (
                   <span
-                    className={`inline-flex items-center px-1 py-px rounded text-xs font-medium cursor-pointer ${depChips.predsCritical ? 'bg-semantic-critical-bg text-semantic-critical' : 'bg-neutral-surface-raised text-neutral-text-secondary'}`}
+                    className={`inline-flex items-center px-1 py-px rounded-chip text-xs font-medium cursor-pointer ${depChips.predsCritical ? 'bg-semantic-critical-bg text-semantic-critical' : 'bg-neutral-surface-raised text-neutral-text-secondary'}`}
                     title={`${depChips.predsCount} predecessor${depChips.predsCount !== 1 ? 's' : ''}`}
                   >
                     ←{depChips.predsCount}
@@ -908,7 +908,7 @@ function TaskListRowInner({
                 )}
                 {depChips.succsCount > 0 && (
                   <span
-                    className={`inline-flex items-center px-1 py-px rounded text-xs font-medium cursor-pointer ${depChips.succsCritical ? 'bg-semantic-critical-bg text-semantic-critical' : 'bg-neutral-surface-raised text-neutral-text-secondary'}`}
+                    className={`inline-flex items-center px-1 py-px rounded-chip text-xs font-medium cursor-pointer ${depChips.succsCritical ? 'bg-semantic-critical-bg text-semantic-critical' : 'bg-neutral-surface-raised text-neutral-text-secondary'}`}
                     title={`${depChips.succsCount} successor${depChips.succsCount !== 1 ? 's' : ''}`}
                   >
                     →{depChips.succsCount}
@@ -932,7 +932,7 @@ function TaskListRowInner({
             setSelectedTaskId(task.id);
           }}
           className={[
-            'absolute right-1 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded',
+            'absolute right-1 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded-control',
             'text-neutral-text-secondary hover:text-neutral-text-primary',
             'transition-opacity duration-100',
             isSelected

@@ -410,7 +410,7 @@ function ActivityRow({ event, isLast }: { event: UnifiedEvent; isLast: boolean }
               onClick={() => setExpanded((v) => !v)}
               aria-expanded={expanded}
               aria-label={expanded ? 'Hide changes' : 'Show changes'}
-              className="shrink-0 rounded text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              className="shrink-0 rounded-control text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
               <span aria-hidden="true" className="text-xs">
                 {expanded ? '▴' : '▾'}
@@ -449,8 +449,8 @@ function ActivitySkeleton() {
           </div>
           <div className="flex-1 pb-4">
             <div className="flex justify-between gap-2">
-              <div className="h-3 w-40 animate-pulse rounded bg-neutral-border" />
-              <div className="h-3 w-12 shrink-0 animate-pulse rounded bg-neutral-border" />
+              <div className="h-3 w-40 animate-pulse rounded-chip bg-neutral-border" />
+              <div className="h-3 w-12 shrink-0 animate-pulse rounded-chip bg-neutral-border" />
             </div>
           </div>
         </div>
@@ -578,7 +578,7 @@ export function ActivityTimeline({ projectId, taskId }: DrawerSectionProps) {
               id="activity-person-filter"
               value={effectivePerson ?? ''}
               onChange={(e) => setPerson(e.target.value === '' ? null : e.target.value)}
-              className="h-7 rounded-md border border-neutral-border bg-neutral-surface px-2 text-xs text-neutral-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              className="h-7 rounded-control border border-neutral-border bg-neutral-surface px-2 text-xs text-neutral-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
               <option value="">Anyone</option>
               {persons.map((p) => (
@@ -615,7 +615,7 @@ export function ActivityTimeline({ projectId, taskId }: DrawerSectionProps) {
           type="button"
           onClick={() => void fetchNextPage()}
           disabled={isFetchingNextPage}
-          className="h-9 w-full rounded border border-neutral-border text-xs font-medium text-neutral-text-secondary hover:border-brand-primary hover:text-neutral-text-primary disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          className="h-9 w-full rounded-control border border-neutral-border text-xs font-medium text-neutral-text-secondary hover:border-brand-primary hover:text-neutral-text-primary disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         >
           {isFetchingNextPage ? 'Loading…' : 'Load more'}
         </button>

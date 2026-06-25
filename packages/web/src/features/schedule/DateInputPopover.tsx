@@ -95,7 +95,7 @@ export function DateInputPopover({ task, onConfirm, onClose }: Props) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="date-popover-title"
-        className="relative z-10 w-72 rounded border border-neutral-border bg-neutral-surface p-4 space-y-4"
+        className="relative z-10 w-72 rounded-card border border-neutral-border bg-neutral-surface p-4 space-y-4"
       >
         <h2
           id="date-popover-title"
@@ -120,7 +120,7 @@ export function DateInputPopover({ task, onConfirm, onClose }: Props) {
               type="date"
               value={startValue}
               onChange={(e) => setStartValue(e.target.value)}
-              className="w-full rounded border border-neutral-border bg-neutral-surface-raised px-2 py-1 text-sm text-neutral-text-primary
+              className="w-full rounded-control border border-neutral-border bg-neutral-surface-raised px-2 py-1 text-sm text-neutral-text-primary
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             />
           </div>
@@ -130,7 +130,7 @@ export function DateInputPopover({ task, onConfirm, onClose }: Props) {
             <span className="block text-xs font-medium text-neutral-text-secondary">
               Finish (derived)
             </span>
-            <p className="px-2 py-1 text-sm text-neutral-text-secondary bg-neutral-surface-raised rounded border border-neutral-border">
+            <p className="px-2 py-1 text-sm text-neutral-text-secondary bg-neutral-surface-raised rounded-control border border-neutral-border">
               {derivedFinish
                 ? new Date(derivedFinish + 'T00:00:00Z').toLocaleDateString('en-US', {
                     month: 'short',
@@ -146,7 +146,7 @@ export function DateInputPopover({ task, onConfirm, onClose }: Props) {
             <button
               type="button"
               onClick={onClose}
-              className="px-3 py-1 text-xs font-medium rounded border border-neutral-border text-neutral-text-secondary
+              className="px-3 py-1 text-xs font-medium rounded-control border border-neutral-border text-neutral-text-secondary
                 hover:bg-neutral-surface-raised
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
@@ -155,7 +155,7 @@ export function DateInputPopover({ task, onConfirm, onClose }: Props) {
             <button
               type="submit"
               disabled={!startValue || !derivedFinish}
-              className="px-3 py-1 text-xs font-medium rounded bg-sage-500 text-navy-900 dark:bg-sage-400 dark:text-navy-900
+              className="px-3 py-1 text-xs font-medium rounded-control bg-sage-500 text-navy-900 dark:bg-sage-400 dark:text-navy-900
                 hover:bg-sage-600 disabled:opacity-40 disabled:cursor-not-allowed
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >

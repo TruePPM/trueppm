@@ -133,7 +133,7 @@ export function QuarterModeControl() {
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
         onClick={() => (open ? setOpen(false) : openMenu())}
-        className="border border-neutral-border rounded h-7 px-3 text-xs font-medium
+        className="border border-neutral-border rounded-control h-7 px-3 text-xs font-medium
           inline-flex items-center gap-1
           focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none
           hover:border-brand-primary hover:text-brand-primary"
@@ -152,7 +152,7 @@ export function QuarterModeControl() {
           aria-label="Quarter labels"
           tabIndex={-1}
           onKeyDown={onMenuKeyDown}
-          className="absolute right-0 top-8 z-30 min-w-[240px] rounded border border-neutral-border
+          className="absolute right-0 top-8 z-30 min-w-[240px] rounded-card border border-neutral-border
             bg-neutral-surface py-1"
         >
           <button

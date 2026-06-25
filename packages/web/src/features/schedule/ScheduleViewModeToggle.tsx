@@ -55,7 +55,7 @@ export function ScheduleViewModeToggle() {
     <div
       role="radiogroup"
       aria-label="Schedule layout"
-      className="inline-flex flex-shrink-0 items-center rounded border border-neutral-border h-7 overflow-hidden"
+      className="inline-flex flex-shrink-0 items-center rounded-control border border-neutral-border h-7 overflow-hidden"
     >
       {MODES.map((m, i) => {
         const selected = m.value === viewMode;

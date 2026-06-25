@@ -149,7 +149,7 @@ export function ScheduleTaskDialog({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={helperId}
-        className="relative z-10 w-[360px] max-w-[calc(100vw-2rem)] rounded-lg
+        className="relative z-10 w-[360px] max-w-[calc(100vw-2rem)] rounded-card
           bg-neutral-surface border border-neutral-border p-5"
       >
         {/* Title + close (44×44, rule 5) */}
@@ -164,7 +164,7 @@ export function ScheduleTaskDialog({
             type="button"
             onClick={onClose}
             aria-label="Cancel"
-            className="-mr-2 -mt-2 w-11 h-11 flex items-center justify-center rounded
+            className="-mr-2 -mt-2 w-11 h-11 flex items-center justify-center rounded-control
               text-neutral-text-secondary hover:text-neutral-text-primary
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >
@@ -191,7 +191,7 @@ export function ScheduleTaskDialog({
           type="date"
           value={date}
           onChange={(e) => setDate(e.target.value)}
-          className="w-full h-9 rounded border border-neutral-border px-2.5 text-sm
+          className="w-full h-9 rounded-control border border-neutral-border px-2.5 text-sm
             text-neutral-text-primary bg-neutral-surface
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         />
@@ -206,7 +206,7 @@ export function ScheduleTaskDialog({
           <button
             type="button"
             onClick={onClose}
-            className="border border-neutral-border rounded h-8 px-4 text-xs font-medium text-neutral-text-primary
+            className="border border-neutral-border rounded-control h-8 px-4 text-xs font-medium text-neutral-text-primary
               hover:bg-neutral-surface-raised
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >
@@ -217,7 +217,7 @@ export function ScheduleTaskDialog({
             onClick={handleSchedule}
             disabled={scheduleDisabled}
             title={offline ? "You're offline — change not saved." : undefined}
-            className="rounded h-8 px-4 text-xs font-medium bg-brand-primary text-neutral-text-inverse
+            className="rounded-control h-8 px-4 text-xs font-medium bg-brand-primary text-neutral-text-inverse
               disabled:opacity-40 disabled:cursor-not-allowed
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >

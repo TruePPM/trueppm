@@ -112,7 +112,7 @@ export function ResourceSearchCombobox({ onSelect, onDismiss, taskId }: Resource
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={handleKeyDown}
-        className="w-full text-xs border border-neutral-border rounded px-2 py-1
+        className="w-full text-xs border border-neutral-border rounded-control px-2 py-1
           bg-neutral-surface text-neutral-text-primary placeholder:text-neutral-text-disabled
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
       />
@@ -124,7 +124,7 @@ export function ResourceSearchCombobox({ onSelect, onDismiss, taskId }: Resource
           aria-label="Resource options"
           className="absolute left-0 right-0 top-full mt-1 z-50
             max-h-56 overflow-y-auto
-            border border-neutral-border rounded
+            border border-neutral-border rounded-card
             bg-neutral-surface-raised"
         >
           {isSkillMode ? (

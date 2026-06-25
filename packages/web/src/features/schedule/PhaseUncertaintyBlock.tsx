@@ -39,7 +39,7 @@ export function PhaseUncertaintyBlock({ projectId }: Props) {
 
       {chips ? (
         <div
-          className="rounded-lg border border-neutral-border bg-neutral-surface-raised px-4 py-3 flex flex-col gap-3"
+          className="rounded-card border border-neutral-border bg-neutral-surface-raised px-4 py-3 flex flex-col gap-3"
           role="region"
           aria-label="Phase schedule confidence"
         >
@@ -48,7 +48,7 @@ export function PhaseUncertaintyBlock({ projectId }: Props) {
               <div key={label} className="flex items-center justify-between">
                 <span className="text-xs text-neutral-text-secondary">{label}</span>
                 <span
-                  className={`text-xs font-medium px-1.5 py-0.5 rounded border ${border} ${text} bg-transparent tppm-mono`}
+                  className={`text-xs font-medium px-1.5 py-0.5 rounded-chip border ${border} ${text} bg-transparent tppm-mono`}
                 >
                   {fmtShort(iso)}
                 </span>
@@ -61,7 +61,7 @@ export function PhaseUncertaintyBlock({ projectId }: Props) {
         </div>
       ) : (
         <div
-          className="rounded-lg border border-neutral-border bg-neutral-surface-raised px-4 py-3"
+          className="rounded-card border border-neutral-border bg-neutral-surface-raised px-4 py-3"
           role="region"
           aria-label="Phase schedule confidence"
         >

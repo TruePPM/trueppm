@@ -130,13 +130,13 @@ function ScheduleActionToastRenderer() {
     <div
       role="status"
       aria-live="polite"
-      className="fixed bottom-14 left-1/2 -translate-x-1/2 z-[60] min-w-[280px] max-w-[420px] px-4 py-2 rounded-md border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary flex items-center gap-3"
+      className="fixed bottom-14 left-1/2 -translate-x-1/2 z-[60] min-w-[280px] max-w-[420px] px-4 py-2 rounded-card border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary flex items-center gap-3"
     >
       <span className="flex-1">{toast.message}</span>
       {toast.action && (
         <button
           type="button"
-          className="text-brand-primary font-medium hover:underline focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none rounded"
+          className="text-brand-primary font-medium hover:underline focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none rounded-control"
           onClick={() => {
             toast.action!.onClick();
             // The handler is responsible for replacing or clearing the toast;
@@ -1013,7 +1013,7 @@ export function ScheduleView() {
       >
         <div className="w-[280px] flex-shrink-0 border-r border-white/10 p-2 space-y-1">
           {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="h-7 rounded animate-pulse bg-brand-primary/10" />
+            <div key={i} className="h-7 rounded-card animate-pulse bg-brand-primary/10" />
           ))}
         </div>
         <div className="flex-1 bg-neutral-surface" />
@@ -1072,7 +1072,7 @@ export function ScheduleView() {
             onClick={() => setShowAddForm((v) => !v)}
             aria-label="Add task"
             aria-expanded={showAddForm}
-            className="border border-neutral-border rounded h-7 px-3 text-xs font-medium flex-shrink-0
+            className="border border-neutral-border rounded-control h-7 px-3 text-xs font-medium flex-shrink-0
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none dark:focus-visible:ring-semantic-on-track
               hover:border-brand-primary hover:text-brand-primary"
           >
@@ -1105,7 +1105,7 @@ export function ScheduleView() {
             <div
               role="group"
               aria-label="Schedule view filters"
-              className="flex items-center rounded border border-neutral-border overflow-hidden flex-shrink-0"
+              className="flex items-center rounded-control border border-neutral-border overflow-hidden flex-shrink-0"
             >
               <ScheduleToolbarToggle
                 pressed={showCpOnly}
@@ -1129,7 +1129,7 @@ export function ScheduleView() {
             <div
               role="group"
               aria-label="Schedule render filters"
-              className="flex items-center rounded border border-neutral-border overflow-hidden flex-shrink-0"
+              className="flex items-center rounded-control border border-neutral-border overflow-hidden flex-shrink-0"
             >
               <ScheduleToolbarToggle
                 pressed={showCriticalOnly}
@@ -1163,7 +1163,7 @@ export function ScheduleView() {
             onClick={() => setShowColMenu((v) => !v)}
             aria-expanded={showColMenu}
             aria-haspopup="menu"
-            className="border border-neutral-border rounded h-7 px-3 text-xs font-medium
+            className="border border-neutral-border rounded-control h-7 px-3 text-xs font-medium
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none dark:focus-visible:ring-semantic-on-track
               hover:border-brand-primary hover:text-brand-primary"
           >
@@ -1173,7 +1173,7 @@ export function ScheduleView() {
             <div
               role="menu"
               className="absolute right-0 top-8 z-30 bg-neutral-surface border border-neutral-border
-                rounded py-1 min-w-[120px]"
+                rounded-card py-1 min-w-[120px]"
               aria-label="Toggle column visibility"
             >
               {(['dur', 'start', 'finish', 'progress'] as const).map((col) => (
@@ -1208,7 +1208,7 @@ export function ScheduleView() {
         <button
           type="button"
           onClick={handleScrollToToday}
-          className="border border-neutral-border rounded h-7 px-3 text-xs font-medium flex-shrink-0 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none dark:focus-visible:ring-semantic-on-track"
+          className="border border-neutral-border rounded-control h-7 px-3 text-xs font-medium flex-shrink-0 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none dark:focus-visible:ring-semantic-on-track"
         >
           Today
         </button>
@@ -1523,7 +1523,7 @@ export function ScheduleView() {
       {dragPhase === 'error' && (
         <div
           role="alert"
-          className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded border border-neutral-border bg-neutral-surface text-sm text-neutral-text-primary"
+          className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-card border border-neutral-border bg-neutral-surface text-sm text-neutral-text-primary"
         >
           You&apos;re offline — change not saved.
         </div>
@@ -1533,7 +1533,7 @@ export function ScheduleView() {
       {scheduleError && (
         <div
           role="alert"
-          className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded border border-neutral-border bg-neutral-surface text-sm text-neutral-text-primary"
+          className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-card border border-neutral-border bg-neutral-surface text-sm text-neutral-text-primary"
         >
           {scheduleError}
         </div>
@@ -1552,7 +1552,7 @@ export function ScheduleView() {
       {(isExporting || exportError) && (
         <div
           role={exportError ? 'alert' : 'status'}
-          className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded border border-neutral-border bg-neutral-surface text-sm text-neutral-text-primary"
+          className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-card border border-neutral-border bg-neutral-surface text-sm text-neutral-text-primary"
         >
           {exportError ?? 'Preparing your export…'}
         </div>

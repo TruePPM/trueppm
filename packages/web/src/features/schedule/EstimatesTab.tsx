@@ -122,7 +122,7 @@ export function EstimatesTab({
         <div
           role="status"
           aria-label="Velocity calibration suggestion"
-          className="flex items-start gap-3 rounded-lg border border-brand-primary/40 bg-brand-primary/5 px-3 py-2.5"
+          className="flex items-start gap-3 rounded-card border border-brand-primary/40 bg-brand-primary/5 px-3 py-2.5"
         >
           <span
             className="text-brand-primary text-lg leading-none mt-0.5"
@@ -155,7 +155,7 @@ export function EstimatesTab({
               type="button"
               onClick={() => dismissSuggestion.mutate(pendingSuggestion.id)}
               disabled={dismissSuggestion.isPending || acceptSuggestion.isPending}
-              className="h-8 px-3 rounded text-xs font-medium border border-neutral-border
+              className="h-8 px-3 rounded-control text-xs font-medium border border-neutral-border
                 text-neutral-text-secondary bg-neutral-surface hover:bg-neutral-surface-raised
                 disabled:opacity-50 disabled:cursor-not-allowed
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
@@ -166,7 +166,7 @@ export function EstimatesTab({
               type="button"
               onClick={() => acceptSuggestion.mutate(pendingSuggestion.id)}
               disabled={acceptSuggestion.isPending || dismissSuggestion.isPending}
-              className="h-8 px-3 rounded text-xs font-semibold border border-sage-600
+              className="h-8 px-3 rounded-control text-xs font-semibold border border-sage-600
                 text-navy-900 bg-sage-500 dark:bg-sage-400 dark:text-navy-900 hover:bg-sage-600
                 disabled:opacity-50 disabled:cursor-not-allowed
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
@@ -181,7 +181,7 @@ export function EstimatesTab({
       {showPendingBanner && (
         <div
           role="status"
-          className="flex items-start gap-3 rounded-lg border border-brand-accent/40 bg-brand-accent-light/40 px-3 py-2.5"
+          className="flex items-start gap-3 rounded-card border border-brand-accent/40 bg-brand-accent-light/40 px-3 py-2.5"
         >
           <span className="text-brand-accent-dark text-lg leading-none mt-0.5" aria-hidden="true">
             ⏳
@@ -199,7 +199,7 @@ export function EstimatesTab({
               type="button"
               onClick={() => approveEstimates.mutate(task.id)}
               disabled={approveEstimates.isPending}
-              className="shrink-0 h-8 px-3 rounded text-xs font-semibold border border-brand-accent-dark/40
+              className="shrink-0 h-8 px-3 rounded-control text-xs font-semibold border border-brand-accent-dark/40
                 text-brand-accent-dark bg-brand-accent-light hover:bg-brand-accent/20
                 disabled:opacity-50 disabled:cursor-not-allowed
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
@@ -252,7 +252,7 @@ export function EstimatesTab({
       {/* PERT summary panel */}
       {showPertPanel && pertExpected != null && pertStdDev != null && (
         <div
-          className="rounded-lg border border-neutral-border bg-neutral-surface-raised px-4 py-3 flex gap-6"
+          className="rounded-card border border-neutral-border bg-neutral-surface-raised px-4 py-3 flex gap-6"
           role="region"
           aria-label="PERT calculation"
         >
@@ -299,7 +299,7 @@ export function EstimatesTab({
             </span>
             <span
               className="w-24 h-9 flex items-center justify-center text-sm text-neutral-text-primary
-                tppm-mono border border-neutral-border/50 rounded bg-neutral-surface-raised"
+                tppm-mono border border-neutral-border/50 rounded-control bg-neutral-surface-raised"
               aria-label="Committed story points (read-only)"
             >
               {task.storyPoints ?? '—'}
@@ -367,7 +367,7 @@ function EstimateField({ label, value, onChange, onBlur, disabled, id }: Estimat
         onBlur={(e) => onBlur(e.target.value)}
         disabled={disabled}
         placeholder="—"
-        className="w-24 h-11 md:h-9 text-sm border border-neutral-border rounded px-2 text-center
+        className="w-24 h-11 md:h-9 text-sm border border-neutral-border rounded-control px-2 text-center
           bg-neutral-surface text-neutral-text-primary
           disabled:bg-neutral-surface-raised disabled:text-neutral-text-disabled disabled:cursor-not-allowed
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"

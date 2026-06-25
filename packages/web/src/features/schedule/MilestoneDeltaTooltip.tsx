@@ -45,7 +45,7 @@ export function MilestoneDeltaTooltip({ milestoneLeft, timelineTop }: Props) {
       style={{ left: Math.max(8, left), top: timelineTop + 8 }}
       aria-hidden="true"
     >
-      <div className="bg-neutral-surface border border-neutral-border rounded px-2.5 py-1.5 shadow-none text-xs w-44">
+      <div className="bg-neutral-surface border border-neutral-border rounded-card px-2.5 py-1.5 shadow-none text-xs w-44">
         <p className="font-medium text-neutral-text-primary truncate">{name}</p>
         <div className="flex items-center justify-between mt-1">
           <span className="text-neutral-text-secondary">{formatShortDate(baselineFinish)}</span>

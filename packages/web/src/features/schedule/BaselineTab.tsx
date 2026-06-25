@@ -29,7 +29,7 @@ export function BaselineTab({ projectId, taskId }: BaselineTabProps) {
 
   if (!data.in_baseline) {
     return (
-      <div className="rounded-lg border border-neutral-border/60 bg-brand-primary/5 px-4 py-3 flex flex-col gap-1">
+      <div className="rounded-card border border-neutral-border/60 bg-brand-primary/5 px-4 py-3 flex flex-col gap-1">
         <p className="text-sm font-medium text-neutral-text-primary">
           Task added after baseline
         </p>
@@ -111,7 +111,7 @@ function ComparisonTable({ data }: ComparisonTableProps) {
   return (
     <div className="flex flex-col gap-3">
       {/* Baseline info banner */}
-      <div className="rounded-lg border border-neutral-border bg-neutral-surface-raised px-3 py-2.5 flex flex-col gap-0.5">
+      <div className="rounded-card border border-neutral-border bg-neutral-surface-raised px-3 py-2.5 flex flex-col gap-0.5">
         <p className="text-xs font-medium text-neutral-text-primary">{data.baseline_name}</p>
         <p className="text-xs text-neutral-text-secondary">
           Taken{' '}
@@ -132,7 +132,7 @@ function ComparisonTable({ data }: ComparisonTableProps) {
       <div
         role="table"
         aria-label="Baseline comparison"
-        className="flex flex-col border border-neutral-border rounded-lg overflow-hidden"
+        className="flex flex-col border border-neutral-border rounded-card overflow-hidden"
       >
         {/* Header */}
         <div role="row" className="grid grid-cols-4 bg-neutral-surface-raised border-b border-neutral-border">
@@ -212,15 +212,15 @@ function formatDateCell(value: string | null) {
 function BaselineSkeleton() {
   return (
     <div className="flex flex-col gap-3" aria-busy="true" aria-label="Loading baseline">
-      <div className="rounded-lg border border-neutral-border bg-neutral-surface-raised p-3 animate-pulse">
-        <div className="h-3 w-32 rounded bg-neutral-border mb-1" />
-        <div className="h-3 w-48 rounded bg-neutral-border" />
+      <div className="rounded-card border border-neutral-border bg-neutral-surface-raised p-3 animate-pulse">
+        <div className="h-3 w-32 rounded-chip bg-neutral-border mb-1" />
+        <div className="h-3 w-48 rounded-chip bg-neutral-border" />
       </div>
-      <div className="rounded-lg border border-neutral-border overflow-hidden animate-pulse">
+      <div className="rounded-card border border-neutral-border overflow-hidden animate-pulse">
         {[0, 1, 2, 3, 4].map((i) => (
           <div key={i} className="grid grid-cols-4 border-b border-neutral-border last:border-b-0 p-2 gap-2">
             {[0, 1, 2, 3].map((j) => (
-              <div key={j} className="h-3 rounded bg-neutral-border" />
+              <div key={j} className="h-3 rounded-chip bg-neutral-border" />
             ))}
           </div>
         ))}

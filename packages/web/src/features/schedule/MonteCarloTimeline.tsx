@@ -58,7 +58,7 @@ export function MonteCarloTimeline({ result, p80DeltaDays }: Props) {
       {chips.map(({ label, iso, border, text, suffix }) => (
         <span
           key={label}
-          className={`text-xs font-medium px-1.5 py-0.5 rounded border ${border} ${text} bg-transparent whitespace-nowrap`}
+          className={`text-xs font-medium px-1.5 py-0.5 rounded-chip border ${border} ${text} bg-transparent whitespace-nowrap`}
         >
           {label}: {fmtUtcShort(iso)}{suffix ? ` ${suffix}` : ''}
         </span>

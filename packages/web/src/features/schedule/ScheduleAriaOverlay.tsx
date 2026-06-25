@@ -231,7 +231,7 @@ export function ScheduleAriaOverlay({ engine, tasks, containerRef }: ScheduleAri
               tabIndex={isFocused ? 0 : -1}
               aria-label={buildTaskAriaLabel(task)}
               aria-selected={engine?.selectedTaskIds.has(task.id)}
-              className="focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface dark:focus-visible:ring-semantic-on-track rounded-sm outline-none"
+              className="focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface dark:focus-visible:ring-semantic-on-track rounded-control outline-none"
               style={{
                 position: 'absolute',
                 left: barLeft,

@@ -254,7 +254,7 @@ export function UnscheduledGutter({
               type="button"
               aria-label={collapsed ? 'Expand unscheduled tasks' : 'Collapse unscheduled tasks'}
               onClick={() => persistCollapsed(!collapsed)}
-              className="w-8 h-8 flex items-center justify-center mr-2 rounded text-neutral-text-secondary
+              className="w-8 h-8 flex items-center justify-center mr-2 rounded-control text-neutral-text-secondary
                 hover:text-neutral-text-primary
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
@@ -355,7 +355,7 @@ export function UnscheduledGutter({
             style={{ paddingLeft: taskListWidth }}
             className="px-4 py-2"
           >
-            <div className="h-9 rounded animate-pulse bg-neutral-border/50" />
+            <div className="h-9 rounded-card animate-pulse bg-neutral-border/50" />
           </div>
         )}
       </div>

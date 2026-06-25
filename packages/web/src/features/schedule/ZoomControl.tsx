@@ -60,7 +60,7 @@ export function ZoomControl({ onFit }: ZoomControlProps) {
       <div
         role="group"
         aria-label="Timeline zoom"
-        className="flex items-center h-7 rounded border border-neutral-border overflow-hidden"
+        className="flex items-center h-7 rounded-control border border-neutral-border overflow-hidden"
       >
         <button
           type="button"
@@ -102,7 +102,7 @@ export function ZoomControl({ onFit }: ZoomControlProps) {
         onClick={onFit}
         aria-label="Fit schedule to window"
         title={`Fit to project  ${MOD_GLYPH}0`}
-        className="border border-neutral-border rounded h-7 px-3 text-xs font-medium flex-shrink-0
+        className="border border-neutral-border rounded-control h-7 px-3 text-xs font-medium flex-shrink-0
           focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
           focus-visible:ring-offset-neutral-surface dark:focus-visible:ring-semantic-on-track
           focus-visible:outline-none hover:border-brand-primary hover:text-brand-primary"

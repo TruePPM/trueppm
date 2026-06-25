@@ -209,7 +209,7 @@ export function ScheduleCommitPopover({
       aria-labelledby="schedule-commit-title"
       aria-describedby="schedule-commit-change"
       // ADR-0064 — Schedule canvas overlays are desktop-only.
-      className="fixed z-[70] hidden lg:block bg-neutral-surface border border-neutral-border rounded-lg p-3"
+      className="fixed z-[70] hidden lg:block bg-neutral-surface border border-neutral-border rounded-card p-3"
       style={{ top: position.top, left: position.left, width: POPOVER_WIDTH }}
     >
       <div id="schedule-commit-title" className="text-sm font-semibold text-neutral-text-primary">
@@ -249,7 +249,7 @@ export function ScheduleCommitPopover({
           type="button"
           onClick={onCancel}
           disabled={isPending}
-          className="border border-neutral-border text-neutral-text-primary px-3 h-8 rounded text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          className="border border-neutral-border text-neutral-text-primary px-3 h-8 rounded-control text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         >
           Cancel
         </button>
