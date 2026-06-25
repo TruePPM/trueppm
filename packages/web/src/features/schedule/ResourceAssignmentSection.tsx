@@ -142,7 +142,7 @@ export function ResourceAssignmentSection({
             type="button"
             onClick={() => setShowSearch(true)}
             disabled={addAssignment.isPending}
-            className="h-7 px-3 rounded text-xs border border-neutral-border
+            className="h-7 px-3 rounded-control text-xs border border-neutral-border
               text-neutral-text-secondary hover:text-neutral-text-primary hover:border-brand-primary
               disabled:opacity-40 disabled:cursor-not-allowed
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
@@ -170,7 +170,7 @@ function AssignmentWarningBanner({ warning, onDismiss, dismissLabel }: Assignmen
   return (
     <div
       role="alert"
-      className="mt-2 flex items-start gap-2 rounded border border-semantic-at-risk/40
+      className="mt-2 flex items-start gap-2 rounded-card border border-semantic-at-risk/40
         bg-transparent px-3 py-2 text-xs text-semantic-at-risk"
     >
       <span aria-hidden="true" className="mt-0.5 shrink-0">⚠</span>
@@ -181,7 +181,7 @@ function AssignmentWarningBanner({ warning, onDismiss, dismissLabel }: Assignmen
         aria-label={dismissLabel}
         className="shrink-0 text-semantic-at-risk/60 hover:text-semantic-at-risk
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-at-risk
-          focus-visible:ring-offset-1 rounded"
+          focus-visible:ring-offset-1 rounded-control"
       >
         ✕
       </button>

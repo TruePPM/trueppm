@@ -38,7 +38,7 @@ function readExpanded(): boolean {
 }
 
 const BTN_CLS =
-  'inline-flex items-center h-7 px-3 rounded border border-neutral-border bg-neutral-surface ' +
+  'inline-flex items-center h-7 px-3 rounded-control border border-neutral-border bg-neutral-surface ' +
   'text-xs font-medium text-neutral-text-primary ' +
   'hover:bg-neutral-surface-raised disabled:opacity-50 disabled:cursor-not-allowed ' +
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1';
@@ -171,7 +171,7 @@ export function ScheduleForecastBar({
             aria-controls={panelId}
             aria-label={expanded ? 'Minimize forecast detail' : 'Maximize forecast detail'}
             className="flex items-center gap-2 text-left text-sm font-semibold text-neutral-text-primary
-              rounded hover:bg-neutral-surface-raised px-1 -mx-1
+              rounded-control hover:bg-neutral-surface-raised px-1 -mx-1
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary dark:focus-visible:ring-semantic-on-track"
           >
             <span aria-hidden="true" className="text-xs text-neutral-text-secondary">
@@ -186,7 +186,7 @@ export function ScheduleForecastBar({
             {chips.map(({ label, iso, border, text, suffix }) => (
               <span
                 key={label}
-                className={`text-xs font-medium px-1.5 py-0.5 rounded border ${border} ${text} bg-transparent whitespace-nowrap`}
+                className={`text-xs font-medium px-1.5 py-0.5 rounded-chip border ${border} ${text} bg-transparent whitespace-nowrap`}
               >
                 {label}: {fmtUtcShort(iso)}
                 {suffix}
@@ -244,7 +244,7 @@ export function ScheduleForecastBar({
           <div id={panelId} className="motion-safe:animate-empty-state-in">
             <div className="grid grid-cols-1 gap-5 px-5 pb-4 pt-1 lg:grid-cols-2">
               {/* Finish-date forecast */}
-              <div className="rounded-lg border border-neutral-border p-4">
+              <div className="rounded-card border border-neutral-border p-4">
                 <h3 className="text-sm font-semibold text-neutral-text-primary">
                   Finish-date forecast
                 </h3>
@@ -255,7 +255,7 @@ export function ScheduleForecastBar({
               </div>
 
               {/* What's holding the date — sensitivity tornado */}
-              <div className="rounded-lg border border-neutral-border p-4">
+              <div className="rounded-card border border-neutral-border p-4">
                 <h3 className="text-sm font-semibold text-neutral-text-primary">
                   What&apos;s holding the date
                 </h3>

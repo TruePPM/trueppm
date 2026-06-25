@@ -55,7 +55,7 @@ function PreviewBar({ result, scales, scrollLeft, rowIndex, showCpBadge }: Previ
 
   return (
     <div
-      className="absolute rounded-sm"
+      className="absolute rounded-[3px]"
       style={{
         left,
         top,
@@ -70,7 +70,7 @@ function PreviewBar({ result, scales, scrollLeft, rowIndex, showCpBadge }: Previ
       {/* CP badge — non-color signal for critical-path flip (rule 26) */}
       {result.isCritical && showCpBadge && (
         <span
-          className="absolute -top-3 right-0 text-xs font-bold leading-none px-0.5 py-px rounded-sm bg-semantic-critical text-neutral-text-inverse"
+          className="absolute -top-3 right-0 text-xs font-bold leading-none px-0.5 py-px rounded-chip bg-semantic-critical text-neutral-text-inverse"
           aria-hidden="true"
         >
           CP
@@ -102,7 +102,7 @@ function OriginBar({ originStart, originFinish, scales, scrollLeft, rowIndex }: 
 
   return (
     <div
-      className="absolute rounded-sm"
+      className="absolute rounded-[3px]"
       style={{
         left,
         top,
@@ -134,7 +134,7 @@ function BuildGhostBar({ ghostStart, ghostFinish, scales, scrollLeft, rowIndex }
 
   return (
     <div
-      className="absolute rounded-sm"
+      className="absolute rounded-[3px]"
       style={{
         left,
         top,
@@ -263,7 +263,7 @@ export function PreviewOverlay({ scales, scrollLeft, taskIds, originTask }: Prop
       {/* "+N more affected" label (rule 32) */}
       {overflowCount > 0 && (
         <div
-          className="absolute bottom-1 right-2 text-xs text-neutral-text-secondary bg-neutral-surface/80 px-1.5 py-0.5 rounded"
+          className="absolute bottom-1 right-2 text-xs text-neutral-text-secondary bg-neutral-surface/80 px-1.5 py-0.5 rounded-chip"
           aria-hidden="true"
         >
           +{overflowCount} more affected
@@ -274,7 +274,7 @@ export function PreviewOverlay({ scales, scrollLeft, taskIds, originTask }: Prop
           keyboard mode: full key legend (rule 51) */}
       {phase === 'dragging' && (
         <div
-          className="absolute bottom-1 left-2 text-xs text-neutral-text-secondary bg-neutral-surface/80 px-1.5 py-0.5 rounded"
+          className="absolute bottom-1 left-2 text-xs text-neutral-text-secondary bg-neutral-surface/80 px-1.5 py-0.5 rounded-chip"
           aria-hidden="true"
         >
           {isKeyboardMode

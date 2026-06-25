@@ -34,7 +34,7 @@ export interface BuildModeHintStripProps {
 function HintChip({ entry }: { entry: HintEntry }) {
   return (
     <span className="inline-flex items-center">
-      <kbd className="inline-flex h-5 px-1.5 items-center rounded border border-chrome-border bg-chrome-surface text-[11px] tppm-mono text-chrome-text-primary">
+      <kbd className="inline-flex h-5 px-1.5 items-center rounded-chip border border-chrome-border bg-chrome-surface text-[11px] tppm-mono text-chrome-text-primary">
         {entry.key}
       </kbd>
       <span className="ml-1.5 text-[12px] text-chrome-text-secondary">
@@ -89,10 +89,10 @@ export function BuildModeHintStrip({ mode, onShowCheatsheet }: BuildModeHintStri
         className="inline-flex items-center gap-1.5 text-[12px] text-chrome-text-secondary
           hover:text-chrome-text-primary
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-          focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface-raised rounded"
+          focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface-raised rounded-control"
         aria-label="Show all keyboard shortcuts"
       >
-        <kbd className="inline-flex h-5 px-1.5 items-center rounded border border-chrome-border bg-chrome-surface text-[11px] tppm-mono">
+        <kbd className="inline-flex h-5 px-1.5 items-center rounded-chip border border-chrome-border bg-chrome-surface text-[11px] tppm-mono">
           ?
         </kbd>
         All shortcuts

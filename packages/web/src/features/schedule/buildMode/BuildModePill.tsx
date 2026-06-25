@@ -15,7 +15,7 @@ export function BuildModePill({ onShowCheatsheet }: BuildModePillProps) {
       onClick={onShowCheatsheet}
       data-testid="build-mode-pill"
       aria-label="Build mode active. Press ? for keyboard shortcuts."
-      className="hidden md:inline-flex h-7 px-2 items-center gap-1.5 rounded
+      className="hidden md:inline-flex h-7 px-2 items-center gap-1.5 rounded-control
         border border-brand-primary/30 bg-brand-primary/8 text-brand-primary
         text-[11px] font-medium uppercase tracking-widest
         hover:bg-brand-primary/12

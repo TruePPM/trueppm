@@ -107,7 +107,7 @@ export function BuildModeCheatsheet({ open, onClose }: BuildModeCheatsheetProps)
         aria-modal="true"
         aria-labelledby="cheatsheet-title"
         className="w-[480px] max-w-[90vw] max-h-[85vh] overflow-y-auto
-          bg-neutral-surface border border-neutral-border rounded-lg p-5"
+          bg-neutral-surface border border-neutral-border rounded-card p-5"
       >
         <div className="flex items-center justify-between mb-3">
           <h2 id="cheatsheet-title" className="text-[15px] font-semibold text-neutral-text-primary">
@@ -118,7 +118,7 @@ export function BuildModeCheatsheet({ open, onClose }: BuildModeCheatsheetProps)
             type="button"
             onClick={onClose}
             aria-label="Close shortcuts"
-            className="w-7 h-7 inline-flex items-center justify-center rounded
+            className="w-7 h-7 inline-flex items-center justify-center rounded-control
               text-neutral-text-secondary hover:text-neutral-text-primary
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
               focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface"
@@ -144,7 +144,7 @@ export function BuildModeCheatsheet({ open, onClose }: BuildModeCheatsheetProps)
                         {entry.keys.map((k, i) => (
                           <span key={`${k}-${i}`}>
                             {i > 0 && <span className="opacity-50"> + </span>}
-                            <kbd className="inline-flex h-4 px-1 items-center rounded border border-neutral-border text-[11px]">
+                            <kbd className="inline-flex h-4 px-1 items-center rounded-chip border border-neutral-border text-[11px]">
                               {k}
                             </kbd>
                           </span>
@@ -165,7 +165,7 @@ export function BuildModeCheatsheet({ open, onClose }: BuildModeCheatsheetProps)
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex h-8 px-3 items-center rounded border border-neutral-border
+            className="inline-flex h-8 px-3 items-center rounded-control border border-neutral-border
               bg-neutral-surface text-[13px] text-neutral-text-primary
               hover:bg-neutral-row-hover
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary

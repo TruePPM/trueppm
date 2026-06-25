@@ -81,7 +81,7 @@ export function TaskDrawerHeader({ task }: TaskDrawerHeaderProps) {
               // the meaning to AT; the title is the pointer-hover affordance.
               <span
                 role="note"
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs shrink-0
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-chip text-xs shrink-0
                   border border-semantic-at-risk/40 bg-semantic-at-risk-bg text-semantic-at-risk cursor-help"
                 title="Sum of resource units across active tasks exceeds 1.0. Open the resource view to investigate."
                 aria-label={`${task.assignees[0].name} is over-allocated across active tasks`}

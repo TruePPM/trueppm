@@ -16,7 +16,7 @@ export function UnscheduledDragPreview({ task, x, y }: UnscheduledDragPreviewPro
       aria-hidden="true"
       data-testid="schedule-drag-preview"
       style={{ left: x + 12, top: y - 18, position: 'fixed', pointerEvents: 'none', zIndex: 9999 }}
-      className="flex items-center gap-3 px-3 h-9 rounded bg-neutral-surface border border-brand-primary
+      className="flex items-center gap-3 px-3 h-9 rounded-chip bg-neutral-surface border border-brand-primary
         text-sm text-neutral-text-primary min-w-[280px] max-w-xs
         motion-safe:rotate-1 shadow-none"
     >

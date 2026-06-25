@@ -63,7 +63,7 @@ export function MobileMonteCarloCard({ projectId }: Props) {
               : 'No forecast yet.'}
         </span>
         <span
-          className="ml-auto inline-flex items-center px-2 py-0.5 rounded border border-brand-primary/60 text-xs font-medium text-brand-primary"
+          className="ml-auto inline-flex items-center px-2 py-0.5 rounded-chip border border-brand-primary/60 text-xs font-medium text-brand-primary"
           aria-hidden="true"
         >
           {ctaLabel}
@@ -90,17 +90,17 @@ export function MobileMonteCarloCard({ projectId }: Props) {
           MC
         </span>
         <span
-          className="inline-flex items-center px-1.5 py-0.5 rounded border border-semantic-on-track/60 text-xs font-medium text-semantic-on-track bg-transparent"
+          className="inline-flex items-center px-1.5 py-0.5 rounded-chip border border-semantic-on-track/60 text-xs font-medium text-semantic-on-track bg-transparent"
         >
           P50: {formatShortDate(result.p50)}
         </span>
         <span
-          className="inline-flex items-center px-1.5 py-0.5 rounded border border-semantic-at-risk/80 text-xs font-medium text-semantic-at-risk bg-transparent"
+          className="inline-flex items-center px-1.5 py-0.5 rounded-chip border border-semantic-at-risk/80 text-xs font-medium text-semantic-at-risk bg-transparent"
         >
           P80: {formatShortDate(result.p80)}
         </span>
         <span
-          className="inline-flex items-center px-1.5 py-0.5 rounded border border-semantic-critical/60 text-xs font-medium text-semantic-critical bg-transparent"
+          className="inline-flex items-center px-1.5 py-0.5 rounded-chip border border-semantic-critical/60 text-xs font-medium text-semantic-critical bg-transparent"
         >
           P95: {formatShortDate(result.p95)}
         </span>

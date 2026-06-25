@@ -257,9 +257,9 @@ function HistorySkeleton() {
     <div className="py-2 space-y-3" aria-hidden="true">
       {[0, 1, 2].map((i) => (
         <div key={i} className="space-y-1.5">
-          <div className="h-3 w-24 rounded bg-neutral-surface-raised motion-safe:animate-pulse" />
-          <div className="h-3 w-full rounded bg-neutral-surface-raised motion-safe:animate-pulse" />
-          <div className="h-3 w-full rounded bg-neutral-surface-raised motion-safe:animate-pulse" />
+          <div className="h-3 w-24 rounded-chip bg-neutral-surface-raised motion-safe:animate-pulse" />
+          <div className="h-3 w-full rounded-chip bg-neutral-surface-raised motion-safe:animate-pulse" />
+          <div className="h-3 w-full rounded-chip bg-neutral-surface-raised motion-safe:animate-pulse" />
         </div>
       ))}
     </div>

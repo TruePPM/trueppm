@@ -76,14 +76,14 @@ export function MilestoneDatePopover({ open, parents, onSelect, onClose }: Props
       role="dialog"
       aria-modal="false"
       aria-label="Pick milestone date"
-      className="absolute top-full left-0 z-50 w-[220px] mt-0.5 rounded border border-chrome-border
+      className="absolute top-full left-0 z-50 w-[220px] mt-0.5 rounded-card border border-chrome-border
         bg-chrome-surface-raised p-2 space-y-1"
     >
       {phaseChips.map((p) => (
         <button
           key={p.name}
           type="button"
-          className="w-full text-left text-xs px-2 py-1 rounded
+          className="w-full text-left text-xs px-2 py-1 rounded-control
             hover:bg-brand-primary/10 text-chrome-text-primary
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
             focus-visible:ring-offset-1"
@@ -99,7 +99,7 @@ export function MilestoneDatePopover({ open, parents, onSelect, onClose }: Props
       {activeSprint && (
         <button
           type="button"
-          className="w-full text-left text-xs px-2 py-1 rounded
+          className="w-full text-left text-xs px-2 py-1 rounded-control
             hover:bg-brand-primary/10 text-chrome-text-primary
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
             focus-visible:ring-offset-1"
@@ -115,7 +115,7 @@ export function MilestoneDatePopover({ open, parents, onSelect, onClose }: Props
       {!showCustom ? (
         <button
           type="button"
-          className="w-full text-left text-xs px-2 py-1 rounded text-neutral-text-secondary
+          className="w-full text-left text-xs px-2 py-1 rounded-control text-neutral-text-secondary
             hover:bg-brand-primary/10
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
             focus-visible:ring-offset-1"
@@ -138,14 +138,14 @@ export function MilestoneDatePopover({ open, parents, onSelect, onClose }: Props
                 setShowCustom(false);
               }
             }}
-            className="flex-1 min-w-0 text-xs rounded border border-neutral-border px-1 py-0.5
+            className="flex-1 min-w-0 text-xs rounded-control border border-neutral-border px-1 py-0.5
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
           />
           <button
             type="button"
             onClick={handleCustomSubmit}
             disabled={!customDate}
-            className="text-xs px-1.5 py-0.5 rounded bg-sage-500 text-navy-900 dark:bg-sage-400 dark:text-navy-900 disabled:opacity-40
+            className="text-xs px-1.5 py-0.5 rounded-control bg-sage-500 text-navy-900 dark:bg-sage-400 dark:text-navy-900 disabled:opacity-40
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
               focus-visible:ring-offset-1"
           >

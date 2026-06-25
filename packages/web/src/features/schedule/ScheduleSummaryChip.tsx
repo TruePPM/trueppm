@@ -37,7 +37,7 @@ export function ScheduleSummaryChip({ visibleTasks }: ScheduleSummaryChipProps) 
     <div
       role="status"
       aria-label={ariaLabel}
-      className="hidden md:inline-flex h-7 items-center gap-1.5 rounded
+      className="hidden md:inline-flex h-7 items-center gap-1.5 rounded-chip
         border border-neutral-border bg-transparent px-3 text-xs text-neutral-text-secondary
         whitespace-nowrap"
     >

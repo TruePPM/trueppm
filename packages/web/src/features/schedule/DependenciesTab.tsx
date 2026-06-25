@@ -150,7 +150,7 @@ export function DependenciesTab({ task, tasks, links, projectId }: DependenciesT
       {errorMessage && (
         <div
           role="alert"
-          className="bg-semantic-critical-bg border border-semantic-critical/30 text-semantic-critical text-xs px-3 py-2 rounded"
+          className="bg-semantic-critical-bg border border-semantic-critical/30 text-semantic-critical text-xs px-3 py-2 rounded-card"
         >
           {errorMessage}
         </div>
@@ -208,7 +208,7 @@ function DepRow({ link, relatedTask, onUpdate, onDelete }: DepRowProps) {
             );
           }}
           aria-label="Dependency type"
-          className="text-xs border border-neutral-border rounded px-1.5 py-1
+          className="text-xs border border-neutral-border rounded-control px-1.5 py-1
             bg-neutral-surface text-neutral-text-primary
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         >
@@ -231,7 +231,7 @@ function DepRow({ link, relatedTask, onUpdate, onDelete }: DepRowProps) {
               onUpdate({ lag: newLag });
             }
           }}
-          className="w-14 text-xs border border-neutral-border rounded px-1.5 py-1 text-center
+          className="w-14 text-xs border border-neutral-border rounded-control px-1.5 py-1 text-center
             bg-neutral-surface text-neutral-text-primary
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         />
@@ -240,7 +240,7 @@ function DepRow({ link, relatedTask, onUpdate, onDelete }: DepRowProps) {
           type="button"
           onClick={onDelete}
           aria-label={`Remove dependency on ${relatedTask.name}`}
-          className="w-6 h-6 flex items-center justify-center rounded text-neutral-text-disabled
+          className="w-6 h-6 flex items-center justify-center rounded-control text-neutral-text-disabled
             hover:text-semantic-critical
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         >
@@ -287,7 +287,7 @@ function AddDepRow({
         value={selectedTaskId}
         onChange={(e) => onTaskChange(e.target.value)}
         aria-label={addLabel}
-        className="flex-1 min-w-0 text-xs border border-neutral-border rounded px-2 py-1
+        className="flex-1 min-w-0 text-xs border border-neutral-border rounded-control px-2 py-1
           bg-neutral-surface text-neutral-text-primary
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
       >
@@ -302,7 +302,7 @@ function AddDepRow({
         value={selectedType}
         onChange={(e) => onTypeChange(e.target.value as LinkType)}
         aria-label="Link type"
-        className="text-xs border border-neutral-border rounded px-1.5 py-1
+        className="text-xs border border-neutral-border rounded-control px-1.5 py-1
           bg-neutral-surface text-neutral-text-primary
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
       >
@@ -315,7 +315,7 @@ function AddDepRow({
         onClick={onAdd}
         disabled={!selectedTaskId || isPending}
         aria-label={addLabel}
-        className="h-7 px-3 rounded text-xs font-medium border border-neutral-border
+        className="h-7 px-3 rounded-control text-xs font-medium border border-neutral-border
           text-neutral-text-secondary hover:text-neutral-text-primary hover:border-brand-primary
           disabled:opacity-40 disabled:cursor-not-allowed
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"

@@ -128,7 +128,7 @@ export function MonteCarloDetailPanel({ result, cpmFinish, tasks, isOpen, onClos
           type="button"
           onClick={onClose}
           aria-label="Close Monte Carlo detail panel"
-          className="flex items-center justify-center w-8 h-8 rounded border border-neutral-border text-neutral-text-secondary
+          className="flex items-center justify-center w-8 h-8 rounded-control border border-neutral-border text-neutral-text-secondary
             hover:bg-neutral-surface-raised
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         >
@@ -241,7 +241,7 @@ export function MonteCarloDetailPanel({ result, cpmFinish, tasks, isOpen, onClos
         aria-hidden={!isOpen}
         className={[
           'md:hidden fixed inset-x-0 bottom-0 z-40',
-          'rounded-t-xl bg-neutral-surface border-t border-neutral-border',
+          'rounded-t-card bg-neutral-surface border-t border-neutral-border',
           'h-[85vh] flex flex-col',
           'transition-transform duration-200',
           isOpen

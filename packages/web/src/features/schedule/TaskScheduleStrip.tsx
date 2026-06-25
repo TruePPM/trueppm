@@ -65,7 +65,7 @@ export function TaskScheduleStrip({ task }: { task: Task }) {
 
   return (
     <div aria-label="Schedule" role="group">
-      <div className="rounded-lg border border-neutral-border overflow-hidden">
+      <div className="rounded-card border border-neutral-border overflow-hidden">
         <div className={['grid', task.isMilestone ? 'grid-cols-2' : 'grid-cols-4'].join(' ')}>
           <Cell label={task.isMilestone ? 'Date' : 'Start'}>
             {hasSchedule ? formatDate(task.start) : dash}

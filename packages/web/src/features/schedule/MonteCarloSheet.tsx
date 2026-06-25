@@ -44,7 +44,7 @@ export function MonteCarloSheet({ result, onClose }: Props) {
         onClick={onClose}
       />
       <div
-        className="bg-neutral-surface border-t border-neutral-border rounded-t-lg px-4 pb-6 pt-3"
+        className="bg-neutral-surface border-t border-neutral-border rounded-t-card px-4 pb-6 pt-3"
         style={{ maxHeight: '85vh', overflowY: 'auto' }}
       >
         {/* Drag handle (decorative) */}
@@ -70,7 +70,7 @@ export function MonteCarloSheet({ result, onClose }: Props) {
             type="button"
             onClick={onClose}
             aria-label="Close Monte Carlo detail"
-            className="inline-flex items-center justify-center w-11 h-11 rounded
+            className="inline-flex items-center justify-center w-11 h-11 rounded-control
               border border-neutral-border text-sm
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
           >

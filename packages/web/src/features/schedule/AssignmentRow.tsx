@@ -79,7 +79,7 @@ export function AssignmentRow({
             onChange={(e) => setDraft(e.target.value)}
             onBlur={commitDraft}
             onKeyDown={handleKeyDown}
-            className="w-14 text-xs text-center border border-neutral-border rounded px-1.5 py-1
+            className="w-14 text-xs text-center border border-neutral-border rounded-control px-1.5 py-1
               bg-neutral-surface text-neutral-text-primary
               disabled:opacity-40 disabled:cursor-not-allowed
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
@@ -96,7 +96,7 @@ export function AssignmentRow({
             onClick={onRemove}
             disabled={isDisabled}
             aria-label={`Remove ${assignment.resourceName} from task`}
-            className="w-6 h-6 flex items-center justify-center rounded text-neutral-text-disabled
+            className="w-6 h-6 flex items-center justify-center rounded-control text-neutral-text-disabled
               hover:text-semantic-critical
               disabled:opacity-40 disabled:cursor-not-allowed
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1

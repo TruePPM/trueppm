@@ -86,7 +86,7 @@ export function BeforeProjectStartDialog({
         aria-modal="true"
         aria-labelledby="before-start-title"
         aria-describedby="before-start-desc"
-        className="relative z-10 rounded-lg bg-neutral-surface border border-neutral-border p-6 w-[360px]"
+        className="relative z-10 rounded-card bg-neutral-surface border border-neutral-border p-6 w-[360px]"
       >
         <h2
           id="before-start-title"
@@ -120,7 +120,7 @@ export function BeforeProjectStartDialog({
             onClick={onCancel}
             disabled={isPending}
             className={
-              'border border-neutral-border rounded h-8 px-4 text-xs font-medium ' +
+              'border border-neutral-border rounded-control h-8 px-4 text-xs font-medium ' +
               'text-neutral-text-primary hover:bg-neutral-surface-raised ' +
               'disabled:cursor-not-allowed disabled:text-neutral-text-secondary ' +
               FOCUS_RING
@@ -135,7 +135,7 @@ export function BeforeProjectStartDialog({
               disabled={isPending}
               title={`Move the project start to ${formatIso(attemptedStart)}`}
               className={
-                'border border-neutral-border rounded h-8 px-4 text-xs font-medium ' +
+                'border border-neutral-border rounded-control h-8 px-4 text-xs font-medium ' +
                 'text-neutral-text-primary hover:bg-neutral-surface-raised ' +
                 'disabled:cursor-not-allowed disabled:text-neutral-text-secondary ' +
                 FOCUS_RING
@@ -150,7 +150,7 @@ export function BeforeProjectStartDialog({
             onClick={onSnap}
             disabled={isPending}
             className={
-              'border border-brand-primary-dark rounded h-8 px-4 text-xs font-medium ' +
+              'border border-brand-primary-dark rounded-control h-8 px-4 text-xs font-medium ' +
               'bg-sage-500 text-navy-900 dark:bg-sage-400 dark:text-navy-900 hover:bg-sage-600 ' +
               'disabled:cursor-not-allowed disabled:opacity-80 ' +
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white ' +

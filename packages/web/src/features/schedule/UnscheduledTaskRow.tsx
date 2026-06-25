@@ -34,7 +34,7 @@ function ReadinessLabel({ readiness }: { readiness: TaskReadiness }) {
   };
   return (
     <span
-      className={`inline-flex items-center rounded-sm uppercase tracking-wider font-semibold shrink-0 px-1.5 ${tone[readiness]}`}
+      className={`inline-flex items-center rounded-chip uppercase tracking-wider font-semibold shrink-0 px-1.5 ${tone[readiness]}`}
       style={{ height: 16, fontSize: '10px', letterSpacing: '0.06em' }}
     >
       {readiness}
@@ -213,7 +213,7 @@ export function UnscheduledTaskRow({
           aria-label={`Actions for ${task.name}`}
           aria-haspopup={isBacklog ? 'dialog' : 'menu'}
           aria-expanded={isBacklog ? undefined : menuOpen}
-          className="w-6 h-6 flex items-center justify-center rounded text-neutral-text-secondary
+          className="w-6 h-6 flex items-center justify-center rounded-control text-neutral-text-secondary
             hover:text-neutral-text-primary hover:bg-neutral-surface-raised
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           onClick={handleMenuOpen}
@@ -229,7 +229,7 @@ export function UnscheduledTaskRow({
           tabIndex={-1}
           onKeyDown={handleMenuKeyDown}
           style={{ position: 'fixed', top: menuPos.top, left: menuPos.left, width: 200 }}
-          className="z-50 bg-neutral-surface border border-neutral-border rounded py-2"
+          className="z-50 bg-neutral-surface border border-neutral-border rounded-card py-2"
         >
           <form onSubmit={handleDateSubmit} className="px-3 py-2 flex flex-col gap-2">
             <label
@@ -244,13 +244,13 @@ export function UnscheduledTaskRow({
               type="date"
               value={dateInput}
               onChange={(e) => setDateInput(e.target.value)}
-              className="h-8 rounded border border-neutral-border px-2 text-sm
+              className="h-8 rounded-control border border-neutral-border px-2 text-sm
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
             />
             <button
               type="submit"
               disabled={!dateInput}
-              className="h-7 rounded border border-neutral-border text-xs font-medium
+              className="h-7 rounded-control border border-neutral-border text-xs font-medium
                 disabled:opacity-40 hover:border-brand-primary hover:text-brand-primary
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
             >

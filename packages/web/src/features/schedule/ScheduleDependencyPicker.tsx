@@ -152,7 +152,7 @@ export function ScheduleDependencyPicker({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="relative w-[480px] max-h-[480px] bg-neutral-surface border border-neutral-border rounded-lg flex flex-col"
+        className="relative w-[480px] max-h-[480px] bg-neutral-surface border border-neutral-border rounded-card flex flex-col"
       >
         <div className="h-12 flex items-center justify-between px-4 border-b border-neutral-border">
           <h2 className="text-sm font-medium text-neutral-text-primary truncate">
@@ -161,7 +161,7 @@ export function ScheduleDependencyPicker({
           <button
             type="button"
             aria-label="Close"
-            className="w-7 h-7 inline-flex items-center justify-center rounded text-neutral-text-secondary hover:bg-neutral-row-hover focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
+            className="w-7 h-7 inline-flex items-center justify-center rounded-control text-neutral-text-secondary hover:bg-neutral-row-hover focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
             onClick={onClose}
           >
             <span aria-hidden="true">×</span>
@@ -180,7 +180,7 @@ export function ScheduleDependencyPicker({
             }}
             placeholder="Search tasks…"
             aria-label="Search tasks"
-            className="w-full h-9 px-3 text-[13px] border border-neutral-border rounded bg-neutral-surface text-neutral-text-primary placeholder:text-neutral-text-disabled focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
+            className="w-full h-9 px-3 text-[13px] border border-neutral-border rounded-control bg-neutral-surface text-neutral-text-primary placeholder:text-neutral-text-disabled focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
           />
         </div>
 
@@ -198,7 +198,7 @@ export function ScheduleDependencyPicker({
                   onMouseEnter={() => setActiveIdx(i)}
                   onClick={() => submit(t)}
                   className={[
-                    'w-full flex items-center gap-2 h-9 px-2 rounded text-left text-[13px]',
+                    'w-full flex items-center gap-2 h-9 px-2 rounded-control text-left text-[13px]',
                     i === activeIdx ? 'bg-neutral-row-hover' : '',
                   ].join(' ')}
                 >
@@ -218,7 +218,7 @@ export function ScheduleDependencyPicker({
         {cycleMessage && (
           <div
             role="alert"
-            className="mx-4 mb-2 p-2 text-[12px] rounded border border-semantic-at-risk/40 bg-semantic-at-risk-bg text-semantic-at-risk"
+            className="mx-4 mb-2 p-2 text-[12px] rounded-card border border-semantic-at-risk/40 bg-semantic-at-risk-bg text-semantic-at-risk"
           >
             {cycleMessage}
           </div>

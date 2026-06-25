@@ -116,7 +116,7 @@ export function BuildModeRowMenu({ anchor, items, onClose }: BuildModeRowMenuPro
       ref={menuRef}
       role="menu"
       aria-label="Row actions"
-      className="fixed z-50 bg-neutral-surface border border-neutral-border rounded-md py-1 text-[13px]"
+      className="fixed z-50 bg-neutral-surface border border-neutral-border rounded-card py-1 text-[13px]"
       style={{ top, left, width: MENU_WIDTH }}
     >
       {items.map((item, idx) => (

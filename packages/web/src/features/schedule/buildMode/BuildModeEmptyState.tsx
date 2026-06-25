@@ -45,12 +45,12 @@ export function BuildModeEmptyState({ onAddFirstTask }: BuildModeEmptyStateProps
         className="gap-2"
       >
         + Add first task
-        <kbd className="inline-flex h-5 px-1.5 items-center rounded border border-navy-900/40 text-[11px] tppm-mono">
+        <kbd className="inline-flex h-5 px-1.5 items-center rounded-chip border border-navy-900/40 text-[11px] tppm-mono">
           ⏎
         </kbd>
       </Button>
       <p className="mt-6 text-[12px] text-neutral-text-secondary max-w-xs">
-        New here? Press <kbd className="inline-flex h-4 px-1 items-center rounded border border-neutral-border text-[11px] tppm-mono">?</kbd> to see all keyboard shortcuts.
+        New here? Press <kbd className="inline-flex h-4 px-1 items-center rounded-chip border border-neutral-border text-[11px] tppm-mono">?</kbd> to see all keyboard shortcuts.
       </p>
     </div>
   );

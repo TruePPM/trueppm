@@ -321,7 +321,7 @@ export function TaskDetailDrawer({
         aria-label={drawerTitle}
         className={[
           'md:hidden fixed inset-x-0 bottom-0 z-40',
-          'rounded-t-xl bg-neutral-surface border-t border-neutral-border',
+          'rounded-t-card bg-neutral-surface border-t border-neutral-border',
           'h-[85vh] flex flex-col',
           'transition-transform duration-200',
           isOpen ? 'translate-y-0' : 'translate-y-full',
@@ -420,14 +420,14 @@ function DrawerContent({
       <div className="shrink-0 px-4 pt-3 border-b border-neutral-border bg-neutral-surface">
         <div className="flex items-center gap-2 mb-2">
           {task.wbs && (
-            <span className="tppm-mono text-xs font-semibold text-neutral-text-secondary px-1.5 py-0.5 rounded bg-neutral-surface-sunken">
+            <span className="tppm-mono text-xs font-semibold text-neutral-text-secondary px-1.5 py-0.5 rounded-chip bg-neutral-surface-sunken">
               {task.wbs}
             </span>
           )}
           {task.readiness && <ReadinessChip readiness={task.readiness} />}
           {task.isCritical && (
             <span
-              className="text-xs font-semibold text-white bg-semantic-critical px-1.5 py-0.5 rounded"
+              className="text-xs font-semibold text-white bg-semantic-critical px-1.5 py-0.5 rounded-chip"
               title="This task is on the critical path — a delay here delays the project end date"
             >
               CP
@@ -440,7 +440,7 @@ function DrawerContent({
               name carries the full reason. */}
           {!canEdit && (
             <span
-              className="inline-flex items-center gap-1 text-xs font-medium text-neutral-text-secondary bg-neutral-surface-sunken px-1.5 py-0.5 rounded"
+              className="inline-flex items-center gap-1 text-xs font-medium text-neutral-text-secondary bg-neutral-surface-sunken px-1.5 py-0.5 rounded-chip"
               title="Viewer access — ask an admin for edit access"
               aria-label="View only — Viewer access, ask an admin for edit access"
             >
@@ -464,7 +464,7 @@ function DrawerContent({
             onClick={onExpand}
             aria-label="Expand to full page"
             title="Expand to full page"
-            className="w-11 h-11 flex items-center justify-center rounded text-neutral-text-secondary
+            className="w-11 h-11 flex items-center justify-center rounded-control text-neutral-text-secondary
               hover:text-neutral-text-primary hover:bg-neutral-surface-raised
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >
@@ -483,7 +483,7 @@ function DrawerContent({
             type="button"
             onClick={onClose}
             aria-label="Close task detail"
-            className="w-11 h-11 -mr-1.5 flex items-center justify-center rounded text-neutral-text-secondary
+            className="w-11 h-11 -mr-1.5 flex items-center justify-center rounded-control text-neutral-text-secondary
               hover:text-neutral-text-primary hover:bg-neutral-surface-raised
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >
@@ -508,7 +508,7 @@ function DrawerContent({
           readOnly={!canEdit}
           className={[
             'w-full bg-transparent border-none outline-none px-0 mb-2',
-            'text-xl font-semibold tracking-tight text-neutral-text-primary rounded-sm',
+            'text-xl font-semibold tracking-tight text-neutral-text-primary rounded-control',
             canEdit
               ? 'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1'
               : 'cursor-default focus:outline-none',
@@ -539,7 +539,7 @@ function DrawerContent({
                 onClick={() => onTabChange(tab.id)}
                 className={[
                   'inline-flex items-center gap-1.5 px-3 py-2 text-sm border-b-2 -mb-px',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:rounded-sm',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:rounded-control',
                   selected
                     ? 'border-brand-primary text-brand-primary font-semibold'
                     : 'border-transparent text-neutral-text-secondary font-medium hover:text-neutral-text-primary',
@@ -547,7 +547,7 @@ function DrawerContent({
               >
                 {tab.label}
                 {showCount && (
-                  <span className="tppm-mono text-xs px-1 rounded bg-neutral-surface-sunken text-neutral-text-secondary">
+                  <span className="tppm-mono text-xs px-1 rounded-chip bg-neutral-surface-sunken text-neutral-text-secondary">
                     {subtaskStats.done}/{subtaskStats.total}
                   </span>
                 )}
@@ -650,7 +650,7 @@ function DrawerContent({
             onMouseDown={(e) => e.preventDefault()}
             onClick={onSave}
             disabled={isSaving}
-            className="px-3.5 py-1.5 rounded bg-white text-brand-primary-dark text-[13px] font-semibold hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-60"
+            className="px-3.5 py-1.5 rounded-control bg-white text-brand-primary-dark text-[13px] font-semibold hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-60"
           >
             {isSaving ? 'Saving…' : 'Save changes'}
           </button>
@@ -700,7 +700,7 @@ function DescriptionField({
         readOnly={readOnly}
         placeholder={readOnly ? 'No description' : 'Add a description…'}
         className={[
-          'w-full rounded-lg border border-neutral-border px-3 py-2.5',
+          'w-full rounded-control border border-neutral-border px-3 py-2.5',
           'text-sm leading-relaxed text-neutral-text-primary placeholder:text-neutral-text-disabled',
           'resize-y focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
           readOnly ? 'bg-neutral-surface-sunken cursor-default' : 'bg-neutral-surface',
