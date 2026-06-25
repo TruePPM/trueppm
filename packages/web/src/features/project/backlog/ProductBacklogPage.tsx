@@ -51,9 +51,12 @@ import { Button } from '@/components/Button';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useCanManageBacklog } from '@/hooks/useMyFacets';
+import { useSprintsByState } from '@/hooks/useSprints';
 import type { Task } from '@/types';
 import type { ReorderEntry } from './api';
-import { AcMeter, AssigneeAvatar, DorChip, SprintCommitmentChip } from './components/atoms';
+import { AcMeter, AssigneeAvatar, DorChip } from './components/atoms';
+import { SprintCommitButton, type PlannedSprintRef } from './SprintCommitButton';
+import { SprintPlanningRail } from './SprintPlanningRail';
 import { StoryDetailDrawer } from './components/StoryDetailDrawer';
 import { TypeBadge } from './components/TypeBadge';
 import {
@@ -157,6 +160,9 @@ function StoryRow({
   selected,
   onToggleDor,
   onOpen,
+  projectId,
+  plannedSprint,
+  canManage,
 }: {
   story: Task;
   hasScore: boolean;
@@ -171,6 +177,10 @@ function StoryRow({
   selected: boolean;
   onToggleDor: (story: Task) => void;
   onOpen: (story: Task) => void;
+  projectId: string;
+  /** The sprint in PLANNED state (issue 1291) — turns the Sprint cell into a commit toggle. */
+  plannedSprint: PlannedSprintRef | null;
+  canManage: boolean;
 }) {
   const draggable = view === 'epic';
   // useSortable is called unconditionally (rules of hooks); its node ref + listeners are
@@ -267,7 +277,12 @@ function StoryRow({
         {story.storyPoints ?? '—'}
       </span>
       <span className="justify-self-start">
-        <SprintCommitmentChip story={story} />
+        <SprintCommitButton
+          story={story}
+          projectId={projectId}
+          plannedSprint={plannedSprint}
+          canManage={canManage}
+        />
       </span>
       <span className="justify-self-center">
         <AssigneeAvatar assignees={story.assignees} />
@@ -434,6 +449,9 @@ export function ProductBacklogPage() {
   const reorder = useReorderBacklog(projectId);
   const quickAdd = useQuickAddStory(projectId);
   const canManageBacklog = useCanManageBacklog(projectId);
+  // The sprint currently being planned (issue 1291) — drives the planning rail and
+  // the per-row commit toggle. Deduped against the board's ['sprints'] query.
+  const plannedSprint = useSprintsByState(projectId).planned[0] ?? null;
 
   // "By epic / Ranked" view, persisted across visits (web-rule 180). Default to the
   // epic-grouped draggable view; ranked is the flat, read-only score-ordered preview.
@@ -499,6 +517,13 @@ export function ProductBacklogPage() {
   const allStories = [...backlog.epics.flatMap((g) => g.stories), ...backlog.ungrouped];
   const selectedStory =
     selectedId == null ? null : (allStories.find((s) => s.id === selectedId) ?? null);
+
+  // Stories committed to the planned sprint (issue 1291) — feeds the rail's live
+  // capacity points + commitment summary.
+  const plannedStories = plannedSprint
+    ? allStories.filter((s) => s.sprintId === plannedSprint.id)
+    : [];
+  const plannedCommittedPoints = plannedStories.reduce((sum, s) => sum + (s.storyPoints ?? 0), 0);
 
   // Sprint-commitment composition drives the dynamic subtitle: a story with a sprint is
   // "pulled" (committed), a post-activation injection is "pending" (ADR-0102), the rest
@@ -584,6 +609,9 @@ export function ProductBacklogPage() {
           selected={s.id === selectedId}
           onToggleDor={toggleDor}
           onOpen={(st) => setSelectedId(st.id)}
+          projectId={projectId as string}
+          plannedSprint={plannedSprint}
+          canManage={canManageBacklog}
         />
         {s.id === readyLineAfterId && <ReadyLine />}
       </div>
@@ -591,8 +619,8 @@ export function ProductBacklogPage() {
   }
 
   return (
-    <div className="relative flex h-full flex-col bg-app-canvas">
-      <div className="flex min-h-0 flex-1 flex-col overflow-auto">
+    <div className="relative flex h-full flex-row bg-app-canvas">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-auto">
         <header className="flex flex-wrap items-center gap-3 border-b border-neutral-border px-6 py-4">
           <div className="flex min-w-0 flex-col">
             <h1 className="text-xl font-semibold text-neutral-text-primary">Product backlog</h1>
@@ -718,6 +746,9 @@ export function ProductBacklogPage() {
                     selected={s.id === selectedId}
                     onToggleDor={toggleDor}
                     onOpen={(st) => setSelectedId(st.id)}
+                    projectId={projectId as string}
+                    plannedSprint={plannedSprint}
+                    canManage={canManageBacklog}
                   />
                 ))}
               </div>
@@ -755,6 +786,18 @@ export function ProductBacklogPage() {
           </div>
         </div>
       </div>
+
+      {/* Hide the rail while a story drawer is open — the drawer is absolute right-0
+          (w-480) and would otherwise occlude the in-flow rail (w-320), pushing
+          planning context out of sight (web-rule 205). */}
+      {plannedSprint && !selectedStory && (
+        <SprintPlanningRail
+          plannedSprint={plannedSprint}
+          committedPoints={plannedCommittedPoints}
+          storyCount={plannedStories.length}
+          iterationLower={itl.lower}
+        />
+      )}
 
       {selectedStory && (
         <StoryDetailDrawer
