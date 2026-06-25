@@ -11,6 +11,8 @@ You are creating a release for TruePPM. The heavy lifting lives in `scripts/rele
 
 TruePPM ships from a single GitLab repo (`gitlab.com/trueppm/trueppm`). The `github.com/trueppm` org is registered but **empty pre-1.0** — pre-1.0 releases stay on GitLab only. Once `1.0.0` ships, GHCR begins receiving multi-arch (ARM64 + AMD64) images and the scheduler package may begin publishing to PyPI.
 
+> **Who invokes this.** `/release` is **user-invoked only** (`disable-model-invocation: true`) — cutting a tag is the most side-effectful operation in the repo and must be triggered by a human. The agent cannot call it through the Skill tool; it runs `scripts/release.sh` and the pre-flight/fan-out steps below directly when asked to help cut a release. Same split as `/mr` and `/fix-mr`.
+
 ## Step 0 — Resolve the bump
 
 `scripts/release.sh` accepts these forms (see the script's header for full reference):

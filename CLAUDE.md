@@ -134,7 +134,7 @@ cd packages/web && npm test         # web (vitest)
   1. **Parallel work in progress**: `scripts/wt new <issue>` (creates branch + worktree off latest `origin/main` automatically), then `cd ../trueppm-wt/<branch-leaf> && source .envrc`
   2. **Single-focus work on clean main**: `git checkout main && git pull origin main && git checkout -b <prefix>/<short-description>`
   3. Make changes, commit, push branch
-  4. Open MR targeting `main`, wait for a **green pipeline**, then merge
+  4. Open the MR targeting `main` — the user runs `/mr`, or an agent runs `glab mr create` directly in the `/mr` skill's format (the `/mr`, `/fix-mr`, and `/release` skills are `disable-model-invocation`, so an agent reproduces their behavior rather than invoking them). Then wait for a **green pipeline** and merge.
   5. After merge: in the main checkout, `scripts/wt remove <issue>` if you used a worktree
 - Release commits also go through branches and MRs — `scripts/release.sh` handles this automatically
 - **Changelog entries use fragment files** — create `changelog.d/<slug>.<type>.md` instead of editing `CHANGELOG.md` directly. Valid types: `added`, `changed`, `fixed`, `security`. Fragments are assembled at release time by `scripts/assemble-changelog.sh`. See `changelog.d/README.md` for the naming convention. **Never edit `CHANGELOG.md` directly** — the CI `changelog:check` job looks for fragment files and will block the pipeline if none are present.
@@ -352,8 +352,8 @@ Run `/skills` to see all available skills. Key ones:
 - `/accessibility` — WCAG compliance review
 - `/docs-writer` — Documentation generation
 - `/git-workflow` — Branch, commit, PR management
-- `/mr` — Open a GitLab MR for the current branch (pre-flight checks, structured description, creates via glab)
-- `/fix-mr` — Watch and fix a failing MR pipeline until green
+- `/mr` — Open a GitLab MR for the current branch (pre-flight checks, structured description, creates via glab). **User-invoked only** (`disable-model-invocation`) — an agent can't call it; it reproduces the skill's `glab mr create` format directly instead. The skill file is the canonical format for both paths.
+- `/fix-mr` — Watch and fix a failing MR pipeline until green. **User-invoked only** (`disable-model-invocation`) — an agent runs the equivalent `glab pipeline`/log-reading loop directly.
 - `/scheduler-engine` — CPM/Monte Carlo algorithm work
 - `/test-scaffold` — Scaffold the three-layer test pattern (pytest / vitest / Playwright) for a new feature
 - `/threat-model` — STRIDE threat model at architecture stage; pairs with `/architect` on auth, sync, or boundary-crossing features

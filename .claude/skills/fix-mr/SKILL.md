@@ -24,6 +24,12 @@ If no MR number is given, use the MR for the current branch:
 glab mr view --web 2>/dev/null || glab mr list --source-branch $(git branch --show-current)
 ```
 
+> **Who invokes this.** `/fix-mr` is **user-invoked only** (`disable-model-invocation: true`),
+> for the same reason as `/mr`: driving a pipeline to green is a side-effectful loop the
+> user should start explicitly. The agent cannot call it through the Skill tool. When an
+> agent fixes a failing pipeline as part of automated work, it performs the steps below
+> directly (`glab pipeline`/`glab ci`, read logs, fix, push) rather than invoking the skill.
+
 ---
 
 ## Step 1 — Identify the failing MR and pipeline
