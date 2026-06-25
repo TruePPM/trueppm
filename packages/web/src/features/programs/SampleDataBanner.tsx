@@ -30,7 +30,7 @@ export function SampleDataBanner({ programId, canRemove }: SampleDataBannerProps
   return (
     <div
       role="status"
-      className="flex flex-wrap items-center justify-between gap-3 rounded border border-brand-primary/30 bg-brand-primary-light px-4 py-3"
+      className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-brand-primary/30 bg-brand-primary-light px-4 py-3"
     >
       <p className="text-sm text-neutral-text-primary">
         <span className="font-semibold">This is sample data.</span> Explore freely — remove it when
@@ -47,14 +47,14 @@ export function SampleDataBanner({ programId, canRemove }: SampleDataBannerProps
               type="button"
               onClick={onRemove}
               disabled={removeSample.isPending}
-              className="h-8 rounded bg-semantic-critical px-3 text-xs font-medium text-white hover:bg-semantic-critical/90 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-semantic-critical"
+              className="h-8 rounded-control bg-semantic-critical px-3 text-xs font-medium text-white hover:bg-semantic-critical/90 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-semantic-critical"
             >
               {removeSample.isPending ? 'Removing…' : 'Remove'}
             </button>
             <button
               type="button"
               onClick={() => setConfirming(false)}
-              className="h-8 rounded border border-neutral-border px-3 text-xs font-medium text-neutral-text-primary hover:bg-neutral-surface-raised"
+              className="h-8 rounded-control border border-neutral-border px-3 text-xs font-medium text-neutral-text-primary hover:bg-neutral-surface-raised"
             >
               Cancel
             </button>
@@ -63,7 +63,7 @@ export function SampleDataBanner({ programId, canRemove }: SampleDataBannerProps
           <button
             type="button"
             onClick={() => setConfirming(true)}
-            className="h-8 rounded border border-neutral-border px-3 text-xs font-medium text-neutral-text-primary hover:bg-neutral-surface-raised"
+            className="h-8 rounded-control border border-neutral-border px-3 text-xs font-medium text-neutral-text-primary hover:bg-neutral-surface-raised"
           >
             Remove sample data
           </button>

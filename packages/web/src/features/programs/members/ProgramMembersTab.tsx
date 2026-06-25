@@ -65,7 +65,7 @@ export function ProgramMembersTab() {
               <div
                 key={i}
                 aria-hidden="true"
-                className="h-14 animate-pulse rounded bg-neutral-surface-raised"
+                className="h-14 animate-pulse rounded-card bg-neutral-surface-raised"
               />
             ))}
           </div>
@@ -86,7 +86,7 @@ export function ProgramMembersTab() {
         {!isLoading && !isError && members.length > 0 && (
           <ul
             aria-label="Program members"
-            className="divide-y divide-neutral-border rounded border border-neutral-border bg-neutral-surface"
+            className="divide-y divide-neutral-border rounded-card border border-neutral-border bg-neutral-surface"
           >
             {members.map((m) => (
               <ProgramMemberRow

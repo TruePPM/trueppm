@@ -129,7 +129,7 @@ function KpiCard({ label, value, sub, variant = 'neutral', muted = false }: KpiC
 
   return (
     <div
-      className={`flex flex-col gap-1 p-4 rounded border ${border} bg-neutral-surface-raised min-w-0 overflow-hidden [container-type:inline-size]`}
+      className={`flex flex-col gap-1 p-4 rounded-card border ${border} bg-neutral-surface-raised min-w-0 overflow-hidden [container-type:inline-size]`}
     >
       <span className="text-xs font-medium uppercase tracking-wide text-neutral-text-secondary truncate">
         {label}
@@ -150,7 +150,7 @@ function KpiSkeleton() {
       {Array.from({ length: 6 }).map((_, i) => (
         <div
           key={i}
-          className="h-24 rounded border border-neutral-border animate-pulse bg-neutral-surface-raised"
+          className="h-24 rounded-card border border-neutral-border animate-pulse bg-neutral-surface-raised"
         />
       ))}
     </div>
@@ -235,7 +235,7 @@ function HealthHero({ rollup }: { rollup: ProgramRollup }) {
     <div className="flex flex-col gap-1 pb-2 border-b border-neutral-border">
       <div className="flex items-center gap-3 flex-wrap">
         <span
-          className={`bg-transparent border rounded px-2 py-0.5 text-xs font-medium ${badgeClass}`}
+          className={`bg-transparent border rounded-chip px-2 py-0.5 text-xs font-medium ${badgeClass}`}
           aria-label={`Program health: ${HEALTH_LABEL[band]}`}
         >
           {HEALTH_LABEL[band]}
@@ -284,7 +284,7 @@ export function ProgramOverviewPage() {
               {program.name}
             </h1>
             {program.code && (
-              <span className="tppm-mono shrink-0 rounded bg-neutral-surface-sunken px-1.5 py-0.5 text-[11px] text-neutral-text-secondary">
+              <span className="tppm-mono shrink-0 rounded-chip bg-neutral-surface-sunken px-1.5 py-0.5 text-[11px] text-neutral-text-secondary">
                 {program.code}
               </span>
             )}
@@ -306,7 +306,7 @@ export function ProgramOverviewPage() {
 
           {rollup.project_count === 0 ? (
             <div
-              className="flex flex-col items-start gap-2 px-4 py-6 rounded border border-neutral-border bg-neutral-surface-raised"
+              className="flex flex-col items-start gap-2 px-4 py-6 rounded-card border border-neutral-border bg-neutral-surface-raised"
               role="status"
             >
               <p className="text-sm text-neutral-text-primary">No projects in this program yet.</p>
@@ -317,14 +317,14 @@ export function ProgramOverviewPage() {
                 to={`/programs/${programId}/projects`}
                 className="text-xs text-brand-primary underline-offset-2 hover:underline
                   focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
-                  focus-visible:outline-none rounded"
+                  focus-visible:outline-none rounded-control"
               >
                 Manage projects
               </Link>
             </div>
           ) : kpiEntries.length === 0 ? (
             <div
-              className="flex flex-col items-start gap-2 px-4 py-6 rounded border border-neutral-border bg-neutral-surface-raised"
+              className="flex flex-col items-start gap-2 px-4 py-6 rounded-card border border-neutral-border bg-neutral-surface-raised"
               role="status"
             >
               <p className="text-sm text-neutral-text-primary">No KPIs enabled.</p>
@@ -332,7 +332,7 @@ export function ProgramOverviewPage() {
                 to={`/programs/${programId}/settings/rollup`}
                 className="text-xs text-brand-primary underline-offset-2 hover:underline
                   focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
-                  focus-visible:outline-none rounded"
+                  focus-visible:outline-none rounded-control"
               >
                 Configure rollup
               </Link>
@@ -363,7 +363,7 @@ export function ProgramOverviewPage() {
                 to={`/programs/${programId}/settings/rollup`}
                 className="self-start text-xs text-brand-primary underline-offset-2 hover:underline
                   focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
-                  focus-visible:outline-none rounded"
+                  focus-visible:outline-none rounded-control"
               >
                 Configure rollup
               </Link>

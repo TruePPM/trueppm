@@ -42,12 +42,12 @@ export function TagInput({ tags, onChange, suggestions = [], id }: TagInputProps
 
   return (
     <div
-      className={`flex flex-wrap items-center gap-1 rounded border border-neutral-border bg-neutral-surface px-1.5 py-1 ${FOCUS_RING}`}
+      className={`flex flex-wrap items-center gap-1 rounded-control border border-neutral-border bg-neutral-surface px-1.5 py-1 ${FOCUS_RING}`}
     >
       {tags.map((tag) => (
         <span
           key={tag}
-          className="inline-flex items-center gap-1 rounded bg-neutral-surface-sunken py-0.5 pl-1.5 pr-1 text-[11px] text-neutral-text-secondary"
+          className="inline-flex items-center gap-1 rounded-chip bg-neutral-surface-sunken py-0.5 pl-1.5 pr-1 text-[11px] text-neutral-text-secondary"
         >
           {tag}
           <button

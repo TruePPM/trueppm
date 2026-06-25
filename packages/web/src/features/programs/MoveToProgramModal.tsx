@@ -78,7 +78,7 @@ export function MoveToProgramModal({ projectId, projectName, onClose }: Props) {
         aria-modal="true"
         aria-labelledby="move-program-heading"
         tabIndex={-1}
-        className="flex w-full max-w-lg flex-col rounded-lg border border-neutral-border bg-neutral-surface focus:outline-none"
+        className="flex w-full max-w-lg flex-col rounded-card border border-neutral-border bg-neutral-surface focus:outline-none"
       >
         <header className="border-b border-neutral-border p-6">
           <h2 id="move-program-heading" className="text-lg font-semibold text-neutral-text-primary">
@@ -98,7 +98,7 @@ export function MoveToProgramModal({ projectId, projectName, onClose }: Props) {
                 <div
                   key={i}
                   aria-hidden="true"
-                  className="h-9 animate-pulse rounded bg-neutral-surface-raised"
+                  className="h-9 animate-pulse rounded-control bg-neutral-surface-raised"
                 />
               ))}
             </div>
@@ -116,7 +116,7 @@ export function MoveToProgramModal({ projectId, projectName, onClose }: Props) {
               <legend className="mb-2 text-xs font-semibold uppercase tracking-widest text-neutral-text-secondary">
                 Choose a program ({eligible.length})
               </legend>
-              <ul className="divide-y divide-neutral-border rounded border border-neutral-border">
+              <ul className="divide-y divide-neutral-border rounded-card border border-neutral-border">
                 {eligible.map((p) => (
                   <li key={p.id}>
                     <label className="flex min-h-[44px] cursor-pointer items-center gap-3 px-3 py-2 hover:bg-neutral-surface-raised">
@@ -158,7 +158,7 @@ export function MoveToProgramModal({ projectId, projectName, onClose }: Props) {
           <button
             type="button"
             onClick={onClose}
-            className="h-9 rounded border border-neutral-border px-4 text-sm font-medium text-neutral-text-primary
+            className="h-9 rounded-control border border-neutral-border px-4 text-sm font-medium text-neutral-text-primary
               hover:bg-neutral-surface-raised
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >
@@ -168,7 +168,7 @@ export function MoveToProgramModal({ projectId, projectName, onClose }: Props) {
             type="button"
             onClick={() => void handleSubmit()}
             disabled={!selectedId || assignProject.isPending}
-            className="h-9 rounded bg-brand-primary px-4 text-sm font-medium text-white
+            className="h-9 rounded-control bg-brand-primary px-4 text-sm font-medium text-white
               hover:bg-brand-primary/90 disabled:opacity-50
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >

@@ -25,7 +25,7 @@ export function ItemTypeBadge({ type, className = '' }: ItemTypeBadgeProps) {
   const { label, className: tone } = TYPE_STYLES[type];
   return (
     <span
-      className={`inline-flex h-[18px] items-center rounded border bg-neutral-surface px-1.5 text-xs
+      className={`inline-flex h-[18px] items-center rounded-chip border bg-neutral-surface px-1.5 text-xs
         font-medium uppercase leading-none tracking-wide ${tone} ${className}`}
     >
       {label}

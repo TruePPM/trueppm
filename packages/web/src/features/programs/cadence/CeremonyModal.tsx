@@ -184,7 +184,7 @@ export function CeremonyModal({ programId, ceremony, onClose, onSaved }: Ceremon
         role="dialog"
         aria-modal="true"
         aria-labelledby="ceremony-modal-title"
-        className="w-full max-w-[520px] rounded-lg bg-neutral-surface-raised border border-neutral-border"
+        className="w-full max-w-[520px] rounded-card bg-neutral-surface-raised border border-neutral-border"
       >
         <header className="px-5 py-3 border-b border-neutral-border/55">
           <h2
@@ -227,7 +227,7 @@ export function CeremonyModal({ programId, ceremony, onClose, onSaved }: Ceremon
               aria-describedby={reservedHit ? 'ceremony-name-error' : undefined}
               required
               maxLength={120}
-              className="w-full px-2.5 py-1.5 rounded border border-neutral-border bg-neutral-surface-base text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              className="w-full px-2.5 py-1.5 rounded-control border border-neutral-border bg-neutral-surface-base text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             />
             {reservedHit && (
               <p
@@ -264,7 +264,7 @@ export function CeremonyModal({ programId, ceremony, onClose, onSaved }: Ceremon
                   <label
                     key={opt.value}
                     className={[
-                      'flex items-center gap-2 px-2.5 py-1.5 rounded border text-[13px] cursor-pointer',
+                      'flex items-center gap-2 px-2.5 py-1.5 rounded-card border text-[13px] cursor-pointer',
                       selected
                         ? 'bg-brand-primary/8 border-brand-primary text-brand-primary-dark font-medium'
                         : 'bg-neutral-surface-base border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-sunken',
@@ -303,7 +303,7 @@ export function CeremonyModal({ programId, ceremony, onClose, onSaved }: Ceremon
                       aria-label="Monthly ordinal"
                       value={state.monthly_ordinal}
                       onChange={(e) => update_('monthly_ordinal', e.target.value)}
-                      className="px-2 py-1.5 rounded border border-neutral-border bg-neutral-surface-base text-[13px]"
+                      className="px-2 py-1.5 rounded-control border border-neutral-border bg-neutral-surface-base text-[13px]"
                     >
                       {MONTHLY_ORDINAL_OPTIONS.map((o) => (
                         <option key={o.value} value={o.value}>
@@ -316,7 +316,7 @@ export function CeremonyModal({ programId, ceremony, onClose, onSaved }: Ceremon
                       aria-label="Monthly weekday"
                       value={state.monthly_weekday}
                       onChange={(e) => update_('monthly_weekday', e.target.value)}
-                      className="px-2 py-1.5 rounded border border-neutral-border bg-neutral-surface-base text-[13px]"
+                      className="px-2 py-1.5 rounded-control border border-neutral-border bg-neutral-surface-base text-[13px]"
                     >
                       {WEEKDAY_OPTIONS.map((o) => (
                         <option key={o.value} value={o.value}>
@@ -330,7 +330,7 @@ export function CeremonyModal({ programId, ceremony, onClose, onSaved }: Ceremon
                     id="ceremony-day"
                     value={state.weekday}
                     onChange={(e) => update_('weekday', e.target.value)}
-                    className="w-full px-2 py-1.5 rounded border border-neutral-border bg-neutral-surface-base text-[13px]"
+                    className="w-full px-2 py-1.5 rounded-control border border-neutral-border bg-neutral-surface-base text-[13px]"
                   >
                     {WEEKDAY_OPTIONS.map((o) => (
                       <option key={o.value} value={o.value}>
@@ -353,7 +353,7 @@ export function CeremonyModal({ programId, ceremony, onClose, onSaved }: Ceremon
                   required
                   value={state.time}
                   onChange={(e) => update_('time', e.target.value)}
-                  className="w-full px-2 py-1.5 rounded border border-neutral-border bg-neutral-surface-base text-[13px]"
+                  className="w-full px-2 py-1.5 rounded-control border border-neutral-border bg-neutral-surface-base text-[13px]"
                 />
               </div>
               <div>
@@ -367,7 +367,7 @@ export function CeremonyModal({ programId, ceremony, onClose, onSaved }: Ceremon
                   id="ceremony-duration"
                   value={state.duration_minutes}
                   onChange={(e) => update_('duration_minutes', Number(e.target.value))}
-                  className="w-full px-2 py-1.5 rounded border border-neutral-border bg-neutral-surface-base text-[13px]"
+                  className="w-full px-2 py-1.5 rounded-control border border-neutral-border bg-neutral-surface-base text-[13px]"
                 >
                   {[15, 30, 45, 60, 75, 90, 120, 180].map((m) => (
                     <option key={m} value={m}>
@@ -393,7 +393,7 @@ export function CeremonyModal({ programId, ceremony, onClose, onSaved }: Ceremon
                   id="ceremony-duration"
                   value={state.duration_minutes}
                   onChange={(e) => update_('duration_minutes', Number(e.target.value))}
-                  className="w-full px-2 py-1.5 rounded border border-neutral-border bg-neutral-surface-base text-[13px]"
+                  className="w-full px-2 py-1.5 rounded-control border border-neutral-border bg-neutral-surface-base text-[13px]"
                 >
                   {[30, 45, 60, 90, 120, 180].map((m) => (
                     <option key={m} value={m}>
@@ -421,7 +421,7 @@ export function CeremonyModal({ programId, ceremony, onClose, onSaved }: Ceremon
               onChange={(e) => update_('owner_role', e.target.value)}
               placeholder="e.g. Program Manager"
               maxLength={64}
-              className="w-full px-2.5 py-1.5 rounded border border-neutral-border bg-neutral-surface-base text-[13px]"
+              className="w-full px-2.5 py-1.5 rounded-control border border-neutral-border bg-neutral-surface-base text-[13px]"
             />
             <datalist id="ceremony-owner-suggestions">
               {OWNER_ROLE_SUGGESTIONS.map((r) => (
@@ -440,7 +440,7 @@ export function CeremonyModal({ programId, ceremony, onClose, onSaved }: Ceremon
               type="checkbox"
               checked={state.enabled}
               onChange={(e) => update_('enabled', e.target.checked)}
-              className="rounded border-neutral-border text-brand-primary focus-visible:ring-2 focus-visible:ring-brand-primary"
+              className="rounded-control border-neutral-border text-brand-primary focus-visible:ring-2 focus-visible:ring-brand-primary"
             />
             Enabled when saved
           </label>
@@ -448,7 +448,7 @@ export function CeremonyModal({ programId, ceremony, onClose, onSaved }: Ceremon
           {formError && (
             <div
               role="alert"
-              className="rounded border border-semantic-critical/40 bg-semantic-critical-bg px-3 py-2 text-xs text-semantic-critical"
+              className="rounded-card border border-semantic-critical/40 bg-semantic-critical-bg px-3 py-2 text-xs text-semantic-critical"
             >
               {formError}
             </div>
@@ -459,14 +459,14 @@ export function CeremonyModal({ programId, ceremony, onClose, onSaved }: Ceremon
               type="button"
               onClick={onClose}
               disabled={isPending}
-              className="px-3 py-1.5 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              className="px-3 py-1.5 rounded-control border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isPending || nameInvalid}
-              className="px-3 py-1.5 rounded bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              className="px-3 py-1.5 rounded-control bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
               {isPending ? 'Saving…' : isEdit ? 'Save changes' : 'Save'}
             </button>

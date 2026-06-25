@@ -33,7 +33,7 @@ export function MobileBacklogCard({
       type="button"
       onClick={onSelect}
       aria-label={item.title}
-      className={`flex w-full flex-col gap-1.5 rounded-lg border border-neutral-border bg-neutral-surface px-3.5 py-3 text-left ${FOCUS_RING}`}
+      className={`flex w-full flex-col gap-1.5 rounded-card border border-neutral-border bg-neutral-surface px-3.5 py-3 text-left ${FOCUS_RING}`}
     >
       <div className="flex items-center gap-2">
         <span className="tppm-mono flex-1 text-xs text-neutral-text-disabled">
@@ -51,7 +51,7 @@ export function MobileBacklogCard({
           {tags.map((tag) => (
             <span
               key={tag}
-              className="rounded bg-neutral-surface-sunken px-1.5 py-0.5 text-xs text-neutral-text-secondary"
+              className="rounded-chip bg-neutral-surface-sunken px-1.5 py-0.5 text-xs text-neutral-text-secondary"
             >
               {tag}
             </span>
@@ -73,7 +73,7 @@ export function MobileBacklogCard({
               }
             }}
             aria-label={`Pull ${item.title} to a project`}
-            className={`inline-flex h-9 shrink-0 items-center gap-1 rounded-md bg-brand-primary px-3 text-xs font-medium text-white ${FOCUS_RING}`}
+            className={`inline-flex h-9 shrink-0 items-center gap-1 rounded-control bg-brand-primary px-3 text-xs font-medium text-white ${FOCUS_RING}`}
           >
             Pull
             <ArrowRightIcon aria-hidden="true" className="h-3 w-3" />

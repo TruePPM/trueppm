@@ -88,7 +88,7 @@ export function FacetDropdown({
           id={menuId}
           role="menu"
           aria-label={`Filter by ${label.toLowerCase()}`}
-          className="absolute left-0 top-[calc(100%+4px)] z-20 min-w-[200px] rounded-md border border-neutral-border bg-neutral-surface py-1"
+          className="absolute left-0 top-[calc(100%+4px)] z-20 min-w-[200px] rounded-card border border-neutral-border bg-neutral-surface py-1"
         >
           {searchable && (
             <div className="px-2 pb-1">
@@ -98,7 +98,7 @@ export function FacetDropdown({
                 onChange={(e) => setFilter(e.target.value)}
                 placeholder={`Filter ${label.toLowerCase()}…`}
                 aria-label={`Filter ${label.toLowerCase()} options`}
-                className={`h-7 w-full rounded border border-neutral-border bg-neutral-surface-sunken px-2 text-xs text-neutral-text-primary placeholder:text-neutral-text-secondary ${FOCUS_RING}`}
+                className={`h-7 w-full rounded-control border border-neutral-border bg-neutral-surface-sunken px-2 text-xs text-neutral-text-primary placeholder:text-neutral-text-secondary ${FOCUS_RING}`}
               />
             </div>
           )}

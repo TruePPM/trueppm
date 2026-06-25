@@ -68,7 +68,7 @@ export function ProgramCard({ program }: Props) {
       <Link
         to={`/programs/${program.id}/projects`}
         aria-label={ariaLabel}
-        className="flex h-full flex-col gap-2 rounded-lg border border-neutral-border bg-neutral-surface p-4
+        className="flex h-full flex-col gap-2 rounded-card border border-neutral-border bg-neutral-surface p-4
           transition-[transform,border-color] duration-fast ease-brand
           hover:border-brand-primary/40 motion-safe:hover:-translate-y-px
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
@@ -81,7 +81,7 @@ export function ProgramCard({ program }: Props) {
             </h2>
             {program.my_role_label && (
               <span
-                className={`shrink-0 rounded px-1.5 py-0.5 text-xs font-medium ${roleChipClasses(program.my_role)}`}
+                className={`shrink-0 rounded-chip px-1.5 py-0.5 text-xs font-medium ${roleChipClasses(program.my_role)}`}
               >
                 {program.my_role_label}
               </span>

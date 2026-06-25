@@ -68,7 +68,7 @@ export function DetailCreate({ tagSuggestions, onCancel, onCreate }: DetailCreat
           type="button"
           onClick={onCancel}
           aria-label="Cancel"
-          className={`flex h-8 w-8 items-center justify-center rounded text-neutral-text-secondary hover:bg-neutral-surface-sunken ${FOCUS_RING}`}
+          className={`flex h-8 w-8 items-center justify-center rounded-control text-neutral-text-secondary hover:bg-neutral-surface-sunken ${FOCUS_RING}`}
         >
           <CloseIcon aria-hidden="true" className="h-4 w-4" />
         </button>

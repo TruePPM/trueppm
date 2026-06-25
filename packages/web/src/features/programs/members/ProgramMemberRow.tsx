@@ -93,7 +93,7 @@ export function ProgramMemberRow({
           aria-label={isSelf ? 'Leave program' : `Remove ${user_detail.username}`}
           className={[
             'shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center',
-            'rounded text-xs font-medium transition-colors',
+            'rounded-control text-xs font-medium transition-colors',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
             isSelf
               ? 'text-neutral-text-secondary hover:text-neutral-text-primary'
@@ -116,7 +116,7 @@ export function ProgramMemberRow({
             }}
             disabled={isRemoving}
             className={[
-              'h-7 px-2 rounded border border-semantic-critical text-xs font-medium',
+              'h-7 px-2 rounded-control border border-semantic-critical text-xs font-medium',
               'text-semantic-critical hover:bg-semantic-critical/5 transition-colors',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1',
               'disabled:opacity-50',
@@ -128,7 +128,7 @@ export function ProgramMemberRow({
             type="button"
             onClick={() => setConfirmLeave(false)}
             className={[
-              'h-7 px-2 rounded border border-neutral-border text-xs font-medium',
+              'h-7 px-2 rounded-control border border-neutral-border text-xs font-medium',
               'text-neutral-text-secondary hover:bg-neutral-surface-raised transition-colors',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
             ].join(' ')}

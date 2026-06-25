@@ -57,7 +57,7 @@ export function MobilePullSheet({
             type="button"
             onClick={onClose}
             aria-label="Cancel pull"
-            className={`flex h-9 w-9 items-center justify-center rounded text-neutral-text-secondary ${FOCUS_RING}`}
+            className={`flex h-9 w-9 items-center justify-center rounded-control text-neutral-text-secondary ${FOCUS_RING}`}
           >
             <CloseIcon aria-hidden="true" className="h-4 w-4" />
           </button>
