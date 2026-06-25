@@ -279,7 +279,7 @@ function RotateSecretModal({
         if (e.target === e.currentTarget && !rotate.isPending) onClose();
       }}
     >
-      <div className="bg-neutral-surface border border-neutral-border rounded-lg w-full max-w-md p-5">
+      <div className="bg-neutral-surface border border-neutral-border rounded-card w-full max-w-md p-5">
         {revealed ? (
           <>
             <h2 className="text-sm font-semibold text-neutral-text-primary mb-2">

@@ -151,7 +151,7 @@ export function AddToRosterCombobox({ projectId, onSelect, onDismiss }: AddToRos
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={handleKeyDown}
         disabled={inlineCreate.isPending}
-        className="w-full text-sm border border-neutral-border rounded-md px-3 py-2
+        className="w-full text-sm border border-neutral-border rounded-control px-3 py-2
           bg-neutral-surface text-neutral-text-primary placeholder:text-neutral-text-disabled
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
           disabled:opacity-50"
@@ -164,7 +164,7 @@ export function AddToRosterCombobox({ projectId, onSelect, onDismiss }: AddToRos
           aria-label="People to add"
           className="absolute left-0 right-0 top-full mt-1 z-50
             max-h-56 overflow-y-auto
-            border border-neutral-border rounded-md
+            border border-neutral-border rounded-card
             bg-neutral-surface"
         >
           {visible.map((r, i) => (

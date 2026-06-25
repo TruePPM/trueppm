@@ -168,7 +168,7 @@ export function BulkFieldsMatrix<Row>({
     <div>
       {showActionBar && (
         <div
-          className="sticky top-0 z-10 mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-neutral-border bg-neutral-surface-raised px-4 py-2.5"
+          className="sticky top-0 z-10 mb-3 flex flex-wrap items-center gap-3 rounded-card border border-neutral-border bg-neutral-surface-raised px-4 py-2.5"
           data-testid="bulk-fields-action-bar"
         >
           {confirmingReset && field ? (
@@ -244,7 +244,7 @@ export function BulkFieldsMatrix<Row>({
       )}
 
       <div
-        className="grid items-center rounded-t-lg border border-neutral-border bg-neutral-surface-sunken px-4 py-2 text-[11px] font-semibold uppercase tracking-[.08em] text-neutral-text-secondary"
+        className="grid items-center rounded-t-card border border-neutral-border bg-neutral-surface-sunken px-4 py-2 text-[11px] font-semibold uppercase tracking-[.08em] text-neutral-text-secondary"
         style={{ gridTemplateColumns: gridTemplate }}
       >
         {canEdit && (
@@ -262,7 +262,7 @@ export function BulkFieldsMatrix<Row>({
         ))}
       </div>
 
-      <div className="overflow-hidden rounded-b-lg border-x border-b border-neutral-border bg-neutral-surface-raised">
+      <div className="overflow-hidden rounded-b-card border-x border-b border-neutral-border bg-neutral-surface-raised">
         {rows.map((row, i) => {
           const id = rowKey(row);
           const isSelected = selected.has(id);

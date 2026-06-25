@@ -325,7 +325,7 @@ export function UserMenu() {
               role="dialog"
               aria-modal="true"
               aria-label="User menu"
-              className="fixed bottom-0 inset-x-0 z-50 bg-chrome-surface rounded-t-2xl border-t border-neutral-border flex flex-col py-2"
+              className="fixed bottom-0 inset-x-0 z-50 bg-chrome-surface rounded-t-card border-t border-neutral-border flex flex-col py-2"
             >
               <MenuContent {...sharedContentProps} isMobile={true} />
             </div>

@@ -195,7 +195,7 @@ export function ProjectSignalPrivacyPage() {
 
         {policy && view === 'ladder' && (
           <>
-            <ul className="divide-y divide-neutral-border rounded-lg border border-neutral-border">
+            <ul className="divide-y divide-neutral-border rounded-card border border-neutral-border">
               {SIGNALS.map(({ key, title, description }) => {
                 const proposal = policy.open_proposals?.[key];
                 return (

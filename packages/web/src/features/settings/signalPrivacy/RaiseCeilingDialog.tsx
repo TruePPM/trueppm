@@ -38,7 +38,7 @@ export function RaiseCeilingDialog({
     <div
       role="alertdialog"
       aria-label={`Raise the ceiling for ${signalTitle}`}
-      className="mb-4 rounded-lg border border-neutral-border bg-neutral-surface-raised p-4"
+      className="mb-4 rounded-card border border-neutral-border bg-neutral-surface-raised p-4"
     >
       <h4 className="text-[13px] font-semibold text-neutral-text-primary">
         Raise the ceiling for {signalTitle}?

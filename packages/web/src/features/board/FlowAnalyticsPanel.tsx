@@ -374,7 +374,7 @@ function CfdLegend() {
     <ul aria-hidden="true" className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-xs text-neutral-text-disabled">
       {CFD_BANDS.map((band) => (
         <li key={band.key} className="inline-flex items-center gap-1">
-          <span className="inline-block h-2 w-2 rounded-sm" style={{ backgroundColor: band.color }} />
+          <span className="inline-block h-2 w-2 rounded-chip" style={{ backgroundColor: band.color }} />
           {band.label}
         </li>
       ))}

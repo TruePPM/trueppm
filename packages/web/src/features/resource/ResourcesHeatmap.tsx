@@ -42,7 +42,7 @@ function isoWeekToSunday(weekLabel: string): string {
  */
 export function ResourcesHeatmapSkeleton({ cols: _cols }: { cols: number }) {
   return (
-    <div className="rounded-md border border-neutral-border overflow-hidden">
+    <div className="rounded-card border border-neutral-border overflow-hidden">
       {/* Header row skeleton */}
       <div className="h-9 bg-neutral-surface-sunken border-b border-neutral-border animate-pulse" />
       {/* Person rows skeleton */}
@@ -89,7 +89,7 @@ export function ResourcesHeatmap({ projectId, weeks, resources }: Props) {
       {/* Desktop grid (≥ md)                                                 */}
       {/* ------------------------------------------------------------------ */}
       <div
-        className="hidden md:block rounded-md border border-neutral-border overflow-x-auto"
+        className="hidden md:block rounded-card border border-neutral-border overflow-x-auto"
         role="grid"
         aria-label="Resource utilization heatmap"
       >
@@ -170,7 +170,7 @@ export function ResourcesHeatmap({ projectId, weeks, resources }: Props) {
       {/* ------------------------------------------------------------------ */}
       {/* Mobile sparkline list (< md)                                        */}
       {/* ------------------------------------------------------------------ */}
-      <div className="md:hidden space-y-px rounded-md border border-neutral-border overflow-hidden">
+      <div className="md:hidden space-y-px rounded-card border border-neutral-border overflow-hidden">
         {resources.map((resource) => {
           const peakUtil = Math.max(...resource.util);
           const peakWeekIndex = resource.util.indexOf(peakUtil);
@@ -212,7 +212,7 @@ export function ResourcesHeatmap({ projectId, weeks, resources }: Props) {
                   return (
                     <div
                       key={i}
-                      className="w-4 h-4 rounded-sm"
+                      className="w-4 h-4 rounded-chip"
                       style={{ backgroundColor: u === 0 ? 'var(--neutral-surface-sunken)' : bg }}
                     />
                   );

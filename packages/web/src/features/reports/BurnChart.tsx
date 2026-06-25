@@ -295,7 +295,7 @@ function BurnTooltip({
   const deltaColor = delta >= 0 ? 'text-semantic-on-track' : 'text-semantic-critical';
 
   return (
-    <div className="bg-neutral-surface border border-neutral-border rounded-md p-3 text-xs shadow-none">
+    <div className="bg-neutral-surface border border-neutral-border rounded-card p-3 text-xs shadow-none">
       <p className="font-semibold text-neutral-text-primary mb-1.5">
         {label ? formatAxisDate(label) : ''}
       </p>
@@ -633,7 +633,7 @@ export function BurnChart({
   return (
     <section
       aria-labelledby="burn-chart-heading"
-      className="rounded-lg border border-neutral-border bg-neutral-surface flex flex-col"
+      className="rounded-card border border-neutral-border bg-neutral-surface flex flex-col"
     >
       {/* Card header */}
       <div className="flex items-center justify-between gap-3 px-4 pt-4 pb-3 border-b border-neutral-border">
@@ -645,7 +645,7 @@ export function BurnChart({
             <select
               value={metric}
               onChange={(e) => setMetric(e.target.value as BurnMetric)}
-              className="h-9 rounded-md border border-neutral-border bg-neutral-surface text-xs text-neutral-text-primary px-2 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
+              className="h-9 rounded-control border border-neutral-border bg-neutral-surface text-xs text-neutral-text-primary px-2 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
               aria-label="Metric"
             >
               <option value="tasks">Tasks</option>
@@ -654,7 +654,7 @@ export function BurnChart({
           )}
           <div className="relative group">
             <button
-              className="h-9 px-3 rounded-md border border-neutral-border bg-neutral-surface text-xs font-medium text-neutral-text-primary flex items-center gap-1.5 hover:bg-neutral-surface-raised focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none disabled:opacity-50"
+              className="h-9 px-3 rounded-control border border-neutral-border bg-neutral-surface text-xs font-medium text-neutral-text-primary flex items-center gap-1.5 hover:bg-neutral-surface-raised focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none disabled:opacity-50"
               disabled={isLoading || showEmpty || isError}
               aria-haspopup="menu"
               aria-label="Export chart"
@@ -664,7 +664,7 @@ export function BurnChart({
             </button>
             <div
               role="menu"
-              className="absolute right-0 top-full mt-1 w-40 bg-neutral-surface border border-neutral-border rounded-md shadow-none overflow-hidden z-10 hidden group-hover:block group-focus-within:block"
+              className="absolute right-0 top-full mt-1 w-40 bg-neutral-surface border border-neutral-border rounded-card shadow-none overflow-hidden z-10 hidden group-hover:block group-focus-within:block"
             >
               <button
                 role="menuitem"

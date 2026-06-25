@@ -107,7 +107,7 @@ export function HeatmapCellDrawer({
           'md:inset-y-0 md:bottom-auto',
           // Mobile bottom-sheet overrides
           'max-md:inset-x-0 max-md:top-auto max-md:bottom-0 max-md:h-[75vh]',
-          'max-md:rounded-t-2xl max-md:border-l-0 max-md:border-t',
+          'max-md:rounded-t-card max-md:border-l-0 max-md:border-t',
         ].join(' ')}
       >
         {/* Drag handle (mobile only) */}

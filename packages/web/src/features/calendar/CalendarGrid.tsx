@@ -72,7 +72,7 @@ function assignLanes(chips: CalendarChipData[]): Map<number, number> {
 // ---------------------------------------------------------------------------
 
 function LegendSwatch({ className }: { className: string }) {
-  return <span className={`inline-block w-4 h-2 rounded-sm flex-shrink-0 ${className}`} aria-hidden="true" />;
+  return <span className={`inline-block w-4 h-2 rounded-chip flex-shrink-0 ${className}`} aria-hidden="true" />;
 }
 
 function CalendarLegend() {

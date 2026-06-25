@@ -22,7 +22,7 @@ function KpiCard({ label, value, sub, variant = 'neutral' }: KpiCardProps) {
   const subLines = Array.isArray(sub) ? sub : sub ? [sub] : [];
 
   return (
-    <div className="flex flex-col gap-1 p-[14px] rounded-md border border-neutral-border bg-neutral-surface-raised">
+    <div className="flex flex-col gap-1 p-[14px] rounded-card border border-neutral-border bg-neutral-surface-raised">
       <span className="text-xs font-medium uppercase tracking-wide text-neutral-text-secondary">
         {label}
       </span>
@@ -46,7 +46,7 @@ export function ResourcesKpiRowSkeleton() {
       {[1, 2, 3, 4].map((i) => (
         <div
           key={i}
-          className="h-[88px] rounded-md border border-neutral-border animate-pulse bg-neutral-surface-raised"
+          className="h-[88px] rounded-card border border-neutral-border animate-pulse bg-neutral-surface-raised"
         />
       ))}
     </div>

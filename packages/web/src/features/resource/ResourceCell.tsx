@@ -48,7 +48,7 @@ export function ResourceCell({
     <>
       {hours > 0 && (
         <div
-          className={`w-4 rounded-sm ${LOAD_BAR_CLASS[color]} opacity-90`}
+          className={`w-4 rounded-chip ${LOAD_BAR_CLASS[color]} opacity-90`}
           style={{ height: `${(barHeight / 120) * 24}px` }}
           aria-label={isOverallocated ? undefined : `${Math.round(pct)}% load on ${iso}`}
         />

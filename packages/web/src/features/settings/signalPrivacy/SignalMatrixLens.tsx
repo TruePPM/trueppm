@@ -21,7 +21,7 @@ interface SignalMatrixLensProps {
 
 export function SignalMatrixLens({ signals }: SignalMatrixLensProps) {
   return (
-    <div className="overflow-x-auto rounded-lg border border-neutral-border">
+    <div className="overflow-x-auto rounded-card border border-neutral-border">
       <table className="w-full text-[12px]">
         <thead>
           <tr className="border-b border-neutral-border bg-neutral-surface-sunken text-neutral-text-secondary">

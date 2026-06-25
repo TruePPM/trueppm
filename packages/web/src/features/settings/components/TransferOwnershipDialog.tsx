@@ -84,7 +84,7 @@ export function TransferOwnershipDialog({
         if (e.target === e.currentTarget) onCancel();
       }}
     >
-      <div className="mx-4 w-full max-w-md rounded-lg border border-neutral-border bg-neutral-surface p-5 motion-safe:animate-modal-scale-in">
+      <div className="mx-4 w-full max-w-md rounded-card border border-neutral-border bg-neutral-surface p-5 motion-safe:animate-modal-scale-in">
         <h2
           id="transfer-dialog-title"
           className="mb-2 text-sm font-semibold text-neutral-text-primary"
