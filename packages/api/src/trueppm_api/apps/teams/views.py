@@ -46,8 +46,14 @@ class TeamViewSet(viewsets.GenericViewSet[Team]):
         return qs.order_by("-is_default", "name")
 
     def list(self, request: Request, **kwargs: object) -> Response:
-        serializer = TeamSerializer(self.get_queryset(), many=True)
-        return Response(serializer.data)
+        # Paginate (#1317): a project's team list is small today, but the
+        # endpoint had no bound at all — page it through the project default so
+        # it can never serialize an unbounded set as multi-team lands (#599).
+        queryset = self.get_queryset()
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            return self.get_paginated_response(TeamSerializer(page, many=True).data)
+        return Response(TeamSerializer(queryset, many=True).data)
 
     def retrieve(self, request: Request, pk: object = None, **kwargs: object) -> Response:
         team = self.get_object()
@@ -88,8 +94,13 @@ class TeamMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[TeamMember
 
     def list(self, request: Request, **kwargs: object) -> Response:
         self._get_team_or_404()
-        serializer = TeamMembershipReadSerializer(self.get_queryset(), many=True)
-        return Response(serializer.data)
+        # Paginate (#1317) — the roster grows with the team; page it through the
+        # project default rather than serializing every membership at once.
+        queryset = self.get_queryset()
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            return self.get_paginated_response(TeamMembershipReadSerializer(page, many=True).data)
+        return Response(TeamMembershipReadSerializer(queryset, many=True).data)
 
     def partial_update(self, request: Request, pk: object = None, **kwargs: object) -> Response:
         team = self._get_team_or_404()

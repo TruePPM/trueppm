@@ -60,6 +60,34 @@ class TestFailedTaskFilters:
         assert res.status_code == 200
         assert _ids(res) == {"a-1", "b-1"}
 
+    def test_list_is_bounded_and_keeps_count(self) -> None:
+        """200 dead-lettered tasks return a single bounded page that still
+        exposes the total ``count`` (#1317).
+
+        The dead-letter inspector header renders this count, so page-number
+        pagination is kept here (cursor pagination would omit it).
+        """
+        FailedTask.objects.bulk_create(
+            [
+                FailedTask(
+                    task_name="x.task",
+                    task_id=f"x-{i:04d}",
+                    args=[],
+                    kwargs={},
+                    exception_type="RuntimeError",
+                    exception_message="boom",
+                    traceback="Traceback ...",
+                    status=FailedTaskStatus.DEAD,
+                )
+                for i in range(200)
+            ]
+        )
+        res = _admin_client().get(URL)
+        assert res.status_code == 200
+        assert len(res.data["results"]) == 50  # FailedTaskPagination.page_size
+        assert res.data["count"] == 200  # frontend inspector renders this
+        assert res.data["next"] is not None
+
     def test_filter_by_status(self) -> None:
         _failed("a.task", "a-1", status=FailedTaskStatus.DEAD)
         _failed("b.task", "b-1", status=FailedTaskStatus.DISMISSED)

@@ -8,6 +8,7 @@
 
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import { fetchAllPages } from '@/api/pagination';
 
 /** One facet flag. The two are independent of the access role. */
 export type TeamFacet = 'is_scrum_master' | 'is_product_owner';
@@ -40,8 +41,10 @@ export function useDefaultTeam(projectId: string | undefined): UseQueryResult<Te
   return useQuery({
     queryKey: ['project-teams', projectId],
     queryFn: async () => {
-      const res = await apiClient.get<TeamSummary[]>(`/projects/${projectId}/teams/`);
-      return res.data.find((t) => t.is_default) ?? res.data[0] ?? null;
+      // The teams list is paginated (issue 1317); page through so the default-team
+      // lookup never misses a team that fell past the first page.
+      const teams = await fetchAllPages<TeamSummary>(`/projects/${projectId}/teams/`);
+      return teams.find((t) => t.is_default) ?? teams[0] ?? null;
     },
     enabled: !!projectId,
     staleTime: 5 * 60 * 1000,
@@ -53,8 +56,9 @@ export function useTeamMembers(teamId: string | undefined): UseQueryResult<TeamM
   return useQuery({
     queryKey: ['team-members', teamId],
     queryFn: async () => {
-      const res = await apiClient.get<TeamMember[]>(`/teams/${teamId}/members/`);
-      return res.data;
+      // The roster is paginated (issue 1317); page through so the whole team is
+      // shown — the facet matrix needs every member, not just the first page.
+      return fetchAllPages<TeamMember>(`/teams/${teamId}/members/`);
     },
     enabled: !!teamId,
   });

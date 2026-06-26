@@ -202,8 +202,31 @@ def test_deliveries_payload_readable_by_admin(
     )
     resp = admin_client.get(f"/api/v1/projects/{project.pk}/webhooks/{webhook.pk}/deliveries/")
     assert resp.status_code == 200
-    assert len(resp.json()) == 1
-    assert resp.json()[0]["payload"]["task"]["notes"] == "secret internal note"
+    rows = resp.json()["results"]  # cursor-paginated (#1317)
+    assert len(rows) == 1
+    assert rows[0]["payload"]["task"]["notes"] == "secret internal note"
+
+
+def test_deliveries_list_is_cursor_paginated(
+    admin_client: APIClient, project: Project, webhook: Webhook
+) -> None:
+    """200 deliveries return a single bounded page newest-first (#1317).
+
+    Replaces the old hard ``[:50]`` slice — a cursor lets an admin page back
+    through history instead of only ever seeing the newest 50.
+    """
+    WebhookDelivery.objects.bulk_create(
+        [
+            WebhookDelivery(webhook=webhook, event_type="task.updated", payload={})
+            for _ in range(200)
+        ]
+    )
+    resp = admin_client.get(f"/api/v1/projects/{project.pk}/webhooks/{webhook.pk}/deliveries/")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body["results"]) == 50  # WebhookDeliveryCursorPagination.page_size
+    assert body["next"] is not None  # a cursor to page back through history
+    assert "count" not in body  # cursor pagination omits the total COUNT
 
 
 # ---------------------------------------------------------------------------

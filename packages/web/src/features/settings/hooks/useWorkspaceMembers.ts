@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import { fetchAllPages } from '@/api/pagination';
 import type { WorkspaceMember, WorkspaceInvite, PendingInvite } from '@/api/types';
 
 // Re-export types so existing call sites that import from this module keep
@@ -86,8 +87,10 @@ export function useWorkspaceMembers() {
   const membersQuery = useQuery({
     queryKey: ['workspace-members'],
     queryFn: async () => {
-      const res = await apiClient.get<WorkspaceMemberRaw[]>('/workspace/members/');
-      return res.data.map(mapMember);
+      // /workspace/members/ is cursor-paginated (issue 1317); page through so the
+      // members table still shows every member regardless of org size.
+      const raw = await fetchAllPages<WorkspaceMemberRaw>('/workspace/members/');
+      return raw.map(mapMember);
     },
   });
 

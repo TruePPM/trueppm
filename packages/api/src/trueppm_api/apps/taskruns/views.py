@@ -126,10 +126,17 @@ class GlobalTaskRunViewSet(ReadOnlyModelViewSet[TaskRun]):
     )
     @action(detail=False, methods=["get"], url_path="active")
     def active(self, request: Request) -> Response:
-        """Return PENDING + RUNNING task runs across the user's projects."""
+        """Return PENDING + RUNNING task runs across the user's projects.
+
+        Paginated (#1317): the ``list`` action already pages through the project
+        default, but this custom action returned the full set — across many
+        projects with long-running recalcs that is unbounded.
+        """
         qs = self.get_queryset().filter(status__in=[TaskRunStatus.PENDING, TaskRunStatus.RUNNING])
-        serializer = self.get_serializer(qs, many=True)
-        return Response(serializer.data)
+        page = self.paginate_queryset(qs)
+        if page is not None:
+            return self.get_paginated_response(self.get_serializer(page, many=True).data)
+        return Response(self.get_serializer(qs, many=True).data)
 
 
 class ProjectSchedulerRunViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet[TaskRun]):

@@ -43,6 +43,9 @@ const RAW_INVITE = {
   expires_at: '2026-06-20T10:00:00Z',
 };
 
+/** A single-page DRF envelope — /workspace/members/ is paginated (#1317). */
+const page = <T,>(results: T[]) => ({ data: { results, next: null } });
+
 function makeWrapper() {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -60,8 +63,8 @@ describe('useWorkspaceMembers — snake→camel mapping', () => {
 
   it('maps member two_fa → twoFa and project_count → projectCount', async () => {
     getMock
-      .mockResolvedValueOnce({ data: [RAW_MEMBER] })  // /workspace/members/
-      .mockResolvedValueOnce({ data: [] });            // /workspace/invites/
+      .mockResolvedValueOnce(page([RAW_MEMBER]))  // /workspace/members/ (paginated)
+      .mockResolvedValueOnce({ data: [] });        // /workspace/invites/ (bare array)
 
     const { result } = renderHook(() => useWorkspaceMembers(), {
       wrapper: makeWrapper(),
@@ -79,7 +82,7 @@ describe('useWorkspaceMembers — snake→camel mapping', () => {
 
   it('maps invite invited_by → sentBy and created_at → sentAt', async () => {
     getMock
-      .mockResolvedValueOnce({ data: [] })
+      .mockResolvedValueOnce(page([]))  // /workspace/members/ (paginated)
       .mockResolvedValueOnce({ data: [RAW_INVITE] });
 
     const { result } = renderHook(() => useWorkspaceMembers(), {
@@ -97,7 +100,7 @@ describe('useWorkspaceMembers — snake→camel mapping', () => {
 
   it('returns empty arrays when both endpoints return empty lists', async () => {
     getMock
-      .mockResolvedValueOnce({ data: [] })
+      .mockResolvedValueOnce(page([]))  // /workspace/members/ (paginated)
       .mockResolvedValueOnce({ data: [] });
 
     const { result } = renderHook(() => useWorkspaceMembers(), {
