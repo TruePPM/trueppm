@@ -5,9 +5,12 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.teams.models import Team, TeamMembership, TeamRole
+
+User = get_user_model()
 
 pytestmark = pytest.mark.django_db
 
@@ -30,9 +33,10 @@ def test_project_teams_list_returns_default_team(
 ) -> None:
     resp = admin_client.get(f"/api/v1/projects/{project.pk}/teams/")
     assert resp.status_code == 200
-    assert len(resp.data) == 1
-    assert resp.data[0]["is_default"] is True
-    assert resp.data[0]["member_count"] == 4
+    rows = resp.data["results"]  # paginated (#1317)
+    assert len(rows) == 1
+    assert rows[0]["is_default"] is True
+    assert rows[0]["member_count"] == 4
 
 
 def test_roster_lists_members_with_facets(
@@ -40,9 +44,29 @@ def test_roster_lists_members_with_facets(
 ) -> None:
     resp = admin_client.get(_members_url(default_team))
     assert resp.status_code == 200
-    assert len(resp.data) == 4
-    row = next(r for r in resp.data if r["role"] == TeamRole.ADMIN)
+    rows = resp.data["results"]  # paginated (#1317)
+    assert len(rows) == 4
+    row = next(r for r in rows if r["role"] == TeamRole.ADMIN)
     assert {"is_scrum_master", "is_product_owner", "role_label", "user_detail"} <= row.keys()
+
+
+def test_roster_list_is_paginated(
+    admin_client: APIClient, default_team: Team, team_members: dict[str, Any]
+) -> None:
+    """A 200-member roster returns a single bounded page (#1317).
+
+    Page-number pagination (not cursor) is retained for the roster, so ``count``
+    stays available for any future "N members" header.
+    """
+    extra = User.objects.bulk_create([User(username=f"tm{i:04d}") for i in range(200)])
+    TeamMembership.objects.bulk_create(
+        [TeamMembership(team=default_team, user=u, role=TeamRole.MEMBER) for u in extra]
+    )
+    resp = admin_client.get(_members_url(default_team))
+    assert resp.status_code == 200
+    assert len(resp.data["results"]) == 50  # PageNumberPagination default page_size
+    assert resp.data["count"] >= 200
+    assert resp.data["next"] is not None
 
 
 def test_outsider_cannot_read_roster(

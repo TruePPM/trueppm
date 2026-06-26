@@ -8,6 +8,9 @@ import { test, expect, type Page } from '@playwright/test';
  */
 
 const pj = (data: unknown) => JSON.stringify(data);
+// A single-page DRF envelope — /workspace/members/ is cursor-paginated (#1317),
+// and the page fetches it via fetchAllPages (reads .results, follows .next).
+const pjPage = (results: unknown[]) => JSON.stringify({ results, next: null });
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -338,7 +341,7 @@ test.describe('Workspace Members page', () => {
   test('golden path — shows member name and email', async ({ page }) => {
     await setup(page);
     await page.route('**/api/v1/workspace/members/', (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: pj([MEMBER]) }),
+      r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([MEMBER]) }),
     );
     await page.route('**/api/v1/workspace/invites/', (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: pj([]) }),
@@ -358,7 +361,7 @@ test.describe('Workspace Members page', () => {
   test('golden path — pending invite section renders', async ({ page }) => {
     await setup(page);
     await page.route('**/api/v1/workspace/members/', (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: pj([MEMBER]) }),
+      r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([MEMBER]) }),
     );
     await page.route('**/api/v1/workspace/invites/', (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: pj([INVITE]) }),
@@ -373,7 +376,7 @@ test.describe('Workspace Members page', () => {
   test('golden path — POST dispatched when invite form is submitted', async ({ page }) => {
     await setup(page);
     await page.route('**/api/v1/workspace/members/', (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: pj([MEMBER]) }),
+      r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([MEMBER]) }),
     );
     await page.route('**/api/v1/workspace/invites/', (r) => {
       if (r.request().method() === 'POST') {
@@ -397,7 +400,7 @@ test.describe('Workspace Members page', () => {
   }) => {
     await setup(page);
     await page.route('**/api/v1/workspace/members/', (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: pj([MEMBER]) }),
+      r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([MEMBER]) }),
     );
     await page.route('**/api/v1/workspace/invites/', (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: pj([]) }),
@@ -426,7 +429,7 @@ test.describe('Workspace Members page', () => {
 
     await page.route('**/api/v1/workspace/members/', async (r) => {
       await pending;
-      return r.fulfill({ status: 200, contentType: 'application/json', body: pj([]) });
+      return r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([]) });
     });
     await page.route('**/api/v1/workspace/invites/', (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: pj([]) }),
@@ -566,7 +569,7 @@ test.describe('Resend invite (#969)', () => {
   }) => {
     await setup(page);
     await page.route('**/api/v1/workspace/members/', (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: pj([MEMBER]) }),
+      r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([MEMBER]) }),
     );
     await page.route('**/api/v1/workspace/invites/', (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: pj([INVITE]) }),
@@ -589,7 +592,7 @@ test.describe('Resend invite (#969)', () => {
   test('bulk "Resend all" posts to the resend-all endpoint', async ({ page }) => {
     await setup(page);
     await page.route('**/api/v1/workspace/members/', (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: pj([MEMBER]) }),
+      r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([MEMBER]) }),
     );
     await page.route('**/api/v1/workspace/invites/', (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: pj([INVITE]) }),
@@ -610,7 +613,7 @@ test.describe('Resend invite (#969)', () => {
   test('throttled per-row resend (429) surfaces a wait-a-minute toast', async ({ page }) => {
     await setup(page);
     await page.route('**/api/v1/workspace/members/', (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: pj([MEMBER]) }),
+      r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([MEMBER]) }),
     );
     await page.route('**/api/v1/workspace/invites/', (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: pj([INVITE]) }),
@@ -726,7 +729,7 @@ const DANGER_MEMBER = {
 async function setupDanger(page: Page) {
   await setup(page);
   await page.route('**/api/v1/workspace/members/', (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: pj([MEMBER, DANGER_MEMBER]) }),
+    r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([MEMBER, DANGER_MEMBER]) }),
   );
 }
 

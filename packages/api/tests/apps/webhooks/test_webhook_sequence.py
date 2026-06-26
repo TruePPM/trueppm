@@ -356,7 +356,7 @@ def test_deliveries_endpoint_exposes_sequence(
 
     resp = client.get(f"/api/v1/projects/{project.pk}/webhooks/{webhook.pk}/deliveries/")
     assert resp.status_code == 200
-    assert resp.data[0]["sequence_number"] == 1
+    assert resp.data["results"][0]["sequence_number"] == 1  # cursor-paginated (#1317)
 
 
 # ---------------------------------------------------------------------------

@@ -1196,6 +1196,33 @@ class TestImportProvenanceList:
         rows = resp.json()["results"]
         assert [r["filename"] for r in rows] == ["mine.xml"]
 
+    def test_list_is_paginated(
+        self, admin_client: APIClient, project: Project, user: object
+    ) -> None:
+        """200 imports return a single bounded page (#1317).
+
+        Replaces the old hard ``[:100]`` slice that silently dropped the
+        overflow; ``results`` stays the row key so the client read is unchanged.
+        """
+        from trueppm_api.apps.msproject.models import ImportRequest
+
+        ImportRequest.objects.bulk_create(
+            [
+                ImportRequest(
+                    project=project,
+                    filename=f"f{i:04d}.xml",
+                    file_content_b64="",
+                    initiated_by=user,  # type: ignore[arg-type]
+                )
+                for i in range(200)
+            ]
+        )
+        resp = admin_client.get(self._url(project))
+        assert resp.status_code == 200
+        body = resp.json()
+        assert len(body["results"]) == 50  # ImportProvenancePagination.page_size
+        assert body["next"] is not None
+
     def test_viewer_can_read(
         self, viewer_client: APIClient, project: Project, user: object
     ) -> None:

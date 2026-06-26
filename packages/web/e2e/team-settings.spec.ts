@@ -147,11 +147,21 @@ async function setup(page: Page, opts: SetupOpts = {}) {
     return r.fulfill({ status: 200, contentType: 'application/json', body: pj([]) });
   });
 
+  // Both lists are paginated (#1317); the hooks read them via fetchAllPages
+  // (.results + .next), so the mocks return a single-page DRF envelope.
   await page.route(`**/api/v1/projects/${PROJECT_ID}/teams/`, (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: pj([FIXTURE_TEAM]) }),
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj({ results: [FIXTURE_TEAM], next: null }),
+    }),
   );
   await page.route(`**/api/v1/teams/${TEAM_ID}/members/`, (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: pj(roster) }),
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj({ results: roster, next: null }),
+    }),
   );
 }
 

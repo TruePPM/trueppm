@@ -20,6 +20,7 @@ from rest_framework.mixins import (
     RetrieveModelMixin,
     UpdateModelMixin,
 )
+from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -44,6 +45,21 @@ from trueppm_api.apps.webhooks.tasks import deliver_webhook
 logger = logging.getLogger(__name__)
 
 _BROKER_ERRORS = (KombuOperationalError, ConnectionError, redis_lib.ConnectionError)
+
+
+class WebhookDeliveryCursorPagination(CursorPagination):
+    """Depth-independent pagination for a webhook's delivery log (#1317).
+
+    The delivery history grows without bound — one row per event fired — and the
+    previous hard ``[:50]`` slice could only ever surface the newest 50 with no
+    way to page back. A created_at cursor is stable under the concurrent inserts
+    the dispatcher produces. Mirrors AuditEventCursorPagination.
+    """
+
+    ordering = "-created_at"
+    page_size = 50
+    page_size_query_param = "page_size"
+    max_page_size = 200
 
 
 class WebhookViewSet(
@@ -167,11 +183,19 @@ class WebhookViewSet(
     )
     @action(detail=True, methods=["get"], url_path="deliveries")
     def deliveries(self, request: Request, **kwargs: object) -> Response:
-        """List recent deliveries for this webhook."""
+        """List deliveries for this webhook, newest first (cursor-paginated, #1317).
+
+        A bare ``GET`` returns the most recent page; follow ``next`` to page
+        back through history. Instantiates the cursor paginator directly rather
+        than going through ``self.paginator`` (the viewset default is page-number
+        for the webhook CRUD list — the delivery log wants a cursor).
+        """
         webhook = self.get_object()
-        deliveries = WebhookDelivery.objects.filter(webhook=webhook).order_by("-created_at")[:50]
-        serializer = WebhookDeliverySerializer(deliveries, many=True)
-        return Response(serializer.data)
+        qs = WebhookDelivery.objects.filter(webhook=webhook)
+        paginator = WebhookDeliveryCursorPagination()
+        page = paginator.paginate_queryset(qs, request, view=self)
+        serializer = WebhookDeliverySerializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
 
 
 class ProgramWebhookViewSet(WebhookViewSet):

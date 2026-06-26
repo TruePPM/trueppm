@@ -48,9 +48,10 @@ def member(db: object) -> object:
 def test_admin_lists_all_members(superadmin: object, member: object) -> None:
     resp = _client(superadmin).get(LIST_URL)
     assert resp.status_code == 200
-    ids = {row["id"] for row in resp.data}
+    rows = resp.data["results"]  # cursor-paginated (#1317)
+    ids = {row["id"] for row in rows}
     assert str(member.pk) in ids and str(superadmin.pk) in ids
-    row = next(r for r in resp.data if r["id"] == str(member.pk))
+    row = next(r for r in rows if r["id"] == str(member.pk))
     assert row["role"] == "Member"  # implicit default for a non-superuser
     assert row["initials"] == "MM"
     assert row["sso"] is False and row["two_fa"] is False
@@ -61,8 +62,9 @@ def test_non_admin_sees_only_self(member: object) -> None:
     other = User.objects.create_user(username="other", password="pw")
     resp = _client(member).get(LIST_URL)
     assert resp.status_code == 200
-    assert [r["id"] for r in resp.data] == [str(member.pk)]
-    assert str(other.pk) not in {r["id"] for r in resp.data}
+    rows = resp.data["results"]
+    assert [r["id"] for r in rows] == [str(member.pk)]
+    assert str(other.pk) not in {r["id"] for r in rows}
 
 
 @pytest.mark.django_db
@@ -70,7 +72,7 @@ def test_project_count_annotation(superadmin: object, member: object) -> None:
     project = Project.objects.create(name="P", start_date=date(2026, 1, 1))
     ProjectMembership.objects.create(project=project, user=member, role=Role.MEMBER)
     resp = _client(superadmin).get(LIST_URL)
-    row = next(r for r in resp.data if r["id"] == str(member.pk))
+    row = next(r for r in resp.data["results"] if r["id"] == str(member.pk))
     assert row["project_count"] == 1
 
 
@@ -274,7 +276,7 @@ def test_admin_can_still_deactivate_lower_member(db: object) -> None:
 def test_member_row_defaults_to_full_availability(superadmin: object, member: object) -> None:
     """A member with no explicit baseline reads as 100% available, no bounds (#542)."""
     resp = _client(superadmin).get(LIST_URL)
-    row = next(r for r in resp.data if r["id"] == str(member.pk))
+    row = next(r for r in resp.data["results"] if r["id"] == str(member.pk))
     assert row["availability_percent"] == 100
     assert row["availability_effective_from"] is None
     assert row["availability_effective_to"] is None
@@ -311,8 +313,9 @@ def test_member_views_own_availability(member: object) -> None:
         workspace=ws, user=member, role=WorkspaceRole.MEMBER, availability_percent=60
     )
     resp = _client(member).get(LIST_URL)
-    assert [r["id"] for r in resp.data] == [str(member.pk)]
-    assert resp.data[0]["availability_percent"] == 60
+    rows = resp.data["results"]
+    assert [r["id"] for r in rows] == [str(member.pk)]
+    assert rows[0]["availability_percent"] == 60
 
 
 @pytest.mark.django_db
@@ -401,3 +404,32 @@ def test_empty_availability_patch_rejected(superadmin: object, member: object) -
     """An empty body still fails the at-least-one-field guard (#542)."""
     resp = _client(superadmin).patch(_detail(member), {}, format="json")
     assert resp.status_code == 400
+
+
+# --- Pagination (#1317) -------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_members_list_is_cursor_paginated_and_query_bounded(
+    superadmin: object, django_assert_max_num_queries: object
+) -> None:
+    """A 200-member workspace returns a single bounded page, and the query count
+    does not scale with the org size (#1317).
+
+    The pre-pagination view ran ``User.objects.all()`` and built a row per user;
+    cursor pagination caps the page, so the row builder's batched membership /
+    group lookups fan out over at most ``page_size`` users, not the whole org.
+    """
+    User.objects.bulk_create([User(username=f"u{i:04d}") for i in range(200)])
+
+    # A handful of queries (role lookup + cursor page + membership/group batches)
+    # regardless of the 201 total users — the unbounded build is what #1317 fixed.
+    with django_assert_max_num_queries(12):
+        resp = _client(superadmin).get(LIST_URL)
+
+    assert resp.status_code == 200
+    # WorkspaceMemberCursorPagination.page_size — one page, not all 201 rows.
+    assert len(resp.data["results"]) == 50
+    assert resp.data["next"] is not None  # more pages remain
+    # Cursor pagination intentionally omits the expensive total COUNT.
+    assert "count" not in resp.data
