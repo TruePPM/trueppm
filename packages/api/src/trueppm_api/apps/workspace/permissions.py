@@ -19,12 +19,39 @@ from rest_framework.views import APIView
 from trueppm_api.apps.workspace.models import MemberStatus, WorkspaceMembership, WorkspaceRole
 
 
+def workspace_role_for_user(user: Any) -> int | None:
+    """Resolve a user's effective workspace role ordinal (ADR-0087 §6).
+
+    The single source of truth for "what workspace role does this user hold". An
+    explicit, non-deleted ``WorkspaceMembership`` wins (a ``deactivated`` status
+    resolves to ``None`` — no access); absent any row, a Django superuser is the
+    implicit OWNER (so the first admin can bootstrap a fresh install before any
+    membership exists) and every other authenticated user is the implicit MEMBER
+    (every authenticated user is a workspace member). Anonymous/unauthenticated
+    resolves to ``None``.
+
+    This is deliberately a pure ``user``-keyed function (not request-keyed) so
+    both the request-scoped permission helper *and* the ``/auth/me`` serializer
+    can call it: the implicit-OWNER bootstrap previously lived only in the
+    permission layer, so ``MeSerializer`` reported ``can_access_admin_settings``
+    false for a superuser who could in fact write workspace settings — the web
+    Sidebar then routed Settings to ``/me/settings/notifications`` and
+    ``RequireAdminSettings`` bounced them off ``/settings``. Keeping one helper
+    means the advertised signal can never drift from what RBAC enforces again.
+    """
+    if user is None or not getattr(user, "is_authenticated", False):
+        return None
+    membership = WorkspaceMembership.objects.filter(user=user, is_deleted=False).first()
+    if membership is not None:
+        return None if membership.status == MemberStatus.DEACTIVATED else int(membership.role)
+    return WorkspaceRole.OWNER if user.is_superuser else WorkspaceRole.MEMBER
+
+
 def _workspace_membership_role(request: Request) -> int | None:
     """Return the requesting user's workspace role ordinal, or ``None`` if no access.
 
     Cached on the request for its lifetime to avoid re-querying on list endpoints.
-    A ``deactivated`` membership returns ``None`` (no access). Users with no
-    explicit membership row default to OWNER (superuser) or MEMBER.
+    Delegates the role resolution itself to :func:`workspace_role_for_user`.
     """
     user = getattr(request, "user", None)
     if not user or not user.is_authenticated:
@@ -34,15 +61,7 @@ def _workspace_membership_role(request: Request) -> int | None:
     if cached != "unset":
         return cached  # type: ignore[return-value]
 
-    membership = WorkspaceMembership.objects.filter(user=user, is_deleted=False).first()
-    if membership is not None:
-        role: int | None = (
-            None if membership.status == MemberStatus.DEACTIVATED else membership.role
-        )
-    else:
-        # Implicit default — superusers bootstrap as OWNER so a fresh install
-        # has an admin who can manage the workspace before any row exists.
-        role = WorkspaceRole.OWNER if user.is_superuser else WorkspaceRole.MEMBER
+    role = workspace_role_for_user(user)
 
     request._workspace_rbac_role = role  # type: ignore[attr-defined]
     return role

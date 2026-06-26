@@ -222,10 +222,15 @@ class MeSerializer(serializers.Serializer[Any]):
     # calls. API-first: the tier verdict is a server fact, MCP-reachable.
     #   - max_project_role: highest project Role ordinal across the user's
     #     memberships (null if they belong to no projects).
-    #   - workspace_role: the user's WorkspaceRole ordinal (null if no workspace
-    #     membership).
+    #   - workspace_role: the user's *effective* WorkspaceRole ordinal — an
+    #     explicit membership if present, else the implicit role every
+    #     authenticated user holds (OWNER for a Django superuser bootstrapping a
+    #     fresh install, else MEMBER); null only for a deactivated membership.
+    #     Resolved by workspace.permissions.workspace_role_for_user so this signal
+    #     can never drift from what workspace RBAC actually enforces.
     #   - can_access_admin_settings: true iff Admin+ in any project OR Admin+ at
-    #     the workspace — the single boolean the settings shell gates on.
+    #     the workspace (the implicit superuser OWNER counts) — the single boolean
+    #     the settings shell gates on.
     max_project_role = serializers.SerializerMethodField()
     workspace_role = serializers.SerializerMethodField()
     can_access_admin_settings = serializers.SerializerMethodField()
@@ -261,15 +266,13 @@ class MeSerializer(serializers.Serializer[Any]):
         return self._max_project_role
 
     def get_workspace_role(self, obj: Any) -> int | None:
+        # Memoized: get_can_access_admin_settings also reads this. Delegates to the
+        # canonical resolver so the superuser-bootstrap and deactivated-status
+        # rules match what workspace RBAC enforces (no shadow copy — ADR-0087 §6).
         if not hasattr(self, "_workspace_role"):
-            from django.db.models import Max
+            from trueppm_api.apps.workspace.permissions import workspace_role_for_user
 
-            from trueppm_api.apps.workspace.models import WorkspaceMembership
-
-            value = WorkspaceMembership.objects.filter(user=obj, is_deleted=False).aggregate(
-                _max=Max("role")
-            )["_max"]
-            self._workspace_role: int | None = int(value) if value is not None else None
+            self._workspace_role: int | None = workspace_role_for_user(obj)
         return self._workspace_role
 
     def get_can_access_admin_settings(self, obj: Any) -> bool:

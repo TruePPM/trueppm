@@ -35,10 +35,13 @@ export interface CurrentUser {
    * membership lookups.
    *   - max_project_role: highest project Role ordinal across memberships (null
    *     if the user belongs to no projects).
-   *   - workspace_role: WorkspaceRole ordinal (null if no workspace membership).
+   *   - workspace_role: effective WorkspaceRole ordinal — an explicit membership
+   *     if present, else the implicit role every authenticated user holds (OWNER
+   *     for a superuser bootstrapping a fresh install, else MEMBER); null only for
+   *     a deactivated membership.
    *   - can_access_admin_settings: Admin+ in any project OR Admin+ at the
-   *     workspace — gates the settings shell admin scopes and the Signal-only
-   *     notification default.
+   *     workspace (the implicit superuser OWNER counts) — gates the settings shell
+   *     admin scopes and the Signal-only notification default.
    */
   max_project_role: number | null;
   workspace_role: number | null;

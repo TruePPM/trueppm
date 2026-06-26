@@ -186,10 +186,14 @@ def test_role_signal_contributor_cannot_access_admin_settings(db: object) -> Non
     user = User.objects.create_user(username="priya", password="pw")
     ProjectMembership.objects.create(project=proj, user=user, role=Role.MEMBER)
 
+    from trueppm_api.apps.workspace.models import WorkspaceRole
+
     resp = _make_client(user).get(URL)
     assert resp.status_code == 200
     assert resp.data["max_project_role"] == Role.MEMBER
-    assert resp.data["workspace_role"] is None
+    # Every authenticated user is the implicit workspace MEMBER (ADR-0087 §6) —
+    # MEMBER < ADMIN, so this stays a contributor.
+    assert resp.data["workspace_role"] == WorkspaceRole.MEMBER
     assert resp.data["can_access_admin_settings"] is False
 
 
@@ -214,8 +218,61 @@ def test_role_signal_project_admin_can_access_admin_settings(db: object) -> None
 @pytest.mark.django_db
 def test_role_signal_no_memberships(db: object) -> None:
     """A user with no project or workspace membership is a contributor by default."""
+    from trueppm_api.apps.workspace.models import WorkspaceRole
+
     user = User.objects.create_user(username="loner", password="pw")
     resp = _make_client(user).get(URL)
     assert resp.data["max_project_role"] is None
+    # Implicit MEMBER (every authenticated user is a workspace member), not null.
+    assert resp.data["workspace_role"] == WorkspaceRole.MEMBER
+    assert resp.data["can_access_admin_settings"] is False
+
+
+@pytest.mark.django_db
+def test_role_signal_superuser_bootstraps_as_owner(db: object) -> None:
+    """A Django superuser with no explicit membership is the implicit workspace OWNER.
+
+    Regression for the /auth/me shadow-copy bug: workspace RBAC
+    (permissions._workspace_membership_role, ADR-0087 §6) grants a superuser
+    implicit OWNER so the first admin can manage a fresh install, but MeSerializer
+    used to ignore that bootstrap and report can_access_admin_settings=false —
+    which made the web Sidebar route Settings to /me/settings/notifications and
+    RequireAdminSettings bounce the superuser off /settings even though the server
+    let them write workspace settings.
+    """
+    from trueppm_api.apps.workspace.models import WorkspaceRole
+
+    user = User.objects.create_superuser(username="root", password="pw")
+    resp = _make_client(user).get(URL)
+    assert resp.status_code == 200
+    assert resp.data["max_project_role"] is None
+    assert resp.data["workspace_role"] == WorkspaceRole.OWNER
+    assert resp.data["can_access_admin_settings"] is True
+
+
+@pytest.mark.django_db
+def test_role_signal_deactivated_workspace_membership_has_no_access(db: object) -> None:
+    """A deactivated explicit membership resolves to no workspace role (ADR-0087 §6).
+
+    The status gate must win over the row's stored role so /auth/me cannot keep
+    advertising admin access to a member whose account workspace RBAC has revoked.
+    """
+    from trueppm_api.apps.workspace.models import (
+        MemberStatus,
+        Workspace,
+        WorkspaceMembership,
+        WorkspaceRole,
+    )
+
+    ws = Workspace.objects.create(name="Acme")
+    user = User.objects.create_user(username="ex_admin", password="pw")
+    WorkspaceMembership.objects.create(
+        workspace=ws,
+        user=user,
+        role=WorkspaceRole.ADMIN,
+        status=MemberStatus.DEACTIVATED,
+    )
+    resp = _make_client(user).get(URL)
+    assert resp.status_code == 200
     assert resp.data["workspace_role"] is None
     assert resp.data["can_access_admin_settings"] is False
