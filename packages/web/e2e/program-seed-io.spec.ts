@@ -120,7 +120,7 @@ test.describe('Program JSON import', () => {
       r.fulfill({
         status: 400,
         contentType: 'application/json',
-        body: pj({ errors: ['$.program.name: required and missing'] }),
+        body: pj({ detail: ['$.program.name: required and missing'] }),
       }),
     );
     await page.goto('/programs');
