@@ -400,7 +400,7 @@ export function SystemHealthOverviewPage() {
           <button
             type="button"
             onClick={() => void refetch()}
-            className="px-3 py-1.5 rounded-control border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track"
+            className="px-3 py-1.5 rounded-control border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >
             Retry
           </button>
@@ -425,7 +425,7 @@ export function SystemHealthOverviewPage() {
               type="button"
               onClick={() => void refetch()}
               disabled={isFetching}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-control border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-control border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:opacity-60"
             >
               <RefreshIcon spinning={isFetching} />
               {isFetching ? 'Refreshing…' : 'Force refresh'}
@@ -434,7 +434,7 @@ export function SystemHealthOverviewPage() {
               href={docsUrl('administration/system-health')}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-control border border-neutral-border text-[13px] font-medium text-neutral-text-secondary hover:text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-control border border-neutral-border text-[13px] font-medium text-neutral-text-secondary hover:text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
               Open runbook
               <ExternalLinkIcon />
@@ -605,7 +605,7 @@ export function SystemHealthOverviewPage() {
 
               <Link
                 to="/settings/health/dead-letters"
-                className="inline-flex items-center gap-1 text-[12px] font-semibold text-brand-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track rounded-control"
+                className="inline-flex items-center gap-1 text-[12px] font-semibold text-brand-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-control"
               >
                 Open inspector →
               </Link>
@@ -635,7 +635,7 @@ export function SystemHealthOverviewPage() {
               ))}
               <Link
                 to="/settings/health/retention"
-                className="mt-3 inline-flex items-center gap-1 text-[12px] font-semibold text-brand-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track rounded-control"
+                className="mt-3 inline-flex items-center gap-1 text-[12px] font-semibold text-brand-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-control"
               >
                 Manage retention →
               </Link>

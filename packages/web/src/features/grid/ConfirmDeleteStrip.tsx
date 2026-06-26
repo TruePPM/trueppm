@@ -41,7 +41,7 @@ export function ConfirmDeleteStrip({ count, isDeleting, onConfirm, onCancel }: C
         onClick={onConfirm}
         disabled={isDeleting}
         className="flex-shrink-0 h-7 px-3 rounded text-xs font-medium
-          bg-semantic-critical/20 border border-semantic-critical/50 text-semantic-critical
+          bg-semantic-critical-bg border border-semantic-critical/50 text-semantic-critical
           disabled:opacity-50
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
           focus-visible:ring-offset-1"

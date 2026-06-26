@@ -126,6 +126,7 @@ from trueppm_api.apps.projects.serializers import (
     ForecastSnapshotSerializer,
     GuardrailBlockedError,
     InboundTaskSyncPayloadSerializer,
+    InboundTaskSyncResultSerializer,
     MeWorkActiveSprintSerializer,
     MeWorkTaskSerializer,
     MilestoneListItemSerializer,
@@ -9784,6 +9785,18 @@ class TaskSyncView(IdempotencyMixin, APIView):
     permission_classes = [IsAuthenticated, IsTokenForProject]
     throttle_classes = [TaskSyncThrottle]
 
+    @extend_schema(
+        summary="Push an external task into a project (inbound task-sync)",
+        request=InboundTaskSyncPayloadSerializer,
+        # The endpoint returns 201 on first push (task created) and 200 on an
+        # idempotent re-push (existing task updated). Declaring both lets an
+        # integrator distinguish first-seen from update by status code, not only
+        # the `created` body flag (#1329).
+        responses={
+            200: InboundTaskSyncResultSerializer,
+            201: InboundTaskSyncResultSerializer,
+        },
+    )
     def post(self, request: Request, pk: str) -> Response:
         # request.auth is the ApiToken; request.user is its creator.
         # IsTokenForProject in permission_classes has already verified that the

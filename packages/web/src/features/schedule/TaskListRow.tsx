@@ -577,7 +577,7 @@ function TaskListRowInner({
         // chain recomputes show as flicker.
         'motion-safe:transition-opacity motion-safe:duration-150 motion-safe:ease-out',
         isEditing || anyCellInEdit ? 'cursor-text' : 'cursor-pointer',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary dark:focus-visible:ring-semantic-on-track',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary',
         (buildMode ? isBuildSelected : isSelected) && !(isEditing || anyCellInEdit)
           ? 'bg-brand-primary/10 border-l-2 border-brand-primary'
           : 'hover:bg-white/5',
@@ -728,7 +728,7 @@ function TaskListRowInner({
             aria-label={isExpanded ? `Collapse ${task.name}` : `Expand ${task.name}`}
             className="shrink-0 w-4 h-4 flex items-center justify-center mr-0.5
               text-neutral-text-secondary hover:text-neutral-text-primary
-              focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand-primary dark:focus-visible:ring-semantic-on-track rounded-control"
+              focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand-primary rounded-control"
           >
             <svg
               width="8"
@@ -938,7 +938,7 @@ function TaskListRowInner({
             isSelected
               ? 'opacity-100'
               : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
-            'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand-primary dark:focus-visible:ring-semantic-on-track',
+            'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand-primary',
           ].join(' ')}
         >
           {/* Horizontal ellipsis */}

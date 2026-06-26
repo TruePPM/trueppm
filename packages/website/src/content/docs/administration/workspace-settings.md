@@ -64,10 +64,14 @@ Schedule timeline a fiscal year that starts in April shows Q1 = Apr–Jun, label
 
 ### Workspace logo
 
+:::note[Ships in 0.3 (Underway)]
+The Workspace logo control is part of the 0.3 milestone and is not yet in a
+tagged build — see the [roadmap](/overview/roadmap/).
+:::
+
 The **Workspace logo** control will let an Owner or Admin upload a square logo
 that surfaces in the top bar beside the workspace name. When no logo is set, the
-top bar falls back to a letter-mark derived from the workspace name. This ships
-in 0.3.
+top bar falls back to a letter-mark derived from the workspace name.
 
 - **Formats:** PNG or WebP only. SVG is rejected — an SVG can carry embedded
   script, so accepting one would open a stored-XSS vector.

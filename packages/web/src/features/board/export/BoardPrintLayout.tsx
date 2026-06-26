@@ -37,11 +37,11 @@ function PrintCard({ card }: { card: BoardPrintCard }) {
         )}
         <span className="text-[11px] leading-snug text-neutral-text-primary">{card.name}</span>
       </div>
-      <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-neutral-text-secondary">
+      <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-neutral-text-secondary">
         {card.shortId && <span className="tppm-mono">{card.shortId}</span>}
         {card.assigneeInitials && (
           <span className="inline-flex items-center gap-1">
-            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-neutral-surface-sunken text-[9px] font-medium text-neutral-text-secondary">
+            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-neutral-surface-sunken text-xs font-medium text-neutral-text-secondary">
               {card.assigneeInitials}
             </span>
           </span>
@@ -128,7 +128,7 @@ export const BoardPrintLayout = forwardRef<HTMLDivElement, BoardPrintLayoutProps
         ))}
 
         {/* Footer band */}
-        <footer className="mt-6 border-t border-neutral-border pt-2 text-[10px] text-neutral-text-secondary">
+        <footer className="mt-6 border-t border-neutral-border pt-2 text-xs text-neutral-text-secondary">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span>
               {data.projectName} · Generated {data.footer.generatedAtLabel}

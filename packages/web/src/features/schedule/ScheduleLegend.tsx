@@ -50,7 +50,7 @@ export function ScheduleLegend({ taskListWidth }: ScheduleLegendProps) {
                    focus-visible:outline-none focus-visible:ring-2
                    focus-visible:ring-brand-primary focus-visible:ring-offset-1
                    focus-visible:rounded-control
-                   dark:focus-visible:ring-semantic-on-track"
+                  "
       >
         <span
           aria-hidden="true"

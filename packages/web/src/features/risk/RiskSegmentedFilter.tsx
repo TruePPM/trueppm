@@ -83,7 +83,7 @@ export function RiskSegmentedFilter({
               'inline-flex min-h-[44px] items-center justify-center rounded-chip px-3 md:min-h-[32px]',
               'text-xs font-medium transition-colors',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary',
-              'dark:focus-visible:ring-semantic-on-track focus-visible:ring-offset-1',
+              'focus-visible:ring-offset-1',
               active
                 ? 'bg-brand-primary text-neutral-text-inverse'
                 : 'text-neutral-text-secondary hover:bg-neutral-surface-raised hover:text-neutral-text-primary',

@@ -76,7 +76,7 @@ export function ImportProgramButton({ variant = 'header' }: ImportProgramButtonP
       {errors.length > 0 && (
         <div
           role="alert"
-          className="mt-3 max-w-md rounded-card border border-semantic-critical/40 bg-semantic-critical/5 p-3 text-left"
+          className="mt-3 max-w-md rounded-card border border-semantic-critical/40 bg-semantic-critical-bg p-3 text-left"
         >
           <p className="text-sm font-medium text-semantic-critical">Could not import this file:</p>
           <ul className="mt-1 list-disc pl-5 text-xs text-neutral-text-secondary">

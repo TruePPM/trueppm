@@ -8,7 +8,7 @@ from typing import Any
 from django.conf import settings
 from django.db import IntegrityError, connection, transaction
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import status
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -103,6 +103,25 @@ class ProjectSyncView(IdempotencyMixin, APIView):
     idempotency_exempt = True
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        summary="Pull the offline sync delta for a project",
+        parameters=[
+            OpenApiParameter(
+                name="since",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                default=0,
+                description=(
+                    "WatermelonDB high-water mark. Returns only rows whose "
+                    "`server_version` is strictly greater than this value. Omit "
+                    "(or pass `0`) for a full initial sync; passing the previous "
+                    "response's `timestamp` fetches just the delta since then. "
+                    "Omitting it silently triggers a full re-sync."
+                ),
+            ),
+        ],
+    )
     def get(self, request: Request, pk: str) -> Response:
         # Validate `since` parameter.
         since_raw = request.query_params.get("since", "0")

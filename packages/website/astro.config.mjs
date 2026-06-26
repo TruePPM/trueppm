@@ -120,6 +120,7 @@ export default defineConfig({
               collapsed: false,
               items: [
                 { slug: "features/unified-data-model" },
+                { slug: "features/interface" },
                 { slug: "features/task-classification" },
                 { slug: "features/methodology-preset" },
                 { slug: "features/view-focus" },

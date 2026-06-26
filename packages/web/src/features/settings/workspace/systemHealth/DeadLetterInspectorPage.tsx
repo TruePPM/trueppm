@@ -184,7 +184,7 @@ function TaskListRow({
       type="button"
       onClick={onClick}
       className={[
-        'w-full text-left flex items-center gap-2.5 px-3.5 py-2.5 border-b border-neutral-border/55 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary dark:focus-visible:ring-semantic-on-track',
+        'w-full text-left flex items-center gap-2.5 px-3.5 py-2.5 border-b border-neutral-border/55 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary',
         selected ? 'bg-brand-primary/8' : 'hover:bg-neutral-surface-raised',
       ].join(' ')}
       aria-current={selected ? 'true' : undefined}
@@ -328,7 +328,7 @@ function DetailPane({ id }: { id: string }) {
           <p className="text-[12px] text-neutral-text-primary">{data.exception_message}</p>
           {data.traceback && (
             <details className="mt-2">
-              <summary className="cursor-pointer text-[12px] text-brand-primary font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track rounded-control">
+              <summary className="cursor-pointer text-[12px] text-brand-primary font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-control">
                 Traceback
               </summary>
               <pre className="mt-2 p-3 rounded-card border border-neutral-border bg-neutral-surface-sunken text-[11px] font-mono text-neutral-text-secondary overflow-auto max-h-[40vh] whitespace-pre-wrap break-all">
@@ -361,7 +361,7 @@ function DetailPane({ id }: { id: string }) {
 // ---------------------------------------------------------------------------
 
 const SELECT_CLASS =
-  'h-7 pl-2.5 pr-7 rounded-control border border-neutral-border text-[12px] text-neutral-text-secondary hover:text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track bg-neutral-surface-raised appearance-none bg-no-repeat bg-[right_0.45rem_center]';
+  'h-7 pl-2.5 pr-7 rounded-control border border-neutral-border text-[12px] text-neutral-text-secondary hover:text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 bg-neutral-surface-raised appearance-none bg-no-repeat bg-[right_0.45rem_center]';
 
 const SELECT_STYLE = {
   backgroundImage:
@@ -436,7 +436,7 @@ export function DeadLetterInspectorPage() {
       <div className="px-6 pt-4 pb-2 flex items-center gap-1.5 shrink-0">
         <Link
           to="/settings/health"
-          className="inline-flex items-center gap-1 text-[13px] text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track rounded-control"
+          className="inline-flex items-center gap-1 text-[13px] text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-control"
         >
           <ChevronLeftIcon />
           System health
@@ -469,7 +469,7 @@ export function DeadLetterInspectorPage() {
         <label htmlFor={taskNameInputId} className="sr-only">
           Search by task name
         </label>
-        <div className="flex items-center gap-2 h-7 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] w-[220px] focus-within:ring-2 focus-within:ring-brand-primary dark:focus-within:ring-semantic-on-track focus-within:border-brand-primary">
+        <div className="flex items-center gap-2 h-7 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] w-[220px] focus-within:ring-2 focus-within:ring-brand-primary focus-within:border-brand-primary">
           <svg
             width="11"
             height="11"
@@ -563,7 +563,7 @@ export function DeadLetterInspectorPage() {
               <button
                 type="button"
                 onClick={handleClearSelection}
-                className="inline-flex items-center gap-1 text-[13px] text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track rounded-control"
+                className="inline-flex items-center gap-1 text-[13px] text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-control"
               >
                 <ChevronLeftIcon />
                 Back to list
