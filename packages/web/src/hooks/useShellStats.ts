@@ -24,7 +24,7 @@ function toShellStats(r: StatusSummaryResponse): ShellStats {
   return {
     taskCount: r.task_count,
     // `critical_path_count` was dropped from the API as an exact alias of
-    // `critical_count` (#1325); both ShellStats fields now derive from the one
+    // `critical_count` (issue 1325); both ShellStats fields now derive from the one
     // surviving server field, which carried the identical value.
     criticalPathCount: r.critical_count,
     monteCarlop80: r.monte_carlo_p80,

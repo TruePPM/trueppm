@@ -32,7 +32,7 @@ export function useSamples(): UseQueryResult<SampleInfo[], Error> {
  * Extract the server's line-level validation report from a failed import.
  *
  * The import endpoint (#615) returns the standard ``{ "detail": ... }`` envelope
- * (#1325) with a 400 when a seed fails schema or referential validation. For the
+ * (issue 1325) with a 400 when a seed fails schema or referential validation. For the
  * line-level report `detail` is an array of messages; the single-message failures
  * (file too large, not JSON) use a plain string. Normalize both to a string list
  * so the caller can render them verbatim and the user can fix the file.

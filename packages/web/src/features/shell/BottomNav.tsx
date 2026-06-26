@@ -28,7 +28,7 @@ interface NavItem {
 // PM + Scrum-Master split view that leads the TRACK group, ADR-0180), then Board
 // (execution). Today is the 0.3 headline view and must be reachable on mobile —
 // a mobile-first product cannot strand its headline view behind the desktop tabs
-// only (issue #1324). Today is visible for every methodology (methodologyTabs.ts).
+// only (issue 1324). Today is visible for every methodology (methodologyTabs.ts).
 // Risks omitted at mobile breakpoint — infrequent access; reachable via desktop tabs.
 // Grid replaces the previous Table entry (issue #334, ADR-0053).
 const NAV_ITEMS: NavItem[] = [

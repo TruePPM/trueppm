@@ -317,12 +317,12 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         // are the cross-project pending-edge resolutions (ADR-0120): accepting
         // binds the external edge, rejecting soft-deletes it — both change the
         // dependency list and the external edges drawn on the schedule, so peers
-        // need the same refetch (#1323). Without a handler they stayed stale until
+        // need the same refetch (issue 1323). Without a handler they stayed stale until
         // the next fallback poll. The follow-up cpm_complete event refreshes
         // computed dates; the edge itself becomes visible on the next coalesced flush.
         scheduleInvalidate('dependencies', 'tasks');
       } else if (event_type === 'task_duration_changed') {
-        // Intentional no-op (#1323): the duration delta is already delivered by the
+        // Intentional no-op (issue 1323): the duration delta is already delivered by the
         // task_updated event broadcast in the same commit batch, which refreshes the
         // tasks cache *with* ADR-0152 self-echo suppression. Re-invalidating tasks
         // here — the event carries no actor_id to suppress on — would clobber the
@@ -332,7 +332,7 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
       } else if (event_type === 'slip_conflict_acknowledged') {
         // A downstream scope manager acknowledged a cross-project slip conflict
         // (ADR-0120 D4). Drop the stale conflict from any mounted conflict view so
-        // the badge clears live (#1323). Keyed to the `/slip-conflicts/` endpoint;
+        // the badge clears live (issue 1323). Keyed to the `/slip-conflicts/` endpoint;
         // a no-op until that surface mounts, then live from day one.
         void queryClient.invalidateQueries({ queryKey: ['slip-conflicts'] });
       } else if (
@@ -456,7 +456,7 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
 
       // --- Task suggestion lifecycle (retro promotion + decline/revoke) ---
       // A promoted action item creates a TaskSuggestedAssignee; a decline or revoke
-      // resolves it (#1323). Either way refresh the task feed and the suggested
+      // resolves it (issue 1323). Either way refresh the task feed and the suggested
       // user's My Work queue (same keys as useSuggestionAction) so the suggestion
       // surfaces — or clears — for connected peers without a manual refetch. The
       // decline/revoke payloads carry no actor identity, matching the backend's
