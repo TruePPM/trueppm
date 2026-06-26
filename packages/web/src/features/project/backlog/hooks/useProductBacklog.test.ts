@@ -26,6 +26,9 @@ import {
   useSplitStory,
   useReorderBacklog,
   useQuickAddStory,
+  useCreateEpic,
+  useRenameEpic,
+  useDeleteEpic,
 } from './useProductBacklog';
 
 const {
@@ -35,6 +38,9 @@ const {
   postSplitStoryMock,
   postReorderBacklogMock,
   createBacklogStoryMock,
+  createEpicMock,
+  renameEpicMock,
+  deleteEpicMock,
 } = vi.hoisted(() => ({
   fetchProductBacklogMock: vi.fn(),
   postAutoRankMock: vi.fn(),
@@ -42,6 +48,9 @@ const {
   postSplitStoryMock: vi.fn(),
   postReorderBacklogMock: vi.fn(),
   createBacklogStoryMock: vi.fn(),
+  createEpicMock: vi.fn(),
+  renameEpicMock: vi.fn(),
+  deleteEpicMock: vi.fn(),
 }));
 
 vi.mock('../api', () => ({
@@ -51,6 +60,9 @@ vi.mock('../api', () => ({
   postSplitStory: postSplitStoryMock,
   postReorderBacklog: postReorderBacklogMock,
   createBacklogStory: createBacklogStoryMock,
+  createEpic: createEpicMock,
+  renameEpic: renameEpicMock,
+  deleteEpic: deleteEpicMock,
 }));
 
 function makeBacklog(overrides: Partial<ProductBacklog> = {}): ProductBacklog {
@@ -100,6 +112,9 @@ beforeEach(() => {
   postSplitStoryMock.mockResolvedValue(undefined);
   postReorderBacklogMock.mockResolvedValue({ updated: 0 });
   createBacklogStoryMock.mockResolvedValue(undefined);
+  createEpicMock.mockResolvedValue(undefined);
+  renameEpicMock.mockResolvedValue(undefined);
+  deleteEpicMock.mockResolvedValue(undefined);
 });
 
 describe('useProductBacklog (read)', () => {
@@ -175,6 +190,56 @@ describe('useQuickAddStory', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(createBacklogStoryMock).toHaveBeenCalledWith('p1', 'New idea');
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: productBacklogKeys.root('p1') });
+  });
+});
+
+describe('epic CRUD (#1339)', () => {
+  it('useCreateEpic creates an epic and invalidates the backlog', async () => {
+    const qc = makeQC();
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useCreateEpic('p1'), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({ name: 'Platform Core' });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(createEpicMock).toHaveBeenCalledWith('p1', 'Platform Core');
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: productBacklogKeys.root('p1') });
+  });
+
+  it('useCreateEpic surfaces the error (e.g. a 403) and does NOT invalidate', async () => {
+    createEpicMock.mockRejectedValueOnce({ response: { status: 403 } });
+    const qc = makeQC();
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useCreateEpic('p1'), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({ name: 'No perms' });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(invalidateSpy).not.toHaveBeenCalled();
+  });
+
+  it('useRenameEpic patches the name and invalidates the backlog', async () => {
+    const qc = makeQC();
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useRenameEpic('p1'), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({ epicId: 'e1', name: 'Platform Core & SSO' });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(renameEpicMock).toHaveBeenCalledWith('e1', 'Platform Core & SSO');
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: productBacklogKeys.root('p1') });
+  });
+
+  it('useDeleteEpic deletes the epic and invalidates the backlog', async () => {
+    const qc = makeQC();
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useDeleteEpic('p1'), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({ epicId: 'e1' });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(deleteEpicMock).toHaveBeenCalledWith('e1');
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: productBacklogKeys.root('p1') });
   });
 });

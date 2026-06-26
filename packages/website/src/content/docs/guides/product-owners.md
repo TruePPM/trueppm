@@ -104,7 +104,7 @@ This is your one-question filter — *does it tell me when the feature ships, in
 
 ## On the roadmap (0.3)
 
-- **Epic task type** — dedicated epic view with child story hierarchy, epic-level burn chart, release-scoped backlog
+- **Epic task type** — dedicated epic view with child story hierarchy, epic-level burn chart, release-scoped backlog, plus create / rename / delete of epics directly on the product backlog (deleting an epic moves its stories to Ungrouped rather than removing them)
 - **Unified sprint planning** — interactive sprint planning session with capacity vs. commitment sidebar
 
 **Further out:** a **read-only MCP server** lands in 0.4 — point an AI assistant at your instance to query the backlog, forecast, and sprint status (computed server-side, self-hosted). PO write workflows via assistant (backlog refinement, story sizing suggestions) follow in 0.6.

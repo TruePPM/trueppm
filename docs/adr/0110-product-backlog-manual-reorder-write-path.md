@@ -115,6 +115,65 @@ ADR-0105's `product_backlog` GET serializes each story via `TaskSerializer` with
 `prioritization_model` in context, so the computed `score` is already on every row. Surfacing
 the scoring column is a **frontend render** change only — no backend work.
 
+## Addendum — Epic CRUD exposure on the grooming view (frontend-only)
+
+The grooming view (ADR-0105 DA-10) already renders epics as read-only group headers and lets
+a story be assigned to an epic from the story drawer. This addendum closes the remaining gap:
+**create, rename, and delete epics directly on the Product Backlog page.** No backend change —
+all three reuse the same `TaskViewSet` endpoints, exactly as §7 (quick-add) and §8 (scoring)
+reuse existing surface. Assigning existing stories to existing epics is unchanged.
+
+### A. No new endpoints — reuse `TaskViewSet`
+- **Create** = `POST /tasks/` `{type:"epic", project, name, status:"BACKLOG",
+  parent_epic:null, sprint:null}` (status mirrors the quick-add story convention and keeps the
+  epic in the backlog domain; epics are excluded from CPM and committed aggregates regardless).
+  Gated server-side by `_validate_product_backlog`
+  (Admin+/role≥300 **or** Product Owner facet). A childless epic still appears as a group:
+  `product_backlog` lists **all** `type=EPIC` rows (`product_backlog` GET has no status filter
+  on the epic query) and emits an `EpicGroup` with empty `stories` and a zero `rollup`, so a
+  freshly-created epic surfaces as an empty group header on the next fetch.
+- **Rename** = `PATCH /tasks/{id}/ {name}`. `name` is a normal task edit (not gated by
+  `_validate_product_backlog`); the server permits Admin+/PO-facet/assignee.
+- **Delete** = `DELETE /tasks/{id}/` (`IsProjectMemberWriteOrOwn`: Admin+/Owner or own-task —
+  **the PO facet is deliberately excluded for DELETE**). `parent_epic` is
+  `on_delete=SET_NULL`, so deleting an epic **auto-ungroups its child stories** (they survive
+  and re-appear under Ungrouped) — never a cascade delete.
+
+### B. Per-epic authority is already on the wire — no serializer change
+`product_backlog` serializes each epic through `TaskSerializer` (`views.py` `product_backlog`
+→ `ser(e)`), which carries the per-task `can_edit`/`can_delete` `SerializerMethodField`s
+(ADR-0133) computed by `can_user_edit_task(request, obj, method=…)` — the **same** predicate
+the permission classes enforce, so the client gate cannot drift from the server's. The web
+`mapEpicGroup` already maps the epic through `mapTask`, so `epic.canEdit` / `epic.canDelete`
+reach `EpicGroup.epic` today. **The PO-can't-delete asymmetry is therefore already expressed
+per-epic on the payload**: a PO sees `canEdit:true, canDelete:false`.
+
+### C. Gating — the delete affordance derives ONLY from `epic.canDelete`
+- **Create**: client `canManageBacklog` (role≥ADMIN or PO facet, the existing
+  `useCanManageBacklog`), mirroring `_validate_product_backlog`. Hidden when false (conditional
+  affordance — never a disabled control, per the web design rules).
+- **Rename**: `epic.canEdit` (authoritative per-epic verdict).
+- **Delete**: `epic.canDelete` **only** — never `canManageBacklog`. This is the one trap: a PO
+  has `canManageBacklog === true` but `canDelete === false`, so gating delete on
+  `canManageBacklog` would render a button that 403s. Deriving it from `epic.canDelete` keeps
+  the PO's Rename visible while hiding Delete.
+
+### D. VoC must-have — delete confirmation states the ungroup outcome
+The delete confirmation reads "This epic has {storyCount} stories; they move to Ungrouped, not
+deleted." `storyCount` is already in `EpicGroup.rollup.storyCount` — no extra fetch.
+
+### E. Hooks (add to `useProductBacklog.ts`, all invalidating the one grooming query)
+`useCreateEpic` (POST), `useRenameEpic` (PATCH `{name}`), `useDeleteEpic` (DELETE), each
+`onSuccess` → `invalidateQueries(productBacklogKeys.root(projectId))` = `['product-backlog',
+projectId]`. The refetch re-derives epic groups and moves a deleted epic's orphaned stories to
+Ungrouped automatically. `TaskViewSet` already broadcasts `task_created/updated/deleted`.
+
+### F. Scope guards (unchanged from the parent ADR)
+Out of scope per VoC: bulk re-assign stories to a new epic, epic fields beyond `name`,
+drag-reorder of epics, cascade delete, color/templates. Epic progress on the header already
+exists.
+
+
 ## Alternatives Considered
 | Option | Pros | Cons |
 |--------|------|------|

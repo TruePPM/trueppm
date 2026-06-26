@@ -2,7 +2,14 @@
    mocked method for assertions; it is never invoked unbound. Mirrors useWorkshopSession.test.ts. */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/api/client';
-import { createBacklogStory, fromApiProductBacklog, postReorderBacklog } from './api';
+import {
+  createBacklogStory,
+  createEpic,
+  deleteEpic,
+  fromApiProductBacklog,
+  postReorderBacklog,
+  renameEpic,
+} from './api';
 
 vi.mock('@/api/client');
 
@@ -138,5 +145,38 @@ describe('createBacklogStory', () => {
       status: 'BACKLOG',
       type: 'story',
     });
+  });
+});
+
+describe('epic CRUD (#1339)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('createEpic posts a task of type epic', async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({ data: {} } as never);
+    await createEpic('proj-1', 'Platform Core');
+    expect(apiClient.post).toHaveBeenCalledWith('/tasks/', {
+      project: 'proj-1',
+      name: 'Platform Core',
+      status: 'BACKLOG',
+      type: 'epic',
+    });
+  });
+
+  it('renameEpic patches only the name', async () => {
+    vi.mocked(apiClient.patch).mockResolvedValue({ data: {} } as never);
+    await renameEpic('EP1', 'Platform Core & SSO');
+    expect(apiClient.patch).toHaveBeenCalledWith('/tasks/EP1/', { name: 'Platform Core & SSO' });
+  });
+
+  it('deleteEpic deletes the task (children reparent to Ungrouped server-side)', async () => {
+    vi.mocked(apiClient.delete).mockResolvedValue({ data: {} } as never);
+    await deleteEpic('EP1');
+    expect(apiClient.delete).toHaveBeenCalledWith('/tasks/EP1/');
+  });
+
+  it('createEpic propagates a 403 to the caller', async () => {
+    const err = Object.assign(new Error('forbidden'), { response: { status: 403 } });
+    vi.mocked(apiClient.post).mockRejectedValue(err);
+    await expect(createEpic('proj-1', 'No perms')).rejects.toBe(err);
   });
 });

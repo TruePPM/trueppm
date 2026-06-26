@@ -48,6 +48,29 @@ an epic can gather stories that sit anywhere in the schedule hierarchy. Epics ar
 **excluded from the schedule (CPM) and from capacity math**; an epic's dates and points
 are rolled up from its child stories rather than scheduled in their own right.
 
+## Managing epics
+
+The grooming view is also where you will shape the epic structure itself — not just the
+stories underneath it.
+
+- **Add an epic** — an **+ Add epic** button in the header will open an inline input; type
+  a name and press Enter to create the epic. It will appear as its own group immediately,
+  even before any story is assigned to it, so you can lay out the epics first and fill them
+  in later.
+- **Rename an epic** — each epic group header will carry an actions (**⋯**) menu with a
+  **Rename** action that edits the name in place.
+- **Delete an epic** — the same menu will offer **Delete**. Deleting an epic **never deletes
+  its stories**: they move to the **Ungrouped** group instead, and the confirmation will
+  state exactly how many stories are affected before you commit.
+
+Assigning an *existing* story to an epic stays on the story drawer — set or change the
+story's parent epic there. This section is for creating and reorganizing the epics
+themselves.
+
+Creating and renaming epics will be open to the **Product Owner** facet (or an Admin and
+above); **deleting** an epic will require **Admin and above** — a Product Owner can create
+and rename epics but not delete them. See [Who can do what](#who-can-do-what).
+
 ## Acceptance criteria
 
 Each story will have first-class, tickable **acceptance criteria** (with optional
@@ -113,9 +136,12 @@ no required fields. Stories land at the bottom of the backlog as a Story, ready 
 | View the backlog | Any project member |
 | Draft / tick acceptance criteria | Team Member or above |
 | Set types, link epics, score, auto-rank, split stories | Project Manager (Admin) or above |
+| Create or rename an epic | Product Owner facet or Admin and above |
+| Delete an epic | Admin and above (a Product Owner can create and rename, but not delete) |
 
-Backlog management is gated to Project Manager and above today; a dedicated **Product
-Owner** role will arrive in a later milestone and slot into the same permission seam. See
+Backlog management is gated to Project Manager and above today; the dedicated **Product
+Owner** facet will arrive in 0.3 and slot into the same permission seam — it opens epic
+create and rename, and story grooming, without granting the power to delete. See
 [RBAC](/administration/rbac/) for the role model.
 
 ## Related
