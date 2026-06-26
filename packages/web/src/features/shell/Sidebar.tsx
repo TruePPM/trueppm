@@ -319,12 +319,11 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
 
           {/* Programs — the group header is a NavLink to the /programs gateway,
               not a dead <h2> label like Personal/Organization: /programs is a
-              real index page, and it is where the "Load demo data" on-ramp
-              (#1054) lives. The v2 rail rewrite dropped this path; #980 had
-              restored it once before on the prior sidebar (#1334 regression).
-              The <h2> stays for heading semantics (rule 36); the inner link
-              carries the rule-5 44px touch target and rule-4 focus ring. Below
-              is the expandable per-program tree. */}
+              real index page, and it is the only in-app route to the "Load demo
+              data" on-ramp that lives on it. The <h2> stays for heading
+              semantics (rule 36); the inner link carries the rule-5 44px touch
+              target and rule-4 focus ring. Below is the expandable per-program
+              tree. */}
           {showFull && (
             <div className="flex items-center justify-between pr-1">
               <h2 className={`flex-1 ${GROUP_LABEL_TEXT}`}>
