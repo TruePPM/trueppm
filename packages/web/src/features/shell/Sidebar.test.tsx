@@ -90,6 +90,23 @@ describe('Sidebar (v2 left rail)', () => {
     expect(screen.getByRole('button', { name: /Standalone Site, health unknown, 4 open tasks/ })).toBeInTheDocument();
   });
 
+  it('links the Programs section header to the /programs gateway (#1334 regression)', () => {
+    renderRail();
+    // /programs is a real index page (the demo-data on-ramp lives there), so
+    // unlike Personal/Organization the header is a link, not a dead label.
+    const gateway = screen.getByRole('link', { name: 'Programs' });
+    expect(gateway).toHaveAttribute('href', '/programs');
+    // It is still a heading so the rail structure / smoke a11y assertion holds.
+    expect(screen.getByRole('heading', { name: 'Programs' })).toBeInTheDocument();
+  });
+
+  it('closes the drawer when the Programs gateway link is followed', () => {
+    const onClose = vi.fn();
+    renderRail({ isDrawer: true, onClose });
+    fireEvent.click(screen.getByRole('link', { name: 'Programs' }));
+    expect(onClose).toHaveBeenCalled();
+  });
+
   it('pins a project into the Shortcuts group', () => {
     renderRail();
     fireEvent.click(screen.getByRole('button', { name: /Expand Artemis/ }));
