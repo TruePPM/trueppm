@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import type { McSensitivity, Task } from '@/types';
+import type { ForecastDiagnostic, McSensitivity, Task } from '@/types';
 
 interface Props {
   /** Duration-sensitivity tornado from the Monte Carlo result (ADR-0140). */
@@ -8,6 +8,11 @@ interface Props {
   tasks: Task[];
   /** Max rows to render (the tornado is already capped server-side). */
   limit?: number;
+  /**
+   * Why the forecast is flat (issue 1340). When provided, the empty state shows the
+   * server-computed reason instead of always blaming missing three-point estimates.
+   */
+  forecastDiagnostic?: ForecastDiagnostic;
 }
 
 /**
@@ -22,7 +27,7 @@ interface Props {
  * project, or a from-history result past the cache TTL) it renders an
  * explanatory line rather than a misleading empty chart.
  */
-export function SensitivityList({ sensitivity, tasks, limit = 6 }: Props) {
+export function SensitivityList({ sensitivity, tasks, limit = 6, forecastDiagnostic }: Props) {
   const rows = useMemo(() => {
     const byId = new Map(tasks.map((t) => [t.id, t]));
     return sensitivity
@@ -41,11 +46,22 @@ export function SensitivityList({ sensitivity, tasks, limit = 6 }: Props) {
   }, [sensitivity, tasks, limit]);
 
   if (rows.length === 0) {
+    // Empty tornado. When a flat-forecast diagnostic is present (issue 1340) the
+    // accompanying histogram already shows the actionable reason, so here we show
+    // only the neutral "nothing ranked" fact to avoid printing the same call to
+    // action twice in one view. Without a diagnostic (legacy payload), keep the
+    // original self-contained three-point-estimate prompt.
     return (
       <p className="text-xs text-neutral-text-secondary leading-snug">
-        No task moved the finish enough to rank — every task either has a fixed duration or
-        sits well off the critical path. Add three-point estimates (optimistic / most-likely /
-        pessimistic) to the tasks you are unsure about, then re-run the simulation.
+        {forecastDiagnostic ? (
+          <>No task ranked as a finish-date driver — see the forecast summary above for why.</>
+        ) : (
+          <>
+            No task moved the finish enough to rank — every task either has a fixed duration or
+            sits well off the critical path. Add three-point estimates (optimistic / most-likely /
+            pessimistic) to the tasks you are unsure about, then re-run the simulation.
+          </>
+        )}
       </p>
     );
   }

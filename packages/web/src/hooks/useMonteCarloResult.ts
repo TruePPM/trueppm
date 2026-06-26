@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import axios from 'axios';
 import { apiClient } from '@/api/client';
 import type { MonteCarloResult } from '@/types';
+import { mapForecastDiagnostic, type ForecastDiagnosticWire } from '@/lib/forecastFlatMessage';
 
 export interface UseMonteCarloResultReturn {
   data: MonteCarloResult | undefined;
@@ -39,6 +40,9 @@ interface MonteCarloLatestResponse {
   // Duration-sensitivity tornado (ADR-0140). Optional for resilience against
   // older cached payloads; empty on the from-history path (not persisted).
   sensitivity?: { task_id: string; index: number }[];
+  // Why the forecast is flat (issue 1340). Optional: absent on legacy cached payloads
+  // and on the from-history fallback (the persisted run does not store it).
+  forecast_diagnostic?: ForecastDiagnosticWire;
 }
 
 // issue 1231: the `/latest/` from-history fallback now returns the persisted
@@ -84,6 +88,7 @@ function mapResponse(api: MonteCarloLatestResponse): MonteCarloResult {
     deltaVsCpm,
     confidenceCurve: api.confidence_curve ?? [],
     sensitivity: (api.sensitivity ?? []).map((s) => ({ taskId: s.task_id, index: s.index })),
+    forecastDiagnostic: mapForecastDiagnostic(api.forecast_diagnostic),
   };
 }
 

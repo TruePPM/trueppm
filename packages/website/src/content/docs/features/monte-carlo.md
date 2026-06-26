@@ -391,3 +391,28 @@ contains every simulated finish date. A bimodal distribution — two clusters of
 simulated dates — usually signals that one or two tasks have extreme P estimates
 that dominate the tail. Investigate those tasks; they are your primary risk
 drivers.
+
+### Why is my forecast a single flat date?
+
+When `P50`, `P80`, and `P95` are identical, the simulation found no uncertainty to
+model — every run finished on the same day. This is correct when no committed task
+can vary the finish, but the cause is not always "missing estimates". The result's
+`forecast_diagnostic` field reports the reason, and the schedule view shows it in place
+of the distribution:
+
+- **Estimates awaiting approval** — in Suggest & Approve estimation mode,
+  three-point estimates do not feed the forecast until a Scheduler approves them
+  (`estimate_status = accepted`). The estimates are visible on the tasks, but the
+  forecast treats them as not-yet-trusted. Approve them to fold their range in.
+- **No estimate ranges** — tasks carry only a single duration (or a degenerate
+  range where optimistic = pessimistic). Add genuine optimistic/most-likely/
+  pessimistic estimates to the tasks you are unsure about.
+- **Agile work with no velocity history** — story-point (Scrum) tasks sample from
+  the team's completed-sprint velocity rather than a duration range. Until at least
+  one sprint has closed there is no distribution to draw from. Close a sprint and
+  re-run.
+- **Estimated work off the critical path** — your estimates vary, but the longest
+  path runs through fixed-duration work, so the variance never reaches the finish.
+  Estimate the tasks that actually drive the date (see *What's holding the date*).
+- **All work complete, or nothing committed** — finished tasks have no remaining
+  work to vary, and backlog cards are excluded from the forecast entirely.

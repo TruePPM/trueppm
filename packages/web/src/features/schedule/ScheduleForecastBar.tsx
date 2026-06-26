@@ -262,7 +262,11 @@ export function ScheduleForecastBar({
                 <p className="mb-3 text-xs text-neutral-text-secondary">
                   Sensitivity · tasks whose duration moves the finish most
                 </p>
-                <SensitivityList sensitivity={result.sensitivity} tasks={tasks} />
+                <SensitivityList
+                  sensitivity={result.sensitivity}
+                  tasks={tasks}
+                  forecastDiagnostic={result.forecastDiagnostic}
+                />
               </div>
             </div>
 

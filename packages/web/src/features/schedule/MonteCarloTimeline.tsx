@@ -1,5 +1,6 @@
 import type { MonteCarloResult } from '@/types';
 import { fmtUtcShort, fmtUtcLong } from '@/lib/formatUtcDate';
+import { forecastFlatGuidance } from '@/lib/forecastFlatMessage';
 
 interface Props {
   result: MonteCarloResult;
@@ -37,8 +38,9 @@ export function MonteCarloTimeline({ result, p80DeltaDays }: Props) {
   const { p50, p80, p95 } = result;
   const isCollapsed = p50 === p80 && p80 === p95;
 
+  // Reason-aware guidance for a flat forecast (issue 1340) — not always "missing estimates".
   const title = isCollapsed
-    ? `Every simulation finished on ${fmtUtcLong(p80)}. Add PERT estimates (optimistic / most-likely / pessimistic durations) on tasks to see a distribution.`
+    ? `Every simulation finished on ${fmtUtcLong(p80)}. ${forecastFlatGuidance(result.forecastDiagnostic)}`
     : `8 in 10 simulations finish by ${fmtUtcLong(p80)}.`;
 
   const showDelta = typeof p80DeltaDays === 'number' && p80DeltaDays > 0;
