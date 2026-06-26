@@ -32,9 +32,16 @@ three values (working days):
 | **Most Likely (M)** | Your honest expected duration under normal conditions |
 | **Pessimistic (P)** | Duration if significant problems occur — realistic tail risk, not fantasy |
 
-All three fields must be set for a task to be included in the stochastic
-simulation. A task with any of the three missing is treated as having zero
-uncertainty: its deterministic `duration` is used for every simulation run.
+All three fields must be set for a waterfall task to be sampled from its
+three-point estimate. A waterfall task with any of the three missing is treated
+as having zero duration uncertainty: its deterministic `duration` is used for
+every simulation run.
+
+**Agile (Scrum) tasks are the exception** — a task delivered as sprint work
+draws its uncertainty from team velocity rather than a three-point estimate, so
+it does not need O/M/P values set. See
+[Agile tasks: velocity-based sampling](#agile-tasks-velocity-based-sampling)
+below.
 
 **Focus your effort on critical path tasks.** Tasks with float do not drive the
 finish date; uncertainty in their durations has little effect on the output.
@@ -216,6 +223,36 @@ For the symmetric example O = 3, M = 10, P = 17, this produces `Beta(4, 4)` —
 a unimodal distribution centered at 10 days whose standard deviation in the
 scaled domain is exactly `(P − O) / 6 = 2.33 days`. The PERT approximation is
 exact for symmetric inputs.
+
+### Agile tasks: velocity-based sampling
+
+A task delivered as Scrum work — `delivery_mode = scrum` with committed
+`story_points` — has no meaningful three-point *duration* estimate; its
+uncertainty comes from how much the team completes each sprint. For these tasks
+the simulation samples **sprints-to-completion** from the team's velocity
+distribution instead of a PERT curve:
+
+1. The completed-points totals from the team's last eight closed sprints
+   (excluding any sprint flagged *exclude from velocity*) form the velocity
+   sample set.
+2. Each run bootstraps that set with replacement, accumulating points sprint by
+   sprint until the task's `story_points` are burned down.
+3. The number of sprints that took, multiplied by the team's typical sprint
+   length (converted to working days), is the task's sampled duration for that
+   run.
+
+A faster team (high-throughput draws) finishes in fewer sprints; the slow tail
+needs more — so the spread reflects real velocity variability, the dominant
+source of schedule risk on agile work. This path takes precedence over a
+three-point estimate: a Scrum task that also carries O/M/P values still samples
+from velocity, because the delivery mode is an explicit declaration that
+uncertainty comes from throughput, not a duration guess.
+
+A project with no usable velocity signal — no closed, velocity-eligible sprint
+with recorded completed points — falls back to each task's deterministic
+`duration`, exactly as a waterfall task with no estimate does. So an agile
+project with no sprint history yet still simulates (to a single deterministic
+date) rather than failing.
 
 Degenerate cases are handled explicitly:
 

@@ -399,9 +399,10 @@ def build_sched_tasks(db_tasks: list[Any], *, suggest_approve: bool) -> list[Any
     """
     from datetime import timedelta
 
+    from trueppm_scheduler.models import DeliveryMode as SchedDeliveryMode
     from trueppm_scheduler.models import Task as SchedTask
 
-    from trueppm_api.apps.projects.models import EstimateStatus
+    from trueppm_api.apps.projects.models import DeliveryMode, EstimateStatus
 
     def _pert(value: int | None, estimate_status: str | None) -> timedelta | None:
         if value is None:
@@ -437,6 +438,16 @@ def build_sched_tasks(db_tasks: list[Any], *, suggest_approve: bool) -> list[Any
             optimistic_duration=_pert(t.optimistic_duration, t.estimate_status),
             most_likely_duration=_pert(t.most_likely_duration, t.estimate_status),
             pessimistic_duration=_pert(t.pessimistic_duration, t.estimate_status),
+            # Agile-aware Monte Carlo (#411): only SCRUM tasks sample from team
+            # velocity, so map just that mode (the scheduler enum has no KANBAN /
+            # MILESTONE — those stay None == WATERFALL, deterministic/PERT, exactly
+            # as before). story_points is the velocity path's burn-down target. Both
+            # are inert for the deterministic CPM pass, which reads neither — the
+            # shared converter (ADR-0132) simply carries them for the MC path.
+            delivery_mode=(
+                SchedDeliveryMode.SCRUM if t.delivery_mode == DeliveryMode.SCRUM else None
+            ),
+            story_points=(float(t.story_points) if t.story_points is not None else None),
         )
         for t in db_tasks
     ]

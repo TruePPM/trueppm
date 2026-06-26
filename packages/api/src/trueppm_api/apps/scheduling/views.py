@@ -321,6 +321,19 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
         if str(d.predecessor_id) in included_ids and str(d.successor_id) in included_ids
     ]
 
+    # Agile-aware Monte Carlo (#411, ADR-0065/0106): feed the team's completed-sprint
+    # throughput to the engine so SCRUM/story-point tasks sample sprints-to-completion
+    # from real velocity variance. Without this the engine's velocity path can never
+    # fire — every story falls back to its deterministic placeholder duration (1 day),
+    # so an all-agile project (e.g. a board-driven program project) forecasts a single
+    # flat date with no uncertainty. ([], None) when there is no velocity signal, which
+    # leaves a waterfall/PERT project's forecast unchanged.
+    from trueppm_api.apps.projects.services import scheduler_velocity_inputs
+
+    velocity_samples, sprint_length_days = scheduler_velocity_inputs(
+        project.pk, sched_calendar.working_days
+    )
+
     sched_project = SchedProject(
         id=str(project.pk),
         name=project.name,
@@ -332,6 +345,8 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
         # date, or today when unset — so Monte Carlo never schedules remaining
         # work in the past and pins completed work to its actuals.
         status_date=project.status_date or timezone.localdate(),
+        velocity_samples=velocity_samples or None,
+        sprint_length_days=sprint_length_days,
     )
 
     try:

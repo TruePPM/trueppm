@@ -601,6 +601,44 @@ def velocity_eligible_sprints(project_id: str | uuid.UUID) -> QuerySet[Sprint]:
     ).order_by("-closed_at")
 
 
+def scheduler_velocity_inputs(
+    project_id: str | uuid.UUID, calendar_working_days: int
+) -> tuple[list[float], int | None]:
+    """Velocity samples + working-day sprint length for the Monte Carlo engine.
+
+    The ADR-0065/0106 wiring promised in :func:`velocity_eligible_sprints`: the last
+    eight eligible sprints' completed-point totals become the engine's bootstrap
+    population, so a SCRUM/story-point task samples sprints-to-completion from real
+    throughput variance (``_sample_velocity_durations``, #411) instead of collapsing
+    to its deterministic placeholder duration. Without these inputs the engine's
+    agile path can never fire and an all-agile project — every story a one-day
+    placeholder — forecasts a single flat date with no uncertainty band.
+
+    The typical sprint span is converted from *calendar* to *working* days, the unit
+    the engine multiplies the sprint count by, using the project calendar's
+    working-days-per-week (``working_days`` is a 7-bit weekday bitmask, so Mon–Fri →
+    ``5/7``). Returns ``([], None)`` when the team has no usable velocity signal (no
+    closed, non-excluded sprint with recorded completed points), so the engine falls
+    back to deterministic durations and the forecast is unchanged from pre-#411.
+    """
+    samples = [
+        float(s.completed_points)
+        # Last eight closed, velocity-eligible sprints — the same window the rolling
+        # velocity statistics use (ADR-0037); newest-first, so the slice is recent.
+        for s in velocity_eligible_sprints(project_id)[:8]
+        if s.completed_points is not None
+    ]
+    if not samples:
+        return [], None
+    # popcount of the weekday bitmask = working days per week; guard the degenerate
+    # all-zero mask (no weekday set) with the standard five-day fallback.
+    working_days_per_week = bin(calendar_working_days).count("1") or 5
+    sprint_length_working = max(
+        1, round(_typical_sprint_length_days(project_id) * working_days_per_week / 7)
+    )
+    return samples, sprint_length_working
+
+
 def velocity_summary(project_id: str | uuid.UUID) -> dict[str, Any]:
     """Return rolling velocity stats and forecast range for a project.
 
