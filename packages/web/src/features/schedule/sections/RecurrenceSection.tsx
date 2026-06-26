@@ -215,7 +215,7 @@ function OccurrencePreview({
 }
 
 const PILL_BASE =
-  'rounded-control px-3 py-1 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track disabled:opacity-50';
+  'rounded-control px-3 py-1 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:opacity-50';
 
 interface FormProps {
   taskId: string;
@@ -329,7 +329,7 @@ function RecurrenceForm({ taskId, rule, onClose }: FormProps) {
               value={draft.interval}
               onChange={(e) => set('interval', Math.max(1, Number(e.target.value) || 1))}
               aria-label={`Interval in ${INTERVAL_UNIT[draft.frequency]}`}
-              className="h-8 w-16 rounded-control border border-neutral-border bg-neutral-surface px-2 text-sm text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track"
+              className="h-8 w-16 rounded-control border border-neutral-border bg-neutral-surface px-2 text-sm text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             />
             <span className="text-sm text-neutral-text-secondary">
               {INTERVAL_UNIT[draft.frequency]}
@@ -350,7 +350,7 @@ function RecurrenceForm({ taskId, rule, onClose }: FormProps) {
                   aria-pressed={on}
                   aria-label={wd.label}
                   onClick={() => set('weekdays', toggleWeekday(draft.weekdays, wd.bit))}
-                  className={`flex h-11 w-11 items-center justify-center rounded-full text-xs font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track ${
+                  className={`flex h-11 w-11 items-center justify-center rounded-full text-xs font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 ${
                     on
                       ? 'bg-sage-500 text-navy-900 dark:bg-sage-400 dark:text-navy-900'
                       : 'bg-neutral-surface text-neutral-text-secondary hover:bg-neutral-surface-raised'
@@ -373,7 +373,7 @@ function RecurrenceForm({ taskId, rule, onClose }: FormProps) {
             value={draft.day_of_month ?? ''}
             onChange={(e) => set('day_of_month', e.target.value ? Number(e.target.value) : null)}
             aria-label="Day of month"
-            className="h-8 w-16 rounded-control border border-neutral-border bg-neutral-surface px-2 text-sm text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track"
+            className="h-8 w-16 rounded-control border border-neutral-border bg-neutral-surface px-2 text-sm text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           />
         </Row>
       )}
@@ -385,13 +385,13 @@ function RecurrenceForm({ taskId, rule, onClose }: FormProps) {
             value={draft.time_of_day}
             onChange={(e) => set('time_of_day', e.target.value)}
             aria-label="Time of day"
-            className="h-8 rounded-control border border-neutral-border bg-neutral-surface px-2 text-sm text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track"
+            className="h-8 rounded-control border border-neutral-border bg-neutral-surface px-2 text-sm text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           />
           <select
             value={draft.timezone}
             onChange={(e) => set('timezone', e.target.value)}
             aria-label="Timezone"
-            className="h-8 max-w-[14rem] rounded-control border border-neutral-border bg-neutral-surface px-2 text-sm text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track"
+            className="h-8 max-w-[14rem] rounded-control border border-neutral-border bg-neutral-surface px-2 text-sm text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >
             {!timezones.includes(draft.timezone) && (
               <option value={draft.timezone}>{draft.timezone}</option>
@@ -432,7 +432,7 @@ function RecurrenceForm({ taskId, rule, onClose }: FormProps) {
               disabled={draft.end_type !== 'ON_DATE'}
               onChange={(e) => set('end_date', e.target.value || null)}
               aria-label="End date"
-              className="h-8 rounded-control border border-neutral-border bg-neutral-surface px-2 text-sm text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track disabled:opacity-40"
+              className="h-8 rounded-control border border-neutral-border bg-neutral-surface px-2 text-sm text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:opacity-40"
             />
           </div>
           <div className="flex items-center gap-2">
@@ -453,7 +453,7 @@ function RecurrenceForm({ taskId, rule, onClose }: FormProps) {
               disabled={draft.end_type !== 'AFTER_N'}
               onChange={(e) => set('end_count', e.target.value ? Number(e.target.value) : null)}
               aria-label="Number of occurrences"
-              className="h-8 w-16 rounded-control border border-neutral-border bg-neutral-surface px-2 text-sm text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track disabled:opacity-40"
+              className="h-8 w-16 rounded-control border border-neutral-border bg-neutral-surface px-2 text-sm text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:opacity-40"
             />
             <span className="text-sm text-neutral-text-secondary">occurrences</span>
           </div>
@@ -507,7 +507,7 @@ function RecurrenceForm({ taskId, rule, onClose }: FormProps) {
         <button
           type="button"
           onClick={onClose}
-          className="rounded-control px-3 h-9 text-sm text-neutral-text-secondary hover:bg-neutral-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track"
+          className="rounded-control px-3 h-9 text-sm text-neutral-text-secondary hover:bg-neutral-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         >
           Cancel
         </button>
@@ -526,14 +526,14 @@ function RecurrenceForm({ taskId, rule, onClose }: FormProps) {
                   if (e.key === 'Escape') setConfirmingDelete(false);
                 }}
                 disabled={remove.isPending}
-                className="rounded-control bg-semantic-critical px-3 h-9 text-sm font-medium text-white hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track disabled:opacity-50"
+                className="rounded-control bg-semantic-critical px-3 h-9 text-sm font-medium text-white hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:opacity-50"
               >
                 {remove.isPending ? 'Stopping…' : 'Confirm stop'}
               </button>
               <button
                 type="button"
                 onClick={() => setConfirmingDelete(false)}
-                className="rounded-control px-2 h-9 text-sm text-neutral-text-secondary hover:bg-neutral-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track"
+                className="rounded-control px-2 h-9 text-sm text-neutral-text-secondary hover:bg-neutral-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               >
                 Keep
               </button>
@@ -542,7 +542,7 @@ function RecurrenceForm({ taskId, rule, onClose }: FormProps) {
             <button
               type="button"
               onClick={() => setConfirmingDelete(true)}
-              className="ml-auto rounded-control px-3 h-9 text-sm text-semantic-critical hover:bg-semantic-critical/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track"
+              className="ml-auto rounded-control px-3 h-9 text-sm text-semantic-critical hover:bg-semantic-critical/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
               Stop recurring
             </button>
@@ -691,7 +691,7 @@ export function RecurrenceSection({ taskId, projectId, userRole, canEdit }: Draw
           <button
             type="button"
             onClick={() => setEditing(true)}
-            className="self-start rounded-control border border-neutral-border px-3 h-9 text-sm font-medium text-neutral-text-primary hover:bg-neutral-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track"
+            className="self-start rounded-control border border-neutral-border px-3 h-9 text-sm font-medium text-neutral-text-primary hover:bg-neutral-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >
             Add recurrence
           </button>
@@ -711,7 +711,7 @@ export function RecurrenceSection({ taskId, projectId, userRole, canEdit }: Draw
       <button
         type="button"
         onClick={() => setEditing(true)}
-        className="self-start rounded-control border border-neutral-border px-3 h-9 text-sm font-medium text-neutral-text-primary hover:bg-neutral-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track"
+        className="self-start rounded-control border border-neutral-border px-3 h-9 text-sm font-medium text-neutral-text-primary hover:bg-neutral-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
       >
         Edit recurrence
       </button>

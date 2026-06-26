@@ -71,7 +71,7 @@ export function ScheduleViewModeToggle() {
             tabIndex={selected ? 0 : -1}
             onClick={() => setViewMode(m.value)}
             onKeyDown={onKeyDown}
-            className={`h-full px-3 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary dark:focus-visible:ring-semantic-on-track ${
+            className={`h-full px-3 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary ${
               selected
                 ? 'bg-brand-primary text-neutral-text-inverse'
                 : 'bg-neutral-surface text-neutral-text-secondary hover:bg-neutral-surface-raised'

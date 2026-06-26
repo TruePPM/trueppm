@@ -52,7 +52,6 @@ export function ZoomControl({ onFit }: ZoomControlProps) {
     'w-7 h-7 flex items-center justify-center text-sm text-neutral-text-secondary ' +
     'hover:bg-neutral-surface-raised transition-colors ' +
     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary ' +
-    'dark:focus-visible:ring-semantic-on-track ' +
     'disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent';
 
   return (
@@ -104,7 +103,7 @@ export function ZoomControl({ onFit }: ZoomControlProps) {
         title={`Fit to project  ${MOD_GLYPH}0`}
         className="border border-neutral-border rounded-control h-7 px-3 text-xs font-medium flex-shrink-0
           focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
-          focus-visible:ring-offset-neutral-surface dark:focus-visible:ring-semantic-on-track
+          focus-visible:ring-offset-neutral-surface
           focus-visible:outline-none hover:border-brand-primary hover:text-brand-primary"
       >
         Fit<span className="hidden lg:inline"> to project</span>

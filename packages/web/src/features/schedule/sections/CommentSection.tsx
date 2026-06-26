@@ -206,7 +206,7 @@ function CommentRow({
               onClick={onReplyClick}
               className="text-xs border border-neutral-border rounded-control px-2 h-7 font-medium
                 text-neutral-text-secondary hover:bg-neutral-surface
-                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none"
+                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
               aria-label="Reply to this comment"
             >
               ↩ Reply
@@ -223,7 +223,7 @@ function CommentRow({
                 : 'Acknowledge this comment'
             }
             className={`text-xs border rounded-control px-2 h-7 font-medium
-              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
               disabled:opacity-50
               ${
                 comment.has_my_acknowledgement
@@ -243,7 +243,7 @@ function CommentRow({
             aria-label="React with 👍"
             className="text-xs border border-neutral-border rounded-control px-2 h-7 font-medium
               text-neutral-text-secondary hover:bg-neutral-surface
-              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
               disabled:opacity-50"
           >
             👍

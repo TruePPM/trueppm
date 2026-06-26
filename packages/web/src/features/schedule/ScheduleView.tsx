@@ -1073,7 +1073,7 @@ export function ScheduleView() {
             aria-label="Add task"
             aria-expanded={showAddForm}
             className="border border-neutral-border rounded-control h-7 px-3 text-xs font-medium flex-shrink-0
-              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none dark:focus-visible:ring-semantic-on-track
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none
               hover:border-brand-primary hover:text-brand-primary"
           >
             + Task
@@ -1164,7 +1164,7 @@ export function ScheduleView() {
             aria-expanded={showColMenu}
             aria-haspopup="menu"
             className="border border-neutral-border rounded-control h-7 px-3 text-xs font-medium
-              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none dark:focus-visible:ring-semantic-on-track
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none
               hover:border-brand-primary hover:text-brand-primary"
           >
             Columns
@@ -1208,7 +1208,7 @@ export function ScheduleView() {
         <button
           type="button"
           onClick={handleScrollToToday}
-          className="border border-neutral-border rounded-control h-7 px-3 text-xs font-medium flex-shrink-0 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none dark:focus-visible:ring-semantic-on-track"
+          className="border border-neutral-border rounded-control h-7 px-3 text-xs font-medium flex-shrink-0 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
         >
           Today
         </button>

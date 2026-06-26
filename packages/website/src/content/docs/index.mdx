@@ -36,7 +36,7 @@ Most P3M tools force a choice. TruePPM is designed from the ground up so teams c
     Sprint boards, WIP limits, velocity tracking, burndown charts, retrospectives. The Scrum Master lives in the board view and never has to open a Gantt. [Scrum Master guide →](/guides/scrum-masters/)
   </Card>
   <Card title="Hybrid" icon="random">
-    The same task is both a WBS node and a sprint story. Sprint velocity feeds the CPM forecast — non-destructive suggestions today, auto-reforecast on sprint close in 0.3. Zero reconciliation meetings. [Read the full story →](/the-story/)
+    The same task is both a WBS node and a sprint story. Sprint velocity feeds the CPM forecast — non-destructive suggestions today; automatic reforecast on sprint close lands in 0.3 (not yet shipped). Zero reconciliation meetings. [Read the full story →](/the-story/)
   </Card>
 </CardGrid>
 
@@ -100,7 +100,7 @@ print(result.critical_path)           # ['t-1', 't-2']
 
 | Persona | Methodology | TruePPM gives them... | Guide |
 |---------|-------------|----------------------|-------|
-| **Project Managers** | Waterfall / Hybrid | CPM schedules, Monte Carlo confidence intervals, critical path, velocity-suggested Gantt durations (auto-reforecast in 0.3) | [Guide →](/guides/project-managers/) |
+| **Project Managers** | Waterfall / Hybrid | CPM schedules, Monte Carlo confidence intervals, critical path, velocity-suggested Gantt durations (automatic reforecast lands in 0.3 — not yet shipped) | [Guide →](/guides/project-managers/) |
 | **Scrum Masters** | Agile / Hybrid | Sprint board, WIP limits, velocity tracking, burndown, retrospective-to-backlog automation | [Guide →](/guides/scrum-masters/) |
 | **Product Owners** | Agile / Hybrid | Backlog management, velocity-based release forecasting, sprint scope protection | [Guide →](/guides/product-owners/) |
 | **Team Members** | Any | Board-first task view, My Work cross-project surface, real-time updates, offline sync | [Guide →](/guides/team-members/) |
@@ -135,6 +135,15 @@ The **Since** column is the release a capability first shipped in. 0.2 (the `0.2
 | Task collaboration | **0.2** | In-drawer comments with threaded replies, `@mention` fan-out to project members, emoji reactions, file and external-URL attachments, and a notification bell + inbox (ADR-0075). |
 | Notifications | **0.2** | Per-user email and Slack-webhook notifications with a preference matrix; Git-aware task automation. |
 | MS Project import UI | **0.2** | In-app create-from-import flow layered on the 0.1 import / export REST endpoints. |
+| Sample projects | **0.3** | Four richly-modeled sample projects (waterfall, agile, hybrid, and a multi-project program) loadable in one click, plus universal JSON project import / export. |
+| Program schedule | **0.3** | Compute-on-read merged cross-project critical path for a program — within-program scheduling visibility (the program-true critical path across member projects). |
+| Daily standup | **0.3** | A walk-the-board standup surface — step person-by-person through assigned work, projector-friendly and keyboard-driven. |
+| Today view | **0.3** | A personal "what needs me today" surface that pulls your due and in-progress work across every project into one list. |
+| Retro board | **0.3** | A live, multi-column sprint retrospective board with a team-health pulse and retro-to-backlog action items. |
+| Flow analytics | **0.3** | Cumulative-flow diagram, weekly throughput, cycle / lead-time percentiles, and throughput-based flow forecasts for continuous-flow teams. |
+| Scope-change audit | **0.3** | An audit trail for post-activation sprint scope changes — every injection and removal recorded, with forecast-transparency on accepted-only scope. |
+| Task classification | **0.3** | Task type, readiness, and governance-class fields powering board readiness chips and Product Backlog grooming. |
+| v2 interface & View focus | **0.3** | The navy/sage v2 interface refresh — unified app-shell bar, ⌘K command palette, and context bar — plus the role-context "View focus" lens. |
 
 Beyond the new capabilities above, several 0.1 rows gained substantial 0.2 depth that doesn't surface as its own line — schedule UX (continuous zoom, drag-to-pan, backlog-to-timeline promotion, dependency-chain hover, pull-to-commit), board depth (bulk actions, full-text search, swimlanes, activity feed, PDF export, per-card real-time sync), and the velocity → CPM hybrid bridge (sprint-close calibration, sprint → milestone rollup). The `0.2.0-alpha.1` CHANGELOG entry is the full record.
 

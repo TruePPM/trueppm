@@ -110,7 +110,7 @@ function GitAutomationSection({ projectId }: GitAutomationManagerProps) {
 
             {data.enabled && !data.secret_set && (
               <p
-                className="text-[12px] text-semantic-warning bg-semantic-warning/10 rounded px-3 py-2"
+                className="text-[12px] text-semantic-warning bg-semantic-warning-bg rounded px-3 py-2"
                 role="status"
               >
                 Automation is on but no secret is set — the receiver rejects every

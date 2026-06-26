@@ -171,7 +171,7 @@ export function SchedulePulse({ projectId }: { projectId: string }) {
               ) : (
                 <span className="text-[11px] text-neutral-text-secondary">No committed tasks yet</span>
               )}
-              <span className="mt-0.5 block text-[10px] text-neutral-text-secondary">
+              <span className="mt-0.5 block text-xs text-neutral-text-secondary">
                 ↳ {sprintDone}/{sprintTotal} done · live from the board
               </span>
             </div>

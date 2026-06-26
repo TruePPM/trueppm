@@ -2301,7 +2301,7 @@ export function BoardView() {
             <div
               className="flex items-center gap-2 px-3 py-1.5 text-xs
                 bg-brand-primary/5 border-b border-brand-primary/20
-                text-brand-primary-dark dark:text-brand-primary"
+                text-brand-primary"
               role="status"
             >
               <span aria-hidden="true">★</span>
@@ -2323,7 +2323,7 @@ export function BoardView() {
             <div
               className="flex items-center gap-2 px-3 py-1.5 text-xs
                 bg-brand-primary/5 border-b border-brand-primary/20
-                text-brand-primary-dark dark:text-brand-primary"
+                text-brand-primary"
               role="status"
             >
               <span aria-hidden="true">⚒</span>
@@ -2612,7 +2612,7 @@ export function BoardView() {
                                 onClick={handleAddPhase}
                                 disabled={createTask.isPending}
                                 className="border border-brand-primary/40 rounded-control px-4 py-2 text-sm
-                              text-brand-primary-dark dark:text-brand-primary font-medium
+                              text-brand-primary font-medium
                               hover:bg-brand-primary/10 disabled:opacity-50
                               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
                               >
@@ -2633,7 +2633,7 @@ export function BoardView() {
                               disabled={createTask.isPending}
                               className="border border-dashed border-neutral-border rounded-control px-3 py-1.5 text-xs
                             text-neutral-text-secondary hover:border-brand-primary/40
-                            hover:text-brand-primary-dark dark:hover:text-brand-primary
+                            hover:text-brand-primary
                             hover:bg-brand-primary/5 disabled:opacity-50
                             focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
                             >
@@ -2657,7 +2657,7 @@ export function BoardView() {
                             type="button"
                             onClick={() => myTasksFilter.setEnabled(false)}
                             className="border border-brand-primary/40 rounded-control px-3 py-1.5 text-xs
-                          text-brand-primary-dark dark:text-brand-primary font-medium
+                          text-brand-primary font-medium
                           hover:bg-brand-primary/10
                           focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
                           >

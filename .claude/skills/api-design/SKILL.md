@@ -43,10 +43,9 @@ You design APIs for TruePPM following these rules:
 - `POST /api/v1/sync/push` accepts batch mutations with conflict resolution.
   Response includes: accepted changes, conflicts, new server_version.
 
-## WebSocket Channels
-- `ws://host/ws/project/{id}/` — project-scoped events
-- `ws://host/ws/portfolio/{id}/` — portfolio-scoped events (Enterprise)
-- `ws://host/ws/user/notifications/` — per-user notifications
+## WebSocket Channels (canonical: `packages/api/src/trueppm_api/routing.py`)
+- `ws/v1/projects/{project_id}/` — `ProjectConsumer`: board/schedule events + presence
+- `ws/v1/projects/{project_id}/workshop/` — `WorkshopConsumer`: live workshop session (requires an active `WorkshopSession`)
 - Auth: JWT in first message or query param
 - Events: JSON with `{ "type": "task.updated", "data": { ... }, "event_id": "uuid" }`
 
