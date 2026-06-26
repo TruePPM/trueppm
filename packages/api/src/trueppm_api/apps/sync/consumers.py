@@ -107,8 +107,11 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
         the sync delta on reconnect (see ``broadcast.py``). (#1108)
         """
         try:
+            from trueppm_api.apps.sync.broadcast import WS_PROTOCOL_VERSION
+
             await self.send_json(
                 {
+                    "protocol_version": event.get("protocol_version", WS_PROTOCOL_VERSION),
                     "event_type": event.get("event_type"),
                     "payload": event.get("payload"),
                 }

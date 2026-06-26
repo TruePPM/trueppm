@@ -31,13 +31,17 @@ export function useSamples(): UseQueryResult<SampleInfo[], Error> {
 /**
  * Extract the server's line-level validation report from a failed import.
  *
- * The import endpoint (#615) returns ``{ "errors": [...] }`` with a 400 when a
- * seed fails schema or referential validation; surface those verbatim so the
- * user can fix the file.
+ * The import endpoint (#615) returns the standard ``{ "detail": ... }`` envelope
+ * (#1325) with a 400 when a seed fails schema or referential validation. For the
+ * line-level report `detail` is an array of messages; the single-message failures
+ * (file too large, not JSON) use a plain string. Normalize both to a string list
+ * so the caller can render them verbatim and the user can fix the file.
  */
 export function seedImportErrors(error: unknown): string[] {
-  const data = (error as { response?: { data?: { errors?: unknown } } })?.response?.data;
-  return Array.isArray(data?.errors) ? (data.errors as string[]) : [];
+  const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+  if (Array.isArray(detail)) return detail as string[];
+  if (typeof detail === 'string') return [detail];
+  return [];
 }
 
 /**

@@ -249,8 +249,8 @@ def test_find_cycle_rejects_malformed_input(edges: object, children_map: object)
 
 
 def test_find_cycle_still_detects_and_clears() -> None:
-    assert find_cycle([("a", "b"), ("b", "a")]) is not None
-    assert find_cycle([("a", "b"), ("b", "c")]) is None
+    assert find_cycle([("a", "b"), ("b", "a")]).cycle is not None
+    assert find_cycle([("a", "b"), ("b", "c")]).cycle is None
 
 
 def _one_task(**kw: object) -> Project:

@@ -1,5 +1,13 @@
 import { NavLink, useLocation } from 'react-router';
-import { GanttIcon, BoardIcon, ListIcon, CalendarIcon, ResourcesIcon, SprintIcon } from '@/components/Icons';
+import {
+  GanttIcon,
+  BoardIcon,
+  ListIcon,
+  CalendarIcon,
+  ResourcesIcon,
+  SprintIcon,
+  TodayIcon,
+} from '@/components/Icons';
 import { OverviewIcon } from '@/components/Icons';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useProjectId } from '@/hooks/useProjectId';
@@ -16,19 +24,23 @@ interface NavItem {
 }
 
 // Bottom navigation rail — shown at < md (768px) in place of view tabs in the top bar.
-// Order mirrors ViewTabs: Overview first (orientation), Board second (execution).
+// Order mirrors ViewTabs: Overview first (orientation), then Today (the unified
+// PM + Scrum-Master split view that leads the TRACK group, ADR-0180), then Board
+// (execution). Today is the 0.3 headline view and must be reachable on mobile —
+// a mobile-first product cannot strand its headline view behind the desktop tabs
+// only (issue #1324). Today is visible for every methodology (methodologyTabs.ts).
 // Risks omitted at mobile breakpoint — infrequent access; reachable via desktop tabs.
 // Grid replaces the previous Table entry (issue #334, ADR-0053).
 const NAV_ITEMS: NavItem[] = [
-  { view: 'overview',  label: 'Overview', Icon: OverviewIcon },
-  { view: 'board',     label: 'Board',    Icon: BoardIcon },
-  { view: 'sprints',   label: 'Sprints',  Icon: SprintIcon },
-  { view: 'schedule',  label: 'Schedule', Icon: GanttIcon },
-  { view: 'grid',      label: 'Grid',     Icon: ListIcon },
-  { view: 'calendar',  label: 'Calendar', Icon: CalendarIcon },
-  { view: 'resources', label: 'Team',     Icon: ResourcesIcon },
+  { view: 'overview', label: 'Overview', Icon: OverviewIcon },
+  { view: 'today', label: 'Today', Icon: TodayIcon },
+  { view: 'board', label: 'Board', Icon: BoardIcon },
+  { view: 'sprints', label: 'Sprints', Icon: SprintIcon },
+  { view: 'schedule', label: 'Schedule', Icon: GanttIcon },
+  { view: 'grid', label: 'Grid', Icon: ListIcon },
+  { view: 'calendar', label: 'Calendar', Icon: CalendarIcon },
+  { view: 'resources', label: 'Team', Icon: ResourcesIcon },
 ];
-
 
 export function BottomNav() {
   const location = useLocation();

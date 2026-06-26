@@ -125,14 +125,18 @@ def promote_retro_action_item(
         locked.promoted_task_id = task.pk
         locked.save(update_fields=["promoted_task_id"])
 
+        # Snapshot every broadcast value to a plain scalar *at registration time*
+        # so the deferred dispatch can never read a later-mutated (or by-then
+        # garbage-collected) ORM instance (#1323). `suggestion.pk` and
+        # `locked.assignee_id` were the last live ORM reads left in the closure.
         project_id = str(project.pk)
         task_id = str(task.pk)
         action_item_id = str(locked.pk)
         retro_id = str(locked.retro_id)
+        suggestion_id = str(suggestion.pk) if suggestion is not None else None
+        suggested_user_id = locked.assignee_id
 
         def _on_commit_dispatch() -> None:
-            # Default args freeze closure values at registration time so any
-            # mutation after this point cannot affect what's broadcast.
             broadcast_board_event(
                 project_id,
                 "task_created",
@@ -143,14 +147,14 @@ def promote_retro_action_item(
                     "action_item_id": action_item_id,
                 },
             )
-            if suggestion is not None:
+            if suggestion_id is not None:
                 broadcast_board_event(
                     project_id,
                     "suggestion_created",
                     {
                         "task_id": task_id,
-                        "suggestion_id": str(suggestion.pk),
-                        "suggested_user_id": locked.assignee_id,
+                        "suggestion_id": suggestion_id,
+                        "suggested_user_id": suggested_user_id,
                     },
                 )
             enqueue_recalculate(

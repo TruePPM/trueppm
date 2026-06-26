@@ -35,8 +35,8 @@ enforces it.
 
 | Setting | Default | Unit | What it bounds |
 |---|---|---|---|
-| `HISTORY_RETENTION_DAYS` | `90` | days | django-simple-history object-change records |
-| `TASK_RUN_RETENTION_DAYS` | `30` | days | Completed/failed/cancelled `TaskRun` records |
+| `TRUEPPM_HISTORY_RETENTION_DAYS` | `90` | days | django-simple-history object-change records |
+| `TRUEPPM_TASK_RUN_RETENTION_DAYS` | `30` | days | Completed/failed/cancelled `TaskRun` records |
 | `TRUEPPM_IMPORT_RETENTION_DAYS` | `7` | days | Terminal (`DONE`/`DEAD`) `ImportRequest` rows, including their multi-MB `file_content_b64` blobs |
 | `TRUEPPM_WEBHOOK_RETENTION_DAYS` | `7` | days | Terminal (`SUCCESS`/`FAILED`) `WebhookDelivery` rows |
 | `TRUEPPM_SYNC_BATCH_RETENTION_HOURS` | `24` | hours | `SyncBatch` mobile-upload idempotency rows past the dedup window (ADR-0082) |
@@ -129,13 +129,17 @@ purge" component card reports real state (`ok` / `partial` / `failed`) instead o
   program-scoped token mint/revoke events) are **never** purged — they are kept
   indefinitely as compliance evidence and have no retention window.
 
-## Why two prefixes?
+## Env-var prefix
 
-The older retention knobs (`HISTORY_RETENTION_DAYS`, `TASK_RUN_RETENTION_DAYS`) are
-unprefixed; the newer ones (`TRUEPPM_IMPORT_RETENTION_DAYS`,
-`TRUEPPM_WEBHOOK_RETENTION_DAYS`) carry the `TRUEPPM_` prefix for env-var namespacing in
-shared Kubernetes ConfigMaps and Secrets (see ADR-0081). The unprefixed names are kept
-as-is — renaming them would break existing deployments.
+Every operator-facing retention knob carries the `TRUEPPM_` prefix for env-var
+namespacing in shared Kubernetes ConfigMaps and Secrets (see ADR-0081). The two
+older knobs (`HISTORY_RETENTION_DAYS`, `TASK_RUN_RETENTION_DAYS`) were originally
+unprefixed; they are now read from `TRUEPPM_HISTORY_RETENTION_DAYS` /
+`TRUEPPM_TASK_RUN_RETENTION_DAYS` first, **falling back to the legacy bare name** so
+deployments that already set it keep working without change. Prefer the prefixed
+form in new deployments; the bare name is a compatibility alias, not a second knob —
+set only one. The same prefix-with-legacy-fallback applies to the `WORKFLOW_*` and
+`IDEMPOTENCY_*` tunables.
 
 ## Disabling a purge safely
 

@@ -8,6 +8,7 @@ import pytest
 
 from trueppm_scheduler import (
     Calendar,
+    CycleCheck,
     CyclicDependencyError,
     DateRange,
     Dependency,
@@ -17,7 +18,9 @@ from trueppm_scheduler import (
     Project,
     ScheduleResult,
     SimulationCapExceeded,
+    SummaryExpansion,
     Task,
+    expand_summary_dependencies,
     find_cycle,
     monte_carlo,
     schedule,
@@ -489,17 +492,17 @@ class TestScheduleCycleDetection:
 
 class TestFindCycle:
     def test_no_cycle_returns_none(self) -> None:
-        assert find_cycle([("A", "B"), ("B", "C"), ("C", "D")]) is None
+        assert find_cycle([("A", "B"), ("B", "C"), ("C", "D")]).cycle is None
 
     def test_empty_edges_returns_none(self) -> None:
-        assert find_cycle([]) is None
+        assert find_cycle([]).cycle is None
 
     def test_self_loop_returned(self) -> None:
-        result = find_cycle([("A", "A")])
+        result = find_cycle([("A", "A")]).cycle
         assert result == ["A", "A"]
 
     def test_two_cycle_returned_in_order(self) -> None:
-        result = find_cycle([("A", "B"), ("B", "A")])
+        result = find_cycle([("A", "B"), ("B", "A")]).cycle
         assert result is not None
         # Cycle wraps back to start; networkx may begin at any node but the
         # path must close on its first node.
@@ -508,7 +511,7 @@ class TestFindCycle:
         assert len(result) == 3
 
     def test_three_cycle_returned(self) -> None:
-        result = find_cycle([("A", "B"), ("B", "C"), ("C", "A")])
+        result = find_cycle([("A", "B"), ("B", "C"), ("C", "A")]).cycle
         assert result is not None
         assert result[0] == result[-1]
         assert set(result) == {"A", "B", "C"}
@@ -517,11 +520,11 @@ class TestFindCycle:
     def test_diamond_dag_no_false_positive(self) -> None:
         # A → B → D and A → C → D — classic diamond, acyclic.
         edges = [("A", "B"), ("A", "C"), ("B", "D"), ("C", "D")]
-        assert find_cycle(edges) is None
+        assert find_cycle(edges).cycle is None
 
     def test_long_chain_no_false_positive(self) -> None:
         edges = [("A", "B"), ("B", "C"), ("C", "D"), ("D", "E")]
-        assert find_cycle(edges) is None
+        assert find_cycle(edges).cycle is None
 
     def test_cycle_through_summary_expansion(self) -> None:
         # Eng is a summary task containing leaf Validate.
@@ -530,7 +533,7 @@ class TestFindCycle:
         # acyclic at the edge level.
         edges = [("Validate", "Eng")]
         children_map = {"Eng": ["Validate", "Implement"]}
-        result = find_cycle(edges, children_map=children_map)
+        result = find_cycle(edges, children_map=children_map).cycle
         assert result is not None
         # After expansion the cycle is Validate → Validate (a self-loop on
         # the leaf), which find_cycle returns as ['Validate', 'Validate'].
@@ -542,7 +545,7 @@ class TestFindCycle:
         # Procurement → Eng would close a cycle through the leaves.
         edges = [("Eng", "Procurement"), ("Procurement", "Eng")]
         children_map = {"Eng": ["E1"], "Procurement": ["P1", "P2"]}
-        result = find_cycle(edges, children_map=children_map)
+        result = find_cycle(edges, children_map=children_map).cycle
         assert result is not None
         assert result[0] == result[-1]
 
@@ -551,7 +554,7 @@ class TestFindCycle:
         # acyclic at the leaf level (E1 → P1).
         edges = [("Eng", "Procurement")]
         children_map = {"Eng": ["E1"], "Procurement": ["P1"]}
-        assert find_cycle(edges, children_map=children_map) is None
+        assert find_cycle(edges, children_map=children_map).cycle is None
 
 
 class TestExpansionCap:
@@ -586,7 +589,7 @@ class TestExpansionCap:
         pred_leaves = [f"P{i}" for i in range(99)] + [shared]
         succ_leaves = [shared] + [f"S{i}" for i in range(99)]
         children_map = {"PSum": pred_leaves, "SSum": succ_leaves}
-        result = find_cycle([("PSum", "SSum"), ("SSum", "PSum")], children_map=children_map)
+        result = find_cycle([("PSum", "SSum"), ("SSum", "PSum")], children_map=children_map).cycle
         assert result is not None
         assert result[0] == result[-1]
 
@@ -598,6 +601,51 @@ class TestExpansionCap:
         edges = [("Big", "T1"), ("Big", "T2")]
         with pytest.raises(InvalidScheduleInput, match="exceed"):
             find_cycle(edges, children_map=children_map)
+
+
+# ---------------------------------------------------------------------------
+# Public-contract down-payments (#1325) — the __all__-exported helpers return
+# forward-compatible wrappers and monte_carlo reserves its keyword-only slots.
+# ---------------------------------------------------------------------------
+
+
+class TestPublicContractDownPayments:
+    def test_find_cycle_returns_cyclecheck(self) -> None:
+        acyclic = find_cycle([("A", "B")])
+        assert isinstance(acyclic, CycleCheck)
+        assert acyclic.cycle is None
+        assert not acyclic  # falsy when there is no cycle
+        assert acyclic.to_dict() == {"cycle": None}
+
+        cyclic = find_cycle([("A", "B"), ("B", "A")])
+        assert isinstance(cyclic, CycleCheck)
+        assert cyclic.cycle is not None
+        assert cyclic  # truthy when a cycle exists
+        assert cyclic.to_dict() == {"cycle": cyclic.cycle}
+
+    def test_expand_summary_returns_wrapper_and_still_unpacks(self) -> None:
+        tasks = [Task(id=x, name=x, duration=timedelta(days=1)) for x in ("a1", "a2", "b1")]
+        deps = [Dependency(predecessor_id="A", successor_id="b1")]
+        result = expand_summary_dependencies(tasks, deps, {"A": ["a1", "a2"]})
+        assert isinstance(result, SummaryExpansion)
+        # Named accessors — the forward-compatible API new fields can hang off.
+        assert {t.id for t in result.tasks} == {"a1", "a2", "b1"}
+        assert {(d.predecessor_id, d.successor_id) for d in result.dependencies} == {
+            ("a1", "b1"),
+            ("a2", "b1"),
+        }
+        # Backward-compatible 2-tuple unpacking is preserved.
+        leaf_tasks, expanded = result
+        assert leaf_tasks is result.tasks
+        assert expanded is result.dependencies
+
+    def test_monte_carlo_tuning_args_are_keyword_only(self) -> None:
+        project = make_project(tasks=[Task(id="t", name="t", duration=timedelta(days=2))])
+        # The `*` barrier reserves future positional slots: runs et al. are keyword-only.
+        with pytest.raises(TypeError):
+            monte_carlo(project, 10)  # type: ignore[misc]
+        # The keyword form is unaffected.
+        assert monte_carlo(project, runs=10, seed=0).runs == 10
 
 
 # ---------------------------------------------------------------------------

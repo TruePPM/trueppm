@@ -12,11 +12,13 @@ except PackageNotFoundError:  # running from an un-installed source tree
     __version__ = "0.0.0+unknown"
 
 from trueppm_scheduler.engine import (
+    CycleCheck,
     CyclicDependencyError,
     InvalidScheduleInput,
     MonteCarloResult,
     ScheduleResult,
     SimulationCapExceeded,
+    SummaryExpansion,
     TaskSensitivity,
     expand_summary_dependencies,
     find_cycle,
@@ -35,6 +37,7 @@ from trueppm_scheduler.models import (
 
 __all__ = [
     "Calendar",
+    "CycleCheck",
     "CyclicDependencyError",
     "DateRange",
     "DeliveryMode",
@@ -45,6 +48,7 @@ __all__ = [
     "Project",
     "ScheduleResult",
     "SimulationCapExceeded",
+    "SummaryExpansion",
     "Task",
     "TaskSensitivity",
     "expand_summary_dependencies",

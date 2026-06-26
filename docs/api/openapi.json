@@ -20295,7 +20295,7 @@
         "/api/v1/tasks/{id}/suggestions/{suggestion_pk}/decline/": {
             "post": {
                 "operationId": "v1_tasks_suggestions_decline_create",
-                "description": "Decline a PENDING TaskSuggestedAssignee.\n\nOnly the ``suggested_user`` may call. No broadcast — declines are\nprivate (Priya's psych-safety note in the VoC).",
+                "description": "Decline a PENDING TaskSuggestedAssignee.\n\nOnly the ``suggested_user`` may call. The broadcast is a *silent*\nstate-reconciliation hint, not a social signal: it carries only the\nsuggestion/task id — never the decliner's identity — and drives no\nnotification UI, so the suggester's pending list and the suggested\nuser's My Work clear the stale \"Pending\" badge without the social cost\nthe psych-safety note (Priya, VoC) warned a *visible* decline would\ncarry. Without it, peers stayed stale until a manual refetch (#1323).",
                 "parameters": [
                     {
                         "in": "path",

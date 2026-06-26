@@ -247,18 +247,14 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
             max_bytes = settings.SEED_MAX_UPLOAD_MB * 1024 * 1024
             if upload.size is not None and upload.size > max_bytes:
                 return Response(
-                    {
-                        "errors": [
-                            f"Seed file too large. Maximum: {settings.SEED_MAX_UPLOAD_MB} MB."
-                        ]
-                    },
+                    {"detail": f"Seed file too large. Maximum: {settings.SEED_MAX_UPLOAD_MB} MB."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             try:
                 payload = json.loads(upload.read().decode("utf-8"))
             except (json.JSONDecodeError, UnicodeDecodeError):
                 return Response(
-                    {"errors": ["Uploaded file is not valid JSON."]},
+                    {"detail": "Uploaded file is not valid JSON."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
         else:
@@ -267,7 +263,11 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
         try:
             program = run_import(payload, owner=request.user, create_users=False)
         except SeedValidationError as exc:
-            return Response({"errors": exc.errors}, status=status.HTTP_400_BAD_REQUEST)
+            # Standardized on the `detail` envelope (#1325). For the line-level
+            # import report `detail` is the *list* of validation messages (the FE
+            # renders them as discrete items); the single-message errors above use
+            # a plain string. seedImportErrors() normalizes both to a string list.
+            return Response({"detail": exc.errors}, status=status.HTTP_400_BAD_REQUEST)
 
         fresh = self.get_queryset().get(pk=program.pk)
         return Response(ProgramSerializer(fresh).data, status=status.HTTP_201_CREATED)
@@ -512,7 +512,8 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
         try:
             program = load_sample(key, owner=request.user, create_users=True)
         except UnknownSampleError as exc:
-            return Response({"errors": [str(exc)]}, status=status.HTTP_400_BAD_REQUEST)
+            # Standardized on the `detail` envelope (#1325).
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
         landing_project = prepare_sample_for_user(program, request.user)
 

@@ -211,7 +211,11 @@ def test_tracker_progress_update(project: Project) -> None:
     assert run.status == TaskRunStatus.SUCCESS
 
 
-@pytest.mark.django_db
+# transaction=True: tracker broadcasts are now deferred with transaction.on_commit
+# (#1323). Without a wrapping atomic (the Celery production path), Django runs the
+# callback immediately, so the patched broadcast is captured synchronously here —
+# under the default rolled-back django_db transaction the callbacks would never fire.
+@pytest.mark.django_db(transaction=True)
 def test_tracker_broadcasts_started_and_completed(project: Project) -> None:
     """TaskRunTracker broadcasts task_run_started and task_run_completed events."""
     from trueppm_api.apps.taskruns.tracker import TaskRunTracker
@@ -240,7 +244,7 @@ def test_tracker_broadcasts_started_and_completed(project: Project) -> None:
     assert "task_run_completed" in event_types
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_tracker_broadcasts_failed(project: Project) -> None:
     """TaskRunTracker broadcasts task_run_failed on exception."""
     from trueppm_api.apps.taskruns.tracker import TaskRunTracker

@@ -13,9 +13,14 @@ import {
 } from './useProgramSeedIo';
 
 describe('seedImportErrors', () => {
-  it('extracts the server error list from a 400 response', () => {
-    const error = { response: { data: { errors: ['$.program.name: required', '$.x: bad'] } } };
+  it('extracts the line-level report when detail is a list (#1325)', () => {
+    const error = { response: { data: { detail: ['$.program.name: required', '$.x: bad'] } } };
     expect(seedImportErrors(error)).toEqual(['$.program.name: required', '$.x: bad']);
+  });
+
+  it('wraps a single-message detail string in a list (#1325)', () => {
+    const error = { response: { data: { detail: 'Uploaded file is not valid JSON.' } } };
+    expect(seedImportErrors(error)).toEqual(['Uploaded file is not valid JSON.']);
   });
 
   it('returns an empty list when there is no structured error payload', () => {

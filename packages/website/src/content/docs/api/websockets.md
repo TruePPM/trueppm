@@ -79,13 +79,15 @@ Every board/schedule event on `ws/v1/projects/{project_id}/` arrives as a JSON
 envelope:
 
 ```json
-{ "event_type": "<name>", "payload": { ... } }
+{ "protocol_version": 1, "event_type": "<name>", "payload": { ... } }
 ```
 
 `event_type` is a `snake_case` name. Clients dispatch on it and typically
 invalidate the corresponding cache (the web client maps these to TanStack Query
-keys). The set is open-ended and grows as features land; current event types
-include:
+keys). `protocol_version` is a bare integer identifying the envelope wire
+version (currently `1`); it is reserved so a future backward-incompatible
+envelope change can be negotiated without breaking clients that ignore it today.
+The set is open-ended and grows as features land; current event types include:
 
 - **Tasks**: `task_created`, `task_updated`, `task_deleted`, `task_duration_changed`,
   `tasks_reordered`, `tasks_restructured`, `tasks_bulk_mutated`
@@ -110,6 +112,10 @@ include:
 - **Membership / project**: `member_added`, `member_role_changed`,
   `member_removed`, `project_updated`, `project_archived`, `project_unarchived`,
   `project_transferred`, `project_deleted`, `project_hard_deleted`
+- **Task suggestions**: `suggestion_created`, `suggestion_declined`,
+  `suggestion_revoked` (decline/revoke carry only the suggestion + task id — never
+  the actor — a silent state reconciliation, not a callout)
+- **Cross-project (ADR-0120)**: `slip_conflict_acknowledged`
 - **Presence**: `presence_join`, `presence_leave`
 
 > **Event-name convention.** WebSocket `event_type` values are **`snake_case`**
@@ -214,6 +220,10 @@ adding it to that frozen set. Events with no webhook counterpart are marked
 | `tasks_reordered` | **WS-only** |
 | `tasks_restructured` | **WS-only** |
 | `team_member_changed` | **WS-only** |
+| `suggestion_created` | **WS-only** |
+| `suggestion_declined` | **WS-only** |
+| `suggestion_revoked` | **WS-only** |
+| `slip_conflict_acknowledged` | **WS-only** |
 
 ### WS-only events on other channels
 

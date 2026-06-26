@@ -984,3 +984,96 @@ describe('useProjectWebSocket — board activity feed live updates (#1264)', () 
     expect(boardActivityInvalidationCount(invalidateSpy.mock.calls)).toBe(0);
   });
 });
+
+// Wave-2 broadcast-check (#1323) — cross-project dep accept/reject, the suggestion
+// decline/revoke lifecycle, and the slip-conflict acknowledge had no client handler;
+// task_duration_changed must stay a deliberate no-op (the delta arrives via
+// task_updated with ADR-0152 self-echo suppression, so a tasks invalidate here would
+// clobber the editor's in-flight optimistic edit).
+describe('useProjectWebSocket — wave-2 missing handlers (#1323)', () => {
+  const originalWebSocket = globalThis.WebSocket;
+  let qc: QueryClient;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    MockWebSocket.instances = [];
+    // @ts-expect-error — overriding WebSocket for the test environment
+    globalThis.WebSocket = MockWebSocket;
+    act(() => {
+      useAuthStore.setState({ accessToken: 'tok-abc', isAuthenticated: true });
+    });
+    qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    globalThis.WebSocket = originalWebSocket;
+    act(() => {
+      useAuthStore.setState({ accessToken: null, isAuthenticated: false });
+    });
+  });
+
+  function dispatch(eventType: string, payload: Record<string, unknown> = {}) {
+    act(() => {
+      MockWebSocket.instances[0].dispatch('message', {
+        data: JSON.stringify({ event_type: eventType, payload }),
+      });
+    });
+  }
+
+  function flushDebounce() {
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
+  }
+
+  it.each(['dependency_accepted', 'dependency_rejected'])(
+    'invalidates dependencies and tasks on %s (cross-project edge resolution)',
+    (eventType) => {
+      const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+      renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+      dispatch(eventType, { id: 'dep-1' });
+      flushDebounce();
+
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['dependencies', 'proj-1'] });
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
+    },
+  );
+
+  it.each(['suggestion_declined', 'suggestion_revoked'])(
+    'invalidates the tasks feed and My Work on %s',
+    (eventType) => {
+      const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+      renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+      dispatch(eventType, { id: 's-1', task_id: 'task-9' });
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['me', 'work'] });
+      flushDebounce();
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
+    },
+  );
+
+  it('invalidates the slip-conflicts query on slip_conflict_acknowledged', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('slip_conflict_acknowledged', { id: 'conflict-1' });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['slip-conflicts'] });
+  });
+
+  it('does NOT invalidate tasks on task_duration_changed (covered by task_updated)', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('task_duration_changed', { task_id: 'task-9', new_duration: 5 });
+    flushDebounce();
+
+    // Re-invalidating here would clobber the editor's optimistic edit (ADR-0152);
+    // the task_updated event in the same commit batch is the sole tasks-cache driver.
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
+  });
+});

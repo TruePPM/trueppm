@@ -24,6 +24,7 @@ import logging
 import time
 from typing import Any
 
+from django.db import transaction
 from django.utils import timezone
 
 # Module-level import so tests can patch trueppm_api.apps.taskruns.tracker.broadcast_board_event.
@@ -247,11 +248,23 @@ class TaskRunTracker:
     def _broadcast(self, event_type: str, payload: dict[str, Any]) -> None:
         if self._project_id is None:
             return
-        try:
-            broadcast_board_event(
-                project_id=self._project_id,
-                event_type=event_type,
-                payload=payload,
-            )
-        except Exception as exc:
-            logger.warning("TaskRunTracker: broadcast failed: %s", exc)
+        # Defer the broadcast to commit (#1323). The tracker runs in a Celery task
+        # with no ambient transaction today, so on_commit fires the callback
+        # immediately and behavior is unchanged — but if a future caller ever runs
+        # tracker.update() inside transaction.atomic(), this guarantees peers never
+        # see a progress event for a write that then rolls back. Snapshot to plain
+        # locals and keep the best-effort guard *inside* the deferred callable so a
+        # commit-time channel-layer failure is still swallowed, not raised.
+        project_id = self._project_id
+
+        def _emit() -> None:
+            try:
+                broadcast_board_event(
+                    project_id=project_id,
+                    event_type=event_type,
+                    payload=payload,
+                )
+            except Exception as exc:
+                logger.warning("TaskRunTracker: broadcast failed: %s", exc)
+
+        transaction.on_commit(_emit)
