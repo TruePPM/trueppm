@@ -98,6 +98,24 @@ Content`, whether or not a cookie was present.
 | `AUTH_REFRESH_COOKIE_SAMESITE` | `Strict` | CSRF posture — the cookie is never sent cross-site. |
 | `AUTH_REFRESH_COOKIE_SECURE` | `True` | HTTPS-only cookie. Set `False` only for non-TLS local development. |
 
+### Project-scoped API token (`projectApiTokenAuth`)
+
+The [inbound task-sync](/features/inbound-task-sync/) surface uses a separate,
+non-JWT scheme. Mint a token in **Project settings → API tokens**; it is scoped
+to a single project and authorizes only the task-sync endpoint (ADR-0068). Send
+it as a bearer token:
+
+```http
+POST /api/v1/projects/{project_id}/task-sync/
+Authorization: Bearer tppm_<64-hex>
+```
+
+The schema advertises this scheme as `projectApiTokenAuth`. It is deliberately
+**not** interchangeable with the JWT session — a logged-in user cannot call
+task-sync with their normal credentials, so every inbound push is attributable
+to a minted token. A token whose project does not match the URL returns `401`
+(not `403`) so callers cannot enumerate project existence.
+
 ## Endpoints
 
 ### Calendars

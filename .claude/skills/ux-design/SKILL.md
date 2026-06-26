@@ -98,5 +98,5 @@ TruePPM uses Tailwind CSS on web and NativeWind on mobile. Prefer these patterns
 ### API Dependencies
 - GET /api/v1/...
 - POST /api/v1/...
-- WS: ws://host/ws/project/{id}/
+- WS: ws://host/ws/v1/projects/{id}/
 ```

@@ -5541,6 +5541,24 @@ class InboundTaskSyncPayloadSerializer(serializers.Serializer[Any]):
         return value
 
 
+class InboundTaskSyncResultSerializer(serializers.Serializer[Any]):
+    """Response shape for the inbound task-sync push (``POST .../task-sync/``).
+
+    Read-only — describes the upsert result so SDK clients have a typed body.
+    ``created`` is ``True`` when the push created a new task (HTTP 201) and
+    ``False`` on an idempotent re-push that updated an existing task (HTTP 200).
+    """
+
+    task_id = serializers.UUIDField(help_text="UUID of the upserted task.")
+    short_id = serializers.CharField(help_text="Human-readable short id, e.g. `TSK-42`.")
+    created = serializers.BooleanField(
+        help_text="True if a new task was created (201); False on idempotent update (200)."
+    )
+    assignee_resolved = serializers.BooleanField(
+        help_text="True if `assignee_email` matched a project member and was linked."
+    )
+
+
 # Batch cap for the inbound CI acceptance-result endpoint (ADR-0148). Bounds the
 # per-request work (one DB read + up to N writes) so a misconfigured CI token
 # cannot push an unbounded body. A larger result set chunks into multiple requests

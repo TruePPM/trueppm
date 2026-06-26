@@ -92,7 +92,7 @@ export function LinkInputModal({ open, onClose, onSubmit, submitting }: Props) {
             disabled={submitting}
             className="text-sm bg-neutral-surface border border-neutral-border rounded-control p-2
               text-neutral-text-primary
-              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
               disabled:opacity-50"
           />
         </label>
@@ -107,7 +107,7 @@ export function LinkInputModal({ open, onClose, onSubmit, submitting }: Props) {
             disabled={submitting}
             className="text-sm bg-neutral-surface border border-neutral-border rounded-control p-2
               text-neutral-text-primary
-              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
               disabled:opacity-50"
           />
         </label>
@@ -123,7 +123,7 @@ export function LinkInputModal({ open, onClose, onSubmit, submitting }: Props) {
             disabled={submitting}
             className="text-xs border border-neutral-border rounded-control px-3 h-7 font-medium
               text-neutral-text-secondary hover:bg-neutral-surface-raised
-              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
               disabled:opacity-50"
           >
             Cancel

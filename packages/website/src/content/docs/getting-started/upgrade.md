@@ -21,6 +21,35 @@ description: How to upgrade TruePPM — Docker Compose, single-server, and Helm 
 
 ---
 
+## Upgrading to 0.3
+
+0.3 adds new database tables and columns for the agile-team feature set. All of
+the migrations are **additive** (new models and nullable columns — no destructive
+operations), so the upgrade is a standard `migrate` with no manual data steps and
+no downtime beyond the migration run. Apply them the usual way for your deploy
+path (the `migrate` step shown in each section below). The new schema:
+
+- **Forecast snapshots** (`scheduling.0007_projectforecastsnapshot`) — a new
+  `ProjectForecastSnapshot` table that persists each project's P50/P80/P95
+  Monte Carlo forecast over time, so the Schedule view can show a forecast
+  history. Retention is bounded by `MC_HISTORY_CAP` (see
+  [configuration](/administration/configuration/)).
+- **Sprint outcomes** (`projects.0064_sprinttaskoutcome`,
+  `projects.0065_historicalsprint_goal_outcome_sprint_goal_outcome`) — a new
+  `SprintTaskOutcome` table plus a `goal_outcome` column on `Sprint` (MET /
+  PARTIAL / MISSED), capturing the sprint close-out snapshot.
+- **Scope-change audit** (`projects.0054_sprintscopechange_goal_impact_and_more`)
+  — a `goal_impact` column on `SprintScopeChange`, recording whether a
+  post-activation scope change affected the sprint goal.
+
+If you maintain a fork, note that 0.3 also collapses each app's migration history
+into a `0001_squashed_…` migration via Django's `replaces=` (issue #1286). Because
+the original migrations remain on disk and applyable, an existing database records
+the squashed migration as already-applied and upgrades as a **no-op** — there is no
+drop, recreate, or data step.
+
+---
+
 ## Docker Compose (development)
 
 ```bash

@@ -782,6 +782,25 @@ SPECTACULAR_SETTINGS = {
     "VERSION": "0.3.0",
     "SERVE_INCLUDE_SCHEMA": False,
     "COMPONENT_SPLIT_REQUEST": True,
+    # Self-hosted deployments serve the API from their own origin, so the schema
+    # advertises a single templated server (scheme + host variables) whose
+    # defaults are the local-dev address. Without a top-level `servers` array,
+    # openapi-typescript / Orval / openapi-generator emit base-URL-less clients
+    # or fail outright (#1329). Paths already carry the `/api/v1/` prefix, so the
+    # server URL is just the deployment origin.
+    "SERVERS": [
+        {
+            "url": "{scheme}://{host}",
+            "description": "Your TruePPM deployment",
+            "variables": {
+                "scheme": {"default": "https", "enum": ["https", "http"]},
+                "host": {
+                    "default": "localhost:8000",
+                    "description": "Host (and port) of your TruePPM API server.",
+                },
+            },
+        },
+    ],
     # Pin state-enum names (ADR-0173). PurgeRun.state shares the field name "state"
     # with the sprint lifecycle enum; introducing a second "state" choice set makes
     # drf-spectacular disambiguate *both* by model prefix, renaming the sprint enum

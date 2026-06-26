@@ -172,7 +172,7 @@ function AttachmentRow({ attachment, projectId, taskId, canEdit }: AttachmentRow
           disabled={signedUrl.isPending}
           className="text-xs border border-neutral-border rounded-control px-2 h-7 font-medium
             text-neutral-text-primary hover:bg-neutral-surface
-            focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track
+            focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
             focus-visible:outline-none disabled:opacity-50"
           aria-label={isExternal ? `Open ${displayName}` : `Download ${displayName}`}
         >
@@ -185,7 +185,7 @@ function AttachmentRow({ attachment, projectId, taskId, canEdit }: AttachmentRow
             onClick={() => setConfirmingDelete(true)}
             className="text-xs text-neutral-text-secondary hover:text-semantic-critical
               rounded-control px-2 h-7
-              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
               focus-visible:outline-none"
             aria-label={`Delete ${displayName}`}
           >
@@ -199,7 +199,7 @@ function AttachmentRow({ attachment, projectId, taskId, canEdit }: AttachmentRow
               disabled={deleteAttachment.isPending}
               className="text-xs bg-semantic-critical text-white rounded-control px-2 h-7 font-medium
                 hover:opacity-90 disabled:opacity-50
-                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track
+                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
                 focus-visible:outline-none"
               aria-label={`Confirm delete ${displayName}`}
             >
@@ -210,7 +210,7 @@ function AttachmentRow({ attachment, projectId, taskId, canEdit }: AttachmentRow
               onClick={() => setConfirmingDelete(false)}
               className="text-xs text-neutral-text-secondary rounded-control px-2 h-7
                 hover:bg-neutral-surface
-                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track
+                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
                 focus-visible:outline-none"
             >
               Cancel
@@ -407,7 +407,7 @@ export function AttachmentSection({
               className="text-xs border border-neutral-border rounded-control px-3 h-7 font-medium
                 shrink-0 whitespace-nowrap
                 text-neutral-text-primary hover:bg-neutral-surface
-                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
+                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
                 disabled:opacity-50"
             >
               + Attach file
@@ -419,7 +419,7 @@ export function AttachmentSection({
               className="text-xs border border-neutral-border rounded-control px-3 h-7 font-medium
                 shrink-0 whitespace-nowrap
                 text-neutral-text-primary hover:bg-neutral-surface
-                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
+                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
                 disabled:opacity-50"
             >
               + Pin link

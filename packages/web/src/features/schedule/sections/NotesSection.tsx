@@ -126,7 +126,7 @@ function NoteRow({
         )}
         {note.decision && (
           <span
-            className="rounded-chip bg-brand-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-brand-primary"
+            className="rounded-chip bg-brand-primary/10 px-1.5 py-0.5 text-xs font-medium text-brand-primary"
             title="Decision"
           >
             <span aria-hidden="true">⚖</span> Decision
@@ -150,7 +150,7 @@ function NoteRow({
             maxLength={MAX_BODY_CHARS}
             className="text-sm bg-neutral-surface border border-neutral-border rounded-control p-2
               text-neutral-text-primary
-              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
               resize-y min-h-[60px]"
           />
           {update.isError && (
@@ -165,7 +165,7 @@ function NoteRow({
               disabled={update.isPending || draft.trim().length === 0}
               className="text-xs border border-brand-primary/40 text-brand-primary rounded-control px-3 h-7 font-medium
                 hover:bg-brand-primary/10
-                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
+                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
                 disabled:opacity-50"
             >
               {update.isPending ? 'Saving…' : 'Save'}
@@ -179,7 +179,7 @@ function NoteRow({
               disabled={update.isPending}
               className="text-xs border border-neutral-border rounded-control px-3 h-7 font-medium
                 text-neutral-text-secondary hover:bg-neutral-surface
-                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
+                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
                 disabled:opacity-50"
             >
               Cancel
@@ -202,7 +202,7 @@ function NoteRow({
             aria-pressed={note.pinned}
             aria-label={note.pinned ? 'Unpin this note' : 'Pin this note'}
             className={`text-xs border rounded-control px-2 h-7 font-medium
-              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
               disabled:opacity-50
               ${
                 note.pinned
@@ -219,7 +219,7 @@ function NoteRow({
             aria-pressed={note.decision}
             aria-label={note.decision ? 'Unmark as decision' : 'Mark as decision'}
             className={`text-xs border rounded-control px-2 h-7 font-medium
-              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
               disabled:opacity-50
               ${
                 note.decision
@@ -238,7 +238,7 @@ function NoteRow({
               }}
               className="text-xs border border-neutral-border rounded-control px-2 h-7 font-medium
                 text-neutral-text-secondary hover:bg-neutral-surface
-                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none"
+                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
               aria-label="Edit this note"
             >
               Edit
@@ -251,7 +251,7 @@ function NoteRow({
               disabled={del.isPending}
               className="text-xs border border-neutral-border rounded-control px-2 h-7 font-medium
                 text-neutral-text-secondary hover:bg-semantic-critical-bg hover:text-semantic-critical hover:border-semantic-critical/40
-                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
+                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
                 disabled:opacity-50"
               aria-label="Delete this note"
             >
@@ -323,7 +323,7 @@ export function NotesSection({ taskId, projectId, userRole, canEdit }: DrawerSec
             aria-label="Search notes"
             className="flex-1 text-sm bg-neutral-surface border border-neutral-border rounded-control px-2 h-8
               text-neutral-text-primary placeholder:text-neutral-text-disabled
-              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none"
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
           />
           {query.trim() !== '' && (
             <span

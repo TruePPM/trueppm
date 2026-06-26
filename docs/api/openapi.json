@@ -3476,6 +3476,15 @@
                 "summary": "Within-program resource contention (cross-project allocation)",
                 "parameters": [
                     {
+                        "in": "query",
+                        "name": "end",
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        },
+                        "description": "Window end (ISO 8601 `YYYY-MM-DD`). Defaults to the latest `early_finish` across all member projects."
+                    },
+                    {
                         "in": "path",
                         "name": "id",
                         "schema": {
@@ -3484,6 +3493,38 @@
                         },
                         "description": "A UUID string identifying this program.",
                         "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "resource",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "format": "uuid"
+                            }
+                        },
+                        "description": "Repeatable. Filter to specific resource IDs."
+                    },
+                    {
+                        "in": "query",
+                        "name": "start",
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        },
+                        "description": "Window start (ISO 8601 `YYYY-MM-DD`). Defaults to the earliest `early_start` across all member projects."
+                    },
+                    {
+                        "in": "query",
+                        "name": "status",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "description": "Repeatable. Filter tasks by status value."
                     }
                 ],
                 "tags": [
@@ -3500,6 +3541,9 @@
                 "responses": {
                     "200": {
                         "description": "Per-resource task spans aggregated across every member project of the program, each tagged with its source project, so a caller can surface people over-allocated across sibling projects in overlapping windows. Overallocation detection stays client-side per ADR-0031."
+                    },
+                    "400": {
+                        "description": "Malformed `start`/`end` date, or `start` is after `end`."
                     },
                     "409": {
                         "description": "No member project has a computed schedule yet."
@@ -8534,6 +8578,7 @@
             "get": {
                 "operationId": "v1_projects_sync_retrieve",
                 "description": "Pull-only delta sync endpoint for the mobile offline store.\n\nReturns all rows (live and soft-deleted) whose server_version is strictly\ngreater than `since` for the given project, formatted for WatermelonDB's\nsynchronize() helper.\n\nThe response `timestamp` is snapshotted *before* the delta queries run\n(inside REPEATABLE READ isolation) to eliminate the TOCTOU gap where a\nwrite could land between the max-version read and the row queries.\n\nUsage:\n    GET /api/v1/projects/{pk}/sync/?since=0",
+                "summary": "Pull the offline sync delta for a project",
                 "parameters": [
                     {
                         "in": "path",
@@ -8543,6 +8588,15 @@
                             "format": "uuid"
                         },
                         "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "since",
+                        "schema": {
+                            "type": "integer",
+                            "default": 0
+                        },
+                        "description": "WatermelonDB high-water mark. Returns only rows whose `server_version` is strictly greater than this value. Omit (or pass `0`) for a full initial sync; passing the previous response's `timestamp` fetches just the delta since then. Omitting it silently triggers a full re-sync."
                     }
                 ],
                 "tags": [
@@ -8637,6 +8691,7 @@
             "post": {
                 "operationId": "v1_projects_task_sync_create",
                 "description": "``POST /api/v1/projects/{project_id}/task-sync/`` — inbound task push.\n\nAuthenticated via project-scoped API token (Authorization: Bearer tppm_…).\nThe auth class sets ``request.user`` to the token creator and\n``request.auth`` to the token itself.\n\nIDOR defense: verifies the token's project matches the URL ``project_id``.\nA mismatch returns ``401`` (not ``403``) to avoid leaking whether the URL\nproject exists.\n\nPer-project rate limit applies via ``TaskSyncThrottle`` (100 req/min steady,\n1000 req/min during the first 60 minutes after token creation).",
+                "summary": "Push an external task into a project (inbound task-sync)",
                 "parameters": [
                     {
                         "in": "path",
@@ -8650,6 +8705,26 @@
                 "tags": [
                     "v1"
                 ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/InboundTaskSyncPayloadRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/InboundTaskSyncPayloadRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/InboundTaskSyncPayloadRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
                 "security": [
                     {
                         "projectApiTokenAuth": []
@@ -8657,7 +8732,24 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/InboundTaskSyncResult"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/InboundTaskSyncResult"
+                                }
+                            }
+                        },
+                        "description": ""
                     }
                 }
             }
@@ -24613,6 +24705,85 @@
                     "status"
                 ]
             },
+            "InboundTaskSyncPayloadRequest": {
+                "type": "object",
+                "description": "Validates the inbound push payload.\n\nLoose by design: most fields are optional so a wide range of external\nsources can integrate without re-shaping their data.  Strict only on the\nidentifiers (``source``, ``external_id``) and on the assignee email\nformat.",
+                "properties": {
+                    "source": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 32
+                    },
+                    "external_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 255
+                    },
+                    "name": {
+                        "type": "string",
+                        "maxLength": 512
+                    },
+                    "description": {
+                        "type": "string",
+                        "maxLength": 100000
+                    },
+                    "status": {
+                        "type": "string",
+                        "maxLength": 64
+                    },
+                    "assignee_email": {
+                        "type": "string",
+                        "format": "email"
+                    },
+                    "story_points": {
+                        "type": "integer",
+                        "maximum": 999,
+                        "minimum": 0
+                    },
+                    "external_url": {
+                        "type": "string",
+                        "format": "uri",
+                        "maxLength": 2000
+                    },
+                    "parent_external_id": {
+                        "type": "string",
+                        "maxLength": 255
+                    }
+                },
+                "required": [
+                    "external_id",
+                    "source"
+                ]
+            },
+            "InboundTaskSyncResult": {
+                "type": "object",
+                "description": "Response shape for the inbound task-sync push (``POST .../task-sync/``).\n\nRead-only — describes the upsert result so SDK clients have a typed body.\n``created`` is ``True`` when the push created a new task (HTTP 201) and\n``False`` on an idempotent re-push that updated an existing task (HTTP 200).",
+                "properties": {
+                    "task_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "UUID of the upserted task."
+                    },
+                    "short_id": {
+                        "type": "string",
+                        "description": "Human-readable short id, e.g. `TSK-42`."
+                    },
+                    "created": {
+                        "type": "boolean",
+                        "description": "True if a new task was created (201); False on idempotent update (200)."
+                    },
+                    "assignee_resolved": {
+                        "type": "boolean",
+                        "description": "True if `assignee_email` matched a project member and was linked."
+                    }
+                },
+                "required": [
+                    "assignee_resolved",
+                    "created",
+                    "short_id",
+                    "task_id"
+                ]
+            },
             "InviteAcceptRequest": {
                 "type": "object",
                 "description": "POST body to accept an invite. username/password required only when no\naccount already exists for the invited email.",
@@ -35058,5 +35229,24 @@
                 "description": "Project-scoped API token (ADR-0068). Send as `Authorization: Bearer tppm_<64-hex>`. Mint one in project settings; it is scoped to a single project and the task-sync surface."
             }
         }
-    }
+    },
+    "servers": [
+        {
+            "url": "{scheme}://{host}",
+            "description": "Your TruePPM deployment",
+            "variables": {
+                "scheme": {
+                    "default": "https",
+                    "enum": [
+                        "https",
+                        "http"
+                    ]
+                },
+                "host": {
+                    "default": "localhost:8000",
+                    "description": "Host (and port) of your TruePPM API server."
+                }
+            }
+        }
+    ]
 }

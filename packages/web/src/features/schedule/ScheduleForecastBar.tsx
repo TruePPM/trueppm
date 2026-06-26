@@ -172,7 +172,7 @@ export function ScheduleForecastBar({
             aria-label={expanded ? 'Minimize forecast detail' : 'Maximize forecast detail'}
             className="flex items-center gap-2 text-left text-sm font-semibold text-neutral-text-primary
               rounded-control hover:bg-neutral-surface-raised px-1 -mx-1
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary dark:focus-visible:ring-semantic-on-track"
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary"
           >
             <span aria-hidden="true" className="text-xs text-neutral-text-secondary">
               {expanded ? '▾' : '▸'}

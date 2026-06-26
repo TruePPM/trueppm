@@ -22,7 +22,7 @@ from django.db.models import Count, Exists, OuterRef, Q, QuerySet, Subquery
 from django.http import HttpResponse
 from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission, IsAuthenticated
@@ -295,6 +295,44 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
 
     @extend_schema(
         summary="Within-program resource contention (cross-project allocation)",
+        parameters=[
+            OpenApiParameter(
+                name="start",
+                type=OpenApiTypes.DATE,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Window start (ISO 8601 `YYYY-MM-DD`). Defaults to the earliest "
+                    "`early_start` across all member projects."
+                ),
+            ),
+            OpenApiParameter(
+                name="end",
+                type=OpenApiTypes.DATE,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Window end (ISO 8601 `YYYY-MM-DD`). Defaults to the latest "
+                    "`early_finish` across all member projects."
+                ),
+            ),
+            OpenApiParameter(
+                name="resource",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                many=True,
+                description="Repeatable. Filter to specific resource IDs.",
+            ),
+            OpenApiParameter(
+                name="status",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                many=True,
+                description="Repeatable. Filter tasks by status value.",
+            ),
+        ],
         responses={
             200: OpenApiResponse(
                 description=(
@@ -303,6 +341,9 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
                     "people over-allocated across sibling projects in overlapping windows. "
                     "Overallocation detection stays client-side per ADR-0031."
                 )
+            ),
+            400: OpenApiResponse(
+                description="Malformed `start`/`end` date, or `start` is after `end`."
             ),
             409: OpenApiResponse(description="No member project has a computed schedule yet."),
         },

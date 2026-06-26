@@ -3,6 +3,11 @@ title: Change History
 description: Every change to a task, project, or dependency is recorded with a field-level diff, so you can see what changed, when, and (as an admin) who changed it.
 ---
 
+:::note[Shipped in 0.2 (alpha)]
+Change history shipped in **TruePPM 0.2**, available since the `0.2.0-alpha.1`
+pre-release (May 31, 2026). 0.2 is an alpha release.
+:::
+
 TruePPM records a **change history** for tasks, projects, dependencies, sprints, and more. Each edit
 captures a field-level diff — the old value, the new value, and when it happened — so you
 can answer "when did this task's finish date slip, and why?" without a spreadsheet.

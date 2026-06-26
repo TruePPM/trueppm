@@ -255,11 +255,18 @@ configured webhook endpoints:
 | `task.assignee_changed` | No WS broadcast. |
 | `task.mentioned` | No WS broadcast. |
 | `task.due_date_changed` | No WS broadcast. |
+| `sprint.activated` | No WS broadcast. First-party agile domain event (ADR-0147). |
+| `sprint.closed` | No WS broadcast. Completion snapshot (velocity) is privacy-gated in its payload per ADR-0104. |
+| `sprint.scope_changed` | No WS broadcast. Fires on post-activation scope injection (ADR-0102). |
 
-The OSS webhook event set is capped at 11 events: `task.created`,
+The OSS webhook event set is capped at 14 events: `task.created`,
 `task.updated`, `task.deleted`, `dependency.created`, `dependency.deleted`,
 `schedule.recalculated`, `project.created`, `task.assigned`,
-`task.assignee_changed`, `task.mentioned`, and `task.due_date_changed`.
+`task.assignee_changed`, `task.mentioned`, `task.due_date_changed`,
+`sprint.activated`, `sprint.closed`, and `sprint.scope_changed`. The agile trio
+(`sprint.*`) was added in ADR-0147, raising the cap from 11. Adding a 15th event
+requires its own ADR — the cap is the gate against per-customer event
+proliferation, which is the Enterprise upsell line.
 
 ## Workshop channel
 
