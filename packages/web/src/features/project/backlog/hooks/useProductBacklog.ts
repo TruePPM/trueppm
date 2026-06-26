@@ -15,11 +15,14 @@ import {
 } from '@tanstack/react-query';
 import {
   createBacklogStory,
+  createEpic,
+  deleteEpic,
   fetchProductBacklog,
   patchTaskDor,
   postAutoRank,
   postReorderBacklog,
   postSplitStory,
+  renameEpic,
   type ReorderEntry,
 } from '../api';
 import type { DorState } from '@/types';
@@ -105,6 +108,36 @@ export function useQuickAddStory(projectId: string | undefined) {
   const invalidate = useInvalidate(projectId);
   return useMutation({
     mutationFn: ({ name }: { name: string }) => createBacklogStory(projectId as string, name),
+    onSuccess: invalidate,
+  });
+}
+
+/**
+ * Epic CRUD on the grooming view (#1339). All three are invalidate-only (matching the
+ * quick-add / DoR hooks): the single grooming refetch re-derives the epic groups, so a
+ * created epic appears as a childless group and a deleted epic's orphaned stories move to
+ * Ungrouped — no client-side cache surgery. `TaskViewSet` broadcasts the task events.
+ */
+export function useCreateEpic(projectId: string | undefined) {
+  const invalidate = useInvalidate(projectId);
+  return useMutation({
+    mutationFn: ({ name }: { name: string }) => createEpic(projectId as string, name),
+    onSuccess: invalidate,
+  });
+}
+
+export function useRenameEpic(projectId: string | undefined) {
+  const invalidate = useInvalidate(projectId);
+  return useMutation({
+    mutationFn: ({ epicId, name }: { epicId: string; name: string }) => renameEpic(epicId, name),
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeleteEpic(projectId: string | undefined) {
+  const invalidate = useInvalidate(projectId);
+  return useMutation({
+    mutationFn: ({ epicId }: { epicId: string }) => deleteEpic(epicId),
     onSuccess: invalidate,
   });
 }

@@ -55,18 +55,20 @@ import { useSprintsByState } from '@/hooks/useSprints';
 import type { Task } from '@/types';
 import type { ReorderEntry } from './api';
 import { AcMeter, AssigneeAvatar, DorChip } from './components/atoms';
+import { EpicHeader } from './components/EpicHeader';
 import { SprintCommitButton, type PlannedSprintRef } from './SprintCommitButton';
 import { SprintPlanningRail } from './SprintPlanningRail';
 import { StoryDetailDrawer } from './components/StoryDetailDrawer';
 import { TypeBadge } from './components/TypeBadge';
 import {
   useAutoRank,
+  useCreateEpic,
   useProductBacklog,
   useQuickAddStory,
   useReorderBacklog,
   useSetDor,
 } from './hooks/useProductBacklog';
-import type { EpicGroup, GroomingHealth, ProductBacklog } from './types';
+import type { GroomingHealth, ProductBacklog } from './types';
 
 type BacklogView = 'epic' | 'ranked';
 
@@ -322,41 +324,6 @@ function SortableGroup({
   );
 }
 
-function EpicHeader({ group }: { group: EpicGroup }) {
-  const { epic, rollup } = group;
-  const pct =
-    rollup.pointsTotal > 0 ? Math.round((rollup.pointsDone / rollup.pointsTotal) * 100) : 0;
-  return (
-    <div className="flex items-center gap-2.5 rounded-card bg-neutral-surface-sunken px-2 py-2">
-      <span className="h-5 w-2 rounded-[2px] bg-brand-primary" aria-hidden />
-      <span className="text-xs font-bold uppercase tracking-wide text-neutral-text-secondary">
-        Epic
-      </span>
-      <span className="font-mono text-[11px] text-neutral-text-secondary">{epic.shortId}</span>
-      <span className="text-sm font-semibold text-neutral-text-primary">{epic.name}</span>
-      <div className="flex-1" />
-      <div className="flex items-center gap-2">
-        <span className="font-mono text-[11px] text-neutral-text-secondary">
-          {rollup.pointsDone}/{rollup.pointsTotal} pts · {pct}%
-        </span>
-        <span
-          role="progressbar"
-          aria-valuenow={rollup.pointsDone}
-          aria-valuemin={0}
-          aria-valuemax={rollup.pointsTotal}
-          aria-label={`Epic ${epic.name}: ${rollup.pointsDone} of ${rollup.pointsTotal} points complete`}
-          className="h-1.5 w-24 overflow-hidden rounded-full bg-neutral-surface"
-        >
-          <span
-            className="block h-full rounded-full bg-brand-primary"
-            style={{ width: `${pct}%` }}
-          />
-        </span>
-      </div>
-    </div>
-  );
-}
-
 /** "By epic / Ranked" segmented control. Native radios give arrow-key roving for free
  *  (rule 175/167); the visible labels carry the swatch styling and the wrapper rings on
  *  focus (rule 4/157, the radios are sr-only). */
@@ -448,6 +415,7 @@ export function ProductBacklogPage() {
   const setDor = useSetDor(projectId);
   const reorder = useReorderBacklog(projectId);
   const quickAdd = useQuickAddStory(projectId);
+  const createEpic = useCreateEpic(projectId);
   const canManageBacklog = useCanManageBacklog(projectId);
   // The sprint currently being planned (issue 1291) — drives the planning rail and
   // the per-row commit toggle. Deduped against the board's ['sprints'] query.
@@ -484,6 +452,29 @@ export function ProductBacklogPage() {
   const [conflict, setConflict] = useState(false);
   const [draft, setDraft] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // Inline epic create (#1339): the header "+ Add epic" reveals a dashed input row at the
+  // top of the epic list. Enter commits and keeps focus for rapid multi-add; Esc closes.
+  const epicAddRef = useRef<HTMLInputElement>(null);
+  const [addingEpic, setAddingEpic] = useState(false);
+  const [epicDraft, setEpicDraft] = useState('');
+  function openAddEpic() {
+    createEpic.reset();
+    setAddingEpic(true);
+  }
+  useEffect(() => {
+    if (addingEpic) epicAddRef.current?.focus();
+  }, [addingEpic]);
+  function submitEpic() {
+    const name = epicDraft.trim();
+    if (!name) return;
+    setEpicDraft(''); // clear immediately so the PO can keep adding; restore on error
+    createEpic.mutate({ name }, { onError: () => setEpicDraft(name) });
+  }
+  function closeAddEpic() {
+    setAddingEpic(false);
+    setEpicDraft('');
+  }
 
   // Flatten stories in render order to locate the next-sprint ready line — the row after
   // which cumulative ready points first reach the active sprint's capacity.
@@ -656,6 +647,11 @@ export function ProductBacklogPage() {
           >
             Plan {itl.lower}
           </Button>
+          {canManageBacklog && view === 'epic' && (
+            <Button variant="secondary" size="sm" onClick={openAddEpic}>
+              + Add epic
+            </Button>
+          )}
           <Button variant="primary" size="sm" onClick={focusQuickAdd}>
             + Add story
           </Button>
@@ -707,15 +703,62 @@ export function ProductBacklogPage() {
 
             {view === 'epic' ? (
               <>
+                {addingEpic && (
+                  <div className="mb-3.5">
+                    <div className="flex items-center gap-2.5 rounded-card border border-dashed border-neutral-border bg-neutral-surface-sunken px-2 py-2 focus-within:ring-2 focus-within:ring-brand-primary">
+                      <span
+                        className="flex w-[44px] justify-center text-neutral-text-secondary"
+                        aria-hidden
+                      >
+                        +
+                      </span>
+                      <input
+                        ref={epicAddRef}
+                        type="text"
+                        value={epicDraft}
+                        onChange={(e) => setEpicDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            submitEpic();
+                          } else if (e.key === 'Escape') {
+                            e.preventDefault();
+                            closeAddEpic();
+                          }
+                        }}
+                        onBlur={() => {
+                          if (!epicDraft.trim()) closeAddEpic();
+                        }}
+                        placeholder="Epic name…"
+                        aria-label="New epic name"
+                        className="flex-1 bg-transparent text-sm font-semibold text-neutral-text-primary placeholder:font-normal placeholder:text-neutral-text-secondary focus:outline-none"
+                      />
+                      {epicDraft.trim() && (
+                        <span className="text-xs text-neutral-text-secondary">↵ to add</span>
+                      )}
+                    </div>
+                    {createEpic.isError && (
+                      <p role="alert" className="px-2 pt-1 text-[11px] text-semantic-critical">
+                        Couldn&apos;t add epic — try again.
+                      </p>
+                    )}
+                  </div>
+                )}
+
                 {backlog.epics.map((group) => (
                   <div key={group.epic.id} className="mb-3.5">
-                    <EpicHeader group={group} />
+                    <EpicHeader group={group} projectId={projectId as string} />
                     <SortableGroup
                       ids={group.stories.map((s) => s.id)}
                       onReorder={(ids) => reorderEpic(group.epic.id, ids)}
                     >
                       {rowsWithReadyLine(group.stories)}
                     </SortableGroup>
+                    {group.stories.length === 0 && (
+                      <p className="px-2 py-2 text-xs text-neutral-text-secondary">
+                        No stories yet — set this epic on a story from its detail drawer.
+                      </p>
+                    )}
                   </div>
                 ))}
 
