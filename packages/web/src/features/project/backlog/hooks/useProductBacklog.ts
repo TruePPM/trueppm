@@ -113,7 +113,7 @@ export function useQuickAddStory(projectId: string | undefined) {
 }
 
 /**
- * Epic CRUD on the grooming view (#1339). All three are invalidate-only (matching the
+ * Epic CRUD on the grooming view. All three are invalidate-only (matching the
  * quick-add / DoR hooks): the single grooming refetch re-derives the epic groups, so a
  * created epic appears as a childless group and a deleted epic's orphaned stories move to
  * Ungrouped — no client-side cache surgery. `TaskViewSet` broadcasts the task events.

@@ -453,7 +453,7 @@ export function ProductBacklogPage() {
   const [draft, setDraft] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  // Inline epic create (#1339): the header "+ Add epic" reveals a dashed input row at the
+  // Inline epic create: the header "+ Add epic" reveals a dashed input row at the
   // top of the epic list. Enter commits and keeps focus for rapid multi-add; Esc closes.
   const epicAddRef = useRef<HTMLInputElement>(null);
   const [addingEpic, setAddingEpic] = useState(false);

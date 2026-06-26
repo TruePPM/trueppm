@@ -8,7 +8,7 @@ import type { EpicGroup } from '../types';
 import { EpicDeleteConfirmDialog } from './EpicDeleteConfirmDialog';
 
 /**
- * Epic group header on the Product Backlog grooming view (#1339).
+ * Epic group header on the Product Backlog grooming view.
  *
  * Renders the epic's id/name + a points-progress rollup, and — for a backlog
  * manager — a kebab menu to **rename** (in-place) and **delete** the epic. The

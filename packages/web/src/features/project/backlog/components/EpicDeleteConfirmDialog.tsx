@@ -14,7 +14,7 @@ export interface EpicDeleteConfirmDialogProps {
 }
 
 /**
- * Confirm dialog for deleting an epic (#1339). Cloned from the board's
+ * Confirm dialog for deleting an epic. Cloned from the board's
  * {@link DeleteConfirmDialog} (rather than mutating a shared component) because
  * the body copy is epic-specific: deleting an epic is NOT destructive to its
  * stories — `parent_epic` is `on_delete=SET_NULL`, so the children survive and

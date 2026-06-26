@@ -240,7 +240,7 @@ export async function createBacklogStory(projectId: string, name: string): Promi
 }
 
 /**
- * Create an epic (#1339). An epic is a Task with type=epic — a grouping node
+ * Create an epic. An epic is a Task with type=epic — a grouping node
  * excluded from CPM and committed-delivery aggregates, never schedulable. status=BACKLOG
  * keeps it in the backlog domain alongside its sibling stories; the server defaults
  * parent_epic and sprint to null (epics never nest). Server-gated to backlog managers
@@ -256,7 +256,7 @@ export async function createEpic(projectId: string, name: string): Promise<void>
 }
 
 /**
- * Rename an epic (#1339). `name` is a normal task edit — it does NOT trip the
+ * Rename an epic. `name` is a normal task edit — it does NOT trip the
  * `_validate_product_backlog` structural gate — so the server permits Admin+/PO-facet
  * (the render-gate uses the epic's own `canEdit` verdict to match).
  */
@@ -265,7 +265,7 @@ export async function renameEpic(epicId: string, name: string): Promise<void> {
 }
 
 /**
- * Delete an epic (#1339). `parent_epic` is `on_delete=SET_NULL`, so the epic's child
+ * Delete an epic. `parent_epic` is `on_delete=SET_NULL`, so the epic's child
  * stories survive and re-appear under "Ungrouped" — never a cascade delete. Server
  * permission is Admin+/Owner (the PO facet is deliberately excluded for DELETE), which
  * the epic's `canDelete` verdict already reflects.
