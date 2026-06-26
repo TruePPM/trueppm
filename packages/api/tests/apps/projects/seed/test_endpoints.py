@@ -69,7 +69,8 @@ def test_import_rejects_invalid_seed(user: Any) -> None:
     seed["projects"][0]["tasks"][0]["assignee"] = "ghost"
     resp = _client(user).post(IMPORT_URL, data=seed, format="json")
     assert resp.status_code == 400
-    assert any("ghost" in e for e in resp.data["errors"])
+    # Line-level validation report: `detail` is the list of messages (#1325).
+    assert any("ghost" in e for e in resp.data["detail"])
     assert not Program.objects.filter(code="atlas").exists()
 
 
@@ -86,7 +87,8 @@ def test_import_rejects_oversized_file(user: Any, settings: Any) -> None:
     )
     resp = _client(user).post(IMPORT_URL, data={"file": upload}, format="multipart")
     assert resp.status_code == 400
-    assert any("too large" in e for e in resp.data["errors"])
+    # Single-message failure: `detail` is a plain string (#1325).
+    assert "too large" in resp.data["detail"]
     assert not Program.objects.filter(code="atlas").exists()
 
 

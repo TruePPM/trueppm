@@ -3790,7 +3790,7 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
         edges.append((str(predecessor.id), str(successor.id)))
 
         try:
-            cycle_ids = find_cycle(edges, children_map=children_map)
+            cycle_ids = find_cycle(edges, children_map=children_map).cycle
         except InvalidScheduleInput as exc:
             # The scheduler caps how far a summary→summary dependency may fan out
             # to leaf level before cycle detection (trueppm_scheduler #357). A

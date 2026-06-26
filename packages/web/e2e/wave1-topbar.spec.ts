@@ -33,9 +33,7 @@ const HEALTH_STATUS_SUMMARY = {
     { id: 'ar1', wbs: '1.1', name: 'Frontend Build' },
     { id: 'ar2', wbs: '1.2', name: 'Backend Implementation' },
   ],
-  critical_tasks: [
-    { id: 'cr1', wbs: '2.1', name: 'Database Migration' },
-  ],
+  critical_tasks: [{ id: 'cr1', wbs: '2.1', name: 'Database Migration' }],
   last_saved: null,
   recalculated_at: null,
 };
@@ -74,13 +72,27 @@ async function setupBase(page: import('@playwright/test').Page, statusSummary: o
   // them empty so the cluster doesn't hit the live network for unused data (and the
   // HYBRID Sprint segment reads "No active Sprint").
   await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/sprints/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+    }),
   );
   await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/velocity/`, (route) =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ sprints: [], rolling_avg_points: null, rolling_stdev_points: null, forecast_range_low: null, forecast_range_high: null, rolling_avg_tasks: null, rolling_stdev_tasks: null, team_velocity_per_day: null, excluded_count: 0 }),
+      body: JSON.stringify({
+        sprints: [],
+        rolling_avg_points: null,
+        rolling_stdev_points: null,
+        forecast_range_low: null,
+        forecast_range_high: null,
+        rolling_avg_tasks: null,
+        rolling_stdev_tasks: null,
+        team_velocity_per_day: null,
+        excluded_count: 0,
+      }),
     }),
   );
   await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/overview/`, (route) =>
@@ -88,17 +100,32 @@ async function setupBase(page: import('@playwright/test').Page, statusSummary: o
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        schedule_health: 'at_risk', spi: 0.92, tasks_late_count: 2, critical_task_count: 1,
-        total_tasks: 5, complete_tasks: 2, next_milestone: null, team_utilization_pct: null,
-        owner_name: null, start_date: '2026-01-01',
+        schedule_health: 'at_risk',
+        spi: 0.92,
+        tasks_late_count: 2,
+        critical_task_count: 1,
+        total_tasks: 5,
+        complete_tasks: 2,
+        next_milestone: null,
+        team_utilization_pct: null,
+        owner_name: null,
+        start_date: '2026-01-01',
       }),
     }),
   );
   await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/attention/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [] }) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ items: [] }),
+    }),
   );
   await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/my-tasks/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ tasks: [] }) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ tasks: [] }),
+    }),
   );
   await page.route('**/api/v1/projects/*/presence/', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
@@ -145,7 +172,9 @@ test.describe('Wave 1 — TopBar health cluster (desktop, lg+ viewport)', () => 
     await expect(page.getByTestId('health-cluster')).toBeVisible();
   });
 
-  test('Forecast segment renders the P50·P80 band with month-day dates (#1197)', async ({ page }) => {
+  test('Forecast segment renders the P50·P80 band with month-day dates (#1197)', async ({
+    page,
+  }) => {
     const forecastBtn = page.getByRole('button', { name: /monte carlo forecast/i });
     await expect(forecastBtn).toBeVisible();
     await expect(forecastBtn).toContainText('P50');
@@ -156,7 +185,9 @@ test.describe('Wave 1 — TopBar health cluster (desktop, lg+ viewport)', () => 
 
   test('clicking Forecast segment opens MC distribution panel', async ({ page }) => {
     await page.getByRole('button', { name: /monte carlo forecast/i }).click();
-    await expect(page.getByRole('dialog', { name: /monte carlo confidence distribution/i })).toBeVisible();
+    await expect(
+      page.getByRole('dialog', { name: /monte carlo confidence distribution/i }),
+    ).toBeVisible();
   });
 
   test('critical segment renders count from status-summary', async ({ page }) => {
@@ -170,12 +201,16 @@ test.describe('Wave 1 — TopBar health cluster (desktop, lg+ viewport)', () => 
     await expect(menu.getByRole('menuitem', { name: /database migration/i })).toBeVisible();
   });
 
-  test('Sprint segment reads "No active Sprint" when there is no active sprint', async ({ page }) => {
+  test('Sprint segment reads "No active Sprint" when there is no active sprint', async ({
+    page,
+  }) => {
     const cluster = page.getByTestId('health-cluster');
     await expect(cluster.getByText(/no active sprint/i)).toBeVisible();
   });
 
-  test('cluster shows calm zero/— reads (no actionable buttons) when there are no signals', async ({ page }) => {
+  test('cluster shows calm zero/— reads (no actionable buttons) when there are no signals', async ({
+    page,
+  }) => {
     // The v2 cluster has fixed slots (ADR-0128) — it does not vanish; each segment
     // renders a calm static read: P80 "—", "0 critical". None are drill-down buttons.
     await page.route('**/api/v1/projects/*/status-summary/', (route) =>
@@ -213,7 +248,9 @@ test.describe('Wave 1 — TopBar health cluster (mobile, collapsed Health dropdo
     await expect(page.getByRole('button', { name: /project health summary/i })).toBeVisible();
   });
 
-  test('collapsed Health expands to show segment reads and task items on click', async ({ page }) => {
+  test('collapsed Health expands to show segment reads and task items on click', async ({
+    page,
+  }) => {
     const btn = page.getByRole('button', { name: /project health summary/i });
     await btn.click();
     await expect(btn).toHaveAttribute('aria-expanded', 'true');
@@ -222,7 +259,9 @@ test.describe('Wave 1 — TopBar health cluster (mobile, collapsed Health dropdo
     await expect(menu.getByRole('menuitem', { name: /database migration/i })).toBeVisible();
   });
 
-  test('collapsed Health stays present and shows zero/— reads when there are no signals', async ({ page }) => {
+  test('collapsed Health stays present and shows zero/— reads when there are no signals', async ({
+    page,
+  }) => {
     // The v2 cluster has fixed slots (ADR-0128) — its collapsed form does not vanish.
     await page.route('**/api/v1/projects/*/status-summary/', (route) =>
       route.fulfill({
@@ -265,11 +304,11 @@ test.describe('Wave 1 — BottomNav path-based routing (issue #250)', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           columns: [
-            { status: 'BACKLOG',     label: 'Backlog',     visible: true },
-            { status: 'NOT_STARTED', label: 'To Do',       visible: true },
+            { status: 'BACKLOG', label: 'Backlog', visible: true },
+            { status: 'NOT_STARTED', label: 'To Do', visible: true },
             { status: 'IN_PROGRESS', label: 'In Progress', visible: true },
-            { status: 'REVIEW',      label: 'Review',      visible: true },
-            { status: 'COMPLETE',    label: 'Done',        visible: true },
+            { status: 'REVIEW', label: 'Review', visible: true },
+            { status: 'COMPLETE', label: 'Done', visible: true },
           ],
         }),
       }),
@@ -278,7 +317,12 @@ test.describe('Wave 1 — BottomNav path-based routing (issue #250)', () => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ project_id: FIXTURE_PROJECT_ID, window_start: '2026-01-01', window_end: '2026-03-01', resources: [] }),
+        body: JSON.stringify({
+          project_id: FIXTURE_PROJECT_ID,
+          window_start: '2026-01-01',
+          window_end: '2026-03-01',
+          resources: [],
+        }),
       }),
     );
     await page.goto(`${BASE_URL}/overview`);
@@ -301,5 +345,15 @@ test.describe('Wave 1 — BottomNav path-based routing (issue #250)', () => {
     const nav = page.getByRole('navigation', { name: 'View' });
     await expect(nav.getByRole('link', { name: 'Board' })).toHaveAttribute('aria-current', 'page');
     await expect(nav.getByRole('link', { name: 'Overview' })).not.toHaveAttribute('aria-current');
+  });
+
+  test('BottomNav exposes the headline Today view on mobile (issue #1324)', async ({ page }) => {
+    // The 0.3 headline Today view (ADR-0180) must be reachable on mobile — it was
+    // present in the desktop ViewTabs but absent from the BottomNav rail, leaving it
+    // unreachable on any phone viewport. Assert the link exists with a path-based href.
+    const nav = page.getByRole('navigation', { name: 'View' });
+    const todayLink = nav.getByRole('link', { name: 'Today' });
+    await expect(todayLink).toBeVisible();
+    await expect(todayLink).toHaveAttribute('href', `/projects/${FIXTURE_PROJECT_ID}/today`);
   });
 });

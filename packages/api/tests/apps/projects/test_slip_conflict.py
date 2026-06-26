@@ -10,7 +10,10 @@ acknowledge facet gate, list scoping, and the ADR-0106 unmodeled-dependency inte
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date, timedelta
+from typing import Any
+from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -239,6 +242,45 @@ def test_acknowledge_requires_scope_manager(calendar: Calendar) -> None:
         resolution=SlipConflictResolution.AUTO_RESOLVED
     )
     assert admin_client.post(url).status_code == 400
+
+
+@pytest.mark.django_db
+def test_acknowledge_broadcasts_to_clear_stale_badge(
+    calendar: Calendar,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """Acknowledging broadcasts slip_conflict_acknowledged so peers' badge clears (#1323).
+
+    Only on a real state change — a re-acknowledge of the same row is a no-op and
+    broadcasts nothing more.
+    """
+    program, _a, proj_b, _a1, b1, sprint, _dep = _scenario(calendar)
+    _run_program_schedule(str(program.pk))
+    conflict = CrossProjectSlipConflict.objects.get(sprint=sprint, task=b1)
+
+    admin = User.objects.create_user(username="ack-admin", password="pw")
+    ProjectMembership.objects.create(project=proj_b, user=admin, role=Role.ADMIN)
+    client = APIClient()
+    client.force_authenticate(user=admin)
+    url = f"/api/v1/slip-conflicts/{conflict.pk}/acknowledge/"
+
+    events: list[tuple[str, dict]] = []
+    recorder = lambda pid, et, payload: events.append((et, payload))  # noqa: E731
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event", side_effect=recorder),
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        assert client.post(url).status_code == 200
+    assert ("slip_conflict_acknowledged", {"id": str(conflict.pk)}) in events
+
+    # Re-acknowledging the same (still-unresolved) row changes nothing → no broadcast.
+    events.clear()
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event", side_effect=recorder),
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        assert client.post(url).status_code == 200
+    assert not any(et == "slip_conflict_acknowledged" for et, _payload in events)
 
 
 @pytest.mark.django_db

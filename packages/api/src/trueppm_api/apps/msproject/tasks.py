@@ -141,12 +141,19 @@ def import_msproject(
         # start back (committed inside import_project). Broadcast project_updated
         # so collaborators viewing an existing project re-fetch the new boundary
         # — the recalc's cpm_complete event does not invalidate the project query.
-        # Fired directly (the Celery task context has no ambient transaction, so
-        # the importer's project.save has already committed).
+        # Deferred with on_commit (#1323): correct today (the Celery task context
+        # has no ambient transaction, so on_commit fires immediately after the
+        # importer's project.save has already committed), and future-proof if
+        # import_project is ever called inside an atomic() — the broadcast then
+        # waits for the real commit instead of racing a possible rollback.
         if summary.get("project_start_shifted"):
+            from django.db import transaction
+
             from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
-            broadcast_board_event(project_id, "project_updated", {"id": project_id})
+            transaction.on_commit(
+                lambda: broadcast_board_event(project_id, "project_updated", {"id": project_id})
+            )
 
     if import_request_id:
         _mark_import_done(import_request_id)

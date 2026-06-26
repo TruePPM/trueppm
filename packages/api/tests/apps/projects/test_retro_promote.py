@@ -11,7 +11,10 @@ the originating Task is soft-deleted.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date
+from typing import Any
+from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -428,31 +431,11 @@ def test_accept_suggestion_forbidden_for_non_target(
 
 
 @pytest.mark.django_db
-def test_decline_suggestion(project: Project, member: object, member_other: object) -> None:
-    sprint, _, item = _retro_with_item(project, assignee=member_other)
-    promote_resp = _client(member).post(
-        f"/api/v1/sprints/{sprint.pk}/retrospective/action-items/{item.pk}/promote/",
-        {},
-        format="json",
-    )
-    task_id = promote_resp.data["task"]["id"]
-    suggestion = TaskSuggestedAssignee.objects.get(task_id=task_id)
-
-    resp = _client(member_other).post(
-        f"/api/v1/tasks/{task_id}/suggestions/{suggestion.pk}/decline/",
-        {},
-        format="json",
-    )
-    assert resp.status_code == 200
-    suggestion.refresh_from_db()
-    assert suggestion.state == SuggestionState.DECLINED
-    task = Task.objects.get(pk=task_id)
-    assert task.assignee_id is None  # no binding on decline
-
-
-@pytest.mark.django_db
-def test_revoke_suggestion_by_originator(
-    project: Project, member: object, member_other: object
+def test_decline_suggestion(
+    project: Project,
+    member: object,
+    member_other: object,
+    django_capture_on_commit_callbacks: Callable[..., Any],
 ) -> None:
     sprint, _, item = _retro_with_item(project, assignee=member_other)
     promote_resp = _client(member).post(
@@ -463,14 +446,62 @@ def test_revoke_suggestion_by_originator(
     task_id = promote_resp.data["task"]["id"]
     suggestion = TaskSuggestedAssignee.objects.get(task_id=task_id)
 
-    resp = _client(member).post(
-        f"/api/v1/tasks/{task_id}/suggestions/{suggestion.pk}/revoke/",
+    events: list[tuple[str, dict]] = []
+    with (
+        patch(
+            "trueppm_api.apps.sync.broadcast.broadcast_board_event",
+            side_effect=lambda pid, et, payload: events.append((et, payload)),
+        ),
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        resp = _client(member_other).post(
+            f"/api/v1/tasks/{task_id}/suggestions/{suggestion.pk}/decline/",
+            {},
+            format="json",
+        )
+    assert resp.status_code == 200
+    suggestion.refresh_from_db()
+    assert suggestion.state == SuggestionState.DECLINED
+    task = Task.objects.get(pk=task_id)
+    assert task.assignee_id is None  # no binding on decline
+    # A silent state-reconciliation broadcast clears peers' stale "Pending" without
+    # exposing the decliner — the psych-safety contract (#1323).
+    assert ("suggestion_declined", {"id": str(suggestion.pk), "task_id": str(task_id)}) in events
+
+
+@pytest.mark.django_db
+def test_revoke_suggestion_by_originator(
+    project: Project,
+    member: object,
+    member_other: object,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    sprint, _, item = _retro_with_item(project, assignee=member_other)
+    promote_resp = _client(member).post(
+        f"/api/v1/sprints/{sprint.pk}/retrospective/action-items/{item.pk}/promote/",
         {},
         format="json",
     )
+    task_id = promote_resp.data["task"]["id"]
+    suggestion = TaskSuggestedAssignee.objects.get(task_id=task_id)
+
+    events: list[tuple[str, dict]] = []
+    with (
+        patch(
+            "trueppm_api.apps.sync.broadcast.broadcast_board_event",
+            side_effect=lambda pid, et, payload: events.append((et, payload)),
+        ),
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        resp = _client(member).post(
+            f"/api/v1/tasks/{task_id}/suggestions/{suggestion.pk}/revoke/",
+            {},
+            format="json",
+        )
     assert resp.status_code == 200
     suggestion.refresh_from_db()
     assert suggestion.state == SuggestionState.REVOKED
+    assert ("suggestion_revoked", {"id": str(suggestion.pk), "task_id": str(task_id)}) in events
 
 
 @pytest.mark.django_db

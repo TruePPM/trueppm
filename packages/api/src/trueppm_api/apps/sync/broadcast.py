@@ -15,6 +15,14 @@ from asgiref.sync import async_to_sync
 
 logger = logging.getLogger(__name__)
 
+# Wire-protocol version for the ``board.event`` envelope (#1325). A bare integer
+# down-payment reserved *before* 0.3 ships and freezes 60+ ``event_type`` strings:
+# once a client builds against the envelope, adding a versioning handshake later
+# would be a breaking change, whereas a field that is already present can grow a
+# meaning without one. Clients that don't read it are unaffected; future clients
+# can branch on it. Bump only on a backward-incompatible envelope change.
+WS_PROTOCOL_VERSION = 1
+
 
 def _group_name(project_id: str) -> str:
     """Return the channel layer group name for a project."""
@@ -27,10 +35,12 @@ def _board_message(event_type: str, payload: dict[str, Any]) -> dict[str, Any]:
     Shared by the sync and async broadcast helpers so the wire shape stays in
     one place — ``ProjectConsumer.board_event`` reads ``event_type``/``payload``
     off the top level (unlike the workshop channel, which nests under
-    ``content``).
+    ``content``). The ``protocol_version`` field is the single source of the wire
+    version for every board event (#1325).
     """
     return {
         "type": "board.event",
+        "protocol_version": WS_PROTOCOL_VERSION,
         "event_type": event_type,
         "payload": payload,
     }

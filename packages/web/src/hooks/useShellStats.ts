@@ -11,7 +11,6 @@ export interface UseShellStatsResult {
 
 interface StatusSummaryResponse {
   task_count: number;
-  critical_path_count: number;
   monte_carlo_p80: string | null;
   at_risk_count: number;
   critical_count: number;
@@ -24,7 +23,10 @@ interface StatusSummaryResponse {
 function toShellStats(r: StatusSummaryResponse): ShellStats {
   return {
     taskCount: r.task_count,
-    criticalPathCount: r.critical_path_count,
+    // `critical_path_count` was dropped from the API as an exact alias of
+    // `critical_count` (issue 1325); both ShellStats fields now derive from the one
+    // surviving server field, which carried the identical value.
+    criticalPathCount: r.critical_count,
     monteCarlop80: r.monte_carlo_p80,
     atRiskCount: r.at_risk_count,
     criticalCount: r.critical_count,

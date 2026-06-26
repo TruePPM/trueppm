@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import math
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Any
@@ -517,10 +518,52 @@ def _check_cycles(g: nx.DiGraph[str]) -> None:
         pass
 
 
+@dataclass
+class CycleCheck:
+    """Result of a dependency-graph cycle check (see :func:`find_cycle`).
+
+    Wraps the raw cycle path so this public, ``__all__``-exported helper can grow
+    new fields later (e.g. the dependency types along the cycle) without breaking
+    callers — the pip wheel ships this API, so its shape is a forward-compatibility
+    contract (#1325). Truthy iff a cycle was found, so ``if find_cycle(...):`` still
+    reads naturally.
+    """
+
+    #: The cycle as an ordered list of task IDs with the first repeated at the end
+    #: (e.g. ``["A", "B", "C", "A"]``), or ``None`` when the graph is acyclic.
+    cycle: list[str] | None
+
+    def __bool__(self) -> bool:
+        return self.cycle is not None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"cycle": self.cycle}
+
+
+@dataclass
+class SummaryExpansion:
+    """Result of expanding summary-task dependencies (see :func:`expand_summary_dependencies`).
+
+    Wraps the ``(tasks, dependencies)`` pair so this public, ``__all__``-exported
+    helper can grow fields without breaking the pip contract (#1325). Iterable for
+    backward compatibility — ``leaf_tasks, deps = expand_summary_dependencies(...)``
+    still unpacks — while ``.tasks`` / ``.dependencies`` are the named accessors.
+    """
+
+    #: Input tasks with summary tasks removed (only leaves remain).
+    tasks: list[Task]
+    #: Dependencies fanned out to leaf-level edges, deduplicated.
+    dependencies: list[Dependency]
+
+    def __iter__(self) -> Iterator[Any]:
+        yield self.tasks
+        yield self.dependencies
+
+
 def find_cycle(
     edges: list[tuple[str, str]],
     children_map: dict[str, list[str]] | None = None,
-) -> list[str] | None:
+) -> CycleCheck:
     """Detect a cycle in a dependency graph; return ordered task IDs or None.
 
     Operates on raw ``(predecessor_id, successor_id)`` tuples so callers do
@@ -539,9 +582,10 @@ def find_cycle(
             child IDs. Tasks not in the mapping are treated as leaves.
 
     Returns:
-        The cycle as an ordered list of task IDs with the first repeated at
-        the end (e.g. ``['A', 'B', 'C', 'A']``) so callers can render an
-        unambiguous path. Returns ``None`` if the graph is acyclic.
+        A :class:`CycleCheck` whose ``cycle`` is the cycle as an ordered list of
+        task IDs with the first repeated at the end (e.g. ``['A', 'B', 'C', 'A']``)
+        so callers can render an unambiguous path, or ``None`` if the graph is
+        acyclic. The result is truthy iff a cycle was found.
 
     Raises:
         InvalidScheduleInput: If ``children_map`` itself is malformed — it
@@ -581,8 +625,8 @@ def find_cycle(
     try:
         cycle = nx.find_cycle(g)
     except nx.NetworkXNoCycle:
-        return None
-    return [u for u, _ in cycle] + [cycle[-1][1]]
+        return CycleCheck(cycle=None)
+    return CycleCheck(cycle=[u for u, _ in cycle] + [cycle[-1][1]])
 
 
 def _expand_edges_for_cycle_check(
@@ -1024,7 +1068,7 @@ def expand_summary_dependencies(
     tasks: list[Task],
     deps: list[Dependency],
     children_map: dict[str, list[str]],
-) -> tuple[list[Task], list[Dependency]]:
+) -> SummaryExpansion:
     """Expand summary task dependencies into leaf-level edges.
 
     Summary tasks (those with entries in children_map) are removed from the
@@ -1039,11 +1083,12 @@ def expand_summary_dependencies(
         children_map: Mapping of summary task ID to list of direct child IDs.
 
     Returns:
-        (leaf_tasks, expanded_deps): Tasks with summaries removed, and
-        dependencies expanded to leaf-level edges.
+        A :class:`SummaryExpansion` whose ``tasks`` are the input tasks with
+        summaries removed and whose ``dependencies`` are expanded to leaf-level
+        edges. Unpacks as ``leaf_tasks, expanded_deps`` for backward compatibility.
     """
     if not children_map:
-        return tasks, deps
+        return SummaryExpansion(tasks=tasks, dependencies=deps)
     _check_children_map(children_map)
 
     summary_ids = set(children_map.keys())
@@ -1105,7 +1150,7 @@ def expand_summary_dependencies(
                     )
                 )
 
-    return leaf_tasks, expanded
+    return SummaryExpansion(tasks=leaf_tasks, dependencies=expanded)
 
 
 # ---------------------------------------------------------------------------
@@ -1750,6 +1795,7 @@ def _duration_sensitivity(
 
 def monte_carlo(
     project: Project,
+    *,
     runs: int = 1_000,
     seed: int | None = None,
     max_runs: int | None = 1_000,

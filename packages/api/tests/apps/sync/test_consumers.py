@@ -293,6 +293,10 @@ async def test_board_event_forwarded_to_client(user: object, project: Project) -
     assert len(sent) == 1
     assert sent[0]["event_type"] == "cpm_complete"
     assert sent[0]["payload"]["project_finish"] == "2026-06-01"
+    # The wire envelope carries the protocol version (#1325) so clients can branch
+    # on it without a future handshake; defaulted here since the inbound channel
+    # message predates the field.
+    assert sent[0]["protocol_version"] == 1
 
 
 @pytest.mark.django_db

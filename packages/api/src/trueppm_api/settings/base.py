@@ -637,7 +637,12 @@ ACCOUNT_EMAIL_VERIFICATION = "none"
 # Retention window in days. Records older than this are purged nightly by the
 # Celery beat task in trueppm_api.apps.history.tasks.
 # Set to None to disable automatic purging (enterprise unlimited retention).
-HISTORY_RETENTION_DAYS: int | None = env.int("HISTORY_RETENTION_DAYS", default=90)
+# Operator env var standardized on the TRUEPPM_ prefix pre-0.3 (#1325) so all
+# tunables share one namespace in ConfigMaps/Secrets; the legacy bare name is read
+# as a fallback so deploys that already set it keep working until they migrate.
+HISTORY_RETENTION_DAYS: int | None = env.int(
+    "TRUEPPM_HISTORY_RETENTION_DAYS", default=env.int("HISTORY_RETENTION_DAYS", default=90)
+)
 
 # ---------------------------------------------------------------------------
 # Signal-privacy ceiling-raise ratification (ADR-0104 Amendment A, #930)
@@ -655,8 +660,11 @@ SIGNAL_CEILING_PROPOSAL_TTL_HOURS: int = env.int("SIGNAL_CEILING_PROPOSAL_TTL_HO
 # ---------------------------------------------------------------------------
 
 # Retention window in days for completed/failed/cancelled TaskRun records.
-# Set to None to disable automatic purging.
-TASK_RUN_RETENTION_DAYS: int | None = env.int("TASK_RUN_RETENTION_DAYS", default=30)
+# Set to None to disable automatic purging. Env var standardized on the TRUEPPM_
+# prefix pre-0.3 (#1325); legacy bare name read as a fallback.
+TASK_RUN_RETENTION_DAYS: int | None = env.int(
+    "TRUEPPM_TASK_RUN_RETENTION_DAYS", default=env.int("TASK_RUN_RETENTION_DAYS", default=30)
+)
 
 # ---------------------------------------------------------------------------
 # Outbox retention + Beat liveness (ADR-0081)
@@ -711,25 +719,37 @@ TRUEPPM_RECURRENCE_HORIZON_DAYS: int = env.int("TRUEPPM_RECURRENCE_HORIZON_DAYS"
 # Dotted path to the WorkflowBackend implementation. The OSS default composes
 # the transactional outbox + Celery; enterprise editions register an alternate
 # (e.g. Temporal) by overriding this — the edition-routing pattern of ADR-0030.
+# Env vars standardized on the TRUEPPM_ prefix pre-0.3 (#1325); legacy bare names
+# read as a fallback so existing deploys keep working until they migrate.
 WORKFLOW_BACKEND = env.str(
-    "WORKFLOW_BACKEND",
-    default="trueppm_api.workflows.backends.default.DefaultWorkflowBackend",
+    "TRUEPPM_WORKFLOW_BACKEND",
+    default=env.str(
+        "WORKFLOW_BACKEND",
+        default="trueppm_api.workflows.backends.default.DefaultWorkflowBackend",
+    ),
 )
 
 # Retention window in days for WorkflowHistoryEvent rows (purged nightly by
 # workflows.purge_old_records). Set to None / 0 to disable history purging.
-WORKFLOW_HISTORY_RETENTION_DAYS: int | None = env.int("WORKFLOW_HISTORY_RETENTION_DAYS", default=30)
+WORKFLOW_HISTORY_RETENTION_DAYS: int | None = env.int(
+    "TRUEPPM_WORKFLOW_HISTORY_RETENTION_DAYS",
+    default=env.int("WORKFLOW_HISTORY_RETENTION_DAYS", default=30),
+)
 
 # Max rows the workflow outbox/timer drains process per tick. Bounds the work
 # per run so a large backlog (e.g. after a broker outage) can't exceed the task
 # time_limit — subsequent ticks drain the remainder.
-WORKFLOW_DRAIN_BATCH_SIZE = env.int("WORKFLOW_DRAIN_BATCH_SIZE", default=200)
+WORKFLOW_DRAIN_BATCH_SIZE = env.int(
+    "TRUEPPM_WORKFLOW_DRAIN_BATCH_SIZE", default=env.int("WORKFLOW_DRAIN_BATCH_SIZE", default=200)
+)
 
 # Rows deleted per statement by the nightly workflow retention purge. The purge
 # deletes in bounded chunks rather than one unbounded statement so the first run
 # on a mature install (e.g. after WORKFLOW_HISTORY_RETENTION_DAYS is first set)
 # cannot take a long lock over a large slice of the history/outbox tables.
-WORKFLOW_PURGE_BATCH_SIZE = env.int("WORKFLOW_PURGE_BATCH_SIZE", default=500)
+WORKFLOW_PURGE_BATCH_SIZE = env.int(
+    "TRUEPPM_WORKFLOW_PURGE_BATCH_SIZE", default=env.int("WORKFLOW_PURGE_BATCH_SIZE", default=500)
+)
 
 # ---------------------------------------------------------------------------
 # Idempotency-Key retention (trueppm_api.apps.idempotency, ADR-0170)
@@ -738,11 +758,19 @@ WORKFLOW_PURGE_BATCH_SIZE = env.int("WORKFLOW_PURGE_BATCH_SIZE", default=500)
 # Retention window in hours for stored Idempotency-Key responses. Purged hourly by
 # the Celery beat task in trueppm_api.apps.idempotency.tasks. After expiry, a retry
 # with the same key re-runs the mutation. Set to None to disable automatic purging.
-IDEMPOTENCY_RETENTION_HOURS: int | None = env.int("IDEMPOTENCY_RETENTION_HOURS", default=24)
+# Env vars standardized on the TRUEPPM_ prefix pre-0.3 (#1325); legacy bare names
+# read as a fallback so existing deploys keep working until they migrate.
+IDEMPOTENCY_RETENTION_HOURS: int | None = env.int(
+    "TRUEPPM_IDEMPOTENCY_RETENTION_HOURS",
+    default=env.int("IDEMPOTENCY_RETENTION_HOURS", default=24),
+)
 # Maximum stored response body size (bytes). Responses larger than this are not stored
 # (the claim row is dropped, so a retry re-runs). Mutation responses are single objects
 # and effectively never approach this.
-IDEMPOTENCY_MAX_BODY_BYTES: int = env.int("IDEMPOTENCY_MAX_BODY_BYTES", default=1 * 1024 * 1024)
+IDEMPOTENCY_MAX_BODY_BYTES: int = env.int(
+    "TRUEPPM_IDEMPOTENCY_MAX_BODY_BYTES",
+    default=env.int("IDEMPOTENCY_MAX_BODY_BYTES", default=1 * 1024 * 1024),
+)
 
 # ---------------------------------------------------------------------------
 # drf-spectacular (OpenAPI)

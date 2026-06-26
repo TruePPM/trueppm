@@ -1542,7 +1542,9 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
         return Response(
             {
                 "task_count": task_count,
-                "critical_path_count": critical_count,
+                # `critical_path_count` was an exact alias of `critical_count`
+                # (same aggregate). Dropped pre-0.3 so the public status-summary
+                # contract carries the count once (#1325).
                 "monte_carlo_p80": None,
                 "at_risk_count": at_risk_count,
                 "critical_count": critical_count,
@@ -3316,8 +3318,13 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
     ) -> Response:
         """Decline a PENDING TaskSuggestedAssignee.
 
-        Only the ``suggested_user`` may call. No broadcast — declines are
-        private (Priya's psych-safety note in the VoC).
+        Only the ``suggested_user`` may call. The broadcast is a *silent*
+        state-reconciliation hint, not a social signal: it carries only the
+        suggestion/task id — never the decliner's identity — and drives no
+        notification UI, so the suggester's pending list and the suggested
+        user's My Work clear the stale "Pending" badge without the social cost
+        the psych-safety note (Priya, VoC) warned a *visible* decline would
+        carry. Without it, peers stayed stale until a manual refetch (#1323).
         """
         from django.contrib.auth.models import User as _User
 
@@ -3328,9 +3335,11 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
 
         if pk is None or suggestion_pk is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-        suggestion = TaskSuggestedAssignee.objects.filter(
-            pk=suggestion_pk, task_id=pk, is_deleted=False
-        ).first()
+        suggestion = (
+            TaskSuggestedAssignee.objects.select_related("task")
+            .filter(pk=suggestion_pk, task_id=pk, is_deleted=False)
+            .first()
+        )
         if suggestion is None:
             return Response(
                 {"detail": "Suggestion not found."},
@@ -3350,6 +3359,20 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         suggestion.state = SuggestionState.DECLINED
         suggestion.declined_at = timezone.now()
         suggestion.save(update_fields=["state", "declined_at", "server_version"])
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        # Snapshot to plain strings so the deferred closure can never read a
+        # later-mutated ORM instance.
+        _project_id = str(suggestion.task.project_id)
+        _suggestion_id = str(suggestion.pk)
+        _task_id = str(pk)
+        transaction.on_commit(
+            lambda: broadcast_board_event(
+                _project_id,
+                "suggestion_declined",
+                {"id": _suggestion_id, "task_id": _task_id},
+            )
+        )
         return Response(
             {
                 "id": str(suggestion.pk),
@@ -3419,6 +3442,22 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
             )
         suggestion.state = SuggestionState.REVOKED
         suggestion.save(update_fields=["state", "server_version"])
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        # Silent state-reconciliation broadcast so the suggested user's My Work
+        # and any peer's pending list drop the now-revoked suggestion without a
+        # manual refetch (#1323). Snapshot to plain strings for the deferred
+        # closure; ``task`` is already select_related above.
+        _project_id = str(suggestion.task.project_id)
+        _suggestion_id = str(suggestion.pk)
+        _task_id = str(pk)
+        transaction.on_commit(
+            lambda: broadcast_board_event(
+                _project_id,
+                "suggestion_revoked",
+                {"id": _suggestion_id, "task_id": _task_id},
+            )
+        )
         return Response(
             {"id": str(suggestion.pk), "state": suggestion.state},
             status=status.HTTP_200_OK,
@@ -4347,6 +4386,21 @@ class CrossProjectSlipConflictViewSet(
             conflict.acknowledged_by = None if isinstance(user, AnonymousUser) else user
             conflict.acknowledged_at = timezone.now()
             conflict.save(update_fields=["acknowledged_by", "acknowledged_at"])
+            from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+            # Clear the downstream project's stale conflict badge for peers
+            # without a manual refetch (#1323). Only on a real state change —
+            # a re-acknowledge is a no-op and broadcasts nothing. Snapshot to
+            # plain strings for the deferred closure.
+            _project_id = str(project_id)
+            _conflict_id = str(conflict.pk)
+            transaction.on_commit(
+                lambda: broadcast_board_event(
+                    _project_id,
+                    "slip_conflict_acknowledged",
+                    {"id": _conflict_id},
+                )
+            )
         return Response(self.get_serializer(conflict).data)
 
 

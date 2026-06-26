@@ -162,12 +162,17 @@ def update_board_item(
         item.color = color
         fields.append("color")
     if fields:
-        item.save(update_fields=[*fields, "updated_at", "server_version"])
-        _broadcast(
-            item.retro.sprint.project_id,
-            "retro_item_updated",
-            {"id": str(item.id), "retro_id": str(item.retro_id)},
-        )
+        # Couple the save to its broadcast in one transaction (#1323), matching
+        # create_board_item: the on_commit broadcast then fires only if the save
+        # commits, and is deferred to that commit rather than the surrounding
+        # autocommit boundary.
+        with transaction.atomic():
+            item.save(update_fields=[*fields, "updated_at", "server_version"])
+            _broadcast(
+                item.retro.sprint.project_id,
+                "retro_item_updated",
+                {"id": str(item.id), "retro_id": str(item.retro_id)},
+            )
     return item
 
 
@@ -180,12 +185,14 @@ def move_board_item(item: RetroBoardItem, *, column: str, position: float) -> Re
         raise ValidationError({"column": f"Unknown column '{column}'."})
     item.column = column
     item.position = position
-    item.save(update_fields=["column", "position", "updated_at", "server_version"])
-    _broadcast(
-        item.retro.sprint.project_id,
-        "retro_item_moved",
-        {"id": str(item.id), "retro_id": str(item.retro_id), "column": column},
-    )
+    # Couple the save to its broadcast in one transaction (#1323).
+    with transaction.atomic():
+        item.save(update_fields=["column", "position", "updated_at", "server_version"])
+        _broadcast(
+            item.retro.sprint.project_id,
+            "retro_item_moved",
+            {"id": str(item.id), "retro_id": str(item.retro_id), "column": column},
+        )
     return item
 
 
@@ -196,12 +203,14 @@ def delete_board_item(item: RetroBoardItem) -> None:
     retro_id = item.retro_id
     item_id = item.id
     item.is_deleted = True
-    item.save(update_fields=["is_deleted", "updated_at", "server_version"])
-    _broadcast(
-        project_id,
-        "retro_item_deleted",
-        {"id": str(item_id), "retro_id": str(retro_id)},
-    )
+    # Couple the soft-delete to its broadcast in one transaction (#1323).
+    with transaction.atomic():
+        item.save(update_fields=["is_deleted", "updated_at", "server_version"])
+        _broadcast(
+            project_id,
+            "retro_item_deleted",
+            {"id": str(item_id), "retro_id": str(retro_id)},
+        )
 
 
 def convert_to_action(item: RetroBoardItem, actor: User) -> RetroActionItem:
