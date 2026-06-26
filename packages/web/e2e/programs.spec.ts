@@ -510,6 +510,22 @@ test.describe('Programs — sidebar entry', () => {
       sidebar.getByRole('button', { name: 'Phase 2 Modernization', exact: true }),
     ).toBeVisible();
   });
+
+  test('the rail Programs header links to the /programs gateway (#1334 regression)', async ({
+    page,
+  }) => {
+    await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
+    await page.goto(`/programs/${PROGRAM_ID}/projects`);
+    const sidebar = page.locator('aside[aria-label="Primary navigation"]');
+    // The v2 rail rewrite dropped the only clickable path to /programs; this
+    // proves the header is a link again and lands on the gateway (where the
+    // "Load demo data" on-ramp lives), so the regression can't return silently.
+    const gateway = sidebar.getByRole('link', { name: 'Programs', exact: true });
+    await expect(gateway).toBeVisible();
+    await gateway.click();
+    await expect(page).toHaveURL(/\/programs$/);
+    await expect(page.getByRole('heading', { name: 'Programs', level: 1 })).toBeVisible();
+  });
 });
 
 test.describe('Programs — Projects-tab rollup surfacing (#560 / #564)', () => {

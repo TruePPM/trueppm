@@ -51,8 +51,11 @@ function HealthDot({ state }: { state: HealthState }) {
   return <span aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${cls}`} />;
 }
 
-const GROUP_LABEL =
-  'px-3 pt-3 pb-1 text-xs font-semibold uppercase tracking-widest text-chrome-text-secondary';
+// Section-header typography (rule 36). Split out so the Programs header can
+// reuse the type tokens on its <h2> while the inner NavLink owns the padding,
+// touch target, and active/hover state.
+const GROUP_LABEL_TEXT = 'text-xs font-semibold uppercase tracking-widest';
+const GROUP_LABEL = `px-3 pt-3 pb-1 ${GROUP_LABEL_TEXT} text-chrome-text-secondary`;
 
 // Active vs idle nav row (rule 37: 2px left border + sage tint fill).
 function rowClass(active: boolean): string {
@@ -314,10 +317,33 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
             </button>
           )}
 
-          {/* Programs — expandable tree */}
+          {/* Programs — the group header is a NavLink to the /programs gateway,
+              not a dead <h2> label like Personal/Organization: /programs is a
+              real index page, and it is the only in-app route to the "Load demo
+              data" on-ramp that lives on it. The <h2> stays for heading
+              semantics (rule 36); the inner link carries the rule-5 44px touch
+              target and rule-4 focus ring. Below is the expandable per-program
+              tree. */}
           {showFull && (
             <div className="flex items-center justify-between pr-1">
-              <h2 className={GROUP_LABEL}>Programs</h2>
+              <h2 className={`flex-1 ${GROUP_LABEL_TEXT}`}>
+                <NavLink
+                  to="/programs"
+                  onClick={() => isDrawer && onClose?.()}
+                  className={({ isActive }) =>
+                    [
+                      'group/programs flex min-h-11 items-center gap-1 rounded-control px-3 pt-3 pb-1',
+                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface',
+                      isActive
+                        ? 'text-chrome-text-primary'
+                        : 'text-chrome-text-secondary hover:text-chrome-text-primary',
+                    ].join(' ')
+                  }
+                >
+                  <span className="group-hover/programs:underline">Programs</span>
+                  <ChevronRightIcon aria-hidden="true" className="h-3 w-3 shrink-0" />
+                </NavLink>
+              </h2>
               <button
                 type="button"
                 onClick={() => setShowNewProgram(true)}
