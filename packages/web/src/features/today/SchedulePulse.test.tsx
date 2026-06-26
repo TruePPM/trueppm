@@ -5,6 +5,7 @@ import { SchedulePulse } from './SchedulePulse';
 const useProjectScheduleSummary = vi.fn();
 const useActiveSprint = vi.fn();
 const useScheduleTasks = vi.fn();
+const useProject = vi.fn();
 const registryGet = vi.fn(() => [] as unknown[]);
 
 vi.mock('./useProjectScheduleSummary', () => ({
@@ -15,6 +16,9 @@ vi.mock('@/hooks/useSprints', () => ({
 }));
 vi.mock('@/hooks/useScheduleTasks', () => ({
   useScheduleTasks: () => useScheduleTasks() as Record<string, unknown>,
+}));
+vi.mock('@/hooks/useProject', () => ({
+  useProject: () => useProject() as Record<string, unknown>,
 }));
 vi.mock('@/lib/widget-registry', () => ({
   registry: { get: () => registryGet() },
@@ -41,6 +45,8 @@ describe('SchedulePulse', () => {
     useProjectScheduleSummary.mockReturnValue({ data: OVERVIEW, isLoading: false, error: null });
     useActiveSprint.mockReturnValue({ sprint: SPRINT, isLoading: false });
     useScheduleTasks.mockReturnValue({ tasks: [], isLoading: false });
+    // Default HYBRID — the superset — so the existing assertions (both halves) hold.
+    useProject.mockReturnValue({ data: { effective_methodology: 'HYBRID' } });
     registryGet.mockReturnValue([]);
   });
 
@@ -106,5 +112,51 @@ describe('SchedulePulse', () => {
     const { container } = render(<SchedulePulse projectId="p1" />);
     // No registered gate component — the strip has no enterprise card.
     expect(container.querySelector('[data-enterprise-gate]')).toBeNull();
+  });
+
+  // Methodology-aware halves (ADR-0107, issue 1338) — read from effective_methodology.
+  describe('methodology-aware halves', () => {
+    it('WATERFALL: keeps the schedule cluster, drops the sprint rollup', () => {
+      useProject.mockReturnValue({ data: { effective_methodology: 'WATERFALL' } });
+      render(<SchedulePulse projectId="p1" />);
+      // Schedule signals stay — waterfall is plan-driven.
+      expect(screen.getByTestId('pulse-health')).toBeInTheDocument();
+      expect(screen.getByText('25%')).toBeInTheDocument();
+      // No sprints on waterfall → the rollup half (and its empty state) is gone.
+      expect(screen.queryByTestId('pulse-sprint')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('pulse-no-sprint')).not.toBeInTheDocument();
+    });
+
+    it('AGILE: drops the CPM/SPI cluster, keeps the sprint rollup', () => {
+      useProject.mockReturnValue({ data: { effective_methodology: 'AGILE' } });
+      useScheduleTasks.mockReturnValue({
+        tasks: [task({ id: 't1', status: 'COMPLETE' }), task({ id: 't2', status: 'NOT_STARTED' })],
+        isLoading: false,
+      });
+      render(<SchedulePulse projectId="p1" />);
+      // The schedule-pulse cluster is off-vocabulary on agile → not rendered.
+      expect(screen.queryByTestId('pulse-health')).not.toBeInTheDocument();
+      expect(screen.queryByText('Complete')).not.toBeInTheDocument();
+      expect(screen.queryByText('SPI 0.92')).not.toBeInTheDocument();
+      // The sprint rollup is foregrounded and still derives its percent from the board.
+      expect(screen.getByTestId('pulse-sprint')).toHaveTextContent('Sprint 14');
+      expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '50');
+    });
+
+    it('AGILE: suppresses the schedule skeleton while the overview is loading', () => {
+      useProject.mockReturnValue({ data: { effective_methodology: 'AGILE' } });
+      useProjectScheduleSummary.mockReturnValue({ data: undefined, isLoading: true, error: null });
+      render(<SchedulePulse projectId="p1" />);
+      // The skeleton stands in for the (dropped) schedule cluster — don't flash it.
+      expect(screen.queryByLabelText('Loading schedule status')).not.toBeInTheDocument();
+      expect(screen.getByTestId('pulse-sprint')).toBeInTheDocument();
+    });
+
+    it('defaults to HYBRID (both halves) while the project is still loading', () => {
+      useProject.mockReturnValue({ data: undefined });
+      render(<SchedulePulse projectId="p1" />);
+      expect(screen.getByTestId('pulse-health')).toBeInTheDocument();
+      expect(screen.getByTestId('pulse-sprint')).toBeInTheDocument();
+    });
   });
 });
