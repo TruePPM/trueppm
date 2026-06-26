@@ -155,7 +155,7 @@ requires no server endpoint and never leaves the client until you save it.
   filter is active, only the matching members are exported. Clear the filters to
   export the full roster.
 
-This is a 0.3 release feature.
+This feature ships in 0.3.
 
 ### Access
 
