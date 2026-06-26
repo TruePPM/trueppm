@@ -32,9 +32,16 @@ three values (working days):
 | **Most Likely (M)** | Your honest expected duration under normal conditions |
 | **Pessimistic (P)** | Duration if significant problems occur — realistic tail risk, not fantasy |
 
-All three fields must be set for a task to be included in the stochastic
-simulation. A task with any of the three missing is treated as having zero
-uncertainty: its deterministic `duration` is used for every simulation run.
+All three fields must be set for a waterfall task to be sampled from its
+three-point estimate. A waterfall task with any of the three missing is treated
+as having zero duration uncertainty: its deterministic `duration` is used for
+every simulation run.
+
+**Agile (Scrum) tasks are the exception** — a task delivered as sprint work
+draws its uncertainty from team velocity rather than a three-point estimate, so
+it does not need O/M/P values set. See
+[Agile tasks: velocity-based sampling](#agile-tasks-velocity-based-sampling)
+below.
 
 **Focus your effort on critical path tasks.** Tasks with float do not drive the
 finish date; uncertainty in their durations has little effect on the output.
@@ -217,6 +224,36 @@ a unimodal distribution centered at 10 days whose standard deviation in the
 scaled domain is exactly `(P − O) / 6 = 2.33 days`. The PERT approximation is
 exact for symmetric inputs.
 
+### Agile tasks: velocity-based sampling
+
+A task delivered as Scrum work — `delivery_mode = scrum` with committed
+`story_points` — has no meaningful three-point *duration* estimate; its
+uncertainty comes from how much the team completes each sprint. For these tasks
+the simulation samples **sprints-to-completion** from the team's velocity
+distribution instead of a PERT curve:
+
+1. The completed-points totals from the team's last eight closed sprints
+   (excluding any sprint flagged *exclude from velocity*) form the velocity
+   sample set.
+2. Each run bootstraps that set with replacement, accumulating points sprint by
+   sprint until the task's `story_points` are burned down.
+3. The number of sprints that took, multiplied by the team's typical sprint
+   length (converted to working days), is the task's sampled duration for that
+   run.
+
+A faster team (high-throughput draws) finishes in fewer sprints; the slow tail
+needs more — so the spread reflects real velocity variability, the dominant
+source of schedule risk on agile work. This path takes precedence over a
+three-point estimate: a Scrum task that also carries O/M/P values still samples
+from velocity, because the delivery mode is an explicit declaration that
+uncertainty comes from throughput, not a duration guess.
+
+A project with no usable velocity signal — no closed, velocity-eligible sprint
+with recorded completed points — falls back to each task's deterministic
+`duration`, exactly as a waterfall task with no estimate does. So an agile
+project with no sprint history yet still simulates (to a single deterministic
+date) rather than failing.
+
 Degenerate cases are handled explicitly:
 
 - If `P − O < 1e-9` (zero spread), all samples equal M.
@@ -354,3 +391,28 @@ contains every simulated finish date. A bimodal distribution — two clusters of
 simulated dates — usually signals that one or two tasks have extreme P estimates
 that dominate the tail. Investigate those tasks; they are your primary risk
 drivers.
+
+### Why is my forecast a single flat date?
+
+When `P50`, `P80`, and `P95` are identical, the simulation found no uncertainty to
+model — every run finished on the same day. This is correct when no committed task
+can vary the finish, but the cause is not always "missing estimates". The result's
+`forecast_diagnostic` field reports the reason, and the schedule view shows it in place
+of the distribution:
+
+- **Estimates awaiting approval** — in Suggest & Approve estimation mode,
+  three-point estimates do not feed the forecast until a Scheduler approves them
+  (`estimate_status = accepted`). The estimates are visible on the tasks, but the
+  forecast treats them as not-yet-trusted. Approve them to fold their range in.
+- **No estimate ranges** — tasks carry only a single duration (or a degenerate
+  range where optimistic = pessimistic). Add genuine optimistic/most-likely/
+  pessimistic estimates to the tasks you are unsure about.
+- **Agile work with no velocity history** — story-point (Scrum) tasks sample from
+  the team's completed-sprint velocity rather than a duration range. Until at least
+  one sprint has closed there is no distribution to draw from. Close a sprint and
+  re-run.
+- **Estimated work off the critical path** — your estimates vary, but the longest
+  path runs through fixed-duration work, so the variance never reaches the finish.
+  Estimate the tasks that actually drive the date (see *What's holding the date*).
+- **All work complete, or nothing committed** — finished tasks have no remaining
+  work to vary, and backlog cards are excluded from the forecast entirely.

@@ -165,7 +165,12 @@ export function MonteCarloDetailPanel({ result, cpmFinish, tasks, isOpen, onClos
           <h3 className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-2">
             What&apos;s holding the date
           </h3>
-          <SensitivityList sensitivity={result.sensitivity} tasks={tasks} limit={8} />
+          <SensitivityList
+            sensitivity={result.sensitivity}
+            tasks={tasks}
+            limit={8}
+            forecastDiagnostic={result.forecastDiagnostic}
+          />
         </section>
 
         {/* Confidence-by-date */}

@@ -594,6 +594,41 @@ export interface McSensitivity {
 }
 
 /**
+ * Why a Monte Carlo forecast collapsed to a single date (`reason` is null when it
+ * carries a real band). Server-computed (issue 1340) so the UI explains a flat forecast
+ * with the *correct* cause instead of always blaming missing PERT estimates:
+ * - `no_committed_tasks` — nothing but backlog/empty to forecast
+ * - `all_complete` — every committed task is finished
+ * - `estimates_off_critical_path` — estimated work exists but doesn't move the finish
+ * - `estimates_pending_approval` — three-point estimates entered but withheld until approved
+ * - `no_velocity_history` — agile (story-point) tasks but no closed-sprint velocity yet
+ * - `no_estimates` — committed tasks carry only a single duration
+ */
+export type ForecastReason =
+  | 'no_committed_tasks'
+  | 'all_complete'
+  | 'estimates_off_critical_path'
+  | 'estimates_pending_approval'
+  | 'no_velocity_history'
+  | 'no_estimates';
+
+/** Diagnostic explaining the forecast's uncertainty band (or lack of one). */
+export interface ForecastDiagnostic {
+  /** True when P50 === P80 === P95 (a single flat date). */
+  deterministic: boolean;
+  /** Primary reason for a flat forecast; null when a real band exists. */
+  reason: ForecastReason | null;
+  /** Committed (non-backlog) task count fed to the simulation. */
+  tasksTotal: number;
+  /** Tasks that contribute duration variance (PERT spread or sampled velocity). */
+  tasksWithVariance: number;
+  /** Tasks whose three-point estimates are withheld pending approval. */
+  tasksPendingApproval: number;
+  /** Story-point tasks with no completed-sprint velocity to sample from. */
+  agileTasksWithoutVelocity: number;
+}
+
+/**
  * Monte Carlo simulation result. Fixture data uses pre-bucketed distribution
  * to keep file size small; real API returns the same shape.
  */
@@ -631,6 +666,12 @@ export interface MonteCarloResult {
    * persisted) — consumers degrade gracefully, same as `confidenceCurve`.
    */
   sensitivity: McSensitivity[];
+  /**
+   * Why the forecast does (or doesn't) carry an uncertainty band (issue 1340).
+   * Optional for resilience against cached/persisted payloads written before the
+   * field existed — consumers treat `undefined` as "no explanation available".
+   */
+  forecastDiagnostic?: ForecastDiagnostic;
 }
 
 // ---------------------------------------------------------------------------

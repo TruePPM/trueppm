@@ -117,6 +117,26 @@ describe('MonteCarloHistogram', () => {
         expect.stringContaining('every simulation finished on'),
       );
     });
+
+    it('shows the reason-specific guidance, not a PERT prompt, when estimates are pending (#1340)', () => {
+      // The regression behind #1340: a flat forecast on a project that DOES have
+      // three-point estimates (withheld pending approval) was told to "add PERT
+      // estimates". With forecast_diagnostic the prose must name the real cause instead.
+      const pending: typeof FIXTURE_MC_RESULT = {
+        ...COLLAPSED,
+        forecastDiagnostic: {
+          deterministic: true,
+          reason: 'estimates_pending_approval',
+          tasksTotal: 5,
+          tasksWithVariance: 0,
+          tasksPendingApproval: 3,
+          agileTasksWithoutVelocity: 0,
+        },
+      };
+      renderWithProviders(<MonteCarloHistogram result={pending} />);
+      expect(screen.getByText(/3 task estimates are awaiting approval/i)).toBeInTheDocument();
+      expect(screen.queryByText(/Add PERT estimates/i)).not.toBeInTheDocument();
+    });
   });
 
   describe('cold / not-persisted case — empty buckets (#1231)', () => {

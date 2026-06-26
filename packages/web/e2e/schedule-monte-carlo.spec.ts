@@ -133,7 +133,10 @@ const FIXTURE_MC_HISTORY = {
   cap: 100,
 };
 
-async function gotoScheduleWithMC(page: import('@playwright/test').Page) {
+async function gotoScheduleWithMC(
+  page: import('@playwright/test').Page,
+  mcResult: Record<string, unknown> = FIXTURE_MC_RESULT,
+) {
   await page.addInitScript(() => {
     localStorage.setItem(
       'trueppm-auth',
@@ -221,7 +224,7 @@ async function gotoScheduleWithMC(page: import('@playwright/test').Page) {
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(FIXTURE_MC_RESULT),
+      body: JSON.stringify(mcResult),
     }),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/monte-carlo/history/`, (route) =>
@@ -388,6 +391,44 @@ test.describe('Monte Carlo Schedule Integration (#333)', () => {
     await expect(
       bar.getByRole('img', { name: /Backend API: 88% sensitivity/i }),
     ).toBeVisible();
+  });
+
+  test('a flat forecast explains the real reason, not a blanket PERT prompt (#1340)', async ({
+    page,
+  }) => {
+    // Estimates ARE present but withheld (Suggest & Approve, pending) → flat. The
+    // bar must name that cause, not tell a user who has estimates to add some.
+    const FLAT_PENDING = {
+      ...FIXTURE_MC_RESULT,
+      p50: '2026-11-30',
+      p80: '2026-11-30',
+      p95: '2026-11-30',
+      histogram_buckets: [{ date: '2026-11-30', count: 500 }],
+      confidence_curve: [],
+      sensitivity: [],
+      forecast_diagnostic: {
+        deterministic: true,
+        reason: 'estimates_pending_approval',
+        tasks_total: 2,
+        tasks_with_variance: 0,
+        tasks_pending_approval: 2,
+        agile_tasks_without_velocity: 0,
+      },
+    };
+    await gotoScheduleWithMC(page, FLAT_PENDING);
+
+    const bar = page.getByRole('region', { name: 'Schedule forecast' });
+    const toggle = bar.getByRole('button', { name: /Maximize forecast detail/i });
+    await expect(toggle).toBeVisible({ timeout: 10_000 });
+    await toggle.click();
+
+    // The reason-aware guidance appears (histogram prose + tornado empty-state
+    // both render it, so allow more than one match).
+    await expect(
+      bar.getByText(/2 task estimates are awaiting approval/i).first(),
+    ).toBeVisible();
+    // The misleading blanket prompt must NOT appear — the #1340 regression.
+    await expect(bar.getByText(/Add PERT estimates/i)).toHaveCount(0);
   });
 
   test('the percentiles render on exactly one surface (rule 189)', async ({ page }) => {

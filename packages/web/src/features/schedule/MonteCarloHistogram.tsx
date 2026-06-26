@@ -1,5 +1,6 @@
 import type { McBucket, MonteCarloResult } from '@/types';
 import { fmtUtcLong } from '@/lib/formatUtcDate';
+import { forecastFlatGuidance } from '@/lib/forecastFlatMessage';
 
 interface Props {
   result: MonteCarloResult;
@@ -78,11 +79,16 @@ export function MonteCarloHistogram({ result }: Props) {
   const isCollapsed = p50 === p80 && p80 === p95;
   if (isCollapsed || buckets.length === 1) {
     const sameDate = fmtUtcLong(p80);
+    // Reason-aware guidance (issue 1340): the cause of a flat forecast is not always
+    // "missing estimates" — it may be estimates pending approval, agile work with
+    // no velocity history, or work off the critical path. forecastDiagnostic carries the
+    // server-computed reason; an older payload without it falls back to generic copy.
+    const guidance = forecastFlatGuidance(result.forecastDiagnostic);
     return (
-      <p className="text-xs text-neutral-text-secondary leading-snug" role="img" aria-label={`Monte Carlo distribution: every simulation finished on ${p80}.`}>
+      <p className="text-xs text-neutral-text-secondary leading-snug" role="img" aria-label={`Monte Carlo distribution: every simulation finished on ${sameDate}. No date spread to plot. ${guidance}`}>
         Every simulation finished on{' '}
         <span className="font-medium text-neutral-text-primary tppm-mono">{sameDate}</span>.
-        No date spread to plot — add PERT estimates (optimistic / most-likely / pessimistic durations) on tasks to see a distribution.
+        No date spread to plot. {guidance}
       </p>
     );
   }

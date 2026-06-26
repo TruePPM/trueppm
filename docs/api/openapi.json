@@ -7564,7 +7564,7 @@
                                 }
                             }
                         },
-                        "description": "Monte Carlo simulation result. Includes the engine result fields (P50/P80/P95 finish dates, mean, std dev, etc.) plus cpm_finish (deterministic CPM project finish, ISO 8601 or null), delta_vs_cpm ({p50,p80,p95} signed calendar-day premium vs CPM), confidence_curve ([{date, pct}] cumulative finish-by-date S-curve), histogram_buckets ([{date, count}]), sensitivity ([{task_id, index}] duration tornado — tasks that move the finish most, index 0..1, ADR-0140) and last_run_at (ISO 8601)."
+                        "description": "Monte Carlo simulation result. Includes the engine result fields (P50/P80/P95 finish dates, mean, std dev, etc.) plus cpm_finish (deterministic CPM project finish, ISO 8601 or null), delta_vs_cpm ({p50,p80,p95} signed calendar-day premium vs CPM), confidence_curve ([{date, pct}] cumulative finish-by-date S-curve), histogram_buckets ([{date, count}]), sensitivity ([{task_id, index}] duration tornado — tasks that move the finish most, index 0..1, ADR-0140), forecast_diagnostic ({deterministic, reason, tasks_total, tasks_with_variance, tasks_pending_approval, agile_tasks_without_velocity} — explains a flat forecast; reason is null when a real band exists) and last_run_at (ISO 8601)."
                     },
                     "400": {
                         "content": {

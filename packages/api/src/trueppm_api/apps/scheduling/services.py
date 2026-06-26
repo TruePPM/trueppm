@@ -399,9 +399,10 @@ def build_sched_tasks(db_tasks: list[Any], *, suggest_approve: bool) -> list[Any
     """
     from datetime import timedelta
 
+    from trueppm_scheduler.models import DeliveryMode as SchedDeliveryMode
     from trueppm_scheduler.models import Task as SchedTask
 
-    from trueppm_api.apps.projects.models import EstimateStatus
+    from trueppm_api.apps.projects.models import DeliveryMode, EstimateStatus
 
     def _pert(value: int | None, estimate_status: str | None) -> timedelta | None:
         if value is None:
@@ -437,9 +438,131 @@ def build_sched_tasks(db_tasks: list[Any], *, suggest_approve: bool) -> list[Any
             optimistic_duration=_pert(t.optimistic_duration, t.estimate_status),
             most_likely_duration=_pert(t.most_likely_duration, t.estimate_status),
             pessimistic_duration=_pert(t.pessimistic_duration, t.estimate_status),
+            # Agile-aware Monte Carlo (#411): only SCRUM tasks sample from team
+            # velocity, so map just that mode (the scheduler enum has no KANBAN /
+            # MILESTONE — those stay None == WATERFALL, deterministic/PERT, exactly
+            # as before). story_points is the velocity path's burn-down target. Both
+            # are inert for the deterministic CPM pass, which reads neither — the
+            # shared converter (ADR-0132) simply carries them for the MC path.
+            delivery_mode=(
+                SchedDeliveryMode.SCRUM if t.delivery_mode == DeliveryMode.SCRUM else None
+            ),
+            story_points=(float(t.story_points) if t.story_points is not None else None),
         )
         for t in db_tasks
     ]
+
+
+# Reason codes for a flat (deterministic) Monte Carlo forecast, in precedence order.
+# Exposed so the API contract and tests reference one source rather than literals.
+FORECAST_NO_COMMITTED_TASKS = "no_committed_tasks"
+FORECAST_ALL_COMPLETE = "all_complete"
+FORECAST_ESTIMATES_OFF_CRITICAL_PATH = "estimates_off_critical_path"
+FORECAST_ESTIMATES_PENDING_APPROVAL = "estimates_pending_approval"
+FORECAST_NO_VELOCITY_HISTORY = "no_velocity_history"
+FORECAST_NO_ESTIMATES = "no_estimates"
+
+
+def forecast_diagnostic(
+    db_tasks: list[Any],
+    *,
+    suggest_approve: bool,
+    has_velocity_signal: bool,
+    deterministic: bool,
+) -> dict[str, Any]:
+    """Explain why a Monte Carlo forecast carries — or lacks — an uncertainty band.
+
+    A flat forecast (``P50 == P80 == P95``) is *correct* whenever no committed task
+    can contribute duration variance, but the bare percentiles give the user no clue
+    *why*. The UI historically hard-coded "add PERT estimates", which is wrong when
+    the estimates already exist but are withheld (``SUGGEST_APPROVE`` pending
+    approval), when the work is agile (its uncertainty comes from velocity history,
+    not a three-point range), or when the estimated work simply sits off the critical
+    path. This derives the single most-actionable reason from the committed task set,
+    mirroring the exact sampling gate the engine applies — ``build_sched_tasks._pert``
+    plus the velocity condition in ``trueppm_scheduler.engine.monte_carlo`` — so the
+    message the UI shows matches what the forecast actually did.
+
+    Args:
+        db_tasks: the committed ``Task`` rows fed to the simulation (already
+            BACKLOG-filtered by ``Task.committed``).
+        suggest_approve: whether the project withholds un-accepted estimates
+            (``estimation_mode == SUGGEST_APPROVE``) — the same flag passed to
+            :func:`build_sched_tasks`.
+        has_velocity_signal: whether the project has usable completed-sprint velocity
+            (a non-empty ``scheduler_velocity_inputs`` sample set).
+        deterministic: whether the simulation collapsed to a single date.
+
+    Returns:
+        A diagnostic dict with ``deterministic``, a ``reason`` code (``None`` when the
+        forecast has a real band), and supporting counts (``tasks_total``,
+        ``tasks_with_variance``, ``tasks_pending_approval``,
+        ``agile_tasks_without_velocity``). ``reason`` is one of the ``FORECAST_*``
+        codes above.
+    """
+    from trueppm_api.apps.projects.models import DeliveryMode, EstimateStatus
+
+    total = len(db_tasks)
+    incomplete = 0
+    with_variance = 0
+    pending_approval = 0
+    agile_without_velocity = 0
+
+    for t in db_tasks:
+        # Completion mirrors trueppm_scheduler.engine._is_complete (ADR-0136): a
+        # finished task is laid out at fixed duration and contributes no variance.
+        is_complete = t.actual_finish is not None or (t.percent_complete or 0) >= 100
+        if not is_complete:
+            incomplete += 1
+
+        has_triple = (
+            t.optimistic_duration is not None
+            and t.most_likely_duration is not None
+            and t.pessimistic_duration is not None
+        )
+        # Mirror build_sched_tasks._pert: SUGGEST_APPROVE withholds a triple from the
+        # engine until it is ACCEPTED — a withheld triple is "pending", not variance.
+        withheld = suggest_approve and t.estimate_status != EstimateStatus.ACCEPTED
+        # A real spread needs opt != pess; a degenerate triple samples to a constant.
+        pert_variance = (
+            has_triple and not withheld and t.optimistic_duration != t.pessimistic_duration
+        )
+        is_scrum_pointed = t.delivery_mode == DeliveryMode.SCRUM and t.story_points is not None
+        velocity_variance = is_scrum_pointed and has_velocity_signal
+
+        if pert_variance or velocity_variance:
+            with_variance += 1
+        if has_triple and withheld:
+            pending_approval += 1
+        if is_scrum_pointed and not has_velocity_signal:
+            agile_without_velocity += 1
+
+    reason: str | None = None
+    if deterministic:
+        if total == 0:
+            reason = FORECAST_NO_COMMITTED_TASKS
+        elif incomplete == 0:
+            reason = FORECAST_ALL_COMPLETE
+        elif with_variance > 0:
+            # Variance exists but never reaches the project finish: the estimated work
+            # sits off the critical path (the sensitivity tornado's own empty case).
+            # Surfacing this stops the UI telling a user with estimates to add some.
+            reason = FORECAST_ESTIMATES_OFF_CRITICAL_PATH
+        elif pending_approval > 0:
+            reason = FORECAST_ESTIMATES_PENDING_APPROVAL
+        elif agile_without_velocity > 0:
+            reason = FORECAST_NO_VELOCITY_HISTORY
+        else:
+            reason = FORECAST_NO_ESTIMATES
+
+    return {
+        "deterministic": deterministic,
+        "reason": reason,
+        "tasks_total": total,
+        "tasks_with_variance": with_variance,
+        "tasks_pending_approval": pending_approval,
+        "agile_tasks_without_velocity": agile_without_velocity,
+    }
 
 
 def apply_summary_rollups(
