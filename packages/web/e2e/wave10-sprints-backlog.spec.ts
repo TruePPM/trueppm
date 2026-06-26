@@ -63,6 +63,35 @@ const BACKLOG_TASKS = [
   { id: 'task-4', short_id: 'A4', name: 'Power supply review', wbs_path: '1.4', status: 'COMPLETE', story_points: 2, is_critical: false, assignments: [{ resource_id: 'r1', resource_name: 'Aisha Khan', units: 0.5 }] },
 ];
 
+// The full-Task project list (GET /tasks/?project=) that feeds useScheduleTasks.
+// SprintsView resolves a clicked backlog row to one of these to open the shared
+// TaskDetailDrawer, so every backlog id above must also appear here in full.
+function fullTaskShape(t: { id: string; name: string; wbs_path: string; status: string }) {
+  return {
+    id: t.id,
+    name: t.name,
+    wbs_path: t.wbs_path,
+    status: t.status,
+    parent_id: null,
+    notes: '',
+    early_start: '2026-04-05',
+    early_finish: '2026-04-10',
+    planned_start: '2026-04-05',
+    duration: 5,
+    percent_complete: 0,
+    is_critical: false,
+    is_milestone: false,
+    is_summary: false,
+    assignees: [],
+    total_float: null,
+    predecessor_count: 0,
+    is_blocked: false,
+    linked_risks_count: 0,
+    linked_risks_max_severity: null,
+  };
+}
+const FULL_TASKS = BACKLOG_TASKS.map(fullTaskShape);
+
 async function setupCommon(page: import('@playwright/test').Page) {
   await page.addInitScript(() => {
     localStorage.setItem(
@@ -125,12 +154,22 @@ async function setupCommon(page: import('@playwright/test').Page) {
     }),
   );
   // Register the catch-all FIRST; Playwright's last-registered-wins semantics
-  // means the specific sprint match below takes precedence.
+  // means the specific matches below take precedence.
   await page.route(/\/api\/v1\/tasks\//, (route) =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+    }),
+  );
+  // Full project task list (project= only, no sprint=) → the useScheduleTasks
+  // source the detail drawer reads. The `$` anchor keeps this from also matching
+  // the project=&sprint= backlog URL below.
+  await page.route(/\/api\/v1\/tasks\/\?project=[^&]+$/, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ count: FULL_TASKS.length, next: null, previous: null, results: FULL_TASKS }),
     }),
   );
   // Specific match — sprint-filtered task list returns the populated backlog.
@@ -196,6 +235,24 @@ test.describe('Wave 10 — Sprints backlog table', () => {
     // Open-in-board link
     const link = backlog.getByRole('link', { name: /Open in board/i });
     await expect(link).toHaveAttribute('href', `/projects/${PROJECT_ID}/board?sprint=sp-active`);
+  });
+
+  test('clicking a backlog task name opens the task detail drawer', async ({ page }) => {
+    await setupCommon(page);
+    await page.goto(BASE_URL);
+
+    const backlog = page.getByRole('region', { name: /Sprint Backlog/i });
+    await expect(backlog.getByText('Calibrate sensors')).toBeVisible();
+
+    // The task name is an accessible "Open …" button, not static text.
+    const openBtn = backlog.getByRole('button', { name: /Open Calibrate sensors/i });
+    await expect(openBtn).toBeVisible();
+    await openBtn.click();
+
+    // The shared TaskDetailDrawer (role="dialog", aria-label = WBS — name) opens
+    // with the clicked task, so the row is now editable.
+    const drawer = page.getByRole('dialog', { name: /Calibrate sensors/i });
+    await expect(drawer).toBeVisible();
   });
 
   test('group toggle hides rows and re-shows on second click', async ({ page }) => {

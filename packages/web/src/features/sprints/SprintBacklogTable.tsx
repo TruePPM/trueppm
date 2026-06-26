@@ -13,6 +13,13 @@ interface Props {
   onAddTask?: () => void;
   /** Called when the user removes a task from this sprint (sets sprint=null). */
   onRemoveTask?: (taskId: string) => void;
+  /**
+   * Called when the user opens a task to view/edit it (clicks the task name).
+   * When omitted, task names render as static text — the read-only fallback
+   * (e.g. a unit test that only asserts grouping). The Sprints view wires this
+   * to the shared TaskDetailDrawer, the same editor the Board and Schedule use.
+   */
+  onOpenTask?: (taskId: string) => void;
   /** When true, render the carryover lane above the status groups (PLANNED sprints). */
   showCarryoverLane?: boolean;
   /** True if the requesting user can call Pull-to-sprint (SCHEDULER+). */
@@ -56,6 +63,7 @@ export function SprintBacklogTable({
   tasks,
   onAddTask,
   onRemoveTask,
+  onOpenTask,
   showCarryoverLane = false,
   canPullCarryover = false,
 }: Props) {
@@ -167,6 +175,7 @@ export function SprintBacklogTable({
               sprintId={sprintId}
               group={g}
               onRemoveTask={onRemoveTask}
+              onOpenTask={onOpenTask}
               iterationLower={itl.lower}
             />
           ))}
@@ -184,11 +193,18 @@ interface GroupProps {
     rows: SprintBacklogTask[];
   };
   onRemoveTask?: (taskId: string) => void;
+  onOpenTask?: (taskId: string) => void;
   /** Lowercase container-noun form (ADR-0111) for the "Remove … from {x}" aria. */
   iterationLower: string;
 }
 
-function BacklogGroup({ sprintId, group, onRemoveTask, iterationLower }: GroupProps) {
+function BacklogGroup({
+  sprintId,
+  group,
+  onRemoveTask,
+  onOpenTask,
+  iterationLower,
+}: GroupProps) {
   const key = persistKey(sprintId, group.status);
   const [collapsed, setCollapsed] = useState<boolean>(false);
 
@@ -252,9 +268,23 @@ function BacklogGroup({ sprintId, group, onRemoveTask, iterationLower }: GroupPr
               T-{t.short_id || t.id.slice(0, 6)}
             </td>
             <td className="px-3 py-2 align-top">
-              <p className="text-sm text-neutral-text-primary truncate" title={t.name}>
-                {t.name}
-              </p>
+              {onOpenTask ? (
+                <button
+                  type="button"
+                  onClick={() => onOpenTask(t.id)}
+                  title={t.name}
+                  aria-label={`Open ${t.name}`}
+                  className="block w-full text-left text-sm text-neutral-text-primary truncate
+                    hover:text-brand-primary hover:underline rounded
+                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                >
+                  {t.name}
+                </button>
+              ) : (
+                <p className="text-sm text-neutral-text-primary truncate" title={t.name}>
+                  {t.name}
+                </p>
+              )}
             </td>
             <td className="px-3 py-2 align-top w-12 text-right text-xs tppm-mono text-neutral-text-primary">
               {t.story_points ?? '—'}

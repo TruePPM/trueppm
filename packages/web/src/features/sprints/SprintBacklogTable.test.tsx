@@ -145,6 +145,52 @@ describe('SprintBacklogTable', () => {
     expect(screen.queryByRole('button', { name: /\+ Add task/i })).not.toBeInTheDocument();
   });
 
+  it('renders task names as buttons and calls onOpenTask with the task id on click', async () => {
+    const onOpenTask = vi.fn();
+    renderWithRouter(
+      <SprintBacklogTable
+        projectId="proj-1"
+        sprintId="sp-1"
+        tasks={[task({ id: 'task-42', name: 'Calibrate sensors', status: 'BACKLOG' })]}
+        onOpenTask={onOpenTask}
+      />,
+    );
+    const openBtn = screen.getByRole('button', { name: /Open Calibrate sensors/i });
+    await userEvent.click(openBtn);
+    expect(onOpenTask).toHaveBeenCalledExactlyOnceWith('task-42');
+  });
+
+  it('opens a task via keyboard activation (Enter) on the name button', async () => {
+    const onOpenTask = vi.fn();
+    renderWithRouter(
+      <SprintBacklogTable
+        projectId="proj-1"
+        sprintId="sp-1"
+        tasks={[task({ id: 'task-7', name: 'Wire telemetry channel', status: 'IN_PROGRESS' })]}
+        onOpenTask={onOpenTask}
+      />,
+    );
+    const openBtn = screen.getByRole('button', { name: /Open Wire telemetry channel/i });
+    openBtn.focus();
+    await userEvent.keyboard('{Enter}');
+    expect(onOpenTask).toHaveBeenCalledExactlyOnceWith('task-7');
+  });
+
+  it('renders task names as static text (not buttons) when onOpenTask is omitted', () => {
+    renderWithRouter(
+      <SprintBacklogTable
+        projectId="proj-1"
+        sprintId="sp-1"
+        tasks={[task({ id: '1', name: 'Read-only task', status: 'BACKLOG' })]}
+      />,
+    );
+    // The name is still visible, but it is not an interactive open control.
+    expect(screen.getByText('Read-only task')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /Open Read-only task/i }),
+    ).not.toBeInTheDocument();
+  });
+
   it('shows initials avatars (truncated to 3 + overflow chip)', () => {
     renderWithRouter(
       <SprintBacklogTable
