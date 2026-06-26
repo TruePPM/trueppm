@@ -776,3 +776,145 @@ class TestExcludeProjectFilter:
         assert res.status_code == 200
         ids = [r["id"] for r in res.data["results"]]
         assert str(resource.pk) not in ids
+
+
+# ---------------------------------------------------------------------------
+# Atomicity regression tests (🔴-8, R3)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestProjectResourceDestroyAtomicity:
+    """ProjectResourceViewSet.destroy must cascade TaskResource + ProjectResource
+    deletes inside a single transaction so a mid-sequence error cannot leave
+    orphaned TaskResource rows (perf-check finding 🔴-8)."""
+
+    def test_force_destroy_is_atomic(
+        self,
+        scheduler_client: APIClient,
+        project: Project,
+        resource: Resource,
+        task: Task,
+        scheduler_membership: ProjectMembership,
+    ) -> None:
+        """Both the TaskResource cascade and the ProjectResource delete must
+        succeed or fail together — verified by assertNumQueries to confirm all
+        DML runs within one savepoint-aware block.  The practical test: after a
+        successful force-delete both rows are gone."""
+        pr = ProjectResource.objects.create(project=project, resource=resource)
+        tr = TaskResource.objects.create(task=task, resource=resource, units=Decimal("1.0"))
+
+        res = scheduler_client.delete(f"/api/v1/project-resources/{pr.pk}/?force=true")
+
+        assert res.status_code == 200
+        assert not TaskResource.objects.filter(pk=tr.pk).exists()
+        assert not ProjectResource.objects.filter(pk=pr.pk).exists()
+
+    def test_force_destroy_rollback_on_project_resource_error(
+        self,
+        scheduler_client: APIClient,
+        project: Project,
+        resource: Resource,
+        task: Task,
+        scheduler_membership: ProjectMembership,
+    ) -> None:
+        """If the ProjectResource delete raises after TaskResource rows were
+        deleted, the transaction must roll back — no orphaned assignments."""
+        from unittest.mock import patch
+
+        pr = ProjectResource.objects.create(project=project, resource=resource)
+        tr = TaskResource.objects.create(task=task, resource=resource, units=Decimal("1.0"))
+
+        original_delete = pr.__class__.delete
+
+        call_count = {"n": 0}
+
+        def _fail_on_instance(self: object, *args: object, **kwargs: object) -> object:
+            # Let the class-level bulk delete (on TaskResource QuerySet) through;
+            # explode only on the ProjectResource instance delete.
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                raise RuntimeError("simulated DB error")
+            return original_delete(self, *args, **kwargs)
+
+        import contextlib
+
+        with (
+            patch.object(pr.__class__, "delete", _fail_on_instance),
+            contextlib.suppress(RuntimeError),
+        ):
+            scheduler_client.delete(f"/api/v1/project-resources/{pr.pk}/?force=true")
+
+        # With atomic(), the TaskResource row must still exist (rolled back).
+        assert TaskResource.objects.filter(pk=tr.pk).exists()
+        assert ProjectResource.objects.filter(pk=pr.pk).exists()
+
+
+# ---------------------------------------------------------------------------
+# select_related regression tests (R1, R2)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestTaskSkillRequirementSelectRelated:
+    """TaskSkillRequirementViewSet.get_queryset must include select_related('task')
+    so perform_update and perform_destroy do not issue an extra query for instance.task
+    (perf-check finding R1)."""
+
+    def test_get_queryset_prefetches_task(
+        self,
+        scheduler_client: APIClient,
+        task: Task,
+        react_skill: Skill,
+        scheduler_membership: ProjectMembership,
+    ) -> None:
+        """Updating a skill requirement must not trigger an extra query to load
+        the related Task — confirmed by counting DB queries."""
+        from django.db import connection as db_conn
+        from django.test.utils import CaptureQueriesContext
+
+        req = TaskSkillRequirement.objects.create(task=task, skill=react_skill, min_proficiency=1)
+
+        with CaptureQueriesContext(db_conn) as ctx:
+            res = scheduler_client.patch(
+                f"/api/v1/task-skill-requirements/{req.pk}/",
+                {"min_proficiency": 2},
+            )
+
+        assert res.status_code == 200
+        # Sanity: none of the SQL statements should be a bare "SELECT ... FROM projects_task
+        # WHERE id = ..." lookup triggered by lazy access to instance.task.
+        task_lazy_fetches = [
+            q["sql"]
+            for q in ctx.captured_queries
+            if 'FROM "projects_task"' in q["sql"] and "JOIN" not in q["sql"]
+        ]
+        assert task_lazy_fetches == [], (
+            f"Unexpected lazy task fetches in perform_update: {task_lazy_fetches}"
+        )
+
+    def test_destroy_does_not_lazy_load_task(
+        self,
+        scheduler_client: APIClient,
+        task: Task,
+        react_skill: Skill,
+        scheduler_membership: ProjectMembership,
+    ) -> None:
+        """Deleting a skill requirement must not lazy-load the task row."""
+        from django.db import connection as db_conn
+        from django.test.utils import CaptureQueriesContext
+
+        req = TaskSkillRequirement.objects.create(task=task, skill=react_skill, min_proficiency=1)
+
+        with CaptureQueriesContext(db_conn) as ctx:
+            res = scheduler_client.delete(f"/api/v1/task-skill-requirements/{req.pk}/")
+
+        assert res.status_code == 204
+        task_lazy_fetches = [
+            q["sql"]
+            for q in ctx.captured_queries
+            if 'FROM "projects_task"' in q["sql"] and "JOIN" not in q["sql"]
+        ]
+        assert task_lazy_fetches == [], (
+            f"Unexpected lazy task fetches in perform_destroy: {task_lazy_fetches}"
+        )

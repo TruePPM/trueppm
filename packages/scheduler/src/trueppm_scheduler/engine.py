@@ -177,7 +177,7 @@ class ScheduleResult:
 
 @dataclass
 class TaskSensitivity:
-    """How strongly one task's duration drives the project finish (ADR-0140).
+    """How strongly one task's duration drives the project finish.
 
     ``index`` is the absolute Spearman rank correlation between the task's
     per-run sampled duration and the project's per-run completion offset, in
@@ -1464,7 +1464,7 @@ def schedule(project: Project) -> ScheduleResult:
 
     Every task in ``project.tasks`` is placed in the network and scheduled. The
     engine has no concept of a recurring or template task: recurrence is a domain
-    concern filtered out one layer up, at the API (per ADR-0090). Callers must
+    concern that callers must resolve before invoking the engine. Callers must
     therefore exclude any task that should not occupy the schedule (e.g. a
     recurring-task template) *before* calling — passing one in is not an error,
     it is simply scheduled like any other task. Keeping this boundary explicit
@@ -1760,7 +1760,7 @@ def monte_carlo(
 
     Each task's per-run duration is sampled by one of three paths, in priority order:
 
-    1. **Agile / velocity (#411)** — a task with ``delivery_mode=SCRUM`` and
+    1. **Agile / velocity** — a task with ``delivery_mode=SCRUM`` and
        ``story_points``, on a project carrying ``velocity_samples`` +
        ``sprint_length_days``, samples sprints-to-completion from the team's
        throughput distribution (see :func:`_sample_velocity_durations`). This is how
@@ -1785,13 +1785,13 @@ def monte_carlo(
 
     The CPM network is evaluated `runs` times with sampled durations.
     All 4 dependency types are handled, ``planned_start`` is honored as the
-    same start-no-earlier-than floor the deterministic pass applies (#1068),
+    same start-no-earlier-than floor the deterministic pass applies,
     and zero-duration milestones occupy their start day exactly as in
-    :func:`schedule` (#1066) — a fully deterministic project (no estimates,
+    :func:`schedule` — a fully deterministic project (no estimates,
     no velocity signal) simulates to precisely the CPM finish date.
 
-    Per-task calendars (ADR-0120 D3) are **not** honored here: Monte Carlo samples
-    every task on the pass-level ``project.calendar``. ``Task.calendar_id`` /
+    Per-task calendars are **not** honored here: Monte Carlo samples every task
+    on the pass-level ``project.calendar``. ``Task.calendar_id`` /
     ``Project.calendars`` affect only the deterministic :func:`schedule` pass; a
     project carrying them simulates as though every task shared the project
     calendar.
@@ -1813,7 +1813,7 @@ def monte_carlo(
         max_tasks: Maximum number of tasks allowed. Pass ``None`` to disable
                    the cap. Default 500.
         sensitivity_cap: Maximum number of tasks returned in the duration
-                   sensitivity tornado (ADR-0140). Default ``MC_SENSITIVITY_CAP``.
+                   sensitivity tornado. Default ``MC_SENSITIVITY_CAP``.
 
     Returns:
         MonteCarloResult with P50, P80, P95 completion dates, the full sorted

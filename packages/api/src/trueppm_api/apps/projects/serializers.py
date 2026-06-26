@@ -4352,12 +4352,20 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
         # tasks land in this sprint". The intersection is derived client-side
         # (vitest-tested) from the raw predecessor task ids exposed here — keeping
         # the graph fact server-owned (API-first) without a per-sprint join here.
-        predecessor_ids = [
-            str(pid)
-            for pid in Dependency.objects.filter(
-                successor_id=milestone.pk, predecessor__is_deleted=False
-            ).values_list("predecessor_id", flat=True)
-        ]
+        #
+        # 🔴-3: use the prefetched predecessor_set when SprintViewSet.get_queryset()
+        # has attached it; fall back to a live query on retrieve / action paths that
+        # bypass the annotated queryset.
+        prefetched_deps = getattr(milestone, "_prefetched_predecessor_deps", None)
+        if prefetched_deps is not None:
+            predecessor_ids = [str(d.predecessor_id) for d in prefetched_deps]
+        else:
+            predecessor_ids = [
+                str(pid)
+                for pid in Dependency.objects.filter(
+                    successor_id=milestone.pk, predecessor__is_deleted=False
+                ).values_list("predecessor_id", flat=True)
+            ]
         return {
             "id": str(milestone.pk),
             "name": milestone.name,

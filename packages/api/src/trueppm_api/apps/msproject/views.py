@@ -353,13 +353,19 @@ class ImportRequestProvenanceListView(APIView):
             return Response({"detail": "Project not found."}, status=status.HTTP_404_NOT_FOUND)
         _check_project_member(request.user, project_pk)
 
+        # Hard cap: rows are purged after 7 days and per-project volume is low,
+        # but we bound the payload to 100 rows to avoid unbounded serialization
+        # on a workspace that skipped the purge job.  The affordance is a
+        # recent-activity view, not a durable audit log, so this cap is safe.
+        _PROVENANCE_CAP = 100
+
         # Newest first — matches the project-history affordance UX. select_related
         # the user FK so the serializer's username display doesn't trigger an
-        # N+1 across the (small but unbounded) row count.
+        # N+1 across the (small but bounded) row count.
         qs = (
             ImportRequest.objects.filter(project_id=project_pk)
             .select_related("initiated_by")
-            .order_by("-requested_at")
+            .order_by("-requested_at")[:_PROVENANCE_CAP]
         )
         # Pre-seed the TaskRun memoization cache so the serializer only reads
         # from context (avoids touching the read-only `Mapping[str, Any]` type

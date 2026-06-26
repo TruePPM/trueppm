@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import mixins, status, viewsets
@@ -67,7 +68,11 @@ class NotificationViewSet(
         if not user.is_authenticated:
             return Notification.objects.none()
         qs = Notification.objects.filter(recipient=user).select_related(
-            "mention", "mention__task_comment", "mention__mentioner", "project"
+            "mention",
+            "mention__task_comment",
+            "mention__mentioner",
+            "mention__mentioned_user",
+            "project",
         )
         unread_only = self.request.query_params.get("unread_only", "").lower() in ("1", "true")
         if unread_only:
@@ -170,20 +175,26 @@ class NotificationPreferenceViewSet(
                 {"detail": "preset must be 'signal_only' or 'everything'."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        # Ensure the full row set exists before we toggle (a brand-new user may
-        # have no rows yet — same lazy backfill the list view performs).
-        get_or_create_default_preferences(user)
-        prefs = list(NotificationPreference.objects.filter(user=user))
-        if preset == "signal_only":
-            for p in prefs:
-                p.enabled = (
-                    p.channel == NotificationChannel.IN_APP and p.event_type in SIGNAL_ONLY_EVENTS
-                )
-        else:  # everything
-            default_map = {(e, c): enabled for (e, c, enabled) in DEFAULT_PREFERENCES}
-            for p in prefs:
-                p.enabled = default_map.get((p.event_type, p.channel), p.enabled)
-        NotificationPreference.objects.bulk_update(prefs, ["enabled"])
+        # Wrap get_or_create → read → bulk_update in a single atomic block so a
+        # concurrent second apply_preset on the same user (e.g. rapid double-click)
+        # cannot interleave a partial write — either the full preset lands or none
+        # of it does (#1317 atomicity finding).
+        with transaction.atomic():
+            # Ensure the full row set exists before we toggle (a brand-new user may
+            # have no rows yet — same lazy backfill the list view performs).
+            get_or_create_default_preferences(user)
+            prefs = list(NotificationPreference.objects.filter(user=user))
+            if preset == "signal_only":
+                for p in prefs:
+                    p.enabled = (
+                        p.channel == NotificationChannel.IN_APP
+                        and p.event_type in SIGNAL_ONLY_EVENTS
+                    )
+            else:  # everything
+                default_map = {(e, c): enabled for (e, c, enabled) in DEFAULT_PREFERENCES}
+                for p in prefs:
+                    p.enabled = default_map.get((p.event_type, p.channel), p.enabled)
+            NotificationPreference.objects.bulk_update(prefs, ["enabled"])
         serializer = self.get_serializer(self.get_queryset(), many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 

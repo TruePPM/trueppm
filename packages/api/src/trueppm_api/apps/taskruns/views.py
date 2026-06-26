@@ -41,7 +41,9 @@ class ProjectTaskRunViewSet(
 
     def get_queryset(self) -> QuerySet[TaskRun]:
         project_pk = self.kwargs["project_pk"]
-        return TaskRun.objects.filter(project_id=project_pk)
+        # select_related('project') so the cancel action (obj.project) avoids an
+        # extra query per retrieved instance.
+        return TaskRun.objects.filter(project_id=project_pk).select_related("project")
 
     def get_object(self) -> TaskRun:
         obj: TaskRun = super().get_object()

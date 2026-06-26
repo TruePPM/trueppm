@@ -320,3 +320,34 @@ class TestNotificationPreferences:
             format="json",
         )
         assert r.status_code in (401, 403)
+
+    def test_apply_preset_is_atomic_bulk_update(
+        self, alice_client: APIClient, alice: object
+    ) -> None:
+        """apply_preset wraps get_or_create + read + bulk_update in transaction.atomic()
+        (perf-check finding #1316). Verify all rows are in their final state after the
+        call (no partial writes observable between the steps)."""
+
+        # Ensure rows exist before the call.
+        alice_client.get("/api/v1/me/notification-preferences/")
+        rows_before = NotificationPreference.objects.filter(user=alice).count()
+        assert rows_before > 0
+
+        # Apply signal_only — all rows should be in the expected final state.
+        r = alice_client.post(
+            "/api/v1/me/notification-preferences/apply-preset/",
+            {"preset": "signal_only"},
+            format="json",
+        )
+        assert r.status_code == 200
+
+        # Database must reflect the preset consistently (no half-written rows).
+        from trueppm_api.apps.notifications.models import SIGNAL_ONLY_EVENTS
+
+        for pref in NotificationPreference.objects.filter(user=alice):
+            expected = (
+                pref.channel == NotificationChannel.IN_APP and pref.event_type in SIGNAL_ONLY_EVENTS
+            )
+            assert pref.enabled is expected, (
+                f"Row {pref.event_type}/{pref.channel} has unexpected enabled={pref.enabled}"
+            )

@@ -784,7 +784,7 @@ class WorkspaceLogoView(IdempotencyMixin, APIView):
 
 
 class GroupListView(IdempotencyMixin, APIView):
-    """GET/POST /api/v1/workspace/groups/ (#519). Read: any member; create: admin."""
+    """GET/POST /api/v1/workspace/groups/ (#519). Read and create: admin only."""
 
     permission_classes = [IsAuthenticated, IsWorkspaceAdmin]
 

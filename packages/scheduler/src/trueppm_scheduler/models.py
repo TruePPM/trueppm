@@ -21,7 +21,7 @@ class DependencyType(enum.Enum):
 
 
 class DeliveryMode(enum.Enum):
-    """How a task's duration uncertainty is modeled in Monte Carlo (#411).
+    """How a task's duration uncertainty is modeled in Monte Carlo.
 
     ``WATERFALL`` (the default when ``Task.delivery_mode`` is ``None``) samples
     from the task's three-point PERT estimate, or uses the deterministic duration

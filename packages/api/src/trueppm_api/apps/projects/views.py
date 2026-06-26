@@ -1771,7 +1771,10 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
             return Response({"items": []}, status=status.HTTP_200_OK)
 
         sprint_pks = [pk_ for pk_, _, _ in prior_sprints]
-        items = (
+        # P23: materialize once so the queryset SQL executes a single time.
+        # The lazy queryset was previously iterated twice — once to collect
+        # promoted_ids and once in the for-loop — issuing the SQL twice.
+        items = list(
             RetroActionItem.objects.filter(
                 retro__sprint_id__in=sprint_pks,
                 is_deleted=False,
@@ -2517,6 +2520,18 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         tasks = list(queryset)
         _attach_milestone_rollups(tasks)
         serializer = self.get_serializer(tasks, many=True)
+        return Response(serializer.data)
+
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # No docstring: keep the class-level permission-matrix description as this
+        # operation's public schema. The list() override batches milestone rollups
+        # per page; retrieve uses the same _attach_milestone_rollups helper so a
+        # single-task fetch of a milestone does not fall back to per-row
+        # compute_milestone_rollup_payload. The sprint scope-change prefetch is
+        # already attached by annotate_tasks_queryset in get_queryset().
+        instance = self.get_object()
+        _attach_milestone_rollups([instance])
+        serializer = self.get_serializer(instance)
         return Response(serializer.data)
 
     def perform_create(self, serializer: BaseSerializer[Task]) -> None:
@@ -3462,13 +3477,17 @@ class AcceptanceCriterionViewSet(IdempotencyMixin, viewsets.ModelViewSet[Accepta
         # gate create — enforce membership on the target task's project here.
         task = serializer.validated_data["task"]
         self._require_member_write(task.project_id)
-        criterion = serializer.save()
-        # If created already-met, stamp the review trail so a met criterion never has
-        # null attribution (and dor_blockers' all-met check has a real author).
-        if criterion.met and criterion.met_by_id is None:
-            criterion.met_by = self.request.user  # type: ignore[assignment]
-            criterion.met_at = timezone.now()
-            criterion.save(update_fields=["met_by", "met_at", "server_version"])
+        # Wrap both writes in one atomic block: if the met_by/met_at stamp fails,
+        # the criterion row itself is rolled back rather than being left with null
+        # attribution on a criterion that appears met (P25 correctness fix).
+        with transaction.atomic():
+            criterion = serializer.save()
+            # If created already-met, stamp the review trail so a met criterion never has
+            # null attribution (and dor_blockers' all-met check has a real author).
+            if criterion.met and criterion.met_by_id is None:
+                criterion.met_by = self.request.user  # type: ignore[assignment]
+                criterion.met_at = timezone.now()
+                criterion.save(update_fields=["met_by", "met_at", "server_version"])
         self._broadcast(criterion)
 
     def perform_update(self, serializer: BaseSerializer[AcceptanceCriterion]) -> None:
@@ -3735,42 +3754,52 @@ class BaselineViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Baseline]):
         return qs.annotate(task_count=Count("tasks"))  # type: ignore[no-any-return]
 
     def perform_create(self, serializer: BaseSerializer[Baseline]) -> None:
-        """Snapshot all live task dates atomically and broadcast baseline_created."""
+        """Snapshot all live task dates atomically and broadcast baseline_created.
+
+        All three pre-flight reads (auto-name count, unique-name check, task values)
+        are inside the atomic block so concurrent creates can't race on the auto-name
+        counter — two simultaneous POSTs can't both read ``count=2`` and both produce
+        "Baseline 3" (P24 correctness fix).
+        """
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         project_pk = self.kwargs["project_pk"]
         project = get_object_or_404(Project, pk=project_pk, is_deleted=False)
         self.check_object_permissions(self.request, project)
 
-        # Auto-name: "Baseline N" where N = existing count + 1
-        name = serializer.validated_data.get("name") or ""
-        if not name:
-            existing_count = Baseline.objects.filter(
-                project_id=project_pk, is_deleted=False
-            ).count()
-            name = f"Baseline {existing_count + 1}"
-
-        # Enforce unique name per project
-        if Baseline.objects.filter(project_id=project_pk, name=name, is_deleted=False).exists():
-            raise serializers.ValidationError(
-                {"name": f"A baseline named '{name}' already exists for this project."}
-            )
-
-        live_tasks = list(
-            Task.objects.filter(project_id=project_pk, is_deleted=False).values(
-                "id",
-                "name",
-                "early_start",
-                "early_finish",
-                "duration",
-                "actual_start",
-                "actual_finish",
-                "story_points",
-            )
-        )
-        has_cpm_dates = bool(live_tasks) and all(t["early_start"] is not None for t in live_tasks)
-
         with transaction.atomic():
+            # Auto-name: "Baseline N" where N = existing count + 1. Done inside
+            # the atomic block so concurrent creates read a consistent count and
+            # can't both produce the same auto-name (P24 correctness fix).
+            name = serializer.validated_data.get("name") or ""
+            if not name:
+                existing_count = Baseline.objects.filter(
+                    project_id=project_pk, is_deleted=False
+                ).count()
+                name = f"Baseline {existing_count + 1}"
+
+            # Enforce unique name per project
+            if Baseline.objects.filter(project_id=project_pk, name=name, is_deleted=False).exists():
+                raise serializers.ValidationError(
+                    {"name": f"A baseline named '{name}' already exists for this project."}
+                )
+
+            live_tasks = list(
+                Task.objects.filter(project_id=project_pk, is_deleted=False).values(
+                    "id",
+                    "name",
+                    "early_start",
+                    "early_finish",
+                    "duration",
+                    "actual_start",
+                    "actual_finish",
+                    "story_points",
+                )
+            )
+            has_cpm_dates = bool(live_tasks) and all(
+                t["early_start"] is not None for t in live_tasks
+            )
+
             baseline = serializer.save(
                 project=project,
                 created_by=self.request.user,
@@ -4231,13 +4260,18 @@ class CrossProjectSlipConflictViewSet(
         member_project_ids = ProjectMembership.objects.filter(
             user=user, is_deleted=False
         ).values_list("project_id", flat=True)
+        # Full select_related covers all FK hops in get_upstream_task (🔴-4):
+        # dep → predecessor → project (3 hops per row without this).
         qs = (
             CrossProjectSlipConflict.objects.select_related(
                 "sprint",
                 "task",
+                "task__project",
                 "dependency",
                 "dependency__predecessor",
                 "dependency__predecessor__project",
+                "dependency__successor",
+                "dependency__successor__project",
                 "acknowledged_by",
             )
             .filter(task__project_id__in=member_project_ids)
@@ -5848,21 +5882,39 @@ class ProjectOverviewView(APIView):
 
         if active_baseline_for_spi is not None:
             planned_count = active_baseline_for_spi.tasks.filter(finish__lte=today).count()
+            if planned_count > 0:
+                # Count tasks complete by today; null actual_finish on a complete task counts.
+                planned_complete: int = (
+                    Task.objects.filter(
+                        project=project, is_deleted=False, status=TaskStatus.COMPLETE
+                    )
+                    .filter(
+                        db_models.Q(actual_finish__lte=today)
+                        | db_models.Q(actual_finish__isnull=True)
+                    )
+                    .count()
+                )
+            else:
+                planned_complete = 0
         else:
-            # No baseline: fall back to CPM schedule (known limitation — drifts on rerun).
-            planned_count = Task.objects.filter(
-                project=project, is_deleted=False, early_finish__lte=today
-            ).count()
+            # P17: No baseline — merge both SPI COUNT queries into one aggregate()
+            # call so a single DB round-trip returns both the denominator (tasks
+            # with early_finish ≤ today) and numerator (COMPLETE tasks).
+            spi_agg = Task.objects.filter(project=project, is_deleted=False).aggregate(
+                planned=Count("id", filter=db_models.Q(early_finish__lte=today)),
+                planned_complete=Count(
+                    "id",
+                    filter=db_models.Q(status=TaskStatus.COMPLETE)
+                    & (
+                        db_models.Q(actual_finish__lte=today)
+                        | db_models.Q(actual_finish__isnull=True)
+                    ),
+                ),
+            )
+            planned_count = spi_agg["planned"] or 0
+            planned_complete = spi_agg["planned_complete"] or 0
 
         if planned_count > 0:
-            # Count tasks complete by today; null actual_finish on a complete task counts.
-            planned_complete: int = (
-                Task.objects.filter(project=project, is_deleted=False, status=TaskStatus.COMPLETE)
-                .filter(
-                    db_models.Q(actual_finish__lte=today) | db_models.Q(actual_finish__isnull=True)
-                )
-                .count()
-            )
             spi = round(planned_complete / planned_count, 3)
             if spi >= 0.95:
                 health = "on_track"
@@ -5899,16 +5951,29 @@ class ProjectOverviewView(APIView):
         # ── Risk counts (open + high-severity band) ───────────────────────
         # Severity = probability * impact; high band ≥ 12 matches the
         # frontend "Open risks" KPI card. Both counts exclude resolved/closed.
-        open_risks = list(
+        # P16: replaced Python-side aggregation (loads all risk rows into memory)
+        # with a single DB aggregate() call. annotate+aggregate on the same
+        # queryset lets Django produce one SQL SELECT with two conditional COUNTs.
+        # probability and impact are non-nullable PositiveSmallIntegerField.
+        _RISK_HIGH_THRESHOLD = 12
+        risk_agg = (
             Risk.objects.filter(
                 project=project,
                 status__in=[RiskStatus.OPEN, RiskStatus.MITIGATING],
-            ).values("probability", "impact")
+            )
+            .annotate(
+                severity=ExpressionWrapper(
+                    F("probability") * F("impact"),
+                    output_field=IntegerField(),
+                )
+            )
+            .aggregate(
+                open_risk_count=Count("id"),
+                high_risk_count=Count("id", filter=db_models.Q(severity__gte=_RISK_HIGH_THRESHOLD)),
+            )
         )
-        open_risk_count = len(open_risks)
-        high_risk_count = sum(
-            1 for r in open_risks if (r["probability"] or 0) * (r["impact"] or 0) >= 12
-        )
+        open_risk_count = risk_agg["open_risk_count"] or 0
+        high_risk_count = risk_agg["high_risk_count"] or 0
 
         # ── Project owner (first Owner-role member) ───────────────────────
         owner_membership = (
@@ -6307,6 +6372,12 @@ def _history_fk_label(obj: Any) -> str:
     return str(getattr(obj, "name", None) or obj)
 
 
+# P18: cap the in-memory history load for a single task. Loading the full history
+# for a long-running task (potentially thousands of edits) would OOM the worker on
+# page-1 requests. Mirrors the history app's ProjectHistorySummaryView cap.
+_MAX_HISTORY_ROWS = 2000
+
+
 class TaskHistoryView(APIView):
     """Paginated field-level diff history for a single task.
 
@@ -6332,7 +6403,16 @@ class TaskHistoryView(APIView):
 
         task = get_object_or_404(Task, pk=task_pk, project_id=project_pk, is_deleted=False)
 
-        records = list(task.history.order_by("-history_date").select_related("history_user"))
+        # The paginator slices from this list; count_truncated in the response signals
+        # to the client that older records are not included. Fetch one past the cap so
+        # an exactly-cap history is not falsely reported as truncated.
+        records = list(
+            task.history.order_by("-history_date").select_related("history_user")[
+                : _MAX_HISTORY_ROWS + 1
+            ]
+        )
+        count_truncated: bool = len(records) > _MAX_HISTORY_ROWS
+        records = records[:_MAX_HISTORY_ROWS]
         diff_fields = _history_diff_fields()
 
         # Pass 1: compute raw per-record changes, collecting FK ids to resolve in a
@@ -6400,7 +6480,11 @@ class TaskHistoryView(APIView):
         paginator = PageNumberPagination()
         paginator.page_size = 20
         page: list[Any] | None = paginator.paginate_queryset(result, request)  # type: ignore[arg-type]
-        return paginator.get_paginated_response(page)
+        response = paginator.get_paginated_response(page)
+        # Expose count_truncated so the client can surface "showing recent 2,000
+        # changes" when the task has a very long edit history (P18).
+        response.data["count_truncated"] = count_truncated
+        return response
 
 
 class TaskBaselineDetailView(APIView):
@@ -6622,30 +6706,39 @@ class PhaseViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         return [IsAuthenticated(), IsProjectAdmin(), IsProjectNotArchived()]
 
     def _attach_task_counts(self, phases: list[Task]) -> list[Task]:
-        """Set ``descendants_count`` on each phase from a single grouped query.
+        """Set ``descendants_count`` on each phase from a single grouped DB query.
 
         Counts include the phase itself plus every non-deleted descendant
         task. For an empty phase the count is 1; for a phase with two child
         tasks it is 3. Two queries total (one for phases, one for the
         per-phase count map) rather than N+1 per-phase counts.
+
+        P20: replaced the Python scan (loads all wbs_paths into memory, grows
+        linearly with task count) with a DB-side GROUP BY using SPLIT_PART so
+        the aggregation happens in PostgreSQL and only the small summary rows
+        are returned.
         """
         if not phases:
             return phases
         project_id = phases[0].project_id
-        counts: dict[str, int] = {}
-        # Single query: count non-deleted tasks per root prefix. We bucket every
-        # task by its WBS root (the substring before the first dot, or the
-        # whole path for L1 rows).
+        # DB-side GROUP BY on the root WBS label (the part before the first dot).
+        # SPLIT_PART(text, '.', 1) returns the whole string when there is no dot,
+        # so root-level tasks contribute to their own bucket correctly.
         rows = (
             Task.objects.filter(project_id=project_id, is_deleted=False)
             .exclude(wbs_path__isnull=True)
-            .values_list("wbs_path", flat=True)
+            .annotate(
+                # nosemgrep: avoid-raw-sql
+                root_label=db_models.expressions.RawSQL(
+                    "SPLIT_PART(projects_task.wbs_path::text, '.', 1)",
+                    [],
+                    output_field=db_models.TextField(),
+                )
+            )
+            .values("root_label")
+            .annotate(cnt=Count("id"))
         )
-        for path in rows:
-            if path is None:
-                continue
-            root = str(path).split(".", 1)[0]
-            counts[root] = counts.get(root, 0) + 1
+        counts: dict[str, int] = {str(row["root_label"]): row["cnt"] for row in rows}
         for phase in phases:
             phase.descendants_count = counts.get(  # type: ignore[attr-defined]
                 str(phase.wbs_path) if phase.wbs_path else "", 0
@@ -6672,11 +6765,17 @@ class PhaseViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         user = getattr(self.request, "user", None)
         if user is None or not user.is_authenticated:
             return Task.objects.none()
-        return Task.objects.filter(
-            project_id=project_pk,
-            is_deleted=False,
-            wbs_path__regex=_ROOT_WBS_RE,
-        ).order_by("priority_rank", "wbs_path", "name")
+        # P19: select_related so PhaseSerializer's project/assignee FK accesses
+        # don't issue extra queries per phase row.
+        return (
+            Task.objects.filter(
+                project_id=project_pk,
+                is_deleted=False,
+                wbs_path__regex=_ROOT_WBS_RE,
+            )
+            .select_related("project", "assignee")
+            .order_by("priority_rank", "wbs_path", "name")
+        )
 
     def perform_create(self, serializer: BaseSerializer[Task]) -> None:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
@@ -6961,6 +7060,18 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
                     tasks__is_deleted=False,
                 ),
             ),
+        )
+        # 🔴-3: SprintSerializer.get_target_milestone_detail reads the
+        # milestone's predecessor Dependency ids. Without this prefetch it fires
+        # one Dependency query per sprint that has a target_milestone.
+        qs = qs.prefetch_related(
+            db_models.Prefetch(
+                "target_milestone__predecessors",
+                queryset=Dependency.objects.filter(predecessor__is_deleted=False).only(
+                    "predecessor_id", "dep_type", "successor_id"
+                ),
+                to_attr="_prefetched_predecessor_deps",
+            )
         )
         return cast(QuerySet[Sprint], qs)
 
@@ -7474,17 +7585,32 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         body.is_valid(raise_exception=True)
         ids = body.validated_data["ids"]
 
+        # Collect the candidate PENDING ids first, then lock + process each row in
+        # its own atomic savepoint. select_for_update() requires an open transaction,
+        # and a per-row lock that re-checks PENDING is what actually prevents two
+        # concurrent accept/reject calls from double-processing the same row (P26),
+        # while keeping the per-row partial-failure tolerance below.
         pending_qs = SprintScopeChange.objects.filter(
             sprint_id=sprint.pk, status=ScopeChangeStatus.PENDING
-        ).select_related("task")
+        )
         if ids:
             pending_qs = pending_qs.filter(pk__in=ids)
+        pending_ids = list(pending_qs.values_list("pk", flat=True))
 
         service = accept_scope_change if accept else reject_scope_change
         done: list[Any] = []
-        for sc in pending_qs:
+        for sc_id in pending_ids:
             try:
-                result = service(sc, request.user)
+                with transaction.atomic():
+                    sc = (
+                        SprintScopeChange.objects.select_for_update()
+                        .select_related("task")
+                        .get(pk=sc_id, status=ScopeChangeStatus.PENDING)
+                    )
+                    result = service(sc, request.user)
+            except SprintScopeChange.DoesNotExist:
+                # Decided by a concurrent call between the id scan and the row lock — skip.
+                continue
             except ScopeAcceptForbidden:
                 # The gate is checked at the viewset layer too; reaching here means
                 # the actor lost membership mid-request — fail the whole call closed.
@@ -7495,7 +7621,7 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
             except Exception:
                 # Tolerate partial failure per row — one row that errors (e.g.
                 # decided concurrently) is skipped; the rest still apply.
-                logger.exception("bulk scope-change failed for %s", sc.pk)
+                logger.exception("bulk scope-change failed for %s", sc_id)
                 continue
             done.append(result)
 
@@ -8070,7 +8196,18 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
 
         # PATCH — partial update, currently scoped to team_visibility.
         if request.method == "PATCH":
-            retro = SprintRetro.objects.filter(sprint=sprint, is_deleted=False).first()
+            # Prefetch action_items+assignee so the serializer response doesn't
+            # N+1 per action item (P13 perf fix — mirrors the GET path above).
+            retro = (
+                SprintRetro.objects.filter(sprint=sprint, is_deleted=False)
+                .prefetch_related(
+                    db_models.Prefetch(
+                        "action_items",
+                        queryset=RetroActionItem.objects.select_related("assignee"),
+                    )
+                )
+                .first()
+            )
             if retro is None:
                 return Response(
                     {"detail": "No retro recorded for this sprint."},
@@ -8121,19 +8258,34 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
             )
             # Replace the action item set on each save — retros are
             # append-on-save semantics at the meeting boundary.
+            # P15: use bulk_create to replace O(N) INSERT round-trips with one.
             retro.action_items.filter(is_deleted=False).delete()
-            for entry in items_in:
-                text = (entry.get("text") or "").strip()
-                if not text:
-                    continue
-                RetroActionItem.objects.create(
+            new_items = [
+                RetroActionItem(
                     retro=retro,
-                    text=text,
+                    text=(entry.get("text") or "").strip(),
                     assignee_id=entry.get("assignee") or None,
                     story_points=entry.get("story_points"),
                 )
+                for entry in items_in
+                if (entry.get("text") or "").strip()
+            ]
+            if new_items:
+                RetroActionItem.objects.bulk_create(new_items)
 
-        retro.refresh_from_db()
+        # P13: replace refresh_from_db() (wipes prefetch cache) with a fresh
+        # fetch that prefetches action_items+assignee so the serializer doesn't
+        # N+1 per action item when rendering the POST response.
+        retro = (
+            SprintRetro.objects.filter(sprint=sprint, is_deleted=False)
+            .prefetch_related(
+                db_models.Prefetch(
+                    "action_items",
+                    queryset=RetroActionItem.objects.select_related("assignee"),
+                )
+            )
+            .first()
+        ) or retro
         return Response(_pick_serializer(retro)(retro).data, status=status.HTTP_200_OK)
 
     @extend_schema(
@@ -8298,6 +8450,7 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         """
         from trueppm_api.apps.access.models import ProjectMembership, Role
         from trueppm_api.apps.projects.models import (
+            RetroActionItem,
             RetroVisibility,
             SprintRetro,
         )
@@ -8329,7 +8482,18 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
                 {"detail": "No prior retrospective."},
                 status=status.HTTP_404_NOT_FOUND,
             )
-        prior_retro = SprintRetro.objects.filter(sprint=prior, is_deleted=False).first()
+        # P14: prefetch action_items+assignee so the serializer doesn't N+1 per
+        # action item when rendering this retro (mirrors the GET path above).
+        prior_retro = (
+            SprintRetro.objects.filter(sprint=prior, is_deleted=False)
+            .prefetch_related(
+                db_models.Prefetch(
+                    "action_items",
+                    queryset=RetroActionItem.objects.select_related("assignee"),
+                )
+            )
+            .first()
+        )
         if prior_retro is None:
             return Response(
                 {"detail": "No prior retrospective."},
@@ -9011,7 +9175,9 @@ def _me_work_retro_action_items(user: Any) -> list[dict[str, Any]]:
             state=SuggestionState.PENDING,
             is_deleted=False,
         )
-        .select_related("task", "suggested_by")
+        # P6: add suggested_user so TaskSuggestedAssigneeSerializer.get_suggested_user_username
+        # doesn't fire a per-row User query (suggested_by was already covered).
+        .select_related("task", "suggested_by", "suggested_user")
         .order_by("-created_at")
     )
     # Resolve action items via reverse lookup on promoted_task_id (one query).
@@ -10146,16 +10312,29 @@ class TaskAttachmentViewSet(
         """Inject the project into the serializer context on create so the
         attachment MIME check enforces the *resolved* per-project allow-list
         (ADR-0153, #976) instead of the system default. ``program`` is
-        select_related so the policy resolver's parent lookup is free."""
+        select_related so the policy resolver's parent lookup is free.
+
+        P22: the project is resolved once in perform_create and stashed on
+        ``self._attachment_project`` to avoid a second DB round-trip here.
+        On the create path, perform_create always runs before the serializer
+        renders the response, so the stashed value is available.
+        """
         # DRF types the base return as Mapping; copy into a mutable dict so the
         # injection below type-checks and never aliases the base context.
         context: dict[str, Any] = dict(super().get_serializer_context())
         if self.action == "create":
-            project_pk = self.kwargs.get("project_pk")
-            if project_pk:
-                context["attachment_project"] = (
-                    Project.objects.filter(pk=project_pk).select_related("program").first()
-                )
+            # Use the project resolved in perform_create if available; fall back
+            # to a DB lookup only when called before perform_create (e.g. during
+            # schema generation or in tests that call get_serializer_context directly).
+            cached = getattr(self, "_attachment_project", None)
+            if cached is not None:
+                context["attachment_project"] = cached
+            else:
+                project_pk = self.kwargs.get("project_pk")
+                if project_pk:
+                    context["attachment_project"] = (
+                        Project.objects.filter(pk=project_pk).select_related("program").first()
+                    )
         return context
 
     def perform_create(self, serializer: BaseSerializer[TaskAttachment]) -> None:
@@ -10171,11 +10350,17 @@ class TaskAttachmentViewSet(
         task = get_object_or_404(Task, pk=task_pk, project_id=project_pk, is_deleted=False)
         self.check_object_permissions(self.request, task)
 
+        # P22: resolve the project once here and stash it so get_serializer_context
+        # can read it without a second DB query (attachment policy check + context).
+        self._attachment_project: Project | None = (
+            Project.objects.filter(pk=project_pk).select_related("program").first()
+        )
+
         # ADR-0153 (#976): file uploads are gated by the resolved attachments_enabled
         # policy (external links are a separate capability, unaffected). 403 not 400 —
         # the project's policy forbids uploads here, it isn't a malformed request.
         if serializer.validated_data.get("file"):
-            project = serializer.context.get("attachment_project")
+            project = self._attachment_project
             if project is not None and not resolve_attachments_enabled(project):
                 raise PermissionDenied("File attachments are disabled for this project.")
 
@@ -10579,10 +10764,10 @@ class CommentReactionViewSet(
             return CommentReaction.objects.none()
         project_pk = self.kwargs["project_pk"]
         comment_pk = self.kwargs["comment_pk"]
-        if not ProjectMembership.objects.filter(
-            user=user, project_id=project_pk, is_deleted=False
-        ).exists():
-            return CommentReaction.objects.none()
+        # P21: membership is already enforced by IsProjectMemberWrite in
+        # get_permissions() before get_queryset() runs — the extra
+        # ProjectMembership.objects.exists() is a redundant round-trip (same
+        # anti-pattern fixed for TaskAttachmentViewSet in #821).
         return CommentReaction.objects.filter(
             comment_id=comment_pk, comment__task__project_id=project_pk
         ).select_related("user")
@@ -10673,11 +10858,14 @@ class TaskNoteViewSet(
         # (get_permissions) before get_queryset runs. `task` is select_related so
         # perform_destroy's instance.task.project_id is free. Ordering comes from
         # Meta (-pinned, -created_at) — pinned-first, then newest.
+        # P4: add task__sprint and task__project so DecisionNoteSerializer's
+        # get_sprint (task.sprint FK) and get_project context (task.project FK)
+        # don't fire extra queries per note row.
         return TaskNote.objects.filter(
             task__project_id=project_pk,
             task_id=task_pk,
             is_deleted=False,
-        ).select_related("author", "deleted_by", "task")
+        ).select_related("author", "deleted_by", "task", "task__sprint", "task__project")
 
     def get_permissions(self) -> list[BasePermission]:
         if self.action in ("create", "partial_update", "update", "destroy", "pin", "decision"):

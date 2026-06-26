@@ -50,6 +50,9 @@ class WorkshopStartView(IdempotencyMixin, APIView):
                 {"detail": "A workshop session is already active for this project."},
                 status=status.HTTP_409_CONFLICT,
             )
+        # Re-fetch with participants prefetched so the serializer's nested
+        # participant list is populated without N+1 queries.
+        session = WorkshopSession.objects.prefetch_related("participants__user").get(pk=session.pk)
         return Response(WorkshopSessionSerializer(session).data, status=status.HTTP_201_CREATED)
 
 
@@ -84,6 +87,9 @@ class WorkshopEndView(IdempotencyMixin, APIView):
             )
         self.check_object_permissions(request, session)
         session = end_workshop(session, request.user)  # type: ignore[arg-type]
+        # Re-fetch with participants prefetched so the serializer's nested
+        # participant list is populated without N+1 queries.
+        session = WorkshopSession.objects.prefetch_related("participants__user").get(pk=session.pk)
         return Response(WorkshopSessionSerializer(session).data)
 
 
@@ -111,6 +117,9 @@ class WorkshopForceEndView(IdempotencyMixin, APIView):
                 {"detail": "No active workshop session found."},
                 status=status.HTTP_404_NOT_FOUND,
             )
+        # Re-fetch with participants prefetched so the serializer's nested
+        # participant list is populated without N+1 queries.
+        session = WorkshopSession.objects.prefetch_related("participants__user").get(pk=session.pk)
         return Response(WorkshopSessionSerializer(session).data)
 
 

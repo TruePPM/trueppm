@@ -276,11 +276,14 @@ class ProjectResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project
         affected_task_ids = [str(a.task_id) for a in live_assignments]
 
         # Cascade: delete TaskResource rows, then the ProjectResource row.
-        TaskResource.objects.filter(
-            resource_id=resource_id,
-            task__project_id=project_id,
-        ).delete()
-        instance.delete()
+        # Wrapped in atomic() so a mid-sequence failure cannot leave orphaned
+        # TaskResource rows without a corresponding ProjectResource (🔴-8).
+        with transaction.atomic():
+            TaskResource.objects.filter(
+                resource_id=resource_id,
+                task__project_id=project_id,
+            ).delete()
+            instance.delete()
 
         if affected_task_ids:
 
@@ -332,7 +335,7 @@ class TaskSkillRequirementViewSet(IdempotencyMixin, viewsets.ModelViewSet[TaskSk
 
     serializer_class = TaskSkillRequirementSerializer
     filter_backends = [filters.OrderingFilter]
-    queryset = TaskSkillRequirement.objects.select_related("skill").filter(is_deleted=False)
+    queryset = TaskSkillRequirement.objects.select_related("skill", "task").filter(is_deleted=False)
 
     def get_permissions(self) -> list[BasePermission]:
         from rest_framework.permissions import SAFE_METHODS
@@ -384,7 +387,10 @@ class TaskSkillRequirementViewSet(IdempotencyMixin, viewsets.ModelViewSet[TaskSk
         member_project_ids = ProjectMembership.objects.filter(
             user=user, is_deleted=False
         ).values_list("project_id", flat=True)
-        qs = TaskSkillRequirement.objects.select_related("skill").filter(
+        # select_related("task") avoids N+1 queries in perform_update and
+        # perform_destroy, both of which call _require_scheduler_on_task(instance.task)
+        # and therefore load task.project_id (R1).
+        qs = TaskSkillRequirement.objects.select_related("skill", "task").filter(
             is_deleted=False,
             task__project_id__in=member_project_ids,
         )
@@ -640,21 +646,27 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
         task assignments and capacity data reference this resource and must
         remain intact for audit trails and utilization reports.
         """
-        instance.is_deleted = True
-        instance.server_version = (instance.server_version or 0) + 1
-        instance.deleted_version = instance.server_version
-        instance.save(update_fields=["is_deleted", "server_version", "deleted_version"])
+        # Wrap the soft-delete save and the per-project recalculation fan-out in
+        # a single atomic block so a crash after save() but before all enqueue
+        # calls cannot leave the resource deactivated without the CPM recalcs
+        # firing (R3). The _enqueue_recalculate calls use the transactional
+        # outbox pattern (ADR-0027), so they are durable against broker failures.
+        with transaction.atomic():
+            instance.is_deleted = True
+            instance.server_version = (instance.server_version or 0) + 1
+            instance.deleted_version = instance.server_version
+            instance.save(update_fields=["is_deleted", "server_version", "deleted_version"])
 
-        # Fan out a schedule recalculation to every project with open
-        # task assignments for this resource. Uses the transactional outbox
-        # pattern (ADR-0027) so a broker-down event doesn't lose the request.
-        affected_project_ids = list(
-            TaskResource.objects.filter(resource_id=instance.pk)
-            .values_list("task__project_id", flat=True)
-            .distinct()
-        )
-        for project_id in affected_project_ids:
-            _enqueue_recalculate(str(project_id))
+            # Fan out a schedule recalculation to every project with open
+            # task assignments for this resource. Uses the transactional outbox
+            # pattern (ADR-0027) so a broker-down event doesn't lose the request.
+            affected_project_ids = list(
+                TaskResource.objects.filter(resource_id=instance.pk)
+                .values_list("task__project_id", flat=True)
+                .distinct()
+            )
+            for project_id in affected_project_ids:
+                _enqueue_recalculate(str(project_id))
 
     @action(detail=True, methods=["post"], url_path="restore")
     def restore(self, request: Request, pk: str | None = None) -> Response:
@@ -763,7 +775,7 @@ class TaskResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskResour
     permission_classes = [IsAuthenticated, IsProjectMember, CanAssignResource, IsProjectNotArchived]
     serializer_class = TaskResourceSerializer
     filter_backends = [filters.OrderingFilter]
-    queryset = TaskResource.objects.select_related("task", "resource")
+    queryset = TaskResource.objects.select_related("task__project", "resource")
 
     def get_queryset(self) -> QuerySet[TaskResource]:
         # IsAuthenticated guarantees pk is set; assert narrows the type for mypy.
@@ -773,8 +785,11 @@ class TaskResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskResour
             user_id=user_pk,
             is_deleted=False,
         ).values_list("project_id", flat=True)
+        # select_related("task__project") avoids N+1 queries in perform_create
+        # and perform_update, both of which call ensure_project_resource(obj.task.project, ...)
+        # and therefore load the full Project object (R2).
         qs = (
-            TaskResource.objects.select_related("task", "resource")
+            TaskResource.objects.select_related("task__project", "resource")
             .filter(task__project_id__in=member_project_ids)
             .order_by("task__project_id", "task_id", "resource__name")
         )
