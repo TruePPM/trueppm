@@ -14,6 +14,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -292,6 +293,20 @@ class CreateProjectFromMsProjectView(IdempotencyMixin, APIView):
         )
 
 
+class ImportProvenancePagination(PageNumberPagination):
+    """Page-number pagination for the import-provenance list (#1317).
+
+    Replaces the previous hard ``[:100]`` slice: a workspace that skipped the
+    7-day purge job could accumulate far more, and the slice silently dropped
+    the overflow with no way to reach it. ``results`` stays the row key so the
+    existing client read is unchanged; ``count``/``next``/``previous`` are added.
+    """
+
+    page_size = 50
+    page_size_query_param = "page_size"
+    max_page_size = 200
+
+
 class ImportRequestProvenanceListView(APIView):
     """List ImportRequest rows for a project — the audit / provenance surface (#799).
 
@@ -302,7 +317,7 @@ class ImportRequestProvenanceListView(APIView):
     point without spinning up the enterprise audit overlay.
 
     Rows are purged after 7 days by `purge_old_import_requests`, so this is
-    a recent-activity view, not durable audit history.
+    a recent-activity view, not durable audit history. Page-paginated (#1317).
     """
 
     # IsProjectMember makes the membership gate declarative (was in-body only).
@@ -353,26 +368,23 @@ class ImportRequestProvenanceListView(APIView):
             return Response({"detail": "Project not found."}, status=status.HTTP_404_NOT_FOUND)
         _check_project_member(request.user, project_pk)
 
-        # Hard cap: rows are purged after 7 days and per-project volume is low,
-        # but we bound the payload to 100 rows to avoid unbounded serialization
-        # on a workspace that skipped the purge job.  The affordance is a
-        # recent-activity view, not a durable audit log, so this cap is safe.
-        _PROVENANCE_CAP = 100
-
         # Newest first — matches the project-history affordance UX. select_related
         # the user FK so the serializer's username display doesn't trigger an
-        # N+1 across the (small but bounded) row count.
+        # N+1 across the page's row count. The paginator bounds the page; rows
+        # are also purged after 7 days, so this stays a recent-activity view.
         qs = (
             ImportRequest.objects.filter(project_id=project_pk)
             .select_related("initiated_by")
-            .order_by("-requested_at")[:_PROVENANCE_CAP]
+            .order_by("-requested_at")
         )
+        paginator = ImportProvenancePagination()
+        page = paginator.paginate_queryset(qs, request, view=self)
         # Pre-seed the TaskRun memoization cache so the serializer only reads
         # from context (avoids touching the read-only `Mapping[str, Any]` type
         # surfaced by stricter django-stubs builds in CI).
         context: dict[str, Any] = {"_taskrun_cache": {}}
-        serializer = ImportRequestProvenanceSerializer(qs, many=True, context=context)
-        return Response({"results": serializer.data})
+        serializer = ImportRequestProvenanceSerializer(page, many=True, context=context)
+        return paginator.get_paginated_response(serializer.data)
 
 
 class MsProjectExportView(APIView):

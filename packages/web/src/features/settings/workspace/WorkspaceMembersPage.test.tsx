@@ -48,7 +48,10 @@ function makeWrapper() {
 
 function setupMocks() {
   getMock.mockImplementation((url: string) => {
-    if (url.includes('/workspace/members/')) return Promise.resolve({ data: MEMBERS });
+    // /workspace/members/ is cursor-paginated (#1317); fetchAllPages reads
+    // .results and follows .next (null → single page).
+    if (url.includes('/workspace/members/'))
+      return Promise.resolve({ data: { results: MEMBERS, next: null } });
     if (url.includes('/workspace/invites/')) return Promise.resolve({ data: [] });
     return Promise.resolve({ data: [] });
   });
@@ -343,7 +346,10 @@ describe('WorkspaceMembersPage — Resend invite (issue 969)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getMock.mockImplementation((url: string) => {
-      if (url.includes('/workspace/members/')) return Promise.resolve({ data: MEMBERS });
+      // /workspace/members/ is cursor-paginated (#1317); fetchAllPages reads
+    // .results and follows .next (null → single page).
+    if (url.includes('/workspace/members/'))
+      return Promise.resolve({ data: { results: MEMBERS, next: null } });
       if (url.includes('/workspace/invites/'))
         return Promise.resolve({
           data: [

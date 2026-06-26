@@ -417,9 +417,36 @@ def test_global_active_endpoint(admin_client: APIClient, project: Project, user:
     )
     resp = admin_client.get("/api/v1/task-runs/active/")
     assert resp.status_code == 200
-    # Only the running one should appear.
-    assert len(resp.data) == 1
-    assert resp.data[0]["status"] == "running"
+    # Only the running one should appear. Paginated (#1317).
+    rows = resp.data["results"]
+    assert len(rows) == 1
+    assert rows[0]["status"] == "running"
+
+
+def test_global_active_endpoint_is_paginated(
+    admin_client: APIClient, project: Project, user: object
+) -> None:
+    """200 in-flight runs return a single bounded page (#1317).
+
+    The ``active`` action returned the full set across every project the user is
+    a member of; with many long-running recalcs that was unbounded.
+    """
+    TaskRun.objects.bulk_create(
+        [
+            TaskRun(
+                task_name="scheduling.recalculate",
+                celery_task_id=f"run-{i:04d}",
+                project=project,
+                initiated_by=user,
+                status=TaskRunStatus.RUNNING,
+            )
+            for i in range(200)
+        ]
+    )
+    resp = admin_client.get("/api/v1/task-runs/active/")
+    assert resp.status_code == 200
+    assert len(resp.data["results"]) == 50  # PageNumberPagination default page_size
+    assert resp.data["next"] is not None
 
 
 # ---------------------------------------------------------------------------

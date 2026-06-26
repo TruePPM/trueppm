@@ -341,6 +341,15 @@
                         }
                     },
                     {
+                        "name": "page_size",
+                        "required": false,
+                        "in": "query",
+                        "description": "Number of results to return per page.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
                         "name": "search",
                         "required": false,
                         "in": "query",
@@ -5617,7 +5626,7 @@
         "/api/v1/programs/{program_pk}/webhooks/{id}/deliveries/": {
             "get": {
                 "operationId": "v1_programs_webhooks_deliveries_list",
-                "description": "List recent deliveries for this webhook.",
+                "description": "List deliveries for this webhook, newest first (cursor-paginated, #1317).\n\nA bare ``GET`` returns the most recent page; follow ``next`` to page\nback through history. Instantiates the cursor paginator directly rather\nthan going through ``self.paginator`` (the viewset default is page-number\nfor the webhook CRUD list — the delivery log wants a cursor).",
                 "summary": "List recent webhook deliveries",
                 "parameters": [
                     {
@@ -10566,7 +10575,7 @@
         "/api/v1/projects/{project_pk}/imports/": {
             "get": {
                 "operationId": "v1_projects_imports_retrieve",
-                "description": "List ImportRequest rows for a project — the audit / provenance surface (#799).\n\nRead-only at Member+ (any role). Returns the recent imports newest first\nwith filename, who initiated it, when, status, and task count from the\nlinked TaskRun summary. Powers the \"Imported from … on … by …\" affordance\non the project Overview and gives Marcus's PMO audit trail a starting\npoint without spinning up the enterprise audit overlay.\n\nRows are purged after 7 days by `purge_old_import_requests`, so this is\na recent-activity view, not durable audit history.",
+                "description": "List ImportRequest rows for a project — the audit / provenance surface (#799).\n\nRead-only at Member+ (any role). Returns the recent imports newest first\nwith filename, who initiated it, when, status, and task count from the\nlinked TaskRun summary. Powers the \"Imported from … on … by …\" affordance\non the project Overview and gives Marcus's PMO audit trail a starting\npoint without spinning up the enterprise audit overlay.\n\nRows are purged after 7 days by `purge_old_import_requests`, so this is\na recent-activity view, not durable audit history. Page-paginated (#1317).",
                 "parameters": [
                     {
                         "in": "path",
@@ -14852,7 +14861,7 @@
         "/api/v1/projects/{project_pk}/webhooks/{id}/deliveries/": {
             "get": {
                 "operationId": "v1_projects_webhooks_deliveries_list",
-                "description": "List recent deliveries for this webhook.",
+                "description": "List deliveries for this webhook, newest first (cursor-paginated, #1317).\n\nA bare ``GET`` returns the most recent page; follow ``next`` to page\nback through history. Instantiates the cursor paginator directly rather\nthan going through ``self.paginator`` (the viewset default is page-number\nfor the webhook CRUD list — the delivery log wants a cursor).",
                 "summary": "List recent webhook deliveries",
                 "parameters": [
                     {
@@ -16580,6 +16589,15 @@
                         "required": false,
                         "in": "query",
                         "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "page_size",
+                        "required": false,
+                        "in": "query",
+                        "description": "Number of results to return per page.",
                         "schema": {
                             "type": "integer"
                         }
@@ -19266,7 +19284,7 @@
         "/api/v1/task-runs/active/": {
             "get": {
                 "operationId": "v1_task_runs_active_list",
-                "description": "Return PENDING + RUNNING task runs across the user's projects.",
+                "description": "Return PENDING + RUNNING task runs across the user's projects.\n\nPaginated (#1317): the ``list`` action already pages through the project\ndefault, but this custom action returned the full set — across many\nprojects with long-running recalcs that is unbounded.",
                 "summary": "List active task runs",
                 "parameters": [
                     {
@@ -22140,7 +22158,7 @@
         "/api/v1/workspace/members/": {
             "get": {
                 "operationId": "v1_workspace_members_list",
-                "description": "GET /api/v1/workspace/members/ — list members (#518).\n\nAdmins see every member; a non-admin member sees only their own row.",
+                "description": "GET /api/v1/workspace/members/ — list members (#518).\n\nAdmins see every member; a non-admin member sees only their own row.\nCursor-paginated (#1317): each page materializes at most ``page_size`` rows,\nso the member-row builder's batched queries stay bounded regardless of org\nsize.",
                 "tags": [
                     "v1"
                 ],

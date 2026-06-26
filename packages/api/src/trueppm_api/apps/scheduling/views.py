@@ -27,6 +27,7 @@ from rest_framework import status
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.generics import ListAPIView
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -698,6 +699,20 @@ class ForecastSnapshotListView(ListAPIView[ProjectForecastSnapshot]):
         return timezone.make_aware(_datetime(d.year, d.month, d.day))
 
 
+class FailedTaskPagination(PageNumberPagination):
+    """Bounded page-number pagination for the dead-letter queue (#1317).
+
+    The list mixin already paged through the project default, but the bound was
+    implicit; the dead-letter table can grow to thousands, so the cap is made
+    explicit here. Page-number (not cursor) is retained deliberately — the
+    inspector header shows a total ``count``, which CursorPagination omits.
+    """
+
+    page_size = 50
+    page_size_query_param = "page_size"
+    max_page_size = 200
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -742,6 +757,7 @@ class FailedTaskViewSet(IdempotencyMixin, ListModelMixin, RetrieveModelMixin, Ge
 
     serializer_class = FailedTaskSerializer
     permission_classes = [IsAdminUser]
+    pagination_class = FailedTaskPagination
     queryset = FailedTask.objects.all()
 
     def get_queryset(self) -> models.QuerySet[FailedTask]:

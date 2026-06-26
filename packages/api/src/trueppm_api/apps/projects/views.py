@@ -4235,6 +4235,21 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
         return Response(serializer.data)
 
 
+class SlipConflictPagination(pagination.PageNumberPagination):
+    """Explicit bounded pagination for the cross-project slip-conflict list (#1317).
+
+    The list mixin already paged through the project default, but the bound was
+    implicit and no per-request page-size cap existed. A program with many
+    cross-project sprint-boundary slips could otherwise grow this set without a
+    declared ceiling. Page-number (default scheme) is kept for parity with the
+    other read viewsets in this module.
+    """
+
+    page_size = 50
+    page_size_query_param = "page_size"
+    max_page_size = 200
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -4288,6 +4303,7 @@ class CrossProjectSlipConflictViewSet(
 
     serializer_class = CrossProjectSlipConflictSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = SlipConflictPagination
     queryset = CrossProjectSlipConflict.objects.all()
 
     def get_queryset(self) -> QuerySet[CrossProjectSlipConflict]:

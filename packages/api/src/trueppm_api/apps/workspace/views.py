@@ -301,10 +301,29 @@ class WorkspaceSettingsView(IdempotencyMixin, APIView):
 # ---------------------------------------------------------------------------
 
 
+class WorkspaceMemberCursorPagination(CursorPagination):
+    """Depth-independent pagination for the workspace member list (#1317).
+
+    The roster grows with the org and was previously serialized in full —
+    ``User.objects.all()`` with no bound — which risks OOM / slow responses on a
+    large workspace. A username-keyed cursor is stable under concurrent member
+    creation and avoids the COUNT + deep-OFFSET cost a page-number scheme would
+    pay on an unbounded user table. Mirrors AuditEventCursorPagination.
+    """
+
+    ordering = "username"
+    page_size = 50
+    page_size_query_param = "page_size"
+    max_page_size = 200
+
+
 class WorkspaceMemberListView(APIView):
     """GET /api/v1/workspace/members/ — list members (#518).
 
     Admins see every member; a non-admin member sees only their own row.
+    Cursor-paginated (#1317): each page materializes at most ``page_size`` rows,
+    so the member-row builder's batched queries stay bounded regardless of org
+    size.
     """
 
     permission_classes = [IsAuthenticated, IsWorkspaceAdmin]
@@ -323,13 +342,21 @@ class WorkspaceMemberListView(APIView):
     def get(self, request: Request) -> Response:
         role = _workspace_membership_role(request)
         if role is not None and role >= WorkspaceRole.ADMIN:
-            users = list(self._annotated_users(User.objects.all()).order_by("username"))
+            qs = self._annotated_users(User.objects.all())
         else:
             # Non-admin: only your own row.
             user_pk = request.user.pk
             assert user_pk is not None  # IsAuthenticated guarantees a real user
-            users = list(self._annotated_users(User.objects.filter(pk=user_pk)))
-        return Response(WorkspaceMemberSerializer(_build_member_rows(users), many=True).data)
+            qs = self._annotated_users(User.objects.filter(pk=user_pk))
+
+        # Paginate the user queryset first, then build rows only for the page —
+        # _build_member_rows fans out into membership/group lookups keyed on the
+        # page's user ids, so bounding the page bounds those queries too.
+        paginator = WorkspaceMemberCursorPagination()
+        page = paginator.paginate_queryset(qs, request, view=self)
+        rows = _build_member_rows(list(page) if page is not None else [])
+        data = WorkspaceMemberSerializer(rows, many=True).data
+        return paginator.get_paginated_response(data)
 
 
 class WorkspaceMemberDetailView(IdempotencyMixin, APIView):

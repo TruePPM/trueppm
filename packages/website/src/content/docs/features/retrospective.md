@@ -67,7 +67,7 @@ Changing visibility is gated to the retro's creator or a Project Manager and abo
 
 ## Promotion semantics
 
-Promotion is **explicit, per item** — saving the retro never creates tasks (sprint sovereignty per ADR-0071; the pre-0.3 auto-promote-at-save behavior was removed).
+Promotion is **explicit, per item** — saving the retro never creates tasks (sprint sovereignty per ADR-0071).
 
 - **Promote** creates a task with name = the action item text, the item's story points, and unconditionally `status = BACKLOG` with **no sprint** — the request body cannot smuggle a `sprint_id`. The created task's UUID is recorded on the item's `promoted_task_id`, so subsequent reads render the link chip. Promoting an already-promoted item returns 409 with the existing `task_id` (safe to retry).
 - **Pull to sprint** is the only path that puts a retro action item directly into a sprint: it atomically promotes the item and assigns the task to a target sprint in the same project. The target must be in the **Planned** state, and the caller needs the Resource Manager role or above.

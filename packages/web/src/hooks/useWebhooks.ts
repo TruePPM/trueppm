@@ -81,7 +81,7 @@ export function useWebhooks(scope: IntegrationScope | null | undefined) {
   });
 }
 
-/** Recent delivery log for one webhook (last 50). */
+/** Recent delivery log for one webhook (most recent page, newest first). */
 export function useWebhookDeliveries(
   scope: IntegrationScope | null | undefined,
   webhookId: string | null | undefined,
@@ -89,10 +89,13 @@ export function useWebhookDeliveries(
   return useQuery<ApiWebhookDelivery[], Error>({
     queryKey: scope ? [...webhooksKey(scope), webhookId, 'deliveries'] : ['webhooks', 'none'],
     queryFn: async () => {
-      const res = await apiClient.get<ApiWebhookDelivery[]>(
+      // Deliveries are cursor-paginated newest-first (issue 1317). Read the first
+      // page only — this is a "recent deliveries" log, so the most recent page
+      // is the right view; we intentionally do not page through full history.
+      const res = await apiClient.get<PaginatedResponse<ApiWebhookDelivery>>(
         `${basePath(scope!)}${webhookId}/deliveries/`,
       );
-      return res.data;
+      return res.data.results;
     },
     enabled: !!scope?.id && !!webhookId,
   });
