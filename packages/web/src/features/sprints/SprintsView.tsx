@@ -50,6 +50,8 @@ import { useMyActiveSprints } from '@/hooks/useMyActiveSprints';
 import { useCurrentUserResourceId } from '@/hooks/useCurrentUserResourceId';
 import { daysBetween } from './sprintMath';
 import { TaskFormModal } from '@/features/board/TaskFormModal';
+import { TaskDetailDrawer } from '@/features/schedule/TaskDetailDrawer';
+import type { Task } from '@/types';
 
 function sprintFilterKey(sprintId: string): string {
   return `trueppm.sprintFilter.${sprintId}`;
@@ -194,6 +196,18 @@ export function SprintsView() {
   // Task create modal — opens with the target sprint pre-populated.
   // null = modal closed; a sprint id string = modal open targeting that sprint.
   const [addTaskForSprintId, setAddTaskForSprintId] = useState<string | null>(null);
+  // Task detail drawer — opened by clicking a backlog row. null = closed.
+  // Mirrors the Board/Schedule pattern (ADR-0050): the row hands an id up and
+  // the full Task is resolved from the project task list already loaded above.
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  // Index the project task list by id so a clicked backlog row (which carries
+  // only the lightweight SprintBacklogTask) can open the full Task in the
+  // shared drawer — the same index the Board builds from useScheduleTasks.
+  const taskIndex = useMemo(() => {
+    const map = new Map<string, Task>();
+    for (const t of projectTasks ?? []) map.set(t.id, t);
+    return map;
+  }, [projectTasks]);
   // Sprint backlog filter (#299) — popover open + value, persisted in
   // sessionStorage keyed by active sprint id. Bound to the Filter button
   // anchor for placement.
@@ -612,6 +626,7 @@ export function SprintsView() {
             tasks={filteredBacklog}
             onAddTask={() => setAddTaskForSprintId(activeSprint.id)}
             onRemoveTask={handleRemoveFromSprint}
+            onOpenTask={setSelectedTaskId}
           />
         )}
 
@@ -628,6 +643,7 @@ export function SprintsView() {
                 tasks={plannedBacklogTasks}
                 onAddTask={() => setAddTaskForSprintId(plannedSprint.id)}
                 onRemoveTask={handleRemoveFromSprint}
+                onOpenTask={setSelectedTaskId}
                 showCarryoverLane
                 canPullCarryover={canPullCarryover}
               />
@@ -735,6 +751,18 @@ export function SprintsView() {
           defaultSprintId={addTaskForSprintId}
           isMobile={false}
           onClose={() => setAddTaskForSprintId(null)}
+        />
+      )}
+
+      {/* Task detail drawer — opened by clicking a backlog row. Shares the
+          registry-backed editor the Board and Schedule use (ADR-0050). The full
+          Task is resolved from the project task list; an id with no match (e.g.
+          a brand-new task not yet in the cache) leaves the drawer closed. */}
+      {projectId && selectedTaskId && (
+        <TaskDetailDrawer
+          task={taskIndex.get(selectedTaskId) ?? null}
+          projectId={projectId}
+          onClose={() => setSelectedTaskId(null)}
         />
       )}
     </div>
