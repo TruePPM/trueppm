@@ -31,16 +31,19 @@ import { useNavigate } from 'react-router';
 import { useCreateIntentStore } from '@/stores/createIntentStore';
 import {
   DndContext,
+  DragOverlay,
   KeyboardSensor,
   PointerSensor,
   closestCenter,
+  useDroppable,
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragOverEvent,
+  type DragStartEvent,
 } from '@dnd-kit/core';
 import {
   SortableContext,
-  arrayMove,
   sortableKeyboardCoordinates,
   useSortable,
   verticalListSortingStrategy,
@@ -54,6 +57,14 @@ import { useCanManageBacklog } from '@/hooks/useMyFacets';
 import { useSprintsByState } from '@/hooks/useSprints';
 import type { Task } from '@/types';
 import type { ReorderEntry } from './api';
+import {
+  UNGROUPED_KEY,
+  buildGroupKeyIndex,
+  epicDroppableId,
+  epicIdFromDroppableId,
+  moveStoryToGroup,
+  resolveBacklogDrop,
+} from './backlogDrag';
 import { AcMeter, AssigneeAvatar, DorChip } from './components/atoms';
 import { EpicDetailDrawer } from './components/EpicDetailDrawer';
 import { EpicHeader } from './components/EpicHeader';
@@ -67,6 +78,7 @@ import {
   useProductBacklog,
   useQuickAddStory,
   useReorderBacklog,
+  useReparentStory,
   useSetDor,
 } from './hooks/useProductBacklog';
 import type { GroomingHealth, ProductBacklog } from './types';
@@ -294,34 +306,51 @@ function StoryRow({
   );
 }
 
-/** A drag-scoped section: rows reorder only within this group (rank-only, no reparent). */
-function SortableGroup({
-  ids,
-  onReorder,
+/**
+ * A reparent drop target: one epic group (or the ungrouped bucket) on the unified
+ * By-epic drag surface (ADR-0183 D4). The whole region — header + rows — is the
+ * droppable, so dropping anywhere on an epic joins it. `armed` (driven by the page's
+ * single tracked over-epic id, never the source group) lights the region with the
+ * rule-103 board drop affordance: a sage wash + hairline border, no shadow (rule 1).
+ * The reserved transparent idle border keeps the box from shifting a pixel when armed.
+ */
+function DropZone({
+  droppableId,
+  armed,
   children,
 }: {
-  ids: string[];
-  onReorder: (orderedIds: string[]) => void;
+  droppableId: string;
+  armed: boolean;
   children: ReactNode;
 }) {
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
-  function handleDragEnd(event: DragEndEvent) {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-    const oldIndex = ids.indexOf(String(active.id));
-    const newIndex = ids.indexOf(String(over.id));
-    if (oldIndex < 0 || newIndex < 0) return;
-    onReorder(arrayMove(ids, oldIndex, newIndex));
-  }
+  const { setNodeRef } = useDroppable({ id: droppableId });
   return (
-    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-      <SortableContext items={ids} strategy={verticalListSortingStrategy}>
-        {children}
-      </SortableContext>
-    </DndContext>
+    <div
+      ref={setNodeRef}
+      data-droppable={droppableId}
+      data-armed={armed || undefined}
+      className={`mb-3.5 rounded-card border transition-colors ${
+        armed
+          ? 'border-brand-primary/60 bg-brand-primary/5 ring-1 ring-inset ring-brand-primary/30'
+          : 'border-transparent'
+      }`}
+    >
+      {children}
+    </div>
+  );
+}
+
+/** Compact ghost rendered in the DragOverlay so the cursor carries a clear payload as
+ *  it crosses epic regions (rule 102 lifted treatment: ring, slight rotate, no shadow). */
+function StoryDragGhost({ story }: { story: Task }) {
+  return (
+    <div className="flex items-center gap-2 rounded-control border border-neutral-border bg-neutral-surface px-2 py-1.5 text-sm ring-2 ring-brand-primary motion-safe:rotate-1">
+      <span className="text-neutral-text-secondary" aria-hidden>
+        ⠿
+      </span>
+      <span className="font-mono text-[11px] text-neutral-text-secondary">{story.shortId}</span>
+      <span className="font-medium text-neutral-text-primary">{story.name}</span>
+    </div>
   );
 }
 
@@ -415,6 +444,7 @@ export function ProductBacklogPage() {
   const autoRank = useAutoRank(projectId);
   const setDor = useSetDor(projectId);
   const reorder = useReorderBacklog(projectId);
+  const reparent = useReparentStory(projectId);
   const quickAdd = useQuickAddStory(projectId);
   const createEpic = useCreateEpic(projectId);
   const canManageBacklog = useCanManageBacklog(projectId);
@@ -453,6 +483,22 @@ export function ProductBacklogPage() {
   const [conflict, setConflict] = useState(false);
   const [draft, setDraft] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // Unified By-epic drag surface (ADR-0183): a single DndContext spans every
+  // epic group + the ungrouped bucket. `activeId` is the dragged story; `overEpicId` is
+  // the single armed reparent target — only ever a group *different* from the source,
+  // and only for a backlog manager (D4/D6). `liveRef` carries the drop announcement,
+  // written via DOM ref (rule 30 / ADR-0056) to avoid a re-render storm mid-drag.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [overEpicId, setOverEpicId] = useState<string | null>(null);
+  const liveRef = useRef<HTMLSpanElement>(null);
+  function announce(message: string) {
+    if (liveRef.current) liveRef.current.textContent = message;
+  }
 
   // Inline epic create: the header "+ Add epic" reveals a dashed input row at the
   // top of the epic list. Enter commits and keeps focus for rapid multi-add; Esc closes.
@@ -515,6 +561,13 @@ export function ProductBacklogPage() {
     selectedId == null
       ? null
       : (backlog.epics.find((g) => g.epic.id === selectedId)?.epic ?? null);
+
+  // Drag bookkeeping for the unified surface (ADR-0183). `groupKeyIndex` maps each
+  // story to its current group's droppable key; `activeStory`/`dragActive` track the
+  // in-flight drag so the ghost has a payload and empty epics expose a drop slot.
+  const groupKeyIndex = buildGroupKeyIndex(backlog);
+  const activeStory = activeId ? (allStories.find((s) => s.id === activeId) ?? null) : null;
+  const dragActive = activeId !== null;
 
   // Stories committed to the planned sprint (issue 1291) — feeds the rail's live
   // capacity points + commitment summary.
@@ -586,6 +639,97 @@ export function ProductBacklogPage() {
     commitReorder(optimistic);
   }
 
+  // ── Unified By-epic drag handlers (ADR-0183 D2/D3/D6) ──────────────────────
+  // A drop resolves to exactly one of: reorder within the source group (the existing
+  // rank-only path), reparent into a *different* group (a single parent_epic PATCH), or
+  // a no-op (dropped on its own region with no row move).
+
+  /**
+   * Reparent the dragged story into an epic — or out of all epics (`parentEpicId: null`).
+   * A single optimistic `parent_epic` PATCH (D3): the story relocates between cached groups
+   * immediately, then the write persists. Manager-gated (D6) and offline-guarded — a reparent
+   * has no offline queue, so refuse it up front rather than desync the move from a write that
+   * never lands. On failure the hook rolls back + refetches; we reuse the reorder reload banner
+   * and announce the outcome on the aria-live region (rule 30 / ADR-0056).
+   */
+  function doReparent(story: Task, parentEpicId: string | null) {
+    if (!canManageBacklog) return;
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      announce(`Couldn't move ${story.name} — you're offline.`);
+      return;
+    }
+    setConflict(false);
+    const optimistic = moveStoryToGroup(backlog, story.id, parentEpicId);
+    const epicName =
+      parentEpicId == null
+        ? null
+        : (backlog.epics.find((g) => g.epic.id === parentEpicId)?.epic.name ?? 'epic');
+    reparent.mutate(
+      { taskId: story.id, parentEpicId, optimistic },
+      {
+        onSuccess: () =>
+          announce(
+            parentEpicId == null
+              ? `Moved ${story.name} out of all epics.`
+              : `Moved ${story.name} to epic ${epicName}.`,
+          ),
+        onError: () => {
+          setConflict(true);
+          announce(`Couldn't move ${story.name}. The backlog was reloaded — try again.`);
+        },
+      },
+    );
+  }
+
+  function handleDragStart(event: DragStartEvent) {
+    setActiveId(String(event.active.id));
+  }
+
+  // Light the single armed reparent target as the cursor crosses regions: only a group
+  // *different* from the source, and only for a manager (D4/D6). A story id resolves to its
+  // current group's key; an `epic:` droppable id is already that key.
+  function handleDragOver(event: DragOverEvent) {
+    const { active, over } = event;
+    if (!over) {
+      setOverEpicId(null);
+      return;
+    }
+    const src = groupKeyIndex.get(String(active.id));
+    const overId = String(over.id);
+    const targetKey = overId.startsWith('epic:') ? overId : groupKeyIndex.get(overId);
+    if (!targetKey || targetKey === src || !canManageBacklog) {
+      setOverEpicId(null);
+      return;
+    }
+    setOverEpicId(targetKey);
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    setActiveId(null);
+    setOverEpicId(null);
+    const drop = resolveBacklogDrop(
+      backlog,
+      groupKeyIndex,
+      String(event.active.id),
+      event.over ? String(event.over.id) : null,
+    );
+    if (drop.kind === 'reorder') {
+      if (drop.groupKey === UNGROUPED_KEY) reorderUngrouped(drop.orderedIds);
+      else {
+        const epicId = epicIdFromDroppableId(drop.groupKey);
+        if (epicId) reorderEpic(epicId, drop.orderedIds);
+      }
+    } else if (drop.kind === 'reparent') {
+      const story = allStories.find((s) => s.id === drop.storyId);
+      if (story) doReparent(story, drop.parentEpicId);
+    }
+  }
+
+  function handleDragCancel() {
+    setActiveId(null);
+    setOverEpicId(null);
+  }
+
   function toggleDor(story: Task) {
     setDor.mutate({ taskId: story.id, dor: story.dor === 'ready' ? 'refine' : 'ready' });
   }
@@ -618,6 +762,9 @@ export function ProductBacklogPage() {
 
   return (
     <div className="relative flex h-full flex-row bg-app-canvas">
+      {/* Drag/reparent announcer (ADR-0183 D5) — written via DOM ref, not React state
+          (rule 30 / ADR-0056), so a mid-drag update never re-renders the dragging tree. */}
+      <span ref={liveRef} aria-live="polite" className="sr-only" />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-auto">
         <header className="flex flex-wrap items-center gap-3 border-b border-neutral-border px-6 py-4">
           <div className="flex min-w-0 flex-col">
@@ -709,7 +856,17 @@ export function ProductBacklogPage() {
             )}
 
             {view === 'epic' ? (
-              <>
+              // One DndContext spans every epic group + the ungrouped bucket (ADR-0183 D1),
+              // so a story can be dragged across regions. Within a group rows stay sortable
+              // (rank-only reorder); a drop onto a different group reparents (D2).
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragStart={handleDragStart}
+                onDragOver={handleDragOver}
+                onDragEnd={handleDragEnd}
+                onDragCancel={handleDragCancel}
+              >
                 {addingEpic && (
                   <div className="mb-3.5">
                     <div className="flex items-center gap-2.5 rounded-card border border-dashed border-neutral-border bg-neutral-surface-sunken px-2 py-2 focus-within:ring-2 focus-within:ring-brand-primary">
@@ -752,39 +909,71 @@ export function ProductBacklogPage() {
                   </div>
                 )}
 
-                {backlog.epics.map((group) => (
-                  <div key={group.epic.id} className="mb-3.5">
-                    <EpicHeader
-                      group={group}
-                      projectId={projectId as string}
-                      selected={group.epic.id === selectedId}
-                      onOpen={(epic) => setSelectedId(epic.id)}
-                    />
-                    <SortableGroup
-                      ids={group.stories.map((s) => s.id)}
-                      onReorder={(ids) => reorderEpic(group.epic.id, ids)}
-                    >
-                      {rowsWithReadyLine(group.stories)}
-                    </SortableGroup>
-                    {group.stories.length === 0 && (
-                      <p className="px-2 py-2 text-xs text-neutral-text-secondary">
-                        No stories yet — set this epic on a story from its detail drawer.
-                      </p>
-                    )}
-                  </div>
-                ))}
+                {backlog.epics.map((group) => {
+                  const droppableId = epicDroppableId(group.epic.id);
+                  const armed = overEpicId === droppableId;
+                  return (
+                    <DropZone key={group.epic.id} droppableId={droppableId} armed={armed}>
+                      <EpicHeader
+                        group={group}
+                        projectId={projectId as string}
+                        selected={group.epic.id === selectedId}
+                        onOpen={(epic) => setSelectedId(epic.id)}
+                        armed={armed}
+                      />
+                      <SortableContext
+                        items={group.stories.map((s) => s.id)}
+                        strategy={verticalListSortingStrategy}
+                      >
+                        {rowsWithReadyLine(group.stories)}
+                      </SortableContext>
+                      {group.stories.length === 0 && (
+                        <p className="px-2 py-2 text-xs text-neutral-text-secondary">
+                          {!canManageBacklog
+                            ? 'No stories yet — set this epic from a story’s detail drawer.'
+                            : dragActive
+                              ? 'Drop here to add this story to the epic.'
+                              : 'No stories yet — drag a story here or set this epic from a story’s detail drawer.'}
+                        </p>
+                      )}
+                    </DropZone>
+                  );
+                })}
 
-                {backlog.ungrouped.length > 0 && (
-                  <div className="mb-3.5">
-                    <SortableGroup
-                      ids={backlog.ungrouped.map((s) => s.id)}
-                      onReorder={reorderUngrouped}
+                {/* The "No epic" bucket is also a drop target — dropping here clears parent_epic
+                    (D2). It renders whenever it holds stories, or transiently during a manager's
+                    drag so a story can always be pulled out of its epic. */}
+                {(backlog.ungrouped.length > 0 || (dragActive && canManageBacklog)) && (
+                  <DropZone droppableId={UNGROUPED_KEY} armed={overEpicId === UNGROUPED_KEY}>
+                    <div className="flex items-center gap-2.5 rounded-card bg-neutral-surface-sunken px-2 py-2">
+                      <span className="text-xs font-bold uppercase tracking-wide text-neutral-text-secondary">
+                        No epic
+                      </span>
+                      {overEpicId === UNGROUPED_KEY && (
+                        <span className="text-xs font-medium text-brand-primary" aria-hidden>
+                          ↳ Drop to remove from its epic
+                        </span>
+                      )}
+                    </div>
+                    <SortableContext
+                      items={backlog.ungrouped.map((s) => s.id)}
+                      strategy={verticalListSortingStrategy}
                     >
                       {rowsWithReadyLine(backlog.ungrouped)}
-                    </SortableGroup>
-                  </div>
+                    </SortableContext>
+                    {backlog.ungrouped.length === 0 && dragActive && canManageBacklog && (
+                      <p className="px-2 py-2 text-xs text-neutral-text-secondary">
+                        Drop here to remove this story from its epic.
+                      </p>
+                    )}
+                  </DropZone>
                 )}
-              </>
+
+                {/* The lifted row follows the cursor across regions (rule 102 treatment). */}
+                <DragOverlay>
+                  {activeStory ? <StoryDragGhost story={activeStory} /> : null}
+                </DragOverlay>
+              </DndContext>
             ) : (
               // Ranked: flat, read-only score order — no epic headers, no drag, no ready line
               // (the ready line marks cumulative ready points in priority order, which the

@@ -23,6 +23,7 @@ import {
   postAutoRank,
   postReorderBacklog,
   postSplitStory,
+  reparentStory,
   type EpicScalarPatch,
   type ReorderEntry,
 } from '../api';
@@ -98,6 +99,43 @@ export function useReorderBacklog(projectId: string | undefined) {
       if (ctx?.previous) qc.setQueryData(key, ctx.previous);
     },
     // Always reconcile with the server (source of truth for the derived rank).
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: key });
+    },
+  });
+}
+
+/**
+ * Drag a story into an epic — or out of all epics (ADR-0183). A single
+ * optimistic `parent_epic` PATCH: the caller supplies the post-move backlog snapshot
+ * (the story relocated to the target group), which lands in the cache immediately so
+ * the row follows the drop, then the PATCH persists it. On any failure the move rolls
+ * back to the pre-drag cache and the view refetches (the caller surfaces the reload
+ * notice + the aria-live failure line). Unlike the reorder endpoint this carries no
+ * `server_version`, so it cannot 409 — the failure modes are 403 (permission), 400
+ * (invalid target, which the UI structurally prevents), or the network.
+ */
+export function useReparentStory(projectId: string | undefined) {
+  const qc = useQueryClient();
+  const key = productBacklogKeys.root(projectId);
+  return useMutation({
+    mutationFn: ({
+      taskId,
+      parentEpicId,
+    }: {
+      taskId: string;
+      parentEpicId: string | null;
+      optimistic: ProductBacklog;
+    }) => reparentStory(taskId, parentEpicId),
+    onMutate: async ({ optimistic }) => {
+      await qc.cancelQueries({ queryKey: key });
+      const previous = qc.getQueryData<ProductBacklog>(key);
+      qc.setQueryData<ProductBacklog>(key, optimistic);
+      return { previous };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.previous) qc.setQueryData(key, ctx.previous);
+    },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: key });
     },

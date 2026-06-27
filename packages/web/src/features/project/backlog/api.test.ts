@@ -9,6 +9,7 @@ import {
   fromApiProductBacklog,
   patchEpic,
   postReorderBacklog,
+  reparentStory,
 } from './api';
 
 vi.mock('@/api/client');
@@ -145,6 +146,28 @@ describe('createBacklogStory', () => {
       status: 'BACKLOG',
       type: 'story',
     });
+  });
+});
+
+describe('reparentStory (#1345)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('PATCHes the wire parent_epic field when moving into an epic', async () => {
+    vi.mocked(apiClient.patch).mockResolvedValue({ data: {} } as never);
+    await reparentStory('S1', 'EP2');
+    expect(apiClient.patch).toHaveBeenCalledWith('/tasks/S1/', { parent_epic: 'EP2' });
+  });
+
+  it('PATCHes parent_epic: null to ungroup the story', async () => {
+    vi.mocked(apiClient.patch).mockResolvedValue({ data: {} } as never);
+    await reparentStory('S1', null);
+    expect(apiClient.patch).toHaveBeenCalledWith('/tasks/S1/', { parent_epic: null });
+  });
+
+  it('propagates a 403 from the structural gate to the caller', async () => {
+    const err = Object.assign(new Error('forbidden'), { response: { status: 403 } });
+    vi.mocked(apiClient.patch).mockRejectedValue(err);
+    await expect(reparentStory('S1', 'EP2')).rejects.toBe(err);
   });
 });
 

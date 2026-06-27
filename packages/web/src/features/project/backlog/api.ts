@@ -139,6 +139,17 @@ export async function patchStory(taskId: string, patch: StoryScalarPatch): Promi
   await apiClient.patch(`/tasks/${taskId}/`, body);
 }
 
+/**
+ * Reparent a backlog story into an epic — or out of all epics with
+ * `parentEpicId: null` (ADR-0183). A single `parent_epic` PATCH: the story
+ * lands in the target epic ordered by its existing priority_rank (no re-rank). The
+ * write is server-gated to backlog managers (Admin+/PO) by `_validate_product_backlog`;
+ * a 403/400 propagates so the caller can roll back the optimistic move.
+ */
+export async function reparentStory(taskId: string, parentEpicId: string | null): Promise<void> {
+  await patchStory(taskId, { parentEpic: parentEpicId });
+}
+
 // ── Acceptance-criteria CRUD (ADR-0105 §2, flat collection) ────────────────────
 // The criteria live nested-read inside each task, but mutate through their own
 // flat endpoint with a `task` foreign key. Member+ writes (the team ticks the

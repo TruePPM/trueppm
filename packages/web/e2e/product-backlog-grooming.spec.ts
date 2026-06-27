@@ -7,9 +7,12 @@
  *   - epics + nested stories render, with the score column for the active model (#922)
  *   - the quick-add input commits a title-only story on Enter (#921)
  *   - the empty state renders with the quick-add affordance still available
+ *   - the unified reparent surface (#1345): every epic group + the "No epic" bucket
+ *     register as drop targets, and the live-region announcer is mounted
  *
- * The reorder write path + 409 handling are covered by the api/hook vitest and the
- * backend pytest; the drag gesture itself is exercised by the SortableGroup unit logic.
+ * The reorder + reparent write paths are covered by the api/hook vitest; the drag
+ * disambiguation + optimistic move are exercised by the backlogDrag unit logic. The
+ * keyboard-accessible reparent alternative is the drawer's "Parent epic" select (#1043).
  */
 import { expect, test } from '@playwright/test';
 import { setupApiMocks, setupAuth, setupCatchAll } from './fixtures';
@@ -260,6 +263,29 @@ test.describe('Product backlog grooming (#494/#921/#922)', () => {
 
     await page.getByRole('button', { name: /Plan sprint/i }).click();
     await page.waitForURL(/\/sprints$/);
+  });
+
+  test('renders the unified reparent surface: epic + No-epic drop targets and the announcer (#1345)', async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.goto(`${BASE_URL}/product-backlog`);
+
+    await expect(page.getByRole('heading', { name: 'Product backlog' })).toBeVisible({
+      timeout: 10_000,
+    });
+
+    // ADR-0183 D1: each epic group + the ungrouped bucket register as reparent drop targets
+    // (one DndContext spans the whole view), so a story can be dragged across regions.
+    await expect(page.locator('[data-droppable="epic:EP1"]')).toBeVisible();
+    await expect(page.locator('[data-droppable="epic:__ungrouped__"]')).toBeVisible();
+
+    // The ungrouped bucket now carries a visible "No epic" label — the drop-to-ungroup target.
+    await expect(page.getByText('No epic', { exact: true })).toBeVisible();
+
+    // ADR-0183 D5: the polite live region is mounted for the drop announcements (sr-only,
+    // so assert it is attached rather than visible).
+    await expect(page.locator('span.sr-only[aria-live="polite"]')).toBeAttached();
   });
 
   test('renders the empty state with the quick-add affordance', async ({ page }) => {
