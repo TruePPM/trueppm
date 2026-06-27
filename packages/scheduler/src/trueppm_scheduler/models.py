@@ -67,7 +67,15 @@ class DateRange:
 
 @dataclass
 class Task:
-    """A schedulable unit of work."""
+    """A schedulable unit of work.
+
+    Note:
+        Reserved-but-inert field: ``planned_finish`` is accepted for
+        serialization parity (it round-trips through ``to_dict`` / ``from_dict``)
+        but is **not yet consumed** by the engine — the CPM pass does not treat
+        it as a finish-no-later-than constraint. ``planned_start`` *is* honored,
+        as a start-no-earlier-than floor.
+    """
 
     id: str
     name: str
@@ -244,6 +252,13 @@ class Calendar:
 
     working_days is a 7-bit mask where bit 0 = Monday, bit 6 = Sunday.
     Default 0b0011111 (Mon-Fri).
+
+    Note:
+        Reserved-but-inert fields: ``hours_per_day`` and ``timezone`` are
+        accepted for serialization parity but are **not yet consumed** by the
+        engine — scheduling is in whole-day units, so ``Calendar(hours_per_day=4)``
+        does *not* produce half-day scheduling. Sub-day scheduling is a future
+        change (#1216).
     """
 
     working_days: int = 0b0011111

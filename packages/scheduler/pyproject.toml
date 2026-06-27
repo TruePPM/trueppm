@@ -84,11 +84,11 @@ packages = ["src/trueppm_scheduler"]
 testpaths = ["tests"]
 addopts = "--strict-markers --tb=short -q"
 
-[tool.coverage.run]
-omit = ["*/cli.py"]
-
 [tool.mypy]
-python_version = "3.11"
+# No python_version pin (#1342): mypy tracks the interpreter it runs under, so it
+# type-checks against whichever of the advertised 3.11 / 3.12 / 3.13 the dev — or
+# CI — is on, rather than only ever validating 3.11 while the classifiers promise
+# 3.12 / 3.13 (a 3.11-pinned mypy aborts on numpy's 3.12+ ``type`` stubs).
 strict = true
 packages = ["trueppm_scheduler"]
 mypy_path = "src"
