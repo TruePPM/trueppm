@@ -18,11 +18,12 @@ import {
   createEpic,
   deleteEpic,
   fetchProductBacklog,
+  patchEpic,
   patchTaskDor,
   postAutoRank,
   postReorderBacklog,
   postSplitStory,
-  renameEpic,
+  type EpicScalarPatch,
   type ReorderEntry,
 } from '../api';
 import type { DorState } from '@/types';
@@ -126,10 +127,12 @@ export function useCreateEpic(projectId: string | undefined) {
   });
 }
 
-export function useRenameEpic(projectId: string | undefined) {
+/** Batch-save the {@link import('../components/EpicDetailDrawer')}'s name/description edits. */
+export function usePatchEpic(projectId: string | undefined) {
   const invalidate = useInvalidate(projectId);
   return useMutation({
-    mutationFn: ({ epicId, name }: { epicId: string; name: string }) => renameEpic(epicId, name),
+    mutationFn: ({ epicId, patch }: { epicId: string; patch: EpicScalarPatch }) =>
+      patchEpic(epicId, patch),
     onSuccess: invalidate,
   });
 }

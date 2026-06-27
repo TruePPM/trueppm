@@ -5,23 +5,19 @@ import type { Task } from '@/types';
 import type { EpicGroup } from '../types';
 import { EpicHeader } from './EpicHeader';
 
-// EpicHeader owns its rename/delete mutations; mock the hook module so the test
-// controls the mutation outcome and asserts the calls (mirrors StoryDetailDrawer.test).
+// EpicHeader owns its delete mutation; mock the hook module so the test controls the
+// outcome and asserts the call. Editing is delegated to the parent via `onOpen` (the
+// detail drawer), so the rename hook is gone.
 const h = vi.hoisted(() => {
-  const renameMutate =
-    vi.fn<(vars: { epicId: string; name: string }, opts?: { onSuccess?: () => void }) => void>();
   const deleteMutate =
     vi.fn<(vars: { epicId: string }, opts?: { onSuccess?: () => void }) => void>();
   return {
-    renameMutate,
     deleteMutate,
-    rename: { mutate: renameMutate, isPending: false, isError: false, reset: vi.fn() },
     del: { mutate: deleteMutate, isPending: false, isError: false, reset: vi.fn() },
   };
 });
 
 vi.mock('../hooks/useProductBacklog', () => ({
-  useRenameEpic: () => h.rename,
   useDeleteEpic: () => h.del,
 }));
 
@@ -52,91 +48,92 @@ async function openMenu() {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  h.rename.isPending = false;
-  h.rename.isError = false;
   h.del.isPending = false;
   h.del.isError = false;
-  // Default: succeed immediately so editing/dialog close on commit.
-  h.renameMutate.mockImplementation((_vars, opts?: { onSuccess?: () => void }) =>
-    opts?.onSuccess?.(),
-  );
+  // Default: succeed immediately so the dialog closes on confirm.
   h.deleteMutate.mockImplementation((_vars, opts?: { onSuccess?: () => void }) =>
     opts?.onSuccess?.(),
   );
 });
 
-describe('EpicHeader gating (#1339)', () => {
-  it('a manager (canEdit + canDelete) gets a kebab with Rename and Delete', async () => {
-    render(<EpicHeader group={makeGroup()} projectId="p1" />);
+describe('EpicHeader edit affordance (#1346)', () => {
+  it('a manager sees the epic name as a button that opens the detail drawer', async () => {
+    const onOpen = vi.fn();
+    render(<EpicHeader group={makeGroup()} projectId="p1" onOpen={onOpen} />);
+
+    const nameBtn = screen.getByRole('button', { name: 'Edit epic Platform Core' });
+    await userEvent.setup().click(nameBtn);
+
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(onOpen.mock.calls[0][0]).toMatchObject({ id: 'EP1', name: 'Platform Core' });
+  });
+
+  it('a viewer (no canEdit) sees the name as plain text, not a button', () => {
+    const onOpen = vi.fn();
+    render(
+      <EpicHeader
+        group={makeGroup({ canEdit: false, canDelete: false })}
+        projectId="p1"
+        onOpen={onOpen}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: 'Edit epic Platform Core' })).not.toBeInTheDocument();
+    expect(screen.getByText('Platform Core')).toBeInTheDocument();
+  });
+
+  it('shows the selection ring while its drawer is open (selected)', () => {
+    const { container, rerender } = render(
+      <EpicHeader group={makeGroup()} projectId="p1" onOpen={vi.fn()} />,
+    );
+    // The header row is the first element child; unselected carries no ring.
+    const row = container.firstElementChild as HTMLElement;
+    expect(row.className).not.toContain('ring-navy-700');
+
+    rerender(<EpicHeader group={makeGroup()} projectId="p1" selected onOpen={vi.fn()} />);
+    expect(row.className).toContain('ring-navy-700');
+  });
+});
+
+describe('EpicHeader kebab gating (#1346)', () => {
+  it('a manager with canDelete gets a kebab whose only action is Delete', async () => {
+    render(<EpicHeader group={makeGroup()} projectId="p1" onOpen={vi.fn()} />);
     await openMenu();
-    expect(screen.getByRole('menuitem', { name: /rename/i })).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: /delete epic/i })).toBeInTheDocument();
+    // Rename moved into the detail drawer — it is no longer a menu action.
+    expect(screen.queryByRole('menuitem', { name: /rename/i })).not.toBeInTheDocument();
   });
 
-  it('a Product Owner (canEdit, NOT canDelete) sees Rename but not Delete', async () => {
-    render(<EpicHeader group={makeGroup({ canDelete: false })} projectId="p1" />);
-    await openMenu();
-    expect(screen.getByRole('menuitem', { name: /rename/i })).toBeInTheDocument();
-    expect(screen.queryByRole('menuitem', { name: /delete epic/i })).not.toBeInTheDocument();
+  it('a Product Owner (canEdit, NOT canDelete) can edit but sees no kebab', () => {
+    render(<EpicHeader group={makeGroup({ canDelete: false })} projectId="p1" onOpen={vi.fn()} />);
+    expect(screen.getByRole('button', { name: 'Edit epic Platform Core' })).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Epic actions: Platform Core' }),
+    ).not.toBeInTheDocument();
   });
 
-  it('a viewer (neither canEdit nor canDelete) sees no kebab at all', () => {
-    render(<EpicHeader group={makeGroup({ canEdit: false, canDelete: false })} projectId="p1" />);
+  it('a viewer (neither verdict) sees no kebab at all', () => {
+    render(
+      <EpicHeader
+        group={makeGroup({ canEdit: false, canDelete: false })}
+        projectId="p1"
+        onOpen={vi.fn()}
+      />,
+    );
     expect(
       screen.queryByRole('button', { name: 'Epic actions: Platform Core' }),
     ).not.toBeInTheDocument();
   });
 });
 
-describe('EpicHeader rename (#1339)', () => {
-  it('commits a changed name on Enter', async () => {
-    render(<EpicHeader group={makeGroup()} projectId="p1" />);
-    const user = await openMenu();
-    await user.click(screen.getByRole('menuitem', { name: /rename/i }));
-
-    const input = screen.getByRole('textbox', { name: /rename epic platform core/i });
-    await user.clear(input);
-    await user.type(input, 'Platform Core & SSO{Enter}');
-
-    expect(h.renameMutate).toHaveBeenCalledTimes(1);
-    expect(h.renameMutate.mock.calls[0][0]).toEqual({ epicId: 'EP1', name: 'Platform Core & SSO' });
-  });
-
-  it('Escape cancels the rename without mutating', async () => {
-    render(<EpicHeader group={makeGroup()} projectId="p1" />);
-    const user = await openMenu();
-    await user.click(screen.getByRole('menuitem', { name: /rename/i }));
-
-    const input = screen.getByRole('textbox', { name: /rename epic platform core/i });
-    await user.clear(input);
-    await user.type(input, 'Throwaway{Escape}');
-
-    expect(h.renameMutate).not.toHaveBeenCalled();
-    // Back to the static name, no input.
-    expect(screen.queryByRole('textbox', { name: /rename epic/i })).not.toBeInTheDocument();
-    expect(screen.getByText('Platform Core')).toBeInTheDocument();
-  });
-
-  it('an unchanged name is a no-op (no mutate)', async () => {
-    render(<EpicHeader group={makeGroup()} projectId="p1" />);
-    const user = await openMenu();
-    await user.click(screen.getByRole('menuitem', { name: /rename/i }));
-    await user.keyboard('{Enter}');
-    expect(h.renameMutate).not.toHaveBeenCalled();
-  });
-
-  it('shows an inline retry alert when the rename failed', async () => {
-    h.rename.isError = true;
-    render(<EpicHeader group={makeGroup()} projectId="p1" />);
-    const user = await openMenu();
-    await user.click(screen.getByRole('menuitem', { name: /rename/i }));
-    expect(screen.getByRole('alert')).toHaveTextContent("Couldn't rename — try again.");
-  });
-});
-
 describe('EpicHeader delete (#1339)', () => {
   it('opens a confirmation naming the affected story count and deletes on confirm', async () => {
-    render(<EpicHeader group={makeGroup({}, { storyCount: 3, pointsTotal: 0, pointsDone: 0 })} projectId="p1" />);
+    render(
+      <EpicHeader
+        group={makeGroup({}, { storyCount: 3, pointsTotal: 0, pointsDone: 0 })}
+        projectId="p1"
+        onOpen={vi.fn()}
+      />,
+    );
     const user = await openMenu();
     await user.click(screen.getByRole('menuitem', { name: /delete epic/i }));
 
@@ -153,7 +150,7 @@ describe('EpicHeader delete (#1339)', () => {
   });
 
   it('Cancel closes the confirmation without deleting', async () => {
-    render(<EpicHeader group={makeGroup()} projectId="p1" />);
+    render(<EpicHeader group={makeGroup()} projectId="p1" onOpen={vi.fn()} />);
     const user = await openMenu();
     await user.click(screen.getByRole('menuitem', { name: /delete epic/i }));
     await user.click(screen.getByRole('button', { name: 'Cancel' }));

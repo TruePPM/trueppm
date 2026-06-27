@@ -7,8 +7,8 @@ import {
   createEpic,
   deleteEpic,
   fromApiProductBacklog,
+  patchEpic,
   postReorderBacklog,
-  renameEpic,
 } from './api';
 
 vi.mock('@/api/client');
@@ -162,10 +162,19 @@ describe('epic CRUD (#1339)', () => {
     });
   });
 
-  it('renameEpic patches only the name', async () => {
+  it('patchEpic sends only the changed scalar fields', async () => {
     vi.mocked(apiClient.patch).mockResolvedValue({ data: {} } as never);
-    await renameEpic('EP1', 'Platform Core & SSO');
-    expect(apiClient.patch).toHaveBeenCalledWith('/tasks/EP1/', { name: 'Platform Core & SSO' });
+    await patchEpic('EP1', { name: 'Platform Core & SSO', notes: 'OIDC + group sync.' });
+    expect(apiClient.patch).toHaveBeenCalledWith('/tasks/EP1/', {
+      name: 'Platform Core & SSO',
+      notes: 'OIDC + group sync.',
+    });
+  });
+
+  it('patchEpic omits undefined keys so a description-only edit never clobbers the name', async () => {
+    vi.mocked(apiClient.patch).mockResolvedValue({ data: {} } as never);
+    await patchEpic('EP1', { notes: 'Just the description.' });
+    expect(apiClient.patch).toHaveBeenCalledWith('/tasks/EP1/', { notes: 'Just the description.' });
   });
 
   it('deleteEpic deletes the task (children reparent to Ungrouped server-side)', async () => {

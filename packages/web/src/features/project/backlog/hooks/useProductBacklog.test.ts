@@ -27,7 +27,7 @@ import {
   useReorderBacklog,
   useQuickAddStory,
   useCreateEpic,
-  useRenameEpic,
+  usePatchEpic,
   useDeleteEpic,
 } from './useProductBacklog';
 
@@ -39,7 +39,7 @@ const {
   postReorderBacklogMock,
   createBacklogStoryMock,
   createEpicMock,
-  renameEpicMock,
+  patchEpicMock,
   deleteEpicMock,
 } = vi.hoisted(() => ({
   fetchProductBacklogMock: vi.fn(),
@@ -49,7 +49,7 @@ const {
   postReorderBacklogMock: vi.fn(),
   createBacklogStoryMock: vi.fn(),
   createEpicMock: vi.fn(),
-  renameEpicMock: vi.fn(),
+  patchEpicMock: vi.fn(),
   deleteEpicMock: vi.fn(),
 }));
 
@@ -61,7 +61,7 @@ vi.mock('../api', () => ({
   postReorderBacklog: postReorderBacklogMock,
   createBacklogStory: createBacklogStoryMock,
   createEpic: createEpicMock,
-  renameEpic: renameEpicMock,
+  patchEpic: patchEpicMock,
   deleteEpic: deleteEpicMock,
 }));
 
@@ -113,7 +113,7 @@ beforeEach(() => {
   postReorderBacklogMock.mockResolvedValue({ updated: 0 });
   createBacklogStoryMock.mockResolvedValue(undefined);
   createEpicMock.mockResolvedValue(undefined);
-  renameEpicMock.mockResolvedValue(undefined);
+  patchEpicMock.mockResolvedValue(undefined);
   deleteEpicMock.mockResolvedValue(undefined);
 });
 
@@ -219,15 +219,15 @@ describe('epic CRUD (#1339)', () => {
     expect(invalidateSpy).not.toHaveBeenCalled();
   });
 
-  it('useRenameEpic patches the name and invalidates the backlog', async () => {
+  it('usePatchEpic patches the scalar fields and invalidates the backlog', async () => {
     const qc = makeQC();
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
-    const { result } = renderHook(() => useRenameEpic('p1'), { wrapper: makeWrapper(qc) });
+    const { result } = renderHook(() => usePatchEpic('p1'), { wrapper: makeWrapper(qc) });
 
-    result.current.mutate({ epicId: 'e1', name: 'Platform Core & SSO' });
+    result.current.mutate({ epicId: 'e1', patch: { name: 'Platform Core & SSO', notes: 'OIDC.' } });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(renameEpicMock).toHaveBeenCalledWith('e1', 'Platform Core & SSO');
+    expect(patchEpicMock).toHaveBeenCalledWith('e1', { name: 'Platform Core & SSO', notes: 'OIDC.' });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: productBacklogKeys.root('p1') });
   });
 

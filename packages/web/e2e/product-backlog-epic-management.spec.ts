@@ -1,12 +1,13 @@
 /**
- * E2E for epic management on the Product Backlog grooming view (#1339).
+ * E2E for epic management on the Product Backlog grooming view (#1339, #1346).
  *
- * Backend is unchanged — create/rename/delete reuse the generic `/tasks/` endpoints —
- * so this spec asserts the UI exposure: the gated "+ Add epic" affordance, the in-place
- * rename, and the delete confirmation that states the ungroup-not-delete outcome. The
- * permission gating is verified two ways: a backlog manager (PO facet + per-epic
- * can_edit/can_delete) gets all three; a Product Owner who lacks delete (can_delete:false)
- * sees Rename but no Delete; a plain viewer sees nothing.
+ * Backend is unchanged — create/edit/delete reuse the generic `/tasks/` endpoints —
+ * so this spec asserts the UI exposure: the gated "+ Add epic" affordance, the detail
+ * drawer that edits an epic's name + description (#1346), and the delete confirmation
+ * that states the ungroup-not-delete outcome. The permission gating is verified three
+ * ways: a backlog manager (PO facet + per-epic can_edit/can_delete) gets all three; a
+ * Product Owner who lacks delete (can_delete:false) can edit but sees no delete kebab; a
+ * plain viewer (can_edit:false) sees a read-only header with no edit button at all.
  */
 import { expect, test } from '@playwright/test';
 import { setupApiMocks, setupAuth, setupCatchAll } from './fixtures';
@@ -53,6 +54,7 @@ function groomingPayload({ canDelete = true }: { canDelete?: boolean } = {}) {
           name: 'Telemetry',
           short_id: 'EP-1',
           type: 'epic',
+          notes: 'Original telemetry scope.',
           can_edit: true,
           can_delete: canDelete,
         }),
@@ -138,7 +140,7 @@ async function setup(
   );
 
   const created: Array<Record<string, unknown>> = [];
-  const renamed: Array<Record<string, unknown>> = [];
+  const patched: Array<Record<string, unknown>> = [];
   let deleted = false;
 
   await page.route('**/api/v1/tasks/', (route) => {
@@ -155,8 +157,9 @@ async function setup(
   await page.route('**/api/v1/tasks/EP1/', (route) => {
     const method = route.request().method();
     if (method === 'PATCH') {
-      renamed.push(route.request().postDataJSON());
-      return route.fulfill(json(apiStory({ id: 'EP1', name: 'renamed', type: 'epic' })));
+      const body = route.request().postDataJSON() as Record<string, unknown>;
+      patched.push(body);
+      return route.fulfill(json(apiStory({ id: 'EP1', type: 'epic', ...body })));
     }
     if (method === 'DELETE') {
       deleted = true;
@@ -165,7 +168,7 @@ async function setup(
     return route.fulfill(json(apiStory({ id: 'EP1', type: 'epic' })));
   });
 
-  return { created, renamed, isDeleted: () => deleted };
+  return { created, patched, isDeleted: () => deleted };
 }
 
 test.describe('Product backlog epic management (#1339)', () => {
@@ -193,20 +196,30 @@ test.describe('Product backlog epic management (#1339)', () => {
     });
   });
 
-  test('a backlog manager renames an epic in place', async ({ page }) => {
-    const { renamed } = await setup(page);
+  test('a backlog manager edits an epic name + description from the detail drawer', async ({
+    page,
+  }) => {
+    const { patched } = await setup(page);
     await page.goto(`${BASE_URL}/product-backlog`);
 
     await expect(page.getByText('Telemetry')).toBeVisible({ timeout: 10_000 });
-    await page.getByRole('button', { name: 'Epic actions: Telemetry' }).click();
-    await page.getByRole('menuitem', { name: 'Rename' }).click();
+    // The epic name itself is the edit affordance — clicking it opens the detail drawer.
+    await page.getByRole('button', { name: 'Edit epic Telemetry' }).click();
 
-    const input = page.getByRole('textbox', { name: /Rename epic Telemetry/i });
-    await input.fill('Telemetry & Alerting');
-    await input.press('Enter');
+    const drawer = page.getByRole('dialog', { name: 'Telemetry' });
+    await expect(drawer).toBeVisible();
+    await expect(drawer.getByLabel('Epic description')).toHaveValue('Original telemetry scope.');
 
-    await expect.poll(() => renamed.length).toBeGreaterThan(0);
-    expect(renamed[0]).toEqual({ name: 'Telemetry & Alerting' });
+    await drawer.getByLabel('Epic name').fill('Telemetry & Alerting');
+    await drawer.getByLabel('Epic description').fill('Telemetry, alerting, and on-call rotation.');
+    await drawer.getByRole('button', { name: 'Save' }).click();
+
+    await expect.poll(() => patched.length).toBeGreaterThan(0);
+    // Both changed scalars batch into one PATCH.
+    expect(patched[0]).toEqual({
+      name: 'Telemetry & Alerting',
+      notes: 'Telemetry, alerting, and on-call rotation.',
+    });
   });
 
   test('delete shows a confirmation stating the ungroup outcome, then deletes', async ({ page }) => {
@@ -227,14 +240,17 @@ test.describe('Product backlog epic management (#1339)', () => {
     await expect.poll(() => isDeleted()).toBe(true);
   });
 
-  test('a Product Owner without delete rights sees Rename but not Delete', async ({ page }) => {
+  test('a Product Owner without delete rights can edit but has no delete kebab', async ({
+    page,
+  }) => {
     await setup(page, { canDelete: false });
     await page.goto(`${BASE_URL}/product-backlog`);
 
     await expect(page.getByText('Telemetry')).toBeVisible({ timeout: 10_000 });
-    await page.getByRole('button', { name: 'Epic actions: Telemetry' }).click();
-    await expect(page.getByRole('menuitem', { name: 'Rename' })).toBeVisible();
-    await expect(page.getByRole('menuitem', { name: 'Delete epic' })).toHaveCount(0);
+    // Can edit (the name is a button)…
+    await expect(page.getByRole('button', { name: 'Edit epic Telemetry' })).toBeVisible();
+    // …but with no delete affordance, the kebab (its only action) is omitted entirely.
+    await expect(page.getByRole('button', { name: 'Epic actions: Telemetry' })).toHaveCount(0);
   });
 
   test('a viewer (no backlog-manage rights) sees no epic-management affordances', async ({
@@ -270,5 +286,7 @@ test.describe('Product backlog epic management (#1339)', () => {
     await expect(page.getByText('Telemetry')).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole('button', { name: '+ Add epic' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Epic actions: Telemetry' })).toHaveCount(0);
+    // The name is plain read-only text — not an edit button.
+    await expect(page.getByRole('button', { name: 'Edit epic Telemetry' })).toHaveCount(0);
   });
 });
