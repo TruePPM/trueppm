@@ -55,6 +55,7 @@ import { useSprintsByState } from '@/hooks/useSprints';
 import type { Task } from '@/types';
 import type { ReorderEntry } from './api';
 import { AcMeter, AssigneeAvatar, DorChip } from './components/atoms';
+import { EpicDetailDrawer } from './components/EpicDetailDrawer';
 import { EpicHeader } from './components/EpicHeader';
 import { SprintCommitButton, type PlannedSprintRef } from './SprintCommitButton';
 import { SprintPlanningRail } from './SprintPlanningRail';
@@ -506,8 +507,14 @@ export function ProductBacklogPage() {
   const hasScore = scoring.model !== 'none';
   const allEmpty = backlog.epics.length === 0 && backlog.ungrouped.length === 0;
   const allStories = [...backlog.epics.flatMap((g) => g.stories), ...backlog.ungrouped];
+  // `selectedId` addresses either a story row or an epic header — their ids are disjoint,
+  // so resolve against both and render whichever drawer matches.
   const selectedStory =
     selectedId == null ? null : (allStories.find((s) => s.id === selectedId) ?? null);
+  const selectedEpic =
+    selectedId == null
+      ? null
+      : (backlog.epics.find((g) => g.epic.id === selectedId)?.epic ?? null);
 
   // Stories committed to the planned sprint (issue 1291) — feeds the rail's live
   // capacity points + commitment summary.
@@ -747,7 +754,12 @@ export function ProductBacklogPage() {
 
                 {backlog.epics.map((group) => (
                   <div key={group.epic.id} className="mb-3.5">
-                    <EpicHeader group={group} projectId={projectId as string} />
+                    <EpicHeader
+                      group={group}
+                      projectId={projectId as string}
+                      selected={group.epic.id === selectedId}
+                      onOpen={(epic) => setSelectedId(epic.id)}
+                    />
                     <SortableGroup
                       ids={group.stories.map((s) => s.id)}
                       onReorder={(ids) => reorderEpic(group.epic.id, ids)}
@@ -830,10 +842,10 @@ export function ProductBacklogPage() {
         </div>
       </div>
 
-      {/* Hide the rail while a story drawer is open — the drawer is absolute right-0
+      {/* Hide the rail while a detail drawer is open — the drawer is absolute right-0
           (w-480) and would otherwise occlude the in-flow rail (w-320), pushing
           planning context out of sight (web-rule 205). */}
-      {plannedSprint && !selectedStory && (
+      {plannedSprint && !selectedStory && !selectedEpic && (
         <SprintPlanningRail
           plannedSprint={plannedSprint}
           committedPoints={plannedCommittedPoints}
@@ -849,6 +861,15 @@ export function ProductBacklogPage() {
           story={selectedStory}
           backlog={backlog}
           canManageBacklog={canManageBacklog}
+          onClose={() => setSelectedId(null)}
+        />
+      )}
+
+      {selectedEpic && (
+        <EpicDetailDrawer
+          key={selectedEpic.id}
+          projectId={projectId as string}
+          epic={selectedEpic}
           onClose={() => setSelectedId(null)}
         />
       )}

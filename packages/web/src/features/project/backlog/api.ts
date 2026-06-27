@@ -256,12 +256,27 @@ export async function createEpic(projectId: string, name: string): Promise<void>
 }
 
 /**
- * Rename an epic. `name` is a normal task edit — it does NOT trip the
- * `_validate_product_backlog` structural gate — so the server permits Admin+/PO-facet
- * (the render-gate uses the epic's own `canEdit` verdict to match).
+ * The scalar epic fields the {@link import('./components/EpicDetailDrawer')} edits as
+ * one batched PATCH. An epic is a grouping Task excluded from scheduling, so only its
+ * identity fields are editable: `name` and the long-form `notes` (description). Both are
+ * normal task edits that do NOT trip the `_validate_product_backlog` structural gate, so
+ * the server permits Admin+/PO-facet — matching the epic's own `canEdit` render-gate.
  */
-export async function renameEpic(epicId: string, name: string): Promise<void> {
-  await apiClient.patch(`/tasks/${epicId}/`, { name });
+export interface EpicScalarPatch {
+  name?: string;
+  /** Long-form description — maps to the API's `notes` field. */
+  notes?: string;
+}
+
+/**
+ * Batch-PATCH an epic's editable scalar fields. Only the keys present on `patch` are
+ * sent, so a description-only edit never clobbers the name and vice-versa.
+ */
+export async function patchEpic(epicId: string, patch: EpicScalarPatch): Promise<void> {
+  const body: Record<string, unknown> = {};
+  if (patch.name !== undefined) body.name = patch.name;
+  if (patch.notes !== undefined) body.notes = patch.notes;
+  await apiClient.patch(`/tasks/${epicId}/`, body);
 }
 
 /**
