@@ -27,11 +27,11 @@ interface Props {
   /**
    * When true, render a "Pull from backlog →" link to the Product Backlog
    * grooming page — the canonical surface where existing stories are committed
-   * to a PLANNED sprint via the per-row commit toggle (issue #1291). The
+   * to a PLANNED sprint via the per-row commit toggle (issue 1291). The
    * Sprints view passes this only on the planned surface: that commit toggle
    * only targets a PLANNED sprint, so the handoff is meaningless on an
    * active/closed one. Without it, the only "add" affordance here creates a
-   * brand-new task, leaving no path to commit work that already exists (#1347).
+   * brand-new task, leaving no path to commit work that already exists (issue 1347).
    */
   showBacklogLink?: boolean;
 }
