@@ -215,4 +215,49 @@ describe('SprintBacklogTable', () => {
     expect(screen.getByText('CN')).toBeInTheDocument();
     expect(screen.getByLabelText(/1 more owners/i)).toBeInTheDocument();
   });
+
+  it('renders the Pull from backlog header link to the Product Backlog when showBacklogLink is set (#1347)', () => {
+    renderWithRouter(
+      <SprintBacklogTable
+        projectId="proj-1"
+        sprintId="sp-planned"
+        tasks={[task({ id: '1', status: 'NOT_STARTED' })]}
+        showBacklogLink
+      />,
+    );
+    const link = screen.getByRole('link', { name: /Pull from backlog/i });
+    expect(link).toHaveAttribute('href', '/projects/proj-1/product-backlog');
+  });
+
+  it('does not render the Pull from backlog link by default (active/closed surface)', () => {
+    renderWithRouter(
+      <SprintBacklogTable
+        projectId="proj-1"
+        sprintId="sp-active"
+        tasks={[task({ id: '1', status: 'NOT_STARTED' })]}
+      />,
+    );
+    expect(
+      screen.queryByRole('link', { name: /Pull from backlog/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('offers a Product Backlog link in the empty state when showBacklogLink is set (#1347)', () => {
+    renderWithRouter(
+      <SprintBacklogTable
+        projectId="proj-1"
+        sprintId="sp-planned"
+        tasks={[]}
+        onAddTask={vi.fn()}
+        showBacklogLink
+      />,
+    );
+    expect(screen.getByText(/Pull existing stories from the/i)).toBeInTheDocument();
+    const link = screen.getByRole('link', { name: /Product Backlog/i });
+    expect(link).toHaveAttribute('href', '/projects/proj-1/product-backlog');
+    // The add-a-new-task affordance still stands alongside the backlog handoff.
+    expect(
+      screen.getAllByRole('button', { name: /\+ Add task/i }).length,
+    ).toBeGreaterThan(0);
+  });
 });

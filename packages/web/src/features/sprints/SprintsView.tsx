@@ -646,6 +646,7 @@ export function SprintsView() {
                 onOpenTask={setSelectedTaskId}
                 showCarryoverLane
                 canPullCarryover={canPullCarryover}
+                showBacklogLink
               />
             </div>
             <div className="lg:col-span-2 flex flex-col gap-4">
