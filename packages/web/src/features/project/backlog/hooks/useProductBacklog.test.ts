@@ -25,6 +25,7 @@ import {
   useSetDor,
   useSplitStory,
   useReorderBacklog,
+  useReparentStory,
   useQuickAddStory,
   useCreateEpic,
   usePatchEpic,
@@ -37,6 +38,7 @@ const {
   patchTaskDorMock,
   postSplitStoryMock,
   postReorderBacklogMock,
+  reparentStoryMock,
   createBacklogStoryMock,
   createEpicMock,
   patchEpicMock,
@@ -47,6 +49,7 @@ const {
   patchTaskDorMock: vi.fn(),
   postSplitStoryMock: vi.fn(),
   postReorderBacklogMock: vi.fn(),
+  reparentStoryMock: vi.fn(),
   createBacklogStoryMock: vi.fn(),
   createEpicMock: vi.fn(),
   patchEpicMock: vi.fn(),
@@ -59,6 +62,7 @@ vi.mock('../api', () => ({
   patchTaskDor: patchTaskDorMock,
   postSplitStory: postSplitStoryMock,
   postReorderBacklog: postReorderBacklogMock,
+  reparentStory: reparentStoryMock,
   createBacklogStory: createBacklogStoryMock,
   createEpic: createEpicMock,
   patchEpic: patchEpicMock,
@@ -111,6 +115,7 @@ beforeEach(() => {
   patchTaskDorMock.mockResolvedValue(undefined);
   postSplitStoryMock.mockResolvedValue(undefined);
   postReorderBacklogMock.mockResolvedValue({ updated: 0 });
+  reparentStoryMock.mockResolvedValue(undefined);
   createBacklogStoryMock.mockResolvedValue(undefined);
   createEpicMock.mockResolvedValue(undefined);
   patchEpicMock.mockResolvedValue(undefined);
@@ -323,6 +328,69 @@ describe('useReorderBacklog (optimistic drag, ADR-0110)', () => {
     invalidateSpy.mockClear();
     postReorderBacklogMock.mockRejectedValueOnce(new Error('boom'));
     result.current.mutate({ stories: ENTRIES, optimistic: makeBacklog() });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: productBacklogKeys.root('p1') });
+  });
+});
+
+describe('useReparentStory (optimistic cross-group move, ADR-0183)', () => {
+  it('PATCHes parent_epic and writes the caller’s post-move snapshot optimistically', async () => {
+    // Never-resolving PATCH proves the relocated snapshot lands in the cache pre-response.
+    reparentStoryMock.mockReturnValueOnce(new Promise(() => {}));
+    const qc = makeQC();
+    const before = makeBacklog({ health: { ...makeBacklog().health, storyCount: 1 } });
+    const optimistic = makeBacklog({ health: { ...makeBacklog().health, storyCount: 99 } });
+    qc.setQueryData<ProductBacklog>(productBacklogKeys.root('p1'), before);
+    const { result } = renderHook(() => useReparentStory('p1'), { wrapper: makeWrapper(qc) });
+
+    act(() => {
+      result.current.mutate({ taskId: 'S1', parentEpicId: 'EP2', optimistic });
+    });
+
+    await waitFor(() => {
+      const cached = qc.getQueryData<ProductBacklog>(productBacklogKeys.root('p1'));
+      expect(cached?.health.storyCount).toBe(99);
+    });
+    expect(reparentStoryMock).toHaveBeenCalledWith('S1', 'EP2');
+  });
+
+  it('passes parentEpicId null through to ungroup the story', async () => {
+    const qc = makeQC();
+    const { result } = renderHook(() => useReparentStory('p1'), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({ taskId: 'S1', parentEpicId: null, optimistic: makeBacklog() });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(reparentStoryMock).toHaveBeenCalledWith('S1', null);
+  });
+
+  it('rolls back to the pre-drag snapshot when the PATCH fails (403/offline)', async () => {
+    reparentStoryMock.mockRejectedValueOnce({ response: { status: 403 } });
+    const qc = makeQC();
+    const before = makeBacklog({ health: { ...makeBacklog().health, storyCount: 1 } });
+    const optimistic = makeBacklog({ health: { ...makeBacklog().health, storyCount: 99 } });
+    qc.setQueryData<ProductBacklog>(productBacklogKeys.root('p1'), before);
+    const { result } = renderHook(() => useReparentStory('p1'), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({ taskId: 'S1', parentEpicId: 'EP2', optimistic });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    const cached = qc.getQueryData<ProductBacklog>(productBacklogKeys.root('p1'));
+    expect(cached?.health.storyCount).toBe(1); // optimistic 99 reverted
+  });
+
+  it('always reconciles with the server (invalidate on settle) — success and failure', async () => {
+    const qc = makeQC();
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useReparentStory('p1'), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({ taskId: 'S1', parentEpicId: 'EP2', optimistic: makeBacklog() });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: productBacklogKeys.root('p1') });
+
+    invalidateSpy.mockClear();
+    reparentStoryMock.mockRejectedValueOnce(new Error('boom'));
+    result.current.mutate({ taskId: 'S1', parentEpicId: 'EP2', optimistic: makeBacklog() });
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: productBacklogKeys.root('p1') });
   });

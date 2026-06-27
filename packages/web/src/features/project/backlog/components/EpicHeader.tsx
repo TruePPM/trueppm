@@ -19,18 +19,24 @@ import { EpicDeleteConfirmDialog } from './EpicDeleteConfirmDialog';
  * Product Owner has `canEdit:true, canDelete:false` (the PO facet is excluded for DELETE
  * server-side), so they can edit but never see a delete button that would 403. A
  * viewer/member (neither verdict) sees exactly the read-only header — plain name, no kebab.
+ *
+ * `armed` (ADR-0183) is set while a story is dragged over this epic as a
+ * reparent target: the right-side points rollup is swapped for a "drop here" verb so
+ * the manager reads *what the drop will do*, not just *that the region is highlighted*.
  */
 export function EpicHeader({
   group,
   projectId,
   selected = false,
   onOpen,
+  armed = false,
 }: {
   group: EpicGroup;
   projectId: string;
   /** True while this epic's detail drawer is open — mirrors the story-row selection ring. */
   selected?: boolean;
   onOpen: (epic: Task) => void;
+  armed?: boolean;
 }) {
   const { epic, rollup } = group;
   const canEdit = epic.canEdit === true;
@@ -100,40 +106,46 @@ export function EpicHeader({
         <span className="text-sm font-semibold text-neutral-text-primary">{epic.name}</span>
       )}
       <div className="flex-1" />
-      <div className="flex items-center gap-2">
-        <span className="font-mono text-[11px] text-neutral-text-secondary">
-          {rollup.pointsDone}/{rollup.pointsTotal} pts · {pct}%
+      {armed ? (
+        <span className="text-xs font-medium text-brand-primary" aria-hidden>
+          ↳ Drop to add to this epic
         </span>
-        <span
-          role="progressbar"
-          aria-valuenow={rollup.pointsDone}
-          aria-valuemin={0}
-          aria-valuemax={rollup.pointsTotal}
-          aria-label={`Epic ${epic.name}: ${rollup.pointsDone} of ${rollup.pointsTotal} points complete`}
-          className="h-1.5 w-24 overflow-hidden rounded-full bg-neutral-surface"
-        >
+      ) : (
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-[11px] text-neutral-text-secondary">
+            {rollup.pointsDone}/{rollup.pointsTotal} pts · {pct}%
+          </span>
           <span
-            className="block h-full rounded-full bg-brand-primary"
-            style={{ width: `${pct}%` }}
-          />
-        </span>
-        {items.length > 0 && (
-          <button
-            ref={menuButtonRef}
-            type="button"
-            aria-haspopup="menu"
-            aria-expanded={menuAnchor != null}
-            aria-label={`Epic actions: ${epic.name}`}
-            onClick={(e) => {
-              const rect = e.currentTarget.getBoundingClientRect();
-              setMenuAnchor({ x: rect.left, y: rect.bottom });
-            }}
-            className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-control text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            role="progressbar"
+            aria-valuenow={rollup.pointsDone}
+            aria-valuemin={0}
+            aria-valuemax={rollup.pointsTotal}
+            aria-label={`Epic ${epic.name}: ${rollup.pointsDone} of ${rollup.pointsTotal} points complete`}
+            className="h-1.5 w-24 overflow-hidden rounded-full bg-neutral-surface"
           >
-            ⋯
-          </button>
-        )}
-      </div>
+            <span
+              className="block h-full rounded-full bg-brand-primary"
+              style={{ width: `${pct}%` }}
+            />
+          </span>
+          {items.length > 0 && (
+            <button
+              ref={menuButtonRef}
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={menuAnchor != null}
+              aria-label={`Epic actions: ${epic.name}`}
+              onClick={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                setMenuAnchor({ x: rect.left, y: rect.bottom });
+              }}
+              className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-control text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            >
+              ⋯
+            </button>
+          )}
+        </div>
+      )}
 
       <BuildModeRowMenu anchor={menuAnchor} items={items} onClose={() => setMenuAnchor(null)} />
 

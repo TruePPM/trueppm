@@ -37,6 +37,16 @@ A dashed **next-sprint ready line** will be drawn where the cumulative ready poi
 the active sprint's capacity, so the Product Owner can see at a glance what fits the next
 sprint. The ready line is advisory — it never blocks the team from pulling a story.
 
+### Reorganizing by drag
+
+Grooming will be direct-manipulation: **drag a story onto an epic** to move it under that
+epic. The target epic region lights up to show where the drop will land, and its header
+switches to a *"↳ Drop to add to this epic"* prompt. Dropping a story on the **No epic**
+bucket removes it from its epic; dragging within a group reorders it. The move applies
+immediately and rolls back if it can't be saved. Drag-to-reparent will be limited to users
+who can manage the backlog (see [Who can do what](#who-can-do-what) below) — everyone keeps
+the keyboard-accessible **Parent epic** picker in the story drawer.
+
 ## Work-item types
 
 Every task will carry a **type**: Story, Task, Bug, Spike, or Epic. The type drives the
