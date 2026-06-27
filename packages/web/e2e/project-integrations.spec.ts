@@ -222,7 +222,13 @@ test.describe('Project Integrations — CRUD UI', () => {
     await confirm.getByRole('button', { name: 'Delete webhook' }).click();
     await delReq;
 
-    await expect(section.getByText(WEBHOOK.url)).toBeHidden();
+    // Assert the confirm dialog closed before checking the row is gone: its body
+    // ("This stops deliveries to {url}…") also contains WEBHOOK.url, so a broad
+    // section-scoped getByText(url) matched both the row span and the dialog <p>
+    // mid-close — a strict-mode collision that raced green and only failed under
+    // CI shard load. Scope to the listitem row (the dialog <p> is not a listitem).
+    await expect(confirm).toBeHidden();
+    await expect(row).toBeHidden();
     await expect(section.getByText(/No webhooks yet/i)).toBeVisible();
   });
 
