@@ -235,6 +235,11 @@ test.describe('Wave 10 — Sprints backlog table', () => {
     // Open-in-board link
     const link = backlog.getByRole('link', { name: /Open in board/i });
     await expect(link).toHaveAttribute('href', `/projects/${PROJECT_ID}/board?sprint=sp-active`);
+
+    // The "Pull from backlog" handoff (#1347) is a PLANNED-surface affordance —
+    // it must not appear on the active sprint's backlog (commit only targets a
+    // planned sprint).
+    await expect(backlog.getByRole('link', { name: /Pull from backlog/i })).toHaveCount(0);
   });
 
   test('clicking a backlog task name opens the task detail drawer', async ({ page }) => {

@@ -24,6 +24,16 @@ interface Props {
   showCarryoverLane?: boolean;
   /** True if the requesting user can call Pull-to-sprint (SCHEDULER+). */
   canPullCarryover?: boolean;
+  /**
+   * When true, render a "Pull from backlog →" link to the Product Backlog
+   * grooming page — the canonical surface where existing stories are committed
+   * to a PLANNED sprint via the per-row commit toggle (issue 1291). The
+   * Sprints view passes this only on the planned surface: that commit toggle
+   * only targets a PLANNED sprint, so the handoff is meaningless on an
+   * active/closed one. Without it, the only "add" affordance here creates a
+   * brand-new task, leaving no path to commit work that already exists (issue 1347).
+   */
+  showBacklogLink?: boolean;
 }
 
 /**
@@ -66,6 +76,7 @@ export function SprintBacklogTable({
   onOpenTask,
   showCarryoverLane = false,
   canPullCarryover = false,
+  showBacklogLink = false,
 }: Props) {
   const itl = useIterationLabel(projectId);
   const groups = useMemo(() => {
@@ -118,6 +129,15 @@ export function SprintBacklogTable({
               + Add task
             </button>
           )}
+          {showBacklogLink && (
+            <Link
+              to={`/projects/${projectId}/product-backlog`}
+              className="text-xs font-medium text-brand-primary hover:text-brand-primary-dark
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
+            >
+              Pull from backlog →
+            </Link>
+          )}
           <Link
             to={`/projects/${projectId}/board?sprint=${sprintId}`}
             className="text-xs font-medium text-brand-primary hover:text-brand-primary-dark
@@ -140,6 +160,19 @@ export function SprintBacklogTable({
           <p className="text-sm font-medium text-neutral-text-primary">
             No tasks committed to this {itl.lower} yet
           </p>
+          {showBacklogLink && (
+            <p className="text-xs text-neutral-text-secondary max-w-xs">
+              Pull existing stories from the{' '}
+              <Link
+                to={`/projects/${projectId}/product-backlog`}
+                className="font-medium text-brand-primary hover:text-brand-primary-dark
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
+              >
+                Product Backlog
+              </Link>
+              , or add a new task.
+            </p>
+          )}
           {onAddTask ? (
             <button
               type="button"
@@ -151,9 +184,14 @@ export function SprintBacklogTable({
               + Add task
             </button>
           ) : (
-            <p className="text-xs text-neutral-text-secondary">
-              Plan the next {itl.lower} or add tasks from the board.
-            </p>
+            // The backlog CTA above already tells the user how to add work, so
+            // suppress the generic fallback when it is shown (avoids two
+            // competing "how to add" prompts).
+            !showBacklogLink && (
+              <p className="text-xs text-neutral-text-secondary">
+                Plan the next {itl.lower} or add tasks from the board.
+              </p>
+            )
           )}
         </div>
       ) : (
