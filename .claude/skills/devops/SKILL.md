@@ -24,6 +24,15 @@ description: >
 - Ingress with cert-manager annotations for auto TLS
 - PostgreSQL and Redis: Bitnami subcharts or external references
 
+## Boot-Config Contract
+
+Production settings (`packages/api/src/trueppm_api/settings/prod.py`) enforce several **fail-closed, import-time** boot guards: they `raise` ("Refusing to start…") when a required env var is empty/missing in non-DEBUG — `SECRET_KEY`, `INTEGRATION_ENCRYPTION_KEY`, the attachment-storage backend. gunicorn/asgi workers never run `manage.py check`, so these execute at module import — a missing value crash-loops the pod, not just a `check --deploy` warning.
+
+When reviewing any change that adds or modifies such a guard — or any change to `.env.example` or the Helm chart — verify the **documented install path can satisfy every guard**:
+- [ ] Every import-time-required env var has a `.env.example` entry that is *unmissable* — a `REQUIRED` banner with generation guidance, not a silent empty value or a commented-out line.
+- [ ] The Helm chart actually **renders** that var into the api + worker deployments (via a Secret the values document) — a value referenced only in README/`values.yaml` prose, or behind an `envFrom:`/secret pattern that no deployment template renders, is silently never injected.
+- [ ] A fresh config derived from `.env.example` (and a default `helm install`) boots without tripping a `Refusing to start` guard. A guard whose only documented config path is commented-out or non-functional is an install-blocker, not a hardening win.
+
 ## CI/CD Pipeline
 ```
 PR → lint → type-check → unit-test → integration-test → build-image → deploy-preview

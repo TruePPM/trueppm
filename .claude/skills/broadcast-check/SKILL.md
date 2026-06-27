@@ -45,6 +45,7 @@ Checklist:
 - [ ] If the broadcast triggers a Celery task, the task is called with `.delay()` (async), never called synchronously
 - [ ] Broadcasts include enough data for clients to update in-place (avoids full refetch)
 - [ ] Bulk operations (e.g. reordering 50 tasks) broadcast **once** with the full updated set — not once per row. Inspect for `broadcast_*_event(...)` calls inside `for` loops or comprehensions.
+- [ ] **A broadcast guarded by a data-dependent conditional must still fire on every committed-write branch** — a broadcast nested inside an `if` whose condition is a count / changed-set / affected-list (`if assignments:`, `if changed:`, `if affected_projects:`) silently skips the event on the branch where the condition is false. But the row still changed and watchers still need to know: a remove/update that broadcasts only when there is downstream work to report (e.g. only when the removed resource *had* task assignments) desyncs every client on the no-work branch. Confirm the broadcast fires on **every** branch that commits a write, not just the "interesting" one. Grep for `broadcast_*` nested inside an `if <count/len/changed-set>` and verify the else/skip branch either commits no write or also broadcasts.
 
 ### Payload Safety
 - [ ] Broadcast payload is serialized with a read serializer (not the write serializer)
