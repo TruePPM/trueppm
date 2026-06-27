@@ -131,3 +131,22 @@ ignore = ["RUF002", "RUF003"]
 "*/models.py" = ["RUF012"]
 "*/serializers.py" = ["RUF012"]
 "*/views.py" = ["RUF012"]
+
+[tool.coverage.run]
+# CI runs api:test as 4 parallel shards (each writes .coverage.<n>) and stitches
+# them together in a separate api:coverage job. Those jobs can land on runners
+# with different builds_dir (e.g. /tmp/builds vs /mnt/nvme1/gitlab-runner/builds),
+# so the absolute source paths baked into the shard data files don't resolve on
+# the combine runner — `coverage xml` then emits "No source for code" and produces
+# no coverage.xml, failing the job (and turning main red, issue 1348).
+# relative_files records paths relative to this config's directory, so combine +
+# xml are builds_dir-independent. Verified locally that it leaves diff-cover path
+# matching (api:diff-coverage) unchanged.
+relative_files = true
+
+[tool.coverage.paths]
+# Belt-and-suspenders for the same cross-runner combine: any data path still
+# recorded as absolute (e.g. measured outside the package tree) is remapped onto
+# the canonical src/ location during `coverage combine`, collapsing the
+# /tmp/builds and /mnt/... prefixes to a single entry.
+source = ["src/", "*/packages/api/src/"]
