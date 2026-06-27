@@ -166,9 +166,10 @@ class MCResponse(BaseModel):
 @app.post("/monte-carlo", response_model=MCResponse)
 async def run_monte_carlo(req: ScheduleRequest) -> MCResponse:
     def _run() -> MCResponse:
-        # The OSS default run cap is 1000; pass max_runs=None to exceed it.
+        # The library imposes no run/task cap by default; pass max_runs /
+        # max_tasks here if you need to bound work on this request path.
         mc: MonteCarloResult = monte_carlo(
-            _to_scheduler_project(req), runs=10_000, max_runs=None, seed=42
+            _to_scheduler_project(req), runs=10_000, seed=42
         )
         return MCResponse(p50=mc.p50, p80=mc.p80, p95=mc.p95, runs=mc.runs)
 

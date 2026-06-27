@@ -1,7 +1,7 @@
 # ADR-0012: Monte Carlo API endpoint and OSS tier simulation cap
 
 ## Status
-Accepted
+Accepted — §1 library default amended by #1341 (see [Amendment](#amendment-1341-library-default-decoupled-from-the-cap)).
 
 ## Context
 
@@ -145,6 +145,31 @@ default request timeout is 30 s. If larger projects cause regression, add
 - **Risk:** Changing the default `runs` is a breaking change for any direct caller
   of `monte_carlo()` who relied on the 10 000 default. Since the scheduler has no
   external callers yet (not released on PyPI), this is acceptable.
+
+## Amendment (#1341): library default decoupled from the cap
+
+§1 originally shipped the cap baked into the library defaults
+(`max_runs=1_000`, `max_tasks=500`) — Option C ("cap enforced in API only") was
+rejected on the grounds that a direct caller could otherwise run uncapped. Two
+things have changed since:
+
+- The cap is no longer a tier differentiator. Its message is now tier-neutral
+  (enforced by `test_cap_exceeded_message_is_tier_neutral`); it exists purely to
+  bound work on the **synchronous API request path**, i.e. it is a DoS guard, not
+  a license limit. A direct caller (CLI, notebook, PyPI consumer) is a trusted
+  local context that does not need that guard.
+- Because the defaults were baked in, the documented example
+  `monte_carlo(project, runs=10_000)` raised `SimulationCapExceeded` unless the
+  caller *also* passed `max_runs=10_000` — a public pip-surface papercut.
+
+The library defaults are therefore changed to `max_runs=None` / `max_tasks=None`
+(no cap). The protective cap now lives only where it is needed: the
+`run_monte_carlo` API view passes `max_runs=settings.MC_SIMULATION_CAP` and
+`max_tasks=settings.MC_TASK_CAP` explicitly (it already did), so the request-path
+402 behavior in §2 is unchanged. This is effectively the previously-rejected
+Option C, narrowed to "the cap is the embedding layer's responsibility" — sound
+now that the cap is a request-path guard rather than a tier limit. The endpoint
+(§2) and settings (§3) decisions stand unchanged.
 
 ## Implementation Notes
 

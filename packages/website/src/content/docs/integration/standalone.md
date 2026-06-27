@@ -90,8 +90,9 @@ trueppm-scheduler schedule --help
 ```python
 from trueppm_scheduler import monte_carlo
 
-# The OSS default run cap is 1000; pass max_runs=None to exceed it.
-mc = monte_carlo(project, runs=10_000, max_runs=None, seed=42)
+# The library imposes no run/task cap by default; pass max_runs / max_tasks
+# only if you need to bound work on a request path.
+mc = monte_carlo(project, runs=10_000, seed=42)
 print(f"P50: {mc.p50}")
 print(f"P80: {mc.p80}  ← recommended commitment date")
 print(f"P95: {mc.p95}  ← contractual deadline buffer")

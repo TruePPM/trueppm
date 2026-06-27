@@ -800,8 +800,7 @@ class TestMonteCarlo:
         p = make_project(tasks, deps)
 
         start = time.perf_counter()
-        # Pass max_runs=None to bypass the OSS cap for this performance test.
-        monte_carlo(p, runs=10_000, seed=0, max_runs=None)
+        monte_carlo(p, runs=10_000, seed=0)
         elapsed = time.perf_counter() - start
         assert elapsed < 5.0, f"Monte Carlo too slow: {elapsed:.2f}s"
 
@@ -818,12 +817,25 @@ class TestMonteCarlo:
             monte_carlo(p, runs=10, max_tasks=2)
 
     def test_cap_disabled_when_none(self) -> None:
-        """max_runs=None and max_tasks=None disables all caps."""
+        """Explicit max_runs=None and max_tasks=None disables both caps."""
         tasks = [task(str(i), f"Task {i}", 1) for i in range(3)]
         p = make_project(tasks, [])
-        # Should not raise even though runs > default cap and tasks > default cap.
         result = monte_carlo(p, runs=2_000, seed=0, max_runs=None, max_tasks=None)
         assert result.runs == 2_000
+
+    def test_default_imposes_no_cap(self) -> None:
+        """With no caps passed, the library default (None) imposes no cap, so the
+        documented ``monte_carlo(project, runs=10_000)`` example runs as written
+        (#1341). The protective cap is the embedding API layer's job, not the
+        library's."""
+        # The exact docstring example: 10 000 runs, no max_runs argument.
+        small = make_project([task(str(i), f"Task {i}", 1) for i in range(3)], [])
+        result = monte_carlo(small, runs=10_000, seed=0)
+        assert result.runs == 10_000
+        # The task cap is likewise off by default: a project larger than the old
+        # default max_tasks=500 simulates without raising.
+        big = [task(str(i), f"Task {i}", 1) for i in range(600)]
+        assert monte_carlo(make_project(big, []), runs=1, seed=0).runs == 1
 
     def test_cap_exceeded_message_is_tier_neutral(self) -> None:
         """As a standalone Apache-2.0 library, the cap message must not reference
