@@ -1798,8 +1798,8 @@ def monte_carlo(
     *,
     runs: int = 1_000,
     seed: int | None = None,
-    max_runs: int | None = 1_000,
-    max_tasks: int | None = 500,
+    max_runs: int | None = None,
+    max_tasks: int | None = None,
     sensitivity_cap: int = MC_SENSITIVITY_CAP,
 ) -> MonteCarloResult:
     """Run Monte Carlo probabilistic scheduling on a project.
@@ -1842,10 +1842,12 @@ def monte_carlo(
     project carrying them simulates as though every task shared the project
     calendar.
     Computation is vectorised with numpy:
-    10 000 runs on a 200-task project completes in well under 100 ms — but note
-    the ``max_runs`` cap defaults to 1 000, so a 10 000-run call must raise it
-    (e.g. ``monte_carlo(project, runs=10_000, max_runs=10_000)``) or it raises
-    SimulationCapExceeded.
+    10 000 runs on a 200-task project completes in well under 100 ms, so the
+    library imposes **no** run or task cap by default — ``monte_carlo(project,
+    runs=10_000)`` simulates as written. The ``max_runs`` / ``max_tasks`` knobs
+    exist for an *embedding* layer that needs to bound work on a synchronous
+    request path (the TruePPM API passes its own caps and returns
+    ``SimulationCapExceeded`` as a 402); a standalone caller leaves them ``None``.
 
     Args:
         project:   The project to simulate. Must have at least one task and
@@ -1854,10 +1856,11 @@ def monte_carlo(
         seed:      Optional RNG seed for reproducibility. With a fixed seed the
                    sampled durations — and therefore P50/P80/P95 — are
                    deterministic and independent of task insertion order.
-        max_runs:  Maximum allowed value for ``runs``. Pass ``None`` to disable
-                   the cap. Default 1 000.
-        max_tasks: Maximum number of tasks allowed. Pass ``None`` to disable
-                   the cap. Default 500.
+        max_runs:  Maximum allowed value for ``runs``, or ``None`` for no cap.
+                   Default ``None`` — the library does not cap by itself; an
+                   embedding layer (e.g. the TruePPM API) passes its own value.
+        max_tasks: Maximum number of tasks allowed, or ``None`` for no cap.
+                   Default ``None`` (see ``max_runs``).
         sensitivity_cap: Maximum number of tasks returned in the duration
                    sensitivity tornado. Default ``MC_SENSITIVITY_CAP``.
 
