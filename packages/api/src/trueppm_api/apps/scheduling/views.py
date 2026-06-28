@@ -474,6 +474,27 @@ class MonteCarloLatestView(APIView):
 
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
+    @extend_schema(
+        summary="Latest cached Monte Carlo forecast for the project",
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "The most recent Monte Carlo result for the project. Keys: p50/p80/p95 "
+                    "(ISO-8601 finish dates), cpm_finish, delta_vs_cpm ({p50, p80, p95} "
+                    "calendar-day deltas vs the CPM finish), runs (n_simulations), "
+                    "confidence_curve, histogram_buckets, sensitivity, last_run_at, and "
+                    "from_history (true when served from a persisted run after the 24h cache "
+                    "TTL expired). Legacy runs with no stored distribution return empty "
+                    "confidence_curve/histogram_buckets/sensitivity arrays."
+                ),
+            ),
+            404: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="No simulation result available for this project ({detail}).",
+            ),
+        },
+    )
     def get(self, request: Request, pk: str) -> Response:
         """Return the latest cached Monte Carlo result for the project.
 
