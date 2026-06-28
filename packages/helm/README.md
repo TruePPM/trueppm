@@ -82,5 +82,34 @@ they are disabled you **must** supply `env.DATABASE_URL` and `env.REDIS_URL`
 message otherwise. Prefer injecting these via an external Secret rather than
 `--set` so they don't land in shell history.
 
-`SECRET_KEY` and `ALLOWED_HOSTS` must always be provided via a Kubernetes Secret
-referenced through `env` / `envFrom` — see `values.yaml` for the pattern.
+## Required secrets (prod refuses to boot without them)
+
+`settings.prod` enforces these at import time — a missing or empty value
+crash-loops the pod (the migrate/bootstrap init containers fail first). Provide
+them via a Kubernetes Secret referenced through the chart's `envFrom` value (the
+API, Celery worker, **and** the init containers all consume it):
+
+| Key | Why | Issue |
+|-----|-----|-------|
+| `SECRET_KEY` | ≥ 32 chars; Django signing | #566 |
+| `ALLOWED_HOSTS` | comma-separated hostnames | — |
+| `INTEGRATION_ENCRYPTION_KEY` | Fernet key; encrypts integration PATs at rest | #1002 |
+| `TRUEPPM_DEFAULT_FILE_STORAGE` *or* `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true` | attachment storage choice | #775 |
+
+```bash
+kubectl create secret generic trueppm-env \
+  --from-literal=SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(50))") \
+  --from-literal=ALLOWED_HOSTS=trueppm.example.com \
+  --from-literal=INTEGRATION_ENCRYPTION_KEY=$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())") \
+  --from-literal=TRUEPPM_DEFAULT_FILE_STORAGE=storages.backends.s3.S3Storage
+```
+
+Reference it in your values override (this is the `envFrom` pattern the templates
+render — explicit `env:` entries such as the chart-built `DATABASE_URL` always
+take precedence over an `envFrom` key of the same name):
+
+```yaml
+envFrom:
+  - secretRef:
+      name: trueppm-env
+```

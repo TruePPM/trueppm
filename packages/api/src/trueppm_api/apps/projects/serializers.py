@@ -4445,7 +4445,7 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
             for f in ("capacity_points", "wip_limit", "goal_outcome", "exclude_from_velocity")
             if f in attrs
         }
-        if scheduler_fields and self.instance is not None:
+        if scheduler_fields:
             from trueppm_api.apps.access.models import ProjectMembership, Role
 
             request = self.context.get("request")
@@ -4454,10 +4454,21 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
                 raise serializers.ValidationError(
                     {field: "Authentication required." for field in scheduler_fields}
                 )
-            membership = ProjectMembership.objects.filter(
-                project_id=self.instance.project_id,
-                user=user,
-            ).first()
+            # On update the project comes from the instance; on CREATE the project
+            # is not yet in attrs (perform_create injects it via serializer.save),
+            # so resolve it from the nested route the ProjectScopedViewSet exposes.
+            # Gating only `self.instance is not None` silently skipped CREATE,
+            # letting a Member POST scheduler-owned fields (#1093). When no project
+            # can be resolved the gate fails closed (membership stays None → 400).
+            project_id: Any = self.instance.project_id if self.instance is not None else None
+            if project_id is None:
+                view = self.context.get("view")
+                project_id = getattr(view, "kwargs", {}).get("project_pk") if view else None
+            membership = (
+                ProjectMembership.objects.filter(project_id=project_id, user=user).first()
+                if project_id is not None
+                else None
+            )
             if membership is None or membership.role < Role.SCHEDULER:
                 raise serializers.ValidationError(
                     {
