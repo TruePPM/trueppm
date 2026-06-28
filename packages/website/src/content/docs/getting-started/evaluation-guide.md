@@ -3,10 +3,9 @@ title: Evaluation guide
 description: Verify every 0.3 capability in about 30 minutes using the bundled sample programs — which sample, which login, which screen, and what to expect.
 ---
 
-:::note[Ships in 0.3]
-This guide covers the 0.3 feature set. Those features are merged to `main` but
-not yet in a tagged build — they ship in 0.3. See the
-[roadmap](/overview/roadmap/).
+:::note[Added in 0.3]
+This guide covers the 0.3 feature set, available since the `0.3.0-alpha.1`
+pre-release (Jun 28, 2026). See the [roadmap](/overview/roadmap/).
 :::
 
 This page is for someone evaluating TruePPM — or a reviewer doing a release

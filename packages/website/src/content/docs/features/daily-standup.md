@@ -3,8 +3,8 @@ title: Daily standup — walk the board
 description: A focused, per-person walk-the-board mode for running the Daily Scrum, built into the active sprint board.
 ---
 
-:::note[Ships in 0.3]
-The daily standup walk-the-board surface ships in 0.3 (the agile team release). It is not yet in a tagged build — see the [roadmap](/overview/roadmap/).
+:::note[Added in 0.3]
+The daily standup walk-the-board surface was added in 0.3 (the agile team release), available since the `0.3.0-alpha.1` pre-release (Jun 28, 2026).
 :::
 
 The **Standup** button on the active sprint board opens a focused walk-the-board mode designed for running the Daily Scrum as a team ceremony. It walks through each teammate one at a time with a clean, distraction-free layout.

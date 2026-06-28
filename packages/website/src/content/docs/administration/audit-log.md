@@ -3,9 +3,10 @@ title: Audit log
 description: Review the workspace operational audit log — what administration events are recorded, who can read it, and how the OSS log relates to the Enterprise immutable audit trail.
 ---
 
-:::note[Ships in 0.3 (alpha)]
-The operational audit log lands in **TruePPM 0.3**. Until 0.3 tags, this page
-describes planned behavior; check the [roadmap](/overview/roadmap/) for status.
+:::note[Added in 0.3 (alpha)]
+The operational audit log was added in **TruePPM 0.3**, available since the
+`0.3.0-alpha.1` pre-release (Jun 28, 2026). 0.3 is an alpha release; the first
+beta is planned for 0.4.
 :::
 
 The **operational audit log** is a chronological record of who changed what in

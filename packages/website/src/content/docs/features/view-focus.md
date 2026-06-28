@@ -3,8 +3,8 @@ title: View focus
 description: A per-user lens that organizes each project around the hat you're wearing — PM, Scrum Master, or both — without changing anyone's access.
 ---
 
-:::note[0.3]
-View focus will ship in 0.3.
+:::note[Added in 0.3]
+View focus was added in 0.3.
 :::
 
 If you wear two hats — running the waterfall program **and** facilitating the agile

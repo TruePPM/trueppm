@@ -3,8 +3,8 @@ title: Sample projects & JSON import/export
 description: Load a whole program from a JSON seed file, and export any program back out.
 ---
 
-:::note[Ships in 0.3]
-Sample projects and JSON seed import/export are merged to `main` but not yet in a tagged build — they ship in 0.3. See the [roadmap](/overview/roadmap/).
+:::note[Added in 0.3]
+Sample projects and JSON seed import/export were added in 0.3, available since the `0.3.0-alpha.1` pre-release (Jun 28, 2026). See the [roadmap](/overview/roadmap/).
 :::
 
 TruePPM uses one canonical JSON format to seed sample projects and to move whole

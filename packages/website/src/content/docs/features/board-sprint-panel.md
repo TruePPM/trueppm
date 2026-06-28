@@ -3,10 +3,10 @@ title: Board sprint panel
 description: Active-sprint summary embedded above the Board lanes — goal, dates, burndown, velocity, and planning capacity in one collapsible surface.
 ---
 
-:::note[Ships in 0.3]
+:::note[Added in 0.3]
 The **mid-sprint scope-change badge** and its **scope-change audit drawer**
-ship in 0.3 (the agile team release). They are not yet in a tagged build — see
-the [roadmap](/overview/roadmap/). The rest of this page describes shipped
+were added in 0.3 (the agile team release), available since the `0.3.0-alpha.1`
+pre-release (Jun 28, 2026). The rest of this page describes shipped
 behavior.
 :::
 
@@ -25,7 +25,7 @@ planning editor so a Scrum Master or PM does not have to switch routes to
   - **Burndown** — reuses [`<BurnChart sprintId={…}>`](/features/sprint-burndown/) in
     sprint-scoped mode.
   - **Velocity sparkline** — 64×24px SVG, up to 8 closed sprints, most recent
-    bar emphasized; caption shows the rolling average ± stdev. Starting in 0.3,
+    bar emphasized; caption shows the rolling average ± stdev. As of 0.3,
     sprints flagged *exclude from velocity* (e.g. a "Sprint 0" setup sprint)
     stay visible but marked, and are omitted from the rolling average; the
     velocity API reports how many were excluded via `excluded_count`
@@ -81,8 +81,8 @@ team available?". All three are useful at different points in the cadence.
 
 ## Mid-sprint scope changes
 
-:::note[Ships in 0.3]
-This badge and its audit drawer ship in 0.3.
+:::note[Added in 0.3]
+This badge and its audit drawer were added in 0.3.
 :::
 
 When tasks are injected into a sprint **after** it goes ACTIVE, the panel
@@ -120,9 +120,9 @@ mid-sprint` badge, and the open scope-change audit drawer.*
 | `PATCH` | `/api/v1/sprints/{id}/` | Updates `capacity_points` (field-gated to SCHEDULER+) |
 | `GET`  | `/api/v1/sprints/{id}/burndown/` | Burndown series for the active sprint |
 | `GET`  | `/api/v1/projects/{id}/velocity/` | Rolling 8-sprint velocity for the sparkline |
-| `GET`  | `/api/v1/sprints/{id}/scope-changes/` | Read-only audit of tasks added to the sprint after activation — backs the mid-sprint scope-change badge and drawer *(ships in 0.3)* |
+| `GET`  | `/api/v1/sprints/{id}/scope-changes/` | Read-only audit of tasks added to the sprint after activation — backs the mid-sprint scope-change badge and drawer *(added in 0.3)* |
 
-The `scope-changes` endpoint is the one new addition (ships in 0.3); the rest
+The `scope-changes` endpoint is the one new addition (added in 0.3); the rest
 of the panel is a UI composition over existing data.
 
 ## Related

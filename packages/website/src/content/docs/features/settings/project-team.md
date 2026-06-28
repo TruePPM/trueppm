@@ -3,8 +3,8 @@ title: Project team & agile roles
 description: Assign team roles and the Scrum Master / Product Owner facets per member, on agile and hybrid projects.
 ---
 
-:::note[Planned for 0.3]
-The **Project Settings → Team** tab is planned for 0.3 (the agile team release). It is not yet in a tagged build — see the [roadmap](/overview/roadmap/).
+:::note[Added in 0.3]
+The **Project Settings → Team** tab was added in 0.3 (the agile team release), available since the `0.3.0-alpha.1` pre-release (Jun 28, 2026).
 :::
 
 The **Project Settings → Team** tab is where you set who fills the agile roles on a project. It manages two independent things per member:

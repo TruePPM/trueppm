@@ -11,7 +11,7 @@ So your one question is simple: **does this give teams autonomy, or give managem
 
 ### The sprint stays the team's
 
-A board with date columns lets anyone with PM access quietly reshape a sprint. TruePPM treats the sprint as a team-owned container. **Audited, deliberate mid-sprint scope changes ship in 0.3**: a scope injection becomes a recorded decision with a point cost and an epic tag, visible to the team — not a silent edit. The standup **daily-delta panel (also 0.3)** is pull-only and status-level by design: it surfaces what moved, what's blocked, and what scope arrived, but it will **never** show hours, durations, or edit counts, and a Viewer sees only team totals — never a per-person breakdown.
+A board with date columns lets anyone with PM access quietly reshape a sprint. TruePPM treats the sprint as a team-owned container. **Audited, deliberate mid-sprint scope changes arrived in 0.3**: a scope injection becomes a recorded decision with a point cost and an epic tag, visible to the team — not a silent edit. The standup **daily-delta panel (also 0.3)** is pull-only and status-level by design: it surfaces what moved, what's blocked, and what scope arrived, but it will **never** show hours, durations, or edit counts, and a Viewer sees only team totals — never a per-person breakdown.
 
 → See [Sprints workspace](/features/sprints/) and the [roadmap](/overview/roadmap/) for the 0.3 sprint-sovereignty work
 

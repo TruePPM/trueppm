@@ -3,8 +3,8 @@ title: Program schedule — the cross-project critical path
 description: One read-only timeline across a program's projects, with the program-true critical path highlighted across project lanes and cross-project dependencies drawn between them.
 ---
 
-:::note[Ships in 0.3]
-The program schedule view ships in 0.3 (the agile team release). It is not yet in a tagged build — see the [roadmap](/overview/roadmap/).
+:::note[Added in 0.3]
+The program schedule view was added in 0.3 (the agile team release), available since the `0.3.0-alpha.1` pre-release (Jun 28, 2026).
 :::
 
 The **Schedule** tab on a [program](/features/programs/) shows every member project on one timeline and draws the **program-true critical path** — the longest chain of dependent work across the whole program, even where it crosses a project boundary. It answers the question a single-project Gantt cannot: *which handoff between projects is actually driving the program's finish date?*

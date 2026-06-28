@@ -141,7 +141,7 @@ Seed the demo (`seed_demo_project --with-personas`) and sign in as **`maya`** �
 
 If the sprint reads as a first-class container — goal, dates, burndown, velocity — rather than a board with date columns, it clears your one-question filter: *does this respect the sprint boundary?*
 
-→ The [evaluation guide](/getting-started/evaluation-guide/) adds the agile-only **Aurora** sample (ships in 0.3) for a deeper, history-rich sprint tour.
+→ The [evaluation guide](/getting-started/evaluation-guide/) adds the agile-only **Aurora** sample (added in 0.3) for a deeper, history-rich sprint tour.
 
 ## Getting started
 

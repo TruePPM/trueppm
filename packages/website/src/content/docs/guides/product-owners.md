@@ -72,13 +72,13 @@ The most important interface between the PO and the PM:
 
 **Velocity trend is visible to both of you — when the team shares velocity to the PM tier.** If velocity has been declining for three sprints, the PM receives velocity-calibration suggestions to revise estimates — applied only when accepted. You both see the same risk signal.
 
-**Sprint closures update the forecast.** When you close a sprint, TruePPM records a fresh P50/P80 delivery forecast against the bound milestone (ships in 0.3); the committed date is never auto-moved. The gap between the forecast and the committed milestone date is visible to both of you — the conversation about whether to slip the date or cut scope happens with actual numbers.
+**Sprint closures update the forecast.** When you close a sprint, TruePPM records a fresh P50/P80 delivery forecast against the bound milestone (added in 0.3); the committed date is never auto-moved. The gap between the forecast and the committed milestone date is visible to both of you — the conversation about whether to slip the date or cut scope happens with actual numbers.
 
 → Read the full hybrid walkthrough in [The Story](/the-story/)
 
 ## Evaluate it yourself (~10 minutes)
 
-Seed the demo (`seed_demo_project --with-personas`) and sign in as **`maya`** — the Scrum Master persona (password `demo`). That surface shows the backlog and board the way you work them. (A dedicated Product Owner login arrives with the 0.3 sample projects.)
+Seed the demo (`seed_demo_project --with-personas`) and sign in as **`maya`** — the Scrum Master persona (password `demo`). That surface shows the backlog and board the way you work them. (A dedicated Product Owner login arrived with the 0.3 sample projects.)
 
 1. **Open the backlog.** It's ordered by priority — drag to reorder. The order is your statement of what matters; the team pulls from the top.
 2. **Open the burn-up chart.** The total-scope line steps up where scope was added mid-sprint, so "what we committed to" and "what crept in" are visibly different.
@@ -87,7 +87,7 @@ Seed the demo (`seed_demo_project --with-personas`) and sign in as **`maya`** �
 
 This is your one-question filter — *does it tell me when the feature ships, in my language?* — answered with a velocity forecast, not a planned date.
 
-→ The [evaluation guide](/getting-started/evaluation-guide/) adds the **Aurora** and **Helios** samples (ship in 0.3), where a scope injection is accepted in one program and rejected in another.
+→ The [evaluation guide](/getting-started/evaluation-guide/) adds the **Aurora** and **Helios** samples (added in 0.3), where a scope injection is accepted in one program and rejected in another.
 
 ## What's available now
 

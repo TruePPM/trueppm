@@ -3,10 +3,10 @@ title: Sprint → milestone rollup
 description: Sprints linked to a Schedule-view milestone now propagate their progress live — the milestone's percent complete and date variance reflect sprint state without a status meeting or spreadsheet reconciliation.
 ---
 
-:::note[Ships in 0.3]
+:::note[Added in 0.3]
 The **persistent, clickable scope-changed chip** and its **scope-change audit
-drawer** ship in 0.3 (the agile team release). They are not yet in a tagged
-build — see the [roadmap](/overview/roadmap/). The live rollup itself is shipped
+drawer** were added in 0.3 (the agile team release), available since the
+`0.3.0-alpha.1` pre-release (Jun 28, 2026). The live rollup itself is shipped
 behavior.
 :::
 
@@ -35,7 +35,7 @@ When at least one sprint targets a milestone task:
   never automatically mutated.
 - A **scope-changed chip** appears when an active sprint's current backlog
   points sum diverges from its activation-time `committed_points` snapshot.
-  *(Ships in 0.3.)* The percent stays bounded; the chip surfaces the
+  *(Added in 0.3.)* The percent stays bounded; the chip surfaces the
   discrepancy so the value remains honest. The chip is **persistent and
   clickable** — not a hover-only tooltip — and shows the net scope delta
   (`+N / −M points`). It appears in all three milestone surfaces: the
@@ -111,8 +111,8 @@ either the denominator or the numerator.
 
 ## Scope-change audit chip
 
-:::note[Ships in 0.3]
-This chip and its audit drawer ship in 0.3.
+:::note[Added in 0.3]
+This chip and its audit drawer were added in 0.3.
 :::
 
 The scope-changed chip is the milestone-side entry point into the same audit

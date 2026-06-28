@@ -65,9 +65,9 @@ hybrid program with a live sprint-to-milestone bridge, anchor-relative dates, an
 replayed history, so the demo always reads as current rather than aging into a
 fixed-date snapshot. If more than one sample is bundled, the button opens a picker.
 
-:::note[Ships in 0.3]
-The in-app sample picker is merged to `main` but not yet in a tagged build — it ships
-in 0.3. See the [sample projects guide](/getting-started/sample-projects/) and the
+:::note[Added in 0.3]
+The in-app sample picker was added in 0.3, available since the `0.3.0-alpha.1`
+pre-release. See the [sample projects guide](/getting-started/sample-projects/) and the
 [roadmap](/overview/roadmap/).
 :::
 

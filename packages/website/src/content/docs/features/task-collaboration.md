@@ -5,7 +5,7 @@ description: A per-author decision log, per-task attachments, threaded comments,
 
 
 :::note[Added in 0.2 (alpha)]
-This page documents functionality added in **TruePPM 0.2**, available since the `0.2.0-alpha.1` pre-release (May 31, 2026). 0.2 is an alpha release; the first beta is planned for 0.4. The **Notes** section below ships separately in 0.3 — see its callout.
+This page documents functionality added in **TruePPM 0.2**, available since the `0.2.0-alpha.1` pre-release (May 31, 2026). 0.2 is an alpha release; the first beta is planned for 0.4. The **Notes** section below was added separately in 0.3 — see its callout.
 :::
 
 Every task has its own decision log, attachment grid, and comment thread
@@ -25,10 +25,9 @@ Decision rollup) are filed in `trueppm-enterprise`.
 
 ## Notes
 
-:::note[Ships in 0.3 (Underway)]
-The notes log is part of the **0.3 "agile team"** milestone, which is still
-underway. This section describes the feature as designed; it is not yet in a
-tagged build — see the [roadmap](/overview/roadmap/).
+:::note[Added in 0.3]
+The notes log was added in the **0.3 "agile team"** milestone, available since
+the `0.3.0-alpha.1` pre-release (Jun 28, 2026).
 :::
 
 Notes are a task's **decision log** — a flat, per-author record of *why* the
@@ -222,7 +221,7 @@ Two structurally distinct signals sit on every comment:
   notification — they're soft signals, not pings.
 
 The 0.2 reaction allow-list is `{"👍"}` only; the full
-emoji picker will land in 0.3.
+emoji picker landed in 0.3.
 
 ## Notifications
 
@@ -329,4 +328,4 @@ enforces visibility scope (relevant for the future TEAM_ONLY scope that
   overlays (#108–#113)
 - A **Decision** flag on a note plus a project/sprint Decisions view — the
   sprint-bound half of the notes work — is a fast-follow (#748); the notes
-  log above lands first in 0.3 without it
+  log above landed first in 0.3 without it

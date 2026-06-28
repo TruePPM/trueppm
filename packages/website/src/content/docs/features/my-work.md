@@ -8,7 +8,7 @@ My Work shipped in 0.1.
 :::
 
 :::note[0.3]
-In 0.3 My Work will group your tasks into **Today / This Sprint / Upcoming** instead of by sprint, and will flag **blocked** work with a badge.
+As of 0.3, My Work groups your tasks into **Today / This Sprint / Upcoming** instead of by sprint, and flags **blocked** work with a badge.
 :::
 
 **My Work** is the contributor's page. It lists every task assigned to you, across every project you're on, grouped into what needs your attention today, what's committed to this sprint, and what's coming up. There's no Gantt chart, no work-breakdown tree, no critical-path math — just a flat list of what's yours, what's due, what's blocked, and what you can update with a tap.
@@ -41,14 +41,14 @@ Tasks are grouped into three sections, computed on the server so every client gr
 
 Within each section, **blocked** tasks sort first, then by due date and priority. A blocked task shows a red **Blocked** badge — and, when one is set, a **blocker type** ("External vendor", "Decision needed", and so on) and an **age** ("2d 3h blocked") so you can see at a glance what is stuck and for how long. At the top of the page, a **blocked-count chip** will show how many of your tasks are flagged; tap it to filter the list to just the blocked ones, and tap again to clear.
 
-### What is shared, and what stays private *(ships in 0.3, ADR-0124)*
+### What is shared, and what stays private *(added in 0.3, ADR-0124)*
 
 A blocker has two halves. The **structured signal** — the blocker *type*, its *age*, who flagged it, and an optional "waiting on" link to another task — is team-shareable: it drives the notifications and roll-ups your Scrum Master and PM use to clear impediments. The **free-text reason** you type is private: only you (the assignee) and anyone you @-mention on the task can read it. It is never carried in a notification, a roll-up, or the standup, and a teammate who is not the assignee or @-mentioned has no way to read or filter on it. The type is the triage signal; your words stay your voice.
 
 When you flag a task blocked, the **Scrum Master and PM are notified** (each can mute it in their notification preferences), and the task appears in the project's and the sprint's **blocked roll-up** — both carrying the type and age, never the reason.
 
-:::note[0.3]
-The Today / This Sprint / Upcoming grouping and the blocked badge land in 0.3. Before 0.3, My Work groups by active sprint.
+:::note[Added in 0.3]
+The Today / This Sprint / Upcoming grouping and the blocked badge were added in 0.3. Before 0.3, My Work grouped by active sprint.
 :::
 
 ## Status updates
@@ -108,14 +108,14 @@ A **first-login prompt** on My Work lets you make the same choice without huntin
 
 ## Notifications and settings
 
-Two changes will land in 0.3 to make the contributor experience quieter and less PM-heavy:
+Two changes landed in 0.3 to make the contributor experience quieter and less PM-heavy:
 
 - **Signal-only notifications.** Your notification preferences will offer a one-click **Signal-only** profile — you'll only hear about blocked work and deadline changes, with everything else turned off. A "Show all notification types" link expands the full matrix if you want finer control. Project managers keep the full matrix by default.
 - **A focused settings view.** If you don't administer any project or workspace, Settings will show just **Notifications** and **Profile** — the methodology, workflow, roles, and groups pages stay with the people who manage them.
 
 ## What's planned
 
-- A `Blocked` indicator derived automatically when a predecessor task is incomplete — distinct from the explicit, teammate-raised blocker badge that lands in 0.3 (that one is a human signal, not computed from dependencies).
+- A `Blocked` indicator derived automatically when a predecessor task is incomplete — distinct from the explicit, teammate-raised blocker badge that landed in 0.3 (that one is a human signal, not computed from dependencies).
 - Two-way status sync that pushes a status change back to the external tool the task came from. The OSS edition is import-only; the enterprise connector handles two-way sync.
 - A "Team work" view for scrum masters who need the same list for everyone on their team — open as a sibling endpoint when the work is prioritized.
 

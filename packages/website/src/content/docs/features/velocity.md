@@ -21,8 +21,8 @@ Step 7 ([Forecast — Monte Carlo across both worlds](/the-story/#7-forecast--mo
 
 ## On the Board sprint panel
 
-:::note[Ships in 0.3]
-The Board sprint panel's velocity card — the range band, the milestone reforecast delivery forecast line (ADR-0106), and the team-private gating — ships in 0.3. It is merged but not yet in a tagged build — see the [roadmap](/overview/roadmap/).
+:::note[Added in 0.3]
+The Board sprint panel's velocity card — the range band, the milestone reforecast delivery forecast line (ADR-0106), and the team-private gating — was added in 0.3, available since the `0.3.0-alpha.1` pre-release (Jun 28, 2026).
 :::
 
 The active-sprint panel at the top of the **Board** carries a compact version of the same data:
@@ -41,7 +41,7 @@ The active-sprint panel at the top of the **Board** carries a compact version of
 
 ## Backlog delivery forecast
 
-A **backlog delivery forecast** ships in 0.3 (merged, not yet in a tagged build — see the [roadmap](/overview/roadmap/)). It answers "when is the whole backlog done?" without spreadsheet math, from a **velocity Monte Carlo**: it bootstrap-samples the team's historical per-sprint throughput a thousand times to clear the remaining committed backlog, and reports **P50 / P80** sprint counts and calendar dates.
+A **backlog delivery forecast** was added in 0.3. It answers "when is the whole backlog done?" without spreadsheet math, from a **velocity Monte Carlo**: it bootstrap-samples the team's historical per-sprint throughput a thousand times to clear the remaining committed backlog, and reports **P50 / P80** sprint counts and calendar dates.
 
 Because this is a real simulation — not the deterministic velocity *band* the milestone reforecast uses — the **P50/P80 percentile vocabulary is honest here** and is shown as such. It surfaces in two places, both reading the same `/sprint-forecast/` endpoint (no duplicate computation):
 
@@ -61,8 +61,8 @@ The `team_velocity_per_day` field is the same rolling per-day average used by [v
 
 ## Setup work & Sprint 0
 
-:::note[Ships in 0.3]
-The **Exclude from velocity** flag (ADR-0113) described in this section ships in 0.3. It is merged but not yet in a tagged build — see the [roadmap](/overview/roadmap/).
+:::note[Added in 0.3]
+The **Exclude from velocity** flag (ADR-0113) described in this section was added in 0.3, available since the `0.3.0-alpha.1` pre-release (Jun 28, 2026).
 :::
 
 A **setup or ramp-up iteration** — what agile teams often call a "Sprint 0" — is the period before real delivery begins: standing up the environment, forming the team, building the initial backlog, spiking the architecture. Its throughput is low or zero, so if it is run as a sprint and closed, it drags the rolling average down and widens the forecast band until it ages out of the window — and that contamination flows into the milestone delivery forecast too.

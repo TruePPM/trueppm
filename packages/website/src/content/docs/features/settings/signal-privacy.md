@@ -3,8 +3,8 @@ title: Signal privacy
 description: Govern how far each team signal — velocity, throughput rollup, and the retro pulse — may travel, on a team-owned ladder with an authorized ceiling.
 ---
 
-:::note[Planned for 0.3]
-The **Project Settings → Signal privacy** tab is planned for 0.3 (the agile team release). It is not yet in a tagged build — see the [roadmap](/overview/roadmap/).
+:::note[Added in 0.3]
+The **Project Settings → Signal privacy** tab was added in 0.3 (the agile team release), available since the `0.3.0-alpha.1` pre-release (Jun 28, 2026).
 :::
 
 The **Project Settings → Signal privacy** tab is where a team decides how far its own metrics may travel. Agile signals — how fast the team goes, how much it finishes, how it feels — are honest only when the team trusts they will not be turned into a management gauge behind its back. This tab puts that trust under the team's control.

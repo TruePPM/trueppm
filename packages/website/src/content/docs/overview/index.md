@@ -19,7 +19,7 @@ TruePPM 0.2 shipped in May 2026 (as the `0.2.0-alpha.1` pre-release) — the eng
 
 **Agile sprint workflows.** Full sprint lifecycle: plan → activate → close. Board view with WIP limits, velocity tracking, burndown charts, capacity preflight, and retrospective-to-backlog automation. The Scrum Master gets a native agile surface and never needs to open a Gantt.
 
-**Hybrid bridge.** The same task is both a WBS node and a sprint story. Sprint velocity feeds the CPM forecast through non-destructive duration suggestions the PM reviews and applies — and from 0.3, closing a sprint will reforecast the master schedule automatically. No status meetings, no reconciliation spreadsheets.
+**Hybrid bridge.** The same task is both a WBS node and a sprint story. Sprint velocity feeds the CPM forecast through non-destructive duration suggestions the PM reviews and applies — and as of 0.3, closing a sprint reforecasts the master schedule automatically. No status meetings, no reconciliation spreadsheets.
 
 **Real-time collaboration.** Every mutation is broadcast to connected clients over WebSocket, deferred to transaction commit so you never see phantom events from rolled-back writes.
 

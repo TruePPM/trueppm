@@ -19,7 +19,7 @@ There are two endpoints, both scoped to a single project by its UUID.
 
 > **Program-scoped channels are planned.** A `ws/v1/programs/{program_id}/`
 > endpoint will land in a future release (#836) to push program-scoped events in
-> real time. It will **not** ship in 0.3 — program-scoped events will be
+> real time. It did **not** ship in 0.3 — program-scoped events will be
 > delivered over WebSocket in a later release. Subscribe to the per-project
 > channels in the meantime.
 

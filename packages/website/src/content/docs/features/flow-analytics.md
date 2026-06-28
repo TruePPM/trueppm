@@ -5,8 +5,8 @@ description: Methodology-neutral cumulative-flow diagram, weekly throughput, cyc
 
 A board-level panel that answers "how is work flowing?" without sprints or velocity. It surfaces a cumulative-flow diagram, a weekly throughput chart, cycle- and lead-time percentiles, and — for a continuous-flow board — a throughput-based delivery forecast. The metrics are **methodology-neutral**: they read the same task history whether the board runs on a sprint cadence or continuous flow.
 
-:::note[0.3]
-Flow analytics ships in **0.3** (the agile-team release). The panel is available on every board cadence; the throughput-based delivery forecast card is specific to continuous-flow (Kanban) boards, which have no sprint velocity to forecast from.
+:::note[Added in 0.3]
+Flow analytics was added in **0.3** (the agile-team release), available since the `0.3.0-alpha.1` pre-release (Jun 28, 2026). The panel is available on every board cadence; the throughput-based delivery forecast card is specific to continuous-flow (Kanban) boards, which have no sprint velocity to forecast from.
 :::
 
 ## Where this lives in the story

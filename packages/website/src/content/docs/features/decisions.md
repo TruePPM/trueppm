@@ -3,10 +3,9 @@ title: Decisions
 description: A durable, low-friction decision log built on task notes — project- and sprint-scoped, with team-owned visibility.
 ---
 
-:::note[Ships in 0.3 (Underway)]
-Decisions is part of the **0.3 "agile team"** milestone, which is still
-underway. This page describes the feature as built; it is not yet in a tagged
-build — see the [roadmap](/overview/roadmap/).
+:::note[Added in 0.3]
+Decisions was added in the **0.3 "agile team"** milestone, available since the
+`0.3.0-alpha.1` pre-release (Jun 28, 2026).
 :::
 
 Every team makes calls it later has to explain: *why did we drop that story, why did we
