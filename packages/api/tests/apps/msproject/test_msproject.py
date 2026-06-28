@@ -955,6 +955,27 @@ class TestImportAPI:
         )
         assert resp.status_code == 403
 
+    def test_import_member_rejected_at_permission_layer(self, project: Project) -> None:
+        """#1374: a project Member (mid-tier, not Admin) is rejected by the
+        declarative ``IsProjectAdmin`` permission gate. Previously the DRF layer
+        only required ``IsProjectMember`` and the Admin requirement lived solely
+        in-body; now the contract is enforced at the permission layer too."""
+        member = User.objects.create_user(username="msp_member", password="pw")
+        ProjectMembership.objects.create(project=project, user=member, role=Role.MEMBER)
+        c = APIClient()
+        c.force_authenticate(user=member)
+        xml = _build_sample_xml(tasks=[{"UID": "1", "Name": "Task A"}])
+        resp = c.post(
+            f"/api/v1/projects/{project.pk}/import/msproject/",
+            {"file": SimpleUploadedFile("schedule.xml", xml, content_type="application/xml")},
+            format="multipart",
+        )
+        assert resp.status_code == 403
+        # No ImportRequest outbox row is written when the gate rejects.
+        from trueppm_api.apps.msproject.models import ImportRequest
+
+        assert not ImportRequest.objects.filter(project=project).exists()
+
     def test_import_no_file(self, admin_client: APIClient, project: Project) -> None:
         resp = admin_client.post(
             f"/api/v1/projects/{project.pk}/import/msproject/",
