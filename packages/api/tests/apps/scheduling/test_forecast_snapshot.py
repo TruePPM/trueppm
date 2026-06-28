@@ -345,6 +345,26 @@ class TestEndpoint:
         # Only the rows at −5 d and −10 d are at/before the bound.
         assert res.json()["count"] == 2
 
+    def test_since_until_accept_bare_date(self, member_client: APIClient, project: Project) -> None:
+        """A bare ISO date (YYYY-MM-DD) is the documented since/until format (#1378).
+
+        A bare date is interpreted as midnight UTC, so a row captured on day D is
+        at/after ``since=D`` and at/before ``until=D+1``."""
+        for d in (date(2026, 6, 1), date(2026, 6, 10), date(2026, 6, 20)):
+            _backdate(
+                ProjectForecastSnapshot.objects.create(project=project),
+                timezone.make_aware(datetime(d.year, d.month, d.day, 12, 0)),
+            )
+        # since 2026-06-10 (midnight) excludes the 2026-06-01 row.
+        res = member_client.get(url(project.pk), {"since": "2026-06-10"})
+        assert res.status_code == 200
+        assert res.json()["count"] == 2
+
+        # until 2026-06-10 (midnight) is before the 2026-06-10 noon row, leaving
+        # only the 2026-06-01 row.
+        res = member_client.get(url(project.pk), {"until": "2026-06-10"})
+        assert res.json()["count"] == 1
+
     def test_non_member_forbidden_idor(self, outsider: object, project: Project) -> None:
         ProjectForecastSnapshot.objects.create(project=project)
         c = APIClient()

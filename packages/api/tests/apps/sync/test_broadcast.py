@@ -113,6 +113,14 @@ async def test_abroadcast_swallows_group_send_failure() -> None:
 # Two call sites pass event_type as a *variable* (the inbound-sync relay and the
 # generic services.py dispatcher), not a literal; they forward an already-frozen
 # type and so are intentionally excluded — there is nothing to freeze there.
+#
+# The scanner also follows ONE level of wrapper indirection (#1381): a local
+# function/method that forwards one of its *parameters* into the event_type slot
+# of a helper (e.g. taskruns/tracker.py:_broadcast, projects/retro_board_services
+# .py:_broadcast) is itself a broadcast site whose real event types live at its
+# *call* sites as literals. Without this, a wrapper-emitted event (task_run_*,
+# retro_item_*) silently escapes the freeze guard. See _broadcast_event_types_in_
+# source below.
 # ---------------------------------------------------------------------------
 
 FROZEN_WS_EVENT_TYPES = frozenset(
@@ -151,6 +159,10 @@ FROZEN_WS_EVENT_TYPES = frozenset(
         "poker_session_updated",
         "presence_join",
         "presence_leave",
+        "retro_item_created",
+        "retro_item_deleted",
+        "retro_item_moved",
+        "retro_item_updated",
         "program_closed",
         "program_deleted",
         "program_reopened",
@@ -204,6 +216,11 @@ FROZEN_WS_EVENT_TYPES = frozenset(
         "task_note_deleted",
         "task_note_pinned",
         "task_note_updated",
+        "task_run_cancelled",
+        "task_run_completed",
+        "task_run_failed",
+        "task_run_progress",
+        "task_run_started",
         "task_updated",
         "tasks_bulk_mutated",
         "tasks_reordered",
@@ -216,11 +233,25 @@ FROZEN_WS_EVENT_TYPES = frozenset(
 
 
 def _broadcast_event_types_in_source() -> set[str]:
-    """AST-scan the API source for literal event types passed to the broadcast helpers.
+    """AST-scan the API source for literal event types reaching the broadcast helpers.
 
-    Returns the set of distinct string literals appearing as the ``event_type``
-    argument (2nd positional, or ``event_type=`` keyword) of any
-    ``broadcast_board_event`` / ``abroadcast_board_event`` call.
+    Returns the set of distinct string literals that become a broadcast
+    ``event_type``, discovered two ways:
+
+    1. **Direct** — a string literal passed as the ``event_type`` argument
+       (2nd positional, or ``event_type=`` keyword) of a
+       ``broadcast_board_event`` / ``abroadcast_board_event`` call.
+    2. **One level of wrapper indirection** (#1381) — a local function/method
+       that forwards one of its *parameters* into the helper's ``event_type``
+       slot is a "wrapper"; its real event types are the literals passed for
+       that parameter at the wrapper's *own* call sites. This catches events
+       emitted only through a thin relay (``taskruns/tracker.py:_broadcast``,
+       ``projects/retro_board_services.py:_broadcast``), which would otherwise
+       escape the freeze guard because the helper sees a variable, not a literal.
+
+    Wrapper detection and resolution are scoped per-module (a wrapper is matched
+    against call sites in the same file), which keeps same-named wrappers in
+    different modules from cross-contaminating.
     """
     import ast
     import pathlib
@@ -230,34 +261,73 @@ def _broadcast_event_types_in_source() -> set[str]:
     root = pathlib.Path(trueppm_api.__file__).resolve().parent
     helpers = {"broadcast_board_event", "abroadcast_board_event"}
     found: set[str] = set()
+
+    def _callee_name(call: ast.Call) -> str | None:
+        func = call.func
+        if isinstance(func, ast.Attribute):
+            return func.attr
+        if isinstance(func, ast.Name):
+            return func.id
+        return None
+
+    def _str_const(node: ast.expr | None) -> str | None:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        return None
+
+    def _event_type_arg(call: ast.Call) -> ast.expr | None:
+        """The node in a helper call's ``event_type`` slot (2nd positional / kw)."""
+        if len(call.args) >= 2:
+            return call.args[1]
+        for kw in call.keywords:
+            if kw.arg == "event_type":
+                return kw.value
+        return None
+
     for path in root.rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"), str(path))
+
+        # Pass 1 — find wrapper functions in this module. A wrapper forwards a
+        # parameter into a helper's event_type slot. Record, per wrapper name,
+        # the parameter name and the positional index that parameter occupies at
+        # the wrapper's call sites (a bound method drops `self`/`cls`, so the
+        # call-site index is one less than the def index).
+        wrappers: dict[str, list[tuple[str, int]]] = {}
+        for fn in ast.walk(tree):
+            if not isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef):
+                continue
+            params = [a.arg for a in fn.args.posonlyargs] + [a.arg for a in fn.args.args]
+            is_method = bool(params) and params[0] in {"self", "cls"}
+            for sub in ast.walk(fn):
+                if not isinstance(sub, ast.Call) or _callee_name(sub) not in helpers:
+                    continue
+                ev = _event_type_arg(sub)
+                if isinstance(ev, ast.Name) and ev.id in params:
+                    def_index = params.index(ev.id)
+                    call_index = def_index - 1 if is_method else def_index
+                    wrappers.setdefault(fn.name, []).append((ev.id, call_index))
+
+        # Pass 2 — collect literals from direct helper calls and from calls to
+        # any wrapper discovered above.
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
-            func = node.func
-            name = (
-                func.attr
-                if isinstance(func, ast.Attribute)
-                else func.id
-                if isinstance(func, ast.Name)
-                else None
-            )
-            if name not in helpers:
-                continue
-            if (
-                len(node.args) >= 2
-                and isinstance(node.args[1], ast.Constant)
-                and isinstance(node.args[1].value, str)
-            ):
-                found.add(node.args[1].value)
-            for kw in node.keywords:
-                if (
-                    kw.arg == "event_type"
-                    and isinstance(kw.value, ast.Constant)
-                    and isinstance(kw.value.value, str)
-                ):
-                    found.add(kw.value.value)
+            name = _callee_name(node)
+            if name in helpers:
+                lit = _str_const(_event_type_arg(node))
+                if lit is not None:
+                    found.add(lit)
+            elif name in wrappers:
+                for param_name, call_index in wrappers[name]:
+                    if 0 <= call_index < len(node.args):
+                        lit = _str_const(node.args[call_index])
+                        if lit is not None:
+                            found.add(lit)
+                    for kw in node.keywords:
+                        if kw.arg == param_name:
+                            lit = _str_const(kw.value)
+                            if lit is not None:
+                                found.add(lit)
     return found
 
 
@@ -274,3 +344,31 @@ def test_ws_event_type_set_is_frozen() -> None:
     added = live - FROZEN_WS_EVENT_TYPES
     assert not missing, f"Frozen WS event types no longer broadcast in source: {sorted(missing)}"
     assert not added, f"New WS event types broadcast without freezing them: {sorted(added)}"
+
+
+def test_wrapper_emitted_events_are_discovered_and_frozen() -> None:
+    """Events emitted only through a one-level broadcast wrapper are still frozen (#1381).
+
+    ``task_run_*`` (taskruns/tracker.py:_broadcast) and ``retro_item_*``
+    (retro_board_services.py:_broadcast) reach broadcast_board_event with a
+    *variable* event_type, so the scanner must follow the wrapper to its call
+    sites to find their literals. This guards both halves: the scanner discovers
+    them, and they are in the frozen set."""
+    wrapper_emitted = {
+        "task_run_started",
+        "task_run_progress",
+        "task_run_completed",
+        "task_run_failed",
+        "task_run_cancelled",
+        "retro_item_created",
+        "retro_item_updated",
+        "retro_item_moved",
+        "retro_item_deleted",
+    }
+    live = _broadcast_event_types_in_source()
+    undiscovered = wrapper_emitted - live
+    assert not undiscovered, (
+        "Wrapper-emitted WS events not discovered by the scanner — wrapper "
+        f"indirection regressed: {sorted(undiscovered)}"
+    )
+    assert wrapper_emitted <= FROZEN_WS_EVENT_TYPES

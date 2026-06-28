@@ -100,6 +100,8 @@ The set is open-ended and grows as features land; current event types include:
 - **Sprints**: `sprint_created`, `sprint_updated`, `sprint_deleted`,
   `sprint_activated`, `sprint_cancelled`, `sprint_closed`, `sprint_reranked`,
   `sprint_retro_updated`, `milestone_rollup_updated`, `poker_session_updated`
+- **Retro board**: `retro_item_created`, `retro_item_updated`,
+  `retro_item_moved`, `retro_item_deleted`
 - **Comments / attachments**: `task_comment_created`, `task_comment_updated`,
   `task_comment_deleted`, `task_attachment_created`, `task_attachment_deleted`,
   `comment_created`
@@ -217,6 +219,10 @@ adding it to that frozen set. Events with no webhook counterpart are marked
 | `sprint_deleted` | **WS-only** |
 | `sprint_scope_changed` | **WS-only** |
 | `sprint_retro_updated` | **WS-only** |
+| `retro_item_created` | **WS-only** |
+| `retro_item_updated` | **WS-only** |
+| `retro_item_moved` | **WS-only** |
+| `retro_item_deleted` | **WS-only** |
 | `demo_reordered` | **WS-only** |
 | `demo_presenter_set` | **WS-only** |
 | `review_note_set` | **WS-only** |

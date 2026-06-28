@@ -688,15 +688,20 @@ class MonteCarloHistoryView(APIView):
 
 @extend_schema(
     parameters=[
+        # Day-grained window, declared as `date` to match the burn-series
+        # contract (#1378) — the new 0.3 computed analytics endpoints expose
+        # since/until with one consistent type. The runtime stays lenient: a
+        # bare ISO date is the documented format, and a full ISO datetime is
+        # still accepted as a backward-compatible superset (see _parse_bound).
         OpenApiParameter(
             "since",
-            OpenApiTypes.DATETIME,
-            description="Only snapshots captured at or after this ISO datetime (or date).",
+            OpenApiTypes.DATE,
+            description="Only snapshots captured at or after this ISO 8601 date (YYYY-MM-DD).",
         ),
         OpenApiParameter(
             "until",
-            OpenApiTypes.DATETIME,
-            description="Only snapshots captured at or before this ISO datetime (or date).",
+            OpenApiTypes.DATE,
+            description="Only snapshots captured at or before this ISO 8601 date (YYYY-MM-DD).",
         ),
     ],
     responses={200: ProjectForecastSnapshotSerializer(many=True)},
@@ -708,7 +713,8 @@ class ForecastSnapshotListView(ListAPIView[ProjectForecastSnapshot]):
     persisted record of how the CPM finish and Monte Carlo percentiles drifted
     over time. Read-only — rows are server-generated on recompute and by the daily
     floor; there is no write surface. ``?since=``/``?until=`` bound the window by
-    ``captured_at`` (ISO datetime, or a bare date interpreted as midnight UTC).
+    ``captured_at`` (ISO 8601 date YYYY-MM-DD, the documented format; a full ISO
+    datetime is also accepted and interpreted literally, a bare date as midnight UTC).
 
     Permission: Member (any role ≥ Viewer), the project-read gate — consistent
     with the Monte Carlo history read.
@@ -735,16 +741,26 @@ class ForecastSnapshotListView(ListAPIView[ProjectForecastSnapshot]):
 
     @staticmethod
     def _parse_bound(raw: str | None) -> Any:
-        """Parse an ISO datetime, falling back to a bare date (midnight UTC)."""
+        """Parse an ISO date (documented) or full datetime to a timezone-aware bound.
+
+        A bare ``YYYY-MM-DD`` is the documented since/until format (#1378),
+        interpreted as midnight in the default timezone; a full ISO datetime is
+        still accepted. ``parse_datetime`` parses a date-only string into a *naive*
+        midnight, so any naive result is made aware here — otherwise the bound
+        would be compared naive against the aware ``captured_at`` column (a Django
+        RuntimeWarning and a silent offset bug).
+        """
         if not raw:
             return None
         dt = parse_datetime(raw)
-        if dt is not None:
-            return dt
-        d = parse_date(raw)
-        if d is None:
-            return None
-        return timezone.make_aware(_datetime(d.year, d.month, d.day))
+        if dt is None:
+            d = parse_date(raw)
+            if d is None:
+                return None
+            dt = _datetime(d.year, d.month, d.day)
+        if timezone.is_naive(dt):
+            dt = timezone.make_aware(dt)
+        return dt
 
 
 class FailedTaskPagination(PageNumberPagination):

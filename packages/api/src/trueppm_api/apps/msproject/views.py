@@ -418,6 +418,19 @@ class MsProjectExportView(APIView):
     # _check_project_member below stays as defense-in-depth.
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
+    @extend_schema(
+        summary="Export the project schedule as MS Project XML",
+        # The response is an XML file attachment, not JSON. drf-spectacular emits
+        # an empty `content` for the 200 unless the media type is declared via a
+        # (status, media_type) response key, leaving codegen/MCP with no media
+        # type to bind (#1381).
+        responses={
+            (200, "application/xml"): OpenApiResponse(
+                response=OpenApiTypes.BINARY,
+                description="MS Project XML document as a file attachment.",
+            )
+        },
+    )
     def get(self, request: Request, project_pk: str) -> Response:
         _check_project_member(request.user, project_pk)
 
