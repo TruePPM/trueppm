@@ -140,5 +140,20 @@ git commit -m "feat(scheduler): <description>"
 # create changelog fragment: changelog.d/<issue>.<type>.md
 ```
 
+### Release notes for library consumers
+
+The `changelog.d/` fragment above feeds the **suite-wide** root `CHANGELOG.md`.
+A change that is visible to PyPI consumers of `trueppm-scheduler` (public API,
+engine behavior, CLI, validation, security) must **also** get an entry under
+`## [Unreleased]` in this package's own [`CHANGELOG.md`](./CHANGELOG.md) — that
+file is force-included into the wheel, so it is the changelog people see on
+PyPI. Add a bullet under the matching `### Added / Changed / Fixed / Security`
+heading; pure-internal refactors with no consumer-visible effect don't need one.
+
+At release time `scripts/release.sh` rotates `[Unreleased]` into a dated
+`## [<version>]` section automatically (and `scheduler:publish` refuses to
+publish a tag whose version has no section), so the only manual step is writing
+the bullet during the cycle.
+
 All scheduler MRs require a green `scheduler:lint`, `scheduler:type-check`,
 `scheduler:test`, and `scheduler:bench` pipeline.
