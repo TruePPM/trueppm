@@ -1,0 +1,66 @@
+TruePPM — Third-Party Notices
+=============================
+
+TruePPM's own source code is licensed under the Apache License 2.0 (see the
+LICENSE file at the repository root). This NOTICES file records the third-party
+components that TruePPM *redistributes* and whose licenses require a notice to
+travel with every distributed copy. For the component below (psycopg) the
+redistribution vehicles are the API Docker image — which carries this file and
+the `licenses/` texts under `/app` (see `packages/api/Dockerfile`) — the Helm
+bundles that deploy that image, and the source distribution (this repository).
+It applies to **every distributed edition** — the Apache-2.0 Community Edition
+and the proprietary, installable Enterprise edition alike, both of which
+redistribute the component below transitively.
+
+The complete, authoritative dependency set is whatever the CI license jobs
+verify on each build (see docs: "License & Third-Party Attribution"). This file
+covers only the components carrying a notice/relink obligation; permissively
+licensed dependencies (MIT, BSD, Apache-2.0, ISC, …) are attributed there, not
+here.
+
+
+psycopg — PostgreSQL database adapter for Python
+------------------------------------------------
+
+  Component:   psycopg (v3), including its implementation packages
+               psycopg-c (production image) and psycopg-binary (local dev).
+  Version:     >= 3.1, < 4.0
+  License:     GNU Lesser General Public License v3.0 only (SPDX: LGPL-3.0-only)
+  Upstream:    https://www.psycopg.org/  ·  https://github.com/psycopg/psycopg
+  License text: licenses/LGPL-3.0.txt (LGPL-3.0 incorporates the terms of the
+               GNU GPL v3.0, included as licenses/GPL-3.0.txt).
+
+  Why it is included, and the obligations we satisfy:
+
+  psycopg is LGPL-3.0 — the one copyleft dependency in the tree, permitted
+  deliberately. It is *dynamically imported* by an application (TruePPM is not a
+  library that statically incorporates it), so under the LGPL's library-linking
+  terms it does not affect the license of TruePPM's own code, and it is
+  compatible with both the Apache-2.0 Community Edition and the proprietary
+  Enterprise edition. We do not modify psycopg's source.
+
+  LGPL-3.0 §4 (combined works) requires that recipients be able to relink or
+  replace the covered library. TruePPM satisfies this **by construction**:
+
+    * psycopg is installed from PyPI as a normal, replaceable wheel in
+      site-packages — never frozen into a single-file binary or statically
+      linked into a blob. An operator can `pip install` a different psycopg
+      build (including in vendored or air-gapped deployments) without rebuilding
+      TruePPM.
+    * The production Docker image installs the `psycopg[c]` implementation,
+      which dynamically links the C extension against the **system** libpq
+      (libpq5) rather than bundling its own. This is a security-posture choice,
+      not an additional §4 lever: OS-level libpq/OpenSSL upgrades to the base
+      image flow through to the driver. The §4 relink guarantee above is over
+      psycopg itself and is satisfied identically by either implementation —
+      both `[c]` and `[binary]` are replaceable site-packages wheels — while
+      libpq is permissively licensed (PostgreSQL License) and carries no
+      copyleft relink obligation. (Local development uses the precompiled
+      `psycopg[binary]` wheel for convenience; it bundles its own libpq and is
+      not used in production.)
+
+  Operator note: if you build a deliberately *frozen* or *vendored* derivative
+  that embeds psycopg as a static/single-file artifact, the §4 relink obligation
+  becomes yours to satisfy — keep psycopg a replaceable component, or ship the
+  object code/relink materials with your derivative. The stock TruePPM images do
+  not do this, so no extra step is required for them.

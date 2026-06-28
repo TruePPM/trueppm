@@ -38,12 +38,17 @@ dependencies = [
     "celery>=5.6,<6.0",
     # Floor tracks the installed major (7.x); 5.x/6.x span unsupported majors.
     "redis>=7.0,<8.0",
-    # LGPL-3.0: dynamically-imported runtime dep in an application (not a
-    # library) — Apache 2.0 compatibility per CLAUDE.md §Licenses. Note the
-    # frozen-deployment implication: redistributing a bundled binary obliges
-    # offering the psycopg source (it is pip-installed, not vendored, so this
-    # is satisfied by default).
-    "psycopg[binary]>=3.1,<4.0",
+    # PostgreSQL driver. LGPL-3.0-only: a dynamically-imported runtime dep in an
+    # application (not a library) — Apache 2.0 compatible per CLAUDE.md §Licenses
+    # and the LICENSE/NOTICES files. The *implementation* (precompiled wheel vs.
+    # C extension linked to the system libpq) is chosen per environment via the
+    # `c` / `binary` extras below, NOT pinned here — the base requirement is the
+    # pure-Python core so a bare install never forces a compiler. Production
+    # installs `[c]` (links the system libpq so OS security upgrades reach the
+    # driver); local dev installs `[binary]` (precompiled wheel, no compiler or
+    # system libpq needed). The LGPL §4 relink obligation is over psycopg itself
+    # and is met by either extra — both are replaceable wheels. See NOTICES.
+    "psycopg>=3.1,<4.0",
     "django-environ>=0.11,<1.0",
     "django-simple-history>=3.7,<4.0",
     "drf-spectacular>=0.27,<1.0",
@@ -53,11 +58,25 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Production psycopg implementation: compile the C speedups against the *system*
+# libpq (the API Docker image installs libpq-dev at build, libpq5 at runtime) so
+# OS-level libpq/OpenSSL security upgrades flow through to the driver — the
+# psycopg authors' recommended production posture. This is a security choice, not
+# an LGPL lever: the §4 relink obligation is over psycopg (a replaceable wheel
+# under either extra), while libpq is permissively licensed. The Dockerfile
+# installs the api package as `[c]`.
+c = ["psycopg[c]>=3.1,<4.0"]
+# Local-dev / quick-start psycopg implementation: a precompiled wheel that
+# bundles its own libpq — no compiler or system libpq needed. NOT for production:
+# the bundled libpq does not receive OS security updates. The `dev` extra pulls
+# this so a plain `pip install -e .[dev]` works on any laptop.
+binary = ["psycopg[binary]>=3.1,<4.0"]
 # Dev/toolchain deps are capped on the next major too — an unpinned `ruff` or
 # `mypy` that drifts a major between a local run and CI produces format/type
 # failures that only surface in the pipeline. (Exact-version reproducibility is
 # a lockfile concern, tracked separately; these caps are the cheap floor.)
 dev = [
+    "psycopg[binary]>=3.1,<4.0",
     "pytest>=8.0,<10.0",
     "pytest-django>=4.8,<5.0",
     "pytest-asyncio>=0.23,<2.0",
