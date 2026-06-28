@@ -52,8 +52,6 @@ An inline **milestone picker** lets the team bind or change the advancing milest
 
 A read-only sidebar lists the unfinished tasks from the **previous closed sprint** that rolled forward into this planned sprint, with the points each carried. It answers "what came in before we even started planning?" so the team plans on top of the real remaining commitment rather than a clean slate. It is backed by the `incoming_carryover` endpoint (see [API endpoints](#api-endpoints)).
 
-> _Screenshot of the unified planning surface (backlog · capacity gauge · carryover · bridge banner) to be added once 0.3 ships._
-
 ## Where to find it in the app
 
 - Route: `/projects/:projectId/sprints`
