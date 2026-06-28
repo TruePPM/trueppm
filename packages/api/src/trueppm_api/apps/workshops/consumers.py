@@ -11,6 +11,7 @@ from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from django.conf import settings
 
 from trueppm_api.apps.access.models import Role
+from trueppm_api.apps.sync.broadcast import WS_PROTOCOL_VERSION
 from trueppm_api.apps.sync.ws_auth import authenticate_scope, warn_if_legacy
 
 logger = logging.getLogger(__name__)
@@ -224,10 +225,21 @@ class WorkshopConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
         return await _check()  # type: ignore[no-any-return]
 
     async def workshop_event(self, event: dict[str, Any]) -> None:
-        """Handle channel layer messages of type 'workshop.event'."""
+        """Handle channel layer messages of type 'workshop.event'.
+
+        Stamps ``protocol_version`` onto every outgoing workshop frame here — the
+        single chokepoint for both shapes this channel carries: relayed client
+        frames (``receive_json`` → flat ``{type, user_id, …}``) and server-pushed
+        events (``broadcast_workshop_event`` → ``{event_type, payload}``). The
+        workshop channel was previously unversioned and dual-shaped; sharing
+        ``sync.broadcast.WS_PROTOCOL_VERSION`` means a client can branch on the
+        same wire version it reads off ``board.event`` (#1355, #1325). A copy is
+        sent so the shared channel-layer ``event`` dict is never mutated.
+        """
         if event.get("sender") == self.channel_name:
             return
-        await self.send_json(event["content"])
+        content = {**event["content"], "protocol_version": WS_PROTOCOL_VERSION}
+        await self.send_json(content)
 
     async def connection_evict(self, event: dict[str, Any]) -> None:
         """Close this workshop socket if the user's project access was revoked (#813).

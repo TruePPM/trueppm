@@ -43,8 +43,9 @@ describe('useWorkspaceGroups — snake→camel mapping', () => {
   });
 
   it('maps member_count → memberCount and lead_user_id → leadUserId', async () => {
+    // /workspace/groups/ returns the standard page-number envelope (#1355).
     getMock.mockResolvedValueOnce({
-      data: [RAW_GROUP],
+      data: { results: [RAW_GROUP], next: null },
     });
 
     const { result } = renderHook(() => useWorkspaceGroups(), {
@@ -63,7 +64,7 @@ describe('useWorkspaceGroups — snake→camel mapping', () => {
 
   it('calls GET /workspace/groups/', async () => {
     getMock.mockResolvedValueOnce({
-      data: [RAW_GROUP],
+      data: { results: [RAW_GROUP], next: null },
     });
 
     const { result } = renderHook(() => useWorkspaceGroups(), {
@@ -72,6 +73,7 @@ describe('useWorkspaceGroups — snake→camel mapping', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(getMock).toHaveBeenCalledWith('/workspace/groups/');
+    // fetchAllPages passes a params config on the first page (#1355).
+    expect(getMock).toHaveBeenCalledWith('/workspace/groups/', { params: undefined });
   });
 });

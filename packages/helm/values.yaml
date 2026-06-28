@@ -90,8 +90,9 @@ env:
   # Public origin the web app is served from, e.g. "https://trueppm.example.com".
   # Used to build absolute task deep-links in notification emails (ADR-0143, #1158).
   # Leave empty to omit the link line (emails still carry blocker type/age/actor).
-  # No trailing slash, no path.
-  FRONTEND_BASE_URL: ""
+  # No trailing slash, no path. Standardized on the TRUEPPM_ prefix pre-0.3
+  # (#1355); the legacy bare FRONTEND_BASE_URL still works as a fallback.
+  TRUEPPM_FRONTEND_BASE_URL: ""
   # DATABASE_URL and REDIS_URL are NOT set here. The chart builds them
   # server-side from the generated credentials and injects them via
   # secretKeyRef against the chart-owned connection Secret, so no password is

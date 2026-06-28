@@ -98,7 +98,10 @@ def test_list_and_revoke(admin: object) -> None:
         workspace=Workspace.load(), email="p@x.io", role=WorkspaceRole.MEMBER, invited_by=admin
     )
     listed = _client(admin).get(LIST_URL)
-    assert any(r["id"] == str(invite.pk) for r in listed.data)
+    # /workspace/invites/ now returns the page-number envelope (#1355); freeze the
+    # contract shape so a regression to a bare array is caught here.
+    assert set(listed.data) >= {"count", "next", "previous", "results"}
+    assert any(r["id"] == str(invite.pk) for r in listed.data["results"])
     resp = _client(admin).delete(f"{LIST_URL}{invite.pk}/")
     assert resp.status_code == 204
     invite.refresh_from_db()

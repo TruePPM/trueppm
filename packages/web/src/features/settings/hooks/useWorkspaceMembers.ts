@@ -1,5 +1,4 @@
 import { useQuery } from '@tanstack/react-query';
-import { apiClient } from '@/api/client';
 import { fetchAllPages } from '@/api/pagination';
 import type { WorkspaceMember, WorkspaceInvite, PendingInvite } from '@/api/types';
 
@@ -97,8 +96,9 @@ export function useWorkspaceMembers() {
   const invitesQuery = useQuery({
     queryKey: ['workspace-invites'],
     queryFn: async () => {
-      const res = await apiClient.get<WorkspaceInviteRaw[]>('/workspace/invites/');
-      return res.data;
+      // /workspace/invites/ now returns the standard page-number envelope (issue 1355);
+      // page through it like every other list endpoint.
+      return fetchAllPages<WorkspaceInviteRaw>('/workspace/invites/');
     },
   });
 

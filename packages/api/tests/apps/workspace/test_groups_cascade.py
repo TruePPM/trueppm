@@ -62,7 +62,8 @@ def _make_group(admin: object, name: str = "Propulsion") -> str:
 def test_create_and_list_group(admin: object) -> None:
     gid = _make_group(admin, "Avionics")
     listed = _client(admin).get(GROUPS_URL)
-    assert any(g["id"] == gid and g["name"] == "Avionics" for g in listed.data)
+    # /workspace/groups/ now returns the page-number envelope (#1355).
+    assert any(g["id"] == gid and g["name"] == "Avionics" for g in listed.data["results"])
 
 
 @pytest.mark.django_db

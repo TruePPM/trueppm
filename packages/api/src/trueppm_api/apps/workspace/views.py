@@ -21,7 +21,7 @@ from django.utils.dateparse import parse_date, parse_datetime
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied, ValidationError
-from rest_framework.pagination import CursorPagination
+from rest_framework.pagination import CursorPagination, PageNumberPagination
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
@@ -552,15 +552,24 @@ class WorkspaceInviteListView(IdempotencyMixin, APIView):
     """GET/POST /api/v1/workspace/invites/ (#518). Admin only."""
 
     permission_classes = [IsAuthenticated, IsWorkspaceAdmin]
+    # Standard page-number envelope so this bounded admin list returns the same
+    # {count,next,previous,results} shape as every other list endpoint — an
+    # integrator can't tell paginated from unpaginated when one list returns a
+    # bare array (#1355). Set as an attribute (not just instantiated below) so
+    # drf-spectacular documents the envelope in the OpenAPI schema too.
+    pagination_class = PageNumberPagination
 
     @extend_schema(responses={200: WorkspaceInviteSerializer(many=True)})
     def get(self, request: Request) -> Response:
         invites = WorkspaceInvite.objects.filter(status=InviteStatus.PENDING).select_related(
             "invited_by"
         )
-        return Response(
-            WorkspaceInviteSerializer([_invite_dict(i) for i in invites], many=True).data
-        )
+        # Paginate the queryset first, then build dicts only for the page.
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(invites, request, view=self)
+        rows = [_invite_dict(i) for i in (page if page is not None else invites)]
+        data = WorkspaceInviteSerializer(rows, many=True).data
+        return paginator.get_paginated_response(data)
 
     @extend_schema(
         request=WorkspaceInviteCreateSerializer, responses={201: WorkspaceInviteSerializer}
@@ -814,11 +823,20 @@ class GroupListView(IdempotencyMixin, APIView):
     """GET/POST /api/v1/workspace/groups/ (#519). Read and create: admin only."""
 
     permission_classes = [IsAuthenticated, IsWorkspaceAdmin]
+    # Standard page-number envelope so this admin list matches every other list
+    # endpoint's {count,next,previous,results} shape (#1355).
+    pagination_class = PageNumberPagination
 
     @extend_schema(responses={200: GroupSerializer(many=True)})
     def get(self, request: Request) -> Response:
-        groups = list(Group.objects.filter(is_deleted=False).select_related("lead"))
-        return Response(GroupSerializer(_build_group_dicts(groups), many=True).data)
+        groups = Group.objects.filter(is_deleted=False).select_related("lead")
+        # Paginate the queryset first, then build dicts only for the page —
+        # _build_group_dicts fans out into membership/project lookups.
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(groups, request, view=self)
+        rows = _build_group_dicts(list(page) if page is not None else list(groups))
+        data = GroupSerializer(rows, many=True).data
+        return paginator.get_paginated_response(data)
 
     @extend_schema(request=GroupWriteSerializer, responses={201: GroupSerializer})
     def post(self, request: Request) -> Response:
@@ -984,11 +1002,19 @@ class WorkspaceExportView(IdempotencyMixin, APIView):
     """GET lists recent export jobs; POST queues a new full export (#641). Owner only."""
 
     permission_classes = [IsAuthenticated, IsWorkspaceOwner]
+    # Standard page-number envelope so the job list matches every other list
+    # endpoint's {count,next,previous,results} shape — the previous bare ``[:20]``
+    # slice gave an integrator no way to tell a truncated list from a complete one
+    # (#1355). Bounded in practice by the export-retention purge.
+    pagination_class = PageNumberPagination
 
     @extend_schema(responses={200: WorkspaceExportJobSerializer(many=True)})
     def get(self, request: Request) -> Response:
-        jobs = WorkspaceExportJob.objects.all()[:20]
-        return Response(WorkspaceExportJobSerializer(jobs, many=True).data)
+        jobs = WorkspaceExportJob.objects.all()
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(jobs, request, view=self)
+        data = WorkspaceExportJobSerializer(page if page is not None else jobs, many=True).data
+        return paginator.get_paginated_response(data)
 
     @extend_schema(request=None, responses={202: WorkspaceExportJobSerializer})
     def post(self, request: Request) -> Response:

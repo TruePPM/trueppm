@@ -160,7 +160,15 @@ CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=[])
 # API otherwise has no notion of where the frontend lives. Empty by default
 # (zero-config): when unset, email bodies render without a link rather than emit a
 # broken relative URL. Trailing slash is stripped at use; do not include a path.
-FRONTEND_BASE_URL = env("FRONTEND_BASE_URL", default="")
+# Env var standardized on the TRUEPPM_ prefix pre-0.3 (#1325, #1355); the legacy
+# bare name remains a fallback so existing deploys keep working. ``or`` (not a
+# nested default) so an *empty* TRUEPPM_ value — e.g. the chart's documented
+# ``TRUEPPM_FRONTEND_BASE_URL: ""`` default — falls through to a legacy override
+# rather than shadowing it. Empty means "no deep-links", so the fallthrough is
+# also semantically correct.
+FRONTEND_BASE_URL = env("TRUEPPM_FRONTEND_BASE_URL", default="") or env(
+    "FRONTEND_BASE_URL", default=""
+)
 
 # ---------------------------------------------------------------------------
 # Cache / Channels / Celery  (all backed by Redis)
@@ -409,11 +417,26 @@ SIMPLE_JWT = {
 # SameSite=Strict is safe here: the refresh request is a same-origin XHR from the
 # SPA, which Strict permits, while it blocks the cookie on any cross-site request
 # — the CSRF mitigation for this path (see core/auth_views.py).
-AUTH_REFRESH_COOKIE_NAME = env("AUTH_REFRESH_COOKIE_NAME", default="trueppm_refresh")
-AUTH_REFRESH_COOKIE_PATH = env("AUTH_REFRESH_COOKIE_PATH", default="/api/v1/auth/token/refresh/")
-AUTH_REFRESH_COOKIE_SAMESITE = env("AUTH_REFRESH_COOKIE_SAMESITE", default="Strict")
+#
+# Env vars standardized on the TRUEPPM_ prefix pre-0.3 (#1325, #1355); the legacy
+# bare names remain fallbacks so existing deploys keep working.
+AUTH_REFRESH_COOKIE_NAME = env(
+    "TRUEPPM_AUTH_REFRESH_COOKIE_NAME",
+    default=env("AUTH_REFRESH_COOKIE_NAME", default="trueppm_refresh"),
+)
+AUTH_REFRESH_COOKIE_PATH = env(
+    "TRUEPPM_AUTH_REFRESH_COOKIE_PATH",
+    default=env("AUTH_REFRESH_COOKIE_PATH", default="/api/v1/auth/token/refresh/"),
+)
+AUTH_REFRESH_COOKIE_SAMESITE = env(
+    "TRUEPPM_AUTH_REFRESH_COOKIE_SAMESITE",
+    default=env("AUTH_REFRESH_COOKIE_SAMESITE", default="Strict"),
+)
 # Default Secure=True; dev settings flip this to False for plain-HTTP localhost.
-AUTH_REFRESH_COOKIE_SECURE = env.bool("AUTH_REFRESH_COOKIE_SECURE", default=True)
+AUTH_REFRESH_COOKIE_SECURE = env.bool(
+    "TRUEPPM_AUTH_REFRESH_COOKIE_SECURE",
+    default=env.bool("AUTH_REFRESH_COOKIE_SECURE", default=True),
+)
 
 # ---------------------------------------------------------------------------
 # Content-Security-Policy (#897)

@@ -26,7 +26,19 @@ from trueppm_scheduler.models import (
 # ---------------------------------------------------------------------------
 
 
-class CyclicDependencyError(ValueError):
+class SchedulerError(ValueError):
+    """Common base class for every exception the scheduler engine raises.
+
+    Subclasses :class:`ValueError` so existing ``except ValueError`` callers keep
+    working, while giving consumers of the public ``trueppm-scheduler`` package a
+    single type to catch (``except SchedulerError``) for any scheduler-originated
+    failure. Introduced ahead of the 1.0 public-surface freeze: interposing a
+    common base is backward compatible to add now (the concrete exceptions remain
+    :class:`ValueError` subclasses) but would be a breaking change to add later.
+    """
+
+
+class CyclicDependencyError(SchedulerError):
     """Raised when the dependency graph contains a cycle.
 
     The offending cycle is provided so callers can surface it to users
@@ -39,7 +51,7 @@ class CyclicDependencyError(ValueError):
         super().__init__(f"Cyclic dependency detected: {ids}")
 
 
-class SimulationCapExceeded(ValueError):
+class SimulationCapExceeded(SchedulerError):
     """Raised when n_simulations or task count exceeds the configured cap.
 
     The message is user-facing and suitable for inclusion in an API response
@@ -47,16 +59,16 @@ class SimulationCapExceeded(ValueError):
     """
 
 
-class InvalidScheduleInput(ValueError):
+class InvalidScheduleInput(SchedulerError):
     """Raised when a project's input is structurally valid but out of range.
 
     Covers the degenerate inputs that would otherwise drive the day-by-day
     calendar walk into a multi-million-iteration spin and an uncaught
     ``OverflowError`` (a calendar with no working day, an absurd duration or
-    lag), plus malformed ``children_map`` cycles. Subclasses :class:`ValueError`
-    so existing ``except ValueError`` callers keep working; raised eagerly at
-    the public entry points so a single hostile project can never tie up a
-    worker. The message is user-facing.
+    lag), plus malformed ``children_map`` cycles. Subclasses :class:`SchedulerError`
+    (and thus :class:`ValueError`) so existing ``except ValueError`` callers keep
+    working; raised eagerly at the public entry points so a single hostile project
+    can never tie up a worker. The message is user-facing.
     """
 
 
@@ -1534,7 +1546,7 @@ def schedule(project: Project) -> ScheduleResult:
         ValueError: If a dependency references an unknown task ID.
     """
     if not project.tasks:
-        raise ValueError("Project must have at least one task.")
+        raise InvalidScheduleInput("Project must have at least one task.")
     _validate_project(project)
 
     g = _build_graph(project)
@@ -1872,12 +1884,12 @@ def monte_carlo(
         SimulationCapExceeded: If ``runs`` exceeds ``max_runs`` or the project
             has more tasks than ``max_tasks``.
         CyclicDependencyError: If the dependency graph contains a cycle.
-        InvalidScheduleInput: If the calendar has no working day, or a duration
-            or lag is negative/out of range.
-        ValueError: If the project has no tasks or ``runs`` is less than 1.
+        InvalidScheduleInput: If the calendar has no working day, a duration
+            or lag is negative/out of range, the project has no tasks, or
+            ``runs`` is less than 1.
     """
     if runs < 1:
-        raise ValueError(f"runs must be a positive integer (got {runs}).")
+        raise InvalidScheduleInput(f"runs must be a positive integer (got {runs}).")
     if max_tasks is not None and len(project.tasks) > max_tasks:
         raise SimulationCapExceeded(
             f"Project task count ({len(project.tasks)}) exceeds the configured "
@@ -1891,7 +1903,7 @@ def monte_carlo(
             "cap) to allow more iterations."
         )
     if not project.tasks:
-        raise ValueError("Project must have at least one task.")
+        raise InvalidScheduleInput("Project must have at least one task.")
     _validate_project(project)
 
     g = _build_graph(project)

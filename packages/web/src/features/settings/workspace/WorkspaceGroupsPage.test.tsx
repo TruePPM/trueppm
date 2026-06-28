@@ -63,8 +63,10 @@ function makeWrapper() {
 
 function setupMocks() {
   getMock.mockImplementation((url: string) => {
-    if (url.includes('/workspace/groups/')) return Promise.resolve({ data: GROUPS });
-    return Promise.resolve({ data: [] });
+    // /workspace/groups/ returns the standard page-number envelope (#1355).
+    if (url.includes('/workspace/groups/'))
+      return Promise.resolve({ data: { results: GROUPS, next: null } });
+    return Promise.resolve({ data: { results: [], next: null } });
   });
 }
 
