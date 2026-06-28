@@ -79,7 +79,7 @@ demo instead:
 docker compose exec api python manage.py seed_demo_project --with-personas
 ```
 
-Creates a "Platform Migration" project with eight closed sprints, an active sprint, baselines, resources, a retro, and six persona logins (all password `demo`). The bundled samples can also be loaded from the CLI with `load_sample_project --sample atlas-platform-launch` (see [management commands](/administration/management-commands/)).
+Creates a "Platform Migration" project with eight closed sprints, an active sprint, baselines, resources, a retro, and six persona logins. The persona password is `demo` only when the API runs with `DEBUG=True`; on a production install (`DEBUG=False`) the command prints a one-time random password at the end of its output unless you set `TRUEPPM_DEMO_PASSWORD` — see [`seed_demo_project`](/administration/management-commands/#seed_demo_project). The bundled samples can also be loaded from the CLI with `load_sample_project --sample atlas-platform-launch` (see [management commands](/administration/management-commands/)).
 
 ### Verify
 

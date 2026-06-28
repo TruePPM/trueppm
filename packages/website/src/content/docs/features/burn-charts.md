@@ -9,7 +9,7 @@ Portfolio-level burn charts (aggregated across projects) are an Enterprise featu
 
 ## Where this lives in the story
 
-Step 7 ([Reporting and confidence](/the-story/#7-report--executive-confidence)) of the [hybrid PM flow](/the-story/). Carlos checks this tab to answer "are we still on track?" before his weekly executive update; Maya uses it between sprints to spot scope drift that the sprint burndown doesn't show.
+Step 7 ([Forecast and confidence](/the-story/#7-forecast--monte-carlo-across-both-worlds)) of the [hybrid PM flow](/the-story/). Carlos checks this tab to answer "are we still on track?" before his weekly executive update; Maya uses it between sprints to spot scope drift that the sprint burndown doesn't show.
 
 ## Chart variants
 

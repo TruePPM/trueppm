@@ -229,6 +229,7 @@ export default defineConfig({
           items: [
             { slug: "architecture/overview" },
             { slug: "architecture/decisions" },
+            { slug: "architecture/websocket-events" },
             { slug: "architecture/seed-data-schema" },
           ],
         },

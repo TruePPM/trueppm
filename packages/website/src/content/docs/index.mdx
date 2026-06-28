@@ -50,6 +50,8 @@ docker compose exec api python manage.py seed_demo_project --with-personas
 # API    → http://localhost:8000/api/schema/swagger-ui/
 ```
 
+The persona password is `demo` because the local Docker stack runs with `DEBUG=True`; on a non-dev install the seed prints a one-time random password unless you set `TRUEPPM_DEMO_PASSWORD`. See [`seed_demo_project`](/administration/management-commands/#seed_demo_project).
+
 Or use the scheduling engine standalone — no server required:
 
 ```bash
