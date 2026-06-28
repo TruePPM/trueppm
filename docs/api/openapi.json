@@ -3540,7 +3540,15 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Per-resource task spans aggregated across every member project of the program, each tagged with its source project, so a caller can surface people over-allocated across sibling projects in overlapping windows. Overallocation detection stays client-side per ADR-0031."
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "{program_id, window_start, window_end, resources}. Each resource is {id, name, email, max_units, tasks[]} and each task span is {assignment_id, id, name, project_id, project_name, early_start, early_finish, units, status} — aggregated across every member project of the program and tagged with its source project, so a caller can surface people over-allocated across sibling projects in overlapping windows. Overallocation detection stays client-side per ADR-0031."
                     },
                     "400": {
                         "description": "Malformed `start`/`end` date, or `start` is after `end`."
@@ -3682,7 +3690,15 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Computed rollup: program health dot, active aggregation policy, contributing project count, and a per-KPI value map."
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Program rollup computed on read (ADR-0088): aggregation_policy, policy_available (whether that policy could be honored), project_count (contributing projects), program_health (the program health dot), and kpis — a per-KPI map where an available KPI is {available: true, value, unit?} and a deferred KPI is {available: false, reason}."
                     }
                 }
             }
@@ -7675,6 +7691,7 @@
             "get": {
                 "operationId": "v1_projects_monte_carlo_latest_retrieve",
                 "description": "Return the latest cached Monte Carlo result for the project.\n\nFalls back to the most recent persisted ``MonteCarloRun`` when the 24-hour\ncache has expired (ADR-0175): the latest forecast now survives past the\nTTL. As of #1231 the run also persists its distribution, so when present the\nfallback returns the real ``histogram_buckets``/``confidence_curve``/\n``sensitivity`` instead of empty arrays — the histogram survives cache\nexpiry. Legacy runs (no persisted distribution) still fall back to empty,\nand the frontend renders the empty-state prose for them.",
+                "summary": "Latest cached Monte Carlo forecast for the project",
                 "parameters": [
                     {
                         "in": "path",
@@ -7698,7 +7715,26 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "The most recent Monte Carlo result for the project. Keys: p50/p80/p95 (ISO-8601 finish dates), cpm_finish, delta_vs_cpm ({p50, p80, p95} calendar-day deltas vs the CPM finish), runs (n_simulations), confidence_curve, histogram_buckets, sensitivity, last_run_at, and from_history (true when served from a persisted run after the 24h cache TTL expired). Legacy runs with no stored distribution return empty confidence_curve/histogram_buckets/sensitivity arrays."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "No simulation result available for this project ({detail})."
                     }
                 }
             }

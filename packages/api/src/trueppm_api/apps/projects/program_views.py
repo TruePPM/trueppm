@@ -335,12 +335,16 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
         ],
         responses={
             200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
                 description=(
-                    "Per-resource task spans aggregated across every member project of the "
-                    "program, each tagged with its source project, so a caller can surface "
-                    "people over-allocated across sibling projects in overlapping windows. "
-                    "Overallocation detection stays client-side per ADR-0031."
-                )
+                    "{program_id, window_start, window_end, resources}. Each resource is "
+                    "{id, name, email, max_units, tasks[]} and each task span is "
+                    "{assignment_id, id, name, project_id, project_name, early_start, "
+                    "early_finish, units, status} — aggregated across every member project "
+                    "of the program and tagged with its source project, so a caller can "
+                    "surface people over-allocated across sibling projects in overlapping "
+                    "windows. Overallocation detection stays client-side per ADR-0031."
+                ),
             ),
             400: OpenApiResponse(
                 description="Malformed `start`/`end` date, or `start` is after `end`."
@@ -981,10 +985,15 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
         summary="Compute the program KPI rollup across its projects",
         responses={
             200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
                 description=(
-                    "Computed rollup: program health dot, active aggregation "
-                    "policy, contributing project count, and a per-KPI value map."
-                )
+                    "Program rollup computed on read (ADR-0088): aggregation_policy, "
+                    "policy_available (whether that policy could be honored), project_count "
+                    "(contributing projects), program_health (the program health dot), and "
+                    "kpis — a per-KPI map where an available KPI is "
+                    "{available: true, value, unit?} and a deferred KPI is "
+                    "{available: false, reason}."
+                ),
             )
         },
     )
