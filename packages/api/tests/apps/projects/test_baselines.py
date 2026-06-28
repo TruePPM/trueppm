@@ -495,6 +495,32 @@ class TestBaselineIsActiveReadOnly:
         assert r.status_code == 200
         assert r.data["is_active"] is True
 
+    def test_detail_route_exposes_no_update_verb(
+        self,
+        client: APIClient,
+        project: Project,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """A PATCH that tries to flip is_active is rejected with 405, untouched.
+
+        is_active being serializer-read-only is the inner guard, but the stronger
+        guarantee is the router map itself: the detail route is wired
+        ``{"get": "retrieve", "delete": "destroy"}`` with no update action, so a
+        PATCH never reaches serialization — it 405s and the baseline is unchanged.
+        This locks the map so a later edit can't silently add partial_update and
+        reopen the #1349 activation bypass.
+        """
+        b = Baseline.objects.create(project=project, name="B1", is_active=False)
+        with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"):
+            r = client.patch(
+                f"/api/v1/projects/{project.pk}/baselines/{b.pk}/",
+                {"is_active": True},
+                format="json",
+            )
+        assert r.status_code == 405
+        b.refresh_from_db()
+        assert b.is_active is False
+
 
 # ---------------------------------------------------------------------------
 # API: task list with baseline overlay

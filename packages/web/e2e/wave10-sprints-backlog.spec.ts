@@ -56,6 +56,34 @@ const ACTIVE_SPRINT = {
   updated_at: '2026-04-04T12:00:00Z',
 };
 
+// A PLANNED sprint with no active sibling, so SprintsView's default selection
+// (active ?? planned ?? closed) lands on it and renders the planned unified
+// surface — the only place the #1347 "Pull from backlog" handoff is offered.
+const PLANNED_SPRINT = {
+  id: 'sp-planned',
+  server_version: 1,
+  short_id: 'D00D',
+  short_id_display: 'SP-D00D',
+  name: 'Next iteration planning',
+  goal: '',
+  start_date: '2026-04-15',
+  finish_date: '2026-04-28',
+  state: 'PLANNED',
+  target_milestone: null,
+  target_milestone_detail: null,
+  capacity_points: null,
+  committed_points: 0,
+  committed_task_count: 0,
+  completed_points: 0,
+  completed_task_count: 0,
+  completion_ratio_points: 0,
+  completion_ratio_tasks: 0,
+  activated_at: null,
+  closed_at: null,
+  created_at: '2026-04-10T00:00:00Z',
+  updated_at: '2026-04-10T00:00:00Z',
+};
+
 const BACKLOG_TASKS = [
   { id: 'task-1', short_id: 'A1', name: 'Calibrate sensors', wbs_path: '1.1', status: 'IN_PROGRESS', story_points: 5, is_critical: true, assignments: [{ resource_id: 'r1', resource_name: 'Aisha Khan', units: 1 }] },
   { id: 'task-2', short_id: 'A2', name: 'Wire telemetry channel', wbs_path: '1.2', status: 'IN_PROGRESS', story_points: 8, is_critical: false, assignments: [{ resource_id: 'r2', resource_name: 'Ben Lee', units: 1 }] },
@@ -272,5 +300,144 @@ test.describe('Wave 10 — Sprints backlog table', () => {
     await expect(backlog.getByText('Calibrate sensors')).not.toBeVisible();
     await toggle.click();
     await expect(backlog.getByText('Calibrate sensors')).toBeVisible();
+  });
+});
+
+// The planned-surface variant of setupCommon: one PLANNED sprint (no active),
+// an empty committed backlog so the empty-state CTA shows, and the extra
+// endpoints the planned unified surface reads (capacity, incoming carryover,
+// retro carryover). Both carryover hooks resolve to "nothing to roll forward",
+// so their components render null and only the backlog table + capacity remain.
+async function setupPlanned(page: import('@playwright/test').Page) {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      'trueppm-auth',
+      JSON.stringify({
+        state: { accessToken: 'e2e-token', refreshToken: 'e2e-refresh', isAuthenticated: true },
+        version: 0,
+      }),
+    );
+  });
+
+  await page.route('**/api/v1/projects/', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ count: 1, next: null, previous: null, results: FIXTURE_PROJECTS }),
+    }),
+  );
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PROJECT_DETAIL) }),
+  );
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/sprints/`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ count: 1, next: null, previous: null, results: [PLANNED_SPRINT] }),
+    }),
+  );
+  // Catch-all FIRST (last-registered-wins): every /tasks/ read — the full project
+  // list and the planned sprint's (empty) committed backlog — returns an empty page.
+  await page.route(/\/api\/v1\/tasks\//, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+    }),
+  );
+  await page.route(`**/api/v1/sprints/${PLANNED_SPRINT.id}/capacity/`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        members: [],
+        totals: {
+          committed_hours: 0, available_hours: 0, ratio: 0, buffer_hours: 0,
+          label: 'on_track', pto_days: 0,
+        },
+        working_days: 0, hours_per_day: 8,
+      }),
+    }),
+  );
+  // No prior sprint → the incoming-carryover preview has nothing to show (404,
+  // mirroring the retro pattern); IncomingCarryoverCard renders null.
+  await page.route(/\/api\/v1\/sprints\/.*\/incoming_carryover\//, (route) =>
+    route.fulfill({ status: 404, contentType: 'application/json', body: '{"detail":"None"}' }),
+  );
+  // CarryoverLane reads the project's retro carryover pool — an object endpoint,
+  // so it must be mocked explicitly (the /tasks/ catch-all does not cover it);
+  // an empty pool makes the lane render null.
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/retrospective/carryover/`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [] }) }),
+  );
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/velocity/`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        sprints: [],
+        rolling_avg_points: null, rolling_stdev_points: null,
+        forecast_range_low: null, forecast_range_high: null,
+        rolling_avg_tasks: null, rolling_stdev_tasks: null,
+      }),
+    }),
+  );
+  await page.route('**/api/v1/projects/*/presence/', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+  );
+  await page.route('**/api/v1/projects/*/status-summary/', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        task_count: 0, critical_path_count: 0, monte_carlo_p80: null,
+        at_risk_count: 0, critical_count: 0, at_risk_tasks: [], critical_tasks: [],
+        last_saved: null, recalculated_at: null,
+      }),
+    }),
+  );
+  await page.route('**/api/v1/edition/', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ edition: 'community' }) }),
+  );
+  await page.route('**/api/v1/auth/me/', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ id: 'e2e-user', username: 'e2e', display_name: 'E2E', initials: 'E', email: 'e2e@example.com' }),
+    }),
+  );
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/members/`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id: 'mem-1', role: 300 }]) }),
+  );
+  await page.route(/\/api\/v1\/sprints\/.*\/retro\//, (route) =>
+    route.fulfill({ status: 404, contentType: 'application/json', body: '{"detail":"None"}' }),
+  );
+  await page.route('**/api/v1/me/active-sprints/', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+  );
+}
+
+test.describe('Wave 10 — Planned sprint backlog handoff (#1347)', () => {
+  test('offers a "Pull from backlog" link to the Product Backlog and navigates there', async ({ page }) => {
+    await setupPlanned(page);
+    await page.goto(BASE_URL);
+
+    const backlog = page.getByRole('region', { name: /Sprint Backlog/i });
+    await expect(backlog).toBeVisible();
+
+    // Positive counterpart to the active-sprint negative assertion: on the planned
+    // surface the header handoff link is present and points at the Product Backlog.
+    const pullLink = backlog.getByRole('link', { name: /Pull from backlog/i });
+    await expect(pullLink).toHaveCount(1);
+    await expect(pullLink).toHaveAttribute('href', `/projects/${PROJECT_ID}/product-backlog`);
+
+    // With no committed tasks the empty-state CTA (the heart of the #1347 fix —
+    // "Plan sprint showed no story list") points at the same Product Backlog.
+    const emptyStateLink = backlog.getByRole('link', { name: /^Product Backlog$/i });
+    await expect(emptyStateLink).toHaveAttribute('href', `/projects/${PROJECT_ID}/product-backlog`);
+
+    // The link actually navigates (client-side route change), proving the handoff.
+    await pullLink.click();
+    await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_ID}/product-backlog`));
   });
 });

@@ -31,6 +31,9 @@ vi.mock('@/hooks/useMonteCarloHistory', () => ({
   useMonteCarloHistory: () => ({
     data: [],
     cap: 100,
+    // ForecastHistorySection gates on `enabled === false`; include it so the mock
+    // matches UseMonteCarloHistoryReturn and the sheet renders the enabled state (#1365).
+    enabled: true,
     isLoading: false,
     error: null,
     refetch: vi.fn(),

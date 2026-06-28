@@ -45,18 +45,36 @@ vi.mock('@/hooks/useIterationLabel', () => ({
 const mcResult = vi.hoisted<{ current: { p50: string; p80: string; p95: string } | undefined }>(
   () => ({ current: { p50: '2026-10-05', p80: '2026-11-03', p95: '2026-11-30' } }),
 );
-vi.mock('@/hooks/useMonteCarloResult', () => ({
-  useMonteCarloResult: () => ({
-    data: mcResult.current
-      ? { projectId: 'p', runs: 1000, ...mcResult.current, buckets: [] }
-      : undefined,
-    isLoading: false,
-    error: null,
-  }),
-}));
+// Spread the canonical fixture so the mock is a structurally complete
+// MonteCarloResult (cpmFinish/deltaVsCpm/confidenceCurve/sensitivity), not a bare
+// percentile triple — an incomplete mock would mask any read of those fields
+// (#1365). Async factory: vi.mock is hoisted above imports, so import the fixture
+// inside the factory rather than referencing a top-level import binding.
+vi.mock('@/hooks/useMonteCarloResult', async () => {
+  const { FIXTURE_MC_RESULT } = await import('@/fixtures/monteCarlo');
+  return {
+    useMonteCarloResult: () => ({
+      data: mcResult.current
+        ? { ...FIXTURE_MC_RESULT, projectId: 'p', runs: 1000, ...mcResult.current, buckets: [] }
+        : undefined,
+      isLoading: false,
+      error: null,
+    }),
+  };
+});
 
 vi.mock('@/hooks/useMonteCarloHistory', () => ({
-  useMonteCarloHistory: () => ({ data: [], cap: 100, isLoading: false, error: null, refetch: vi.fn() }),
+  useMonteCarloHistory: () => ({
+    data: [],
+    cap: 100,
+    // ForecastHistorySection gates on `enabled === false`; include it so the mock
+    // matches UseMonteCarloHistoryReturn and the section renders in its real
+    // enabled state rather than an undefined-gated one (#1365).
+    enabled: true,
+    isLoading: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
 }));
 
 function makeSprint(over: Partial<ApiSprint>): ApiSprint {
