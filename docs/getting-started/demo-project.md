@@ -46,18 +46,31 @@ the multi-team Sprints lens toggle on for users who belong to both.
 
 ## Persona logins
 
-| Username | Persona | Role | Password |
-|---|---|---|---|
-| `maya`   | Maya Singh — Scrum Master       | Member    | `demo` |
-| `raj`    | Raj Patel — Project Manager     | Scheduler | `demo` |
-| `diana`  | Diana Khan — PMO Director       | Admin     | `demo` |
-| `sarah`  | Sarah Lee — Resource Manager    | Scheduler | `demo` |
-| `carlos` | Carlos Mendes — Executive       | Viewer    | `demo` |
-| `tom`    | Tom Nguyen — Senior Engineer    | Member    | `demo` |
+| Username | Persona | Role |
+|---|---|---|
+| `maya`   | Maya Singh — Scrum Master       | Member    |
+| `raj`    | Raj Patel — Project Manager     | Scheduler |
+| `diana`  | Diana Khan — PMO Director       | Admin     |
+| `sarah`  | Sarah Lee — Resource Manager    | Scheduler |
+| `carlos` | Carlos Mendes — Executive       | Viewer    |
+| `tom`    | Tom Nguyen — Senior Engineer    | Member    |
 
-The shared password (`demo`) is intentional — these accounts only exist
-in seeded environments. Do **not** run `seed_demo_project` against a
-production database.
+### Persona password
+
+The persona password is resolved at seed time so a fixed, guessable password
+can never reach a public instance:
+
+1. **`TRUEPPM_DEMO_PASSWORD`** — if this env var is set, it is used verbatim.
+   The value is **not** echoed to the seed output (it already lives in your
+   secret store); the command prints only that the env var was used.
+2. **`demo`** — when `DEBUG=True` (local docker-compose dev), for convenience.
+   This is the password the personas use in every walkthrough below.
+3. **A random token** — when `DEBUG=False` and no env var is set. The command
+   prints it once at seed time; record it from the seed output.
+
+These accounts are real, loginable users. The guard above means
+`seed_demo_project` is safe to run anywhere, but on a public instance set
+`TRUEPPM_DEMO_PASSWORD` to a strong value or capture the printed random one.
 
 ## What to look at first, by persona
 

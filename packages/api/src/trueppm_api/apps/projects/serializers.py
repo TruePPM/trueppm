@@ -3074,7 +3074,18 @@ class BaselineSerializer(serializers.ModelSerializer[Baseline]):
             "has_cpm_dates",
             "task_count",
         ]
-        read_only_fields = ["id", "project", "created_by", "created_at", "has_cpm_dates"]
+        # is_active is read-only here: the single-active-baseline invariant
+        # (deactivate-others + DB partial-unique constraint) is owned solely by
+        # BaselineActivateView. A direct serializer write would bypass that flow
+        # and could raise an unhandled IntegrityError → HTTP 500 (#1349).
+        read_only_fields = [
+            "id",
+            "project",
+            "created_by",
+            "created_at",
+            "is_active",
+            "has_cpm_dates",
+        ]
         # name is optional on create — the view auto-generates "Baseline N" when omitted.
         extra_kwargs = {"name": {"required": False, "allow_blank": True}}
 
