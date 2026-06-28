@@ -3235,6 +3235,7 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         """
         from django.contrib.auth.models import User as _User
 
+        from trueppm_api.apps.access.permissions import _membership_role
         from trueppm_api.apps.projects.models import (
             SuggestionState,
             TaskSuggestedAssignee,
@@ -3252,6 +3253,17 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
             return Response(
                 {"detail": "Suggestion not found."},
                 status=status.HTTP_404_NOT_FOUND,
+            )
+        # Re-check actor membership at call time (#1373). The suggestion row's
+        # ``suggested_user`` FK is not authorization on its own: a user named as
+        # suggested_user who has since lost project membership must not be able
+        # to bind ``Task.assignee``. Resolve the project from the (already
+        # select_related) task and require a current, non-soft-deleted membership
+        # before any further gate or write.
+        if _membership_role(request, suggestion.task.project_id) is None:
+            return Response(
+                {"detail": "You must be a member of this project."},
+                status=status.HTTP_403_FORBIDDEN,
             )
         caller = cast(_User, request.user)
         if suggestion.suggested_user_id != caller.pk:
@@ -3340,6 +3352,7 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         """
         from django.contrib.auth.models import User as _User
 
+        from trueppm_api.apps.access.permissions import _membership_role
         from trueppm_api.apps.projects.models import (
             SuggestionState,
             TaskSuggestedAssignee,
@@ -3356,6 +3369,13 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
             return Response(
                 {"detail": "Suggestion not found."},
                 status=status.HTTP_404_NOT_FOUND,
+            )
+        # Re-check actor membership at call time (#1373) — an ex-member named as
+        # suggested_user must not be able to mutate the suggestion's state.
+        if _membership_role(request, suggestion.task.project_id) is None:
+            return Response(
+                {"detail": "You must be a member of this project."},
+                status=status.HTTP_403_FORBIDDEN,
             )
         caller = cast(_User, request.user)
         if suggestion.suggested_user_id != caller.pk:
@@ -3410,7 +3430,8 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         """
         from django.contrib.auth.models import User as _User
 
-        from trueppm_api.apps.access.models import ProjectMembership, Role
+        from trueppm_api.apps.access.models import Role
+        from trueppm_api.apps.access.permissions import _membership_role
         from trueppm_api.apps.projects.models import (
             SuggestionState,
             TaskSuggestedAssignee,
@@ -3429,15 +3450,20 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
                 status=status.HTTP_404_NOT_FOUND,
             )
         caller = cast(_User, request.user)
-        is_originator = suggestion.suggested_by_id == caller.pk
-        caller_role: int = (
-            ProjectMembership.objects.filter(
-                project_id=suggestion.task.project_id, user=caller, is_deleted=False
+        # Re-check actor membership at call time (#1373): an ex-member must not be
+        # able to revoke even a suggestion they originated. ``_membership_role``
+        # returns ``None`` for a non-member (or soft-deleted membership) and the
+        # role ordinal otherwise — distinguishing it cleanly from ``Role.VIEWER``
+        # (``0``), which a raw ``... or -1`` sentinel would falsely collapse to a
+        # non-member. This floor runs before the originator/Admin branch so losing
+        # membership revokes the ability.
+        caller_role = _membership_role(request, suggestion.task.project_id)
+        if caller_role is None:
+            return Response(
+                {"detail": "You must be a member of this project."},
+                status=status.HTTP_403_FORBIDDEN,
             )
-            .values_list("role", flat=True)
-            .first()
-            or -1
-        )
+        is_originator = suggestion.suggested_by_id == caller.pk
         if not is_originator and caller_role < Role.ADMIN:
             return Response(
                 {

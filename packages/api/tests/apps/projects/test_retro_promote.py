@@ -530,6 +530,115 @@ def test_revoke_suggestion_forbidden_for_unrelated_member(
 
 
 # ---------------------------------------------------------------------------
+# #1373 — suggestion actions re-check actor membership at call time. A user
+# named as suggested_user / suggested_by who has since lost project membership
+# (soft-deleted ProjectMembership) must get 403, not be authorized by the row's
+# FK alone.
+# ---------------------------------------------------------------------------
+
+
+def _promote_suggestion(
+    project: Project, member: object, member_other: object
+) -> tuple[str, TaskSuggestedAssignee]:
+    """Promote a retro action item assigned to ``member_other`` and return the
+    resulting (task_id, pending suggestion) — suggested_by=member,
+    suggested_user=member_other."""
+    sprint, _, item = _retro_with_item(project, assignee=member_other)
+    promote_resp = _client(member).post(
+        f"/api/v1/sprints/{sprint.pk}/retrospective/action-items/{item.pk}/promote/",
+        {},
+        format="json",
+    )
+    task_id = promote_resp.data["task"]["id"]
+    return task_id, TaskSuggestedAssignee.objects.get(task_id=task_id)
+
+
+@pytest.mark.django_db
+def test_accept_suggestion_forbidden_for_ex_member(
+    project: Project, member: object, member_other: object
+) -> None:
+    task_id, suggestion = _promote_suggestion(project, member, member_other)
+    # member_other loses project membership after being named suggested_user.
+    ProjectMembership.objects.filter(project=project, user=member_other).update(is_deleted=True)
+
+    resp = _client(member_other).post(
+        f"/api/v1/tasks/{task_id}/suggestions/{suggestion.pk}/accept/",
+        {},
+        format="json",
+    )
+    assert resp.status_code == 403
+    suggestion.refresh_from_db()
+    assert suggestion.state == SuggestionState.PENDING  # no state mutation
+    assert Task.objects.get(pk=task_id).assignee_id is None  # no assignee binding
+
+
+@pytest.mark.django_db
+def test_decline_suggestion_forbidden_for_ex_member(
+    project: Project, member: object, member_other: object
+) -> None:
+    task_id, suggestion = _promote_suggestion(project, member, member_other)
+    ProjectMembership.objects.filter(project=project, user=member_other).update(is_deleted=True)
+
+    resp = _client(member_other).post(
+        f"/api/v1/tasks/{task_id}/suggestions/{suggestion.pk}/decline/",
+        {},
+        format="json",
+    )
+    assert resp.status_code == 403
+    suggestion.refresh_from_db()
+    assert suggestion.state == SuggestionState.PENDING
+
+
+@pytest.mark.django_db
+def test_revoke_suggestion_forbidden_for_ex_originator(
+    project: Project, member: object, member_other: object
+) -> None:
+    task_id, suggestion = _promote_suggestion(project, member, member_other)
+    # The originator (member, suggested_by) loses membership — losing membership
+    # revokes the ability to revoke even a suggestion they created.
+    ProjectMembership.objects.filter(project=project, user=member).update(is_deleted=True)
+
+    resp = _client(member).post(
+        f"/api/v1/tasks/{task_id}/suggestions/{suggestion.pk}/revoke/",
+        {},
+        format="json",
+    )
+    assert resp.status_code == 403
+    suggestion.refresh_from_db()
+    assert suggestion.state == SuggestionState.PENDING
+
+
+@pytest.mark.django_db
+def test_revoke_suggestion_allowed_for_viewer_originator(
+    project: Project, member_other: object
+) -> None:
+    """Regression guard for the #1373 ``_membership_role`` refactor: a Viewer
+    (role ordinal 0, falsy) who originated a suggestion must still be allowed to
+    revoke it. The previous ``... or -1`` sentinel collapsed role 0 to a
+    non-member and would have 403'd this legitimate originator."""
+    # Build a suggestion whose suggested_by is a Viewer, bypassing the view-layer
+    # SCHEDULER+ promote gate (we are testing revoke authz, not promote authz).
+    viewer_originator = User.objects.create_user(username="viewer_orig", password="pw")
+    ProjectMembership.objects.create(project=project, user=viewer_originator, role=Role.VIEWER)
+    task = Task.objects.create(project=project, name="T", duration=1, wbs_path="1")
+    suggestion = TaskSuggestedAssignee.objects.create(
+        task=task,
+        suggested_user=member_other,
+        suggested_by=viewer_originator,
+        state=SuggestionState.PENDING,
+    )
+
+    resp = _client(viewer_originator).post(
+        f"/api/v1/tasks/{task.pk}/suggestions/{suggestion.pk}/revoke/",
+        {},
+        format="json",
+    )
+    assert resp.status_code == 200
+    suggestion.refresh_from_db()
+    assert suggestion.state == SuggestionState.REVOKED
+
+
+# ---------------------------------------------------------------------------
 # Me/work retro_action_items
 # ---------------------------------------------------------------------------
 

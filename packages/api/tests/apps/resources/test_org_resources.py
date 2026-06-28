@@ -195,6 +195,19 @@ class TestResourceSoftDelete:
         ids = [r["id"] for r in res.data["results"]]
         assert str(resource.pk) in ids
 
+    def test_member_include_deleted_param_ignored(
+        self, member_client: APIClient, resource: Resource
+    ) -> None:
+        """#1374: ``?include_deleted=true`` is honored only for org admins. A
+        non-admin passing it must still get the deactivated record filtered out —
+        the param is silently ignored, not an enumeration backdoor onto the
+        soft-deleted pool."""
+        resource.is_deleted = True
+        resource.save(update_fields=["is_deleted"])
+        res = member_client.get("/api/v1/resources/?include_deleted=true")
+        ids = [r["id"] for r in res.data["results"]]
+        assert str(resource.pk) not in ids
+
     def test_member_cannot_delete(self, member_client: APIClient, resource: Resource) -> None:
         res = member_client.delete(f"/api/v1/resources/{resource.pk}/")
         assert res.status_code == 403

@@ -653,8 +653,13 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
         )
 
         # Deactivated resources are hidden by default. Org admins may opt-in
-        # via ?include_deleted=true to manage the deactivated pool.
-        include_deleted = self.request.query_params.get("include_deleted", "").lower() == "true"
+        # via ?include_deleted=true to manage the deactivated pool. The param is
+        # honored only for org admins (#1374): a non-admin passing it is silently
+        # ignored so soft-deleted resource records stay hidden — defense-in-depth
+        # for the deactivated-pool contract the docstring already claimed.
+        include_deleted = self.request.query_params.get(
+            "include_deleted", ""
+        ).lower() == "true" and _request_is_org_admin(self.request)
         if not include_deleted:
             qs = qs.filter(is_deleted=False)
 

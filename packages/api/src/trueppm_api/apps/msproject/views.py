@@ -22,7 +22,11 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
-from trueppm_api.apps.access.permissions import IsProjectMember, IsProjectNotArchived
+from trueppm_api.apps.access.permissions import (
+    IsProjectAdmin,
+    IsProjectMember,
+    IsProjectNotArchived,
+)
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 
 logger = logging.getLogger(__name__)
@@ -150,10 +154,11 @@ class MsProjectImportView(IdempotencyMixin, APIView):
     # Exempt from the generic Idempotency-Key path (ADR-0170): this is a multipart
     # upload, and the import is already deduped at the table level via ImportRequest.
     idempotency_exempt = True
-    # IsProjectMember gates membership at the DRF layer (declarative, OpenAPI-visible);
-    # the in-body _check_project_role(..., Role.ADMIN) below enforces the stricter
-    # Admin requirement as defense-in-depth.
-    permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
+    # IsProjectAdmin makes the Admin requirement declarative at the DRF layer
+    # (OpenAPI-visible, enforced before the body runs); the in-body
+    # _check_project_role(..., Role.ADMIN) below remains authoritative as
+    # defense-in-depth (#1374, mirrors the #1351 additive-DRF-class pattern).
+    permission_classes = [IsAuthenticated, IsProjectAdmin, IsProjectNotArchived]
     parser_classes = [MultiPartParser]
 
     @extend_schema(
