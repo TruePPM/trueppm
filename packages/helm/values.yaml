@@ -99,19 +99,31 @@ env:
   # valkey are disabled (managed-DB / production path), set DATABASE_URL /
   # REDIS_URL here (or via an override) to point at your managed services.
   #
-  # SECRET_KEY and ALLOWED_HOSTS must be set via a Kubernetes Secret — do NOT
-  # store them here in plaintext. Create a Secret and mount it as env vars:
-  #
-  #   kubectl create secret generic trueppm-env \
-  #     --from-literal=SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(50))") \
-  #     --from-literal=ALLOWED_HOSTS=trueppm.example.com
-  #
-  # Then reference the Secret in your values override:
-  #   envFrom:
-  #     - secretRef:
-  #         name: trueppm-env
-  #
-  # Without SECRET_KEY the Django application will refuse to start.
+  # SECRET_KEY, ALLOWED_HOSTS, and INTEGRATION_ENCRYPTION_KEY must be set via a
+  # Kubernetes Secret — do NOT store them here in plaintext. Create a Secret and
+  # reference it through `envFrom` below (see the `envFrom:` key further down).
+
+# Bulk-inject env vars from existing Secrets/ConfigMaps into the API, Celery
+# worker, AND the bootstrap/migrate init containers. This is the supported way to
+# supply the secrets that must not live in plaintext and that prod REFUSES TO
+# BOOT without (settings.prod enforces them at import time):
+#   SECRET_KEY (#566), ALLOWED_HOSTS, INTEGRATION_ENCRYPTION_KEY (#1002)
+# Plus a storage choice — TRUEPPM_DEFAULT_FILE_STORAGE (object storage) or
+# TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true (#775).
+#
+# Create the Secret:
+#   kubectl create secret generic trueppm-env \
+#     --from-literal=SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(50))") \
+#     --from-literal=ALLOWED_HOSTS=trueppm.example.com \
+#     --from-literal=INTEGRATION_ENCRYPTION_KEY=$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())") \
+#     --from-literal=TRUEPPM_DEFAULT_FILE_STORAGE=storages.backends.s3.S3Storage
+#
+# Then reference it here. Explicit `env:` entries above (e.g. the chart-built
+# DATABASE_URL) always take precedence over an envFrom key of the same name.
+#   envFrom:
+#     - secretRef:
+#         name: trueppm-env
+envFrom: []
 
 # Admin bootstrap settings.
 # The bootstrap init container runs `create_admin` once on first deploy and

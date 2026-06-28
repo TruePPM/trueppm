@@ -38,6 +38,10 @@ spec:
             - trueppm_api.celery
             - worker
             - --loglevel=info
+          {{- with .Values.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           env:
             {{- include "trueppm.envVars" . | nindent 12 }}
             {{- include "trueppm.connectionEnv" . | nindent 12 }}

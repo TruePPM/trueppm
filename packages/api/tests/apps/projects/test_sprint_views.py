@@ -307,6 +307,95 @@ def test_scheduler_can_patch_capacity_points(scheduler_client: APIClient, projec
     assert s.capacity_points == 40
 
 
+# ---------------------------------------------------------------------------
+# #1093: the SCHEDULER+ field-gate must also fire on CREATE (POST), not only on
+# update. On create self.instance is None, so the gate historically skipped and
+# a Member could POST a sprint with capacity_points / wip_limit / goal_outcome /
+# exclude_from_velocity pre-set. The gate now resolves the project from the
+# nested route on create and applies the same role >= SCHEDULER check.
+# ---------------------------------------------------------------------------
+
+
+def test_member_cannot_create_sprint_with_capacity_points(
+    member_client: APIClient, project: Project
+) -> None:
+    resp = member_client.post(
+        f"/api/v1/projects/{project.pk}/sprints/",
+        {
+            "name": "S1",
+            "start_date": "2026-04-01",
+            "finish_date": "2026-04-14",
+            "capacity_points": 40,
+        },
+        format="json",
+    )
+    assert resp.status_code == 400, resp.content
+    assert not Sprint.objects.filter(project=project, name="S1").exists()
+
+
+def test_member_cannot_create_sprint_with_exclude_from_velocity(
+    member_client: APIClient, project: Project
+) -> None:
+    resp = member_client.post(
+        f"/api/v1/projects/{project.pk}/sprints/",
+        {
+            "name": "S1",
+            "start_date": "2026-04-01",
+            "finish_date": "2026-04-14",
+            "exclude_from_velocity": True,
+        },
+        format="json",
+    )
+    assert resp.status_code == 400, resp.content
+    assert not Sprint.objects.filter(project=project, name="S1").exists()
+
+
+def test_member_cannot_create_sprint_with_wip_limit(
+    member_client: APIClient, project: Project
+) -> None:
+    resp = member_client.post(
+        f"/api/v1/projects/{project.pk}/sprints/",
+        {
+            "name": "S1",
+            "start_date": "2026-04-01",
+            "finish_date": "2026-04-14",
+            "wip_limit": 5,
+        },
+        format="json",
+    )
+    assert resp.status_code == 400, resp.content
+
+
+def test_scheduler_can_create_sprint_with_scheduler_fields(
+    scheduler_client: APIClient, project: Project
+) -> None:
+    resp = scheduler_client.post(
+        f"/api/v1/projects/{project.pk}/sprints/",
+        {
+            "name": "S1",
+            "start_date": "2026-04-01",
+            "finish_date": "2026-04-14",
+            "capacity_points": 40,
+            "exclude_from_velocity": True,
+        },
+        format="json",
+    )
+    assert resp.status_code == 201, resp.content
+    assert resp.json()["capacity_points"] == 40
+    assert resp.json()["exclude_from_velocity"] is True
+
+
+def test_member_can_still_create_plain_sprint(member_client: APIClient, project: Project) -> None:
+    """Regression guard: the create-path gate must not block a Member creating a
+    sprint with no scheduler-owned field (the common case)."""
+    resp = member_client.post(
+        f"/api/v1/projects/{project.pk}/sprints/",
+        {"name": "S1", "start_date": "2026-04-01", "finish_date": "2026-04-14"},
+        format="json",
+    )
+    assert resp.status_code == 201, resp.content
+
+
 def test_capacity_points_null_is_default(client: APIClient, project: Project) -> None:
     s = _make_sprint(project)
     resp = client.get(f"/api/v1/sprints/{s.pk}/")

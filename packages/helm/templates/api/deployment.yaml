@@ -47,6 +47,14 @@ spec:
           command: ["python", "manage.py", "migrate", "--noinput"]
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          {{- with .Values.envFrom }}
+          # Bulk-injected Secret/ConfigMap env (SECRET_KEY, ALLOWED_HOSTS,
+          # INTEGRATION_ENCRYPTION_KEY, …). Required on the init containers too:
+          # `migrate` imports settings.prod, whose import-time boot guards (#1002,
+          # #775) crash-loop the pod before the api container ever starts.
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           env:
             {{- include "trueppm.envVars" . | nindent 12 }}
             {{- include "trueppm.connectionEnv" . | nindent 12 }}
@@ -59,6 +67,10 @@ spec:
           command: ["python", "manage.py", "create_admin"]
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          {{- with .Values.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           env:
             {{- include "trueppm.envVars" . | nindent 12 }}
             {{- include "trueppm.connectionEnv" . | nindent 12 }}
@@ -83,6 +95,10 @@ spec:
             - name: http
               containerPort: 8000
               protocol: TCP
+          {{- with .Values.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           env:
             {{- include "trueppm.envVars" . | nindent 12 }}
             {{- include "trueppm.connectionEnv" . | nindent 12 }}
