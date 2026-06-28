@@ -99,7 +99,7 @@ The set is open-ended and grows as features land; current event types include:
 - **Risks**: `risk_created`, `risk_updated`, `risk_deleted`, `risks_imported`
 - **Sprints**: `sprint_created`, `sprint_updated`, `sprint_deleted`,
   `sprint_activated`, `sprint_cancelled`, `sprint_closed`, `sprint_reranked`,
-  `milestone_rollup_updated`, `poker_session_updated`
+  `sprint_retro_updated`, `milestone_rollup_updated`, `poker_session_updated`
 - **Comments / attachments**: `task_comment_created`, `task_comment_updated`,
   `task_comment_deleted`, `task_attachment_created`, `task_attachment_deleted`,
   `comment_created`
@@ -115,7 +115,7 @@ The set is open-ended and grows as features land; current event types include:
 - **Task suggestions**: `suggestion_created`, `suggestion_declined`,
   `suggestion_revoked` (decline/revoke carry only the suggestion + task id — never
   the actor — a silent state reconciliation, not a callout)
-- **Cross-project (ADR-0120)**: `slip_conflict_acknowledged`
+- **Cross-project (ADR-0120)**: `slip_conflict_acknowledged`, `slip_conflicts_updated`
 - **Presence**: `presence_join`, `presence_leave`
 
 > **Event-name convention.** WebSocket `event_type` values are **`snake_case`**
@@ -212,6 +212,7 @@ adding it to that frozen set. Events with no webhook counterpart are marked
 | `sprint_updated` | **WS-only** |
 | `sprint_deleted` | **WS-only** |
 | `sprint_scope_changed` | **WS-only** |
+| `sprint_retro_updated` | **WS-only** |
 | `demo_reordered` | **WS-only** |
 | `demo_presenter_set` | **WS-only** |
 | `review_note_set` | **WS-only** |
@@ -224,6 +225,7 @@ adding it to that frozen set. Events with no webhook counterpart are marked
 | `suggestion_declined` | **WS-only** |
 | `suggestion_revoked` | **WS-only** |
 | `slip_conflict_acknowledged` | **WS-only** |
+| `slip_conflicts_updated` | **WS-only** |
 
 ### WS-only events on other channels
 
