@@ -31,8 +31,6 @@ The per-person hours view answers "who is overcommitted?". A team that plans in 
 
 Both are **omitted entirely when no points ceiling is set** — a sprint that plans in hours only never sees an empty or zero-valued points chip. The `capacity_points` ceiling is set on the [Plan Sprint dialog](/features/plan-sprint/) and editable while the sprint is planned.
 
-> _Screenshot of the points chip and capacity footer to be added once 0.3 ships._
-
 ## Where to find it in the app
 
 - Route: `/projects/:projectId/sprints` (right column of the metrics row, top half)
