@@ -283,6 +283,63 @@ def test_acknowledge_broadcasts_to_clear_stale_badge(
     assert not any(et == "slip_conflict_acknowledged" for et, _payload in events)
 
 
+def _norm_broadcast_calls(mock: Any) -> list[tuple[Any, Any, Any]]:
+    """Normalize broadcast_board_event calls to (project_id, event_type, payload).
+
+    The program pass emits some events positionally (slip_conflicts_updated) and
+    others by keyword (cpm_complete), so a positional-only recorder would crash on
+    the keyword calls — flatten both forms here.
+    """
+    out: list[tuple[Any, Any, Any]] = []
+    for call in mock.call_args_list:
+        args, kwargs = call
+        pid = kwargs.get("project_id", args[0] if args else None)
+        et = kwargs.get("event_type", args[1] if len(args) > 1 else None)
+        payload = kwargs.get("payload", args[2] if len(args) > 2 else None)
+        out.append((pid, et, payload))
+    return out
+
+
+@pytest.mark.django_db
+def test_detection_broadcasts_slip_conflicts_updated(
+    calendar: Calendar,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """A program pass that opens a conflict broadcasts slip_conflicts_updated (#1359).
+
+    The signal fans out only to the sprint-owning project (the one whose board
+    shows the slip badge), so its peers refetch instead of polling.
+    """
+    program, _a, proj_b, _a1, _b1, _sprint, _dep = _scenario(calendar)
+
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_b,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        _run_program_schedule(str(program.pk))
+
+    assert (str(proj_b.pk), "slip_conflicts_updated", {}) in _norm_broadcast_calls(mock_b)
+
+
+@pytest.mark.django_db
+def test_clean_pass_does_not_broadcast_slip_conflicts(
+    calendar: Calendar,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """No slip activity (planned sprint never breaches) → no slip broadcast."""
+    program, _a, _b, _a1, _b1, _sprint, _dep = _scenario(calendar, sprint_state=SprintState.PLANNED)
+
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_b,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        _run_program_schedule(str(program.pk))
+
+    assert "slip_conflicts_updated" not in [
+        et for _pid, et, _payload in _norm_broadcast_calls(mock_b)
+    ]
+
+
 @pytest.mark.django_db
 def test_conflict_list_scoped_to_member_projects(calendar: Calendar) -> None:
     program, _a, proj_b, _a1, b1, sprint, _dep = _scenario(calendar)

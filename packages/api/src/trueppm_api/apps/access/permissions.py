@@ -445,6 +445,39 @@ class IsProjectScopeManager(BasePermission):
         )
 
 
+class IsTaskScopeManager(BasePermission):
+    """Scope-manager gate for objects reached through a ``task`` FK (#1351).
+
+    Mirrors :class:`IsProjectScopeManager` (Admin+ OR the Scrum Master / Product
+    Owner facet, ADR-0102 §3) but resolves the project through ``obj.task`` rather
+    than ``obj.project`` — :func:`_get_project_id_from_obj` cannot follow a ``task``
+    hop, so a generic scope-manager class would deny everyone on these objects.
+    Used by ``CrossProjectSlipConflictViewSet.acknowledge`` as the permission-layer
+    expression of its in-body gate; the in-body check stays for defense-in-depth,
+    so the boundary holds even if a view forgets this class. Read methods are not
+    this class's concern — it is only attached to the unsafe acknowledge action.
+    """
+
+    message = (
+        "You need Admin or the Scrum Master / Product Owner facet on this "
+        "project to perform this action."
+    )
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        # No project_pk in the top-level slip-conflict route; authorization is an
+        # object-level decision resolved once get_object() runs.
+        return bool(request.user and request.user.is_authenticated)
+
+    def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
+        task = getattr(obj, "task", None)
+        project_id = getattr(task, "project_id", None)
+        if project_id is None:
+            return False
+        return can_manage_scope_with_facet(
+            request.user, project_id, _membership_role(request, project_id)
+        )
+
+
 class IsProjectOwner(BasePermission):
     """Allow only Project Admin (Owner, 4).
 

@@ -68,6 +68,7 @@ from trueppm_api.apps.access.permissions import (
     IsProjectOwner,
     IsProjectScheduler,
     IsProjectScopeManager,
+    IsTaskScopeManager,
     IsTokenForProject,
     ProjectScopedViewSet,
 )
@@ -4307,6 +4308,23 @@ class CrossProjectSlipConflictViewSet(
     pagination_class = SlipConflictPagination
     queryset = CrossProjectSlipConflict.objects.all()
 
+    def get_permissions(self) -> list[BasePermission]:
+        """Gate ``acknowledge`` at the permission layer with the scope-manager rule.
+
+        Acknowledge is Admin+ OR the Scrum Master / Product Owner facet on the
+        downstream project (ADR-0102 §3). The action body re-checks the same rule
+        (defense-in-depth, #1351); IsTaskScopeManager expresses it object-level —
+        resolving the project through the conflict's ``task`` FK — so a Viewer who
+        is a member of the project is denied at the permission layer rather than
+        deep in the body. Non-members are already filtered out of the queryset, so
+        they still get a 404 (the existence oracle stays closed). Reads keep the
+        bare IsAuthenticated gate; queryset scoping enforces membership.
+        """
+        perms: list[BasePermission] = [IsAuthenticated()]
+        if self.action == "acknowledge":
+            perms.append(IsTaskScopeManager())
+        return perms
+
     def get_queryset(self) -> QuerySet[CrossProjectSlipConflict]:
         from trueppm_api.apps.projects.models import SlipConflictResolution
 
@@ -5683,6 +5701,28 @@ def _sprint_scope_change_webhook_payload(scope_change: SprintScopeChange, *, sou
         "added_at": scope_change.added_at.isoformat() if scope_change.added_at else None,
         "source": source,
     }
+
+
+def _broadcast_retro_updated(sprint: Sprint) -> None:
+    """Defer a ``sprint_retro_updated`` board broadcast for a retro mutation (#1359).
+
+    The sprint retrospective (notes + action items + visibility) is a
+    collaborative surface, but its REST writes emitted no WebSocket event, so a
+    peer with the retro open silently desynced until a manual refresh. Carries
+    only the sprint id (the retro is read back through the visibility-aware
+    serializer per viewer); no role-gated values are placed on the wire. Snapshot
+    to a plain string before the closure and defer to commit so a rolled-back
+    upsert never broadcasts.
+    """
+    sprint_id = str(sprint.pk)
+    project_id = str(sprint.project_id)
+
+    def _on_commit() -> None:
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        broadcast_board_event(project_id, "sprint_retro_updated", {"sprint_id": sprint_id})
+
+    transaction.on_commit(_on_commit)
 
 
 # ---------------------------------------------------------------------------
@@ -8304,6 +8344,7 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
                     )
                 retro.team_visibility = new_visibility
                 retro.save(update_fields=["team_visibility", "server_version"])
+                _broadcast_retro_updated(sprint)
             return Response(_pick_serializer(retro)(retro).data, status=status.HTTP_200_OK)
 
         # POST — upsert. Write permission already enforced via get_permissions().
@@ -8343,6 +8384,11 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
             ]
             if new_items:
                 RetroActionItem.objects.bulk_create(new_items)
+
+        # Notes + action items just changed under any peer with the retro open
+        # (#1359). Broadcast so their view refetches instead of silently desyncing
+        # until a manual refresh — deferred to commit inside _broadcast_retro_updated.
+        _broadcast_retro_updated(sprint)
 
         # P13: replace refresh_from_db() (wipes prefetch cache) with a fresh
         # fetch that prefetches action_items+assignee so the serializer doesn't
@@ -8778,6 +8824,17 @@ class SprintScopeChangeViewSet(IdempotencyMixin, viewsets.GenericViewSet[Any]):
     # queryset below is the second half of that contract — it must stay scoped to
     # the caller's member projects so a non-member gets 404 (not a 403-vs-404
     # discriminator that leaks cross-project scope-change existence, #996).
+    #
+    # #1351 carve-out: unlike the membership and slip-conflict viewsets, this one
+    # is *not* given a permission-layer role class. The service gate returns a
+    # structured ``{"code": "scope_accept_forbidden", "detail": ...}`` 403 that the
+    # frontend relies on (tested in test_scope_injection_approve_gate.py); a DRF
+    # permission class would pre-empt the body with a plain ``{"detail": ...}`` 403
+    # and break that contract. The existence oracle is already closed by the
+    # member-scoped queryset above (non-members get 404), so the only caller who
+    # reaches the structured 403 is a member below the bar — who can already see
+    # the project exists. This mirrors the DependencyViewSet decision (ADR-0120 D2)
+    # and is recorded in ADR-0184.
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self) -> QuerySet[Any]:

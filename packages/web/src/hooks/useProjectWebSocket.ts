@@ -22,7 +22,9 @@
  *   task_attachment_created / task_attachment_deleted → invalidate task-attachments[taskId]
  *   task_note_created / task_note_updated / task_note_deleted / task_note_pinned → invalidate task-notes[taskId] + tasks (latest_note_at freshness chip)
  *   sprint_created / sprint_updated / sprint_deleted / sprint_activated / sprint_cancelled / sprint_closed → invalidate sprints
+ *   sprint_retro_updated → invalidate ['sprint', id, 'retro'] (notes/action-item upsert or visibility toggle, issue 1359)
  *   retro_item_created / retro_item_updated / retro_item_deleted / retro_item_moved → invalidate retro-board (ADR-0117)
+ *   slip_conflict_acknowledged / slip_conflicts_updated → invalidate slip-conflicts (ADR-0120 D4, issue 1359)
  *   assignment_created / assignment_updated / assignment_deleted / roster_changed → invalidate tasks
  *   member_added / member_role_changed / member_removed → invalidate members
  *   team_member_changed → invalidate team-members[teamId] (facet/role reassign, ADR-0078)
@@ -329,12 +331,27 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         // editor's in-flight optimistic edit, the exact regression ADR-0152 prevents.
         // The event's only extra payload is the inline "Recalc %?" affordance hint
         // (ADR-0151), consumed locally by the editing client, not via this socket.
-      } else if (event_type === 'slip_conflict_acknowledged') {
+      } else if (
+        event_type === 'slip_conflict_acknowledged' ||
+        event_type === 'slip_conflicts_updated'
+      ) {
         // A downstream scope manager acknowledged a cross-project slip conflict
-        // (ADR-0120 D4). Drop the stale conflict from any mounted conflict view so
-        // the badge clears live (issue 1323). Keyed to the `/slip-conflicts/` endpoint;
-        // a no-op until that surface mounts, then live from day one.
+        // (ADR-0120 D4), or the program CPM pass detected/auto-resolved conflicts
+        // (`slip_conflicts_updated`, issue 1359). Either way the conflict set on the
+        // `/slip-conflicts/` endpoint changed — refetch so a mounted badge/view
+        // reflects it live instead of waiting on the next poll. A no-op until that
+        // surface mounts, then live from day one.
         void queryClient.invalidateQueries({ queryKey: ['slip-conflicts'] });
+      } else if (event_type === 'sprint_retro_updated') {
+        // A peer upserted the sprint retro (notes + action items) or toggled its
+        // visibility (issue 1359). Both REST writes previously emitted nothing, so a
+        // collaborator with the retro open silently desynced until a manual refresh.
+        // Refetch the named sprint's retro; keyed to ['sprint', id, 'retro'] to match
+        // useSprintRetro. A no-op until the retro panel is mounted.
+        const sprintId = typeof payload.sprint_id === 'string' ? payload.sprint_id : null;
+        if (sprintId !== null) {
+          void queryClient.invalidateQueries({ queryKey: ['sprint', sprintId, 'retro'] });
+        }
       } else if (
         event_type === 'baseline_created' ||
         event_type === 'baseline_activated' ||

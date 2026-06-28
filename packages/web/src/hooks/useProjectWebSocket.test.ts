@@ -1056,13 +1056,36 @@ describe('useProjectWebSocket — wave-2 missing handlers (#1323)', () => {
     },
   );
 
-  it('invalidates the slip-conflicts query on slip_conflict_acknowledged', () => {
+  it.each(['slip_conflict_acknowledged', 'slip_conflicts_updated'])(
+    'invalidates the slip-conflicts query on %s',
+    (eventType) => {
+      const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+      renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+      dispatch(eventType, { id: 'conflict-1' });
+
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['slip-conflicts'] });
+    },
+  );
+
+  it('invalidates the named sprint retro on sprint_retro_updated', () => {
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
     renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
 
-    dispatch('slip_conflict_acknowledged', { id: 'conflict-1' });
+    dispatch('sprint_retro_updated', { sprint_id: 'sprint-7' });
 
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['slip-conflicts'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['sprint', 'sprint-7', 'retro'] });
+  });
+
+  it('ignores a sprint_retro_updated event with no sprint_id', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('sprint_retro_updated', {});
+
+    expect(invalidateSpy).not.toHaveBeenCalledWith({
+      queryKey: ['sprint', undefined, 'retro'],
+    });
   });
 
   it('does NOT invalidate tasks on task_duration_changed (covered by task_updated)', () => {

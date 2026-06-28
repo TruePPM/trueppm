@@ -12,7 +12,7 @@ from django.utils import timezone
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers as drf_serializers
 from rest_framework import status, viewsets
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
@@ -23,8 +23,10 @@ from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership,
 from trueppm_api.apps.access.permissions import (
     IsProgramMember,
     IsProgramNotClosed,
+    IsProgramOwner,
     IsProjectMember,
     IsProjectNotArchived,
+    IsProjectOwner,
     _membership_role,
     _program_membership_role,
 )
@@ -58,6 +60,26 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
     """
 
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
+
+    def get_permissions(self) -> list[BasePermission]:
+        """Express the Owner-only create/partial_update gate at the permission layer.
+
+        The view bodies already enforce ``Role.OWNER`` (and the assign-below-self
+        and last-Owner invariants), but a Viewer reached the body before being
+        rejected — the role gate was invisible to DRF-level audits and OpenAPI
+        security generation (#1351). Adding IsProjectOwner here is defense-in-depth,
+        not a behavior change: the in-body checks remain authoritative. ``destroy``
+        is deliberately excluded — any member may self-remove (the last-Owner guard
+        prevents stranding a project), so it must not require Owner.
+        """
+        perms: list[BasePermission] = [
+            IsAuthenticated(),
+            IsProjectMember(),
+            IsProjectNotArchived(),
+        ]
+        if self.action in ("create", "partial_update"):
+            perms.append(IsProjectOwner())
+        return perms
 
     def get_queryset(self) -> QuerySet[ProjectMembership]:
         project_pk = self.kwargs["project_pk"]
@@ -420,6 +442,26 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
     """
 
     permission_classes = [IsAuthenticated, IsProgramMember, IsProgramNotClosed]
+
+    def get_permissions(self) -> list[BasePermission]:
+        """Express the Owner-only create gate at the permission layer (#1351).
+
+        ``create`` is Owner-only, so IsProgramOwner is added as defense-in-depth
+        over the in-body ``_require_actor_role(OWNER)`` check. ``partial_update``
+        is deliberately excluded: a ``role_title``-only PATCH (benign descriptive
+        metadata, #565) is permitted at Admin+, and the body already escalates to
+        the Owner gate only when ``role``/``user`` change — gating the whole action
+        on Owner here would regress that Admin metadata branch. ``destroy`` allows
+        self-remove, so it is excluded too.
+        """
+        perms: list[BasePermission] = [
+            IsAuthenticated(),
+            IsProgramMember(),
+            IsProgramNotClosed(),
+        ]
+        if self.action == "create":
+            perms.append(IsProgramOwner())
+        return perms
 
     def get_queryset(self) -> QuerySet[ProgramMembership]:
         program_pk = self.kwargs["program_pk"]

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import base64
 import pathlib
 import xml.etree.ElementTree as ET
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 from io import BytesIO
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -1682,3 +1684,45 @@ class TestCreateFromImportTaskBehavior:
         req.refresh_from_db()
         # DEAD is terminal — the orphan drain must not re-dispatch a bad file.
         assert req.status == ImportRequestStatus.DEAD
+
+
+# ---------------------------------------------------------------------------
+# tasks_restructured broadcast on import completion (#1359)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestImportBroadcast:
+    """A bulk import must signal clients immediately, ahead of the async CPM pass.
+
+    Before #1359 the imported tree stayed invisible for the multi-second window
+    until cpm_complete landed. The task now emits tasks_restructured (an event the
+    web client already invalidates the tasks cache on) on commit.
+    """
+
+    def test_import_broadcasts_tasks_restructured(
+        self,
+        project: Project,
+        django_capture_on_commit_callbacks: Callable[..., Any],
+    ) -> None:
+        from trueppm_api.apps.msproject.tasks import import_msproject
+
+        content = (_FIXTURES_DIR / "all_dependency_types.xml").read_bytes()
+        b64 = base64.b64encode(content).decode("ascii")
+
+        events: list[tuple[str, dict]] = []
+        with (
+            patch(
+                "trueppm_api.apps.sync.broadcast.broadcast_board_event",
+                side_effect=lambda _p, et, payload: events.append((et, payload)),
+            ),
+            patch("trueppm_api.apps.scheduling.services.enqueue_recalculate"),
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            result = import_msproject.apply(args=(str(project.pk), b64, "import.xml"))
+
+        assert result.successful(), result.result
+        assert result.result["tasks_created"] > 0
+        assert (str(project.pk), "tasks_restructured", {}) in [
+            (str(project.pk), et, payload) for et, payload in events
+        ]

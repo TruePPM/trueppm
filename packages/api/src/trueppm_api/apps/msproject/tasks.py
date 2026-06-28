@@ -137,6 +137,22 @@ def import_msproject(
 
             enqueue_recalculate(project_id)
 
+            # #1359: a bulk import restructures the WBS, but clients had no signal
+            # until the async CPM pass eventually landed — a multi-second window of
+            # a stale, empty-looking task list. Emit tasks_restructured (the event
+            # the web client already invalidates the tasks cache on) so the imported
+            # tree appears immediately, ahead of the recalc's cpm_complete. Deferred
+            # via on_commit for the same reason as the project_updated broadcast
+            # below — correct today (no ambient transaction → fires post-commit) and
+            # future-proof if import_project is ever wrapped in atomic().
+            from django.db import transaction
+
+            from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+            transaction.on_commit(
+                lambda: broadcast_board_event(project_id, "tasks_restructured", {})
+            )
+
         # #873/#867: an imported task that predated the project start pulled the
         # start back (committed inside import_project). Broadcast project_updated
         # so collaborators viewing an existing project re-fetch the new boundary
