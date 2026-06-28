@@ -93,7 +93,7 @@ export function SignalLadder({
                 'flex h-8 flex-1 items-center justify-center gap-1 rounded text-[11px] font-medium transition-colors',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
                 filled
-                  ? 'bg-brand-primary text-white'
+                  ? 'bg-sage-500 text-navy-900'
                   : locked
                     ? 'border border-dashed border-neutral-border text-neutral-text-disabled'
                     : 'border border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-sunken',

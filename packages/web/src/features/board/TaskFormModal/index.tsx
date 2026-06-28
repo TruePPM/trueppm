@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import type { Task, TaskStatus, TaskType, GovernanceClass, DeliveryMode } from '@/types';
 import { ROLE_VIEWER, ROLE_MEMBER, ROLE_ADMIN } from '@/lib/roles';
+import { Button } from '@/components/Button';
 import { toast } from '@/components/Toast';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useSprints } from '@/hooks/useSprints';
@@ -1077,12 +1078,14 @@ export function TaskFormModal({
           >
             Cancel
           </button>
-          <button
+          <Button
             type="submit"
             form="task-form"
+            variant="primary"
+            size="md"
             disabled={!formIsValid || isPending}
             aria-keyshortcuts="Meta+S Control+S"
-            className="h-8 md:h-8 min-h-11 md:min-h-0 px-3.5 rounded-control bg-brand-primary text-white text-[13px] font-medium border-none hover:bg-brand-primary-dark focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-brand-primary focus-visible:outline-none disabled:opacity-50"
+            className="min-h-11 md:min-h-0"
           >
             {isPending
               ? (isEdit ? 'Saving…' : 'Creating…')
@@ -1091,7 +1094,7 @@ export function TaskFormModal({
                 : isMilestoneCreate
                   ? 'Create milestone'
                   : 'Create task'}
-          </button>
+          </Button>
         </div>
       </div>
     );

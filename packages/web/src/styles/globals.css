@@ -84,7 +84,7 @@
      (matching gantt-semantic-*) required for WCAG AA on the dark surface.   */
   :root {
     --semantic-critical:  185 28 28;    /* #B91C1C — AA text/border; brand fill #CF4438 via -bg */
-    --semantic-warning:   217 119 6;    /* #D97706 */
+    --semantic-warning:   133 77 14;    /* #854D0E — yellow-800: AA text/border on warning-bg (6.2:1 white, 5.4:1 warm canvas). Brand amber #D97706 lives only in --sem-warning-bg. Was #D97706 as text = 2.74:1, a 1.4.3 fail (issue 1377). Kept distinct from at-risk #92400E (rule 145). */
     --semantic-on-track:  49 111 87;    /* sage-700 #316F57 — on-track text, 5.93:1 AA (brand fill #3E8C6D via -bg) */
     --semantic-at-risk:   146 64 14;    /* #92400E — AA text/border; brand fill #DE9326 via -bg */
   }

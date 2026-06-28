@@ -258,7 +258,7 @@ export function WorkspaceRolesPage() {
                           aria-label={granted ? 'Granted' : 'Not granted'}
                         >
                           {granted ? (
-                            <span className="w-[18px] h-[18px] rounded-full bg-brand-primary text-white inline-flex items-center justify-center">
+                            <span className="w-[18px] h-[18px] rounded-full bg-sage-500 text-navy-900 inline-flex items-center justify-center">
                               <CheckIcon />
                             </span>
                           ) : (

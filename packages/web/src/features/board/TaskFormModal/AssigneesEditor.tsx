@@ -89,7 +89,7 @@ export function AssigneesEditor({
         >
           <span
             aria-hidden="true"
-            className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-brand-primary text-white text-xs font-bold shrink-0"
+            className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-brand-primary/10 text-brand-primary text-xs font-bold shrink-0"
           >
             {initials(row.resourceName)}
           </span>

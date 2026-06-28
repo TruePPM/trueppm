@@ -1,6 +1,7 @@
 import { useId, useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router';
 import axios from 'axios';
+import { Button } from '@/components/Button';
 
 interface AcceptResponse {
   detail: string;
@@ -61,7 +62,7 @@ export function InviteAcceptPage() {
         {/* Brand */}
         <div className="flex items-center gap-2">
           <div
-            className="w-9 h-9 rounded-card bg-brand-primary text-white flex items-center justify-center text-sm font-bold shrink-0"
+            className="w-9 h-9 rounded-card bg-sage-500 text-navy-900 flex items-center justify-center text-sm font-bold shrink-0"
             aria-hidden="true"
           >
             tP
@@ -163,20 +164,15 @@ export function InviteAcceptPage() {
               </p>
             )}
 
-            <button
+            <Button
               type="submit"
+              variant="primary"
+              size="lg"
               disabled={isSubmitting || !token}
-              className="
-                h-11 w-full rounded-control bg-brand-primary text-white
-                text-sm font-semibold
-                hover:bg-brand-primary-dark
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
-                disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed disabled:cursor-not-allowed
-                transition-colors
-              "
+              className="w-full min-h-[44px]"
             >
               {isSubmitting ? 'Accepting invite…' : 'Accept invite'}
-            </button>
+            </Button>
 
             <p className="text-xs text-neutral-text-disabled text-center">
               Already have an account?{' '}

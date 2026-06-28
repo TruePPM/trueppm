@@ -242,8 +242,10 @@ describe('BoardCardPopover (issue #304)', () => {
       }),
     );
     // Whitespace `aria-label` is normalised by accessible-name lookups;
-    // assert directly on the assignee chip's text content instead.
-    const chip = container.querySelector('.bg-brand-primary.font-bold');
+    // assert directly on the assignee chip's text content instead. The chip is
+    // a tinted identity avatar (rounded-chip + font-bold), so locate by those
+    // stable classes rather than the background token (issue 1025).
+    const chip = container.querySelector('.rounded-chip.font-bold');
     expect(chip?.textContent).toBe('?');
   });
 

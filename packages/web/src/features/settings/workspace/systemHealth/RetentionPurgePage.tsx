@@ -614,7 +614,7 @@ function ScheduleFields({
               className={[
                 'px-3 h-8 text-[13px] font-medium border-r border-neutral-border last:border-r-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset',
                 schedule.frequency === f.value
-                  ? 'bg-brand-primary text-white'
+                  ? 'bg-sage-500 text-navy-900'
                   : 'bg-neutral-surface-raised text-neutral-text-primary hover:bg-neutral-surface-sunken',
               ].join(' ')}
             >

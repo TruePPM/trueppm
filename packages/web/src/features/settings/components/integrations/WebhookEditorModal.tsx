@@ -167,7 +167,7 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
                         'h-7 px-3 rounded text-[12px] font-medium border',
                         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
                         active
-                          ? 'bg-brand-primary text-white border-brand-primary'
+                          ? 'bg-sage-500 text-navy-900 border-sage-600'
                           : 'border-neutral-border text-neutral-text-secondary hover:text-neutral-text-primary',
                         !f.available ? 'opacity-40 cursor-not-allowed' : '',
                       ].join(' ')}
@@ -224,7 +224,7 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
                           </span>
                           <span className="text-neutral-text-primary">· {ev.label}</span>
                           {ev.isNew && (
-                            <span className="ml-auto text-[11px] font-semibold text-white bg-brand-primary rounded px-1.5 py-0.5">
+                            <span className="ml-auto text-[11px] font-semibold text-navy-900 bg-sage-500 rounded px-1.5 py-0.5">
                               new
                             </span>
                           )}
@@ -295,7 +295,7 @@ function SlackPreview() {
           rule 8. The avatar/accent use TruePPM brand tokens. */}
       <div className="bg-white border border-[#E4E4E0] rounded-card p-3.5 text-[13px] text-[#1d1c1d] leading-snug">
         <div className="flex gap-2.5 mb-2">
-          <span className="w-8 h-8 rounded bg-brand-primary text-white inline-flex items-center justify-center font-bold text-[13px] shrink-0">
+          <span className="w-8 h-8 rounded bg-sage-500 text-navy-900 inline-flex items-center justify-center font-bold text-[13px] shrink-0">
             tP
           </span>
           <span className="flex flex-col">

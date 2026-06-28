@@ -231,7 +231,7 @@ function CadenceSection({
                         {opt.label}
                       </span>
                       {isSelected && (
-                        <span className="w-4 h-4 rounded-full flex items-center justify-center shrink-0 bg-brand-primary text-white">
+                        <span className="w-4 h-4 rounded-full flex items-center justify-center shrink-0 bg-sage-500 text-navy-900">
                           <svg width="10" height="10" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                             <path
                               d="M3 8l4 4 6-7"

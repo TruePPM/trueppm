@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Button } from '@/components/Button';
 import type { BoardColumnDef } from '@/hooks/useBoardConfig';
 import type { TaskStatus } from '@/types';
 
@@ -188,18 +189,15 @@ export function BoardSettingsPanel({ columns, onSave, onClose, readOnly = false 
               Cancel
             </button>
             {!readOnly && (
-              <button
-                type="button"
+              <Button
+                variant="primary"
+                size="sm"
                 onClick={() => { void handleSave(); }}
                 disabled={!isDirty || hasErrors || isSaving}
-                className="inline-flex items-center justify-center min-h-[44px] px-3 rounded-control
-                  bg-brand-primary text-white text-xs font-medium
-                  disabled:opacity-50 disabled:cursor-not-allowed
-                  hover:bg-brand-primary/90
-                  focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
+                className="min-h-[44px]"
               >
                 {isSaving ? 'Saving…' : 'Save'}
-              </button>
+              </Button>
             )}
           </div>
         </div>
