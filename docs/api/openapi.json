@@ -21215,6 +21215,17 @@
             "get": {
                 "operationId": "v1_workspace_export_list",
                 "description": "GET lists recent export jobs; POST queues a new full export (#641). Owner only.",
+                "parameters": [
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
                 "tags": [
                     "v1"
                 ],
@@ -21231,10 +21242,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "array",
-                                    "items": {
-                                        "$ref": "#/components/schemas/WorkspaceExportJob"
-                                    }
+                                    "$ref": "#/components/schemas/PaginatedWorkspaceExportJobList"
                                 }
                             }
                         },
@@ -21347,6 +21355,17 @@
             "get": {
                 "operationId": "v1_workspace_groups_list",
                 "description": "GET/POST /api/v1/workspace/groups/ (#519). Read and create: admin only.",
+                "parameters": [
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
                 "tags": [
                     "v1"
                 ],
@@ -21363,10 +21382,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "array",
-                                    "items": {
-                                        "$ref": "#/components/schemas/Group"
-                                    }
+                                    "$ref": "#/components/schemas/PaginatedGroupList"
                                 }
                             }
                         },
@@ -21952,6 +21968,17 @@
             "get": {
                 "operationId": "v1_workspace_invites_list",
                 "description": "GET/POST /api/v1/workspace/invites/ (#518). Admin only.",
+                "parameters": [
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
                 "tags": [
                     "v1"
                 ],
@@ -21968,10 +21995,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "array",
-                                    "items": {
-                                        "$ref": "#/components/schemas/WorkspaceInvite"
-                                    }
+                                    "$ref": "#/components/schemas/PaginatedWorkspaceInviteList"
                                 }
                             }
                         },
@@ -25801,6 +25825,37 @@
                     }
                 }
             },
+            "PaginatedGroupList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Group"
+                        }
+                    }
+                }
+            },
             "PaginatedMeWorkTaskList": {
                 "type": "object",
                 "required": [
@@ -26758,6 +26813,68 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/Webhook"
+                        }
+                    }
+                }
+            },
+            "PaginatedWorkspaceExportJobList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/WorkspaceExportJob"
+                        }
+                    }
+                }
+            },
+            "PaginatedWorkspaceInviteList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/WorkspaceInvite"
                         }
                     }
                 }

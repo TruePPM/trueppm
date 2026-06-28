@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { apiClient } from '@/api/client';
+import { fetchAllPages } from '@/api/pagination';
 import type { WorkspaceGroup, WorkspaceGroupMember } from '@/api/types';
 
 // Re-export types so existing call sites keep working.
@@ -34,8 +34,10 @@ export function useWorkspaceGroups() {
   return useQuery({
     queryKey: ['workspace-groups'],
     queryFn: async () => {
-      const res = await apiClient.get<WorkspaceGroupRaw[]>('/workspace/groups/');
-      return res.data.map(mapGroup);
+      // /workspace/groups/ now returns the standard page-number envelope (issue 1355);
+      // page through it like every other list endpoint.
+      const rows = await fetchAllPages<WorkspaceGroupRaw>('/workspace/groups/');
+      return rows.map(mapGroup);
     },
   });
 }

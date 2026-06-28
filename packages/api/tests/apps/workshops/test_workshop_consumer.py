@@ -145,3 +145,60 @@ async def test_receive_drops_non_dict_frame(user_obj: object, project: Project) 
 @pytest.fixture
 def user_obj(db: object) -> object:
     return User.objects.create_user(username="wsk_relay", password="pw")
+
+
+# ---------------------------------------------------------------------------
+# #1355 — workshop_event stamps the shared protocol_version onto every frame
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_workshop_event_stamps_protocol_version(user_obj: object, project: Project) -> None:
+    """Every frame the consumer pushes to a client carries protocol_version (#1355)."""
+    from trueppm_api.apps.sync.broadcast import WS_PROTOCOL_VERSION
+
+    consumer = _ready_consumer(user_obj, project)
+    consumer.send_json = AsyncMock()  # type: ignore[method-assign]
+
+    await consumer.workshop_event(
+        {"type": "workshop.event", "content": {"type": "cursor_move", "x": 1}, "sender": "other"}
+    )
+
+    consumer.send_json.assert_awaited_once()
+    sent = consumer.send_json.await_args.args[0]
+    assert sent["protocol_version"] == WS_PROTOCOL_VERSION
+    assert sent["type"] == "cursor_move"
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_workshop_event_does_not_mutate_source(user_obj: object, project: Project) -> None:
+    """The shared channel-layer event dict is copied, never mutated (#1355)."""
+    consumer = _ready_consumer(user_obj, project)
+    consumer.send_json = AsyncMock()  # type: ignore[method-assign]
+
+    content = {"type": "cursor_move", "x": 1}
+    await consumer.workshop_event({"type": "workshop.event", "content": content, "sender": "other"})
+
+    # The fan-out source dict must not gain protocol_version — other group
+    # members each stamp their own copy.
+    assert "protocol_version" not in content
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_workshop_event_excludes_sender(user_obj: object, project: Project) -> None:
+    """A frame originating from this channel is not echoed back to its sender."""
+    consumer = _ready_consumer(user_obj, project)
+    consumer.send_json = AsyncMock()  # type: ignore[method-assign]
+
+    await consumer.workshop_event(
+        {
+            "type": "workshop.event",
+            "content": {"type": "cursor_move"},
+            "sender": consumer.channel_name,
+        }
+    )
+
+    consumer.send_json.assert_not_awaited()

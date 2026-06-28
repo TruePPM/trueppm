@@ -9,32 +9,89 @@
  *
  * SlotId is the public contract between the two repos. Additions are
  * non-breaking; renames and removals are major-version changes.
+ *
+ * LIVE vs RESERVED (public-surface contract freeze, issue 1355). A slot is
+ * `LIVE` when an OSS shell component actually calls `registry.get(slot)` at a
+ * render point today — registering against it surfaces a component in the OSS
+ * UI. A slot is `RESERVED` when it is part of the frozen contract (so enterprise
+ * may depend on the name) but OSS has **no** render point yet, so registering
+ * against it renders nothing until the OSS host is wired. RESERVED slots are
+ * kept (not removed) precisely because removal would break the enterprise
+ * contract this freeze exists to protect; their OSS host wiring is tracked in
+ * issue 1175 and issue 1162. Do not register production enterprise overlays
+ * against a RESERVED slot expecting output before its host lands.
  */
 
 import type { ComponentType } from 'react';
 
 export type SlotId =
-  | 'project_overview.kpi_row' // additional KPI cards right of the 4 OSS cards
-  | 'project_overview.hero_right' // replaces/extends the "Needs attention" panel
-  | 'project_overview.below_hero' // rows injected below the hero row
-  | 'nav.portfolio_section' // nav rail section above the project switcher
-  | 'top_bar.context' // items to the right of the project name chip
-  | 'routes' // additional React Router routes (path + element)
+  | 'project_overview.kpi_row' // RESERVED (no OSS host yet — issue 1175): additional KPI cards right of the 4 OSS cards
+  | 'project_overview.hero_right' // RESERVED (no OSS host yet — issue 1175): replaces/extends the "Needs attention" panel
+  | 'project_overview.below_hero' // RESERVED (no OSS host yet — issue 1175): rows injected below the hero row
+  | 'nav.portfolio_section' // RESERVED (no OSS host yet — issue 1162): nav rail section above the project switcher
+  | 'top_bar.context' // RESERVED (no OSS host yet — issue 1162): items to the right of the project name chip
+  | 'routes' // RESERVED (no OSS host yet — issue 1162): additional React Router routes (path + element)
   // --- Resource catalog slots (issue #155, ADR-0034) ---
-  | 'resources_page.toolbar_end' // Enterprise: "Sync from LDAP" button + last-synced timestamp
-  | 'resources_page.detail_managed_by' // Enterprise: "Managed by Active Directory" badge in detail pane
-  | 'resources_page.create_form_extension' // Enterprise: extra fields in the create/edit form
+  | 'resources_page.toolbar_end' // RESERVED (no OSS host yet — issue 1175): Enterprise "Sync from LDAP" button + last-synced timestamp
+  | 'resources_page.detail_managed_by' // RESERVED (no OSS host yet — issue 1175): Enterprise "Managed by Active Directory" badge in detail pane
+  | 'resources_page.create_form_extension' // RESERVED (no OSS host yet — issue 1175): Enterprise extra fields in the create/edit form
   // --- Resource heatmap slots (issue #217 / ADR-0042) ---
-  | 'resources_heatmap.level_loads' // Enterprise: replaces the static disabled "Level loads" upsell button
+  | 'resources_heatmap.level_loads' // LIVE (HeatmapPage): Enterprise replaces the static disabled "Level loads" upsell button
   // --- Task detail drawer slots (issue #309 / ADR-0050) ---
-  | 'task_detail.section' // sections inside TaskDetailDrawer (OSS + Enterprise)
-  | 'task_detail.external_links' // external link cards (separate from .section to avoid the priority ladder collision; ADR-0076)
+  | 'task_detail.section' // LIVE (TaskDetailDrawer + TaskDetailPage): sections inside the drawer (OSS + Enterprise)
+  | 'task_detail.external_links' // RESERVED (no OSS host yet — issue 1175): external link cards (separate from .section to avoid the priority ladder collision; ADR-0076)
   // --- Project settings slots (issue #569 / ADR-0076) ---
-  | 'project_settings.integrations' // extra cards rendered below the OSS three sections (Enterprise extension point)
+  | 'project_settings.integrations' // LIVE (Project/ProgramIntegrationsPage): extra cards rendered below the OSS three sections (Enterprise extension point)
   // --- User settings slots (issue #587 / ADR-0049) ---
-  | 'user_settings.connected_accounts' // extra provider cards on User → Settings → Connected Accounts (Enterprise extension point — Jira / ServiceNow / Bitbucket / Azure DevOps register here)
+  | 'user_settings.connected_accounts' // LIVE (ConnectedAccountsPage): extra provider cards on User → Settings → Connected Accounts (Enterprise extension point — Jira / ServiceNow / Bitbucket / Azure DevOps register here)
   // --- Unified Today view slots (issue 412 / ADR-0180) ---
-  | 'today_view.gate_status'; // Enterprise: gate-status + change-request alert cards on the Today schedule strip; renders nothing in OSS
+  | 'today_view.gate_status'; // LIVE (SchedulePulse): Enterprise gate-status + change-request alert cards on the Today schedule strip; renders nothing in OSS
+
+/**
+ * Slots OSS renders today — each has a `registry.get(slot)` render point in the
+ * OSS shell, so an enterprise registration against it surfaces in the UI.
+ */
+export const LIVE_SLOTS = [
+  'resources_heatmap.level_loads',
+  'task_detail.section',
+  'project_settings.integrations',
+  'user_settings.connected_accounts',
+  'today_view.gate_status',
+] as const satisfies readonly SlotId[];
+
+/**
+ * Slots that are part of the frozen contract but have **no** OSS render point
+ * yet (issue 1355). Registering against one renders nothing until the OSS host
+ * is wired (tracked in issue 1175 and issue 1162). They are retained, not
+ * removed, because removal would break the enterprise contract the freeze
+ * protects.
+ */
+export const RESERVED_SLOTS = [
+  'project_overview.kpi_row',
+  'project_overview.hero_right',
+  'project_overview.below_hero',
+  'nav.portfolio_section',
+  'top_bar.context',
+  'routes',
+  'resources_page.toolbar_end',
+  'resources_page.detail_managed_by',
+  'resources_page.create_form_extension',
+  'task_detail.external_links',
+] as const satisfies readonly SlotId[];
+
+/** True when `slot` is in the contract but has no OSS render point yet. */
+export function isReservedSlot(slot: SlotId): boolean {
+  return (RESERVED_SLOTS as readonly SlotId[]).includes(slot);
+}
+
+// Compile-time exhaustiveness: every SlotId must be classified as LIVE or
+// RESERVED. Adding a SlotId without listing it above makes `_Unclassified`
+// non-`never`, which fails this assertion at `tsc` time — the freeze that keeps
+// the runtime classification honest as the contract grows.
+type _ClassifiedSlot = (typeof LIVE_SLOTS)[number] | (typeof RESERVED_SLOTS)[number];
+type _Unclassified = Exclude<SlotId, _ClassifiedSlot>;
+const _assertAllSlotsClassified: _Unclassified extends never ? true : false = true;
+void _assertAllSlotsClassified;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export interface SlotRegistration<T = ComponentType<any>> {

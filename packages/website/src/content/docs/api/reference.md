@@ -91,12 +91,14 @@ Clears the refresh cookie and best-effort blacklists the presented refresh token
 (when the blacklist app is installed). Idempotent — always returns `205 Reset
 Content`, whether or not a cookie was present.
 
+The legacy bare `AUTH_REFRESH_COOKIE_*` names are still accepted as fallbacks.
+
 | Setting | Default | Purpose |
 |---------|---------|---------|
-| `AUTH_REFRESH_COOKIE_NAME` | `trueppm_refresh` | Cookie name for the refresh token. |
-| `AUTH_REFRESH_COOKIE_PATH` | `/api/v1/auth/token/refresh/` | Restricts the cookie to the refresh endpoint. |
-| `AUTH_REFRESH_COOKIE_SAMESITE` | `Strict` | CSRF posture — the cookie is never sent cross-site. |
-| `AUTH_REFRESH_COOKIE_SECURE` | `True` | HTTPS-only cookie. Set `False` only for non-TLS local development. |
+| `TRUEPPM_AUTH_REFRESH_COOKIE_NAME` | `trueppm_refresh` | Cookie name for the refresh token. |
+| `TRUEPPM_AUTH_REFRESH_COOKIE_PATH` | `/api/v1/auth/token/refresh/` | Restricts the cookie to the refresh endpoint. |
+| `TRUEPPM_AUTH_REFRESH_COOKIE_SAMESITE` | `Strict` | CSRF posture — the cookie is never sent cross-site. |
+| `TRUEPPM_AUTH_REFRESH_COOKIE_SECURE` | `True` | HTTPS-only cookie. Set `False` only for non-TLS local development. |
 
 ### Project-scoped API token (`projectApiTokenAuth`)
 

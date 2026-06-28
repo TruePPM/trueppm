@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { ComponentType } from 'react';
-import { WidgetRegistry } from './widget-registry';
+import {
+  WidgetRegistry,
+  LIVE_SLOTS,
+  RESERVED_SLOTS,
+  isReservedSlot,
+} from './widget-registry';
 
 // Tests instantiate a fresh WidgetRegistry per test to isolate state from the
 // exported `registry` singleton (which accumulates across imports). This used
@@ -199,5 +204,55 @@ describe('WidgetRegistry', () => {
 
     const ids = registry.get('task_detail.section').map((r) => r.id);
     expect(ids).toEqual(['b', 'a']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Slot contract freeze (issue 1355)
+// ---------------------------------------------------------------------------
+
+describe('Slot contract freeze — LIVE vs RESERVED', () => {
+  // Pinned snapshots. Changing either set is a deliberate contract change that
+  // must be reviewed here: a slot moves LIVE only when its OSS render point
+  // lands, and no slot may be dropped (removal breaks the enterprise contract).
+  it('freezes the LIVE slot set (each has an OSS render point today)', () => {
+    expect([...LIVE_SLOTS].sort()).toEqual(
+      [
+        'project_settings.integrations',
+        'resources_heatmap.level_loads',
+        'task_detail.section',
+        'today_view.gate_status',
+        'user_settings.connected_accounts',
+      ].sort(),
+    );
+  });
+
+  it('freezes the RESERVED slot set (in the contract, no OSS render point yet)', () => {
+    expect([...RESERVED_SLOTS].sort()).toEqual(
+      [
+        'nav.portfolio_section',
+        'project_overview.below_hero',
+        'project_overview.hero_right',
+        'project_overview.kpi_row',
+        'resources_page.create_form_extension',
+        'resources_page.detail_managed_by',
+        'resources_page.toolbar_end',
+        'routes',
+        'task_detail.external_links',
+        'top_bar.context',
+      ].sort(),
+    );
+  });
+
+  it('LIVE and RESERVED are disjoint', () => {
+    const overlap = LIVE_SLOTS.filter((s) => (RESERVED_SLOTS as readonly string[]).includes(s));
+    expect(overlap).toEqual([]);
+  });
+
+  it('isReservedSlot reflects the classification', () => {
+    expect(isReservedSlot('nav.portfolio_section')).toBe(true);
+    expect(isReservedSlot('task_detail.external_links')).toBe(true);
+    expect(isReservedSlot('task_detail.section')).toBe(false);
+    expect(isReservedSlot('today_view.gate_status')).toBe(false);
   });
 });

@@ -344,7 +344,7 @@ test.describe('Workspace Members page', () => {
       r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([MEMBER]) }),
     );
     await page.route('**/api/v1/workspace/invites/', (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: pj([]) }),
+      r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([]) }),
     );
 
     await page.goto('/settings/members');
@@ -364,7 +364,7 @@ test.describe('Workspace Members page', () => {
       r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([MEMBER]) }),
     );
     await page.route('**/api/v1/workspace/invites/', (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: pj([INVITE]) }),
+      r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([INVITE]) }),
     );
 
     await page.goto('/settings/members');
@@ -382,7 +382,7 @@ test.describe('Workspace Members page', () => {
       if (r.request().method() === 'POST') {
         return r.fulfill({ status: 201, contentType: 'application/json', body: pj(INVITE) });
       }
-      return r.fulfill({ status: 200, contentType: 'application/json', body: pj([]) });
+      return r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([]) });
     });
 
     await page.goto('/settings/members');
@@ -403,7 +403,7 @@ test.describe('Workspace Members page', () => {
       r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([MEMBER]) }),
     );
     await page.route('**/api/v1/workspace/invites/', (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: pj([]) }),
+      r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([]) }),
     );
 
     await page.goto('/settings/members');
@@ -432,7 +432,7 @@ test.describe('Workspace Members page', () => {
       return r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([]) });
     });
     await page.route('**/api/v1/workspace/invites/', (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: pj([]) }),
+      r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([]) }),
     );
 
     await page.goto('/settings/members');
@@ -572,7 +572,7 @@ test.describe('Resend invite (#969)', () => {
       r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([MEMBER]) }),
     );
     await page.route('**/api/v1/workspace/invites/', (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: pj([INVITE]) }),
+      r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([INVITE]) }),
     );
     let resendPosted = false;
     await page.route('**/api/v1/workspace/invites/inv-1/resend/', (r) => {
@@ -595,7 +595,7 @@ test.describe('Resend invite (#969)', () => {
       r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([MEMBER]) }),
     );
     await page.route('**/api/v1/workspace/invites/', (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: pj([INVITE]) }),
+      r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([INVITE]) }),
     );
     let resendAllPosted = false;
     await page.route('**/api/v1/workspace/invites/resend-all/', (r) => {
@@ -616,7 +616,7 @@ test.describe('Resend invite (#969)', () => {
       r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([MEMBER]) }),
     );
     await page.route('**/api/v1/workspace/invites/', (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: pj([INVITE]) }),
+      r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([INVITE]) }),
     );
     await page.route('**/api/v1/workspace/invites/inv-1/resend/', (r) =>
       r.fulfill({ status: 429, contentType: 'application/json', body: pj({ detail: 'throttled' }) }),
@@ -640,7 +640,7 @@ test.describe('Workspace Groups page', () => {
   test('golden path — shows group name and description', async ({ page }) => {
     await setup(page);
     await page.route('**/api/v1/workspace/groups/', (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: pj([GROUP]) }),
+      r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([GROUP]) }),
     );
 
     await page.goto('/settings/groups');
@@ -662,7 +662,7 @@ test.describe('Workspace Groups page', () => {
           body: pj({ ...GROUP, id: 'grp-new', name: 'Propulsion' }),
         });
       }
-      return r.fulfill({ status: 200, contentType: 'application/json', body: pj([GROUP]) });
+      return r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([GROUP]) });
     });
 
     await page.goto('/settings/groups');
@@ -677,7 +677,7 @@ test.describe('Workspace Groups page', () => {
   test('empty state — shows empty-state message when no groups exist', async ({ page }) => {
     await setup(page);
     await page.route('**/api/v1/workspace/groups/', (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: pj([]) }),
+      r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([]) }),
     );
 
     await page.goto('/settings/groups');
@@ -694,7 +694,7 @@ test.describe('Workspace Groups page', () => {
 
     await page.route('**/api/v1/workspace/groups/', async (r) => {
       await pending;
-      return r.fulfill({ status: 200, contentType: 'application/json', body: pj([GROUP]) });
+      return r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([GROUP]) });
     });
 
     await page.goto('/settings/groups');

@@ -11,8 +11,29 @@ from datetime import date, datetime, timedelta
 from typing import Any, Self
 
 
+# Enum value-casing convention (frozen public contract).
+#
+# These string *values* are persisted to disk and round-tripped by PyPI
+# consumers, so their casing is a 1.0 contract that must not change without a
+# coordinated data migration in every store that holds them (including the
+# TruePPM API, which mirrors both enums). Two deliberate, distinct conventions:
+#
+#   * Acronym enums use UPPERCASE values that *are* the acronym
+#     (``DependencyType``: ``FS``/``FF``/``SS``/``SF`` — the industry CPM
+#     convention shared by MS Project and Primavera and by the API
+#     ``DependencyType``).
+#   * Word enums use lowercase identifier values (``DeliveryMode``:
+#     ``waterfall``/``scrum`` — matching the API ``DeliveryMode`` TextChoices).
+#
+# The casing therefore differs *between* the two enums by design; it is uniform
+# *within* each value-kind. Do not "normalise" one to the other — that would
+# break interop with the API and every serialized document already on disk.
 class DependencyType(enum.Enum):
-    """Relationship type between two tasks."""
+    """Relationship type between two tasks.
+
+    Values are uppercase acronyms (``FS``/``FF``/``SS``/``SF``); see the
+    enum-casing convention note above — this casing is a frozen public contract.
+    """
 
     FS = "FS"  # Finish-to-Start
     FF = "FF"  # Finish-to-Finish
@@ -22,6 +43,9 @@ class DependencyType(enum.Enum):
 
 class DeliveryMode(enum.Enum):
     """How a task's duration uncertainty is modeled in Monte Carlo.
+
+    Values are lowercase identifiers (``waterfall``/``scrum``); see the
+    enum-casing convention note above — this casing is a frozen public contract.
 
     ``WATERFALL`` (the default when ``Task.delivery_mode`` is ``None``) samples
     from the task's three-point PERT estimate, or uses the deterministic duration
@@ -48,10 +72,22 @@ class DateRange:
             raise ValueError(msg)
 
     def to_dict(self) -> dict[str, str]:
+        """Serialize to a JSON-safe dict with ISO-8601 ``start``/``end`` dates."""
         return {"start": self.start.isoformat(), "end": self.end.isoformat()}
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
+        """Build a :class:`DateRange` from a ``to_dict`` mapping.
+
+        Args:
+            data: A mapping with ISO-8601 ``start`` and ``end`` date strings.
+
+        Returns:
+            The reconstructed :class:`DateRange`.
+
+        Raises:
+            InvalidScheduleInput: If a key is missing or a date is malformed.
+        """
         # Wrap malformed input in the public InvalidScheduleInput (#826) so the
         # deserialization surface raises one documented exception type.
         from trueppm_scheduler.engine import InvalidScheduleInput
@@ -139,11 +175,32 @@ class Task:
     calendar_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize the task to a JSON-safe dict.
+
+        Durations are emitted as seconds (floats), dates as ISO-8601 strings, and
+        ``delivery_mode`` as its enum value — the inverse of :meth:`from_dict`.
+        Reserved-but-inert fields (``planned_finish``) round-trip unchanged.
+        """
         result: dict[str, Any] = _serialize(asdict(self))
         return result
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
+        """Build a :class:`Task` from a :meth:`to_dict` mapping.
+
+        Args:
+            data: A task mapping. ``duration`` and the PERT/float fields are
+                seconds (int/float) or timedeltas; date fields are ISO-8601
+                strings; ``delivery_mode`` is a :class:`DeliveryMode` value.
+
+        Returns:
+            The reconstructed :class:`Task`.
+
+        Raises:
+            InvalidScheduleInput: If a required field is missing or malformed, a
+                numeric field is non-finite, or ``delivery_mode`` is not a known
+                mode.
+        """
         # Wrap the whole body so a directly-called Task.from_dict (a public
         # classmethod) raises the documented InvalidScheduleInput rather than a bare
         # TypeError/KeyError — e.g. a non-string planned_start hitting
@@ -215,6 +272,7 @@ class Dependency:
     lag: timedelta = field(default_factory=timedelta)
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize to a JSON-safe dict (``dep_type`` as its value, lag as seconds)."""
         return {
             "predecessor_id": self.predecessor_id,
             "successor_id": self.successor_id,
@@ -224,6 +282,19 @@ class Dependency:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
+        """Build a :class:`Dependency` from a :meth:`to_dict` mapping.
+
+        Args:
+            data: A mapping with ``predecessor_id``, ``successor_id``, an optional
+                ``dep_type`` (defaults to ``FS``), and an optional ``lag`` in
+                seconds.
+
+        Returns:
+            The reconstructed :class:`Dependency`.
+
+        Raises:
+            InvalidScheduleInput: If ``dep_type`` is not a known dependency type.
+        """
         # A bad dep_type would otherwise surface as Python's bare
         # ``ValueError: 'XX' is not a valid DependencyType`` — accurate but it
         # neither names the field nor lists what *is* allowed, which is exactly
@@ -321,6 +392,12 @@ class Calendar:
         return self._exc_index
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize to a JSON-safe dict.
+
+        Emits the ``working_days`` bitmask, serialized ``exceptions``, and the
+        reserved-but-inert ``hours_per_day``/``timezone`` fields. The private
+        exception-index cache is excluded — it is rebuilt lazily on load.
+        """
         return {
             "working_days": self.working_days,
             "exceptions": [e.to_dict() for e in self.exceptions],
@@ -330,6 +407,20 @@ class Calendar:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
+        """Build a :class:`Calendar` from a :meth:`to_dict` mapping.
+
+        Args:
+            data: A mapping with an optional ``working_days`` integer bitmask in
+                ``[0, 127]`` (defaults to Mon-Fri), an ``exceptions`` list of
+                date-range mappings, and optional ``hours_per_day``/``timezone``.
+
+        Returns:
+            The reconstructed :class:`Calendar`.
+
+        Raises:
+            InvalidScheduleInput: If ``data`` is not a mapping or ``working_days``
+                is not an integer bitmask in range.
+        """
         from trueppm_scheduler.engine import InvalidScheduleInput
 
         # A non-dict ``calendar`` (e.g. the JSON string ``"weekdays"``) otherwise
@@ -393,6 +484,12 @@ class Project:
     calendars: dict[str, Calendar] | None = None
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize the whole project graph to a JSON-safe dict.
+
+        Recursively serializes tasks, dependencies, and the calendar(s); dates
+        become ISO-8601 strings and the optional per-task calendar registry is
+        emitted as ``null`` when unused. The inverse of :meth:`from_dict`.
+        """
         return {
             "id": self.id,
             "name": self.name,
@@ -412,6 +509,21 @@ class Project:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
+        """Build a :class:`Project` from a :meth:`to_dict` mapping.
+
+        Args:
+            data: A project mapping with ``id``, ``name``, ``start_date`` and
+                optional ``tasks``, ``dependencies``, ``calendar``, velocity
+                inputs, ``status_date``, and per-task ``calendars`` registry.
+
+        Returns:
+            The reconstructed :class:`Project`.
+
+        Raises:
+            InvalidScheduleInput: If the document is not a mapping, a required
+                field is missing, or any nested task/dependency/calendar is
+                malformed (non-finite velocity samples included).
+        """
         # Wrap the raw KeyError/ValueError/TypeError from a malformed document in
         # the public InvalidScheduleInput so the documented exception surface is
         # complete (#826) — callers catch one exception type, not the internals
@@ -465,10 +577,34 @@ class Project:
             raise InvalidScheduleInput(f"Invalid project document: {err}") from err
 
     def to_json(self, **kwargs: Any) -> str:
+        """Serialize the project to a JSON string.
+
+        Args:
+            **kwargs: Forwarded to :func:`json.dumps` (e.g. ``indent``).
+
+        Returns:
+            The project's :meth:`to_dict` form encoded as JSON.
+        """
         return json.dumps(self.to_dict(), **kwargs)
 
     @classmethod
     def from_json(cls, s: str) -> Self:
+        """Build a :class:`Project` from a JSON string produced by :meth:`to_json`.
+
+        Non-standard JSON literals (``NaN``/``Infinity``/``-Infinity``) are
+        rejected so a hostile document cannot smuggle a non-finite value into the
+        engine.
+
+        Args:
+            s: A JSON document describing a project.
+
+        Returns:
+            The reconstructed :class:`Project`.
+
+        Raises:
+            InvalidScheduleInput: If the JSON is malformed, nested too deeply, or
+                describes an invalid project (see :meth:`from_dict`).
+        """
         # json.loads accepts the non-standard literals NaN/Infinity/-Infinity by
         # default; reject them so a hostile document can't smuggle a non-finite
         # duration (→ OverflowError) or percent_complete (→ invalid JSON on the

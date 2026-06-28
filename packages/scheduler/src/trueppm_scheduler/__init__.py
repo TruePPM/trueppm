@@ -12,10 +12,20 @@ except PackageNotFoundError:  # running from an un-installed source tree
     __version__ = "0.0.0+unknown"
 
 from trueppm_scheduler.engine import (
+    MAX_CALENDAR_EXCEPTIONS,
+    MAX_CALENDAR_SCAN_DAYS,
+    MAX_DURATION_DAYS,
+    MAX_EXPANDED_EDGES,
+    MAX_LAG_DAYS,
+    MAX_LAG_DELTA_CELLS,
+    MAX_PROJECT_SPAN_DAYS,
+    MAX_VELOCITY_SPRINTS,
+    MC_SENSITIVITY_CAP,
     CycleCheck,
     CyclicDependencyError,
     InvalidScheduleInput,
     MonteCarloResult,
+    SchedulerError,
     ScheduleResult,
     SimulationCapExceeded,
     SummaryExpansion,
@@ -35,7 +45,19 @@ from trueppm_scheduler.models import (
     Task,
 )
 
+# Flat, alphabetically sorted (RUF022). The ``MAX_*`` / ``MC_*`` validator caps
+# are exported so downstream validators (e.g. the TruePPM API) enforce the *same*
+# bounds as the engine rather than drifting from them.
 __all__ = [
+    "MAX_CALENDAR_EXCEPTIONS",
+    "MAX_CALENDAR_SCAN_DAYS",
+    "MAX_DURATION_DAYS",
+    "MAX_EXPANDED_EDGES",
+    "MAX_LAG_DAYS",
+    "MAX_LAG_DELTA_CELLS",
+    "MAX_PROJECT_SPAN_DAYS",
+    "MAX_VELOCITY_SPRINTS",
+    "MC_SENSITIVITY_CAP",
     "Calendar",
     "CycleCheck",
     "CyclicDependencyError",
@@ -47,6 +69,7 @@ __all__ = [
     "MonteCarloResult",
     "Project",
     "ScheduleResult",
+    "SchedulerError",
     "SimulationCapExceeded",
     "SummaryExpansion",
     "Task",

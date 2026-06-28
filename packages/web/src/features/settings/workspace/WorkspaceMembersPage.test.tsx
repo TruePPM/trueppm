@@ -48,12 +48,14 @@ function makeWrapper() {
 
 function setupMocks() {
   getMock.mockImplementation((url: string) => {
-    // /workspace/members/ is cursor-paginated (#1317); fetchAllPages reads
-    // .results and follows .next (null → single page).
+    // /workspace/members/ is cursor-paginated (#1317); /workspace/invites/ is
+    // page-number paginated (#1355). fetchAllPages reads .results and follows
+    // .next (null → single page) for both.
     if (url.includes('/workspace/members/'))
       return Promise.resolve({ data: { results: MEMBERS, next: null } });
-    if (url.includes('/workspace/invites/')) return Promise.resolve({ data: [] });
-    return Promise.resolve({ data: [] });
+    if (url.includes('/workspace/invites/'))
+      return Promise.resolve({ data: { results: [], next: null } });
+    return Promise.resolve({ data: { results: [], next: null } });
   });
 }
 
@@ -346,17 +348,21 @@ describe('WorkspaceMembersPage — Resend invite (issue 969)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getMock.mockImplementation((url: string) => {
-      // /workspace/members/ is cursor-paginated (#1317); fetchAllPages reads
-    // .results and follows .next (null → single page).
-    if (url.includes('/workspace/members/'))
-      return Promise.resolve({ data: { results: MEMBERS, next: null } });
+      // /workspace/members/ is cursor-paginated (#1317); /workspace/invites/ is
+      // page-number paginated (#1355). fetchAllPages reads .results and follows
+      // .next (null → single page) for both.
+      if (url.includes('/workspace/members/'))
+        return Promise.resolve({ data: { results: MEMBERS, next: null } });
       if (url.includes('/workspace/invites/'))
         return Promise.resolve({
-          data: [
-            { id: 'inv1', email: 'pending@truescope.io', role: 'Member', created_at: '2026-05-20', invited_by: 'Anika Krishnan' },
-          ],
+          data: {
+            results: [
+              { id: 'inv1', email: 'pending@truescope.io', role: 'Member', created_at: '2026-05-20', invited_by: 'Anika Krishnan' },
+            ],
+            next: null,
+          },
         });
-      return Promise.resolve({ data: [] });
+      return Promise.resolve({ data: { results: [], next: null } });
     });
   });
 
