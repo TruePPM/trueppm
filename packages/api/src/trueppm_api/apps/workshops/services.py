@@ -33,11 +33,16 @@ def start_workshop(project: Project, user: AbstractUser) -> WorkshopSession:
 
     from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
+    # Snapshot to plain strings before the deferred closure (#1359): capturing the
+    # ORM instances would re-read their state at commit time, after any later
+    # mutation in the same transaction.
+    project_id = str(project.pk)
+    session_id = str(session.pk)
     transaction.on_commit(
         lambda: broadcast_board_event(
-            project_id=str(project.pk),
+            project_id=project_id,
             event_type="workshop_started",
-            payload={"session_id": str(session.pk)},
+            payload={"session_id": session_id},
         )
     )
     return session
@@ -63,11 +68,14 @@ def end_workshop(session: WorkshopSession, user: AbstractUser) -> WorkshopSessio
 
     from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
+    # Snapshot to plain strings before the deferred closure (#1359).
+    project_id = str(session.project_id)
+    session_id = str(session.pk)
     transaction.on_commit(
         lambda: broadcast_board_event(
-            project_id=str(session.project_id),
+            project_id=project_id,
             event_type="workshop_ended",
-            payload={"session_id": str(session.pk)},
+            payload={"session_id": session_id},
         )
     )
     return session
@@ -94,11 +102,14 @@ def force_end_workshop(project: Project) -> WorkshopSession | None:
 
     from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
+    # Snapshot to plain strings before the deferred closure (#1359).
+    project_id = str(project.pk)
+    session_id = str(session.pk)
     transaction.on_commit(
         lambda: broadcast_board_event(
-            project_id=str(project.pk),
+            project_id=project_id,
             event_type="workshop_ended",
-            payload={"session_id": str(session.pk)},
+            payload={"session_id": session_id},
         )
     )
     return session

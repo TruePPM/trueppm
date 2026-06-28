@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date
 from decimal import Decimal
+from typing import Any
+from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -21,6 +24,8 @@ from trueppm_api.apps.resources.models import (
 )
 
 User = get_user_model()
+
+BROADCAST_PATH = "trueppm_api.apps.sync.broadcast.broadcast_board_event"
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
@@ -918,3 +923,81 @@ class TestTaskSkillRequirementSelectRelated:
         assert task_lazy_fetches == [], (
             f"Unexpected lazy task fetches in perform_destroy: {task_lazy_fetches}"
         )
+
+
+# ---------------------------------------------------------------------------
+# roster_changed broadcast on roster mutations (#1359)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestRosterChangedBroadcast:
+    """Every roster mutation must emit roster_changed so peers refetch live.
+
+    Before #1359 the destroy path only broadcast when assignments were cascaded,
+    so the common zero-assignment removal left other clients showing a stale
+    roster until a manual refresh; perform_update emitted nothing at all.
+    """
+
+    def test_zero_assignment_removal_broadcasts(
+        self,
+        scheduler_client: APIClient,
+        project: Project,
+        resource: Resource,
+        scheduler_membership: ProjectMembership,
+        django_capture_on_commit_callbacks: Callable[..., Any],
+    ) -> None:
+        """The regression at the heart of #1359: a removal with no assignments."""
+        pr = ProjectResource.objects.create(project=project, resource=resource)
+        events: list[tuple[str, dict]] = []
+        with (
+            patch(BROADCAST_PATH, side_effect=lambda _p, et, payload: events.append((et, payload))),
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            res = scheduler_client.delete(f"/api/v1/project-resources/{pr.pk}/")
+        assert res.status_code == 200
+        assert ("roster_changed", {"resource_id": str(resource.pk)}) in events
+
+    def test_force_removal_with_assignments_broadcasts(
+        self,
+        scheduler_client: APIClient,
+        project: Project,
+        resource: Resource,
+        task: Task,
+        scheduler_membership: ProjectMembership,
+        django_capture_on_commit_callbacks: Callable[..., Any],
+    ) -> None:
+        ProjectResource.objects.create(project=project, resource=resource)
+        TaskResource.objects.create(task=task, resource=resource, units=Decimal("1.0"))
+        pr = ProjectResource.objects.get(project=project, resource=resource)
+        events: list[str] = []
+        with (
+            patch(BROADCAST_PATH, side_effect=lambda _p, et, _payload: events.append(et)),
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            res = scheduler_client.delete(f"/api/v1/project-resources/{pr.pk}/?force=true")
+        assert res.status_code == 200
+        assert "roster_changed" in events
+
+    def test_allocation_edit_broadcasts(
+        self,
+        scheduler_client: APIClient,
+        project: Project,
+        resource: Resource,
+        scheduler_membership: ProjectMembership,
+        django_capture_on_commit_callbacks: Callable[..., Any],
+    ) -> None:
+        """perform_update (PATCH allocation/notes) now emits the live signal too."""
+        pr = ProjectResource.objects.create(project=project, resource=resource)
+        events: list[tuple[str, dict]] = []
+        with (
+            patch(BROADCAST_PATH, side_effect=lambda _p, et, payload: events.append((et, payload))),
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            res = scheduler_client.patch(
+                f"/api/v1/project-resources/{pr.pk}/",
+                {"notes": "Allocated 50% for Q3"},
+                format="json",
+            )
+        assert res.status_code == 200, res.data
+        assert ("roster_changed", {"resource_id": str(resource.pk)}) in events

@@ -7,6 +7,10 @@ atomicity on perform_destroy (perf-check R3).
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+from unittest.mock import patch
+
 import pytest
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
@@ -16,6 +20,8 @@ from trueppm_api.apps.projects.models import Calendar, Project, Task
 from trueppm_api.apps.resources.models import Resource, TaskResource
 
 User = get_user_model()
+
+BROADCAST_PATH = "trueppm_api.apps.sync.broadcast.broadcast_board_event"
 
 
 # ---------------------------------------------------------------------------
@@ -219,6 +225,31 @@ class TestResourceSoftDelete:
         resource.refresh_from_db()
         assert resource.is_deleted is True
 
+    def test_delete_broadcasts_roster_changed_to_assigned_projects(
+        self,
+        admin_client: APIClient,
+        project: Project,
+        resource: Resource,
+        django_capture_on_commit_callbacks: Callable[..., Any],
+    ) -> None:
+        """Soft-delete fans roster_changed out to every project the resource is on (#1359)."""
+        task = Task.objects.create(
+            project=project, name="Build feature", planned_start="2025-01-01", duration=8
+        )
+        TaskResource.objects.create(task=task, resource=resource, units=1.0)
+
+        events: list[tuple[str, str, dict]] = []
+        with (
+            patch(
+                BROADCAST_PATH,
+                side_effect=lambda pid, et, payload: events.append((pid, et, payload)),
+            ),
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            res = admin_client.delete(f"/api/v1/resources/{resource.pk}/")
+        assert res.status_code == 204
+        assert (str(project.pk), "roster_changed", {"resource_id": str(resource.pk)}) in events
+
 
 # ---------------------------------------------------------------------------
 # Restore action
@@ -238,6 +269,32 @@ class TestResourceRestore:
     ) -> None:
         res = admin_client.post(f"/api/v1/resources/{resource.pk}/restore/")
         assert res.status_code == 400
+
+    def test_restore_broadcasts_roster_changed_to_assigned_projects(
+        self,
+        admin_client: APIClient,
+        project: Project,
+        resource: Resource,
+        django_capture_on_commit_callbacks: Callable[..., Any],
+    ) -> None:
+        """Reactivation puts the resource back on its rosters → roster_changed (#1359)."""
+        task = Task.objects.create(
+            project=project, name="Build feature", planned_start="2025-01-01", duration=8
+        )
+        TaskResource.objects.create(task=task, resource=resource, units=1.0)
+        admin_client.delete(f"/api/v1/resources/{resource.pk}/")
+
+        events: list[tuple[str, str, dict]] = []
+        with (
+            patch(
+                BROADCAST_PATH,
+                side_effect=lambda pid, et, payload: events.append((pid, et, payload)),
+            ),
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            res = admin_client.post(f"/api/v1/resources/{resource.pk}/restore/")
+        assert res.status_code == 200
+        assert (str(project.pk), "roster_changed", {"resource_id": str(resource.pk)}) in events
 
     def test_member_cannot_restore(self, member_client: APIClient, resource: Resource) -> None:
         resource.is_deleted = True

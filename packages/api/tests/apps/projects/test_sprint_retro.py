@@ -12,7 +12,10 @@ Behaviour changes from the original #231 retro endpoint:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date
+from typing import Any
+from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -310,6 +313,59 @@ def test_patch_visibility_forbidden_for_other_member(project: Project, member: o
         format="json",
     )
     assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# sprint_retro_updated broadcast (#1359)
+# ---------------------------------------------------------------------------
+
+
+_BROADCAST_PATH = "trueppm_api.apps.sync.broadcast.broadcast_board_event"
+
+
+@pytest.mark.django_db
+def test_post_broadcasts_sprint_retro_updated(
+    project: Project,
+    member: object,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """Upserting notes/action items broadcasts so peers with the retro open refetch."""
+    s = _closed_sprint(project)
+    events: list[tuple[str, dict]] = []
+    with (
+        patch(_BROADCAST_PATH, side_effect=lambda _p, et, payload: events.append((et, payload))),
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        resp = _client(member).post(
+            f"/api/v1/sprints/{s.pk}/retro/",
+            {"notes": "Retro notes", "action_items": [{"text": "Do the thing"}]},
+            format="json",
+        )
+    assert resp.status_code == 200
+    assert ("sprint_retro_updated", {"sprint_id": str(s.pk)}) in events
+
+
+@pytest.mark.django_db
+def test_patch_visibility_broadcasts_sprint_retro_updated(
+    project: Project,
+    member: object,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """A visibility toggle is a retro mutation too — peers must refetch the new gate."""
+    s = _closed_sprint(project)
+    SprintRetro.objects.create(sprint=s, created_by=member)
+    events: list[tuple[str, dict]] = []
+    with (
+        patch(_BROADCAST_PATH, side_effect=lambda _p, et, payload: events.append((et, payload))),
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        resp = _client(member).patch(
+            f"/api/v1/sprints/{s.pk}/retro/",
+            {"team_visibility": "project"},
+            format="json",
+        )
+    assert resp.status_code == 200
+    assert ("sprint_retro_updated", {"sprint_id": str(s.pk)}) in events
 
 
 # ---------------------------------------------------------------------------

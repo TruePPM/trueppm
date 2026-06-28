@@ -117,6 +117,11 @@ def detect_and_upsert_slip_conflicts(graph: ProgramScheduleGraph) -> list[Any]:
 
     detected: set[tuple[Any, Any]] = set()  # (sprint_id, task_id) currently slipping
     open_rows: list[Any] = []
+    # Member projects whose conflict set changed this pass (a slip newly detected
+    # or a stale one auto-resolved) — broadcast targets so peers refetch the badge
+    # live (#1359). A pass with no slip activity adds nothing here and broadcasts
+    # nothing, keeping the program recompute quiet on clean schedules.
+    affected_project_ids: set[Any] = set()
 
     for task_id, dep in attributed.items():
         db_task = db_task_by_id.get(task_id)
@@ -139,19 +144,23 @@ def detect_and_upsert_slip_conflicts(graph: ProgramScheduleGraph) -> list[Any]:
             continue
 
         detected.add((sprint.pk, db_task.pk))
+        affected_project_ids.add(db_task.project_id)
         row = _upsert_conflict(sprint, db_task, dep, early_finish, now)
         if row.is_open:
             open_rows.append(row)
 
     # Auto-resolve any previously-open conflict in a member project that is no longer
     # in the detected set — the slip went away between passes. Kept for audit; off
-    # the open-conflict badge.
+    # the open-conflict badge. select_related("task") so each stale row's project id
+    # is available for the broadcast fan-out without an extra query per row.
     stale = [
         c
         for c in CrossProjectSlipConflict.objects.filter(
             resolution=SlipConflictResolution.UNRESOLVED,
             task__project_id__in=member_ids,
-        ).only("id", "sprint_id", "task_id")
+        )
+        .select_related("task")
+        .only("id", "sprint_id", "task_id", "task__project_id")
         if (c.sprint_id, c.task_id) not in detected
     ]
     if stale:
@@ -159,6 +168,25 @@ def detect_and_upsert_slip_conflicts(graph: ProgramScheduleGraph) -> list[Any]:
             resolution=SlipConflictResolution.AUTO_RESOLVED,
             resolved_at=now,
         )
+        affected_project_ids.update(c.task.project_id for c in stale)
+
+    # Fan a slip_conflicts_updated broadcast out to every project whose conflict
+    # set changed this pass so a mounted conflict badge/view refetches live
+    # instead of waiting on the next poll (#1359). Runs inside the program
+    # write-back transaction, so on_commit defers correctly until those dates
+    # commit; snapshot to plain strings for the deferred closure.
+    if affected_project_ids:
+        from django.db import transaction
+
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        broadcast_ids = [str(pid) for pid in affected_project_ids]
+
+        def _on_commit() -> None:
+            for project_id in broadcast_ids:
+                broadcast_board_event(project_id, "slip_conflicts_updated", {})
+
+        transaction.on_commit(_on_commit)
 
     return open_rows
 

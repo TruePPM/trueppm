@@ -235,6 +235,30 @@ class ProjectResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project
 
         transaction.on_commit(_on_commit)
 
+    def perform_update(self, serializer: BaseSerializer[ProjectResource]) -> None:
+        """Persist an allocation/notes edit and broadcast the roster change.
+
+        The SCHEDULER+ floor for detail mutations is enforced declaratively by
+        ``CanAssignResource.has_object_permission``; this hook only adds the
+        missing real-time signal (#1359) so peers see an allocation or note
+        change without a manual refetch — mirroring perform_create/destroy.
+        """
+        instance = serializer.save()
+
+        project_id = str(instance.project_id)
+        resource_id = str(instance.resource_id)
+
+        def _on_commit() -> None:
+            from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+            broadcast_board_event(
+                project_id,
+                "roster_changed",
+                {"resource_id": resource_id},
+            )
+
+        transaction.on_commit(_on_commit)
+
     def destroy(self, request: Request, *args: object, **kwargs: object) -> Response:
         """Remove a resource from the roster.
 
@@ -285,19 +309,23 @@ class ProjectResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project
             ).delete()
             instance.delete()
 
-        if affected_task_ids:
+        # The roster shrank regardless of whether the removed resource had any
+        # live assignments — a zero-assignment removal is the most common case
+        # (#1359). Broadcast roster_changed unconditionally so connected clients
+        # refetch the roster; only enqueue a CPM recalc when assignments were
+        # actually severed (no schedule input changed otherwise).
+        def _on_commit() -> None:
+            from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
-            def _on_commit() -> None:
-                from trueppm_api.apps.sync.broadcast import broadcast_board_event
-
+            if affected_task_ids:
                 _enqueue_recalculate(project_id)
-                broadcast_board_event(
-                    project_id,
-                    "roster_changed",
-                    {"resource_id": str(resource_id)},
-                )
+            broadcast_board_event(
+                project_id,
+                "roster_changed",
+                {"resource_id": str(resource_id)},
+            )
 
-            transaction.on_commit(_on_commit)
+        transaction.on_commit(_on_commit)
 
         return Response(
             {
@@ -668,6 +696,25 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
             for project_id in affected_project_ids:
                 _enqueue_recalculate(str(project_id))
 
+        # Fan a roster_changed broadcast out to every affected project so peers
+        # viewing the roster see the deactivation live, not on the next poll
+        # (#1359). Deferred to commit and snapshotted to plain strings; mirrors
+        # the per-project recalc fan-out above.
+        resource_id = str(instance.pk)
+        broadcast_project_ids = [str(p) for p in affected_project_ids]
+
+        def _on_commit() -> None:
+            from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+            for project_id in broadcast_project_ids:
+                broadcast_board_event(
+                    project_id,
+                    "roster_changed",
+                    {"resource_id": resource_id},
+                )
+
+        transaction.on_commit(_on_commit)
+
     @action(detail=True, methods=["post"], url_path="restore")
     def restore(self, request: Request, pk: str | None = None) -> Response:
         """Restore a soft-deleted resource back to active status.
@@ -691,6 +738,30 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
         resource.deleted_version = None
         resource.server_version = (resource.server_version or 0) + 1
         resource.save(update_fields=["is_deleted", "deleted_version", "server_version"])
+
+        # Reactivation puts the resource back on every roster it still has
+        # assignments on — broadcast roster_changed so those projects' clients
+        # refetch the roster live (#1359), mirroring the soft-delete fan-out.
+        affected_project_ids = [
+            str(p)
+            for p in TaskResource.objects.filter(resource_id=resource.pk)
+            .values_list("task__project_id", flat=True)
+            .distinct()
+        ]
+        resource_id = str(resource.pk)
+
+        def _on_commit() -> None:
+            from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+            for project_id in affected_project_ids:
+                broadcast_board_event(
+                    project_id,
+                    "roster_changed",
+                    {"resource_id": resource_id},
+                )
+
+        transaction.on_commit(_on_commit)
+
         serializer = self.get_serializer(resource)
         return Response(serializer.data)
 
