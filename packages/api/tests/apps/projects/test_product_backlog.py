@@ -21,6 +21,8 @@ from unittest import mock
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
@@ -1114,3 +1116,76 @@ def test_project_detail_my_facets_false_for_non_facet_member(
         "is_scrum_master": False,
         "is_product_owner": False,
     }
+
+
+# --------------------------------------------------------------------------- #
+# Query-count regression — grooming board N+1 (#1376)
+# --------------------------------------------------------------------------- #
+
+
+def _blocked_backlog(project: Project, actor: object, *, n: int) -> None:
+    """Seed ``n`` backlog stories that each exercise the three FKs the grooming
+    board's ``_backlog_qs`` must ``select_related`` (#1376):
+
+    - ``blocking_task`` — the soft "waiting on" link the serializer's
+      ``blocking_task_detail`` getter reads;
+    - ``blocked_by`` — the actor the ``blocked_by`` getter reads;
+    - ``acceptance_criteria.met_by`` — the review-trail user the criterion's
+      ``met_by_name`` getter reads.
+
+    Without ``select_related`` each of these is one lazy query per row, so the
+    grooming-board query count scales with backlog size.
+    """
+    blocker = _story(project, name="blocker", status=TaskStatus.IN_PROGRESS)
+    for i in range(n):
+        story = _story(
+            project,
+            name=f"blocked {i}",
+            story_points=3,
+            blocked_by=actor,
+            blocking_task=blocker,
+        )
+        AcceptanceCriterion.objects.create(
+            task=story, text=f"ac {i}", met=True, position=0, met_by=actor
+        )
+
+
+def _measure_backlog_queries(client: APIClient, project: Project) -> int:
+    """GET the grooming board once (warming caches), then return the query count
+    of a second identical request so fixed first-hit lookups don't skew the total.
+    """
+    client.get(f"/api/v1/projects/{project.pk}/product-backlog/")
+    with CaptureQueriesContext(connection) as ctx:
+        resp = client.get(f"/api/v1/projects/{project.pk}/product-backlog/")
+    assert resp.status_code == 200
+    return len(ctx.captured_queries)
+
+
+@pytest.mark.django_db
+def test_product_backlog_blockers_and_met_by_no_n_plus_one(
+    owner_client: APIClient, owner: object
+) -> None:
+    """#1376: the grooming board must stay O(1) in queries — a 4x larger backlog
+    of blocked stories with satisfied DoR criteria costs the SAME number of
+    queries. Before the ``select_related("blocked_by", "blocking_task")`` and the
+    ``Prefetch(acceptance_criteria, select_related("met_by"))`` fix, each extra
+    blocked story added two FK queries and each met criterion one more, so the
+    larger backlog ran ~18 queries higher than the smaller one.
+    """
+    cal = Calendar.objects.create(name="Standard")
+    small = Project.objects.create(name="Small", start_date=date(2026, 1, 1), calendar=cal)
+    large = Project.objects.create(name="Large", start_date=date(2026, 1, 1), calendar=cal)
+    ProjectMembership.objects.create(project=small, user=owner, role=Role.OWNER)
+    ProjectMembership.objects.create(project=large, user=owner, role=Role.OWNER)
+
+    _blocked_backlog(small, owner, n=2)
+    _blocked_backlog(large, owner, n=8)
+
+    small_queries = _measure_backlog_queries(owner_client, small)
+    large_queries = _measure_backlog_queries(owner_client, large)
+
+    assert large_queries == small_queries, (
+        "grooming board N+1: a 4x larger blocked backlog cost "
+        f"{large_queries} queries vs {small_queries} for the small one — "
+        "the FK relations must be select_related, not lazy-loaded per row"
+    )
