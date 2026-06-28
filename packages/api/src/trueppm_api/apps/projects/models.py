@@ -2209,6 +2209,13 @@ class Risk(VersionedModel):
             models.Index(fields=["project", "status"], name="risk_project_status_idx"),
             # Sync delta pull: WHERE project_id = X AND server_version > since (#810).
             models.Index(fields=["project", "server_version"], name="risk_proj_serverver_idx"),
+            # The register loads project-scoped in the model's default order
+            # (-impact, -probability, title). This index covers that ORDER BY so
+            # RiskViewSet stops sorting the register in memory past ~register size.
+            models.Index(
+                fields=["project", "-impact", "-probability", "title"],
+                name="risk_project_register_idx",
+            ),
         ]
         constraints = [
             models.UniqueConstraint(
@@ -2559,6 +2566,9 @@ class Sprint(VersionedModel):
         indexes = [
             models.Index(fields=["project", "state"], name="sprint_project_state_idx"),
             models.Index(fields=["project", "start_date"], name="sprint_project_start_idx"),
+            # SprintViewSet exposes `finish_date` as an ordering field; without
+            # this the project-scoped finish-date sort is an in-memory pass.
+            models.Index(fields=["project", "finish_date"], name="sprint_project_finish_idx"),
             # Sync delta pull: WHERE project_id = X AND server_version > since (#810).
             models.Index(fields=["project", "server_version"], name="sprint_proj_serverver_idx"),
             # Velocity rollup scan (ADR-0113): velocity_eligible_sprints() filters
@@ -4818,8 +4828,9 @@ class BacklogItem(VersionedModel):
         db_index=True,
     )
     # Free-form labels. JSON list matches the repo convention for tag-like data
-    # (Program.rollup_enabled_kpis, BoardColumnConfig.columns); trigram search
-    # (#739) targets `title` only, so no ArrayField / GIN-on-tags is needed.
+    # (Program.rollup_enabled_kpis, BoardColumnConfig.columns). The backlog list
+    # filters with `tags__contains=[tag]` (jsonb `@>`), so a GIN index on this
+    # column (see Meta.indexes) keeps tag filtering from seq-scanning the pool.
     tags = models.JSONField(default=list, blank=True)
     # Lower = higher priority. Nullable so an unranked pool is valid; drives the
     # default list ordering for the backlog UI (#742).
@@ -4869,6 +4880,9 @@ class BacklogItem(VersionedModel):
                 opclasses=["gin_trgm_ops"],
                 name="backlogitem_title_trgm",
             ),
+            # Tag filtering uses jsonb `@>` containment (`tags__contains=[tag]`);
+            # a default jsonb_ops GIN index accelerates it instead of seq-scanning.
+            GinIndex(fields=["tags"], name="backlogitem_tags_gin"),
         ]
 
     def __str__(self) -> str:
