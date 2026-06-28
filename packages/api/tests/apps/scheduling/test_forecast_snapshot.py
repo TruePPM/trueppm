@@ -365,6 +365,30 @@ class TestEndpoint:
         res = member_client.get(url(project.pk), {"until": "2026-06-10"})
         assert res.json()["count"] == 1
 
+    def test_since_single_digit_components_and_unparseable(
+        self, member_client: APIClient, project: Project
+    ) -> None:
+        """Single-digit date components and unparseable bounds (#1378).
+
+        ``2026-6-5`` is rejected by ISO datetime parsing but accepted by Django's
+        ``parse_date`` regex, so it still filters (the documented fallback). A value
+        that is neither a datetime nor a date is ignored, leaving the window open."""
+        for d in (date(2026, 6, 1), date(2026, 6, 10)):
+            _backdate(
+                ProjectForecastSnapshot.objects.create(project=project),
+                timezone.make_aware(datetime(d.year, d.month, d.day, 12, 0)),
+            )
+        # Single-digit month/day: parse_datetime returns None, parse_date succeeds,
+        # so since=2026-06-05 excludes the 2026-06-01 row.
+        res = member_client.get(url(project.pk), {"since": "2026-6-5"})
+        assert res.status_code == 200
+        assert res.json()["count"] == 1
+
+        # Neither datetime nor date -> bound is None -> no filter, all rows returned.
+        res = member_client.get(url(project.pk), {"since": "not-a-date"})
+        assert res.status_code == 200
+        assert res.json()["count"] == 2
+
     def test_non_member_forbidden_idor(self, outsider: object, project: Project) -> None:
         ProjectForecastSnapshot.objects.create(project=project)
         c = APIClient()
