@@ -369,6 +369,30 @@ changelog:check:
       echo "OK: Changelog fragment(s) found:"
       echo "$FRAGMENTS"
 
+scripts:test:
+  # Unit test for the release tooling that rotates the scheduler package
+  # CHANGELOG into a dated release-notes section at tag time
+  # (scripts/rotate-scheduler-changelog.sh, called by scripts/release.sh). The
+  # PyPI wheel's bundled release notes depend on this rotation and there is no
+  # other test harness for the release scripts, so guard the logic directly.
+  # Pinned python image (bash + python3, zero installs), ~5s. Only runs when the
+  # release tooling it covers changes.
+  stage: lint
+  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - scripts/rotate-scheduler-changelog.sh
+        - scripts/release.sh
+        - scripts/tests/rotate-scheduler-changelog.test.sh
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - scripts/rotate-scheduler-changelog.sh
+        - scripts/release.sh
+        - scripts/tests/rotate-scheduler-changelog.test.sh
+  script:
+    - bash scripts/tests/rotate-scheduler-changelog.test.sh
+
 boundary:check:
   # Detect open OSS issues that describe enterprise functionality (labeled
   # `enterprise` or `portfolio`) and therefore violate the Two-Repo Rule
@@ -2158,6 +2182,16 @@ scheduler:publish:
         exit 1
       fi
       echo "Version check passed: $PKG_VERSION"
+      # Every published version must ship dated release notes. scripts/release.sh
+      # rotates packages/scheduler/CHANGELOG.md [Unreleased] into a "## [<version>]"
+      # section at tag time (scripts/rotate-scheduler-changelog.sh); this guards a
+      # hand-cut tag that skipped that step from shipping a perpetual [Unreleased].
+      if ! grep -qF "## [$PKG_VERSION]" packages/scheduler/CHANGELOG.md; then
+        echo "ERROR: packages/scheduler/CHANGELOG.md has no '## [$PKG_VERSION]' release-notes section."
+        echo "Run scripts/release.sh (which rotates [Unreleased] into a dated section) or add it by hand before tagging."
+        exit 1
+      fi
+      echo "Release notes present for $PKG_VERSION"
     - cd packages/scheduler
     - python -m build
     # Generate + validate the CycloneDX SBOM BEFORE uploading (#936). Ordering

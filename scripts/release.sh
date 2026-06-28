@@ -42,6 +42,13 @@
 #   fragments are assembled into the section first, and a fresh empty
 #   [Unreleased] is left on top for the next cycle.
 #
+#   The standalone scheduler package ships its OWN changelog
+#   (packages/scheduler/CHANGELOG.md, force-included into the PyPI wheel). Its
+#   [Unreleased] section is hand-maintained during the cycle and rotated into a
+#   dated [<PEP440>] section here too, via scripts/rotate-scheduler-changelog.sh,
+#   so every scheduler-v<PEP440> tag publishes dated release notes (enforced by
+#   the scheduler:publish CI job).
+#
 # Versioning note (two schemes, one release):
 #   api + web carry the semver form (0.2.0-alpha.1); the scheduler is a PyPI
 #   package and carries the PEP 440 form of the SAME version (0.2.0a1). The
@@ -490,12 +497,19 @@ PY
 
 echo "  Updated CHANGELOG.md: [Unreleased] → [$NEW_VERSION] — $TODAY (with summary)"
 
+# Rotate the standalone scheduler package CHANGELOG too, so the PyPI wheel ships
+# a dated release-notes section for this tag rather than a perpetual [Unreleased].
+# It carries the PEP 440 version + scheduler-v<PEP440> compare links, so it is a
+# separate rotation from the root (semver) CHANGELOG above.
+bash scripts/rotate-scheduler-changelog.sh "$NEW_PEP440" "$CURRENT_PEP440" "$TODAY"
+
 # ---------------------------------------------------------------------------
 # Commit and tag
 # ---------------------------------------------------------------------------
 
 git add \
   packages/scheduler/pyproject.toml \
+  packages/scheduler/CHANGELOG.md \
   packages/api/pyproject.toml \
   packages/web/package.json \
   packages/api/src/trueppm_api/settings/base.py \
