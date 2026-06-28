@@ -35,7 +35,7 @@ export function RetroVisibilityToggle({ value, disabled, onChange }: Props) {
             aria-checked={active}
             disabled={disabled}
             onClick={() => onChange(opt.value)}
-            className={`h-6 px-2 rounded text-xs font-medium whitespace-nowrap
+            className={`inline-flex min-h-[44px] items-center px-3 rounded text-xs font-medium whitespace-nowrap
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
               ${
                 active

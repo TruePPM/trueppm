@@ -1,17 +1,22 @@
+import type { CSSProperties } from 'react';
 import { SettingsPageTitle } from '../SettingsShell';
 import { StubFieldset } from '../components/StubFieldset';
 import { StubPageBanner } from '../components/StubPageBanner';
 import { EnterpriseBadge } from '../components/EnterpriseBadge';
+import { IDENTITY_VIOLET, tintedChipStyle } from '@/lib/identityColors';
 
 const ROLES = ['Viewer', 'Member', 'Scheduler', 'Admin', 'Owner'] as const;
 type Role = (typeof ROLES)[number];
 
-const ROLE_PALETTE: Record<Role, { bg: string; text: string }> = {
+const ROLE_PALETTE: Record<Role, { bg: string; text: string; style?: CSSProperties }> = {
   Viewer: { bg: 'bg-neutral-surface-sunken', text: 'text-neutral-text-secondary' },
   Member: { bg: 'bg-neutral-surface-sunken', text: 'text-neutral-text-secondary' },
   Scheduler: { bg: 'bg-brand-accent-light', text: 'text-brand-accent-dark' },
   Admin: { bg: 'bg-brand-primary-light', text: 'text-brand-primary' },
-  Owner: { bg: 'bg-[#7C3AED]/10', text: 'text-[#7C3AED]' },
+  // Owner is a distinct identity hue, not a status — it has no brand/status
+  // token, so the single-sourced violet is applied via inline style (see
+  // lib/identityColors) rather than a raw bg-[hex] arbitrary-value class.
+  Owner: { bg: '', text: '', style: tintedChipStyle(IDENTITY_VIOLET) },
 };
 
 const ROLE_DESCRIPTIONS: Record<Role, { count: number; hint: string }> = {
@@ -179,7 +184,7 @@ export function WorkspaceRolesPage() {
             <div className="grid gap-2.5" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
               {ROLES.map((role) => {
                 const { count, hint } = ROLE_DESCRIPTIONS[role];
-                const { bg, text } = ROLE_PALETTE[role];
+                const { bg, text, style } = ROLE_PALETTE[role];
                 return (
                   <div
                     key={role}
@@ -188,6 +193,7 @@ export function WorkspaceRolesPage() {
                     <div className="flex items-center justify-between">
                       <span
                         className={`inline-flex items-center px-2 py-0.5 rounded-chip text-[11px] font-semibold ${bg} ${text}`}
+                        style={style}
                       >
                         {role}
                       </span>

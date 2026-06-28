@@ -3,8 +3,7 @@ import { SettingsPageTitle } from '../SettingsShell';
 import { useWorkspaceGroups, type WorkspaceGroup } from '../hooks/useWorkspaceGroups';
 import { useCreateGroup, useDeleteGroup } from '../hooks/useWorkspaceGroupMutations';
 import { EnterpriseBadge } from '../components/EnterpriseBadge';
-
-const MEMBER_COLORS = ['#3E8C6D', '#C17A10', '#7C3AED', '#0EA5E9', '#DC2626', '#0F766E'];
+import { IDENTITY_SWATCHES } from '@/lib/identityColors';
 
 interface GroupCardProps {
   group: WorkspaceGroup;
@@ -96,7 +95,7 @@ function GroupCard({ group, onDelete, hasError }: GroupCardProps) {
                 width: 22,
                 height: 22,
                 marginLeft: i === 0 ? 0 : -6,
-                background: MEMBER_COLORS[i % MEMBER_COLORS.length],
+                background: IDENTITY_SWATCHES[i % IDENTITY_SWATCHES.length],
                 fontSize: 10,
               }}
               aria-hidden="true"

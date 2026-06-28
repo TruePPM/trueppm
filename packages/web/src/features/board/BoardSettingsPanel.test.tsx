@@ -14,7 +14,7 @@ const COLUMNS: BoardColumnDef[] = [
 describe('BoardSettingsPanel', () => {
   it('renders as a dialog and focuses close button on mount', () => {
     render(<BoardSettingsPanel columns={COLUMNS} onSave={vi.fn()} onClose={vi.fn()} />);
-    const dialog = screen.getByRole('dialog', { name: 'Column settings' });
+    const dialog = screen.getByRole('dialog', { name: 'Board columns' });
     expect(dialog).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Close board settings' })).toHaveFocus();
   });

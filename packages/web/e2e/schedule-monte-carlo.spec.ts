@@ -448,7 +448,7 @@ test.describe('Monte Carlo forecast history (#961, ADR-0175)', () => {
     // Open the MC confidence drawer from the shell health-cluster forecast band.
     await page.click('[aria-label^="Monte Carlo forecast"]', { timeout: 10_000 });
     await expect(
-      page.getByRole('dialog', { name: /Monte Carlo confidence distribution/i }),
+      page.getByRole('dialog', { name: /Monte Carlo confidence/i }),
     ).toBeVisible();
   }
 
@@ -476,7 +476,7 @@ test.describe('Monte Carlo forecast history (#961, ADR-0175)', () => {
     );
     await page.click('[aria-label^="Monte Carlo forecast"]', { timeout: 10_000 });
     await expect(
-      page.getByRole('dialog', { name: /Monte Carlo confidence distribution/i }),
+      page.getByRole('dialog', { name: /Monte Carlo confidence/i }),
     ).toBeVisible();
     // The drawer opens, but the history region must not render with no runs.
     await expect(page.getByRole('region', { name: /Forecast history/i })).toHaveCount(0);

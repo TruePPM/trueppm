@@ -143,30 +143,45 @@ describe('EpicDetailDrawer (#1346)', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('Save failed');
   });
 
-  it('closing while dirty asks to discard; declining keeps the drawer open', async () => {
+  it('closing while dirty opens the styled discard dialog and Keep editing keeps the drawer open', async () => {
     const onClose = vi.fn();
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
     const user = userEvent.setup();
     renderDrawer(makeEpic(), onClose);
 
     setValue(screen.getByLabelText('Epic description'), 'edited');
     await user.click(screen.getByRole('button', { name: 'Close epic detail' }));
 
-    expect(confirmSpy).toHaveBeenCalled();
+    // The discard prompt is the focus-trapped ConfirmDiscardDialog (issue 1357),
+    // not the native window.confirm — assert on its role + copy.
+    const dialog = screen.getByRole('alertdialog');
+    expect(dialog).toHaveTextContent('Discard unsaved changes?');
     expect(onClose).not.toHaveBeenCalled();
-    confirmSpy.mockRestore();
+
+    await user.click(screen.getByRole('button', { name: 'Keep editing' }));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
   });
 
-  it('closing while clean does not prompt and calls onClose', async () => {
+  it('closing while dirty then Discard changes closes the drawer', async () => {
     const onClose = vi.fn();
-    const confirmSpy = vi.spyOn(window, 'confirm');
+    const user = userEvent.setup();
+    renderDrawer(makeEpic(), onClose);
+
+    setValue(screen.getByLabelText('Epic description'), 'edited');
+    await user.click(screen.getByRole('button', { name: 'Close epic detail' }));
+    await user.click(screen.getByRole('button', { name: 'Discard changes' }));
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('closing while clean closes immediately without a discard dialog', async () => {
+    const onClose = vi.fn();
     const user = userEvent.setup();
     renderDrawer(makeEpic(), onClose);
 
     await user.click(screen.getByRole('button', { name: 'Close epic detail' }));
 
-    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
     expect(onClose).toHaveBeenCalledTimes(1);
-    confirmSpy.mockRestore();
   });
 });

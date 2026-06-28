@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 
 export interface ConfirmDiscardDialogProps {
   onKeepEditing: () => void;
@@ -9,8 +9,14 @@ export interface ConfirmDiscardDialogProps {
  * Confirm dialog shown when a user attempts to leave a dirty settings page.
  *
  * `role="alertdialog"` per WCAG/ARIA APG — the action is interrupting.
- * Default focus is on "Keep editing" (the safe path) — abandoning unsaved
- * work should never autofocus the destructive button.
+ * Default focus is on "Keep editing" (the safe path, the first focusable) —
+ * abandoning unsaved work should never autofocus the destructive button.
+ *
+ * Focus is trapped (WCAG 2.4.3 / 2.1.2): the prompt is rendered bare — not
+ * inside a parent modal that contains focus — including from the otherwise
+ * non-modal desktop backlog drawers, so it owns its own trap rather than
+ * leaning on a wrapper. `useFocusTrap` also routes Escape to `onKeepEditing`
+ * and restores focus to the trigger on close.
  *
  * Visually styled as non-destructive (no `bg-semantic-critical`) because
  * discarding an edit is recoverable by re-typing — reserving critical red
@@ -20,30 +26,17 @@ export function ConfirmDiscardDialog({
   onKeepEditing,
   onDiscard,
 }: ConfirmDiscardDialogProps) {
-  const keepEditingRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    keepEditingRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        onKeepEditing();
-      }
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onKeepEditing]);
+  const trapRef = useFocusTrap<HTMLDivElement>(true, onKeepEditing);
 
   return (
     <div
+      ref={trapRef}
       role="alertdialog"
       aria-modal="true"
       aria-labelledby="discard-changes-title"
       aria-describedby="discard-changes-body"
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 motion-safe:animate-scrim-fade"
+      tabIndex={-1}
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 focus:outline-none motion-safe:animate-scrim-fade"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget) onKeepEditing();
       }}
@@ -64,7 +57,6 @@ export function ConfirmDiscardDialog({
         </p>
         <div className="flex justify-end gap-2">
           <button
-            ref={keepEditingRef}
             type="button"
             onClick={onKeepEditing}
             className="h-8 px-3 rounded bg-brand-primary text-white text-[13px] font-medium border-none hover:bg-brand-primary-dark focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary focus-visible:outline-none"

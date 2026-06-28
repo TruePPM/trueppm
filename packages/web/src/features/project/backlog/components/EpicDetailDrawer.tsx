@@ -13,6 +13,9 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/Button';
+import { ConfirmDiscardDialog } from '@/features/settings/components/ConfirmDiscardDialog';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import type { Task } from '@/types';
 import { usePatchEpic } from '../hooks/useProductBacklog';
 import type { EpicScalarPatch } from '../api';
@@ -45,9 +48,21 @@ interface EpicDetailDrawerProps {
 export function EpicDetailDrawer({ projectId, epic, onClose }: EpicDetailDrawerProps) {
   const patchEpic = usePatchEpic(projectId);
   const closeRef = useRef<HTMLButtonElement>(null);
+  // The drawer is non-modal on desktop (the backlog list stays usable beside it)
+  // but a true modal bottom-sheet on mobile, where a backdrop covers the list.
+  // aria-modal and the Tab focus-trap therefore track the viewport rather than
+  // claiming one fixed modality (issue 1357).
+  const isMobile = useBreakpoint() === 'sm';
 
   const [draft, setDraft] = useState<Draft>(() => toDraft(epic));
   const [initial, setInitial] = useState<Draft>(() => toDraft(epic));
+  // Discard-confirm replaces window.confirm() so the prompt is keyboard-trapped,
+  // styled, and screen-reader-announced like the rest of the app (issue 1357).
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+
+  // Suspend the drawer's own trap while the discard prompt is up so its trap
+  // (active on mobile) doesn't fight the dialog's trap for the same Tab cycle.
+  const trapRef = useFocusTrap<HTMLDivElement>(isMobile && !confirmDiscard);
 
   // Focus the close button when the drawer mounts.
   useEffect(() => {
@@ -65,7 +80,10 @@ export function EpicDetailDrawer({ projectId, epic, onClose }: EpicDetailDrawerP
   }
 
   function requestClose() {
-    if (dirty && !window.confirm('Discard unsaved changes?')) return;
+    if (dirty) {
+      setConfirmDiscard(true);
+      return;
+    }
     onClose();
   }
 
@@ -101,10 +119,12 @@ export function EpicDetailDrawer({ projectId, epic, onClose }: EpicDetailDrawerP
         onClick={requestClose}
       />
       <div
+        ref={trapRef}
         role="dialog"
-        aria-modal="false"
+        aria-modal={isMobile}
         aria-label={epic.name || 'Epic detail'}
-        className="fixed inset-x-0 bottom-0 z-50 flex h-[85vh] flex-col rounded-t-card border-t border-neutral-border bg-neutral-surface md:absolute md:inset-y-0 md:left-auto md:right-0 md:h-full md:w-[480px] md:rounded-none md:border-l md:border-t-0"
+        tabIndex={-1}
+        className="fixed inset-x-0 bottom-0 z-50 flex h-[85vh] flex-col rounded-t-card border-t border-neutral-border bg-neutral-surface md:absolute md:inset-y-0 md:left-auto md:right-0 md:h-full md:w-[480px] md:rounded-none md:border-l md:border-t-0 focus:outline-none"
       >
         {/* Mobile drag-handle affordance. */}
         <div
@@ -195,6 +215,13 @@ export function EpicDetailDrawer({ projectId, epic, onClose }: EpicDetailDrawerP
           </div>
         )}
       </div>
+
+      {confirmDiscard && (
+        <ConfirmDiscardDialog
+          onKeepEditing={() => setConfirmDiscard(false)}
+          onDiscard={onClose}
+        />
+      )}
     </>
   );
 }

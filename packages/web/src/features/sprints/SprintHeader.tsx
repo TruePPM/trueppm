@@ -73,7 +73,7 @@ export function SprintHeader({
           type="button"
           onClick={onFilter}
           aria-haspopup="dialog"
-          className="h-8 px-3 rounded text-xs font-medium border border-neutral-border
+          className="min-h-[44px] inline-flex items-center px-3 rounded text-xs font-medium border border-neutral-border
             text-neutral-text-secondary hover:text-neutral-text-primary
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         >
@@ -88,7 +88,7 @@ export function SprintHeader({
               ? `Plan next ${itl.lower} (a planned ${itl.lower} already exists)`
               : `Plan next ${itl.lower}`
           }
-          className="h-8 px-3 rounded text-xs font-medium border border-neutral-border
+          className="min-h-[44px] inline-flex items-center px-3 rounded text-xs font-medium border border-neutral-border
             text-neutral-text-secondary hover:text-neutral-text-primary
             disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed disabled:hover:text-neutral-text-secondary
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
@@ -105,7 +105,7 @@ export function SprintHeader({
           // Disabled state drops to neutral disabled styling so it reads as
           // "unavailable" rather than "faded red". A 50%-opacity red button
           // still parses as a clickable destructive action — too subtle.
-          className="h-8 px-3 rounded text-xs font-medium border bg-transparent
+          className="min-h-[44px] inline-flex items-center px-3 rounded text-xs font-medium border bg-transparent
             border-semantic-critical/40 text-semantic-critical hover:bg-semantic-critical-bg
             disabled:cursor-not-allowed disabled:bg-neutral-surface-sunken disabled:hover:bg-neutral-surface-sunken
             disabled:border-neutral-border disabled:text-neutral-text-disabled

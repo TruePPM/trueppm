@@ -15,6 +15,9 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/Button';
+import { ConfirmDiscardDialog } from '@/features/settings/components/ConfirmDiscardDialog';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import type { DorState, Task, TaskType } from '@/types';
 import { useSetDor } from '../hooks/useProductBacklog';
 import { usePatchStory } from '../hooks/useStoryDetail';
@@ -83,9 +86,19 @@ export function StoryDetailDrawer({
   const patchStory = usePatchStory(projectId);
   const setDor = useSetDor(projectId);
   const closeRef = useRef<HTMLButtonElement>(null);
+  // Non-modal beside the list on desktop, true modal bottom-sheet on mobile —
+  // aria-modal and the Tab focus-trap track the viewport (issue 1357).
+  const isMobile = useBreakpoint() === 'sm';
 
   const [draft, setDraft] = useState<ScalarDraft>(() => toDraft(story));
   const [initial, setInitial] = useState<ScalarDraft>(() => toDraft(story));
+  // Styled, focus-trapped discard prompt in place of the native window.confirm
+  // (issue 1357).
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+
+  // Suspend the drawer's own trap while the discard prompt is up so its trap
+  // (active on mobile) doesn't fight the dialog's trap for the same Tab cycle.
+  const trapRef = useFocusTrap<HTMLDivElement>(isMobile && !confirmDiscard);
 
   // Focus the close button when the drawer mounts/swaps stories.
   useEffect(() => {
@@ -103,7 +116,10 @@ export function StoryDetailDrawer({
   }
 
   function requestClose() {
-    if (dirty && !window.confirm('Discard unsaved changes?')) return;
+    if (dirty) {
+      setConfirmDiscard(true);
+      return;
+    }
     onClose();
   }
 
@@ -160,10 +176,12 @@ export function StoryDetailDrawer({
         onClick={requestClose}
       />
       <div
+        ref={trapRef}
         role="dialog"
-        aria-modal="false"
+        aria-modal={isMobile}
         aria-label={story.name || 'Story detail'}
-        className="fixed inset-x-0 bottom-0 z-50 flex h-[85vh] flex-col rounded-t-card border-t border-neutral-border bg-neutral-surface md:absolute md:inset-y-0 md:left-auto md:right-0 md:h-full md:w-[480px] md:rounded-none md:border-l md:border-t-0"
+        tabIndex={-1}
+        className="fixed inset-x-0 bottom-0 z-50 flex h-[85vh] flex-col rounded-t-card border-t border-neutral-border bg-neutral-surface md:absolute md:inset-y-0 md:left-auto md:right-0 md:h-full md:w-[480px] md:rounded-none md:border-l md:border-t-0 focus:outline-none"
       >
         {/* Mobile drag-handle affordance. */}
         <div
@@ -296,6 +314,13 @@ export function StoryDetailDrawer({
           </div>
         )}
       </div>
+
+      {confirmDiscard && (
+        <ConfirmDiscardDialog
+          onKeepEditing={() => setConfirmDiscard(false)}
+          onDiscard={onClose}
+        />
+      )}
     </>
   );
 }
