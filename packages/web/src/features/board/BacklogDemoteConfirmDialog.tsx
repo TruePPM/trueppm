@@ -13,6 +13,7 @@
  * `_HISTORY_DIFF_FIELDS`); this dialog does not currently persist a reason.
  */
 import { useEffect, useRef } from 'react';
+import { Button } from '@/components/Button';
 import type { Task } from '@/types';
 
 export interface BacklogDemoteConfirmDialogProps {
@@ -79,16 +80,9 @@ export function BacklogDemoteConfirmDialog({
           >
             Cancel
           </button>
-          <button
-            ref={confirmRef}
-            type="button"
-            onClick={onConfirm}
-            className="bg-brand-primary border border-brand-primary text-white rounded-control px-3 py-1.5 text-sm font-medium
-              hover:bg-brand-primary-dark
-              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
-          >
+          <Button ref={confirmRef} variant="primary" size="md" onClick={onConfirm}>
             Move to backlog
-          </button>
+          </Button>
         </div>
       </div>
     </div>

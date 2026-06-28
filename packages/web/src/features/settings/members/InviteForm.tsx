@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, type FormEvent } from 'react';
+import { Button } from '@/components/Button';
 import { useUserSearch } from '../hooks/useUserSearch';
 import { useAddMember } from '../hooks/useAddMember';
 import { RolePicker } from './RolePicker';
@@ -188,18 +189,15 @@ export function InviteForm({ projectId }: InviteFormProps) {
         </div>
 
         {/* Submit */}
-        <button
+        <Button
           type="submit"
+          variant="primary"
+          size="lg"
           disabled={!selectedUser || isPending}
-          className={[
-            'h-9 px-4 rounded border border-brand-primary bg-brand-primary text-white text-sm font-medium',
-            'hover:bg-brand-primary/90 transition-colors shrink-0',
-            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-            'disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed disabled:cursor-not-allowed',
-          ].join(' ')}
+          className="shrink-0"
         >
           {isPending ? 'Adding…' : 'Add'}
-        </button>
+        </Button>
       </div>
 
       {conflictError && (

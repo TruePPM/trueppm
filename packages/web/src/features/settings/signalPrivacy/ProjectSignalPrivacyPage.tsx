@@ -137,7 +137,7 @@ export function ProjectSignalPrivacyPage() {
                   className={[
                     'h-6 rounded px-2 text-[11px] font-medium',
                     view === v
-                      ? 'bg-brand-primary text-white'
+                      ? 'bg-sage-500 text-navy-900'
                       : 'text-neutral-text-secondary hover:bg-neutral-surface-sunken',
                   ].join(' ')}
                 >

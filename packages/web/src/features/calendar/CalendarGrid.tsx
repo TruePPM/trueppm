@@ -205,7 +205,7 @@ export function CalendarGrid({ anchorIso, tasks, onTaskClick }: CalendarGridProp
                         className={`
                           block tppm-mono text-xs font-medium leading-5 w-5 text-center rounded-full
                           ${isToday
-                            ? 'bg-brand-primary text-white font-semibold'
+                            ? 'bg-sage-500 text-navy-900 font-semibold'
                             : isCurrentMonth
                               ? 'text-neutral-text-primary'
                               : 'text-neutral-text-disabled'

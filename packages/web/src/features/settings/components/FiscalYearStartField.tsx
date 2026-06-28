@@ -49,7 +49,7 @@ export function maxFiscalDay(month: number): number {
 
 const CHIP_BASE =
   'h-7 px-2.5 rounded text-[12px] font-medium border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1';
-const CHIP_ON = 'bg-brand-primary text-white border-brand-primary-dark';
+const CHIP_ON = 'bg-sage-500 text-navy-900 border-sage-600';
 const CHIP_OFF =
   'bg-neutral-surface-sunken text-neutral-text-secondary border-neutral-border hover:border-neutral-text-disabled';
 

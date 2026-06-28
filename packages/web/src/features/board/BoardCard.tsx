@@ -777,7 +777,7 @@ export function BoardCard({
                   return (
                     <span key={a.resourceId} className="relative inline-block" title={overTooltip}>
                       <span
-                        className="inline-block px-1 py-px rounded-chip text-xs text-white bg-brand-primary font-bold"
+                        className="inline-block px-1 py-px rounded-chip text-xs text-brand-primary bg-brand-primary/10 font-bold"
                         aria-label={overFactor ? `${a.name}, overallocated` : a.name}
                       >
                         {initials(a.name)}
@@ -800,7 +800,7 @@ export function BoardCard({
                 })}
                 {hiddenCount > 0 && (
                   <span
-                    className="inline-block px-1 py-px rounded-chip text-xs text-white bg-brand-primary font-bold"
+                    className="inline-block px-1 py-px rounded-chip text-xs text-brand-primary bg-brand-primary/10 font-bold"
                     aria-hidden="true"
                   >
                     +{hiddenCount}

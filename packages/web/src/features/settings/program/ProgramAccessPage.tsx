@@ -65,7 +65,7 @@ function MemberRow({
       <span className="flex items-center gap-2.5 min-w-0">
         <span
           aria-hidden="true"
-          className="w-7 h-7 rounded-full inline-flex items-center justify-center text-xs font-bold text-white shrink-0 bg-brand-primary"
+          className="w-7 h-7 rounded-full inline-flex items-center justify-center text-xs font-bold text-brand-primary shrink-0 bg-brand-primary/10"
         >
           {initialsFor(user_detail.username)}
         </span>

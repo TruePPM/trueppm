@@ -197,7 +197,7 @@ export function CardPopoverBodyA({ task, sprintName }: CardPopoverBodyAProps) {
               {task.assignees.map((a) => (
                 <span
                   key={a.resourceId}
-                  className="inline-flex items-center px-1 py-px rounded-chip text-xs text-white bg-brand-primary font-bold"
+                  className="inline-flex items-center px-1 py-px rounded-chip text-xs text-brand-primary bg-brand-primary/10 font-bold"
                   title={`${a.name} (${Math.round(a.units * 100)}%)`}
                   aria-label={a.name}
                 >

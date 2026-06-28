@@ -344,7 +344,7 @@ export function WorkspaceGeneralPage() {
                   'w-8 h-8 rounded-control text-[12px] font-semibold border transition-colors',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
                   workWeek[i]
-                    ? 'bg-brand-primary text-white border-brand-primary-dark'
+                    ? 'bg-sage-500 text-navy-900 border-sage-600'
                     : 'bg-neutral-surface-sunken text-neutral-text-secondary border-neutral-border hover:border-neutral-text-disabled',
                 ].join(' ')}
               >
