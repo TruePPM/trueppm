@@ -560,9 +560,20 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
         def _backlog_qs() -> Any:
             return (
                 Task.objects.filter(project=project, is_deleted=False)
+                # ADR-0124 (#1135): the TaskSerializer blocker getters read
+                # blocked_by (actor) and blocking_task (soft link); select_related
+                # so each blocked story serializes them without a per-row query
+                # (mirrors annotate_tasks_queryset). Both are forward FKs.
+                .select_related("blocked_by", "blocking_task")
                 .prefetch_related(
                     "assignments__resource",
-                    "acceptance_criteria",
+                    # select_related("met_by") collapses each criterion's
+                    # met_by_name review-trail lookup so a satisfied DoR criterion
+                    # costs no extra query (mirrors annotate_tasks_queryset, #922).
+                    db_models.Prefetch(
+                        "acceptance_criteria",
+                        queryset=AcceptanceCriterion.objects.select_related("met_by"),
+                    ),
                     db_models.Prefetch(
                         "sprint_scope_changes",
                         queryset=SprintScopeChange.objects.select_related("added_by"),
