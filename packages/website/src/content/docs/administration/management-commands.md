@@ -41,6 +41,12 @@ planned/active/closed sprints with burndown, board state, and a retrospective.
 |------|--------|
 | `--with-personas` | Also creates six demo user logins (Maya, Raj, Diana, Sarah, Carlos, Tom) bound to the project with role-appropriate membership |
 
+The persona password is resolved so a fixed weak password never reaches a public
+instance: `TRUEPPM_DEMO_PASSWORD` env var if set, otherwise `demo` under
+`DEBUG=True`, otherwise a random token printed once at seed time. A value supplied
+via `TRUEPPM_DEMO_PASSWORD` is not echoed back to stdout — only the generated
+random token (or the dev `demo` default) is printed.
+
 The command is **idempotent** — re-running clears any prior "Platform Migration"
 project and re-seeds it from scratch, so it is safe to run repeatedly while exploring.
 

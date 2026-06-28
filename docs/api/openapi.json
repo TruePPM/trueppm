@@ -22848,7 +22848,8 @@
                         "readOnly": true
                     },
                     "is_active": {
-                        "type": "boolean"
+                        "type": "boolean",
+                        "readOnly": true
                     },
                     "has_cpm_dates": {
                         "type": "boolean",
@@ -22865,6 +22866,7 @@
                     "created_by",
                     "has_cpm_dates",
                     "id",
+                    "is_active",
                     "project",
                     "task_count"
                 ]
@@ -22898,7 +22900,8 @@
                         "readOnly": true
                     },
                     "is_active": {
-                        "type": "boolean"
+                        "type": "boolean",
+                        "readOnly": true
                     },
                     "has_cpm_dates": {
                         "type": "boolean",
@@ -22922,6 +22925,7 @@
                     "created_by",
                     "has_cpm_dates",
                     "id",
+                    "is_active",
                     "project",
                     "task_count",
                     "tasks"
@@ -22934,9 +22938,6 @@
                     "name": {
                         "type": "string",
                         "maxLength": 255
-                    },
-                    "is_active": {
-                        "type": "boolean"
                     }
                 }
             },

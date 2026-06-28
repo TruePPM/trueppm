@@ -416,6 +416,87 @@ class TestBaselineActivate:
 
 
 # ---------------------------------------------------------------------------
+# API: is_active is read-only — activation is owned solely by the activate
+# endpoint, never a direct serializer write (#1349). The detail route exposes
+# only retrieve + destroy (no update), so the create path is the only write
+# vector for is_active.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestBaselineIsActiveReadOnly:
+    def test_create_with_is_active_is_ignored(
+        self,
+        client: APIClient,
+        project: Project,
+        owner_membership: ProjectMembership,
+        tasks_with_cpm: list[Task],
+    ) -> None:
+        """POST {is_active: true} cannot create a pre-activated baseline."""
+        with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"):
+            r = client.post(
+                f"/api/v1/projects/{project.pk}/baselines/",
+                {"name": "Sneaky", "is_active": True},
+                format="json",
+            )
+        assert r.status_code == 201
+        assert r.data["is_active"] is False
+        assert Baseline.objects.get(pk=r.data["id"]).is_active is False
+
+    def test_create_second_active_does_not_500(
+        self,
+        client: APIClient,
+        project: Project,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """The read-only field blocks the bypass that previously raised a 500.
+
+        With one active baseline, a create that tried to set is_active=true used
+        to hit the partial-unique constraint → unhandled IntegrityError → 500.
+        Now the field is dropped: 201, the new baseline stays inactive, and the
+        existing active baseline is untouched.
+        """
+        active = Baseline.objects.create(project=project, name="Active", is_active=True)
+        with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"):
+            r = client.post(
+                f"/api/v1/projects/{project.pk}/baselines/",
+                {"name": "Second", "is_active": True},
+                format="json",
+            )
+        assert r.status_code == 201
+        assert r.data["is_active"] is False
+        active.refresh_from_db()
+        assert active.is_active is True
+        assert Baseline.objects.filter(project=project, is_active=True).count() == 1
+
+    def test_activate_endpoint_still_works(
+        self,
+        client: APIClient,
+        project: Project,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """The dedicated endpoint remains the one path that activates a baseline."""
+        b = Baseline.objects.create(project=project, name="B1", is_active=False)
+        with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"):
+            r = client.post(f"/api/v1/projects/{project.pk}/baselines/{b.pk}/activate/")
+        assert r.status_code == 200
+        assert r.data["is_active"] is True
+
+    def test_double_activate_does_not_500(
+        self,
+        client: APIClient,
+        project: Project,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """Re-activating the already-active baseline is idempotent, not a 500."""
+        b = Baseline.objects.create(project=project, name="B1", is_active=True)
+        with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"):
+            r = client.post(f"/api/v1/projects/{project.pk}/baselines/{b.pk}/activate/")
+        assert r.status_code == 200
+        assert r.data["is_active"] is True
+
+
+# ---------------------------------------------------------------------------
 # API: task list with baseline overlay
 # ---------------------------------------------------------------------------
 

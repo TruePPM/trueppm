@@ -26,9 +26,12 @@ Usage::
 from __future__ import annotations
 
 import logging
+import os
+import secrets
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 from django.db import transaction
@@ -87,7 +90,10 @@ PERSONAS = [
     },
 ]
 
-DEMO_PASSWORD = "demo"
+# Env var an operator can set to choose a known demo-account password. When
+# unset, the password is "demo" under DEBUG (local-dev convenience) and a random
+# token otherwise — never a fixed, guessable password on a public instance (#1350).
+DEMO_PASSWORD_ENV = "TRUEPPM_DEMO_PASSWORD"
 
 DEMO_ROSTER = [
     ("Tom Nguyen", "Senior Engineer", 1.0),
@@ -127,7 +133,13 @@ class Command(BaseCommand):
             self.stdout.write(f"Cleared {deleted[0]} prior demo row(s).")
         Resource.objects.filter(name__in=[r[0] for r in DEMO_ROSTER]).delete()
 
-        users = self._build_personas() if options.get("with_personas") else {}
+        if options.get("with_personas"):
+            password, password_source = self._resolve_demo_password()
+            users = self._build_personas(password)
+        else:
+            password = None
+            password_source = None
+            users = {}
         owner = users.get("raj")  # PM owns the schedule
 
         project = self._build_project(PROJECT_NAME, owner=owner)
@@ -162,9 +174,16 @@ class Command(BaseCommand):
         )
         if users:
             names = ", ".join(p["username"] for p in PERSONAS)
-            self.stdout.write(
-                self.style.SUCCESS(f"  Personas: {names} (password={DEMO_PASSWORD!r})")
-            )
+            # Only echo the value when it cannot be recovered elsewhere (the
+            # generated random token) or is a well-known dev default ("demo").
+            # A password supplied via TRUEPPM_DEMO_PASSWORD is already in the
+            # operator's secret store, so we do not re-emit it into stdout /
+            # container logs (#1350).
+            if password_source == "env":
+                detail = f"password set via {DEMO_PASSWORD_ENV}"
+            else:
+                detail = f"password={password!r}"
+            self.stdout.write(self.style.SUCCESS(f"  Personas: {names} ({detail})"))
         self.stdout.write(self.style.SUCCESS(f"  Active sprint: {active.name!r}"))
         self.stdout.write(self.style.SUCCESS("=" * 60))
         self.stdout.write("")
@@ -173,7 +192,30 @@ class Command(BaseCommand):
     # Personas
     # ------------------------------------------------------------------
 
-    def _build_personas(self) -> dict[str, Any]:
+    def _resolve_demo_password(self) -> tuple[str, str]:
+        """Resolve the password for the seeded persona logins and its source.
+
+        Personas are real, loginable accounts, so a fixed weak password must
+        never reach a public (non-DEBUG) instance (#1350). Returns
+        ``(password, source)`` where ``source`` is one of ``"env"``,
+        ``"debug"``, or ``"generated"`` — the caller uses it to decide whether
+        the value is safe to echo. Resolution order:
+
+          1. ``TRUEPPM_DEMO_PASSWORD`` env var, if set — operator opt-in to a
+             known value (CI fixtures, scripted demos);
+          2. the literal ``"demo"`` when ``settings.DEBUG`` is on — local-dev
+             convenience, where the instance is not internet-reachable;
+          3. a random URL-safe token otherwise, printed once at seed time so the
+             operator can record it.
+        """
+        env_password = os.environ.get(DEMO_PASSWORD_ENV)
+        if env_password:
+            return env_password, "env"
+        if settings.DEBUG:
+            return "demo", "debug"
+        return secrets.token_urlsafe(16), "generated"
+
+    def _build_personas(self, password: str) -> dict[str, Any]:
         User = get_user_model()
         out: dict[str, Any] = {}
         for spec in PERSONAS:
@@ -185,11 +227,11 @@ class Command(BaseCommand):
                     "last_name": spec["last"],
                 },
             )
-            # Demo-seed fixture: a fixed, well-known throwaway password for local
-            # demo accounts, not an interactive-signup path — password validators
-            # do not apply.
+            # Demo-seed fixture: the password is resolved by _resolve_demo_password
+            # (env var > "demo" under DEBUG > random token), not an interactive-signup
+            # path — password validators do not apply.
             # nosemgrep: unvalidated-password
-            user.set_password(DEMO_PASSWORD)
+            user.set_password(password)
             user.save(update_fields=["password"])
             out[spec["username"]] = user
         return out
