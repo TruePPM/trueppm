@@ -336,6 +336,7 @@ This rule applies to every doc edit — there is no "fast path" carve-out. A wro
 
 ## Available Skills
 Run `/skills` to see all available skills. Key ones:
+- `/dotplanning` — Plan a dot release (0.x) before development starts: feature→asset map, missing screens/flows/decisions, open questions, sequenced gated workstreams, HTML report to `~/Downloads`. Begin-gate bookend to `/pre-release`; run once at kickoff
 - `/architect` — System design decisions with ADR output
 - `/ai-review` — AI-readiness design gate: verifies new/changed features keep values server-side (API-first/MCP-reachable), explainable, write-safe, and on the correct OSS team-AI vs Enterprise AI-governance side. Runs after `/architect`, paired with `/enterprise-check`
 - `/security-review` — Security audit of code or design
