@@ -26,7 +26,7 @@ function SprintStateBadge({ state }: { state: string }) {
   const active = state === 'ACTIVE';
   return (
     <span
-      className={`rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${
+      className={`rounded px-1.5 py-0.5 text-xs font-medium uppercase tracking-wide ${
         active
           ? 'bg-brand-primary/10 text-brand-primary'
           : 'bg-neutral-surface text-neutral-text-secondary'

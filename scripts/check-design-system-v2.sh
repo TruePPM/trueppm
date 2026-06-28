@@ -35,7 +35,7 @@ SHELL_SRC="packages/web/src/features/shell"
 
 # ── Baselines (ratchet floors). See header. Drive these to zero over time. ──
 BASELINE_HEX=1197
-BASELINE_ARBITRARY=6
+BASELINE_ARBITRARY=4
 BASELINE_SHADOW=0
 
 EXCLUDE='\.test\.|\.spec\.|\.stories\.'

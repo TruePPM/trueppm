@@ -335,7 +335,7 @@ function PulseTrend({
       <Sparkline label="Mood" points={points} value={(p) => p.avg_mood} />
       <Sparkline label="Energy" points={points} value={(p) => p.avg_energy} />
       <Sparkline label="Confidence" points={points} value={(p) => p.avg_confidence} />
-      <p className="text-[11px] tppm-mono text-neutral-text-disabled">
+      <p className="text-xs tppm-mono text-neutral-text-secondary">
         {latest.response_count} responded this {itl.lower}
       </p>
     </div>
@@ -366,7 +366,7 @@ function Sparkline({
     return (
       <div className="flex items-center gap-2">
         <span className="w-20 shrink-0 text-xs text-neutral-text-secondary">{label}</span>
-        <span className="text-[11px] italic text-neutral-text-disabled">no data</span>
+        <span className="text-xs italic text-neutral-text-secondary">no data</span>
       </div>
     );
   }

@@ -57,7 +57,7 @@ describe('MCResultPanel', () => {
 
   it('has role=dialog with aria-modal=true', () => {
     render(<MCResultPanel result={FIXTURE_MC_RESULT} onClose={() => {}} />);
-    const dialog = screen.getByRole('dialog', { name: /monte carlo confidence distribution/i });
+    const dialog = screen.getByRole('dialog', { name: /monte carlo confidence/i });
     expect(dialog).toHaveAttribute('aria-modal', 'true');
   });
 });

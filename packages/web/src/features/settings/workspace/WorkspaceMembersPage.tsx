@@ -1,4 +1,4 @@
-import { type FormEvent, useId, useMemo, useState } from 'react';
+import { type CSSProperties, type FormEvent, useId, useMemo, useState } from 'react';
 import { SettingsPageTitle } from '../SettingsShell';
 import { useWorkspaceMembers, type WorkspaceMember } from '../hooks/useWorkspaceMembers';
 import {
@@ -12,10 +12,14 @@ import {
   useResendAllInvites,
 } from '../hooks/useWorkspaceInvites';
 import { toast } from '@/components/Toast';
+import { IDENTITY_VIOLET, tintedChipStyle } from '@/lib/identityColors';
 import { filterMembers } from './filterMembers';
 
-const ROLE_PALETTE: Record<string, { bg: string; text: string }> = {
-  Admin: { bg: 'bg-[#7C3AED]/10', text: 'text-[#7C3AED]' },
+const ROLE_PALETTE: Record<string, { bg: string; text: string; style?: CSSProperties }> = {
+  // Admin is a distinct identity hue, not a status — the single-sourced violet
+  // is applied via inline style (see lib/identityColors) rather than a raw
+  // bg-[hex] arbitrary-value class that trips the arbitrary-color gate.
+  Admin: { bg: '', text: '', style: tintedChipStyle(IDENTITY_VIOLET) },
   PM: { bg: 'bg-brand-primary-light', text: 'text-brand-primary' },
   Lead: { bg: 'bg-brand-accent-light', text: 'text-brand-accent-dark' },
   Member: { bg: 'bg-neutral-surface-sunken', text: 'text-neutral-text-secondary' },
@@ -40,6 +44,7 @@ function RoleBadge({ role }: { role: string }) {
   return (
     <span
       className={`inline-flex items-center px-2 py-0.5 rounded-chip text-[11px] font-semibold ${p.bg} ${p.text}`}
+      style={p.style}
     >
       {role}
     </span>

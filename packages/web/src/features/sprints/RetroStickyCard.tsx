@@ -167,7 +167,7 @@ export function RetroStickyCard({
             <button
               type="button"
               onClick={onRetry}
-              className="font-medium underline
+              className="inline-flex min-h-[44px] items-center px-2 font-medium underline
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
             >
               Retry
@@ -175,7 +175,7 @@ export function RetroStickyCard({
             <button
               type="button"
               onClick={onDiscard}
-              className="text-neutral-text-secondary underline
+              className="inline-flex min-h-[44px] items-center px-2 text-neutral-text-secondary underline
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
             >
               Discard

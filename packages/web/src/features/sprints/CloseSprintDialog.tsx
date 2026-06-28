@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { ApiSprint } from '@/types';
 import type { SprintBacklogTask } from '@/hooks/useSprintBacklog';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { sprintDayOf } from './sprintMath';
 
 export type CarryOverChoice = 'next' | 'backlog' | 'none';
@@ -52,6 +53,9 @@ export function CloseSprintDialog({
   const pendingCount = sprint.pending_count ?? 0;
   const [pendingDisposition, setPendingDisposition] =
     useState<PendingDisposition>('carry');
+  // Trap Tab inside the modal and restore focus to the trigger on close
+  // (issue 1357). Escape is handled separately so the !isClosing guard holds.
+  const trapRef = useFocusTrap<HTMLDivElement>(true);
 
   // Esc to cancel.
   useEffect(() => {
@@ -82,7 +86,11 @@ export function CloseSprintDialog({
       aria-labelledby="close-sprint-title"
       className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-neutral-text-primary/40"
     >
-      <div className="w-[440px] max-w-full rounded-card border border-neutral-border bg-neutral-surface flex flex-col gap-4 p-5">
+      <div
+        ref={trapRef}
+        tabIndex={-1}
+        className="w-[440px] max-w-full rounded-card border border-neutral-border bg-neutral-surface flex flex-col gap-4 p-5 focus:outline-none"
+      >
         <h2
           id="close-sprint-title"
           className="text-base font-semibold text-neutral-text-primary"
@@ -168,11 +176,11 @@ export function CloseSprintDialog({
 
         {/* Pending-scope advisory (ADR-0102 §7) — surfaced only when the sprint
             still has un-accepted injections. This NEVER blocks the close; it
-            offers a disposition (carry over by default, or reject). role=status
-            (not alert) — it is informational, consistent with warn-never-block. */}
+            offers a disposition (carry over by default, or reject). It is a
+            radio group, so the <fieldset>/<legend> grouping carries the
+            semantics — no role override (a fieldset is not a live region). */}
         {pendingCount > 0 && (
           <fieldset
-            role="status"
             className="flex flex-col gap-2 text-sm rounded-card border border-neutral-border bg-neutral-surface-sunken p-3"
           >
             <legend className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary px-1">

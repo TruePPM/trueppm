@@ -227,7 +227,7 @@ export function OverviewSection({ taskId, projectId, userRole, canEdit }: Drawer
             </div>
           )}
           {task.status === 'COMPLETE' && !task.isSummary && !milestoneRollupActive && (
-            <p className="mt-1 text-xs text-neutral-text-disabled">
+            <p className="mt-1 text-xs text-neutral-text-secondary">
               Zeroed automatically on Complete
             </p>
           )}

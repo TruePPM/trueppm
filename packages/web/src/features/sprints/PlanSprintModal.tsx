@@ -160,10 +160,13 @@ export function PlanSprintModal({
 
   return (
     <>
-      {/* Backdrop */}
+      {/* Backdrop — click-to-close but never a Tab stop (tabIndex=-1), so the
+          first Tab lands on a control inside the dialog, not this invisible
+          full-screen button (issue 1357). */}
       <button
         type="button"
         aria-label="Close dialog"
+        tabIndex={-1}
         className="fixed inset-0 z-50 bg-black/40 cursor-default"
         onClick={onClose}
       />

@@ -484,7 +484,11 @@ function BoardCell({
   const droppableId = `${phaseId}:${status}`;
   const { setNodeRef } = useDroppable({ id: droppableId });
   const over = isOver && isDragActive;
-  const wip = showWip && wipLimit != null && tasks.length > wipLimit;
+  // Route through the shared wipState() helper so the *at-limit* band (count
+  // exactly equals the limit) is surfaced, not just the over-limit case — a
+  // column sitting on its ceiling is the signal a team needs before it tips
+  // over (issue 1358 F6).
+  const wipBand = showWip ? wipState(tasks.length, wipLimit) : 'none';
   const restingBg = showColTints
     ? (COLUMN_TINT[status] ?? 'bg-neutral-surface-sunken')
     : 'bg-neutral-surface-sunken';
@@ -516,9 +520,14 @@ function BoardCell({
           : `${restingBg} border-l-2 border-transparent`,
       ].join(' ')}
     >
-      {wip && (
-        <div className="text-xs text-semantic-at-risk font-semibold px-1">
+      {wipBand === 'over' && (
+        <div className="text-xs text-semantic-critical font-semibold px-1">
           WIP limit: {wipLimit} — {tasks.length - (wipLimit ?? 0)} over
+        </div>
+      )}
+      {wipBand === 'at' && (
+        <div className="text-xs text-semantic-at-risk font-semibold px-1">
+          WIP limit: {wipLimit} — at limit
         </div>
       )}
       {tasks.map((task) => (
@@ -1045,7 +1054,10 @@ function MobileBoard({
       >
         {columns.map((col, i) => {
           const cards = tasksByStatus[col.status] ?? [];
-          const overLimit = col.wipLimit != null && cards.length > col.wipLimit;
+          // Shared wipState() so the mobile column header shows the at-limit
+          // breach chip too, not only over-limit (issue 1358 F6).
+          const wipBand =
+            col.wipLimit != null ? wipState(cards.length, col.wipLimit) : 'none';
           return (
             <section
               key={col.status}
@@ -1064,9 +1076,9 @@ function MobileBoard({
                 <span className="text-xs text-neutral-text-disabled tppm-mono">
                   {cards.length}
                 </span>
-                {overLimit && (
+                {(wipBand === 'over' || wipBand === 'at') && (
                   <span className="ml-auto">
-                    <WipBreachChip state="over" />
+                    <WipBreachChip state={wipBand} />
                   </span>
                 )}
               </div>

@@ -203,7 +203,7 @@ describe('HealthCluster', () => {
     render();
     const cluster = screen.getByRole('group', { name: 'Project health' });
     await user.click(within(cluster).getByRole('button', { name: /monte carlo forecast/i }));
-    expect(screen.getByRole('dialog', { name: /monte carlo confidence distribution/i })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: /monte carlo confidence/i })).toBeInTheDocument();
   });
 
   it('at-risk segment opens a task popover', async () => {

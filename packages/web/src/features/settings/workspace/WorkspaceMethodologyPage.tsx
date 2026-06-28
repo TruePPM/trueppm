@@ -4,6 +4,7 @@ import { EnterpriseBadge } from '../components/EnterpriseBadge';
 import { useWorkspaceSettings } from '../hooks/useWorkspaceSettings';
 import { useUpdateWorkspaceSettings } from '../hooks/useUpdateWorkspaceSettings';
 import { useDirtyForm } from '../hooks/useDirtyForm';
+import { IDENTITY_AMBER, IDENTITY_SAGE, IDENTITY_VIOLET } from '@/lib/identityColors';
 import type { MethodologyOverridePolicy, ProgramMethodology } from '@/api/types';
 
 /**
@@ -38,7 +39,10 @@ const METHODS: Array<{
     id: 'AGILE',
     label: 'Agile',
     tagline: 'Sprints, story points, velocity. No baselines, no critical path.',
-    accent: '#7C3AED',
+    // Identity accents are single-sourced (lib/identityColors); the soft
+    // accentBg washes stay local — they are per-method design values, not the
+    // shared identity hue.
+    accent: IDENTITY_VIOLET,
     accentBg: 'rgba(124,58,237,.10)',
     features: [
       'Sprint planning & retros',
@@ -51,7 +55,7 @@ const METHODS: Array<{
     id: 'WATERFALL',
     label: 'Waterfall',
     tagline: 'Phases, gates, baselines, CPM. No sprints.',
-    accent: '#3E8C6D',
+    accent: IDENTITY_SAGE,
     accentBg: '#D3ECE0',
     features: [
       'WBS → Schedule → Baseline',
@@ -64,7 +68,7 @@ const METHODS: Array<{
     id: 'HYBRID',
     label: 'Hybrid',
     tagline: 'Phases & gates at the top; sprints inside delivery phases.',
-    accent: '#C17A10',
+    accent: IDENTITY_AMBER,
     accentBg: '#FFF3CD',
     features: [
       'Phase gates at program level',

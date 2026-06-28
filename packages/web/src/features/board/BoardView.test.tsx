@@ -523,6 +523,35 @@ describe('BoardView', () => {
     expect(screen.getByText(/over WIP limit/i)).toBeInTheDocument();
   });
 
+  it('surfaces the at-limit band on the drop zone when a column sits exactly at its WIP limit (issue 1358)', () => {
+    // Two IN_PROGRESS leaf cards with wipLimit:2 → count === limit → the 'at'
+    // band. Before routing both inline checks through wipState() the drop-zone
+    // text only fired on the over branch, so an at-limit column showed nothing.
+    const wip = (id: string, name: string): Task => ({
+      ...FIXTURE_TASKS[1],
+      id,
+      name,
+      isSummary: false,
+      isMilestone: false,
+      parentId: null,
+      status: 'IN_PROGRESS',
+      progress: 30,
+    });
+    mockTasks = [wip('ip-1', 'Wire the consumer'), wip('ip-2', 'Backfill the cache')];
+    mockColumns = [
+      { status: 'BACKLOG', label: 'BACKLOG', visible: true },
+      { status: 'NOT_STARTED', label: 'TO DO', visible: true },
+      { status: 'IN_PROGRESS', label: 'IN PROGRESS', visible: true, wipLimit: 2 },
+      { status: 'REVIEW', label: 'REVIEW', visible: true },
+      { status: 'COMPLETE', label: 'DONE', visible: true },
+    ];
+    renderBoard();
+    // The drop-zone now carries the at-limit warning (unique "WIP limit: N — at
+    // limit" copy), and the over-limit copy is absent.
+    expect(screen.getByText(/WIP limit: 2 — at limit/i)).toBeInTheDocument();
+    expect(screen.queryByText(/over WIP limit/i)).not.toBeInTheDocument();
+  });
+
   it('carries the WIP-limit state in the column header accessible name (#1033)', () => {
     // Tight wipLimit trips the over-limit branch on IN_PROGRESS; TO DO has no
     // limit so its header stays the plain form.

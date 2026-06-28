@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useSprintScopeChanges, type ScopeChangeEvent } from '@/hooks/useSprints';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 
 interface Props {
   /** Sprint whose scope-change audit to show. */
@@ -23,6 +24,8 @@ export function ScopeChangeDrawer({ sprintId, onClose }: Props) {
   const { data, isLoading } = useSprintScopeChanges(sprintId);
   const itl = useIterationLabel();
   const closeBtnRef = useRef<HTMLButtonElement>(null);
+  // Trap Tab inside the drawer; restore focus to the trigger on close (issue 1357).
+  const trapRef = useFocusTrap<HTMLDivElement>(true);
 
   useEffect(() => {
     closeBtnRef.current?.focus();
@@ -39,10 +42,12 @@ export function ScopeChangeDrawer({ sprintId, onClose }: Props) {
   return (
     <div className="fixed inset-0 z-40 flex justify-end bg-neutral-text-primary/40">
       <div
+        ref={trapRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="scope-audit-title"
-        className="w-full max-w-full sm:w-[400px] h-full bg-neutral-surface border-l border-neutral-border flex flex-col"
+        tabIndex={-1}
+        className="w-full max-w-full sm:w-[400px] h-full bg-neutral-surface border-l border-neutral-border flex flex-col focus:outline-none"
       >
         <header className="flex items-start justify-between gap-2 px-4 py-3 border-b border-neutral-border">
           <div>

@@ -37,7 +37,7 @@ export function MCResultPanel({ result, onClose }: Props) {
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Monte Carlo confidence distribution"
+      aria-labelledby="mc-result-title"
       className="fixed inset-0 z-50 flex"
     >
       {/* Backdrop */}
@@ -54,7 +54,7 @@ export function MCResultPanel({ result, onClose }: Props) {
         {/* Header */}
         <div className="flex items-start justify-between gap-3 px-5 pt-5 pb-3 border-b border-neutral-border">
           <div>
-            <h2 className="text-sm font-semibold text-neutral-text-primary">
+            <h2 id="mc-result-title" className="text-sm font-semibold text-neutral-text-primary">
               Monte Carlo confidence
             </h2>
             <p className="mt-0.5 text-xs text-neutral-text-secondary">

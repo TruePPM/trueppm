@@ -75,7 +75,7 @@ export function RetroStickyEditor({ initialText = '', label, onSubmit, onCancel 
           <button
             type="button"
             onClick={onCancel}
-            className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary
+            className="inline-flex min-h-[44px] items-center px-3 text-xs text-neutral-text-secondary hover:text-neutral-text-primary
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
           >
             Cancel
@@ -84,7 +84,7 @@ export function RetroStickyEditor({ initialText = '', label, onSubmit, onCancel 
             type="button"
             onMouseDown={(e) => e.preventDefault() /* keep textarea focus through blur */}
             onClick={commit}
-            className="text-xs font-medium text-brand-primary hover:text-brand-primary-dark
+            className="inline-flex min-h-[44px] items-center px-3 text-xs font-medium text-brand-primary hover:text-brand-primary-dark
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
           >
             Save

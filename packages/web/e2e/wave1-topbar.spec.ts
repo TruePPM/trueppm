@@ -186,7 +186,7 @@ test.describe('Wave 1 — TopBar health cluster (desktop, lg+ viewport)', () => 
   test('clicking Forecast segment opens MC distribution panel', async ({ page }) => {
     await page.getByRole('button', { name: /monte carlo forecast/i }).click();
     await expect(
-      page.getByRole('dialog', { name: /monte carlo confidence distribution/i }),
+      page.getByRole('dialog', { name: /monte carlo confidence/i }),
     ).toBeVisible();
   });
 

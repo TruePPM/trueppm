@@ -61,14 +61,14 @@ const backlog: ProductBacklog = {
   scoring: { model: 'wsjf' },
 };
 
-function renderDrawer(story: Task, canManageBacklog = true) {
+function renderDrawer(story: Task, canManageBacklog = true, onClose = vi.fn()) {
   return render(
     <StoryDetailDrawer
       projectId="p1"
       story={story}
       backlog={backlog}
       canManageBacklog={canManageBacklog}
-      onClose={vi.fn()}
+      onClose={onClose}
     />,
   );
 }
@@ -138,5 +138,45 @@ describe('StoryDetailDrawer (#1043)', () => {
       expect.anything(),
     );
     expect(patchMutate).not.toHaveBeenCalled();
+  });
+
+  it('closing while dirty opens the discard dialog; Keep editing keeps the drawer open (issue 1357)', async () => {
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+    renderDrawer(makeStory(), true, onClose);
+
+    await user.type(screen.getByLabelText('Story title'), '!');
+    await user.click(screen.getByRole('button', { name: 'Close story detail' }));
+
+    // The focus-trapped ConfirmDiscardDialog intercepts the close — not window.confirm.
+    expect(screen.getByRole('alertdialog')).toHaveTextContent('Discard unsaved changes?');
+    expect(onClose).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Keep editing' }));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('closing while dirty then Discard changes closes the drawer (issue 1357)', async () => {
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+    renderDrawer(makeStory(), true, onClose);
+
+    await user.type(screen.getByLabelText('Story title'), '!');
+    await user.click(screen.getByRole('button', { name: 'Close story detail' }));
+    await user.click(screen.getByRole('button', { name: 'Discard changes' }));
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('closing while clean closes immediately without a discard dialog (issue 1357)', async () => {
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+    renderDrawer(makeStory(), true, onClose);
+
+    await user.click(screen.getByRole('button', { name: 'Close story detail' }));
+
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
