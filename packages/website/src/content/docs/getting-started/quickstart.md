@@ -42,6 +42,10 @@ That's it. Sign in at `http://localhost:5173` as any of the personas (password: 
 
 Re-running the command clears the prior demo and re-seeds, so you can refresh after pulling new features.
 
+:::note[Password outside the dev stack]
+`demo` is the persona password only because the local Docker stack runs with `DEBUG=True`. On a non-dev install (`DEBUG=False`) the command prints a one-time random password at the end of its output unless you set `TRUEPPM_DEMO_PASSWORD`. See [`seed_demo_project`](/administration/management-commands/#seed_demo_project).
+:::
+
 :::tip[The story behind the demo]
 The demo project is built to walk through the eight-step [hybrid PM flow](/the-story/) end-to-end. Read the story, then sign in as each persona — the seeded data exercises every step.
 :::

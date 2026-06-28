@@ -127,6 +127,10 @@ The set is open-ended and grows as features land; current event types include:
 > (external integrations expect dotted topic-style names). So the *same* domain
 > event is `task_created` over the WebSocket and `task.created` in a webhook
 > payload. This is an intentional per-transport distinction, not drift.
+>
+> The naming pattern new events must follow (`<resource>_<past-tense-verb>`), the
+> frozen-contract guarantee, and the steps to register a new event are documented
+> in [WebSocket event conventions](/architecture/websocket-events/).
 
 Treat broadcast delivery as **best-effort**: events may be missed during a
 reconnect, so a client should refetch the affected resource on reconnect rather
