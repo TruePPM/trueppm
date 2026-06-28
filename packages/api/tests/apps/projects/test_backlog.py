@@ -332,6 +332,43 @@ def test_pull_fires_task_created_webhook(
 
 
 @pytest.mark.django_db
+def test_pull_service_broadcasts_task_created_on_commit(
+    member: object,
+    program: Program,
+    project: Project,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """The pull service defers a board broadcast so watchers see the item appear.
+
+    The HTTP test above covers the webhook; this pins the service contract
+    itself: ``pull_to_project_backlog`` enqueues a
+    ``broadcast_board_event(project_id, "task_created", {"id": <task>})`` via
+    ``transaction.on_commit`` (the #1359 broadcast-gap guarantee), it fires once,
+    and — because it is on_commit — only after the transaction lands. The service
+    imports ``broadcast_board_event`` at call time, so patch it on its source
+    module.
+    """
+    from trueppm_api.apps.projects.backlog_services import pull_to_project_backlog
+
+    item = _item(program)
+    events: list[tuple[str, dict[str, object]]] = []
+    with (
+        patch(
+            "trueppm_api.apps.sync.broadcast.broadcast_board_event",
+            side_effect=lambda _pid, et, payload: events.append((et, payload)),
+        ),
+        django_capture_on_commit_callbacks(execute=True) as callbacks,
+    ):
+        task = pull_to_project_backlog(item_id=str(item.pk), project=project, actor=member)
+        # Deferred to on_commit: nothing has broadcast yet inside the block.
+        assert events == []
+
+    assert callbacks, "expected at least one on_commit callback to be captured"
+    assert ("task_created", {"id": str(task.pk)}) in events
+    assert [et for et, _ in events].count("task_created") == 1
+
+
+@pytest.mark.django_db
 def test_rejected_pull_fires_no_webhook(
     member: object,
     program: Program,

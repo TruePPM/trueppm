@@ -179,6 +179,70 @@ test.describe('Programs — empty state and creation', () => {
   });
 });
 
+test.describe('Programs — creation error paths (#1365)', () => {
+  // Drive the create modal to both an error class and assert it degrades the
+  // same safe way: the failure is surfaced (role="alert"), the dialog stays
+  // open over /programs (no optimistic navigation to a program that was never
+  // created), and the submit button re-enables so the user can retry. The
+  // happy path above only proved the success branch.
+  async function openCreateModalAndSubmit(page: Page) {
+    await page.goto('/programs');
+    await page.getByRole('button', { name: /Create your first program/i }).click();
+    await page.getByLabel(/^name/i).fill('Phase 2 Modernization');
+    await page.getByRole('button', { name: /Create program/i }).click();
+    return page.getByRole('dialog', { name: /New program/i });
+  }
+
+  test('keeps the modal open and alerts when the create POST 500s', async ({ page }) => {
+    await setup(page);
+    // Override the create POST to fail; GET still lists (registered last → wins).
+    await page.route('**/api/v1/programs/', (r) => {
+      if (r.request().method() === 'POST') {
+        return r.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: JSON.stringify({ detail: 'Internal server error.' }),
+        });
+      }
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ results: [], count: 0, next: null, previous: null }),
+      });
+    });
+
+    const dialog = await openCreateModalAndSubmit(page);
+    await expect(dialog.getByRole('alert')).toBeVisible();
+    await expect(dialog).toBeVisible();
+    await expect(page).toHaveURL(/\/programs$/);
+    // Button reset out of its "Creating…" pending state so a retry is possible.
+    await expect(dialog.getByRole('button', { name: /Create program/i })).toBeEnabled();
+  });
+
+  test('keeps the modal open and alerts on a duplicate-name 400', async ({ page }) => {
+    await setup(page);
+    await page.route('**/api/v1/programs/', (r) => {
+      if (r.request().method() === 'POST') {
+        return r.fulfill({
+          status: 400,
+          contentType: 'application/json',
+          body: JSON.stringify({ name: ['program with this name already exists.'] }),
+        });
+      }
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ results: [], count: 0, next: null, previous: null }),
+      });
+    });
+
+    const dialog = await openCreateModalAndSubmit(page);
+    await expect(dialog.getByRole('alert')).toBeVisible();
+    await expect(dialog).toBeVisible();
+    await expect(page).toHaveURL(/\/programs$/);
+  });
+});
+
 test.describe('Programs — shell tabs', () => {
   // #790 / ADR-0095: program navigation lives in the global TopBar (mirroring
   // project ViewTabs) and now includes a discoverable Settings tab.
