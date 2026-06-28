@@ -571,3 +571,30 @@ def test_baseline_create_auto_name_inside_atomic(
     response2 = admin_client.post(url, {}, format="json")
     assert response2.status_code == 201, response2.data
     assert Baseline.objects.filter(project=admin_project, name="Baseline 2").exists()
+
+
+# ---------------------------------------------------------------------------
+# Index guards (#1352) — lock the pre-tag perf indexes onto their models so a
+# later model edit can't silently drop them and reintroduce an in-memory sort
+# or a JSONField seq-scan. Behavior is unchanged; these assert the query plan's
+# supporting structure stays in place.
+# ---------------------------------------------------------------------------
+
+
+def test_pretag_perf_indexes_are_registered() -> None:
+    """The three #1352 indexes remain declared on their models.
+
+    - Sprint (project, finish_date): SprintViewSet exposes finish_date ordering.
+    - Risk (project, -impact, -probability, title): the register's default order.
+    - BacklogItem tags GIN: backlog tag filtering uses jsonb `@>` containment.
+    """
+    from trueppm_api.apps.projects.models import BacklogItem, Risk, Sprint
+
+    sprint_index_names = {idx.name for idx in Sprint._meta.indexes}
+    assert "sprint_project_finish_idx" in sprint_index_names
+
+    risk_index_names = {idx.name for idx in Risk._meta.indexes}
+    assert "risk_project_register_idx" in risk_index_names
+
+    backlog_index_names = {idx.name for idx in BacklogItem._meta.indexes}
+    assert "backlogitem_tags_gin" in backlog_index_names

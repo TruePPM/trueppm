@@ -1156,6 +1156,91 @@ class TestImportProvenanceList:
         assert rows[0]["id"] == str(req.pk)
         assert rows[0]["task_count"] == 42
 
+    def test_task_count_lookups_are_batched_not_n_plus_one(
+        self, admin_client: APIClient, project: Project, user: object
+    ) -> None:
+        """The page resolves every row's task_count in one TaskRun query (#1352).
+
+        Each ImportRequest carries a distinct celery_task_id, so the serializer's
+        per-row memo cache never dedups across rows — the view must batch-load the
+        page's TaskRuns up front. Guard that the taskruns table is hit exactly once
+        regardless of how many import rows the page holds.
+        """
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        from trueppm_api.apps.msproject.models import ImportRequest
+        from trueppm_api.apps.taskruns.models import TaskRun
+
+        for i in range(5):
+            ImportRequest.objects.create(
+                project=project,
+                filename=f"import-{i}.xml",
+                file_content_b64="",
+                initiated_by=user,  # type: ignore[arg-type]
+                celery_task_id=f"task-{i}",
+            )
+            TaskRun.objects.create(
+                task_name="import_msproject",
+                celery_task_id=f"task-{i}",
+                project=project,
+                status="success",
+                result_summary={"task_count": i + 1},
+            )
+
+        with CaptureQueriesContext(connection) as ctx:
+            resp = admin_client.get(self._url(project))
+
+        assert resp.status_code == 200
+        rows = resp.json()["results"]
+        assert len(rows) == 5
+        assert sorted(r["task_count"] for r in rows) == [1, 2, 3, 4, 5]
+        taskrun_queries = [q for q in ctx.captured_queries if "taskruns_taskrun" in q["sql"]]
+        assert len(taskrun_queries) == 1, (
+            f"expected one batched TaskRun query, got {len(taskrun_queries)}:\n"
+            + "\n".join(q["sql"] for q in taskrun_queries)
+        )
+
+    def test_duplicate_task_id_resolves_to_newest_run(
+        self, admin_client: APIClient, project: Project, user: object
+    ) -> None:
+        """A reused celery_task_id (Celery retry) shows the newest run's count.
+
+        The batched lookup must keep the same run the per-row `.first()` fallback
+        would (TaskRun.Meta.ordering is `-created_at`, so `.first()` = newest).
+        Guards the order-of-iteration parity in the batch dict (#1352).
+        """
+        from trueppm_api.apps.msproject.models import ImportRequest
+        from trueppm_api.apps.taskruns.models import TaskRun
+
+        ImportRequest.objects.create(
+            project=project,
+            filename="retried.xml",
+            file_content_b64="",
+            initiated_by=user,  # type: ignore[arg-type]
+            celery_task_id="dup-1",
+        )
+        older = TaskRun.objects.create(
+            task_name="import_msproject",
+            celery_task_id="dup-1",
+            project=project,
+            status="failure",
+            result_summary={"task_count": 10},
+        )
+        TaskRun.objects.filter(pk=older.pk).update(created_at=datetime(2026, 5, 1, tzinfo=UTC))
+        newer = TaskRun.objects.create(
+            task_name="import_msproject",
+            celery_task_id="dup-1",
+            project=project,
+            status="success",
+            result_summary={"task_count": 99},
+        )
+        TaskRun.objects.filter(pk=newer.pk).update(created_at=datetime(2026, 5, 20, tzinfo=UTC))
+
+        resp = admin_client.get(self._url(project))
+        rows = resp.json()["results"]
+        assert rows[0]["task_count"] == 99
+
     def test_task_count_is_none_when_no_taskrun_yet(
         self, admin_client: APIClient, project: Project, user: object
     ) -> None:

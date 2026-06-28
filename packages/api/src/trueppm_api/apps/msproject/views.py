@@ -377,13 +377,29 @@ class ImportRequestProvenanceListView(APIView):
             .select_related("initiated_by")
             .order_by("-requested_at")
         )
+        from trueppm_api.apps.taskruns.models import TaskRun
+
         paginator = ImportProvenancePagination()
         page = paginator.paginate_queryset(qs, request, view=self)
-        # Pre-seed the TaskRun memoization cache so the serializer only reads
-        # from context (avoids touching the read-only `Mapping[str, Any]` type
-        # surfaced by stricter django-stubs builds in CI).
-        context: dict[str, Any] = {"_taskrun_cache": {}}
-        serializer = ImportRequestProvenanceSerializer(page, many=True, context=context)
+        page_rows = list(page) if page is not None else []
+        # Batch-load every linked TaskRun for the page in one IN query and fully
+        # pre-seed the serializer's memoization cache. The per-row cache only
+        # dedups *repeated* celery_task_ids within a response, but each import
+        # has a distinct id, so without this seed the serializer would issue one
+        # TaskRun SELECT per row. Seed missing ids to None as well so a "no
+        # TaskRun yet" row is also a cache hit rather than a fallthrough query.
+        task_ids = [r.celery_task_id for r in page_rows if r.celery_task_id]
+        # Order oldest-first so the dict's last-write-wins keeps the *newest* run
+        # for a duplicate celery_task_id — matching the per-row `.first()` the
+        # serializer falls back to (TaskRun.Meta.ordering is `-created_at`). A
+        # Celery retry reuses the task id, so duplicates are structurally possible.
+        runs_by_id = {
+            run.celery_task_id: run
+            for run in TaskRun.objects.filter(celery_task_id__in=task_ids).order_by("created_at")
+        }
+        cache: dict[str, TaskRun | None] = {tid: runs_by_id.get(tid) for tid in task_ids}
+        context: dict[str, Any] = {"_taskrun_cache": cache}
+        serializer = ImportRequestProvenanceSerializer(page_rows, many=True, context=context)
         return paginator.get_paginated_response(serializer.data)
 
 
