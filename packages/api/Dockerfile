@@ -45,6 +45,23 @@ RUN apt-get update -qq && \
 
 COPY --from=builder /venv /venv
 
+# Remove the Python build tools (pip/setuptools/wheel) from BOTH the base image's
+# system Python (/usr/local) and the application venv. The app runs entirely from
+# /venv via uvicorn (see ENV PATH below) and never invokes them at runtime, but
+# Trivy scans them and fails the release on their fixable CVEs. The findings live
+# in TWO copies: the base image's system site-packages, and — the one #1388
+# missed — setuptools' OWN vendored deps inside the venv
+# (setuptools/_vendor/wheel-0.45.1 → CVE-2026-24049 and
+# setuptools/_vendor/jaraco.context-5.3.0 → CVE-2026-23949). #1388 upgraded only
+# the top-level venv wheel (0.47.0), leaving both vendored copies. Removing the
+# unused tooling keeps the published image clean and immunizes the release gate
+# against future build-tool CVEs — our source imports neither setuptools nor
+# pkg_resources, and `manage.py check` passes without them. `python` is the
+# system interpreter here (this runs before ENV PATH=/venv/bin); pip uninstalls
+# itself last when listed after its peers.
+RUN python -m pip uninstall -y wheel setuptools pip \
+ && /venv/bin/python -m pip uninstall -y wheel setuptools pip
+
 # manage.py is not installed by pip — copy it explicitly so management
 # commands (migrate, collectstatic, create_admin) are available at runtime.
 COPY --from=builder /build/api/manage.py /app/manage.py
