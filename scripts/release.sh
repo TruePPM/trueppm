@@ -520,6 +520,12 @@ bash scripts/rotate-scheduler-changelog.sh "$NEW_PEP440" "$CURRENT_PEP440" "$TOD
 # Commit and tag
 # ---------------------------------------------------------------------------
 
+# Stage the bumped manifests, both rotated CHANGELOGs, and the regenerated
+# schema — plus changelog.d/ itself, so the fragment deletions that
+# assemble-changelog.sh just made (it consumes each fragment into [Unreleased]
+# and rm's it) are committed WITH the release. Without changelog.d/ here those
+# deletions stay unstaged, leaving the tag pointing at a tree that still carries
+# already-consumed fragments — a dangling diff on top of every release (#1386).
 git add \
   packages/scheduler/pyproject.toml \
   packages/scheduler/uv.lock \
@@ -529,7 +535,8 @@ git add \
   packages/web/package.json \
   packages/api/src/trueppm_api/settings/base.py \
   docs/api/openapi.json \
-  CHANGELOG.md
+  CHANGELOG.md \
+  changelog.d
 
 git commit -m "chore(release): bump version to ${NEW_VERSION}
 
