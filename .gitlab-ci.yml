@@ -2175,10 +2175,11 @@ scheduler:publish:
     # cyclonedx-bom pinned to match the resident version in the ci-scheduler
     # image (.gitlab/ci-images/scheduler.Dockerfile); this job runs on the
     # python:3.11-slim base, so it installs the tooling here. twine>=6.1 uploads
-    # PEP 740 attestation sidecars; pypi-attestations signs them via Sigstore.
-    # uv (pinned to 0.9.5, matching the uv-lock-check jobs) materializes the
-    # locked SBOM input below.
-    - pip install build "twine>=6.1" cyclonedx-bom==7.3.0 pypi-attestations uv==0.9.5 --quiet
+    # the PEP 740 attestation sidecars passed to it (see the upload step below);
+    # pypi-attestations signs them via Sigstore — pinned so its CLI cannot drift
+    # silently like the other tools on this line. uv (pinned to 0.9.5, matching
+    # the uv-lock-check jobs) materializes the locked SBOM input below.
+    - pip install build "twine>=6.1" cyclonedx-bom==7.3.0 pypi-attestations==0.0.28 uv==0.9.5 --quiet
   script:
     # Verify the tag version matches the version declared in pyproject.toml.
     # Mismatches (e.g. forgot to bump the version) fail fast before uploading.
@@ -2242,10 +2243,15 @@ scheduler:publish:
           sys.exit(1)
       print(json.load(resp)["token"])
       ')
-    # Upload the wheel + sdist plus their `.publish.attestation` sidecars
-    # (--attestations); the SBOM ships as a CI artifact / Release asset, not a
-    # PyPI file, so it is excluded by the explicit *.tar.gz / *.whl globs.
-    - TWINE_USERNAME=__token__ TWINE_PASSWORD="$PYPI_API_TOKEN" twine upload --attestations dist/*.tar.gz dist/*.whl --non-interactive --verbose
+    # Upload the wheel + sdist plus their `.publish.attestation` sidecars. In
+    # twine >= 6.1 `--attestations` is an opt-in GATE (fail if none present), NOT
+    # filesystem discovery — twine only attaches attestation files passed as
+    # explicit arguments (it splits inputs by `*.*.attestation`). The sidecars
+    # must therefore be in the upload arg list, or twine errors with
+    # "has no associated attestations" before any upload (#1390). The SBOM is
+    # never passed, so the explicit globs keep dist/sbom.cdx.json a CI artifact /
+    # Release asset rather than a PyPI file.
+    - TWINE_USERNAME=__token__ TWINE_PASSWORD="$PYPI_API_TOKEN" twine upload --attestations dist/*.tar.gz dist/*.whl dist/*.publish.attestation --non-interactive --verbose
   artifacts:
     # Keep the built wheel + sdist + SBOM as a CI artifact for traceability.
     # The SBOM ships here today; attaching dist/sbom.cdx.json to the GitLab
