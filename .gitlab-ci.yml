@@ -390,6 +390,7 @@ scripts:test:
         - scripts/release.sh
         - scripts/tests/rotate-scheduler-changelog.test.sh
         - scripts/tests/assemble-changelog.test.sh
+        - scripts/tests/release-staging.test.sh
     - if: '$CI_COMMIT_BRANCH == "main"'
       changes:
         - scripts/rotate-scheduler-changelog.sh
@@ -397,9 +398,11 @@ scripts:test:
         - scripts/release.sh
         - scripts/tests/rotate-scheduler-changelog.test.sh
         - scripts/tests/assemble-changelog.test.sh
+        - scripts/tests/release-staging.test.sh
   script:
     - bash scripts/tests/rotate-scheduler-changelog.test.sh
     - bash scripts/tests/assemble-changelog.test.sh
+    - bash scripts/tests/release-staging.test.sh
 
 boundary:check:
   # Detect open OSS issues that describe enterprise functionality (labeled
