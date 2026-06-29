@@ -97,7 +97,7 @@ the right one before you commit.
   **overdue** tasks (past their scheduled finish) and **at-risk** tasks (five or
   fewer working days of float), so the tab reads like a morning dashboard rather
   than a plain directory.
-- **Resources** — *(coming in 0.3)* within-program resource contention. Surfaces
+- **Resources** — *(added in 0.3)* within-program resource contention. Surfaces
   people staffed across more than one of the program's projects in overlapping
   windows, broken down by project, with an over-allocation flag when someone is
   above their capacity. Read-only and visible to Schedulers and above. It shows

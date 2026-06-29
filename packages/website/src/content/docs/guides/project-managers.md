@@ -74,7 +74,7 @@ When your team closes a sprint:
 
 - The CPM-derived early start/finish remains your baseline commitment
 - Velocity-calibration suggestions appear for the work packages whose stories under-delivered — each one a proposed duration revision you explicitly accept or dismiss
-- Closing a sprint bound to a milestone records a fresh P50/P80 delivery forecast against that milestone (ships in 0.3)
+- Closing a sprint bound to a milestone records a fresh P50/P80 delivery forecast against that milestone (added in 0.3)
 
 Live per-bar Gantt forecasts and amber/red schedule-variance indicators driven by mid-sprint velocity are part of the deep CPM-aware bridge planned for 0.5 — they do not exist yet.
 

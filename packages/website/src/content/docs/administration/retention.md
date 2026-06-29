@@ -168,9 +168,9 @@ pair it with an external archival or `VACUUM`/retention policy at the PostgreSQL
 
 ## Forecast snapshots
 
-:::note[Ships in 0.3]
-Project forecast-snapshot capture lands in **TruePPM 0.3** (currently underway). The
-behavior described here is not in `main`'s tagged 0.2 line yet.
+:::note[Added in 0.3]
+Project forecast-snapshot capture was added in **TruePPM 0.3**, available since
+the `0.3.0-alpha.1` pre-release (Jun 28, 2026).
 :::
 
 Every time the scheduler recomputes a project, TruePPM will record a

@@ -3,10 +3,9 @@ title: Interface & command palette
 description: The v2 interface refresh — a unified app-shell bar, the ⌘K command palette, a methodology-adaptive context bar, and grouped view tabs that adapt to how your team works.
 ---
 
-:::note[Ships in 0.3 (Underway)]
-The v2 interface refresh (epic #1163) is part of the 0.3 milestone, which is
-still underway. This page describes the interface as built; it is not yet in a
-tagged build — see the [roadmap](/overview/roadmap/).
+:::note[Added in 0.3]
+The v2 interface refresh (epic #1163) was added in the 0.3 milestone, available
+since the `0.3.0-alpha.1` pre-release (Jun 28, 2026).
 :::
 
 TruePPM's v2 interface is a single, calm workspace shell built on the navy/sage

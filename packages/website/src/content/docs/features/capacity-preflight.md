@@ -18,10 +18,10 @@ Step 3 ([Capacity preflight](/the-story/#3-capacity-preflight--the-resource-mana
 - **Aggregate label** — `{committed} / {capacity} hours committed · On track · {buffer} hours of buffer` (or `overrun` when negative)
 - **Per-person rows** — initials avatar + name + `{committed}/{capacity}` text; over-allocated members get a red avatar tint
 
-## Points ceiling (ships in 0.3)
+## Points ceiling (added in 0.3)
 
-:::note[Ships in 0.3]
-The points chip and capacity footer below ship in 0.3 (the agile team release). They are not yet in a tagged build — see the [roadmap](/overview/roadmap/).
+:::note[Added in 0.3]
+The points chip and capacity footer below were added in 0.3 (the agile team release), available since the `0.3.0-alpha.1` pre-release (Jun 28, 2026).
 :::
 
 The per-person hours view answers "who is overcommitted?". A team that plans in story points also needs "are we over the sprint's points ceiling?". When the sprint carries a `capacity_points` value, the panel adds a points-based read alongside the hours view:

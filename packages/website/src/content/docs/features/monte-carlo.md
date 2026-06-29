@@ -97,7 +97,7 @@ GET /api/v1/projects/<project_id>/monte-carlo/latest/
 A single percentile date answers "when?" once. The more useful planning question
 is "is my confidence eroding?" — has the P80 finish slipped since you last looked?
 
-**Coming in 0.3** (ADR-0175), TruePPM will persist every project-level Monte
+**As of 0.3** (ADR-0175), TruePPM persists every project-level Monte
 Carlo run so you can read finish-date *drift* over time: "my P80 was Aug 14 two
 weeks ago, now it's Aug 28." Each run is recorded with its P50/P80/P95 as of that
 moment, so the history is a true before/after, not just the latest snapshot.
@@ -148,12 +148,12 @@ is ample to read multi-month drift on an actively re-forecast project.
 
 ## Progress-aware forecasting
 
-:::note[Coming in 0.3]
-Progress-aware forecasting is planned for the **0.3** release. The behavior
-described in this section is not yet in a tagged build.
+:::note[Added in 0.3]
+Progress-aware forecasting was added in the **0.3** release, available since the
+`0.3.0-alpha.1` pre-release (Jun 28, 2026).
 :::
 
-In 0.3 the forecast will account for what is already done rather than
+As of 0.3 the forecast accounts for what is already done rather than
 re-simulating the project from its original start date every run. As work
 progresses, the simulation will:
 
@@ -349,7 +349,7 @@ not 1.2× M.
 |---|---|---|
 | Max runs per request (`MC_SIMULATION_CAP`) | 1,000 | Unlimited |
 | Max tasks per project (`MC_TASK_CAP`) | 5,000 | Unlimited |
-| Max run history per project (`MC_HISTORY_CAP`, ships in 0.3) | 100 | Unlimited |
+| Max run history per project (`MC_HISTORY_CAP`, added in 0.3) | 100 | Unlimited |
 
 Both settings can be changed in `settings/base.py` (or a local override). The
 Enterprise package sets both to `None` (unlimited) in its settings include.

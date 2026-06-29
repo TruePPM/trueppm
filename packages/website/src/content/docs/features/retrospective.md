@@ -21,7 +21,7 @@ Step 8 ([Close — retro, lessons learned, baseline variance](/the-story/#8-clos
 
 ## Live retro board
 
-The single-author notes-and-action-items panel above grows a **real-time, multi-writer board** where the whole team adds, edits, and drags sticky notes during the live ceremony — seeing each other's input as it happens rather than refreshing to catch up. This board surface (ADR-0117) ships in 0.3. It is merged but not yet in a tagged build — see the [roadmap](/overview/roadmap/).
+The single-author notes-and-action-items panel above grows a **real-time, multi-writer board** where the whole team adds, edits, and drags sticky notes during the live ceremony — seeing each other's input as it happens rather than refreshing to catch up. This board surface (ADR-0117) was added in 0.3.
 
 - **Three columns** — *What went well*, *What to improve*, *Ideas & discussion*.
 - **Concurrent editing** — every team member adds and edits stickies at once; updates fan out over the existing project WebSocket (`retro_item_created` / `_updated` / `_moved` / `_deleted`), and presence shows who is in the retro. Concurrency is last-write-wins per sticky; a superseded edit is offered back via an undo, never silently lost.
@@ -32,7 +32,7 @@ The action items, notes, and visibility toggle described elsewhere on this page 
 
 ## Team-health pulse
 
-A one-tap **mood / energy / (optional) confidence** pulse answered during the retro, with a trend across sprints (ADR-0117 / ADR-0104). The pulse ships in 0.3. It is merged but not yet in a tagged build — see the [roadmap](/overview/roadmap/).
+A one-tap **mood / energy / (optional) confidence** pulse answered during the retro, with a trend across sprints (ADR-0117 / ADR-0104). The pulse was added in 0.3.
 
 - **One tap per dimension** — a re-tap updates your answer; there is no submit button.
 - **Trend** — per-sprint averages with a response count, and an early-warning flag when team energy falls two sprints running.

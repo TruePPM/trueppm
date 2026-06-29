@@ -38,13 +38,11 @@ A broad consolidation release — the settings/administration platform, program 
 - **Integrations & notifications** — Git-aware tasks (#637), Slack webhook (#638), email notifications (#639), notification dispatcher + preference matrix
 - **Packaging** — `trueppm-scheduler` published to PyPI at 0.2.0a1 (Development Status remains Alpha)
 
-## Underway
-
-From 0.3 onward each release **lands one primary persona** — it ships the feature that turns that persona from interested into advocate — while the hybrid agile/waterfall bridge deepens underneath. The sequence expands by org scope: an agile team first, then the field PM, the people who staff the work, the product owner, and finally the program that ties projects together. Everything here is OSS; portfolio governance stays in the enterprise edition (below) and is intentionally absent until after 1.0. We ship a new release every 3–4 weeks — the cadence is part of the commitment, so adopters can plan against it.
-
-### 0.3 — the agile team (target: Jun 29 – Jul 6, 2026)
+### 0.3 — the agile team (alpha: Jun 28, 2026)
 
 **For the Scrum Master and the self-managing developer.** Close a sprint and the master schedule reforecasts itself; merge a PR and the card moves and the dates shift — an agile board as good as the one you have now, with a CPM schedule quietly underneath.
+
+Shipped as the **0.3.0-alpha.1** pre-release (tagged Jun 28, 2026), with `trueppm-scheduler` published to PyPI at **0.3.0a1**. Everything below is in `main` and tagged. The release line stays alpha through 0.3, and 0.4 is planned as the first beta.
 
 - **First-class sprint model** — a real sprint *container* (goal, capacity, start/end, burndown) with **state-aware planning and closed views** (sprint-goal + advancing-milestone bridge banner, capacity preflight, carryover preview, sprint outcome cards, retro snapshot), not a board with date columns; auto-computed velocity with a forecast *range*; WIP-overload signal
 - **Sprint sovereignty** — mid-sprint scope changes require a deliberate, audited decision; velocity stays a team metric and is never auto-exposed as a management gauge; retro action items flow into the next sprint's backlog
@@ -54,7 +52,9 @@ From 0.3 onward each release **lands one primary persona** — it ships the feat
 - **Sample projects + universal JSON import/export** (epic #613) — agile / waterfall / hybrid demo data with the bridge wow preloaded
 - **The v2 interface refresh** (epic #1163) — the navy/sage design system, a single unified app-shell bar (ADR-0134) with a ⌘K command palette, grouped methodology-adaptive view tabs, a context bar with presence and live health drill-through, role-based landing, and a context-aware "+ New". The visual and navigation overhaul shipped alongside the agile-team features rather than as a separate release; it is claimed here so the 0.3 charter matches what landed
 
-## Planned
+## Underway
+
+From 0.3 onward each release **lands one primary persona** — it ships the feature that turns that persona from interested into advocate — while the hybrid agile/waterfall bridge deepens underneath. The sequence expands by org scope: an agile team first, then the field PM, the people who staff the work, the product owner, and finally the program that ties projects together. Everything here is OSS; portfolio governance stays in the enterprise edition (below) and is intentionally absent until after 1.0. We ship a new release every 3–4 weeks — the cadence is part of the commitment, so adopters can plan against it.
 
 ### 0.4 — mobile & the field PM (target: Jul 27 – Aug 3, 2026)
 
@@ -68,6 +68,8 @@ From 0.3 onward each release **lands one primary persona** — it ships the feat
 - **Offline hardening** — WebSocket event replay/resync, sync conflict detection, calm offline states
 - **Basic single sign-on (OIDC / OAuth2)** — point TruePPM at your own identity provider (Keycloak, Authentik, Authelia, Zitadel, Google, GitHub, GitLab) and your whole team logs in through it. Self-hosted, login-only, no directory required — the federation a self-hoster expects as table stakes, not behind a paywall. The org identity-*governance* layer (SAML 2.0, SCIM provisioning, LDAP/AD directory sync, enforced org-wide SSO) stays in the enterprise edition
 - **Provenance graph** (#1058) — the first piece of the AI-native foundation that backs the MCP server: every computed date, float, and P80 carries the server-side derivation an agent can cite, so an answer is explainable, not asserted. The rest of the AI-native foundation — a local natural-language query layer (#1060) and a bring-your-own local-model adapter (#1061) — moves to 0.5 alongside the decision &amp; forecast memory, keeping the beta focused on the two headliners
+
+## Planned
 
 ### 0.5 — plan & people (target: Aug 24–31, 2026)
 

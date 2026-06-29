@@ -64,9 +64,9 @@ Schedule timeline a fiscal year that starts in April shows Q1 = Apr–Jun, label
 
 ### Workspace logo
 
-:::note[Ships in 0.3 (Underway)]
-The Workspace logo control is part of the 0.3 milestone and is not yet in a
-tagged build — see the [roadmap](/overview/roadmap/).
+:::note[Added in 0.3]
+The Workspace logo control was added in 0.3, available since the
+`0.3.0-alpha.1` pre-release (Jun 28, 2026).
 :::
 
 The **Workspace logo** control will let an Owner or Admin upload a square logo
@@ -159,7 +159,7 @@ requires no server endpoint and never leaves the client until you save it.
   filter is active, only the matching members are exported. Clear the filters to
   export the full roster.
 
-This feature ships in 0.3.
+This feature was added in 0.3.
 
 ### Access
 
@@ -223,7 +223,7 @@ Accepted, revoked, and expired invites older than 30 days are purged by a nightl
 
 A `pending` or `failed` invite can be re-sent without revoking and re-creating
 it. The Members page offers a per-row **Resend** action and a **Resend all**
-button that re-queues every outstanding invite in one request. This ships in 0.3.
+button that re-queues every outstanding invite in one request. This was added in 0.3.
 
 Resending **re-issues the token**: a fresh raw token is generated and emailed, so
 any earlier link the recipient still holds stops working. The invite's 7-day TTL

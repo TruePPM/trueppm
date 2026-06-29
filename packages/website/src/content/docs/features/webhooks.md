@@ -74,7 +74,7 @@ OSS fires **14 event types** (a deliberate hard cap):
 
 The last four task events were added in 0.2 (available since the `0.2.0-alpha.1` pre-release). A single PATCH that both reassigns a task and moves its date fires `task.updated` **plus** the specific events — subscribe to whichever you want.
 
-The three `sprint.*` events land in **0.3** so external dashboards, Slack, and CI can observe the sprint cadence. `sprint.scope_changed` fires only when a mid-sprint injection is *accepted* (it models scope that entered the commitment) — never on a silent injection or a reject.
+The three `sprint.*` events were added in **0.3** so external dashboards, Slack, and CI can observe the sprint cadence. `sprint.scope_changed` fires only when a mid-sprint injection is *accepted* (it models scope that entered the commitment) — never on a silent injection or a reject.
 
 :::caution[`sprint.closed` velocity is privacy-gated]
 The `sprint.closed` payload carries the completion snapshot (`completed_points`, `completed_task_count`, `goal_outcome`) — this is team velocity. A webhook consumer is external to the team, so these fields are sent only when the team has explicitly shared the `velocity` signal outward (the team raises the `velocity` signal's audience to `program_shared` in the project's signal-privacy settings). Otherwise the three fields are `null` and a `velocity_suppressed: true` marker is added so consumers keep a stable payload shape. The committed plan (`committed_points`, `committed_task_count`) is the team's published plan, not a performance metric, so it is never gated.

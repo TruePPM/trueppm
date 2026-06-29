@@ -79,7 +79,7 @@ These exist for specific operational situations and are not part of routine use:
   version that predated automatic in-progress transitions. Pass `--dry-run` to preview
   the affected rows without writing. It is idempotent and transaction-safe.
 - **`prune_forecast_snapshots`** — applies the tiered retention curve to project
-  forecast snapshots (ships in 0.3): keeps every snapshot younger than `daily_days`,
+  forecast snapshots (added in 0.3): keeps every snapshot younger than `daily_days`,
   one-per-ISO-week up to `weekly_days`, and one-per-calendar-month beyond that. TruePPM
   runs this automatically via the `scheduling.prune_forecast_snapshots` Celery Beat job
   (nightly, 04:15 UTC); run it manually only to reclaim space on demand or if you operate

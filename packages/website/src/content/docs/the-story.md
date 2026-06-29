@@ -136,7 +136,7 @@ A story is just a leaf task with a `sprint` FK, a `story_points` field, and a pa
 Sprint 1 opens. Maya runs sprint planning on the board view. She drags stories from the backlog into the sprint. The team discusses, splits, estimates. Tom and his peers commit to 38 points based on a 3-sprint rolling average velocity of 41.
 
 - **Maya's view:** standard Scrum board with WIP limits per column, daily standup view, [Plan Sprint dialog](/features/plan-sprint/) for the next iteration.
-- **Raj's view:** the same stories, rolled up to their parent work package, appear on his Gantt with their forecast completion date based on velocity. TruePPM suggests a revised CPM duration for the work package, non-destructively — Raj reviews and applies it in one click. (From 0.3, closing a sprint will reforecast the master schedule automatically.) If sprint commitment is materially off the work package's baseline, his schedule variance indicator turns yellow.
+- **Raj's view:** the same stories, rolled up to their parent work package, appear on his Gantt with their forecast completion date based on velocity. TruePPM suggests a revised CPM duration for the work package, non-destructively — Raj reviews and applies it in one click. (As of 0.3, closing a sprint reforecasts the master schedule automatically.) If sprint commitment is materially off the work package's baseline, his schedule variance indicator turns yellow.
 
 → See [Sprints workspace](/features/sprints/), [Sprint backlog](/features/sprint-backlog/), [Plan Sprint dialog](/features/plan-sprint/)
 
@@ -159,9 +159,9 @@ When Tom marks a story done, the API:
 6. Push WS event to all subscribed views
 ```
 
-Today the reforecast is a suggestion loop — Raj reviews the velocity-suggested
-durations and applies them non-destructively. From 0.3, closing a sprint will
-apply the reforecast to the master schedule automatically.
+The reforecast is a suggestion loop by default — Raj reviews the velocity-suggested
+durations and applies them non-destructively — and as of 0.3, closing a sprint
+applies the reforecast to the master schedule automatically.
 
 :::note[One source of truth]
 Tom updated one card. Maya's burndown moved. Raj's Gantt picked up a fresh forecast. Sarah's capacity reconciled. Diana's portfolio dashboard updates the same way (roadmap: Enterprise portfolio dashboard), as will Carlos's exec view (roadmap: mobile exec view). **Zero status meetings to keep them consistent.**

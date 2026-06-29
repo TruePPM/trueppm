@@ -74,8 +74,8 @@ The **Zoom** stepper (Small / Normal / Large) scales the **board surface only** 
 
 ## Export to PDF
 
-:::note[0.3]
-Board PDF export lands in 0.3.
+:::note[Added in 0.3]
+Board PDF export was added in 0.3.
 :::
 
 **Export PDF** in the More⋯ overflow will produce a boardroom-clean PDF of the board for a deck or a client who has no portal access — no screenshots, no copy-paste. The export is a faithful, static projection of what you currently see:
@@ -111,8 +111,8 @@ When a sprint is active, committed tasks appear in the **To Do → In Progress �
 
 ### Sprint view
 
-:::note[0.3]
-The board sprint-view switcher lands in 0.3.
+:::note[Added in 0.3]
+The board sprint-view switcher was added in 0.3.
 :::
 
 By default the board shows every committed task in the project. A **scope switcher** in the toolbar (next to the saved-views dropdown) will let you focus the phase columns on a single sprint:
@@ -124,8 +124,8 @@ The selection persists in a `?sprint=` URL parameter, so a sprint-scoped board i
 
 ## Board cadence
 
-:::note[0.3]
-The board cadence picker and per-column aging thresholds land in 0.3.
+:::note[Added in 0.3]
+The board cadence picker and per-column aging thresholds were added in 0.3.
 :::
 
 Agile and hybrid projects can run their board on one of two cadences, set in **Project → Settings → Workflow & fields → Board cadence** (Scheduler+):

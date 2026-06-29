@@ -114,9 +114,9 @@ edition raises or removes them.
 | `MC_TASK_CAP` | `5000` | Largest project — by task count — Monte Carlo will run on. The vectorized NumPy path handles 5000 tasks × 1000 runs in a few seconds; a larger project is refused rather than run unbounded. |
 | `MC_HISTORY_CAP` | `100` | Forecast-history rows kept per project. The nightly purge trims each project to its newest `MC_HISTORY_CAP` `MonteCarloRun` rows. |
 
-:::note[Ships in 0.3 (Underway)]
+:::note[Added in 0.3]
 `MC_HISTORY_CAP` and the persisted forecast history it bounds (the `MonteCarloRun`
-rows) ship in 0.3. `MC_SIMULATION_CAP` and `MC_TASK_CAP` have applied since the
+rows) were added in 0.3. `MC_SIMULATION_CAP` and `MC_TASK_CAP` have applied since the
 Monte Carlo engine landed in 0.1.
 :::
 

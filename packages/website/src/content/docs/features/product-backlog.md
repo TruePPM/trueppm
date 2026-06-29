@@ -3,16 +3,14 @@ title: Product backlog & scoring
 description: The Product Owner's priority-ordered backlog — epics and stories, acceptance criteria, Definition of Ready, and WSJF/RICE prioritization.
 ---
 
-:::note[Planned for 0.3 (Underway)]
-The product backlog is part of the **0.3 "agile team"** milestone, which is still
-underway. This page describes the feature as designed; some sub-screens (the scoring
-table, the story drawer, and the epic rollup card) are still being built. Nothing here
-has shipped in a tagged release yet.
+:::note[Added in 0.3]
+The product backlog was added in the **0.3 "agile team"** milestone, available since
+the `0.3.0-alpha.1` pre-release (Jun 28, 2026).
 :::
 
 The product backlog is the **Product Owner's** home surface: a single, priority-ordered
 list of the work a team will deliver, expressed in agile vocabulary — epics, stories,
-acceptance criteria — with no WBS or critical-path jargon required. It will live at
+acceptance criteria — with no WBS or critical-path jargon required. It lives at
 **Projects → (a project) → Product backlog**.
 
 ## Where this lives in the story
@@ -33,17 +31,17 @@ points. A **grooming-health strip** across the top will summarize:
 - **Unestimated** — stories still missing points
 - **Acceptance criteria** — criteria met across the whole backlog
 
-A dashed **next-sprint ready line** will be drawn where the cumulative ready points reach
+A dashed **next-sprint ready line** is drawn where the cumulative ready points reach
 the active sprint's capacity, so the Product Owner can see at a glance what fits the next
 sprint. The ready line is advisory — it never blocks the team from pulling a story.
 
 ### Reorganizing by drag
 
-Grooming will be direct-manipulation: **drag a story onto an epic** to move it under that
-epic. The target epic region lights up to show where the drop will land, and its header
+Grooming is direct-manipulation: **drag a story onto an epic** to move it under that
+epic. The target epic region lights up to show where the drop lands, and its header
 switches to a *"↳ Drop to add to this epic"* prompt. Dropping a story on the **No epic**
 bucket removes it from its epic; dragging within a group reorders it. The move applies
-immediately and rolls back if it can't be saved. Drag-to-reparent will be limited to users
+immediately and rolls back if it can't be saved. Drag-to-reparent is limited to users
 who can manage the backlog (see [Who can do what](#who-can-do-what) below) — everyone keeps
 the keyboard-accessible **Parent epic** picker in the story drawer.
 
@@ -80,8 +78,8 @@ Assigning an *existing* story to an epic stays on the story drawer — set or ch
 story's parent epic there. This section is for creating and reorganizing the epics
 themselves.
 
-Creating and editing epics will be open to the **Product Owner** facet (or an Admin and
-above); **deleting** an epic will require **Admin and above** — a Product Owner can create
+Creating and editing epics are open to the **Product Owner** facet (or an Admin and
+above); **deleting** an epic requires **Admin and above** — a Product Owner can create
 and edit epics but not delete them. See [Who can do what](#who-can-do-what).
 
 ## Acceptance criteria
@@ -153,7 +151,7 @@ no required fields. Stories land at the bottom of the backlog as a Story, ready 
 | Delete an epic | Admin and above (a Product Owner can create and edit, but not delete) |
 
 Backlog management is gated to Project Manager and above today; the dedicated **Product
-Owner** facet will arrive in 0.3 and slot into the same permission seam — it opens epic
+Owner** facet arrived in 0.3 and slots into the same permission seam — it opens epic
 create and rename, and story grooming, without granting the power to delete. See
 [RBAC](/administration/rbac/) for the role model.
 

@@ -108,9 +108,9 @@ resolves an MR, PR, or issue and shows its current status badge.
 - **Labels** — tag a link with free-text labels (e.g. `spec`, `design`) to
   categorize it. Labels are trimmed and de-duplicated; a link can carry up to 12.
 - **Edit a link** — change a link's title or labels after it's added via the
-  per-link edit (pencil) control. Editing follows task-edit permission. From 0.3,
-  Viewers will see links and attachments **read-only** — the add, edit, and
-  delete controls (and the editable description field) will be hidden rather than
+  per-link edit (pencil) control. Editing follows task-edit permission. As of 0.3,
+  Viewers see links and attachments **read-only** — the add, edit, and
+  delete controls (and the editable description field) are hidden rather than
   shown and then rejected with a 403 on submit.
 - **Status badge** — each git link shows a cached status: **open**, **draft**,
   **merged**, **closed**, or **unknown**. A new link starts *unknown* — there is
@@ -157,8 +157,8 @@ Connected Accounts page — there is nothing to connect.
 
 ### At-a-glance status on the schedule
 
-From 0.3, you will not need to open the drawer to see whether a task's work is
-landing. The schedule will surface each task's **worst** external-link status in
+As of 0.3, you no longer need to open the drawer to see whether a task's work is
+landing. The schedule surfaces each task's **worst** external-link status in
 two read-only places:
 
 - **Task list row** — a link glyph and count, immediately left of the assignee

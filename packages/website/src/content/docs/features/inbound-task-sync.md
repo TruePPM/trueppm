@@ -221,7 +221,7 @@ Linear's webhooks include rich JSON. A two-line transform in a Cloudflare Worker
 
 The **same API token** also authorizes a sibling endpoint that closes the XP
 acceptance-test-driven loop: when CI runs a story's acceptance tests, it reports the
-verdicts and TruePPM flips the matching acceptance criteria. This lands in **0.3**.
+verdicts and TruePPM flips the matching acceptance criteria. This landed in **0.3**.
 
 ```http
 POST /api/v1/projects/{project_id}/acceptance-results/

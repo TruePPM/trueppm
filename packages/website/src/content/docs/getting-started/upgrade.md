@@ -23,7 +23,7 @@ description: How to upgrade TruePPM — Docker Compose, single-server, and Helm 
 
 ## Upgrading to 0.3
 
-0.3 will add new database tables and columns for the agile-team feature set. All of
+0.3 adds new database tables and columns for the agile-team feature set. All of
 the migrations are **additive** (new models and nullable columns — no destructive
 operations), so the upgrade is a standard `migrate` with no manual data steps and
 no downtime beyond the migration run. Apply them the usual way for your deploy
@@ -42,7 +42,7 @@ path (the `migrate` step shown in each section below). The new schema:
   — a `goal_impact` column on `SprintScopeChange`, recording whether a
   post-activation scope change affected the sprint goal.
 
-If you maintain a fork, note that 0.3 will also collapse each app's migration history
+If you maintain a fork, note that 0.3 also collapses each app's migration history
 into a `0001_squashed_…` migration via Django's `replaces=` (issue #1286). Because
 the original migrations remain on disk and applyable, an existing database records
 the squashed migration as already-applied and upgrades as a **no-op** — there is no

@@ -52,7 +52,7 @@ Customize views is **per-user and cosmetic** — it changes only your own naviga
 
 ## Methodology inheritance
 
-Today the methodology is a project-level choice. Coming in **0.3**, you will be able to
+As of **0.3**, you can
 set the planning model — **Waterfall**, **Agile**, or **Hybrid** — at three scopes that
 **inherit** from one another: set the default once for the whole workspace under
 **Settings → Workspace → Methodology**, and programs and projects will inherit it, each
@@ -84,7 +84,7 @@ rejected with a **403**.
 
 Not every team that runs timeboxes calls them "Sprints." Scrumban and SAFe-adjacent teams
 use "Iteration" or "PI", and forcing strict Scrum-Guide vocabulary reads as a mandate.
-Coming in **0.3**, you will be able to label the iteration container —
+As of **0.3**, you can label the iteration container —
 **Sprint** (the default), **Iteration**, **PI**, or a custom word — at three scopes that
 **inherit** from one another: set it once for the whole workspace under
 **Settings → Workspace → General**, override it for a **Program**, and override it again on

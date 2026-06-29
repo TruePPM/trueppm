@@ -5,8 +5,8 @@ description: Set a task's type, governance class, and delivery mode — the work
 
 Every task carries three classification fields — `type`, `governance_class`, and `delivery_mode` — that describe *what kind of work it is*, *which overlay governs it*, and *how it executes and rolls up*. They have always been part of the [unified data model](/features/unified-data-model/) and are set by the demo seeds, but until now there was no way to change them from the task editor.
 
-:::note[0.3]
-The **Classification** controls land in **0.3** (the agile team). The fields are already stored and read everywhere; 0.3 will add the editor. They are purely additive — every existing task keeps its current values (`task` / `flow` / `waterfall`), so nothing changes unless you set them.
+:::note[Added in 0.3]
+The **Classification** controls were added in **0.3** (the agile team). The fields are already stored and read everywhere; 0.3 added the editor. They are purely additive — every existing task keeps its current values (`task` / `flow` / `waterfall`), so nothing changes unless you set them.
 :::
 
 ## Where you will set it

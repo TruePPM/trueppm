@@ -37,8 +37,8 @@ The risk matrix on the register view treats `OPEN` and `MITIGATING` as **active*
 
 ## Filtering and sorting
 
-:::note[0.3]
-Register filtering and severity sort land in 0.3.
+:::note[Added in 0.3]
+Register filtering and severity sort landed in 0.3.
 :::
 
 Above the risk table, a segment filter narrows the list to the slice that needs attention:
@@ -91,8 +91,8 @@ Every risk receives a project-scoped short ID (e.g. `R-00000003`) that shares th
 
 Export the full register to CSV from the **Export CSV** toolbar action. The file carries every column shown in the table: ID, title, status, category, response, probability, impact, severity, owner, mitigation due date, trigger, contingency, and description.
 
-:::note[0.3]
-Risk-register CSV import lands in 0.3.
+:::note[Added in 0.3]
+Risk-register CSV import landed in 0.3.
 :::
 
 The symmetric **Import CSV** action (Member and above) seeds or tops up a register from a spreadsheet — it sits next to **Export CSV** on the toolbar and on an empty register, so a new project can be populated from a file. Upload a CSV with a **Title** column; every other column is optional and matches the export header, so a file exported from one project imports cleanly into another. The ID and severity columns are ignored on import (severity is always derived, and IDs are assigned per project).
