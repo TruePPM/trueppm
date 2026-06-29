@@ -11,6 +11,14 @@ ENV VIRTUAL_ENV=/venv
 RUN python -m venv $VIRTUAL_ENV
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
+# python:3.11-slim seeds the venv with wheel 0.45.1 via ensurepip (3.11 still
+# bundles wheel; 3.12 dropped it). That build tool is copied wholesale into the
+# runtime /venv and trips Trivy on CVE-2026-24049 (privilege escalation / arbitrary
+# code execution via a malicious wheel, fixed in 0.46.2). Patch it forward before
+# the package installs so the published image scans clean (#1388); the upgraded
+# wheel persists in /venv through the COPY into the runtime stage.
+RUN pip install --no-cache-dir --upgrade "wheel>=0.46.2"
+
 # Install the scheduler package first so the api package can find it on the path.
 COPY packages/scheduler/src /build/scheduler/src
 # CHANGELOG.md is force-included into the wheel (scheduler pyproject
