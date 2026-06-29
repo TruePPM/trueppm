@@ -9,6 +9,12 @@
 #
 # Called automatically by scripts/release.sh before rotating [Unreleased].
 # Safe to call manually at any time (idempotent when no fragments exist).
+#
+# Portability: must run on bash 3.2 — the stock /bin/bash on macOS, where the
+# maintainer cuts releases. That rules out bash 4+ constructs (associative
+# arrays `declare -A`, `${var^}` case expansion); the four fragment types are a
+# fixed, known set, so an explicit per-type accumulator is both simpler and
+# portable (#1383).
 
 set -euo pipefail
 
@@ -18,11 +24,13 @@ cd "$REPO_ROOT"
 CHANGELOG="CHANGELOG.md"
 FRAGMENT_DIR="changelog.d"
 
-# Collect fragments by type
-declare -A ENTRIES
-for type in added changed fixed security; do
-  ENTRIES[$type]=""
-done
+# Collect fragments into one accumulator per type. The set is fixed (Added /
+# Changed / Fixed / Security), so four named variables stand in for what would
+# otherwise be an associative array — and keep the script bash 3.2 clean.
+ENTRIES_added=""
+ENTRIES_changed=""
+ENTRIES_fixed=""
+ENTRIES_security=""
 
 found=0
 for f in "$FRAGMENT_DIR"/*.added.md "$FRAGMENT_DIR"/*.changed.md "$FRAGMENT_DIR"/*.fixed.md "$FRAGMENT_DIR"/*.security.md; do
@@ -35,7 +43,12 @@ for f in "$FRAGMENT_DIR"/*.added.md "$FRAGMENT_DIR"/*.changed.md "$FRAGMENT_DIR"
   type="${type##*.}"      # strip up to last dot → fixed
 
   content="$(cat "$f")"
-  ENTRIES[$type]+="${content}"$'\n'
+  case "$type" in
+    added)    ENTRIES_added+="${content}"$'\n' ;;
+    changed)  ENTRIES_changed+="${content}"$'\n' ;;
+    fixed)    ENTRIES_fixed+="${content}"$'\n' ;;
+    security) ENTRIES_security+="${content}"$'\n' ;;
+  esac
   found=$((found + 1))
 done
 
@@ -50,22 +63,38 @@ echo "Assembling $found fragment(s) into $CHANGELOG..."
 # convention used throughout CHANGELOG.md: Added → Changed → Fixed → Security.
 INSERT=""
 for type in added changed fixed security; do
-  [[ -z "${ENTRIES[$type]}" ]] && continue
-  # Capitalise heading
-  heading="${type^}"
-  INSERT+=$'\n'"### ${heading}"$'\n'"${ENTRIES[$type]}"
+  case "$type" in
+    added)    entries="$ENTRIES_added";    heading="Added" ;;
+    changed)  entries="$ENTRIES_changed";  heading="Changed" ;;
+    fixed)    entries="$ENTRIES_fixed";    heading="Fixed" ;;
+    security) entries="$ENTRIES_security"; heading="Security" ;;
+  esac
+  [[ -z "$entries" ]] && continue
+  INSERT+=$'\n'"### ${heading}"$'\n'"${entries}"
 done
 
 # Insert the block at the END of the [Unreleased] section — just before the next
 # "## [" release heading (or EOF). This keeps any human-readable summary prose
 # written at the top of [Unreleased] above the generated category lists, so
 # release.sh can lift that prose into the dated section as the release summary.
-# Uses a temp file to avoid in-place sed portability issues (macOS / Linux).
-awk -v block="$INSERT" '
+#
+# The block is read from a temp file via getline rather than passed with
+# `awk -v`: BSD awk (stock on macOS, where releases are cut) rejects a -v value
+# containing newlines with "awk: newline in string", so the multi-line category
+# block cannot ride in on a variable. A file read is portable across BSD and GNU
+# awk (#1383). A temp file also sidesteps in-place sed portability issues.
+BLOCK_FILE="$(mktemp)"
+trap 'rm -f "$BLOCK_FILE"' EXIT
+printf '%s\n' "$INSERT" > "$BLOCK_FILE"
+awk -v blockfile="$BLOCK_FILE" '
+  function emit_block(   line) {
+    while ((getline line < blockfile) > 0) print line
+    close(blockfile)
+  }
   /^## \[Unreleased\]/ { inu=1; print; next }
-  inu && /^## \[/ { printf "%s\n", block; inu=0 }
+  inu && /^## \[/ { emit_block(); inu=0 }
   { print }
-  END { if (inu) printf "%s\n", block }
+  END { if (inu) emit_block() }
 ' "$CHANGELOG" > "${CHANGELOG}.tmp" && mv "${CHANGELOG}.tmp" "$CHANGELOG"
 
 # Delete consumed fragment files (not README.md)
