@@ -15,6 +15,17 @@ through 0.3; 0.4 is planned as the first beta. Each release below opens with its
 
 _Nothing yet._
 
+## [0.3.0-alpha.2] — 2026-06-29
+
+**0.3.0-alpha.2 — publish re-roll.** 0.3.0-alpha.1 was tagged but never published: three release-pipeline gates failed on the way to PyPI and the container registry. This release re-cuts the same code with those gates fixed — the scheduler's PyPI Trusted-Publishing OIDC mint-token exchange (#1387) and its attestation upload (#1390), and a CVE-2026-24049 patch to the `wheel` build tool baked into the published API image (#1388). There are no library or application changes from 0.3.0-alpha.1.
+
+### Security
+- **API image: patched `wheel` build tool (CVE-2026-24049)**: the published API
+  Docker image inherited `wheel` 0.45.1 from the base image's `ensurepip` seed,
+  which Trivy flags for CVE-2026-24049 (privilege escalation / arbitrary code
+  execution via a malicious wheel). The image build now upgrades `wheel` to
+  `>= 0.46.2` so the shipped `/venv` carries the patched version.
+
 ## [0.3.0-alpha.1] — 2026-06-28
 
 **0.3.0-alpha.1 — “the agile team.”** This release makes sprints and agile delivery first-class on top of the CPM schedule: a real sprint container (goal, capacity, burndown) with state-aware planning and closed views, auto-computed velocity with a forecast range, sprint sovereignty (audited mid-sprint scope changes; velocity stays a team metric, never an auto-exposed management gauge), the sprint-to-milestone bridge, agile depth (task-type taxonomy, epic/initiative hierarchy, dual backlog, Product Owner role, acceptance criteria), the hybrid governance/delivery-mode foundation, universal JSON sample-data import/export, and the v2 navy/sage interface refresh (epic #1163).

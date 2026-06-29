@@ -17,6 +17,10 @@ between releases. Pin an exact version (e.g. `trueppm-scheduler==0.2.0a1`).
 
 _Nothing yet._
 
+## [0.3.0a2] - 2026-06-29
+
+_No library-facing changes in this release._
+
 ## [0.3.0a1] - 2026-06-28
 
 ### Added
@@ -107,7 +111,8 @@ _Nothing yet._
 - Cycle detection that names the offending task IDs (`CyclicDependencyError`).
 - CLI: `trueppm-scheduler schedule` / `trueppm-scheduler monte-carlo`.
 
-[Unreleased]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.3.0a1...main
+[Unreleased]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.3.0a2...main
+[0.3.0a2]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.3.0a1...scheduler-v0.3.0a2
 [0.3.0a1]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.2.0a1...scheduler-v0.3.0a1
 [0.2.0a1]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.1.0a1...scheduler-v0.2.0a1
 [0.1.0a1]: https://gitlab.com/trueppm/trueppm/-/tags/scheduler-v0.1.0a1

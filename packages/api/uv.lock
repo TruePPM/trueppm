@@ -1837,7 +1837,7 @@ wheels = [
 
 [[package]]
 name = "trueppm-api"
-version = "0.3.0a1"
+version = "0.3.0a2"
 source = { editable = "." }
 dependencies = [
     { name = "celery" },
