@@ -370,28 +370,36 @@ changelog:check:
       echo "$FRAGMENTS"
 
 scripts:test:
-  # Unit test for the release tooling that rotates the scheduler package
-  # CHANGELOG into a dated release-notes section at tag time
-  # (scripts/rotate-scheduler-changelog.sh, called by scripts/release.sh). The
-  # PyPI wheel's bundled release notes depend on this rotation and there is no
-  # other test harness for the release scripts, so guard the logic directly.
-  # Pinned python image (bash + python3, zero installs), ~5s. Only runs when the
-  # release tooling it covers changes.
+  # Unit tests for the release tooling called by scripts/release.sh at tag time:
+  #   - rotate-scheduler-changelog.sh — dates the scheduler package CHANGELOG
+  #     section the PyPI wheel ships;
+  #   - assemble-changelog.sh — folds changelog.d/ fragments into [Unreleased].
+  # There is no other test harness for the release scripts, so guard the logic
+  # directly. Pinned python image (bash + python3, zero installs), ~5s. Only runs
+  # when the release tooling it covers changes.
+  #
+  # Note: this image runs bash 5, so it cannot catch a bash-3.2 regression on the
+  # macOS release machine; assemble-changelog.test.sh guards that statically.
   stage: lint
   image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
         - scripts/rotate-scheduler-changelog.sh
+        - scripts/assemble-changelog.sh
         - scripts/release.sh
         - scripts/tests/rotate-scheduler-changelog.test.sh
+        - scripts/tests/assemble-changelog.test.sh
     - if: '$CI_COMMIT_BRANCH == "main"'
       changes:
         - scripts/rotate-scheduler-changelog.sh
+        - scripts/assemble-changelog.sh
         - scripts/release.sh
         - scripts/tests/rotate-scheduler-changelog.test.sh
+        - scripts/tests/assemble-changelog.test.sh
   script:
     - bash scripts/tests/rotate-scheduler-changelog.test.sh
+    - bash scripts/tests/assemble-changelog.test.sh
 
 boundary:check:
   # Detect open OSS issues that describe enterprise functionality (labeled
