@@ -1,1 +1,0 @@
-- **CI: stale-stub gate**: a new `lint:todo-grep` job fails the pipeline on `STUB:` or `WIP:` markers in source and on `TODO(#NNN)` references that point at a closed issue. Bare `TODO` (no issue reference) emits a warning but does not fail. Excludes `packages/web/e2e/`, `docs/`, and `*.md` files (#350).

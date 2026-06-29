@@ -1,1 +1,0 @@
-Program → Projects: the "Add existing", "New project", and "Remove" controls are now correctly limited to program Admins and Owners (they were previously shown to all members, whose actions then failed server-side).

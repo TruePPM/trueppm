@@ -1,1 +1,0 @@
-Design system: semantic badge/card fills now use the dark-mode-correct `-bg` tokens instead of the `bg-semantic-*/N` opacity modifier (#830); program backlog text is raised to the 12px floor (#831); and disabled controls in Settings use the accessible disabled treatment instead of half-opacity text that failed WCAG 1.4.3 (#833).

@@ -1,1 +1,0 @@
-Documentation: corrected the risk-register "CSV import" claim (it is CSV export), fixed 22 broken `/architecture/adr/` links to `/architecture/decisions/`, aligned the baselines roadmap reference (0.5), and fixed a present-tense Helm note for the unshipped 0.2 release.

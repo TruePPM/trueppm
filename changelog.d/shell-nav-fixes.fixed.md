@@ -1,1 +1,0 @@
-Remove duplicate view-tabs navigation from TopBar (ProjectShell toolbar already handles in-project view switching) and suppress the transient "Failed to load projects" flash caused by the 401→token-refresh→retry cycle.

@@ -1,1 +1,0 @@
-- **Project navigation tab order**: Overview is now the first (leftmost) tab when opening a project, aligning with ADR-0030's specified default landing surface. Board moves to second. The mobile bottom nav mirrors this order and now includes Overview (replacing Risks, which remains accessible on desktop).

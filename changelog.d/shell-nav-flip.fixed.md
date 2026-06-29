@@ -1,1 +1,0 @@
-Restore ViewTabs to TopBar as the sole view switcher (underline style, per design rule 38). Remove the redundant pill-style toolbar from ProjectShell. Add WBS tab and rename "List" to "Table" for label consistency.

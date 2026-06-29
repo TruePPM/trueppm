@@ -1,1 +1,0 @@
-Added three MS Project XML import fixtures (`sample.xml`, `sample_legacy.xml`, `sample_2019.xml`) covering namespaced 2003+ format, pre-2003 no-namespace format, and modern Project 2019/365 format with calendars, extended attributes, and outline codes.

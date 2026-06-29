@@ -1,1 +1,0 @@
-Loading or removing demo/sample data now updates the sidebar project list immediately, without requiring a manual page refresh. The "Load demo data", import-program, and remove-sample actions previously only refreshed the program list, leaving the newly created (or removed) projects stale in the sidebar until reload.

@@ -1,1 +1,0 @@
-- The `regression-check` skill (`.claude/skills/regression-check/SKILL.md`) now runs on Opus instead of Sonnet. Pre-merge regression audits are cross-cutting and benefit from the deeper reasoning model — particularly when reasoning about stale mocks, permission gates, and contract boundaries that span multiple touched files at once.

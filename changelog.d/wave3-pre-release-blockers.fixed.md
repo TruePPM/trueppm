@@ -1,9 +1,0 @@
-- **Task short ID in frontend** (#452): Added `shortId` field to the `Task` TypeScript type and `useScheduleTasks` API mapping so task short IDs (e.g. `00000001`) are available in the web client.
-- **TaskResource RBAC coverage** (#448): Added test for `TaskResource.project_id` property that the `CanAssignResource` permission class relies on for project-context resolution.
-- **numpy floor bump** (#456): Raised the `trueppm-scheduler` numpy dependency floor from `>=1.24` (EOL) to `>=1.26`.
-- **Helm SECRET_KEY guidance** (#451): Added a prominent comment in `values.yaml` explaining that `SECRET_KEY` and `ALLOWED_HOSTS` must be mounted from a Kubernetes Secret — the application will not start without `SECRET_KEY`.
-- **Configuration docs** (#450): Documented `TRUEPPM_EDITION`, `HISTORY_RETENTION_DAYS`, `TASK_RUN_RETENTION_DAYS`, and `VITE_FEATURE_FLAGS` env vars in the administration configuration page.
-- **Risk Register docs** (#445): Added feature documentation page for the Risk Register (scoring, lifecycle states, response strategies, task linking).
-- **Webhooks docs** (#446): Added feature documentation page for outbound webhooks (event types, payload shape, signature verification, delivery retries).
-- **Board docs** (#447): Added feature documentation page for the Kanban Board (column layout, card anatomy, keyboard move alternative, mobile snap-scroll).
-- **Subtasks, Schedule toolbar, Schedule build mode docs** (#449): Ported three feature docs from the root `docs/features/` directory to the published website with Starlight frontmatter and added all new pages to the sidebar.

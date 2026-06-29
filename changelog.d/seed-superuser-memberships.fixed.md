@@ -1,1 +1,0 @@
-Fix `seed_demo_project` command so superusers automatically receive project memberships in both seeded projects, making the demo immediately usable when logged in as admin without needing to use a persona account.

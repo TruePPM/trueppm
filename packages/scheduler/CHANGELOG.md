@@ -15,6 +15,10 @@ between releases. Pin an exact version (e.g. `trueppm-scheduler==0.2.0a1`).
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.3.0a1] - 2026-06-28
+
 ### Added
 
 - Per-task calendars: a `Task` can opt into its own working week via
@@ -103,6 +107,7 @@ between releases. Pin an exact version (e.g. `trueppm-scheduler==0.2.0a1`).
 - Cycle detection that names the offending task IDs (`CyclicDependencyError`).
 - CLI: `trueppm-scheduler schedule` / `trueppm-scheduler monte-carlo`.
 
-[Unreleased]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.2.0a1...main
+[Unreleased]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.3.0a1...main
+[0.3.0a1]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.2.0a1...scheduler-v0.3.0a1
 [0.2.0a1]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.1.0a1...scheduler-v0.2.0a1
 [0.1.0a1]: https://gitlab.com/trueppm/trueppm/-/tags/scheduler-v0.1.0a1

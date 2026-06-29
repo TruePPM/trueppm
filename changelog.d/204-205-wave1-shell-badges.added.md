@@ -1,2 +1,0 @@
-- **Tab order + Schedule rename** (#204): canonical view tab order is now `Board · Schedule · WBS · Table · Calendar · Overview · Team · Risks`; "Gantt" label renamed to "Schedule" (route stays `/gantt` for permalink compat); Board is the default landing view.
-- **TopBar status badges** (#205): P80 pill is now a `<button>` (MC drawer wires in #142); at-risk and critical badges are hidden below 1024 px and collapse into a `Health ▾` dropdown that lists task items; `HealthDropdown` component added with outside-click dismiss and keyboard-accessible `role="menu"`.

@@ -1,1 +1,0 @@
-`make release-smoke` target: boots the dev stack, seeds the demo project, and curls every shipped endpoint — exits non-zero on any failure. New `scripts/smoke-test.sh` powers the target. New `docs/contributing/release.md` documents the full release process (`scripts/release.sh`, changelog, CI publish, enterprise handoff, hotfix procedure). Closes #301.

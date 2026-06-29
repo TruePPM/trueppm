@@ -1,1 +1,0 @@
-Add task create, rename, and reorder mutations wired to the API. A "+ Task" button in the Gantt and WBS toolbars opens an inline form (name + duration). WBS inline rename and drag-to-reorder are now persisted via PATCH and POST reorder endpoints. Fix sidebar active project highlight which previously activated all items simultaneously.

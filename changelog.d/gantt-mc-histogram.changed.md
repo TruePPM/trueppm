@@ -1,2 +1,0 @@
-- **Gantt › Monte Carlo row**: the P50/P80/P95 date chips and a mini histogram strip are now permanently visible below the Gantt instead of appearing only on hover. The strip colours histogram bars by percentile region (green ≤ P50, amber P50–P80, red > P80). Hovering or focusing the strip still opens the detailed histogram tooltip.
-- **Gantt › AssigneeChips**: initials font size raised from 10 px to 12 px (`text-xs`) to comply with the design system minimum and WCAG 1.4.3.

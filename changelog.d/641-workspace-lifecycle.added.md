@@ -1,1 +1,0 @@
-Workspace lifecycle actions are now wired in **Settings → Archive / Delete**: transfer workspace ownership to another member, export a full archive of all workspace data (emailed when ready), and permanently delete the workspace. All three are Owner-only and the export/delete are guarded by typed confirmation. (#641)

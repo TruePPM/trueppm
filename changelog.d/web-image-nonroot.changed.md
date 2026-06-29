@@ -1,1 +1,0 @@
-- The web container image now runs as a non-root user and listens on port 8080 (previously root on port 80), hardening the published image. The bundled `docker-compose.prod.yml` is updated transparently; if you run `ghcr.io/trueppm/web` standalone, map to container port 8080.

@@ -1,1 +1,0 @@
-Fixed accessibility and UX gaps: WCAG 2.1 AA focus rings on all dark-surface elements, 44×44 px touch targets, NewProjectModal focus trap, TaskListView bulk-delete confirmation with countdown, pending-task rows in Gantt after creation.

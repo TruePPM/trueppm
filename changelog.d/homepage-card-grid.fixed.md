@@ -1,1 +1,0 @@
-- **Homepage layout**: "Why TruePPM?" feature cards were vertically staggered, causing right-column cards to render offset lower than left-column cards. Removed the `stagger` prop to restore a uniform 2×2 grid.

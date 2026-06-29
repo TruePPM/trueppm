@@ -1,1 +1,0 @@
-Adopted the TruePPM Brand v1.0 identity across the web app (Design System v2.0, ADR-0103): the True Navy / Truth Sage palette, the duotone dependency-arrow logo and two-color wordmark, and Space Grotesk as the display typeface. All surfaces re-themed from the previous green palette with WCAG 2.1 AA preserved; dark mode reverses navy ink to pale while sage holds.

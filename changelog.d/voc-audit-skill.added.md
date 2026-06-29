@@ -1,1 +1,0 @@
-Added `/voc-audit` skill: persona-level review of shipped surfaces with GitLab issue cross-reference. Runs on demand against a recently-merged surface, and as Step 0.8 of `/pre-release full` (one parallel pass per user-visible surface shipped since the last release tag).

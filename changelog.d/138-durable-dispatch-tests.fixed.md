@@ -1,1 +1,0 @@
-Added missing test coverage for the durable execution hardening shipped in !127: webhook `test_ping` broker-failure handling (view now wraps `.delay()` in try/except matching `dispatch.py`), `dispatch_webhooks` broker-down swallowing, `deliver_webhook.reject_on_worker_lost` attribute, and `trigger_schedule` on-commit deferral.

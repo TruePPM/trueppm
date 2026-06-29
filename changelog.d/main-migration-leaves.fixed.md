@@ -1,1 +1,0 @@
-- Resolved conflicting `projects` migration leaves on `main` after `#521` and the `#520`/`#528` merge migration both landed at `0042`. Adds an empty `0043` merge migration that depends on both leaves so `makemigrations --check` passes.

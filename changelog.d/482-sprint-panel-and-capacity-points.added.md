@@ -1,1 +1,0 @@
-Sprint planning capacity field (`Sprint.capacity_points`) and Board view sprint panel — surfaces the active sprint goal, dates, burndown chart, velocity sparkline, and planned-vs-committed capacity directly above the Board lanes. SCHEDULER+ users can edit the planning target inline; viewers see a read-only summary. Hidden entirely on WATERFALL projects. (ADR-0073, #482)

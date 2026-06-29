@@ -1,1 +1,0 @@
-Fix all web API hooks (useProjects, useGanttTasks, useBaselines, useRisks) to unwrap DRF PageNumberPagination envelopes — project list, Gantt tasks, baselines, and risk register were showing empty data against the real API.

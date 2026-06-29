@@ -1,1 +1,0 @@
-Documented advanced configuration settings in the admin configuration reference: `SYNC_WATERMARK_USE_COLUMN`, the durable-execution workflow-engine tunables (`WORKFLOW_BACKEND`, `WORKFLOW_HISTORY_RETENTION_DAYS`, `WORKFLOW_DRAIN_BATCH_SIZE`, `WORKFLOW_PURGE_BATCH_SIZE`), and the idempotency-key retention settings (`IDEMPOTENCY_RETENTION_HOURS`, `IDEMPOTENCY_MAX_BODY_BYTES`).

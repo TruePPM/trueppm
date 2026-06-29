@@ -1,1 +1,0 @@
-Monte Carlo simulation now converts dependency lag from calendar days to working-day offsets using the project calendar, matching CPM lag semantics (previously lag was treated as working days, diverging from CPM by ~20% on a standard calendar).

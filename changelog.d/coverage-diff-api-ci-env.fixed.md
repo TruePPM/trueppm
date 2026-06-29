@@ -1,1 +1,0 @@
-- **`make coverage-diff-api`**: propagates `CI=1` into the api container so test branches that toggle on the env var (e.g. the incremental CPM perf benchmark, which uses a 600 ms budget under CI vs. 200 ms locally) take the same path the GitLab CI runner takes. Previously the local pre-push hook ran the same suite without `CI=1` and hit timing flakes that GitLab CI never saw.
