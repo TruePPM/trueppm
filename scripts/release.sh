@@ -376,6 +376,19 @@ bump_manifest packages/web/package.json \
 
 echo "  Bumped manifests to $NEW_VERSION (scheduler PyPI: $NEW_PEP440)"
 
+# Re-lock after bumping the Python manifests. Each uv.lock records the project's
+# own version under its self-entry, so a manifest bump without a re-lock leaves
+# the lock claiming the previous version and turns the post-tag main pipeline red
+# via api:uv-lock-check / scheduler:uv-lock-check (uv lock --check is --locked
+# semantics) — that was #1389. Dependency constraints are untouched here, so each
+# `uv lock` changes only the `version = ` line under the package's own entry.
+command -v uv >/dev/null 2>&1 || die \
+  "uv not found — required to regenerate uv.lock after the version bump.
+   Install uv (https://docs.astral.sh/uv/) and retry."
+( cd packages/scheduler && uv lock ) || die "Failed to regenerate packages/scheduler/uv.lock"
+( cd packages/api && uv lock ) || die "Failed to regenerate packages/api/uv.lock"
+echo "  Regenerated uv.lock for scheduler and api"
+
 # Keep the OpenAPI schema's info.version in lockstep with the release. The schema
 # has always tracked the base semver with the pre-release suffix stripped
 # (SPECTACULAR_SETTINGS["VERSION"] was "0.2.0", not "0.2.0-alpha.1"), so a tag
@@ -509,8 +522,10 @@ bash scripts/rotate-scheduler-changelog.sh "$NEW_PEP440" "$CURRENT_PEP440" "$TOD
 
 git add \
   packages/scheduler/pyproject.toml \
+  packages/scheduler/uv.lock \
   packages/scheduler/CHANGELOG.md \
   packages/api/pyproject.toml \
+  packages/api/uv.lock \
   packages/web/package.json \
   packages/api/src/trueppm_api/settings/base.py \
   docs/api/openapi.json \
