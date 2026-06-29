@@ -15,6 +15,13 @@ through 0.3; 0.4 is planned as the first beta. Each release below opens with its
 
 _Nothing yet._
 
+## [0.3.0-alpha.3] — 2026-06-29
+
+0.3.0-alpha.3 re-rolls the 0.3 alpha. The two earlier alphas (-alpha.1 and -alpha.2) were tagged but stopped at their publish gates — first the scheduler's PyPI Trusted-Publishing and signed-attestation upload, then a fixable CVE in the API Docker image's build tooling. All three are fixed here: the scheduler publishes over OIDC with attestations, the API image ships without the unused pip/setuptools/wheel build tools, and the release script now Trivy-scans the API image before it cuts a tag, so a fixable image CVE aborts the release cleanly instead of failing the publish job after the tag is already pushed.
+
+### Security
+Removed the unused Python build tools (`pip`/`setuptools`/`wheel`) from the published API Docker image. The base image's `setuptools` vendored its own vulnerable copies of `wheel` (CVE-2026-24049) and `jaraco.context` (CVE-2026-23949), which the earlier top-level `wheel` upgrade did not reach; the runtime never invokes these tools, so removing them clears the findings and hardens the image against future build-tool CVEs.
+
 ## [0.3.0-alpha.2] — 2026-06-29
 
 **0.3.0-alpha.2 — publish re-roll.** 0.3.0-alpha.1 was tagged but never published: three release-pipeline gates failed on the way to PyPI and the container registry. This release re-cuts the same code with those gates fixed — the scheduler's PyPI Trusted-Publishing OIDC mint-token exchange (#1387) and its attestation upload (#1390), and a CVE-2026-24049 patch to the `wheel` build tool baked into the published API image (#1388). There are no library or application changes from 0.3.0-alpha.1.
