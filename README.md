@@ -9,14 +9,14 @@
 
 **Waterfall, agile, and hybrid programs — one platform, one data model.**
 
-Most tools make you pick a side. Jira speaks agile and turns into a mess the moment someone wants a Gantt. MS Project speaks waterfall and ignores how the team actually works in two-week sprints. So the project manager keeps a schedule, the team keeps a board, and somebody spends every Monday reconciling the two by hand.
+Most tools make you pick a side. Jira speaks agile and turns into a mess the moment someone wants a timeline. MS Project speaks waterfall and ignores how the team actually works in two-week sprints. So the project manager keeps a schedule, the team keeps a board, and somebody spends every Monday reconciling the two by hand.
 
-TruePPM removes that reconciliation. A Scrum Master and a project manager look at the **same underlying data** and each sees the view that fits their job. The team closes a sprint; the master schedule reforecasts on its own. No copy-paste, no status meeting, no second tool.
+TruePPM removes that reconciliation. A Scrum Master and a project manager look at the **same underlying data** and each sees the view that fits their job. The team closes a sprint; the master schedule re-forecasts on its own. No copy-paste, no status meeting, no second tool.
 
-It's open source, self-hosted, and built scheduling-first: Critical Path Method (CPM) is the engine, and the agile board and sprints are a layer on top of it — not a parallel system bolted on the side.
+It's open source, self-hosted, and built scheduling-first: the Critical Path Method (CPM) — the math that works out which tasks actually drive your deadline — is the engine, and the agile board and sprints sit on top of it, not as a parallel system bolted on the side.
 
-> ### Status: 0.2-alpha — pre-GA, not yet production-ready
-> The engine and API are solid; the UI works but is still maturing. 0.2 is out as the `0.2.0-alpha.1` pre-release. The line stays alpha through 0.3, and **0.4 will be the first beta**. Expect breaking API changes before then. **If you're running real teams, wait for the first beta** — we're still learning what needs to change from early feedback, and we'd rather not lock you in before we do. Kicking the tires, self-hosting a trial, or using the scheduler library? Dive in now.
+> ### Status: 0.3-alpha — pre-GA, not yet production-ready
+> The engine and API are solid; the UI works but is still maturing. 0.3 is out as the `0.3.0-alpha.1` pre-release. The release line stays alpha through 0.3, and **0.4 will be the first beta**. Expect breaking API changes before then. **If you're running real teams, wait for the first beta** — we're still learning what needs to change from early feedback, and we'd rather not lock you in before we do. Kicking the tires, self-hosting a trial, or using the scheduler library? Dive in now.
 
 ## Is this for you?
 
@@ -24,30 +24,30 @@ TruePPM is built around eight roles. Find yourself below — each links to a gui
 
 | If you're a… | TruePPM gives you… | Guide |
 |---|---|---|
-| **Project manager** | Real CPM scheduling, a critical path that updates itself, and Monte Carlo dates you can defend to a client | [Project managers](https://docs.trueppm.com/guides/project-managers/) |
-| **Scrum Master** | A first-class sprint (goal, burndown, velocity) — not a board with date columns — and a Gantt you never have to open | [Scrum Masters](https://docs.trueppm.com/guides/scrum-masters/) |
-| **Product owner** | A prioritized backlog with epic/story hierarchy and release forecasts from real velocity, not wishful dates | [Product owners](https://docs.trueppm.com/guides/product-owners/) |
-| **Team member** | A simple "my work" list and a board — move a card, everything else updates itself. No PM overhead | [Team members](https://docs.trueppm.com/guides/team-members/) |
-| **Resource manager** | Per-project assignment with fractional allocation and over-allocation warnings (cross-project lands in 0.5) | [Resource managers](https://docs.trueppm.com/guides/resource-managers/) |
-| **Agile coach** | A tool teams adopt *voluntarily*: the sprint stays team-owned, retros flow into the backlog, no surveillance | [Agile coaches](https://docs.trueppm.com/guides/agile-coaches/) |
-| **PMO director** | Program-level rollup, RBAC, and an operational audit log today; portfolio governance in the enterprise edition | [PMO directors](https://docs.trueppm.com/guides/pmo-directors/) |
-| **Executive sponsor** | Confidence-weighted forecasts (P50/P80/P95) instead of a single optimistic date | [Executives](https://docs.trueppm.com/guides/executives/) |
+| **Project manager** | Real critical-path scheduling, a critical path that updates itself, and probabilistic completion dates (Monte Carlo) you can defend to a client | [Project managers](https://docs.trueppm.com/guides/project-managers/) |
+| **Scrum Master** | A first-class sprint (goal, burndown, velocity) — not a board with date columns — and a timeline you never have to open | [Scrum Masters](https://docs.trueppm.com/guides/scrum-masters/) |
+| **Product owner** | A prioritized backlog with an epic-and-story hierarchy (big initiatives broken into deliverable stories) and release forecasts from real velocity, not wishful dates | [Product owners](https://docs.trueppm.com/guides/product-owners/) |
+| **Team member** | A simple "my work" list and a board — move a card, everything else updates itself. No project-management overhead | [Team members](https://docs.trueppm.com/guides/team-members/) |
+| **Resource manager** | Per-project assignment with partial allocation (e.g. someone at 50% on a project) and over-allocation warnings (cross-project lands in 0.5) | [Resource managers](https://docs.trueppm.com/guides/resource-managers/) |
+| **Agile coach** | A tool teams adopt *voluntarily*: the sprint stays team-owned, retrospectives flow into the backlog, no surveillance | [Agile coaches](https://docs.trueppm.com/guides/agile-coaches/) |
+| **PMO director** | Program-level rollup, role-based permissions, and an operational audit log today; portfolio governance in the enterprise edition | [PMO directors](https://docs.trueppm.com/guides/pmo-directors/) |
+| **Executive sponsor** | Confidence-weighted forecasts — the date you're 50%, 80%, or 95% likely to hit (P50/P80/P95) — instead of a single optimistic date | [Executives](https://docs.trueppm.com/guides/executives/) |
 
 Not sure it's a fit? The [evaluation guide](https://docs.trueppm.com/getting-started/evaluation-guide/) walks every capability — which demo, which login, which screen, what to expect — in about 30 minutes.
 
 ## Why TruePPM?
 
-**Real scheduling, not just task lists.** TruePPM runs CPM on every change — forward pass, backward pass, float, critical-path identification. You always know which tasks drive your deadline and where you have slack.
+**Real scheduling, not just task lists.** TruePPM runs the Critical Path Method on every change — calculating start and finish dates forward, then the latest each task can slip backward, then the slack (often called *float*) on every task. You always know which tasks drive your deadline and where you have room to move.
 
-**Monte Carlo risk analysis built in.** Add three-point estimates (optimistic / most likely / pessimistic) to any task and run a probabilistic simulation. You get P50, P80, and P95 dates instead of one optimistic number. P80 is the date you commit to stakeholders.
+**Probabilistic risk analysis, built in.** Add three-point estimates (optimistic / most likely / pessimistic) to any task and run a simulation — a technique known as *Monte Carlo*. You get P50, P80, and P95 dates — the dates you're 50%, 80%, and 95% likely to hit — instead of one optimistic number. P80 is the date you commit to stakeholders.
 
-**Agile-native, schedule-aware.** Full sprint lifecycle (plan → activate → close), board with WIP limits, velocity, burndown, retrospective-to-backlog. The Scrum Master gets a native agile surface and never opens the Gantt. Sprint velocity feeds non-destructive duration suggestions back to the schedule; automatic sprint→schedule reforecast ships in 0.3.
+**Agile-native, schedule-aware.** Full sprint lifecycle (plan → activate → close), a board with work-in-progress (WIP) limits, velocity (how much the team completes each sprint), burndown, and retrospective-to-backlog. The Scrum Master gets a native agile surface and never opens the timeline. Sprint velocity feeds non-destructive duration suggestions back to the schedule, and automatic sprint-to-schedule re-forecasting shipped in 0.3.
 
-**The hybrid bridge is the whole point.** The same task is both a WBS node and a sprint story. A team member marks a story done, the schedule recalculates on the spot, and the PM's Gantt updates in real time. No status meetings, no reconciliation spreadsheets.
+**The hybrid bridge is the whole point.** The same task is both a line in the master schedule and a story on the sprint board. A team member marks a story done, the schedule recalculates on the spot, and the project manager's timeline updates in real time. No status meetings, no reconciliation spreadsheets.
 
 **Open source, self-hosted, no lock-in.** The community edition is Apache 2.0. Run it on your own infrastructure; your data stays yours. The scheduling engine ships as a standalone Python package — use it on its own if you just need the math.
 
-**API-first.** Every feature is a REST or WebSocket endpoint. The web UI is an API consumer with no privileged access, same as any integration you'd build. The OpenAPI schema is the contract.
+**API-first.** Every feature is a REST or real-time (WebSocket) endpoint. The web UI is an API consumer with no privileged access, same as any integration you'd build. The OpenAPI schema — the machine-readable description of every endpoint — is the contract.
 
 ## Try it in five minutes
 
@@ -67,7 +67,7 @@ Sign in at **http://localhost:5173** (password: `demo`) as the role you want to 
 
 | Username | Role | Open this first |
 |---|---|---|
-| `maya` | Scrum Master | Sprints workspace — burndown, capacity, retro |
+| `maya` | Scrum Master | Sprints workspace — burndown, capacity, retrospective |
 | `raj` | Project Manager | Schedule view — critical path lit up |
 | `diana` | PMO Director | Multi-team sprints lens across projects |
 | `sarah` | Resource Manager | Capacity preflight with an over-allocated member |
@@ -84,24 +84,24 @@ Need the admin password? `docker compose exec api cat /tmp/trueppm_admin_passwor
 
 Prefer to read before you click? Start with [The Story](https://docs.trueppm.com/the-story/) — the end-to-end hybrid workflow in plain narrative.
 
-## What's in 0.2
+## What's in the current release (0.3)
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| **Scheduling engine** | ✅ Stable | CPM (all 4 dependency types, calendar-aware lag, cycle detection) + Monte Carlo. Standalone PyPI package. |
-| **REST API** | ✅ Stable | Full CRUD for projects, tasks, dependencies, resources, calendars, members, sprints. Auto-scheduling via Celery. OpenAPI 3.0 schema. |
-| **RBAC** | ✅ Stable | 5-role per-project permissions on every endpoint, WebSocket, and UI surface. Members management UI. |
-| **Real-time** | ✅ Stable | WebSocket broadcasts for every mutation, deferred to transaction commit. |
-| **Offline sync** | ✅ Stable | WatermelonDB-compatible delta protocol with soft-delete tombstones. |
-| **Schedule (Gantt)** | ✅ Wired | Split-pane view, 6 bar types, 4 dependency types, zoom levels, build mode (keyboard-first task entry). |
-| **Board / Kanban** | ✅ Wired | Phase-grid + rail/drawer/queue layouts, calm toolbar, drag-to-promote, WIP control. |
+| **Scheduling engine** | ✅ Stable | Critical Path Method (all 4 dependency types, calendar-aware lag, cycle detection) plus probabilistic (Monte Carlo) forecasting. Ships as a standalone PyPI package. |
+| **REST API** | ✅ Stable | Full create/read/update/delete for projects, tasks, dependencies, resources, calendars, members, sprints. Background auto-scheduling. OpenAPI 3.0 schema. |
+| **Permissions (RBAC)** | ✅ Stable | 5-role, per-project access control on every endpoint, real-time channel, and UI surface. Member-management UI. |
+| **Real-time** | ✅ Stable | Live updates (WebSocket) for every change, deferred until the database transaction commits. |
+| **Offline sync** | ✅ Stable | Delta-based protocol that reconciles edits made while offline — including deletions — when you reconnect (WatermelonDB-compatible). |
+| **Schedule (timeline / Gantt)** | ✅ Wired | Split-pane view, 6 bar types, 4 dependency types, zoom levels, keyboard-first task entry. |
+| **Board (Kanban)** | ✅ Wired | Phase-grid plus rail/drawer/queue layouts, calm toolbar, drag-to-promote, work-in-progress (WIP) limits. |
 | **Sprints** | ✅ Wired | Plan/activate/close workflow, burndown, velocity, capacity preflight, multi-team lens, retrospective. |
-| **Monte Carlo UI** | ✅ Wired | P50/P80/P95 distribution, live rerun, freshness indicator, burn-up and burn-down charts. |
-| **Helm chart** | ✅ Functional | Kubernetes deployment with bundled first-party PostgreSQL and Valkey subcharts (official images; Valkey is the BSD-licensed Redis fork). Published to GHCR OCI registry. |
+| **Forecast UI** | ✅ Wired | P50/P80/P95 distribution, live rerun, freshness indicator, burn-up and burn-down charts. |
+| **Helm chart** | ✅ Functional | Kubernetes deployment with bundled first-party PostgreSQL and Valkey subcharts (official images; Valkey is the BSD-licensed Redis fork). Published to GitHub Container Registry (GHCR). |
 
-**Added in 0.2:** a settings & administration platform, the Program entity (OSS) with program backlog, MS Project XML import/export UI, recurring tasks, board + schedule depth, durable-execution hardening, and Slack/email notifications.
+**New in 0.3** (the agile-team release): a first-class sprint container — goal, capacity, burndown, and state-aware planning, not just a board with date columns — auto-computed velocity with a forecast *range*; sprint sovereignty (mid-sprint scope changes are deliberate and audited, and velocity stays a team metric rather than a management gauge); the bridge demo (promote a sprint commitment to a schedule milestone and watch velocity re-forecast the critical-path finish, with no copy-paste between tools); an epic-and-story hierarchy with a new Product Owner role; and the v2 interface refresh — a single unified app-shell bar with a ⌘K command palette, methodology-adaptive view tabs, and role-based landing pages.
 
-**Coming in 0.3** (the agile-team release): a first-class sprint container, velocity-with-range, sprint→schedule reforecast, and git PR→card auto-move. CSV/Excel and MS Project `.mpp` import are sequenced for 0.6. See the [roadmap](https://docs.trueppm.com/overview/roadmap/) for the full release-by-release plan.
+**Coming next — 0.4, the first beta:** a real native mobile editor (Android-first) so the schedule updates from the field, a read-only AI-query server — built on the Model Context Protocol (MCP) — that lets any AI client ask the live schedule real questions and get answers computed by the engine rather than guessed, plus field-PM essentials like a client-ready PDF and one-way Jira sync. Spreadsheet (CSV/Excel) and MS Project `.mpp` import are sequenced for 0.6. See the [roadmap](https://docs.trueppm.com/overview/roadmap/) for the full release-by-release plan.
 
 ## Other ways to run it
 
@@ -126,7 +126,7 @@ See the [full installation guide](https://docs.trueppm.com/getting-started/insta
 
 ### Scheduling engine only
 
-If you just need the math, the CPM + Monte Carlo engine ships as a standalone Apache 2.0 package — no API, no database:
+If you just need the math, the critical-path and Monte Carlo engine ships as a standalone Apache 2.0 package — no API, no database:
 
 ```bash
 pip install trueppm-scheduler
@@ -164,8 +164,8 @@ Full documentation at **[docs.trueppm.com](https://docs.trueppm.com)** (publishe
 - **[Evaluation guide](https://docs.trueppm.com/getting-started/evaluation-guide/)** — verify every capability in ~30 minutes: which demo, which login, which screen, what to expect
 - **[Sample projects](https://docs.trueppm.com/getting-started/sample-projects/)** — load a populated demo program in one click, or import/export any program as JSON
 - **[Role guides](https://docs.trueppm.com/guides/project-managers/)** — for project managers, Scrum Masters, product owners, team members, resource managers, agile coaches, PMO directors, and executives
-- **[Administration](https://docs.trueppm.com/administration/deployment/)** — deployment, configuration, RBAC, security
-- **[Features](https://docs.trueppm.com/features/scheduler/)** — deep dives into CPM, Schedule (Gantt), sprints, real-time, offline sync, and more
+- **[Administration](https://docs.trueppm.com/administration/deployment/)** — deployment, configuration, permissions, security
+- **[Features](https://docs.trueppm.com/features/scheduler/)** — deep dives into critical-path scheduling, the timeline (Gantt), sprints, real-time, offline sync, and more
 - **[API reference](https://docs.trueppm.com/api/reference/)** — full endpoint listing with examples
 
 ## Published artifacts
@@ -207,9 +207,11 @@ See `CLAUDE.md` for coding conventions, two-repo rules, and the complete develop
 
 ## Open-core model
 
-**Community edition** (this repo) is Apache 2.0 — the scheduling engine (CPM + Monte Carlo, standalone on PyPI), Schedule (Gantt), Board / Kanban, Sprints (full lifecycle + velocity + burndown + retro), Programs, MS Project import/export, offline sync, real-time collaboration, 5-role RBAC, REST/WS API, and the Helm chart. Everything one PM or program team needs to run their work. Basic single sign-on (OIDC/OAuth against your own IdP) is part of the open core too, and lands in 0.4.
+TruePPM follows an *open-core* model: a free, Apache 2.0 core that is complete on its own, with proprietary add-ons for organizations that need them.
 
-**Enterprise edition** (separate repo, proprietary) adds what an *organization* needs to govern a portfolio across many programs: portfolio analytics, org identity governance (SAML/SCIM/LDAP directory sync, enforced org-wide SSO), an immutable audit trail, cross-program resource leveling, AI scheduling, and Jira/GitLab/ServiceNow connectors.
+**Community edition** (this repo) is Apache 2.0 — the scheduling engine (critical-path + Monte Carlo forecasting, standalone on PyPI), the Schedule (timeline / Gantt), the Board (Kanban), Sprints (full lifecycle plus velocity, burndown, and retrospective), Programs, MS Project import/export, offline sync, real-time collaboration, 5-role access control, the REST and real-time API, and the Helm chart. Everything one project manager or program team needs to run their work. Basic single sign-on — logging in through your own identity provider using the OIDC/OAuth standards — is part of the open core too, and lands in 0.4.
+
+**Enterprise edition** (separate repo, proprietary) adds what an *organization* needs to govern a portfolio across many programs: portfolio analytics, organization-wide identity governance (directory sync and enforced company-wide sign-on via the SAML, SCIM, and LDAP standards), an immutable audit trail, cross-program resource leveling, AI-assisted scheduling, and Jira/GitLab/ServiceNow connectors.
 
 The community edition is fully functional on its own — it never imports from the enterprise repo. The dependency is strictly one-way.
 
@@ -222,22 +224,22 @@ TruePPM welcomes contributions.
 3. Add a changelog fragment in `changelog.d/` (e.g. `my-change.added.md`) — CI checks for this
 4. All MRs require a green pipeline before merge
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow, test-layer expectations, and DCO sign-off requirement.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow, test-layer expectations, and Developer Certificate of Origin (DCO) sign-off requirement.
 
 ## Roadmap
 
 Public milestones: [gitlab.com/trueppm/trueppm/-/milestones](https://gitlab.com/trueppm/trueppm/-/milestones). Targets, not commitments. The full release-by-release rationale lives in the [roadmap doc](https://docs.trueppm.com/overview/roadmap/).
 
-From 0.3 onward each release **lands one primary persona** while the hybrid agile/waterfall bridge deepens underneath. The sequence expands by org scope; everything is OSS, with portfolio governance reserved for the enterprise edition after 1.0.
+From 0.3 onward each release **lands one primary persona** while the hybrid agile/waterfall bridge deepens underneath. The sequence expands by organizational scope; everything is open source, with portfolio governance reserved for the enterprise edition after 1.0.
 
-- **0.3 — the agile team**: real sprint container, velocity-with-range, sprint sovereignty (audited scope changes, team-owned velocity), sprint→schedule reforecast, git PR→card auto-move, sample-data launch demo
-- **0.4 — mobile & the field PM**: native React Native editor (Android-first), iOS PWA fallback, basic client-ready PDF, ongoing one-way Jira sync, read-only MCP server (team-scoped), offline hardening
-- **0.5 — plan & people**: partial resource allocation + pre-commit conflict warning, timesheets, baselines, deep CPM-aware bridge, durable-execution default backend
-- **0.6 — open & portable**: multi-format import with preview, MCP write surface, public REST API depth, read-only shareable roadmap
-- **0.7 — the product owner**: editable product roadmap surface with release-target lanes, release planning, backlog↔schedule reconciliation
+- **0.3 — the agile team** *(shipped)*: real sprint container, velocity-with-range, sprint sovereignty (audited scope changes, team-owned velocity), sprint-to-schedule re-forecast, git PR→card auto-move, sample-data launch demo
+- **0.4 — mobile & the field PM**: native mobile editor (Android-first), iOS progressive-web-app (PWA) fallback, basic client-ready PDF, ongoing one-way Jira sync, read-only AI-query server (MCP, team-scoped), offline hardening
+- **0.5 — plan & people**: partial resource allocation plus a pre-commit conflict warning, timesheets, baselines, a deeper schedule-aware bridge, durable-execution default backend
+- **0.6 — open & portable**: multi-format import with preview, AI write surface (MCP), public REST API depth, read-only shareable roadmap
+- **0.7 — the product owner**: editable product-roadmap surface with release-target lanes, release planning, backlog↔schedule reconciliation
 - **0.8 — present & relate**: reporting (PDF, what-if, baseline variance, auto-narrative), program web view, single-program health digest, cost reports
-- **0.9 — GA candidate**: first-run onboarding, intuitiveness pass, GA hardening (API v1 freeze, WCAG 2.1 AA, perf/scale, i18n), extension SDK
-- **1.0** — first stable GA: Team Cohesion (Brooks' Law) as a first-class scheduling input, iPhone/iPad parity, workflow-engine maturity
+- **0.9 — GA candidate**: first-run onboarding, intuitiveness pass, GA hardening (frozen v1 API, accessibility to WCAG 2.1 AA, performance and scale, internationalization), extension SDK
+- **1.0** — first stable GA: Team Cohesion — a Brooks'-Law friction factor (the idea that adding people to a late project makes it later) — as a first-class scheduling input, iPhone/iPad parity, workflow-engine maturity
 
 ## Maintainer
 
