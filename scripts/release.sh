@@ -233,6 +233,84 @@ compute_new_version() {
 }
 
 # ---------------------------------------------------------------------------
+# Pre-tag publish-gate preflight (api image Trivy scan)
+# ---------------------------------------------------------------------------
+#
+# The api Docker image is Trivy-scanned ONLY in the tag-triggered api:publish
+# job. A fixable HIGH/CRITICAL CVE therefore first surfaces AFTER a tag is cut —
+# mid-release — which is the expensive failure mode that stranded both
+# 0.3.0-alpha.1 and -alpha.2 (both failed *only* api:publish, on the base image's
+# build-tool CVEs; #1388, #1391). Run the SAME build + scan here, before any
+# manifest is bumped or tag created, and fail closed if the image would fail.
+#
+# Mirrors api:publish exactly: same Dockerfile + build context (repo root), built
+# for linux/amd64 (the architecture CI publishes and users `docker pull`, so we
+# scan exactly what ships — on an arm64 host this runs under emulation), and the
+# same `trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1`.
+# Prefer a host trivy; otherwise scan with the same pinned Trivy version the CI
+# job installs, in a container. Keep TRIVY_VERSION in lockstep with the pin in
+# .gitlab-ci.yml (.docker-publish-base).
+#
+# The web image is deliberately NOT scanned here: it has never failed the gate
+# (its surface is the nginx base, and -alpha.1/-alpha.2 both passed web:publish),
+# and its rolldown bundler has no working build path on an arm64 host — neither
+# native (no arm64 binary) nor emulated (the amd64 binary faults under QEMU) — so
+# building it locally would make this preflight unrunnable on the macOS release
+# host for reasons unrelated to any release risk. CI's web:publish (native amd64)
+# remains its authoritative Trivy gate.
+#
+# Opt out with RELEASE_SKIP_IMAGE_SCAN=1 (e.g. a host without Docker); the tag
+# pipeline still runs the authoritative scan, so this is fast feedback, not the
+# only gate.
+TRIVY_VERSION="0.71.0"   # keep in lockstep with .gitlab-ci.yml .docker-publish-base
+
+trivy_scan_tar() {
+  # trivy_scan_tar <image-tar> — exit non-zero on a fixable HIGH/CRITICAL CVE,
+  # using the exact severity/ignore flags the publish job uses.
+  local tar="$1"
+  if command -v trivy >/dev/null 2>&1; then
+    trivy image --input "$tar" --no-progress --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
+  else
+    docker run --rm -v "$tar:/scan/image.tar:ro" "aquasecurity/trivy:${TRIVY_VERSION}" \
+      image --input /scan/image.tar --no-progress --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
+  fi
+}
+
+preflight_image_scan() {
+  if [[ "${RELEASE_SKIP_IMAGE_SCAN:-0}" == "1" ]]; then
+    echo "  ! Skipping pre-tag api image Trivy scan (RELEASE_SKIP_IMAGE_SCAN=1)." >&2
+    echo "    The tag pipeline still scans; a CVE there fails the release AFTER the tag is cut." >&2
+    return 0
+  fi
+
+  command -v docker >/dev/null 2>&1 || die \
+"Docker is required for the pre-tag api image scan (mirrors the api:publish Trivy
+   gate so a CVE can't strand a freshly-cut tag). Install Docker, or re-run with
+   RELEASE_SKIP_IMAGE_SCAN=1 to bypass — the tag pipeline still scans."
+
+  local scan_dir="${TMPDIR:-/tmp}/trueppm-release-preflight"
+  rm -rf "$scan_dir"; mkdir -p "$scan_dir"
+
+  echo "" >&2
+  echo "Pre-tag publish-gate preflight: building + Trivy-scanning the api image." >&2
+  echo "(Mirrors api:publish so a CVE fails HERE, not after the tag is cut. On an arm64" >&2
+  echo " host the linux/amd64 build runs under emulation. Bypass: RELEASE_SKIP_IMAGE_SCAN=1.)" >&2
+
+  echo "  • building api image (linux/amd64, context: repo root) ..." >&2
+  docker build --platform linux/amd64 -f packages/api/Dockerfile -t trueppm-api:release-preflight . \
+    || die "api image failed to build — fix the build before cutting a tag."
+  docker save trueppm-api:release-preflight -o "$scan_dir/api-image.tar"
+  echo "  • scanning api image ..." >&2
+  trivy_scan_tar "$scan_dir/api-image.tar" || die \
+"api image FAILED the Trivy gate (a fixable HIGH/CRITICAL CVE). This is exactly what
+   would fail api:publish AFTER the tag is cut. Patch or remove the offending dependency
+   in packages/api/Dockerfile and re-run. Bypass: RELEASE_SKIP_IMAGE_SCAN=1."
+
+  rm -rf "$scan_dir"
+  echo "  ✓ api image passes the Trivy gate." >&2
+}
+
+# ---------------------------------------------------------------------------
 # Parse args
 # ---------------------------------------------------------------------------
 
@@ -336,6 +414,14 @@ SCHEDULER_TAG="scheduler-v$(to_pep440 "$NEW_VERSION")"
 
 git tag | grep -qxF "$TAG" && die "Tag $TAG already exists."
 git tag | grep -qxF "$SCHEDULER_TAG" && die "Tag $SCHEDULER_TAG already exists."
+
+# Build + Trivy-scan the api and web images BEFORE bumping manifests or cutting a
+# tag, so a fixable image CVE aborts the release cleanly here rather than failing
+# api:publish / web:publish after the tag is already pushed (#1391). The working
+# tree is still clean at this point; the version bump only rewrites version
+# strings, never dependencies, so the pre-bump image's CVE posture is identical
+# to the tagged one.
+preflight_image_scan
 
 # ---------------------------------------------------------------------------
 # Bump versions in manifests

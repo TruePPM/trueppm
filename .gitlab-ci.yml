@@ -373,10 +373,14 @@ scripts:test:
   # Unit tests for the release tooling called by scripts/release.sh at tag time:
   #   - rotate-scheduler-changelog.sh — dates the scheduler package CHANGELOG
   #     section the PyPI wheel ships;
-  #   - assemble-changelog.sh — folds changelog.d/ fragments into [Unreleased].
+  #   - assemble-changelog.sh — folds changelog.d/ fragments into [Unreleased];
+  #   - release-staging — the changelog.d/ git-add contract (#1386);
+  #   - release-preflight — the pre-tag image Trivy scan, incl. the TRIVY_VERSION
+  #     lockstep with this file (#1391). That lockstep is why .gitlab-ci.yml is a
+  #     trigger below: a Trivy bump here that forgets release.sh must fail here.
   # There is no other test harness for the release scripts, so guard the logic
   # directly. Pinned python image (bash + python3, zero installs), ~5s. Only runs
-  # when the release tooling it covers changes.
+  # when the release tooling it covers — or the CI Trivy pin — changes.
   #
   # Note: this image runs bash 5, so it cannot catch a bash-3.2 regression on the
   # macOS release machine; assemble-changelog.test.sh guards that statically.
@@ -391,6 +395,8 @@ scripts:test:
         - scripts/tests/rotate-scheduler-changelog.test.sh
         - scripts/tests/assemble-changelog.test.sh
         - scripts/tests/release-staging.test.sh
+        - scripts/tests/release-preflight.test.sh
+        - .gitlab-ci.yml
     - if: '$CI_COMMIT_BRANCH == "main"'
       changes:
         - scripts/rotate-scheduler-changelog.sh
@@ -399,10 +405,13 @@ scripts:test:
         - scripts/tests/rotate-scheduler-changelog.test.sh
         - scripts/tests/assemble-changelog.test.sh
         - scripts/tests/release-staging.test.sh
+        - scripts/tests/release-preflight.test.sh
+        - .gitlab-ci.yml
   script:
     - bash scripts/tests/rotate-scheduler-changelog.test.sh
     - bash scripts/tests/assemble-changelog.test.sh
     - bash scripts/tests/release-staging.test.sh
+    - bash scripts/tests/release-preflight.test.sh
 
 boundary:check:
   # Detect open OSS issues that describe enterprise functionality (labeled
