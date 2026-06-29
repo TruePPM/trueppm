@@ -108,6 +108,23 @@ git push origin main v0.2.0 scheduler-v0.2.0
 
 The `scheduler:publish` CI job fires on `scheduler-v*` tags and publishes to PyPI.
 
+### PyPI Trusted Publishing (one-time setup)
+
+`scheduler:publish` authenticates to PyPI via **Trusted Publishing** (GitLab OIDC) — there is no static `PYPI_TOKEN` on the publish path. The job presents a short-lived GitLab ID token that PyPI exchanges for a single-use, project-scoped upload token. For that exchange to succeed, a **Trusted Publisher must be registered on the PyPI project** whose claims match this pipeline exactly. This is a **one-time PyPI-side configuration** — do it **before the first `scheduler-v*` tag** that uses OIDC, or the `mint-token` step fails `HTTP 422` before anything is uploaded.
+
+On PyPI → `trueppm-scheduler` → **Manage → Publishing → Add a new publisher (GitLab)**:
+
+| Field | Value |
+|---|---|
+| Namespace | `trueppm` |
+| Project name | `trueppm` (the repo is `trueppm/trueppm`) |
+| Top-level pipeline file path | `.gitlab-ci.yml` |
+| Environment name | **blank** — `scheduler:publish` sets no `environment:`; a non-blank value here makes the OIDC claims mismatch and itself returns 422 |
+
+The values must match the running job: namespace/project come from the repo path (`gitlab.com/trueppm/trueppm`), and the environment must be left blank because the job declares no `environment:`. After registering the publisher, **retry `scheduler:publish` on the existing tag** — no re-tag is needed; the job rebuilds from the tag and the fix is purely PyPI-side.
+
+When a future package is migrated from a static token to OIDC, complete this PyPI-side registration as part of the migration, not after the first failed tag.
+
 ## Enterprise release
 
 After pushing the OSS tag, run the enterprise release script in `trueppm-enterprise`:
@@ -154,5 +171,7 @@ The Helm chart version in `packages/helm/Chart.yaml` is kept in sync manually �
 **"Working tree is not clean"** — stash or commit pending changes before running the script.
 
 **"[Unreleased] section is empty"** — add changelog fragments to `changelog.d/` and run `bash scripts/assemble-changelog.sh` to populate `[Unreleased]` before releasing.
+
+**`scheduler:publish` fails `HTTP 422` at the `mint-token` step** — PyPI has no Trusted Publisher matching the pipeline's OIDC claims (it builds and signs the wheel correctly, then fails *before* any upload, so nothing is published). Register the publisher as described in [PyPI Trusted Publishing](#pypi-trusted-publishing-one-time-setup) above, then retry the job on the existing tag — no re-tag needed. The job prints PyPI's exact reason from the 422 response body to the log, so read it to confirm the mismatched claim (most often a non-blank environment name).
 
 **CI publish job fails** — the failure is in the build or push itself (Docker build error, registry outage, expired credentials), so read the job log. Note that *missing* `GHCR_TOKEN`/`GHCR_USER` (or `PYPI_TOKEN`/`NPM_TOKEN`) does **not** fail the job — those publishes are silently skipped with an `INFO` log line and the job exits 0. If a GHCR image you expected never appeared, check that both variables are set in GitLab CI/CD variables (Settings → CI/CD → Variables) and that the PAT has `write:packages` scope.
