@@ -2125,10 +2125,16 @@ wasm:license-check:
 # The former static PYPI_TOKEN CI/CD variable is no longer read and may be
 # deleted from Settings → CI/CD → Variables.
 #
-# PyPI-side configuration (done in #937): a Trusted Publisher is registered on
-# the `trueppm-scheduler` PyPI project for this GitLab top-level group + project
-# and the `scheduler:publish` job. PyPI project ownership: the maintainer
-# account (Kelly Hair) that uploaded the 0.1/0.2 alphas.
+# PyPI-side configuration: a Trusted Publisher must be registered on the
+# `trueppm-scheduler` PyPI project matching this pipeline's OIDC claims exactly —
+# namespace `trueppm`, project `trueppm`, top-level pipeline file `.gitlab-ci.yml`,
+# and a BLANK environment name (this job sets no `environment:`; a non-blank value
+# would itself 422). If that publisher is missing, the mint-token step below fails
+# HTTP 422 before any upload — this is what bit the first OIDC tag, 0.3.0a1 (#1387);
+# 0.1/0.2 published via the now-removed static PYPI_TOKEN so never exercised it.
+# PyPI project ownership: the maintainer account (Kelly Hair) that uploaded the
+# 0.1/0.2 alphas. Full registration steps are in the release runbook
+# (packages/website/src/content/docs/contributing/release.md).
 #
 # Provenance (#938): the job also emits PEP 740 digital attestations for the
 # exact sdist + wheel it uploads, signed via Sigstore with a second GitLab OIDC
@@ -2169,10 +2175,11 @@ scheduler:publish:
     # cyclonedx-bom pinned to match the resident version in the ci-scheduler
     # image (.gitlab/ci-images/scheduler.Dockerfile); this job runs on the
     # python:3.11-slim base, so it installs the tooling here. twine>=6.1 uploads
-    # PEP 740 attestation sidecars; pypi-attestations signs them via Sigstore.
-    # uv (pinned to 0.9.5, matching the uv-lock-check jobs) materializes the
-    # locked SBOM input below.
-    - pip install build "twine>=6.1" cyclonedx-bom==7.3.0 pypi-attestations uv==0.9.5 --quiet
+    # the PEP 740 attestation sidecars passed to it (see the upload step below);
+    # pypi-attestations signs them via Sigstore — pinned so its CLI cannot drift
+    # silently like the other tools on this line. uv (pinned to 0.9.5, matching
+    # the uv-lock-check jobs) materializes the locked SBOM input below.
+    - pip install build "twine>=6.1" cyclonedx-bom==7.3.0 pypi-attestations==0.0.28 uv==0.9.5 --quiet
   script:
     # Verify the tag version matches the version declared in pyproject.toml.
     # Mismatches (e.g. forgot to bump the version) fail fast before uploading.
@@ -2221,14 +2228,30 @@ scheduler:publish:
     # passed only via the twine environment below and is never echoed.
     - |
       PYPI_API_TOKEN=$(python -c '
-      import json, os, urllib.request
+      import json, os, sys, urllib.request, urllib.error
       req = urllib.request.Request("https://pypi.org/_/oidc/mint-token", data=json.dumps({"token": os.environ["PYPI_ID_TOKEN"]}).encode(), headers={"Content-Type": "application/json"})
-      print(json.load(urllib.request.urlopen(req))["token"])
+      try:
+          resp = urllib.request.urlopen(req)
+      except urllib.error.HTTPError as e:
+          # PyPI states the exact reason (e.g. no Trusted Publisher matches the
+          # pipeline OIDC claims) in the response body; surface it on stderr
+          # instead of the bare "HTTP Error 422" traceback so the failure is
+          # self-diagnosing (#1387). Only the token goes to stdout (captured by
+          # the command substitution); diagnostics must not pollute it.
+          sys.stderr.write("PyPI mint-token failed: HTTP %s %s\n" % (e.code, e.reason))
+          sys.stderr.write(e.read().decode("utf-8", "replace") + "\n")
+          sys.exit(1)
+      print(json.load(resp)["token"])
       ')
-    # Upload the wheel + sdist plus their `.publish.attestation` sidecars
-    # (--attestations); the SBOM ships as a CI artifact / Release asset, not a
-    # PyPI file, so it is excluded by the explicit *.tar.gz / *.whl globs.
-    - TWINE_USERNAME=__token__ TWINE_PASSWORD="$PYPI_API_TOKEN" twine upload --attestations dist/*.tar.gz dist/*.whl --non-interactive --verbose
+    # Upload the wheel + sdist plus their `.publish.attestation` sidecars. In
+    # twine >= 6.1 `--attestations` is an opt-in GATE (fail if none present), NOT
+    # filesystem discovery — twine only attaches attestation files passed as
+    # explicit arguments (it splits inputs by `*.*.attestation`). The sidecars
+    # must therefore be in the upload arg list, or twine errors with
+    # "has no associated attestations" before any upload (#1390). The SBOM is
+    # never passed, so the explicit globs keep dist/sbom.cdx.json a CI artifact /
+    # Release asset rather than a PyPI file.
+    - TWINE_USERNAME=__token__ TWINE_PASSWORD="$PYPI_API_TOKEN" twine upload --attestations dist/*.tar.gz dist/*.whl dist/*.publish.attestation --non-interactive --verbose
   artifacts:
     # Keep the built wheel + sdist + SBOM as a CI artifact for traceability.
     # The SBOM ships here today; attaching dist/sbom.cdx.json to the GitLab
