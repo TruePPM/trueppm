@@ -63,3 +63,37 @@ def test_resource_contention_declares_filter_params(schema: dict) -> None:
     op = schema["paths"]["/api/v1/programs/{id}/resource-contention/"]["get"]
     query_params = {p["name"] for p in op.get("parameters", []) if p.get("in") == "query"}
     assert {"start", "end", "resource", "status"} <= query_params
+
+
+def _param_format(op: dict, name: str) -> str | None:
+    for p in op.get("parameters", []):
+        if p.get("name") == name and p.get("in") == "query":
+            return p.get("schema", {}).get("format")
+    raise AssertionError(f"query param {name!r} not declared")
+
+
+def test_since_until_use_date_format_consistently(schema: dict) -> None:
+    """The new 0.3 computed analytics windows expose since/until as `date` (#1378).
+
+    burn and forecast-snapshots are the project-grained computed reads that take a
+    since/until window. Before the contract freezes they must agree on one type;
+    we standardize on `date` (day-grained), so external codegen and MCP see one
+    contract, not two. A regression to `date-time` on either path fails here."""
+    burn = schema["paths"]["/api/v1/projects/{id}/burn/"]["get"]
+    forecast = schema["paths"]["/api/v1/projects/{id}/forecast-snapshots/"]["get"]
+    for op, label in ((burn, "burn"), (forecast, "forecast-snapshots")):
+        for name in ("since", "until"):
+            fmt = _param_format(op, name)
+            assert fmt == "date", f"{label} {name} must be `date`, got {fmt!r} (#1378)."
+
+
+def test_msproject_export_declares_xml_content(schema: dict) -> None:
+    """The MS Project export 200 must declare its `application/xml` media type (#1381).
+
+    Without it the response `content` is empty and codegen/MCP has no media type to
+    bind the binary download to."""
+    op = schema["paths"]["/api/v1/projects/{project_pk}/export/msproject.xml"]["get"]
+    content = op["responses"]["200"].get("content", {})
+    assert "application/xml" in content, (
+        "msproject export must declare an application/xml 200 response body (#1381)."
+    )

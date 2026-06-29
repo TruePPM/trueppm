@@ -7346,7 +7346,7 @@
         "/api/v1/projects/{id}/forecast-snapshots/": {
             "get": {
                 "operationId": "v1_projects_forecast_snapshots_list",
-                "description": "Project-grain forecast snapshot history (ADR-0154, #388).\n\nReturns the project's forecast snapshots newest-first (paginated), the\npersisted record of how the CPM finish and Monte Carlo percentiles drifted\nover time. Read-only — rows are server-generated on recompute and by the daily\nfloor; there is no write surface. ``?since=``/``?until=`` bound the window by\n``captured_at`` (ISO datetime, or a bare date interpreted as midnight UTC).\n\nPermission: Member (any role ≥ Viewer), the project-read gate — consistent\nwith the Monte Carlo history read.",
+                "description": "Project-grain forecast snapshot history (ADR-0154, #388).\n\nReturns the project's forecast snapshots newest-first (paginated), the\npersisted record of how the CPM finish and Monte Carlo percentiles drifted\nover time. Read-only — rows are server-generated on recompute and by the daily\nfloor; there is no write surface. ``?since=``/``?until=`` bound the window by\n``captured_at`` (ISO 8601 date YYYY-MM-DD, the documented format; a full ISO\ndatetime is also accepted and interpreted literally, a bare date as midnight UTC).\n\nPermission: Member (any role ≥ Viewer), the project-read gate — consistent\nwith the Monte Carlo history read.",
                 "parameters": [
                     {
                         "in": "path",
@@ -7388,18 +7388,18 @@
                         "name": "since",
                         "schema": {
                             "type": "string",
-                            "format": "date-time"
+                            "format": "date"
                         },
-                        "description": "Only snapshots captured at or after this ISO datetime (or date)."
+                        "description": "Only snapshots captured at or after this ISO 8601 date (YYYY-MM-DD)."
                     },
                     {
                         "in": "query",
                         "name": "until",
                         "schema": {
                             "type": "string",
-                            "format": "date-time"
+                            "format": "date"
                         },
-                        "description": "Only snapshots captured at or before this ISO datetime (or date)."
+                        "description": "Only snapshots captured at or before this ISO 8601 date (YYYY-MM-DD)."
                     }
                 ],
                 "tags": [
@@ -10111,6 +10111,7 @@
             "get": {
                 "operationId": "v1_projects_export_msproject.xml_retrieve",
                 "description": "Export project schedule as MS Project XML.\n\nRequires project Member role (viewer or above).",
+                "summary": "Export the project schedule as MS Project XML",
                 "parameters": [
                     {
                         "in": "path",
@@ -10134,7 +10135,15 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/xml": {
+                                "schema": {
+                                    "type": "string",
+                                    "format": "binary"
+                                }
+                            }
+                        },
+                        "description": "MS Project XML document as a file attachment."
                     }
                 }
             }
