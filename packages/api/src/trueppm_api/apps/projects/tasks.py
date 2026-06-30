@@ -354,9 +354,13 @@ def generate_recurring_occurrences(self: object) -> None:
 
     from trueppm_api.apps.projects.models import TaskRecurrenceRule
     from trueppm_api.apps.projects.services import _generate_due_occurrences
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
     horizon = getattr(dj_settings, "TRUEPPM_RECURRENCE_HORIZON_DAYS", 14)
     total = 0
+    # Collect new occurrence ids per project so each project's open boards get a
+    # single bulk event rather than one per task.
+    created_by_project: dict[str, list[str]] = {}
     rules = TaskRecurrenceRule.objects.filter(is_deleted=False).select_related(
         "task", "task__assignee"
     )
@@ -366,9 +370,24 @@ def generate_recurring_occurrences(self: object) -> None:
         except Exception:
             logger.exception("generate_recurring_occurrences: failed for rule %s", rule.pk)
             continue
+        for task in created:
+            created_by_project.setdefault(str(task.project_id), []).append(str(task.id))
         total += len(created)
     if total:
         logger.info("generate_recurring_occurrences: created %d occurrence(s)", total)
+
+    # Materialized occurrences are board-scoped tasks that show up on the project
+    # board; without a broadcast a connected client only sees them on its next manual
+    # refresh or delta pull (#1008). Emit one bulk event per project so open boards
+    # live-update. Deferred via on_commit to honor the broadcast contract (broadcast
+    # only after the rows are durably committed); this Beat task runs in autocommit,
+    # where the occurrences are already committed and the callback fires immediately.
+    for pid, task_ids in created_by_project.items():
+
+        def _broadcast(pid: str = pid, ids: list[str] = task_ids) -> None:
+            broadcast_board_event(pid, "tasks_bulk_mutated", {"task_ids": ids})
+
+        transaction.on_commit(_broadcast)
 
 
 @idempotent_task(

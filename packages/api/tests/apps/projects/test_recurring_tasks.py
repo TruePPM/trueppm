@@ -14,10 +14,12 @@ Layers covered:
 from __future__ import annotations
 
 from datetime import date, datetime, time
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
@@ -31,6 +33,7 @@ from trueppm_api.apps.projects.models import (
     TaskRecurrenceRule,
 )
 from trueppm_api.apps.projects.services import _generate_due_occurrences
+from trueppm_api.apps.projects.tasks import generate_recurring_occurrences
 
 User = get_user_model()
 
@@ -402,7 +405,10 @@ def test_beat_task_isolates_per_rule_failures(project: Project, template: Task) 
         calls.append(rule.pk)
         if rule.task_id == bad_task.pk:
             raise RuntimeError("boom")
-        return [object()]
+        # Stand-in for a created occurrence: the sweep now reads .project_id/.id off
+        # each returned task to group the post-commit broadcast (#1008), so a bare
+        # object() no longer suffices.
+        return [SimpleNamespace(project_id=str(project.pk), id="occ")]
 
     # Acquire the idempotent lock cleanly (truthy SET NX) so the body runs.
     mock_redis = MagicMock()
@@ -500,3 +506,105 @@ def test_weekly_rule_without_weekday_rejected_by_api(project: Project, template:
     )
     assert resp.status_code == 400
     assert "weekdays" in resp.data
+
+
+# ---------------------------------------------------------------------------
+# Real-time broadcast on occurrence generation (#1008)
+# ---------------------------------------------------------------------------
+
+_BROADCAST = "trueppm_api.apps.sync.broadcast.broadcast_board_event"
+
+
+@pytest.mark.django_db
+def test_generation_broadcasts_bulk_event_per_project(
+    project: Project,
+    template: Task,
+    calendar: Calendar,
+    django_capture_on_commit_callbacks: object,
+) -> None:
+    """New occurrences must live-update open boards: one ``tasks_bulk_mutated`` event
+    per project, carrying exactly that project's created occurrence ids (#1008).
+
+    Anchors are in the past; the generator never back-fills (cursor = max(anchor,
+    today)), so it materializes from today forward regardless of the literal date.
+    """
+    today = timezone.now().date()
+    rule_a = _make_rule(
+        template,
+        frequency=TaskRecurrenceFrequency.DAILY,
+        end_type=RecurrenceEndType.AFTER_N,
+        end_count=2,
+    )
+
+    project_b = Project.objects.create(name="P2", start_date=today, calendar=calendar)
+    template_b = Task.objects.create(
+        project=project_b, name="Other standup", duration=1, planned_start=today
+    )
+    rule_b = _make_rule(
+        template_b,
+        frequency=TaskRecurrenceFrequency.DAILY,
+        end_type=RecurrenceEndType.AFTER_N,
+        end_count=2,
+    )
+
+    # Acquire the idempotent lock cleanly (truthy SET NX) so the body runs without a
+    # real Valkey — the host test stack does not publish 6379 (mirrors
+    # test_beat_task_isolates_per_rule_failures).
+    mock_redis = MagicMock()
+    mock_redis.set.return_value = True
+    with (
+        patch("trueppm_api.core.idempotent.redis_lib") as mock_redis_module,
+        patch(_BROADCAST) as mock_bcast,
+        django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
+    ):
+        mock_redis_module.from_url.return_value = mock_redis
+        generate_recurring_occurrences.run()
+
+    # One bulk event per project — no per-task spam.
+    assert mock_bcast.call_count == 2
+    by_project: dict[str, set[str]] = {}
+    for call in mock_bcast.call_args_list:
+        pid, event_type, payload = call.args
+        assert event_type == "tasks_bulk_mutated"
+        by_project[pid] = set(payload["task_ids"])
+
+    occ_a = {str(t.id) for t in Task.objects.filter(recurrence_rule=rule_a)}
+    occ_b = {str(t.id) for t in Task.objects.filter(recurrence_rule=rule_b)}
+    assert occ_a and occ_b  # both rules actually generated something
+    assert by_project == {str(project.pk): occ_a, str(project_b.pk): occ_b}
+
+
+@pytest.mark.django_db
+def test_no_new_occurrences_does_not_broadcast(
+    template: Task, django_capture_on_commit_callbacks: object
+) -> None:
+    """A sweep that materializes nothing new (idempotent re-run after the end
+    condition is met) must stay silent — no empty or spurious broadcast (#1008)."""
+    _make_rule(
+        template,
+        frequency=TaskRecurrenceFrequency.DAILY,
+        end_type=RecurrenceEndType.AFTER_N,
+        end_count=2,
+    )
+    # Acquire the idempotent lock cleanly so the body runs without a real Valkey.
+    mock_redis = MagicMock()
+    mock_redis.set.return_value = True
+
+    # First sweep materializes the 2 occurrences.
+    with (
+        patch("trueppm_api.core.idempotent.redis_lib") as mock_redis_module,
+        patch(_BROADCAST),
+        django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
+    ):
+        mock_redis_module.from_url.return_value = mock_redis
+        generate_recurring_occurrences.run()
+
+    # Second sweep finds nothing due (AFTER_N count reached) → no broadcast.
+    with (
+        patch("trueppm_api.core.idempotent.redis_lib") as mock_redis_module,
+        patch(_BROADCAST) as mock_bcast,
+        django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
+    ):
+        mock_redis_module.from_url.return_value = mock_redis
+        generate_recurring_occurrences.run()
+    mock_bcast.assert_not_called()
