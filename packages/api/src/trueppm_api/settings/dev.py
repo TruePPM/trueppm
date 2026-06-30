@@ -87,6 +87,15 @@ REST_FRAMEWORK = {  # nosemgrep: missing-throttle-config
 # dropped by the browser on http://. Production keeps the base default (True).
 AUTH_REFRESH_COOKIE_SECURE = False
 
+# Local dev / pytest run in a single process, so per-process memory is a
+# sufficient (and dependency-free) cache for the OIDC login state and the DRF
+# throttles. Production uses the Redis-backed cache from base.py. Overriding here
+# keeps `pytest` from requiring a separate Valkey cache db (the testcontainers
+# fixture provisions PostgreSQL only).
+CACHES = {
+    "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"},
+}
+
 
 # Detailed SQL logging in dev
 LOGGING = {

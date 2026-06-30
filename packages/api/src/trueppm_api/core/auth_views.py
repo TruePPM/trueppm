@@ -125,6 +125,20 @@ class CookieTokenObtainPairView(TokenObtainPairView):
         except TokenError as exc:  # pragma: no cover - simplejwt maps to 401 below
             raise InvalidToken(exc.args[0]) from exc
 
+        # Password-login policy seam (ADR-0187 §4). OSS always allows password
+        # login (the default returns True); trueppm-enterprise registers a policy
+        # that can block local login when an admin enforces org-wide SSO. Imported
+        # lazily so this auth path carries no hard dependency on the sso app at
+        # module load. The check runs only after a *successful* credential
+        # validation, so it never leaks whether an account exists.
+        from trueppm_api.apps.sso.extensions import local_login_allowed
+
+        if not local_login_allowed(serializer.user):
+            return Response(
+                {"detail": "Password sign-in is disabled for this account. Use single sign-on."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         data = dict(serializer.validated_data)
         refresh_token = data.pop("refresh", None)
 

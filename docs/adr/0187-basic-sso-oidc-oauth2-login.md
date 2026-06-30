@@ -2,7 +2,14 @@
 
 ## Status
 
-Proposed (2026-06-30)
+Accepted (2026-06-30)
+
+Accepted with the **#1405 backend** implementation (the OIDC relying party + the
+`OIDCProvider` config surface). The pre-implementation `threat-model` mitigations are
+folded into the code and recorded in **§ Implementation outcome (#1405 backend)**
+below; the **#1392 web** and **#1406 mobile** slices follow against the now-frozen
+backend contract. **Enforce-SSO decision locked: OSS ships *no* commercial surface
+for the disabled-local-accounts state — see §4/§5 and resolved open question 1.**
 
 > **Numbering caveat (confirm at merge):** `0184` is the highest ADR on `main`.
 > `0185` and `0186` are expected to be claimed by sibling 0.4 design-import streams
@@ -152,8 +159,11 @@ existing cookie-auth views:
    - validate `state` (exists, unexpired, **single-use → delete on read**);
    - exchange `code` + `code_verifier` at the `token_endpoint`;
    - **validate the ID token**: signature against the discovery `jwks_uri`
-     (`PyJWKClient`, RS256/ES256), `iss == issuer`, `aud == client_id`,
-     `exp`/`iat`/`nbf`, and `nonce` matches the stored value;
+     (PyJWT, RS256/ES256/asymmetric-only allow-list — `none`/`HS*` rejected). The
+     JWKS is fetched through the **SSRF-guarded egress** (`apps/integrations/http`),
+     **not** `PyJWKClient`'s own socket — see § Implementation outcome. Enforce
+     `iss == issuer`, `aud == client_id`, `exp`/`iat`, and `nonce` matches the
+     stored value;
    - bind identity to the **IdP `email` claim** (and require `email_verified`),
      **never** a user-supplied value;
    - **identity resolution** (durable key): match on **`(issuer, sub)`** via an
@@ -208,7 +218,7 @@ dependency holds: enterprise → OSS, never the reverse.
 | Excluded capability | OSS treatment | Extension-point mechanism |
 |---|---|---|
 | **`groups` scope + group→role mapping** | OSS requests `openid email profile` only and assigns the single `default_role`. No `groups` scope, no consent line, no claim→role logic. | **Backend, ADR-0177 idiom.** `apps/sso/extensions.py` exposes `register_oidc_identity_mapper(provider)` / `oidc_role_for(claims, config)`. OSS default ignores claims and returns `default_role`. Enterprise registers a mapper that reads `groups`/custom claims (requesting the wider scope through its own provider-config extension) and maps to roles, with the auth-event audit trail. |
-| **"Allow password sign-in: OFF" (enforced org-wide SSO / disable local accounts)** | The field is **stored but not enforced**. OSS always permits password login; the admin row renders **read-only/informational** ("Password + SSO both allowed") with a **gated upsell affordance** (mirror #563). | **Backend + frontend.** Backend: `register_local_login_policy_provider(provider)` / `local_login_allowed(user)`; OSS default always returns `True`, so `CookieTokenObtainPairView` is never blocked. Enterprise registers a provider that, when `allow_password_signin=False`, blocks password login for non-exempt accounts and emits the audit event. Frontend: the policy is exposed (in OSS always "both allowed") and the OFF state surfaces only as a gated upsell via the ADR-0029 `WidgetRegistry` slot + `useEdition()`. **OSS ships the row, never the enforcement.** |
+| **"Allow password sign-in: OFF" (enforced org-wide SSO / disable local accounts)** | The `allow_password_signin` flag is **stored but never enforced**, and OSS shows **no commercial surface** for the OFF state — **no upsell, no teaser, no Enterprise badge** (decision locked; see open question 1). OSS always permits password login. The serializer reports `allow_password_signin_enforced: false` as a static, informational field only. | **Backend seam only (in OSS).** `register_local_login_policy_provider(provider)` / `local_login_allowed(user)`; the OSS default always returns `True`, so `CookieTokenObtainPairView` is never blocked. Enterprise registers a provider that, when `allow_password_signin=False`, blocks password login for non-exempt accounts and emits the audit event — and **enterprise** owns any UI that surfaces the OFF state. OSS ships an empty extension-point slot, never the enforcement and never a marketing surface for it. |
 | **SCIM / LDAP / directory provisioning + deprovisioning** | **Entirely absent.** "Create user on first successful login" is the *only* account-creation path, gated by the domain allow-list. No lifecycle sync, no deprovisioning, no directory read. | Not designed here. Directory provisioning is a separate enterprise subsystem that registers against membership creation, **not** the login flow. Explicitly out of scope; do **not** file it in the OSS tracker. |
 
 > **Enterprise follow-ups (file in `trueppm-enterprise`, NOT the OSS tracker):**
@@ -222,9 +232,11 @@ dependency holds: enterprise → OSS, never the reverse.
 The two backend seams (`register_oidc_identity_mapper`,
 `register_local_login_policy_provider`) follow ADR-0177's idempotent single-slot
 registration and degrade to a safe community default with no enterprise package
-installed. The frontend upsell uses the existing `useEdition()` hook + a
-`WidgetRegistry` slot (ADR-0029) — **no `if (edition === 'enterprise')` branches in
-OSS components**, and `grep -r "trueppm_enterprise" packages/` stays at zero.
+installed. **OSS carries no commercial surface for the excluded capabilities** — no
+upsell widget, no edition-gated teaser — so there are **no `if (edition ===
+'enterprise')` branches in OSS components**, and `grep -r "trueppm_enterprise"
+packages/` stays at zero. Any surface that markets or exposes the enforced-SSO OFF
+state lives entirely in `trueppm-enterprise`.
 
 ### 6. Correct the mislabeled login stub (🔴, owned by #1392)
 
@@ -319,6 +331,35 @@ OSS backend change is required to add that redirect URI to the allow-list later.
   redirect URI, allowed domains, auto-create) in the **same MR** as the backend
   (#1405) — `docs-writer` gate.
 
+### Implementation outcome (#1405 backend)
+
+The pre-implementation `threat-model` (STRIDE on the RP flow) drove two design
+divergences from the body above, folded into the shipped code:
+
+- **JWKS fetched through the SSRF-guarded egress, not `PyJWKClient`.** `PyJWKClient`
+  opens its own socket via urllib — it follows redirects and re-resolves DNS,
+  bypassing the `apps/integrations/http` egress chokepoint that protects every other
+  outbound call. `services._signing_key_for()` instead fetches the JWKS through
+  `egress.get`, parses it with `PyJWKSet.from_dict`, and selects the key by `kid` /
+  `use`. The signature is then verified by `jwt.decode` against an asymmetric-only
+  algorithm allow-list (`RS*`/`ES*`); `none` and `HS*` are rejected (alg-confusion).
+- **State is browser-bound by a hardened cookie.** The server-side single-use `state`
+  only proves *we* issued it; it does not prove the **same browser** began the flow.
+  `/login` sets a `SameSite=Lax`, httpOnly, host-scoped cookie carrying the state, and
+  `/callback` requires it to match the query `state` (constant-time compare) **before**
+  consuming the server-side entry — defeating login-CSRF / session-fixation. Lax (not
+  Strict) is required because the callback navigation arrives top-level from the IdP.
+
+Other mitigations in code: https-only issuer outside DEBUG; `oidc_login` and
+`oidc_callback` scoped throttles; identity keyed durably on `(issuer, sub)` with
+verified-email account-linking only; `discover` never touches the user table (no
+enumeration); the client secret is Fernet-encrypted and never serialized back.
+
+**Enforced-SSO posture in code:** OSS stores `allow_password_signin` and exposes
+`register_local_login_policy_provider`, the serializer reports
+`allow_password_signin_enforced: false` as a static informational field, and there is
+**no upsell, teaser, or Enterprise badge** anywhere in the OSS surface.
+
 ### Boundary-compliance verification
 
 - `grep -r "trueppm_enterprise" packages/` MUST return zero (CI `boundary:check`).
@@ -331,11 +372,13 @@ OSS backend change is required to add that redirect URI to the allow-list later.
 
 ## Open questions (🔴 blockers for Kelly)
 
-1. **Enforced-SSO toggle as an extension point — confirm.** OSS ships the
-   "Allow password sign-in" row **read-only/informational** + a gated upsell; the OFF
-   *enforcement* (disable local accounts) is Enterprise via
-   `register_local_login_policy_provider`. Confirm this split (vs. omitting the row
-   entirely in OSS).
+1. **Enforced-SSO toggle as an extension point — RESOLVED (no upsell).** OSS stores
+   the `allow_password_signin` flag and exposes the `register_local_login_policy_provider`
+   seam, but **never enforces the OFF state and ships no commercial surface for it** —
+   no upsell, no teaser, no Enterprise badge. The backend serializer reports
+   `allow_password_signin_enforced: false` as a static informational field. The OFF
+   *enforcement* and any UI that markets it are Enterprise-only. (Chosen over the
+   earlier "gated upsell affordance" framing.)
 2. **Mislabeled login stub — confirm correction lands in #1392.** Replace the
    "SSO available in Enterprise tier" tooltip + stub with the real SSO entry point +
    `OSSChip`, moving the three `LoginPage.test.tsx` assertions in the same commit.
@@ -368,7 +411,10 @@ OSS backend change is required to add that redirect URI to the allow-list later.
 - Issues #1392 (web), #1405 (backend), #1406 (mobile)
 - CLAUDE.md — Auth carve-out (basic SSO is OSS); Two-Repo Rule
 - `enterprise-check` 2026-06-29 — boundary lock for this work
-- ADR-0029 — frontend slot registry + edition detection (enforced-SSO upsell slot)
+- ADR-0029 — frontend slot registry + edition detection (consumed by enterprise; OSS
+  registers no enforced-SSO surface)
+- ADR-0177 — extension-point registry idiom (the two backend login-policy seams)
+- ADR-0049 — Fernet secret-at-rest (reused for the client secret)
 - ADR-0049 §3 — Fernet credential encryption at rest (client-secret pattern)
 - ADR-0141 — WebSocket short-lived ticket auth (the only prior auth ADR)
 - ADR-0177 — OSS extension-point provider-registry idiom (the two SSO seams)

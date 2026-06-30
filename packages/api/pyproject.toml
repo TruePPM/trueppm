@@ -55,6 +55,13 @@ dependencies = [
     "jsonschema>=4.21,<5.0",
     "uvicorn[standard]>=0.29,<1.0",
     "cryptography>=48.0.1,<49",
+    # OIDC ID-token signature verification (ADR-0187, basic SSO). Already present
+    # transitively via djangorestframework-simplejwt; promoted to a direct dep with
+    # the [crypto] extra so the SSO relying party can verify RS256/ES256 ID tokens
+    # against the IdP's JWKS (PyJWKSet/PyJWK; the JWKS is fetched through the
+    # SSRF-guarded egress, not PyJWKClient's own socket). The [crypto] extra pulls
+    # cryptography, which is already pinned directly above — no new transitive surface.
+    "pyjwt[crypto]>=2.10,<3.0",
 ]
 
 [project.optional-dependencies]

@@ -70,6 +70,7 @@ LOCAL_APPS = [
     "trueppm_api.apps.teams",
     "trueppm_api.apps.profiles",
     "trueppm_api.apps.timetracking",
+    "trueppm_api.apps.sso",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -171,11 +172,32 @@ FRONTEND_BASE_URL = env("TRUEPPM_FRONTEND_BASE_URL", default="") or env(
     "FRONTEND_BASE_URL", default=""
 )
 
+# Public origin of the API itself, used only to derive the OIDC ``redirect_uri``
+# (ADR-0187): ``{TRUEPPM_PUBLIC_API_BASE_URL}/api/v1/auth/oidc/callback/``. The
+# operator copies this exact value into their IdP's allowed-redirect list. Empty
+# by default (zero-config): the SSO views fall back to the request's absolute URI,
+# correct for a single-origin dev setup; set it explicitly behind a reverse proxy
+# so the allow-listed value is deterministic. Trailing slash is stripped at use.
+TRUEPPM_PUBLIC_API_BASE_URL = env("TRUEPPM_PUBLIC_API_BASE_URL", default="")
+
 # ---------------------------------------------------------------------------
 # Cache / Channels / Celery  (all backed by Redis)
 # ---------------------------------------------------------------------------
 
 REDIS_URL = env("REDIS_URL", default="redis://redis:6379")
+
+# Shared cache backend (Valkey/Redis db 2 — db 1 is the channel layer, db 0 is
+# Celery). Backs the short-lived, single-use OIDC login state / PKCE verifier /
+# nonce (ADR-0187 §Durable Execution) and the DRF scoped throttles, both of which
+# must be consistent across worker processes in a multi-worker deploy. ``dev.py``
+# overrides this to LocMemCache so a local run / pytest needs no separate cache
+# service (single process, so per-process memory is sufficient there).
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": f"{REDIS_URL}/2",
+    },
+}
 
 CHANNEL_LAYERS = {
     "default": {
@@ -634,6 +656,18 @@ REST_FRAMEWORK = {
         # "Resend all" is one request → one bucket hit, so it cannot be looped past
         # the cap.
         "invite_resend": "5/min",
+        # SSO domain discovery (ADR-0187). Unauthenticated; reveals only whether a
+        # *domain* uses SSO (never whether an account exists), but the rate still
+        # bounds bulk domain-probing. Loose enough for the interactive login page.
+        "oidc_discover": "30/min",
+        # SSO login start (ADR-0187). Each hit mints a single-use state/PKCE/nonce
+        # cache entry and 302s to the IdP; this also implicitly bounds the callback
+        # (every callback requires a state minted here). Snug but ample for humans.
+        "oidc_login": "20/min",
+        # SSO callback (ADR-0187). A token-issuing endpoint; the implicit bound via
+        # oidc_login already caps legitimate use, but an explicit cap blunts a flood
+        # of forged callbacks (each fails fast at the browser-state-cookie check).
+        "oidc_callback": "30/min",
     },
 }
 
