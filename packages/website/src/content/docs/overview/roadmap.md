@@ -56,17 +56,19 @@ Shipped as the **0.3.0-alpha.1** pre-release (tagged Jun 28, 2026), with `truepp
 
 From 0.3 onward each release **lands one primary persona** — it ships the feature that turns that persona from interested into advocate — while the hybrid agile/waterfall bridge deepens underneath. The sequence expands by org scope: an agile team first, then the field PM, the people who staff the work, the product owner, and finally the program that ties projects together. Everything here is OSS; portfolio governance stays in the enterprise edition (below) and is intentionally absent until after 1.0. We ship a new release every 3–4 weeks — the cadence is part of the commitment, so adopters can plan against it.
 
-### 0.4 — mobile & the field PM (target: Jul 27 – Aug 3, 2026)
+### 0.4 — the self-hosting PM's beta (target: Jul 27 – Aug 3, 2026)
 
-**For the project manager on a job site with no signal — and TruePPM's first beta release.** Two headliners define the beta. First, a real native mobile editor — not a read-only viewer — so the schedule updates from the truck and the client PDF goes out before you drive back. Second, a read-only MCP server, so any AI client can ask the live schedule real questions and get answers computed by the engine, never guessed by a model. 0.4 is deliberately scoped to these two and the field-PM essentials around them; the agile-team refinements that began in 0.3 keep maturing in 0.5 rather than crowding the beta.
+**For the project manager whose schedule lives on their own infrastructure — and TruePPM's first beta release.** Two headliners define the beta. First, a read-only MCP server: point any MCP client (Claude Desktop, Cursor, Zed) at your self-hosted instance and ask real questions of the live schedule — critical path, Monte Carlo slip analysis, sprint status — all computed by the CPM engine, never guessed by a model, never leaving your box. Second, an installable PWA: the full schedule, board, and time-entry experience from the home screen of any phone, with scoped offline support — the mobile answer before native Android ships in 0.5. 0.4 also lands the production foundations the self-hosting community expects at beta: SSO login federation, OpenTelemetry observability, and a published rate-limiting and API-stability contract.
 
-- **Mobile** *(headliner)* — React Native / Expo + WatermelonDB, **Android phones first, tablets second** (iPhone at 1.0); My Tasks, 15-second time capture, on-device WASM CPM, offline sync, store submission
 - **Read-only MCP server** *(headliner)* (#503 #504 #603) — point any MCP client (Claude Desktop and the like) at your self-hosted instance and ask real questions of the live schedule: critical path, a non-mutating Monte Carlo what-if ("slip this task three days — when do we ship?"), sprint status and velocity, the risk register, and My Work. Every answer is computed server-side by the same CPM/Monte Carlo engine the UI uses — never an LLM guess, never leaving your box. Per-team token scopes keep sprint internals private. Read-only by design; write tools are deliberately held to 0.6
-- **iOS PWA fallback** — a scoped mobile-web time-entry and read surface so iPhone users aren't blocked until 1.0 native
+- **Installable PWA** *(headliner)* (#1393) — a full installable progressive web app with an offline-capable shell: add to home screen on iOS or Android, time-entry and board reads work without a signal, and a reconnect banner syncs queued writes when connectivity returns. The self-hosted mobile story before native Android lands in 0.5
+- **Basic single sign-on (OIDC / OAuth2)** — point TruePPM at your own identity provider (Keycloak, Authentik, Authelia, Zitadel, Google, GitHub, GitLab) and your whole team logs in through it. Self-hosted, login-only, no directory required — the federation a self-hoster expects as table stakes, not behind a paywall. The org identity-*governance* layer (SAML 2.0, SCIM provisioning, LDAP/AD directory sync, enforced org-wide SSO) stays in the enterprise edition
+- **OpenTelemetry observability** (#707–#710) — opt-in OTLP export for traces and metrics across Django, Celery, Channels, the DB layer, and the scheduler engine; Prometheus scrape endpoint out of the box. Plug TruePPM into your existing Grafana/Jaeger/Tempo stack with no custom exporter work
+- **API rate limiting &amp; stability contract** (#1080) — published per-endpoint rate limits with standard `Retry-After` headers, a documented deprecation policy, and a stability tier so integrators know what they can rely on across releases
+- **Beta onboarding** (#725) — a guided setup rail that walks a fresh install from empty dashboard to a running project with real tasks and a schedule: project creation, first task, team invite, and a live-preview mini-board so the value is visible before the setup is done. The full GA-polish pass happens at 0.9; this is the on-ramp that lets a self-hoster be productive in the first session
 - **Client-ready PDF** — a basic Gantt-with-critical-path schedule export from day one (the rich reporting suite lands at 0.8)
 - **Ongoing inbound sync** — continuous one-way Jira → TruePPM card sync (distinct from the one-time migration import at 0.6) so contributors never double-enter
 - **Offline hardening** — WebSocket event replay/resync, sync conflict detection, calm offline states
-- **Basic single sign-on (OIDC / OAuth2)** — point TruePPM at your own identity provider (Keycloak, Authentik, Authelia, Zitadel, Google, GitHub, GitLab) and your whole team logs in through it. Self-hosted, login-only, no directory required — the federation a self-hoster expects as table stakes, not behind a paywall. The org identity-*governance* layer (SAML 2.0, SCIM provisioning, LDAP/AD directory sync, enforced org-wide SSO) stays in the enterprise edition
 - **Provenance graph** (#1058) — the first piece of the AI-native foundation that backs the MCP server: every computed date, float, and P80 carries the server-side derivation an agent can cite, so an answer is explainable, not asserted. The rest of the AI-native foundation — a local natural-language query layer (#1060) and a bring-your-own local-model adapter (#1061) — moves to 0.5 alongside the decision &amp; forecast memory, keeping the beta focused on the two headliners
 
 ## Planned
@@ -83,6 +85,7 @@ From 0.3 onward each release **lands one primary persona** — it ships the feat
 - **AI query layer & local-model adapter** (#1060 #1061) — a local natural-language layer that compiles a question into engine calls (never into an answer) and a bring-your-own local-model adapter so the AI runs against a self-hosted model and nothing — plan or inference — leaves your box. Co-located here with the decision &amp; forecast memory so the AI-native foundation matures as one body of work after the 0.4 provenance graph
 - **Deep CPM-aware bridge** (#372) — live finish-date forecast and incremental CPM recompute, reconciling sprint capacity with the schedule
 - **Durable execution (ADR-0080)** — default workflow backend, workflow versioning, transactional mobile sync upload
+- **Native Android app** — React Native / Expo + WatermelonDB; My Tasks, 15-second time capture, on-device WASM CPM, offline sync, Play Store submission. Android phones first, tablets second; iPhone ships at 1.0
 - **Agile-team refinements (continued from 0.3)** — sprint, board, and hybrid-bridge polish rebalanced out of the 0.4 beta so the beta stays focused on its two headliners. These keep maturing the Scrum-Master and Product-Owner surfaces; not all are committed to the 0.5 date — the milestone is the holding line for this work, to be re-triaged against the 0.5 charter
 
 ### 0.6 — open & portable (target: Sep 21–28, 2026)
@@ -117,15 +120,15 @@ From 0.3 onward each release **lands one primary persona** — it ships the feat
 
 **For the first-time evaluator.** Productive in five minutes, and hardened enough to bet a program on.
 
-- **First-run onboarding** — guided setup, first project, team invite
+- **Onboarding polish** — the "easier than MS Project / Planview / Smartsheet" promise audited end to end; the beta setup rail (#725) ships at 0.4, this pass refines it to GA quality
 - **Intuitiveness pass** — the "easier than MS Project / Planview / Smartsheet" promise, audited end to end
-- **GA hardening** — public API v1 freeze and rate limiting, WCAG 2.1 AA audit, performance/scale validation, i18n/l10n scope decision
+- **GA hardening** — public API v1 freeze, WCAG 2.1 AA audit, performance/scale validation, i18n/l10n scope decision (rate limiting and API stability contract land at 0.4; this hardens the final v1 surface)
 - **Reproducible answers** (#1065) — computed responses carry an engine-version + input hash, so an AI-surfaced number can be reproduced and audited later from the same inputs (the compliance archive of those answers is an enterprise overlay)
 - **Extension SDK** — custom fields, views, widgets, workflow actions, webhook events
 
 ### 1.0 — first stable release (target: Jan 18 – Feb 1, 2027)
 
-The marquee differentiator: **Team Cohesion** — a Brooks'-Law friction coefficient that feeds Monte Carlo, making TruePPM the first PPM tool to model team friction as a first-class scheduling input (epic #582). Mobile completes here: **iPhone and iPad parity** — App Store submission, TestFlight, and iOS-side Detox parity on top of the Android codebase shipped in 0.4. Plus **workflow-engine maturity** (ADR-0080: dead-letter, history API, idempotency hardening, observability, a second DBOS backend) and a pre-1.0 sample-project refresh.
+The marquee differentiator: **Team Cohesion** — a Brooks'-Law friction coefficient that feeds Monte Carlo, making TruePPM the first PPM tool to model team friction as a first-class scheduling input (epic #582). Mobile completes here: **iPhone and iPad parity** — App Store submission, TestFlight, and iOS-side Detox parity on top of the Android codebase shipped in 0.5. Plus **workflow-engine maturity** (ADR-0080: dead-letter, history API, idempotency hardening, observability, a second DBOS backend) and a pre-1.0 sample-project refresh.
 
 ### 1.5 — Methodology Packs
 
