@@ -1,4 +1,4 @@
-# ADR-0185: Mobile app scaffold implementation plan (`packages/mobile/` + Detox E2E)
+# ADR-0191: Mobile app scaffold implementation plan (`packages/mobile/` + Detox E2E)
 
 > **This ADR records the implementation plan for the mobile platform decision in
 > [ADR-0026](./0026-mobile-app-platform-and-e2e.md).** ADR-0026 is the authoritative
