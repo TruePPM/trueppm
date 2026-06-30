@@ -27,6 +27,7 @@ import {
 } from 'react';
 import { useSearchParams } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
+import { usePageTitle } from '@/hooks/usePageTitle';
 import {
   DndContext,
   PointerSensor,
@@ -1128,6 +1129,7 @@ function MobileBoard({
 // ---------------------------------------------------------------------------
 
 export function BoardView() {
+  usePageTitle('Board');
   const projectId = useProjectId() ?? '';
   const { columns: rawColumns, save: saveBoardConfig } = useBoardConfig(projectId || null);
   const { tasks, isLoading } = useScheduleTasks();
@@ -2202,6 +2204,7 @@ export function BoardView() {
     <>
       {/* aria-live region for status change announcements (rule 105) */}
       <div ref={ariaLiveRef} aria-live="polite" className="sr-only" />
+      <h1 className="sr-only">Board</h1>
 
       <DndContext
         sensors={sensors}
