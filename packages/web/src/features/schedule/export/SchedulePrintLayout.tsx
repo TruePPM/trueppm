@@ -15,10 +15,12 @@
  * resolved light colors and the design-system-v2 gate stays green. Owners render
  * as initials, never remote avatar images.
  *
- * This is the FOUNDATION surface (issue 1436): a single light sheet that exercises the
- * geometry, theme, and overlay wiring. The full Layout-A composition (masthead
- * polish, KPI strip styling, CP summary box, sign-off + sha) is issue 1437; the
- * 3-page Layout B is issue 1439; week-boundary banding + dense-arrow routing is issue 1440.
+ * On the issue-1436 geometry/theme/overlay foundation, this surface composes the
+ * full **Layout A** one-page Gantt (issue 1437): the export-provenance masthead, the
+ * 5-cell KPI strip, the full-timeline Gantt with FS dependency arrows, the
+ * critical-path summary box (the ordered driving chain), and the sign-off +
+ * content-fingerprint stamp. The 3-page Layout B is issue 1439; week-boundary banding
+ * + dense-arrow routing is issue 1440.
  */
 import { forwardRef, useMemo } from 'react';
 import {
@@ -166,11 +168,15 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
               <h1 className="text-lg font-semibold leading-tight">{masthead.projectName}</h1>
               <p className="text-xs text-neutral-text-secondary">{masthead.methodSubtitle}</p>
             </div>
+            {/* Export-provenance block (issue 1437): org, baseline, export date,
+                project key, and workspace URL — so a printed sheet is traceable
+                back to the workspace and schedule version it came from. */}
             <div className="text-right text-xs text-neutral-text-secondary">
               {masthead.orgName && <div className="font-medium">{masthead.orgName}</div>}
               {masthead.baselineLabel && <div>{masthead.baselineLabel}</div>}
               <div>Exported {masthead.exportDateLabel}</div>
               {masthead.projectKey && <div className="tppm-mono">{masthead.projectKey}</div>}
+              {masthead.workspaceUrl && <div className="tppm-mono">{masthead.workspaceUrl}</div>}
             </div>
           </div>
         </header>
@@ -390,15 +396,39 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
             </span>
           </div>
 
+          {/* Critical-path summary box (issue 1437): the ordered driving chain in a
+              bordered card — a lightweight form of Layout B's activity register.
+              Each entry shows its WBS + name and inclusive date range; the header
+              states that this chain drives the project finish (float = 0). */}
           {cpChain.length > 0 && (
-            <div className="mt-2">
-              <span className="font-semibold text-neutral-text-primary">Critical path: </span>
-              {cpChain.map((t) => (
-                <span key={t.id} className="mr-1">
-                  {t.seq}. {t.name} ({fmtUtcShort(t.start)}–{fmtUtcShort(t.finish)})
-                  {t.seq < cpChain.length ? ' →' : ''}
+            <div className="mt-3 rounded-card border border-neutral-border bg-neutral-surface px-3 py-2">
+              <div className="mb-1.5 flex items-baseline justify-between gap-2">
+                <span className="text-xs font-semibold uppercase tracking-wide text-neutral-text-primary">
+                  Critical path chain
                 </span>
-              ))}
+                <span className="text-[11px] text-neutral-text-secondary">
+                  {cpChain.length} {cpChain.length === 1 ? 'activity drives' : 'activities drive'} the
+                  finish date
+                </span>
+              </div>
+              <ol className="grid grid-cols-2 gap-x-6 gap-y-0.5">
+                {cpChain.map((t) => (
+                  <li
+                    key={t.id}
+                    className="flex items-baseline gap-1.5 text-[11px] text-neutral-text-primary"
+                  >
+                    <span className="tppm-mono flex-shrink-0 text-neutral-text-secondary">
+                      {t.seq}.
+                    </span>
+                    <span className="min-w-0 flex-1 truncate" title={`${t.wbsCode} ${t.name}`}>
+                      <span className="text-neutral-text-secondary">{t.wbsCode}</span> {t.name}
+                    </span>
+                    <span className="tppm-mono flex-shrink-0 whitespace-nowrap text-neutral-text-secondary">
+                      {fmtUtcShort(t.start)}–{fmtUtcShort(t.finish)}
+                    </span>
+                  </li>
+                ))}
+              </ol>
             </div>
           )}
 
@@ -406,7 +436,17 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
             <span>
               {masthead.projectName} · Generated {footer.generatedAtLabel}
               {footer.userName ? ` by ${footer.userName}` : ''}
-              {footer.contentSha ? ` · ${footer.contentSha}` : ''}
+              {footer.contentSha && (
+                <>
+                  {' · '}
+                  <span
+                    className="tppm-mono"
+                    title="Content fingerprint — identical schedules export the same stamp"
+                  >
+                    checksum {footer.contentSha}
+                  </span>
+                </>
+              )}
             </span>
             <span>{footer.signOff}</span>
           </div>

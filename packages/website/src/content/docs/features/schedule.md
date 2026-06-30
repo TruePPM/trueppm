@@ -128,6 +128,23 @@ Below the timeline, a collapsible **Forecast & sensitivity** bar surfaces the Mo
 
 Run a simulation from the Monte Carlo row to populate it; the expand/collapse choice is remembered per user.
 
+## Export to PDF
+
+:::note[Coming in 0.4]
+Schedule PDF export ships in 0.4.
+:::
+
+To export the schedule as a PDF, open the **Project actions** (⋯) overflow menu — the same menu that holds **Export to MS Project (.xml)** — and choose **Export schedule as PDF**. The result is a single-page, landscape, one-page Gantt of the entire project timeline: a boardroom-clean artifact for a deck, a client, or a stakeholder with no portal access.
+
+The PDF is **not a screenshot**. It is a light-themed static re-projection of the live (dark) canvas — redrawn for paper — so the lines stay crisp and the colors read on a printed page. It carries:
+
+- **The full project timeline** — task bars, milestone diamonds, and dependency arrows, framed to fit one landscape sheet.
+- **A KPI strip** — the schedule window, the critical path, the P80 forecast, overall progress, and the milestone count.
+- **A "Critical path chain" box** — the activities that drive the finish date, listed in order, so a reader sees *what* is holding the date without reading every bar.
+- **A footer** — a content-fingerprint checksum (two identical schedules export the same stamp, so you can tell at a glance whether a printout is current) and a Community-edition watermark line.
+
+The document is rasterized **entirely in your browser** (html-to-image + jsPDF) — nothing is uploaded, and the export is private to the person who runs it. The action is **desktop-only**: it is hidden below the 768px breakpoint, mirroring the [board PDF export](/features/board/#export-to-pdf). An options dialog (paper-size picker, page setup) and a keyboard shortcut are coming next.
+
 ## Accessibility
 
 The canvas is `aria-hidden="true"`; a transparent DOM overlay (`ScheduleAriaOverlay`) provides the WCAG 2.1 grid structure (`role="grid"` → `role="row"` → `role="gridcell"`). Roving tabindex; `engine.scrollToDate()` is called before `.focus()` so virtualized rows scroll into view before keyboard focus lands.
