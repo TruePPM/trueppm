@@ -1,0 +1,6 @@
+/* NativeWind global stylesheet. Metro's NativeWind transformer compiles these
+   Tailwind layers against tailwind.config.js (which sources packages/web's
+   shared design tokens). Imported once for its side effects in src/App.tsx. */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
