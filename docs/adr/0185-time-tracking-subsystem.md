@@ -1,7 +1,7 @@
 # ADR-0185: Time-tracking subsystem — TimeEntry, running timer, and the `can_log_time` gate
 
 ## Status
-Proposed
+Accepted
 
 ## Context
 
@@ -257,8 +257,8 @@ ADR-0184's position that realtime board events are a deliberately scoped product
   per-**user** channel group (the board group is per-**project**), which is out of scope
   for 0.4.
 
-This is a 🔴 to confirm with Kelly (broadcast scope) but the recommendation is firm:
-**nothing broadcasts.** The `broadcast-check` gate should confirm the negative.
+**Resolved (accepted):** nothing broadcasts. The `broadcast-check` gate confirmed the
+negative — no `broadcast_board_event()` is wired on any time-entry or timer write.
 
 ### 6. Offline-sync participation
 

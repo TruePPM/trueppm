@@ -29,6 +29,7 @@ from trueppm_api.apps.projects.models import (
     TaskSuggestedAssignee,
 )
 from trueppm_api.apps.sync.views import ProjectSyncView
+from trueppm_api.apps.timetracking.models import TimeEntry
 
 User = get_user_model()
 
@@ -101,6 +102,10 @@ def test_column_tracks_union_across_every_synced_model(
     TaskRecurrenceRule.objects.create(
         task=task, frequency="daily", interval=1, time_of_day=time(9, 0)
     )
+    _assert_in_sync(project)
+
+    # Time entry — reached through its task's project (ADR-0185 §6).
+    TimeEntry.objects.create(task=task, user=user, minutes=30)
     _assert_in_sync(project)
 
     # A calendar change bumps every project using it.

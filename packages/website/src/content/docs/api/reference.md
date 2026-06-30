@@ -270,6 +270,30 @@ project — see [Projects](#projects)):
   payload that masquerades as an allowed type is rejected.
 - External-URL attachments must use an `http(s)` scheme.
 
+### Time tracking
+
+Logging time requires **Team Member** role or above on the task's project
+(`can_log_time`); a Viewer who reads a task sees `can_log_time: false`. Every entry
+is owned by the logged-in user — the owner is server-set and cannot be supplied in
+the request body. Each contributor sees only their own hours; there is no
+cross-contributor rollup in the community edition.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v1/tasks/{task_pk}/time-entries/` | Log time against a task (`minutes` 1–1440, optional `entry_date`, `note`); Member+ |
+| GET | `/api/v1/tasks/{task_pk}/time-entries/` | The caller's own entries on the task plus `total_logged_minutes`; Viewer+ (theirs may be empty) |
+| PATCH | `/api/v1/me/time-entries/{id}/` | Edit `minutes` / `entry_date` / `note` — author only (others get `404`) |
+| DELETE | `/api/v1/me/time-entries/{id}/` | Soft-delete an entry — author only |
+| GET | `/api/v1/me/time-entries/?from=&to=` | Weekly cross-project rollup (`results` + `totals.by_day` / `by_cell` / `today_minutes` / `week_minutes`); defaults to the current week |
+| GET | `/api/v1/me/timer/` | The caller's running timer with server-computed `elapsed_seconds` / `stale`, or `{active: false}` |
+| POST | `/api/v1/me/timer/start` | Start a timer (`{task, note?}`); a second start atomically stops and logs the running timer first, returning it as `finalized_entry`; Member+ |
+| POST | `/api/v1/me/timer/stop` | Stop the running timer and log it as a `TimeEntry` (`source: "timer"`); `409` if no timer is running |
+
+A manual `entry_date` cannot be in the future, nor older than the backdate window
+(`TIMETRACKING_BACKDATE_DAYS`, default 60 days). A timer left running past the stale
+ceiling (`TIMETRACKING_TIMER_MAX_MINUTES`, default 600) is flagged `stale: true`, and
+on stop its logged minutes are capped at the ceiling rather than the raw elapsed time.
+
 ### Sprint–milestone binding
 
 | Method | Path | Description |

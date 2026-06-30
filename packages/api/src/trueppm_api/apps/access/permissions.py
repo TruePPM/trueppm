@@ -164,6 +164,33 @@ def can_user_edit_task(request: Request, task: Any, *, method: str = "PATCH") ->
     return False
 
 
+def can_user_log_time(request: Request, task: Any) -> bool:
+    """Authoritative "may this user log time against this task" predicate (ADR-0185 §3).
+
+    The single source of truth for time-log permission — it backs BOTH the
+    ``CanLogTime`` permission class (enforcement) and ``TaskSerializer.can_log_time``
+    (declaration), so the client's gate can never drift from the server's rule.
+
+    Deliberately diverges from ``can_user_edit_task``: logging time records *where my
+    hours went*, so a Team Member may log against **any** task on a project they belong
+    to (a meeting, a colleague's task they helped on) — not only their own assigned
+    tasks. The entry it gates is owned by the logger (``user`` is server-set to
+    ``request.user``), so this is IDOR-safe by construction.
+
+    Rule: ``role >= Role.MEMBER`` on ``task.project``. Viewer (0) is denied; Member (1),
+    Scheduler (2), Admin (3), Owner (4) — and Enterprise custom roles ≥ 100 by the
+    band-threshold contract — may log. Fails closed: no auth / no membership / no
+    resolvable project yields ``False`` (never an exception, never over-permissive).
+    """
+    if not (request.user and request.user.is_authenticated):
+        return False
+    project_id = getattr(task, "project_id", None)
+    if project_id is None:
+        return False
+    role = _membership_role(request, project_id)
+    return role is not None and role >= Role.MEMBER
+
+
 # ---------------------------------------------------------------------------
 # Permission classes
 # ---------------------------------------------------------------------------
@@ -280,6 +307,38 @@ class IsProjectMemberWriteOrOwn(BasePermission):
         # facet, Scheduler-read-only, Member-own-only, and Admin+ branches all
         # live in can_user_edit_task now.
         return can_user_edit_task(request, obj, method=request.method or "PATCH")
+
+
+class CanLogTime(BasePermission):
+    """Gate time-entry writes: role >= MEMBER on the task's project (ADR-0185 §3).
+
+    Object-level by design. ``has_permission`` only verifies authentication; the
+    authoritative role check is ``has_object_permission``, invoked by the view via
+    ``check_object_permissions(task)`` **after** the view has resolved the task against
+    a membership-scoped queryset. Doing the role check in ``has_permission`` would 403 a
+    cross-project task that must instead 404 (the task is resolved member-scoped, so a
+    non-member sees a 404 existence-oracle close, not a 403). A Viewer *is* a member, so
+    their task resolves and this object check then yields the 403.
+
+    Read methods only require membership (a Viewer may read their own, possibly empty,
+    entries); unsafe methods require Member+ via :func:`can_user_log_time`.
+    """
+
+    message = "You need at least Team Member role to log time on this task."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        return bool(request.user and request.user.is_authenticated)
+
+    def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
+        # ``obj`` is the resolved Task (the time entry's subject), or an object with a
+        # ``task`` FK. Resolve to the task either way.
+        task = obj if obj.__class__.__name__ == "Task" else getattr(obj, "task", None)
+        if task is None:
+            return False
+        if request.method in ("GET", "HEAD", "OPTIONS"):
+            project_id = getattr(task, "project_id", None)
+            return project_id is not None and _membership_role(request, project_id) is not None
+        return can_user_log_time(request, task)
 
 
 class IsProjectScheduler(BasePermission):

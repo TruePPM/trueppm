@@ -94,4 +94,5 @@ urlpatterns = [
     path("api/v1/", include("trueppm_api.apps.observability.urls")),
     path("api/v1/", include("trueppm_api.apps.workspace.urls")),
     path("api/v1/", include("trueppm_api.apps.teams.urls")),
+    path("api/v1/", include("trueppm_api.apps.timetracking.urls")),
 ]

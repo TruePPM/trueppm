@@ -69,6 +69,7 @@ LOCAL_APPS = [
     "trueppm_api.apps.workspace",
     "trueppm_api.apps.teams",
     "trueppm_api.apps.profiles",
+    "trueppm_api.apps.timetracking",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -688,6 +689,21 @@ SIGNAL_CEILING_PROPOSAL_TTL_HOURS: int = env.int("SIGNAL_CEILING_PROPOSAL_TTL_HO
 TASK_RUN_RETENTION_DAYS: int | None = env.int(
     "TRUEPPM_TASK_RUN_RETENTION_DAYS", default=env.int("TASK_RUN_RETENTION_DAYS", default=30)
 )
+
+# ---------------------------------------------------------------------------
+# Time tracking (trueppm_api.apps.timetracking, ADR-0185)
+# ---------------------------------------------------------------------------
+
+# Stale-timer ceiling: a running timer that exceeds this many minutes is flagged
+# ``stale`` on GET /me/timer/, and ``stop`` caps the logged minutes at it rather
+# than the raw elapsed (so a timer left running over a weekend logs the ceiling,
+# not thousands of minutes). Default 600 = 10 h.
+TIMETRACKING_TIMER_MAX_MINUTES: int = env.int("TIMETRACKING_TIMER_MAX_MINUTES", default=600)
+
+# Manual-entry backdate window: a manual ``entry_date`` is rejected if it is in the
+# future or older than this many days, so a contributor can fill in last week but
+# not rewrite arbitrary history. Default 60 days.
+TIMETRACKING_BACKDATE_DAYS: int = env.int("TIMETRACKING_BACKDATE_DAYS", default=60)
 
 # ---------------------------------------------------------------------------
 # Outbox retention + Beat liveness (ADR-0081)
