@@ -1,11 +1,12 @@
-# ADR-0026 Implementation Plan: `packages/mobile/` scaffold + Detox E2E
+# ADR-0185: Mobile app scaffold implementation plan (`packages/mobile/` + Detox E2E)
 
-> **This is an implementation addendum to [ADR-0026](./0026-mobile-app-platform-and-e2e.md), not a new ADR.**
-> ADR-0026 is the authoritative platform decision. Where this plan and an issue
-> disagree, **ADR-0026 wins** and the issue is corrected, not the ADR. This
-> document is the concrete scaffold blueprint for issue **#94**
-> (`packages/mobile/` scaffold + Detox E2E, React Native bare), the foundation
-> the 0.4 mobile track builds on.
+> **This ADR records the implementation plan for the mobile platform decision in
+> [ADR-0026](./0026-mobile-app-platform-and-e2e.md).** ADR-0026 is the authoritative
+> platform decision; this ADR is its concrete scaffold blueprint. Where this plan
+> and an issue disagree, **ADR-0026 wins** and the issue is corrected, not this ADR.
+> This document is the scaffold blueprint for issue **#94** (`packages/mobile/`
+> scaffold + Detox E2E, React Native bare), the foundation the 0.4 mobile track
+> builds on.
 
 **Status:** Accepted (scaffold landed for #94 — bare RN app skeleton,
 5-tab navigation spec, design-token parity, and the `mobile:lint` /
