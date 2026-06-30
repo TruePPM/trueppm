@@ -1,7 +1,33 @@
 # ADR-0186: Read-only MCP server — OSS scaffold, read-tool surface, and the token-auth model for 0.4
 
 ## Status
-Proposed
+Accepted
+
+Accepted for 0.4 with the product owner's decision points resolved:
+
+- **Decision point 1 (auth, §E):** confirmed — **#601 is implemented as the
+  *minimal* scope slice** (the `scopes` `ArrayField` with a `legacy:full` backfill,
+  the single new `mcp:read` scope, and the `TokenHasScope` defense-in-depth class).
+  The full scope system (`team_internals:read`, `TeamInternalsOptIn`, the #599 Team
+  entity, the #602 notification) stays deferred to the 0.6 write/internals work.
+- **Decision point 2 (deployment, §H):** confirmed — the **Dockerfile is in scope**
+  for the scaffold; **no Helm / in-cluster deployment in 0.4** (stdio runs the server
+  client-side as a subprocess). A shared multi-user HTTP/SSE endpoint is a separable
+  later follow-up.
+- **Decision point 3 (issue consolidation, §J):** confirmed — **#603 is the
+  umbrella/tracking issue for #503 (scaffold) + #504 (read tools)**; the work is
+  designed once, here, not re-derived under ADR-0077's superseded approach.
+
+**Delivery sequencing.** The 0.4 read-only MCP deliverable lands across three MRs,
+all tracked under the **#603 umbrella**: (1) **#503 — this scaffold** (`packages/mcp/`
+FastMCP package, project-API-token bearer auth, stdio + HTTP/SSE transports,
+Dockerfile, `mcp:lint`/`mcp:typecheck`/`mcp:test` CI jobs, empty tool list); then
+(2) **#601 — the minimal token-scope slice** (`ApiToken.scopes` + `legacy:full`
+backfill + `mcp:read` + `TokenHasScope` + write-endpoint rejection), which also wires
+`ProjectApiTokenAuthentication` onto the read viewsets the MCP wraps; then (3) **#504
+— the ~13 read tools** plus the additive `ProjectSerializer.my_role` field (F). The
+scaffold's auth machinery is mock-tested in isolation because end-to-end project-token
+auth on the read endpoints is wired by MR (2).
 
 Supersedes the 0.4-relevant parts of **ADR-0077** (MCP server scope, edition
 boundary, token-scope model). ADR-0077 §A (OSS edition) and §F (health bands
