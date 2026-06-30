@@ -95,4 +95,7 @@ urlpatterns = [
     path("api/v1/", include("trueppm_api.apps.workspace.urls")),
     path("api/v1/", include("trueppm_api.apps.teams.urls")),
     path("api/v1/", include("trueppm_api.apps.timetracking.urls")),
+    # Basic SSO — OIDC relying party (ADR-0187). Flow endpoints under
+    # auth/oidc/*, admin config under workspace/sso/*.
+    path("api/v1/", include("trueppm_api.apps.sso.urls")),
 ]

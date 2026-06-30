@@ -25,6 +25,7 @@ import ipaddress
 import json
 import socket
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from typing import Any
@@ -240,6 +241,60 @@ def get(
         raise EgressTimeout(f"request to {url!r} timed out after {timeout}s") from exc
     except urllib.error.URLError as exc:
         # URLError wraps socket.timeout on some platforms.
+        if isinstance(exc.reason, (TimeoutError, socket.timeout)):
+            raise EgressTimeout(f"request to {url!r} timed out after {timeout}s") from exc
+        raise EgressError(f"request to {url!r} failed: {exc.reason}") from exc
+    except OSError as exc:
+        raise EgressError(f"request to {url!r} failed: {exc}") from exc
+
+
+def post_form(
+    url: str,
+    *,
+    data: dict[str, str],
+    headers: dict[str, str] | None = None,
+    timeout: float = DEFAULT_TIMEOUT,
+) -> EgressResponse:
+    """Perform an SSRF-guarded, redirect-disabled, time-bounded form POST.
+
+    Same egress policy as :func:`get` — the URL is validated by
+    :func:`assert_url_allowed` before any socket is opened, redirects are
+    disabled (a 3xx can't bounce the request to an internal host), the response
+    body is capped, and non-2xx responses are returned (not raised) so callers
+    can read an OAuth error body. ``data`` is ``application/x-www-form-urlencoded``
+    encoded — the OAuth 2.0 token endpoint shape (ADR-0187 SSO token exchange).
+
+    Raises:
+        EgressBlocked: The URL failed the SSRF guard.
+        EgressTimeout: The request exceeded ``timeout``.
+        EgressError: DNS / connection / socket failure.
+    """
+    assert_url_allowed(url)
+    body = urllib.parse.urlencode(data).encode("ascii")
+    request_headers = {
+        "User-Agent": _USER_AGENT,
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Accept": "application/json",
+        **(headers or {}),
+    }
+    req = urllib.request.Request(url, data=body, headers=request_headers, method="POST")
+    try:
+        # URL is SSRF-validated by assert_url_allowed above; redirects are
+        # disabled via the _NoRedirect opener so a 3xx can't escape the guard.
+        with _opener.open(req, timeout=timeout) as resp:  # nosec B310
+            resp_body = resp.read(_MAX_BODY_BYTES)
+            resp_headers = {k.lower(): v for k, v in resp.headers.items()}
+            return EgressResponse(status=resp.status, body=resp_body, headers=resp_headers)
+    except urllib.error.HTTPError as exc:
+        try:
+            resp_body = exc.read(_MAX_BODY_BYTES)
+        except (AttributeError, OSError, ValueError):
+            resp_body = b""
+        resp_headers = {k.lower(): v for k, v in (exc.headers or {}).items()}
+        return EgressResponse(status=exc.code, body=resp_body, headers=resp_headers)
+    except TimeoutError as exc:
+        raise EgressTimeout(f"request to {url!r} timed out after {timeout}s") from exc
+    except urllib.error.URLError as exc:
         if isinstance(exc.reason, (TimeoutError, socket.timeout)):
             raise EgressTimeout(f"request to {url!r} timed out after {timeout}s") from exc
         raise EgressError(f"request to {url!r} failed: {exc.reason}") from exc
