@@ -17,6 +17,7 @@ import { isTaskScheduled } from '@/lib/task';
 import { PendingAcceptanceChip } from './PendingAcceptanceChip';
 import { ReadinessChip } from './ReadinessChip';
 import { TypeBadge } from '@/features/project/backlog/components/TypeBadge';
+import { classifyCardSignal, cardSignalToneClass } from './cardSignal';
 
 export type BoardDensity = 'compact' | 'comfortable' | 'detailed';
 
@@ -37,7 +38,7 @@ export interface BoardCardScopeActions {
   onReject: (task: Task) => void;
 }
 
-/** Which EVM performance indicators to show on cards (issue #185). */
+/** Which EVM performance indicators to show on cards (issue 185). */
 export type EvmMode = 'spi' | 'cpi' | 'both' | 'off';
 
 interface BoardCardProps {
@@ -52,22 +53,22 @@ interface BoardCardProps {
    * Source: useBoardOverallocation. Optional; absent on the drag overlay.
    */
   overallocByResource?: Map<string, number>;
-  /** True when this card is the keyboard-focused card (issue #195). */
+  /** True when this card is the keyboard-focused card (issue 195). */
   isKeyboardFocused?: boolean;
-  /** True when card should dim because it's not in the active dep highlight set (issue #182). */
+  /** True when card should dim because it's not in the active dep highlight set (issue 182). */
   isDimmed?: boolean;
-  /** Click handlers for chain / risk icons (issue #182, #188). */
+  /** Click handlers for chain / risk icons (issue 182, issue 188). */
   onShowDeps?: () => void;
   onShowRisks?: () => void;
   /** Hover handlers for chain icon — drives board-level "dim non-connected" state. */
   onChainHoverEnter?: () => void;
   onChainHoverLeave?: () => void;
-  /** Which EVM indicators to show (issue #185). Default 'off'. */
+  /** Which EVM indicators to show (issue 185). Default 'off'. */
   showEvm?: EvmMode;
-  /** When true, show budget/cost chips when task has cost data (issue #189). */
+  /** When true, show budget/cost chips when task has cost data (issue 189). */
   showCost?: boolean;
   /**
-   * Card click handler (issue #304). Fires on the root only when no child
+   * Card click handler (issue 304). Fires on the root only when no child
    * (chain icon, risk icon, ··· menu) intercepts via `stopPropagation`. Mouse,
    * keyboard (Enter/Space), and touch tap all flow through here. The anchor
    * element is the card root — used by `BoardView` to position the popover.
@@ -79,7 +80,7 @@ interface BoardCardProps {
    *  the overflow menu. */
   scopeActions?: BoardCardScopeActions;
   /**
-   * Closed-sprint read-only (#1141). When true, drag-to-assign is disabled:
+   * Closed-sprint read-only (issue 1141). When true, drag-to-assign is disabled:
    * `useDraggable` is disabled (no listeners) and the cursor is default — but
    * click-to-open and scroll still work, because reading a closed sprint's board
    * is the use case. The card is NOT marked `aria-disabled` (it stays a usable
@@ -100,14 +101,14 @@ function initials(name: string): string {
 
 /**
  * Format an entry-stamp line and compute dwell time.
- * Returns daysAgo for use by the SLA aging indicator (issue #192).
+ * Returns daysAgo for use by the SLA aging indicator (issue 192).
  */
 function entryStamp(task: Task): { text: string; isStalled: boolean; daysAgo: number | null } {
   if (!task.statusEnteredAt) {
     return { text: '', isStalled: false, daysAgo: null };
   }
 
-  // dwell + the stalled verdict are server-owned (#992, ADR-0115): the API returns
+  // dwell + the stalled verdict are server-owned (issue 992, ADR-0115): the API returns
   // dwell_days (the raw fact) and is_stalled (the verdict). Fall back to a client
   // derivation only for tasks not carrying the server fields yet (legacy fixtures /
   // optimistic rows) so the stamp never blanks mid-migration.
@@ -137,10 +138,10 @@ function fmtCurrency(value: number): string {
   return `$${Math.round(value)}`;
 }
 
-// Left accent bar color per readiness state (issue #179).
+// Left accent bar color per readiness state (issue 179).
 // CP (critical) overrides all; at-risk overrides estimated/ready/baselined.
 // `showCriticalState` gates the red CP override so backlog/uncommitted tasks
-// don't display scheduled-state styling (issue #332).
+// don't display scheduled-state styling (issue 332).
 function accentBarClass(task: Task, showCriticalState: boolean): string {
   if (showCriticalState) return 'bg-semantic-critical';
   const r = task.readiness ?? 'estimated';
@@ -154,7 +155,7 @@ function accentBarClass(task: Task, showCriticalState: boolean): string {
   }
 }
 
-/** Tooltip text for a critical-path task (issue #181 / WCAG 1.4.1). */
+/** Tooltip text for a critical-path task (issue 181 / WCAG 1.4.1). */
 function cpTooltip(_task: Task): string {
   return 'On critical path — any delay here will delay the project end date';
 }
@@ -197,7 +198,7 @@ export function BoardCard({
   readOnly = false,
 }: BoardCardProps) {
   const itl = useIterationLabel();
-  // A closed-sprint board disables drag-to-assign (#1141): dnd-kit returns empty
+  // A closed-sprint board disables drag-to-assign (issue 1141): dnd-kit returns empty
   // listeners/attributes when disabled, so the card keeps click-to-open + scroll
   // but can never be dragged into the closed sprint's scope.
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
@@ -207,8 +208,13 @@ export function BoardCard({
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
+  // Worst-offender peek (issue 1305): on touch (no hover) the primary badge toggles
+  // the full chip set open; `peekOpen` keeps it open after blur/un-hover. Desktop
+  // hover/focus reveal it without this flag via group-hover / group-focus-within.
+  const [peekOpen, setPeekOpen] = useState(false);
+  const signalBadgeRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  // #838: roving-focus keyboard nav for the overflow menu + submenu.
+  // issue 838: roving-focus keyboard nav for the overflow menu + submenu.
   const menuPanelRef = useRef<HTMLDivElement>(null);
   const menuTriggerRef = useRef<HTMLButtonElement>(null);
 
@@ -223,7 +229,7 @@ export function BoardCard({
 
   // Arrow/Home/End/Escape navigation across the menu's visible menuitems
   // (including submenu items once Move-to is expanded). Escape closes and
-  // restores focus to the ··· trigger (WCAG 2.1.1 menu pattern, #838).
+  // restores focus to the ··· trigger (WCAG 2.1.1 menu pattern, issue 838).
   const onMenuKeyDown = useCallback((e: ReactKeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Escape') {
       e.stopPropagation();
@@ -279,6 +285,20 @@ export function BoardCard({
     return () => document.removeEventListener('pointerdown', handleClick);
   }, [menuOpen]);
 
+  // Escape collapses a tap-opened worst-offender peek and returns focus to its
+  // badge (issue 1305) — matching the menu's Escape pattern above.
+  useEffect(() => {
+    if (!peekOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setPeekOpen(false);
+        signalBadgeRef.current?.focus();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [peekOpen]);
+
   const otherColumns = columns.filter((c) => c.status !== task.status);
   const { text: stampText, isStalled: derivedStalled, daysAgo } = entryStamp(task);
   const isStalled = isOverrideStalled ?? derivedStalled;
@@ -288,7 +308,7 @@ export function BoardCard({
   // measures actual delivered work against plan, not status.
   const effectiveProgress = task.status === 'COMPLETE' ? 100 : task.progress;
 
-  // Aging / dwell-time indicator (issue #192)
+  // Aging / dwell-time indicator (issue 192)
   const slaDays = columns.find((c) => c.status === task.status)?.slaDays;
   const isAging = daysAgo !== null && slaDays !== undefined && daysAgo > slaDays;
   const isPastTwiceSla = isAging && daysAgo > 2 * slaDays;
@@ -299,7 +319,7 @@ export function BoardCard({
   // CPM marks every dated task with isCritical/totalFloat, including backlog
   // ideas the PM hasn't committed to. Suppress the red CP signal and float
   // chip until the task is scheduled (plannedStart set or in a sprint) — see
-  // issue #332. The CPM data is still passed through unchanged; only the
+  // issue 332. The CPM data is still passed through unchanged; only the
   // display gates on commitment.
   const isScheduled = isTaskScheduled(task);
 
@@ -311,10 +331,10 @@ export function BoardCard({
   const isPending = task.sprintPending === true;
   const showCriticalState = task.isCritical && isScheduled && !isPending;
 
-  // EVM indicators (issue #185): SPI + its band are server-owned (#990 / API-first
-  // #986) — the card renders them, it no longer re-derives earned%/planned% from
+  // EVM indicators (issue 185): SPI + its band are server-owned (issue 990 / API-first
+  // issue 986) — the card renders them, it no longer re-derives earned%/planned% from
   // baseline dates in the browser. CPI stays sourced from the (currently unpopulated)
-  // cost field until the cost model ships (#73).
+  // cost field until the cost model ships (issue 73).
   const spi = task.spi ?? null;
   const spiBand = task.spiBand ?? null;
   const cpi = task.cpi ?? null;
@@ -323,7 +343,7 @@ export function BoardCard({
   const showCpiChip =
     !isCompact && showEvm !== 'off' && (showEvm === 'cpi' || showEvm === 'both') && cpi !== null;
 
-  // Cost chip (issue #189): shown when toggle is on and task has BAC data.
+  // Cost chip (issue 189): shown when toggle is on and task has BAC data.
   const hasCostData = task.budgetAtCompletion != null;
   const showCostChip = showCost && !isCompact && hasCostData;
 
@@ -336,6 +356,37 @@ export function BoardCard({
   const showChain = predecessorCount > 0;
   const showRisk =
     linkedRisksCount > 0 && linkedRisksMaxSeverity !== null && linkedRisksMaxSeverity > 0;
+
+  // Float data feeds both the worst-offender classifier (issue 1305) and the inline
+  // float chip, so it's derived here before any render branch. CP tasks have 0d
+  // float by definition; otherwise show totalFloat when set. Suppressed on
+  // unscheduled tasks — CPM produces float for every dated task, including
+  // backlog ideas (issue 332) — so the classifier reads null, not garbage.
+  const hasFloatData =
+    isScheduled && (task.isCritical || (task.totalFloat !== undefined && task.totalFloat !== null));
+  const floatDays = task.isCritical ? 0 : (task.totalFloat as number);
+
+  // Worst-offender signal (issue 1305, ADR-0191 §4): the single highest-severity
+  // health signal, shown as one primary badge so the card stays calm. The full
+  // chip set stays reachable in the comfortable peek and fully inline at detailed
+  // density (expandable, never lossy). EVM tiers feed in only when the board's
+  // EVM toggle is on, so the badge never contradicts a hidden chip.
+  const evmShowsSpi = showEvm === 'spi' || showEvm === 'both';
+  const evmShowsCpi = showEvm === 'cpi' || showEvm === 'both';
+  const cardSignal = classifyCardSignal({
+    isBlocked,
+    predecessorCount,
+    isAging,
+    isStalled,
+    isPastTwiceSla,
+    daysAgo,
+    showCriticalState,
+    floatDays: hasFloatData ? floatDays : null,
+    spiBand: evmShowsSpi ? spiBand : null,
+    cpi: evmShowsCpi ? cpi : null,
+  });
+  // Stable id so the badge's aria-controls points at its disclosure peek.
+  const peekId = `card-peek-${task.id}`;
 
   const signalIcons =
     showChain || showRisk ? (
@@ -528,7 +579,7 @@ export function BoardCard({
     ) : null;
 
   // Shared card container class. A read-only (closed-sprint) card drops the
-  // grab cursor — it's still clickable to open detail, just not draggable (#1141).
+  // grab cursor — it's still clickable to open detail, just not draggable (issue 1141).
   const containerClass = [
     'bg-neutral-surface border rounded-card relative group',
     readOnly ? 'cursor-default' : 'cursor-grab active:cursor-grabbing',
@@ -582,7 +633,7 @@ export function BoardCard({
     );
   }
 
-  // Compact density — title + CP chip + progress strip, ~36px (issue #193)
+  // Compact density — title + CP chip + progress strip, ~36px (issue 193)
   if (isCompact) {
     const progressColor = showCriticalState
       ? 'bg-semantic-critical'
@@ -625,12 +676,21 @@ export function BoardCard({
             {task.name}
           </span>
           {isPending && <PendingAcceptanceChip compact className="shrink-0" />}
-          {showCriticalState && (
+          {/* Worst-offender badge (issue 1305) — at compact density it is display-only
+              (no peek): one glyph + label conveying the single highest-severity
+              signal. It subsumes the old CP chip (critical path is one of its
+              tiers), so the red accent bar + name color still mark a CP card even
+              when a higher signal (blocked/stale) wins the badge. */}
+          {cardSignal && (
             <span
-              className="shrink-0 inline-block px-1 py-px rounded-chip text-xs text-white bg-semantic-critical font-bold"
-              aria-hidden="true"
+              className={`shrink-0 inline-flex items-center gap-0.5 px-1 py-px rounded-chip text-xs border font-medium ${cardSignalToneClass(
+                cardSignal.tone,
+              )}`}
+              title={cardSignal.srText}
+              aria-label={cardSignal.srText}
             >
-              CP
+              <span aria-hidden="true">{cardSignal.glyph}</span>
+              <span>{cardSignal.label}</span>
             </span>
           )}
         </div>
@@ -653,15 +713,7 @@ export function BoardCard({
   const visibleAssignees = isDetailed ? task.assignees : task.assignees.slice(0, 3);
   const hiddenCount = isDetailed ? 0 : Math.max(0, task.assignees.length - 3);
 
-  // Float chip (issue #183): CP tasks have 0d float by definition; non-CP shows totalFloat when set.
-  // Suppressed entirely on unscheduled tasks — CPM produces float for every dated task,
-  // including backlog ideas, so reading totalFloat without an isScheduled gate is the bug
-  // behind issue #332.
-  const hasFloatData =
-    isScheduled && (task.isCritical || (task.totalFloat !== undefined && task.totalFloat !== null));
-  const floatDays = task.isCritical ? 0 : (task.totalFloat as number);
-
-  // Baseline variance hover panel (issue #186): calendar days between forecast finish and baseline.
+  // Baseline variance hover panel (issue 186): calendar days between forecast finish and baseline.
   // Positive = late. Shown only when baselineFinish is present.
   const baselineVarianceDays: number | null = task.baselineFinish
     ? Math.round(
@@ -695,14 +747,14 @@ export function BoardCard({
 
       {/* Card content — left-padded to clear the accent bar */}
       <div className="pl-2.5 pr-2.5 pt-2.5 pb-2.5">
-        {/* Readiness chip — top-left (issue #179) */}
+        {/* Readiness chip — top-left (issue 179) */}
         {task.readiness && (
           <div className="mb-1.5">
             <ReadinessChip readiness={task.readiness} />
           </div>
         )}
 
-        {/* Tech-debt badge (ADR-0178, #1076) — debt is the one type surfaced on
+        {/* Tech-debt badge (ADR-0178, issue 1076) — debt is the one type surfaced on
             the card face so a team can see remediation work at a glance; other
             types stay unbadged to keep the board calm. Neutral pill, word carries
             the meaning (rule 12). */}
@@ -746,17 +798,45 @@ export function BoardCard({
           </span>
         </div>
 
-        {/* Badge row — CP, pending-acceptance chip, assignee initials */}
-        {(showCriticalState || isPending || task.assignees.length > 0 || isIdea) && (
+        {/* Badge row — worst-offender badge (or CP at detailed), pending chip, assignees */}
+        {((cardSignal && !isDetailed) ||
+          showCriticalState ||
+          isPending ||
+          task.assignees.length > 0 ||
+          isIdea) && (
           <div className="flex items-center gap-1 mt-1.5 flex-wrap">
             {isPending && <PendingAcceptanceChip />}
-            {showCriticalState && (
-              <span
-                className="inline-block px-1 py-px rounded-chip text-xs text-white bg-semantic-critical font-bold"
-                aria-hidden="true"
+            {/* Comfortable: one interactive worst-offender badge that toggles the
+                health-chip peek (issue 1305). Detailed: keep the CP chip inline since
+                the full chip set is already shown below — no badge, no peek. */}
+            {!isDetailed && cardSignal ? (
+              <button
+                ref={signalBadgeRef}
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setPeekOpen((v) => !v);
+                }}
+                aria-expanded={peekOpen}
+                aria-controls={peekId}
+                aria-label={`${cardSignal.srText}. Show health details.`}
+                className={`relative inline-flex items-center gap-0.5 px-1.5 py-px rounded-chip text-xs border font-medium
+                  before:absolute before:inset-[-12px] before:content-['']
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+                  ${cardSignalToneClass(cardSignal.tone)}`}
               >
-                CP
-              </span>
+                <span aria-hidden="true">{cardSignal.glyph}</span>
+                <span>{cardSignal.label}</span>
+              </button>
+            ) : (
+              showCriticalState && (
+                <span
+                  className="inline-block px-1 py-px rounded-chip text-xs text-white bg-semantic-critical font-bold"
+                  aria-hidden="true"
+                >
+                  CP
+                </span>
+              )
             )}
             {isIdea ? (
               <span
@@ -837,111 +917,124 @@ export function BoardCard({
           </div>
         )}
 
-        {/* Aging / dwell-time indicator (issue #192): shown when dwell > column SLA. */}
-        {isAging && (
-          <div
-            className={[
-              'mt-1 inline-flex items-center gap-0.5 text-xs px-1 py-px rounded-chip border',
-              isPastTwiceSla
-                ? 'bg-semantic-critical-bg border-semantic-critical/30 text-semantic-critical'
-                : 'bg-brand-accent/10 border-brand-accent/30 text-brand-accent-dark',
-            ].join(' ')}
-            title={`${daysAgo}d in column — SLA: ${slaDays}d`}
-            aria-label={`${daysAgo} days in this column, exceeds ${slaDays}-day SLA`}
-          >
-            <span aria-hidden="true">⏱</span>
-            <span className="tppm-mono">{daysAgo}d</span>
-          </div>
-        )}
+        {/* Health-chip peek (issue 1305). Detailed density shows the full chip set
+            inline (no badge). Comfortable density collapses it behind the
+            worst-offender badge. `group-hover:block` is a pointer-only
+            convenience; keyboard and touch reveal flow through `peekOpen` so
+            `aria-expanded` always matches what is visible and the collapse is
+            never inert (no `group-focus-within` — that would desync the
+            announced state). Keyboard + SR reachable, never lossy. */}
+        <div
+          id={peekId}
+          role={isDetailed ? undefined : 'group'}
+          aria-label={isDetailed ? undefined : 'Card health details'}
+          className={isDetailed ? '' : peekOpen ? 'block' : 'hidden group-hover:block'}
+        >
+          {/* Aging / dwell-time indicator (issue 192): shown when dwell > column SLA. */}
+          {isAging && (
+            <div
+              className={[
+                'mt-1 inline-flex items-center gap-0.5 text-xs px-1 py-px rounded-chip border',
+                isPastTwiceSla
+                  ? 'bg-semantic-critical-bg border-semantic-critical/30 text-semantic-critical'
+                  : 'bg-brand-accent/10 border-brand-accent/30 text-brand-accent-dark',
+              ].join(' ')}
+              title={`${daysAgo}d in column — SLA: ${slaDays}d`}
+              aria-label={`${daysAgo} days in this column, exceeds ${slaDays}-day SLA`}
+            >
+              <span aria-hidden="true">⏱</span>
+              <span className="tppm-mono">{daysAgo}d</span>
+            </div>
+          )}
 
-        {/* Float chip — comfortable + detailed, when CPM data is present (issue #183).
+          {/* Float chip — comfortable + detailed, when CPM data is present (issue 183).
             CP tasks always show "0d float" (red); non-CP shows totalFloat when defined. */}
-        {!isCompact && hasFloatData && (
-          <div className="mt-1">
-            <span
-              className={[
-                'inline-flex items-center gap-0.5 text-xs px-1 py-px rounded-chip border',
-                floatDays <= 0
-                  ? 'bg-semantic-critical-bg border-semantic-critical/30 text-semantic-critical'
-                  : floatDays < 3
-                    ? 'bg-brand-accent/10 border-brand-accent/30 text-brand-accent-dark'
-                    : 'bg-semantic-on-track-bg border-semantic-on-track/30 text-semantic-on-track',
-              ].join(' ')}
-            >
-              {floatDays < 0 && <span aria-hidden="true">⚠</span>}
-              <span className="tppm-mono">{floatDays}d float</span>
-            </span>
-          </div>
-        )}
-
-        {/* SPI chip — comfortable + detailed, when showEvm includes 'spi' (issue #185 / #990).
-            SPI value + band are server-owned: on_track = green, at_risk = amber, behind = red. */}
-        {showSpiChip && spi !== null && (
-          <div className="mt-1">
-            <span
-              className={[
-                'inline-flex items-center gap-0.5 text-xs px-1 py-px rounded-chip border',
-                spiBand === 'on_track'
-                  ? 'bg-semantic-on-track-bg border-semantic-on-track/30 text-semantic-on-track'
-                  : spiBand === 'at_risk'
-                    ? 'bg-brand-accent/10 border-brand-accent/30 text-brand-accent-dark'
-                    : 'bg-semantic-critical-bg border-semantic-critical/30 text-semantic-critical',
-              ].join(' ')}
-              title={`Schedule Performance Index: ${spi.toFixed(2)}`}
-              aria-label={`SPI ${spi.toFixed(2)} — ${spiBand === 'on_track' ? 'on track' : spiBand === 'at_risk' ? 'at risk' : 'behind schedule'}`}
-            >
-              <span className="tppm-mono">SPI {spi.toFixed(2)}</span>
-            </span>
-          </div>
-        )}
-
-        {/* CPI chip — comfortable + detailed, when showEvm includes 'cpi' and task.cpi is set (issue #185). */}
-        {showCpiChip && cpi !== null && (
-          <div className="mt-1">
-            <span
-              className={[
-                'inline-flex items-center gap-0.5 text-xs px-1 py-px rounded-chip border',
-                cpi >= 0.95
-                  ? 'bg-semantic-on-track-bg border-semantic-on-track/30 text-semantic-on-track'
-                  : cpi >= 0.85
-                    ? 'bg-brand-accent/10 border-brand-accent/30 text-brand-accent-dark'
-                    : 'bg-semantic-critical-bg border-semantic-critical/30 text-semantic-critical',
-              ].join(' ')}
-              title={`Cost Performance Index: ${cpi.toFixed(2)}`}
-              aria-label={`CPI ${cpi.toFixed(2)} — ${cpi >= 0.95 ? 'on budget' : cpi >= 0.85 ? 'over budget' : 'significantly over budget'}`}
-            >
-              <span className="tppm-mono">CPI {cpi.toFixed(2)}</span>
-            </span>
-          </div>
-        )}
-
-        {/* Cost chip — when showCost toggle is on and task has cost data (issue #189). */}
-        {showCostChip && task.budgetAtCompletion != null && (
-          <div className="mt-1">
-            <span
-              className={[
-                'inline-flex items-center gap-0.5 text-xs px-1 py-px rounded-chip border',
-                task.actualCost != null && task.actualCost > task.budgetAtCompletion
-                  ? 'bg-semantic-critical-bg border-semantic-critical/30 text-semantic-critical'
-                  : 'bg-neutral-surface-sunken border-neutral-border text-neutral-text-secondary',
-              ].join(' ')}
-              title={`Actual cost ${task.actualCost != null ? fmtCurrency(task.actualCost) : '—'} of ${fmtCurrency(task.budgetAtCompletion)}`}
-              aria-label={`Cost: ${task.actualCost != null ? fmtCurrency(task.actualCost) : 'no actuals'} of ${fmtCurrency(task.budgetAtCompletion)} budget`}
-            >
-              <span className="tppm-mono">
-                {task.actualCost != null ? fmtCurrency(task.actualCost) : '—'}
-                {' / '}
-                {fmtCurrency(task.budgetAtCompletion)}
+          {!isCompact && hasFloatData && (
+            <div className="mt-1">
+              <span
+                className={[
+                  'inline-flex items-center gap-0.5 text-xs px-1 py-px rounded-chip border',
+                  floatDays <= 0
+                    ? 'bg-semantic-critical-bg border-semantic-critical/30 text-semantic-critical'
+                    : floatDays < 3
+                      ? 'bg-brand-accent/10 border-brand-accent/30 text-brand-accent-dark'
+                      : 'bg-semantic-on-track-bg border-semantic-on-track/30 text-semantic-on-track',
+                ].join(' ')}
+              >
+                {floatDays < 0 && <span aria-hidden="true">⚠</span>}
+                <span className="tppm-mono">{floatDays}d float</span>
               </span>
-            </span>
-          </div>
-        )}
+            </div>
+          )}
 
-        {/* Baseline vs. forecast date variance — hover/focus panel (issue #186).
-            Hidden by default; revealed on group-hover or group-focus-within. */}
+          {/* SPI chip — comfortable + detailed, when showEvm includes 'spi' (issue 185 / issue 990).
+            SPI value + band are server-owned: on_track = green, at_risk = amber, behind = red. */}
+          {showSpiChip && spi !== null && (
+            <div className="mt-1">
+              <span
+                className={[
+                  'inline-flex items-center gap-0.5 text-xs px-1 py-px rounded-chip border',
+                  spiBand === 'on_track'
+                    ? 'bg-semantic-on-track-bg border-semantic-on-track/30 text-semantic-on-track'
+                    : spiBand === 'at_risk'
+                      ? 'bg-brand-accent/10 border-brand-accent/30 text-brand-accent-dark'
+                      : 'bg-semantic-critical-bg border-semantic-critical/30 text-semantic-critical',
+                ].join(' ')}
+                title={`Schedule Performance Index: ${spi.toFixed(2)}`}
+                aria-label={`SPI ${spi.toFixed(2)} — ${spiBand === 'on_track' ? 'on track' : spiBand === 'at_risk' ? 'at risk' : 'behind schedule'}`}
+              >
+                <span className="tppm-mono">SPI {spi.toFixed(2)}</span>
+              </span>
+            </div>
+          )}
+
+          {/* CPI chip — comfortable + detailed, when showEvm includes 'cpi' and task.cpi is set (issue 185). */}
+          {showCpiChip && cpi !== null && (
+            <div className="mt-1">
+              <span
+                className={[
+                  'inline-flex items-center gap-0.5 text-xs px-1 py-px rounded-chip border',
+                  cpi >= 0.95
+                    ? 'bg-semantic-on-track-bg border-semantic-on-track/30 text-semantic-on-track'
+                    : cpi >= 0.85
+                      ? 'bg-brand-accent/10 border-brand-accent/30 text-brand-accent-dark'
+                      : 'bg-semantic-critical-bg border-semantic-critical/30 text-semantic-critical',
+                ].join(' ')}
+                title={`Cost Performance Index: ${cpi.toFixed(2)}`}
+                aria-label={`CPI ${cpi.toFixed(2)} — ${cpi >= 0.95 ? 'on budget' : cpi >= 0.85 ? 'over budget' : 'significantly over budget'}`}
+              >
+                <span className="tppm-mono">CPI {cpi.toFixed(2)}</span>
+              </span>
+            </div>
+          )}
+
+          {/* Cost chip — when showCost toggle is on and task has cost data (issue 189). */}
+          {showCostChip && task.budgetAtCompletion != null && (
+            <div className="mt-1">
+              <span
+                className={[
+                  'inline-flex items-center gap-0.5 text-xs px-1 py-px rounded-chip border',
+                  task.actualCost != null && task.actualCost > task.budgetAtCompletion
+                    ? 'bg-semantic-critical-bg border-semantic-critical/30 text-semantic-critical'
+                    : 'bg-neutral-surface-sunken border-neutral-border text-neutral-text-secondary',
+                ].join(' ')}
+                title={`Actual cost ${task.actualCost != null ? fmtCurrency(task.actualCost) : '—'} of ${fmtCurrency(task.budgetAtCompletion)}`}
+                aria-label={`Cost: ${task.actualCost != null ? fmtCurrency(task.actualCost) : 'no actuals'} of ${fmtCurrency(task.budgetAtCompletion)} budget`}
+              >
+                <span className="tppm-mono">
+                  {task.actualCost != null ? fmtCurrency(task.actualCost) : '—'}
+                  {' / '}
+                  {fmtCurrency(task.budgetAtCompletion)}
+                </span>
+              </span>
+            </div>
+          )}
+        {/* Baseline vs. forecast date variance (issue 186), folded into the
+            issue 1305 peek so the badge's aria-controls covers everything it reveals;
+            the panel inherits the peek's collapsed/revealed visibility. */}
         {baselineVarianceDays !== null && (
           <div
-            className="hidden group-hover:block group-focus-within:block mt-1.5 pt-1 border-t border-neutral-border/30"
+            className="mt-1.5 pt-1 border-t border-neutral-border/30"
             aria-label={`Baseline variance: ${baselineVarianceDays > 0 ? '+' : ''}${baselineVarianceDays}d`}
           >
             <div className="flex items-center gap-1.5 flex-wrap text-xs">
@@ -970,6 +1063,8 @@ export function BoardCard({
             </div>
           </div>
         )}
+        </div>
+        {/* end health-chip peek (issue 1305) */}
 
         {/* 100%-complete nudge */}
         {showNudge && (

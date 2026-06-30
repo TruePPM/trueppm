@@ -13,11 +13,11 @@ import type { Task, TaskStatus } from '@/types';
 
 // 5-column model (issue #178). SLA defaults match useBoardConfig (issue #192).
 const COLUMNS: { status: TaskStatus; label: string; slaDays?: number }[] = [
-  { status: 'BACKLOG',     label: 'BACKLOG',     slaDays: 14 },
-  { status: 'NOT_STARTED', label: 'TO DO',       slaDays: 7  },
+  { status: 'BACKLOG', label: 'BACKLOG', slaDays: 14 },
+  { status: 'NOT_STARTED', label: 'TO DO', slaDays: 7 },
   { status: 'IN_PROGRESS', label: 'IN PROGRESS', slaDays: 10 },
-  { status: 'REVIEW',      label: 'REVIEW',      slaDays: 4  },
-  { status: 'COMPLETE',    label: 'DONE' },
+  { status: 'REVIEW', label: 'REVIEW', slaDays: 4 },
+  { status: 'COMPLETE', label: 'DONE' },
 ];
 
 const baseTask: Task = {
@@ -95,9 +95,11 @@ describe('BoardCard', () => {
     expect(screen.queryByText(/^#\d+$/)).not.toBeInTheDocument();
   });
 
-  it('renders the CP rpill for critical tasks', () => {
+  it('renders the worst-offender Critical path badge for critical tasks (#1305)', () => {
+    // At comfortable density the standalone CP chip is consolidated into the
+    // worst-offender badge; critical path is its label when no higher signal wins.
     renderCard({ task: { ...baseTask, isCritical: true } });
-    expect(screen.getByText('CP')).toBeInTheDocument();
+    expect(screen.getByText('Critical path')).toBeInTheDocument();
   });
 
   it('renders up to 3 assignee initials and a +N overflow chip', () => {
@@ -177,14 +179,18 @@ describe('BoardCard', () => {
     // Clock says 1 day in-column, but the server reports the task as stalled — the
     // card renders the server verdict, not a re-derivation of the policy.
     const enteredAt = new Date('2026-01-14T12:00:00Z').toISOString();
-    renderCard({ task: { ...baseTask, statusEnteredAt: enteredAt, isStalled: true, dwellDays: 1 } });
+    renderCard({
+      task: { ...baseTask, statusEnteredAt: enteredAt, isStalled: true, dwellDays: 1 },
+    });
     expect(screen.getByText(/— stalled/)).toBeInTheDocument();
   });
 
   it('uses the server dwell_days for the entry-stamp age label (#992)', () => {
     // Clock delta is 1 day, but the server dwell fact is 9 days — the label reads 9d.
     const enteredAt = new Date('2026-01-14T12:00:00Z').toISOString();
-    renderCard({ task: { ...baseTask, statusEnteredAt: enteredAt, isStalled: false, dwellDays: 9 } });
+    renderCard({
+      task: { ...baseTask, statusEnteredAt: enteredAt, isStalled: false, dwellDays: 9 },
+    });
     expect(screen.getByText(/· 9d ago/)).toBeInTheDocument();
   });
 
@@ -297,10 +303,10 @@ describe('BoardCard', () => {
   // Card density (issue #193)
   // ---------------------------------------------------------------------------
 
-  it('compact: renders task name and CP chip for critical task', () => {
+  it('compact: renders task name and worst-offender badge for critical task (#1305)', () => {
     renderCard({ task: { ...baseTask, isCritical: true }, density: 'compact' });
     expect(screen.getByText('Backend Implementation')).toBeInTheDocument();
-    expect(screen.getByText('CP')).toBeInTheDocument();
+    expect(screen.getByText('Critical path')).toBeInTheDocument();
   });
 
   it('compact: progress strip uses semantic-on-track for 100%-complete non-critical task', () => {
@@ -315,7 +321,10 @@ describe('BoardCard', () => {
   });
 
   it('compact: progress strip uses semantic-critical for critical task', () => {
-    const { container } = renderCard({ task: { ...baseTask, isCritical: true, progress: 40 }, density: 'compact' });
+    const { container } = renderCard({
+      task: { ...baseTask, isCritical: true, progress: 40 },
+      density: 'compact',
+    });
     // The progress fill div should be semantic-critical (not brand-primary)
     const criticalEl = container.querySelector('.bg-semantic-critical');
     expect(criticalEl).toBeInTheDocument();
@@ -348,7 +357,10 @@ describe('BoardCard', () => {
   });
 
   it('comfortable: CP task shows "0d float" chip in red (issue #183)', () => {
-    const { container } = renderCard({ task: { ...baseTask, isCritical: true }, density: 'comfortable' });
+    const { container } = renderCard({
+      task: { ...baseTask, isCritical: true },
+      density: 'comfortable',
+    });
     expect(screen.getByText('0d float')).toBeInTheDocument();
     expect(container.querySelector('.text-semantic-critical')).toBeInTheDocument();
   });
@@ -446,14 +458,18 @@ describe('BoardCard', () => {
   it('aging chip is red when dwell exceeds 2× SLA (issue #192)', () => {
     // 25 days ago, SLA 10d — 25 > 20 (2×SLA) → red/critical
     const enteredAt = new Date('2025-12-21T12:00:00Z').toISOString();
-    const { container } = renderCard({ task: { ...baseTask, statusEnteredAt: enteredAt, status: 'IN_PROGRESS' } });
+    const { container } = renderCard({
+      task: { ...baseTask, statusEnteredAt: enteredAt, status: 'IN_PROGRESS' },
+    });
     expect(container.querySelector('.text-semantic-critical')).toBeInTheDocument();
   });
 
   it('aging chip is amber when dwell is between 1× and 2× SLA (issue #192)', () => {
     // 14 days ago, SLA 10d — 14 is between 10 and 20 → amber
     const enteredAt = new Date('2026-01-01T12:00:00Z').toISOString();
-    const { container } = renderCard({ task: { ...baseTask, statusEnteredAt: enteredAt, status: 'IN_PROGRESS' } });
+    const { container } = renderCard({
+      task: { ...baseTask, statusEnteredAt: enteredAt, status: 'IN_PROGRESS' },
+    });
     expect(container.querySelector('.text-brand-accent-dark')).toBeInTheDocument();
   });
 
@@ -621,9 +637,17 @@ describe('BoardCard', () => {
 
     it('behind-schedule SPI chip has behind-schedule aria-label', () => {
       // Server reports SPI 0.10 / band 'behind'.
-      const behindTask = { ...taskWithBaseline, progress: 10, spi: 0.1, spiBand: 'behind' as const };
+      const behindTask = {
+        ...taskWithBaseline,
+        progress: 10,
+        spi: 0.1,
+        spiBand: 'behind' as const,
+      };
       renderCard({ task: behindTask, showEvm: 'spi', density: 'comfortable' });
-      expect(screen.getByLabelText(/behind schedule/i)).toBeInTheDocument();
+      // Scope to the SPI chip's own label — the worst-offender badge (#1305) also
+      // carries a "Behind schedule…" label for this task, so an unscoped
+      // /behind schedule/ match would now be ambiguous.
+      expect(screen.getByLabelText(/SPI .*behind schedule/i)).toBeInTheDocument();
     });
 
     it('hides SPI chip in compact density', () => {
@@ -758,10 +782,13 @@ describe('BoardCard', () => {
         plannedStart: null,
       };
       renderCard({ task });
+      // No scheduled-state signal at all: neither the legacy CP chip nor the
+      // worst-offender Critical path badge (#1305) should appear.
       expect(screen.queryByText('CP')).not.toBeInTheDocument();
+      expect(screen.queryByText('Critical path')).not.toBeInTheDocument();
     });
 
-    it('renders the CP pill on a backlog card once plannedStart is set', () => {
+    it('renders the Critical path badge on a backlog card once plannedStart is set', () => {
       // A PM committing a backlog idea (without yet promoting it) should
       // unlock the scheduled-state styling — the gate is plannedStart, not
       // status.
@@ -772,10 +799,10 @@ describe('BoardCard', () => {
         plannedStart: '2026-01-01',
       };
       renderCard({ task });
-      expect(screen.getByText('CP')).toBeInTheDocument();
+      expect(screen.getByText('Critical path')).toBeInTheDocument();
     });
 
-    it('renders the CP pill on a backlog card committed via sprint membership', () => {
+    it('renders the Critical path badge on a backlog card committed via sprint membership', () => {
       const task: Task = {
         ...baseTask,
         status: 'BACKLOG',
@@ -784,7 +811,7 @@ describe('BoardCard', () => {
         sprintId: 'sprint-uuid',
       };
       renderCard({ task });
-      expect(screen.getByText('CP')).toBeInTheDocument();
+      expect(screen.getByText('Critical path')).toBeInTheDocument();
     });
 
     it('hides the float chip on an uncommitted task even when CPM has computed totalFloat', () => {
@@ -816,9 +843,9 @@ describe('BoardCard', () => {
       // The card root carries `aria-roledescription="draggable"` from dnd-kit;
       // the menu trigger and chain icon are also `role="button"` but on
       // smaller elements.
-      return screen.getAllByRole('button').find(
-        (el) => el.getAttribute('aria-roledescription') === 'draggable',
-      )!;
+      return screen
+        .getAllByRole('button')
+        .find((el) => el.getAttribute('aria-roledescription') === 'draggable')!;
     }
 
     it('fires onCardClick on root click with the task and the card root as anchor', () => {
@@ -888,7 +915,9 @@ describe('BoardCard', () => {
 
     it('single-tap ✓ accept fires onAccept (additive, no confirm)', () => {
       renderCard({ task: pendingTask, scopeActions });
-      fireEvent.click(screen.getByRole('button', { name: /Accept Backend Implementation into the sprint/ }));
+      fireEvent.click(
+        screen.getByRole('button', { name: /Accept Backend Implementation into the sprint/ }),
+      );
       expect(scopeActions.onAccept).toHaveBeenCalledTimes(1);
     });
 
@@ -899,7 +928,9 @@ describe('BoardCard', () => {
       ).not.toBeInTheDocument();
       // Open the overflow menu — no "Reject from sprint" item for a non-manager.
       fireEvent.click(screen.getByRole('button', { name: /Actions for/ }));
-      expect(screen.queryByRole('menuitem', { name: /Reject from sprint/ })).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('menuitem', { name: /Reject from sprint/ }),
+      ).not.toBeInTheDocument();
     });
 
     it('offline hides the accept ✓ and reject item (never queue a stale decision)', () => {
@@ -908,7 +939,9 @@ describe('BoardCard', () => {
         screen.queryByRole('button', { name: /Accept Backend Implementation into the sprint/ }),
       ).not.toBeInTheDocument();
       fireEvent.click(screen.getByRole('button', { name: /Actions for/ }));
-      expect(screen.queryByRole('menuitem', { name: /Reject from sprint/ })).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('menuitem', { name: /Reject from sprint/ }),
+      ).not.toBeInTheDocument();
     });
 
     it('reject is in the overflow menu and fires onReject', () => {
@@ -929,6 +962,61 @@ describe('BoardCard', () => {
       expect(root.className).toContain('transition-[opacity,transform]');
       // no shadow — the card's own border carries the edge (rule 1)
       expect(root.className).not.toMatch(/(^|\s)shadow-/);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Worst-offender badge + health-chip peek (#1305, ADR-0191 §4)
+  // -------------------------------------------------------------------------
+  describe('worst-offender badge (#1305)', () => {
+    it('shows a blocked badge with a non-lossy dependency count', () => {
+      renderCard({ task: { ...baseTask, isBlocked: true, predecessorCount: 2 } });
+      expect(screen.getByText('Blocked · 2 deps')).toBeInTheDocument();
+    });
+
+    it('surfaces the highest-severity signal: blocked outranks critical path', () => {
+      renderCard({ task: { ...baseTask, isBlocked: true, predecessorCount: 1, isCritical: true } });
+      expect(screen.getByText('Blocked · 1 dep')).toBeInTheDocument();
+      expect(screen.queryByText('Critical path')).not.toBeInTheDocument();
+    });
+
+    it('on-track card shows no badge (calm card)', () => {
+      renderCard({ task: baseTask });
+      expect(
+        screen.queryByRole('button', { name: /show health details/i }),
+      ).not.toBeInTheDocument();
+    });
+
+    it('the badge toggles the health-chip peek and reflects aria-expanded', () => {
+      renderCard({ task: { ...baseTask, isCritical: true } });
+      const badge = screen.getByRole('button', { name: /show health details/i });
+      expect(badge).toHaveAttribute('aria-expanded', 'false');
+      const peek = document.getElementById(badge.getAttribute('aria-controls')!)!;
+      expect(peek.className).toContain('hidden');
+
+      fireEvent.click(badge);
+      expect(badge).toHaveAttribute('aria-expanded', 'true');
+      expect(peek.className).toContain('block');
+      expect(peek.className).not.toContain('hidden');
+    });
+
+    it('Escape collapses an opened peek and returns focus to the badge', () => {
+      renderCard({ task: { ...baseTask, isCritical: true } });
+      const badge = screen.getByRole('button', { name: /show health details/i });
+      fireEvent.click(badge);
+      expect(badge).toHaveAttribute('aria-expanded', 'true');
+
+      fireEvent.keyDown(document, { key: 'Escape' });
+      expect(badge).toHaveAttribute('aria-expanded', 'false');
+      expect(badge).toHaveFocus();
+    });
+
+    it('detailed density renders no badge and keeps the CP chip inline', () => {
+      renderCard({ task: { ...baseTask, isCritical: true }, density: 'detailed' });
+      expect(
+        screen.queryByRole('button', { name: /show health details/i }),
+      ).not.toBeInTheDocument();
+      expect(screen.getByText('CP')).toBeInTheDocument();
     });
   });
 });
