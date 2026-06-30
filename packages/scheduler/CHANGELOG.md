@@ -15,7 +15,16 @@ between releases. Pin an exact version (e.g. `trueppm-scheduler==0.2.0a1`).
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added
+
+- The public API is now property-fuzzed in CI: every input to `schedule()`,
+  `monte_carlo()`, `find_cycle()`, `expand_summary_dependencies()`, and
+  `Project.from_json()` either succeeds or raises a documented `SchedulerError`
+  (`InvalidScheduleInput` / `CyclicDependencyError` / `SimulationCapExceeded`) —
+  an uncaught exception or a hang on any input is treated as a contract
+  violation. A fast deterministic sweep runs on every change; an exhaustive
+  stochastic sweep runs on a schedule. This is robustness/contract fuzzing, not
+  security/memory-safety fuzzing (#1456).
 
 ## [0.3.0a3] - 2026-06-29
 

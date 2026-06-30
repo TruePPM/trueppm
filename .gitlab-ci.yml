@@ -1122,6 +1122,42 @@ scheduler:notebooks:
       - packages/scheduler/notebooks/*.ipynb
     expire_in: 7 days
 
+scheduler:fuzz-deep:
+  # Tier B of the contract-fuzzing strategy (#1456). The deterministic Tier A
+  # gate runs inside scheduler:test on every MR (the `gate` Hypothesis profile);
+  # this job runs the same properties under the `deep` profile — stochastic, with
+  # a large example budget and a persisted corpus — and ONLY on scheduled
+  # pipelines, so it never blocks an MR. A failure here is a real contract
+  # finding: triage it into a deterministic case in test_redteam_hardening.py.
+  extends: .scheduler
+  stage: test
+  needs:
+    - job: ci:build-scheduler-image
+      optional: true
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+  # Persist Hypothesis's example database across scheduled runs so the search
+  # accumulates a shrinking corpus of interesting inputs rather than starting
+  # cold each night. Separate cache key from the pip cache (a list cache replaces
+  # the template map, so re-state the pip cache via the anchor).
+  cache:
+    - <<: *scheduler-cache
+      policy: pull
+    - key: scheduler-fuzz-corpus
+      paths:
+        - packages/scheduler/.hypothesis/
+  variables:
+    HYPOTHESIS_PROFILE: deep
+    FUZZ_MAX_EXAMPLES: "50000"
+  script:
+    - cd packages/scheduler
+    - pytest -m fuzz -p no:cacheprovider --no-cov
+  artifacts:
+    paths:
+      - packages/scheduler/.hypothesis/
+    expire_in: 30 days
+    when: always
+
 wasm:test:
   extends: .wasm
   stage: test
