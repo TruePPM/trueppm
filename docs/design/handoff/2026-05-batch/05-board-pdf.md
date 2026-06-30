@@ -1,5 +1,12 @@
 # #326 — Board PDF export (print stylesheet)
 
+> ⚠️ **Superseded by [ADR-0159](../../../adr/0159-board-pdf-export-client-side.md).**
+> #326 shipped with **client-side** rasterization (off-screen DS-token print
+> layout → `html-to-image` + `jspdf`, paginated), **not** the WeasyPrint
+> server render proposed below. The engine section is kept for historical
+> context only. New PDF-export work (e.g. the schedule report, #79) follows
+> the same ADR-0159 client-side pattern — see `packages/web/src/features/board/export/`.
+
 ## Engine
 
 WeasyPrint — server-side rendering of a print HTML route. Constraints:
