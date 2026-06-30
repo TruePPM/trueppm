@@ -1,10 +1,17 @@
 import { useMemo, useState } from 'react';
 import type { Task, TaskStatus } from '@/types';
 import { formatShortDate } from '@/features/schedule/scheduleUtils';
+import { boardGridTemplate } from './boardGrid';
 
 interface PhaseMilestoneRailProps {
   milestones: Task[];
   columns: { status: TaskStatus; label: string }[];
+  /**
+   * Columns folded to stubs board-wide (issue 1459). A collapsed column renders as
+   * a narrow empty track here so the rail stays pixel-aligned with the stubbed
+   * header and the lane grids below it (ADR-0192 Part 1/2).
+   */
+  collapsedColumns?: Set<TaskStatus>;
   onOpenTask?: (task: Task) => void;
 }
 
@@ -109,7 +116,13 @@ function Diamond({ state, onOpenTask }: DiamondProps) {
  *
  * Renders nothing when the phase has zero milestones.
  */
-export function PhaseMilestoneRail({ milestones, columns, onOpenTask }: PhaseMilestoneRailProps) {
+export function PhaseMilestoneRail({
+  milestones,
+  columns,
+  collapsedColumns,
+  onOpenTask,
+}: PhaseMilestoneRailProps) {
+  const collapsed = collapsedColumns ?? new Set<TaskStatus>();
   const byColumn = useMemo(() => {
     const map = new Map<TaskStatus, MilestoneState[]>();
     for (const task of milestones) {
@@ -126,17 +139,24 @@ export function PhaseMilestoneRail({ milestones, columns, onOpenTask }: PhaseMil
     <div
       role="list"
       aria-label="Phase milestones"
-      className="grid gap-[var(--board-col-gap,0.5rem)] px-2 py-1.5 border-b border-neutral-border/30 bg-neutral-surface-sunken"
-      // Board zoom (issue 379): inherits --board-phase-col / --board-col-gap from the
-      // board grid container so the rail stays column-aligned with the lanes.
+      className="grid gap-[var(--board-col-gap,0.5rem)] px-2 py-1.5 border-b border-neutral-border/30 bg-neutral-surface-sunken w-max min-w-full"
+      // Board zoom (issue 379): inherits --board-phase-col / --board-col-w / --board-col-gap
+      // from the board grid container so the rail stays column-aligned with the lanes.
       style={{
-        gridTemplateColumns: `var(--board-phase-col,188px) repeat(${columns.length}, minmax(0, 1fr))`,
+        gridTemplateColumns: boardGridTemplate(columns, collapsed),
       }}
     >
-      {/* Lane meta filler */}
-      <div className="text-xs text-neutral-text-disabled italic">Milestones</div>
+      {/* Lane meta filler — sticky-left so it stays pinned under horizontal
+          scroll, matching the lane sidebar (issue 1458). */}
+      <div className="sticky left-0 z-[5] bg-neutral-surface-sunken text-xs text-neutral-text-disabled italic flex items-center">
+        Milestones
+      </div>
 
       {columns.map((col) => {
+        if (collapsed.has(col.status)) {
+          // Folded column — render an empty aligned track, no diamonds.
+          return <div key={col.status} aria-hidden="true" />;
+        }
         const all = byColumn.get(col.status) ?? [];
         const visible = all.slice(0, MAX_VISIBLE_PER_COLUMN);
         const overflow = all.length - visible.length;
