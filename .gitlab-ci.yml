@@ -187,6 +187,14 @@ workflow:
         - packages/helm/**/*
         - .gitlab-ci.yml
 
+.rules-mcp: &rules-mcp
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/mcp/**/*
+        - .gitlab-ci.yml
+
 # ---------------------------------------------------------------------------
 # Base templates
 # Cache keys are derived from each package's dependency manifest so the
@@ -765,6 +773,20 @@ helm:lint:
       done
       [ "$fail" -eq 0 ] || exit 1
 
+mcp:lint:
+  # Standalone MCP server (packages/mcp, ADR-0186). A pure HTTP client with no
+  # prebaked CI image — mirror api:lint's plain-python-slim + pip-install-ruff
+  # shape rather than the scheduler's custom-image pattern.
+  stage: lint
+  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  <<: *rules-mcp
+  before_script:
+    - pip install ruff --quiet
+  script:
+    - cd packages/mcp
+    - ruff check src/ tests/
+    - ruff format --check src/ tests/
+
 # ---------------------------------------------------------------------------
 # ANALYZE — type-check, static analysis, migration/schema validation.
 # Each job uses needs: to start as soon as its package's lint job passes,
@@ -983,6 +1005,20 @@ web:type-check:
   script:
     - npm run typecheck
 
+mcp:typecheck:
+  # mypy --strict over packages/mcp. The editable install pulls the mcp SDK +
+  # httpx so their stubs resolve; mypy reads the package's own pyproject config
+  # (packages = ["trueppm_mcp"], strict = true).
+  stage: analyze
+  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  needs: [mcp:lint]
+  <<: *rules-mcp
+  before_script:
+    - pip install -e "packages/mcp[dev]" --quiet
+  script:
+    - cd packages/mcp
+    - mypy
+
 wasm:build:
   # Verify the WASM crate compiles to wasm32. The pkg/ output is not passed
   # downstream — this validates the build is clean.
@@ -1076,6 +1112,26 @@ scheduler:test:
   artifacts:
     paths:
       - packages/scheduler/coverage.xml
+    expire_in: 7 days
+    when: always
+
+mcp:test:
+  # pytest over packages/mcp. The auth + transport surface is exercised against
+  # httpx.MockTransport, so no running API or network is needed. 80% floor
+  # mirrors the other Python packages.
+  stage: test
+  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  needs: [mcp:lint, mcp:typecheck]
+  <<: *rules-mcp
+  before_script:
+    - pip install -e "packages/mcp[dev]" --quiet
+  script:
+    - cd packages/mcp
+    - pytest --cov=trueppm_mcp --cov-report=term-missing --cov-report=xml --cov-fail-under=80
+  coverage: '/TOTAL.*\s(\d+%)/'
+  artifacts:
+    paths:
+      - packages/mcp/coverage.xml
     expire_in: 7 days
     when: always
 
