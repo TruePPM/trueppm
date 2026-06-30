@@ -31,6 +31,7 @@ from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.sso import services
 from trueppm_api.apps.sso.models import OIDCProvider
 from trueppm_api.apps.sso.serializers import (
@@ -245,7 +246,7 @@ class OIDCCallbackView(APIView):
         return response
 
 
-class OIDCProviderView(APIView):
+class OIDCProviderView(IdempotencyMixin, APIView):
     """Singleton SSO provider config — ``/workspace/sso/`` (GET/PUT/DELETE).
 
     Mirrors ``WorkspaceSettingsView``: ``IsWorkspaceAdmin``, singleton row via
@@ -255,6 +256,10 @@ class OIDCProviderView(APIView):
     """
 
     permission_classes = [IsWorkspaceAdmin]
+    # Exempt from the generic Idempotency-Key path (ADR-0170): this is a singleton
+    # config row, so PUT (full replace) and DELETE (clear) are naturally idempotent
+    # — replaying converges to the same state with no resource multiplication.
+    idempotency_exempt = True
 
     def _read(self, provider: OIDCProvider, request: Request) -> dict[str, Any]:
         return OIDCProviderReadSerializer(
@@ -296,10 +301,14 @@ class OIDCProviderView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class OIDCTestConnectionView(APIView):
+class OIDCTestConnectionView(IdempotencyMixin, APIView):
     """``POST /workspace/sso/test-connection`` — probe discovery + JWKS (admin)."""
 
     permission_classes = [IsWorkspaceAdmin]
+    # Exempt from the generic Idempotency-Key path (ADR-0170): a read-only
+    # reachability probe that mutates nothing — POST is the verb only because the
+    # candidate issuer is supplied in the body, not because it creates a resource.
+    idempotency_exempt = True
 
     @extend_schema(
         summary="Test the SSO provider's discovery + JWKS reachability",

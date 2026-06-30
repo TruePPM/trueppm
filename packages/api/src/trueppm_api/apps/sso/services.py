@@ -303,9 +303,16 @@ def exchange_code(
     if not isinstance(payload, dict):
         raise OIDCTokenExchangeError("token endpoint returned a non-JSON body")
     if resp.status != 200 or "error" in payload:
-        # Do not echo the IdP's error_description verbatim to the user; log it,
-        # surface a stable code.
-        logger.warning(
+        # Surface a stable code to the user; log the IdP's machine-readable error
+        # for ops. The logged value is the OAuth2 ``error`` *code* (RFC 6749 §5.2:
+        # invalid_grant, invalid_client, …) — a public enumerated value, not a
+        # credential — and we deliberately never log ``error_description``.
+        # semgrep's `python-logger-credential-disclosure` flags the `error=`
+        # token as a possible secret leak; this is a reviewed false positive. The
+        # bare `# nosemgrep` (vs the rule-id form) is deliberate: the fully
+        # qualified rule id is 92 chars, so an id-scoped directive cannot fit the
+        # 100-col limit without tripping E501/RUF100. Scope here is this one line.
+        logger.warning(  # nosemgrep
             "oidc token exchange failed: status=%s error=%s",
             resp.status,
             payload.get("error"),
