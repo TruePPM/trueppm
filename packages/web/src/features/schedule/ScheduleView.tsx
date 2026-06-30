@@ -65,6 +65,12 @@ import { BeforeProjectStartDialog } from './BeforeProjectStartDialog';
 import { useScheduleCommit } from './useScheduleCommit';
 import { useProject } from '@/hooks/useProject';
 import { useSprints } from '@/hooks/useSprints';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { toast } from '@/components/Toast/toast';
+import { fmtUtcLong } from '@/lib/formatUtcDate';
+import { SchedulePrintLayout } from './export/SchedulePrintLayout';
+import { buildSchedulePrintData } from './export/schedulePrintData';
+import { exportSchedulePdf, scheduledPdfFileName } from './export/exportSchedulePdf';
 import {
   useScheduleFocus,
   BuildModeProvider,
@@ -810,6 +816,78 @@ export function ScheduleView() {
   const canImport = currentRole !== null && currentRole >= ROLE_ADMIN;
   const { exportProject, isExporting, error: exportError } = useExportMsProject(projectId);
 
+  // Schedule PDF export (issue 1437, ADR-0188). Mirrors the board's client-side
+  // path (issue 326): an off-screen `SchedulePrintLayout` (mounted below only
+  // while an export runs) is rasterized on demand from the SAME live
+  // `allTasks`/`allLinks`/`mcResult` the view already holds — no re-fetch, no new
+  // compute. This is the minimal Layout-A entry; the options dialog, paper
+  // picker, generation states, and ⌘⇧E shortcut are issue 1438.
+  const { user: currentUser } = useCurrentUser();
+  const schedulePrintRef = useRef<HTMLDivElement>(null);
+  const [exportingPdf, setExportingPdf] = useState(false);
+  // The print surface mounts only while an export is in flight so its duplicate
+  // projection of every activity name never lingers to collide with the live
+  // grid's text nodes (which would break single-match queries app-wide).
+  const [pdfExportRequested, setPdfExportRequested] = useState(false);
+
+  const schedulePrintData = useMemo(
+    () =>
+      buildSchedulePrintData({
+        projectName: projectDetail?.name ?? 'Schedule',
+        projectKey: projectDetail?.code || null,
+        workspaceUrl: typeof window !== 'undefined' ? window.location.origin : null,
+        tasks: allTasks,
+        links: allLinks,
+        forecast: mcResult ?? null,
+        userName: currentUser?.display_name ?? null,
+        generatedAtLabel: fmtUtcLong(new Date().toISOString()),
+      }),
+    [
+      projectDetail?.name,
+      projectDetail?.code,
+      allTasks,
+      allLinks,
+      mcResult,
+      currentUser?.display_name,
+    ],
+  );
+
+  // Requesting an export only flips `pdfExportRequested`, which mounts the print
+  // surface (below); the rasterize runs in the effect once the node is committed.
+  const onExportSchedulePdf = useCallback(() => {
+    if (pdfExportRequested || exportingPdf) return;
+    setPdfExportRequested(true);
+  }, [pdfExportRequested, exportingPdf]);
+
+  useEffect(() => {
+    if (!pdfExportRequested) return;
+    const node = schedulePrintRef.current;
+    let cancelled = false;
+    setExportingPdf(true);
+    void (async () => {
+      try {
+        if (node) {
+          await exportSchedulePdf(node, {
+            fileName: scheduledPdfFileName(
+              projectDetail?.name ?? 'Project',
+              new Date().toISOString(),
+            ),
+          });
+        }
+      } catch {
+        if (!cancelled) toast.error("Couldn't generate the PDF — try again.");
+      } finally {
+        if (!cancelled) {
+          setExportingPdf(false);
+          setPdfExportRequested(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pdfExportRequested, projectDetail?.name]);
+
   const buildModeApi = useMemo<BuildModeApi>(
     () => ({
       focus,
@@ -1251,6 +1329,20 @@ export function ScheduleView() {
                       },
                     ]
                   : []),
+                // Schedule PDF (issue 1437). A deck-style export is a desktop task,
+                // so — like the board (issue 326) — it's hidden below `sm`; the
+                // design folds the entry into this overflow at 768–1100px.
+                ...(projectId && breakpoint !== 'sm'
+                  ? [
+                      {
+                        kind: 'action' as const,
+                        id: 'export-pdf',
+                        label: exportingPdf ? 'Generating PDF…' : 'Export schedule as PDF',
+                        disabled: exportingPdf,
+                        onSelect: onExportSchedulePdf,
+                      },
+                    ]
+                  : []),
                 ...(breakpoint === 'sm'
                   ? [
                       ...((zoomLevel === 'quarter' || zoomLevel === 'year') &&
@@ -1561,6 +1653,20 @@ export function ScheduleView() {
         </div>
       )}
 
+      {/* PDF export status (issue 1437). The trigger lives in the overflow menu, which
+          closes on select — so a busy label on the menu item would be invisible.
+          This persistent `role="status"` region is the only feedback during the
+          1–2s client-side rasterization, mirroring the MS Project status above
+          and the board export's always-visible button. */}
+      {exportingPdf && (
+        <div
+          role="status"
+          className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-card border border-neutral-border bg-neutral-surface px-4 py-2 text-sm text-neutral-text-primary"
+        >
+          Generating your PDF…
+        </div>
+      )}
+
       {/* Dependency picker modal (#477) — opened from the right-click menu. */}
       {depPickerState && projectId && (
         <ScheduleDependencyPicker
@@ -1595,6 +1701,21 @@ export function ScheduleView() {
 
       {buildModeActive && (
         <BuildModeCheatsheet open={cheatsheetOpen} onClose={() => setCheatsheetOpen(false)} />
+      )}
+
+      {/* Off-screen schedule-export print surface (issue 1437, ADR-0188). Mounted
+          only while an export is in flight so its duplicate projection of every
+          activity name never lingers in the DOM. Positioned out of view (never
+          display:none — html-to-image must render it) and aria-hidden so it's
+          invisible to assistive tech and pointer input. */}
+      {pdfExportRequested && (
+        <div aria-hidden="true" className="pointer-events-none absolute -left-[99999px] top-0">
+          <SchedulePrintLayout
+            ref={schedulePrintRef}
+            data={schedulePrintData}
+            dataDate={new Date().toISOString()}
+          />
+        </div>
       )}
     </div>
   );

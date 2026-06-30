@@ -81,6 +81,23 @@ describe('SchedulePrintLayout', () => {
     expect(container.querySelectorAll('svg polygon').length).toBeGreaterThanOrEqual(1);
   });
 
+  it('renders the critical-path summary box with the driving-chain framing', () => {
+    render(<SchedulePrintLayout data={data()} />);
+
+    // The box header is distinct from the KPI "Critical path" cell label.
+    expect(screen.getByText('Critical path chain')).toBeInTheDocument();
+    // Two critical tasks (Design, Build) drive the finish in this fixture.
+    expect(screen.getByText(/activities drive the finish date/)).toBeInTheDocument();
+    // The chain is an ordered list — one entry per critical activity.
+    const items = screen.getByRole('list').querySelectorAll('li');
+    expect(items.length).toBe(2);
+  });
+
+  it('stamps a content fingerprint in the footer', () => {
+    render(<SchedulePrintLayout data={data()} />);
+    expect(screen.getByText(/checksum [0-9a-f]{8}/)).toBeInTheDocument();
+  });
+
   it('renders an empty state when no rows are dated', () => {
     const empty = buildSchedulePrintData({
       projectName: 'Empty',

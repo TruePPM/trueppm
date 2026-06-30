@@ -3,6 +3,7 @@ import {
   buildSchedulePrintData,
   compareWbs,
   classifyLinkHardness,
+  scheduleContentSha,
   MAX_INDENT_LEVELS,
   type BuildSchedulePrintArgs,
 } from './schedulePrintData';
@@ -265,5 +266,51 @@ describe('buildSchedulePrintData — masthead & footer', () => {
     expect(data.footer.userName).toBe('Jane Doe');
     expect(data.footer.contentSha).toBe('abc123');
     expect(data.footer.signOff).toContain('CPM engine');
+  });
+
+  it('passes the workspace URL through to the masthead', () => {
+    const data = build({ workspaceUrl: 'https://ppm.example.com' });
+    expect(data.masthead.workspaceUrl).toBe('https://ppm.example.com');
+  });
+
+  it('derives an 8-hex content fingerprint when none is supplied', () => {
+    const data = build({ tasks: [task('a', { start: '2026-04-01', finish: '2026-04-05' })] });
+    expect(data.footer.contentSha).toMatch(/^[0-9a-f]{8}$/);
+  });
+});
+
+describe('scheduleContentSha', () => {
+  const cfg = () => ({
+    tasks: [
+      task('a', { wbs: '1', start: '2026-04-01', finish: '2026-04-08', isCritical: true }),
+      task('b', { wbs: '2', start: '2026-04-09', finish: '2026-04-20', progress: 40 }),
+    ],
+  });
+
+  it('is deterministic for identical schedule state', () => {
+    expect(build(cfg()).footer.contentSha).toBe(build(cfg()).footer.contentSha);
+  });
+
+  it('shifts when a task finish date changes', () => {
+    const a = build(cfg()).footer.contentSha;
+    const moved = build({
+      tasks: [
+        task('a', { wbs: '1', start: '2026-04-01', finish: '2026-04-08', isCritical: true }),
+        task('b', { wbs: '2', start: '2026-04-09', finish: '2026-04-30', progress: 40 }),
+      ],
+    }).footer.contentSha;
+    expect(moved).not.toBe(a);
+  });
+
+  it('shifts when link hardness changes', () => {
+    const tasks = [task('a', { wbs: '1' }), task('b', { wbs: '2' })];
+    const hard = build({ tasks, links: [link('l', { type: 'FS', lag: 0 })] }).footer.contentSha;
+    const soft = build({ tasks, links: [link('l', { type: 'FS', lag: 3 })] }).footer.contentSha;
+    expect(hard).not.toBe(soft);
+  });
+
+  it('exposes the same hex via the standalone helper as via the built footer', () => {
+    const data = build(cfg());
+    expect(scheduleContentSha(data.rows, data.links, data.kpis)).toBe(data.footer.contentSha);
   });
 });

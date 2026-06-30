@@ -316,6 +316,51 @@ function buildCpChain(rows: SchedulePrintRow[]): SchedulePrintCpTask[] {
     }));
 }
 
+/**
+ * 32-bit FNV-1a hash of a string, as zero-padded 8-char lowercase hex.
+ *
+ * `Math.imul` performs the FNV-prime multiply in 32-bit space (a plain `*` would
+ * lose precision past 2^53); `>>> 0` coerces the result to unsigned before the
+ * hex render. Deterministic and dependency-free.
+ */
+function fnv1aHex(input: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16).padStart(8, '0');
+}
+
+/**
+ * Content fingerprint for the export's integrity stamp (issue 1437).
+ *
+ * NOT a cryptographic digest — a deterministic fingerprint of the rendered
+ * schedule state (row dates/progress/critical flags, link topology + hardness,
+ * the KPI cells) so two PDFs printed from the same schedule carry the *same*
+ * stamp, and any schedule change shifts it. It lets a reader confirm a printed
+ * artifact matches a live schedule at a glance; it is not a tamper-proof seal.
+ * Stable field order in, stable hex out — pinned by `schedulePrintData.test.ts`.
+ */
+export function scheduleContentSha(
+  rows: SchedulePrintRow[],
+  links: SchedulePrintLink[],
+  kpis: SchedulePrintKpis,
+): string {
+  const rowPart = rows
+    .map(
+      (r) =>
+        `${r.id}|${r.wbsCode}|${r.start ?? ''}|${r.finish ?? ''}|${r.pctComplete}|` +
+        `${r.isCritical ? 1 : 0}|${r.isMilestone ? 1 : 0}`,
+    )
+    .join(';');
+  const linkPart = links.map((l) => `${l.id}>${l.fromId}>${l.toId}>${l.hard ? 1 : 0}`).join(';');
+  const kpiPart = [kpis.window, kpis.criticalPath, kpis.forecastP80, kpis.progress, kpis.milestones]
+    .map((k) => `${k.value}/${k.sub ?? ''}`)
+    .join(';');
+  return fnv1aHex(`${rowPart}#${linkPart}#${kpiPart}`);
+}
+
 export interface BuildSchedulePrintArgs {
   projectName: string;
   /** Method subtitle under the project name (defaults to the CPM line). */
@@ -333,7 +378,11 @@ export interface BuildSchedulePrintArgs {
   generatedAtLabel: string;
   /** Masthead export-date label; defaults to {@link BuildSchedulePrintArgs.generatedAtLabel}. */
   exportDateLabel?: string;
-  /** Optional content hash for the footer sign-off (issue 1437); null in the foundation. */
+  /**
+   * Explicit content fingerprint for the footer integrity stamp. Omit to let
+   * {@link buildSchedulePrintData} derive it from the assembled content via
+   * {@link scheduleContentSha} (issue 1437); pass a value only to pin it in a test.
+   */
   contentSha?: string | null;
 }
 
@@ -363,10 +412,12 @@ export function buildSchedulePrintData(args: BuildSchedulePrintArgs): SchedulePr
       hard: classifyLinkHardness(l),
     }));
 
+  const kpis = buildKpis(rows, args.forecast);
+
   return {
     rows,
     links,
-    kpis: buildKpis(rows, args.forecast),
+    kpis,
     cpChain: buildCpChain(rows),
     masthead: {
       projectName: args.projectName,
@@ -381,7 +432,7 @@ export function buildSchedulePrintData(args: BuildSchedulePrintArgs): SchedulePr
       generatedAtLabel: args.generatedAtLabel,
       userName: args.userName,
       signOff: 'Critical path computed by the CPM engine · float = 0 on highlighted tasks.',
-      contentSha: args.contentSha ?? null,
+      contentSha: args.contentSha ?? scheduleContentSha(rows, links, kpis),
     },
   };
 }
