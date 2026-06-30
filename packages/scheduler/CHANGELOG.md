@@ -26,6 +26,21 @@ between releases. Pin an exact version (e.g. `trueppm-scheduler==0.2.0a1`).
   stochastic sweep runs on a schedule. This is robustness/contract fuzzing, not
   security/memory-safety fuzzing (#1456).
 
+### Fixed
+
+- **`Task.percent_complete` now holds the documented exception contract on the
+  direct-object API.** A non-finite value (`NaN`/`±inf`) or a non-numeric value
+  passed to a `Task` built directly (not via `from_dict`/`from_json`) previously
+  escaped as a bare `ValueError`/`TypeError` from `schedule()` while `monte_carlo()`
+  silently forecast the *same* input as 0% complete — the two passes disagreeing on
+  identical input. Both passes now raise `InvalidScheduleInput`. `None` and finite
+  out-of-range values (`<0`, `>100`) remain clamped, consistent with `from_dict`
+  (#1452).
+- **`monte_carlo(seed=…)` now validates its seed.** A negative or non-integer
+  `seed` previously escaped as a bare numpy `ValueError`/`TypeError`; it now raises
+  the documented `InvalidScheduleInput`. `None` and any non-negative `int` remain
+  valid (#1453).
+
 ## [0.3.0a3] - 2026-06-29
 
 _No library-facing changes in this release._

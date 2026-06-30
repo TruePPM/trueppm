@@ -13,9 +13,11 @@ asserts the contract holds for each public callable. It makes the one-off
 2026-06-30 red-team sweep a permanent, growing gate (see conftest.py for the
 ``gate`` vs ``deep`` profiles).
 
-Two currently-open holes (#1452 ``percent_complete``, #1453 ``monte_carlo`` seed)
-are documented as ``xfail`` specs at the bottom and deliberately excluded from the
-broad strategies so the blocking gate stays green until they are fixed.
+The two findings this gate was built to catch — #1452 (``percent_complete``
+unvalidated) and #1453 (``monte_carlo`` seed unvalidated) — are now fixed, so their
+adversarial vectors are folded directly into the broad strategies below:
+``percent_complete`` draws non-finite floats and ``monte_carlo`` draws bad seeds,
+both of which must now yield a clean ``InvalidScheduleInput``.
 """
 
 from __future__ import annotations
@@ -24,7 +26,7 @@ import json
 import signal
 from collections.abc import Callable
 from contextlib import contextmanager
-from datetime import date, timedelta
+from datetime import timedelta
 from typing import Any
 
 import pytest
@@ -112,11 +114,14 @@ def _assert_conforms(label: str, call: Callable[[], object]) -> None:
 # point is to prove the cap raises InvalidScheduleInput rather than OverflowError.
 _day_ints = st.integers(min_value=-100_000_000, max_value=100_000_000)
 _ids = st.text(alphabet=st.characters(min_codepoint=33, max_codepoint=122), min_size=1, max_size=8)
-_finite_pct = st.floats(min_value=-50.0, max_value=200.0, allow_nan=False, allow_infinity=False)
 # Non-finite included on purpose: these fields are either guarded (story_points,
-# velocity_samples — #1209) or inert (hours_per_day), so nan/inf must still yield
-# a clean return or InvalidScheduleInput, never an arithmetic escape.
+# velocity_samples, percent_complete — #1209/#1452) or inert (hours_per_day), so
+# nan/inf must still yield a clean return or InvalidScheduleInput, never an
+# arithmetic escape.
 _weird_floats = st.floats()
+# monte_carlo seed: None or any int (negative → must raise InvalidScheduleInput,
+# #1453), plus floats/bools that are likewise non-conforming and must be rejected.
+_seeds = st.none() | st.integers(min_value=-(10**6), max_value=10**6) | st.floats() | st.booleans()
 _opt_date = st.none() | st.dates()
 _opt_td = st.none() | _day_ints.map(lambda d: timedelta(days=d))
 
@@ -130,7 +135,7 @@ def _tasks(draw: st.DrawFn, ids: list[str]) -> Task:
         duration=timedelta(days=draw(_day_ints)),
         planned_start=draw(_opt_date),
         planned_finish=draw(_opt_date),
-        percent_complete=draw(_finite_pct),  # non-finite is #1452 (xfail below)
+        percent_complete=draw(_weird_floats),  # non-finite must raise InvalidScheduleInput (#1452)
         actual_start=aset,
         actual_finish=draw(st.none() | st.dates()),
         optimistic_duration=draw(_opt_td),
@@ -215,15 +220,17 @@ _json_values = st.recursive(
 # ---------------------------------------------------------------------------
 
 
-@given(project=_projects())
-def test_direct_object_api_conforms(project: Project) -> None:
+@given(project=_projects(), seed=_seeds)
+def test_direct_object_api_conforms(project: Project, seed: object) -> None:
     """schedule() and monte_carlo() on a fuzzed Project either return or raise a
     documented SchedulerError — never a bare ValueError/TypeError/OverflowError,
-    numpy error, or hang. This is the path the TruePPM API itself drives."""
+    numpy error, or hang. This is the path the TruePPM API itself drives. The
+    fuzzed ``seed`` (incl. negative ints, floats, bools) exercises the #1453 guard:
+    a non-conforming seed must raise InvalidScheduleInput, not a bare numpy error."""
     _assert_conforms("schedule", lambda: schedule(project))
     _assert_conforms(
         "monte_carlo",
-        lambda: monte_carlo(project, runs=24, seed=7, max_runs=None, max_tasks=None),
+        lambda: monte_carlo(project, runs=24, seed=seed, max_runs=None, max_tasks=None),  # type: ignore[arg-type]
     )
 
 
@@ -264,40 +271,4 @@ def test_expand_summary_conforms(project: Project, children_map: dict[str, list[
     _assert_conforms(
         "expand_summary_dependencies",
         lambda: expand_summary_dependencies(project.tasks, project.dependencies, children_map),
-    )
-
-
-# ---------------------------------------------------------------------------
-# Known open holes — executable specs for the two findings this gate would catch.
-#
-# These are excluded from the broad strategies above so the blocking gate stays
-# green. They xfail today; when #1452 / #1453 are fixed they will xpass — at which
-# point fold the vectors back into the broad strategies and delete these.
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.xfail(reason="#1452: percent_complete unvalidated in direct-object API", strict=False)
-@given(bad_pct=st.sampled_from([float("nan"), float("inf"), float("-inf")]))
-def test_percent_complete_nonfinite_conforms_1452(bad_pct: float) -> None:
-    project = Project(
-        id="p",
-        name="p",
-        start_date=date(2026, 1, 5),
-        tasks=[Task(id="a", name="a", duration=timedelta(days=5), percent_complete=bad_pct)],
-    )
-    _assert_conforms("schedule(nan pct)", lambda: schedule(project))
-
-
-@pytest.mark.xfail(reason="#1453: monte_carlo() seed parameter unvalidated", strict=False)
-@given(bad_seed=st.sampled_from([-1, -99, 2.5, float("nan")]))
-def test_monte_carlo_bad_seed_conforms_1453(bad_seed: object) -> None:
-    project = Project(
-        id="p",
-        name="p",
-        start_date=date(2026, 1, 5),
-        tasks=[Task(id="a", name="a", duration=timedelta(days=5))],
-    )
-    _assert_conforms(
-        "monte_carlo(bad seed)",
-        lambda: monte_carlo(project, runs=12, seed=bad_seed),  # type: ignore[arg-type]
     )
