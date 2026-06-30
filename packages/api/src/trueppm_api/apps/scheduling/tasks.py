@@ -530,6 +530,39 @@ def _downstream_task_ids(project_id: str, seed_ids: list[str]) -> frozenset[str]
     return frozenset(visited)
 
 
+def _build_children_map(db_tasks: list[Any]) -> dict[str, list[str]]:
+    """Map each summary task's id to its direct children's ids via the WBS hierarchy.
+
+    A task is a *summary* when another task's ``wbs_path`` is a direct child of its
+    own (e.g. ``1.2`` is a direct child of ``1``). Tasks are indexed by ``wbs_path``
+    in a single pass so each task resolves its parent with one dict lookup — O(N)
+    total. The former inline construction scanned ``db_tasks`` for every task to find
+    its parent by string equality (O(N^2)), the one superlinear step left in recalc;
+    at 5k+ tasks it began to dominate the "Building schedule model" phase (#1011).
+
+    ``setdefault`` makes the first task in ``db_tasks`` order win a duplicate
+    ``wbs_path``, exactly mirroring the prior loop's first-match-and-break semantics,
+    and children are appended in ``db_tasks`` order — so the result is byte-for-byte
+    identical to the O(N^2) version it replaces.
+    """
+    id_by_wbs_path: dict[str, str] = {}
+    for t in db_tasks:
+        if t.wbs_path:
+            id_by_wbs_path.setdefault(str(t.wbs_path), str(t.id))
+
+    children_map: dict[str, list[str]] = {}
+    for t in db_tasks:
+        if not t.wbs_path:
+            continue
+        parts = str(t.wbs_path).rsplit(".", 1)
+        if len(parts) < 2:
+            continue
+        parent_id = id_by_wbs_path.get(parts[0])
+        if parent_id is not None:
+            children_map.setdefault(parent_id, []).append(str(t.id))
+    return children_map
+
+
 def _run_schedule(
     project_id: str,
     tracker: object = None,
@@ -651,21 +684,7 @@ def _run_schedule(
     # Build children_map from wbs_path hierarchy for summary expansion.
     # A task is a summary if any other task's wbs_path is a direct child of it.
     db_task_by_id = {str(t.id): t for t in db_tasks}
-    children_map: dict[str, list[str]] = {}
-    for t in db_tasks:
-        if not t.wbs_path:
-            continue
-        parts = str(t.wbs_path).rsplit(".", 1)
-        if len(parts) < 2:
-            continue
-        parent_path = parts[0]
-        # Find the task with this parent wbs_path
-        for candidate in db_tasks:
-            if candidate.wbs_path and str(candidate.wbs_path) == parent_path:
-                parent_id = str(candidate.id)
-                children_map.setdefault(parent_id, []).append(str(t.id))
-                break
-
+    children_map = _build_children_map(db_tasks)
     summary_ids = set(children_map.keys())
 
     # Expand summary dependencies into leaf-level edges before CPM.
