@@ -1397,6 +1397,27 @@ def _validate_project(project: Project) -> None:
             raise InvalidScheduleInput(
                 f"Task {t.id!r} story_points must be a finite number (got {t.story_points!r})."
             )
+        # percent_complete (ADR-0132/0136) feeds _effective_duration_days
+        # (``int(duration * pct/100)``) and _is_complete (``pct >= 100``); a NaN there
+        # raised a bare ValueError from int(nan) and a non-numeric value a bare
+        # TypeError from the ``>= 100`` compare, while monte_carlo's own ``pct > 0``
+        # gate silently ignored the same NaN — so schedule() and monte_carlo()
+        # diverged on identical input (#1452). The from_dict/from_json path already
+        # rejects non-finite here (models.py); this closes the direct-object gap to
+        # match it. None is tolerated (read as not-started, as both passes already
+        # do) and finite out-of-range values (<0, >100) are deliberately *clamped*
+        # by both passes (``min(pct, 100)``; a negative pct reads as not-started),
+        # consistent with from_dict — so only non-finite / non-numeric input, which
+        # breaks the documented contract, is rejected here.
+        if t.percent_complete is not None and (
+            isinstance(t.percent_complete, bool)
+            or not isinstance(t.percent_complete, (int, float))
+            or not math.isfinite(t.percent_complete)
+        ):
+            raise InvalidScheduleInput(
+                f"Task {t.id!r} percent_complete must be a finite number "
+                f"(got {t.percent_complete!r})."
+            )
         # planned_start (SNET) extends the schedule directly, so it is bounded by
         # the same span cap as durations and lags — otherwise a pin in year 9999
         # is accepted and drives the Monte Carlo working-day index build into a
@@ -1885,11 +1906,19 @@ def monte_carlo(
             has more tasks than ``max_tasks``.
         CyclicDependencyError: If the dependency graph contains a cycle.
         InvalidScheduleInput: If the calendar has no working day, a duration
-            or lag is negative/out of range, the project has no tasks, or
-            ``runs`` is less than 1.
+            or lag is negative/out of range, the project has no tasks,
+            ``runs`` is less than 1, or ``seed`` is not a non-negative int
+            or ``None``.
     """
     if runs < 1:
         raise InvalidScheduleInput(f"runs must be a positive integer (got {runs}).")
+    # seed is passed straight to np.random.default_rng(seed); a negative int raises
+    # a bare numpy ValueError and a float/non-int a bare TypeError, both escaping the
+    # documented SchedulerError contract for a documented public parameter (#1453).
+    # Accept None (non-deterministic) or a non-negative int; bool is an int subclass
+    # but never a meaningful seed, so reject it like the other numeric guards.
+    if seed is not None and (isinstance(seed, bool) or not isinstance(seed, int) or seed < 0):
+        raise InvalidScheduleInput(f"seed must be a non-negative integer or None (got {seed!r}).")
     if max_tasks is not None and len(project.tasks) > max_tasks:
         raise SimulationCapExceeded(
             f"Project task count ({len(project.tasks)}) exceeds the configured "

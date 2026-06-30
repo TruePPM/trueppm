@@ -308,3 +308,80 @@ def test_calendar_from_dict_bad_working_days() -> None:
     for bad in ("31", -1, 31.5, 999):
         with pytest.raises(InvalidScheduleInput):
             Calendar.from_dict({"working_days": bad})
+
+
+# ---------------------------------------------------------------------------
+# #1452 — percent_complete unvalidated in the direct-object API
+# ---------------------------------------------------------------------------
+
+
+def _one_task_project(**task_kw: object) -> Project:
+    return Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 1, 5),
+        tasks=[Task(id="a", name="a", duration=timedelta(days=5), **task_kw)],  # type: ignore[arg-type]
+    )
+
+
+@pytest.mark.parametrize("bad_pct", [float("nan"), float("inf"), float("-inf")])
+def test_percent_complete_nonfinite_rejected_by_both_passes(bad_pct: float) -> None:
+    """A non-finite percent_complete used to crash schedule() with a bare ValueError
+    (int(nan)) while monte_carlo() silently forecast it as 0% — the two passes
+    diverging on identical input (#1452). Both must now reject it identically with
+    the documented InvalidScheduleInput."""
+    project = _one_task_project(percent_complete=bad_pct)
+    with pytest.raises(InvalidScheduleInput):
+        schedule(project)
+    with pytest.raises(InvalidScheduleInput):
+        monte_carlo(project, runs=12, seed=1)
+
+
+def test_percent_complete_non_numeric_rejected() -> None:
+    """A non-numeric percent_complete leaked a bare TypeError from the ``>= 100``
+    compare; it must raise InvalidScheduleInput instead (#1452)."""
+    project = _one_task_project(percent_complete="50")  # type: ignore[arg-type]
+    with pytest.raises(InvalidScheduleInput):
+        schedule(project)
+    with pytest.raises(InvalidScheduleInput):
+        monte_carlo(project, runs=12, seed=1)
+
+
+@pytest.mark.parametrize("pct", [None, -10.0, 150.0, 0.0, 100.0, 42.0])
+def test_percent_complete_finite_in_or_out_of_range_is_clamped_not_rejected(pct: float) -> None:
+    """Documented out-of-range policy (#1452): None and finite values outside
+    [0, 100] are *clamped* (consistent with from_dict / both passes' ``min(pct, 100)``),
+    not rejected — only non-finite / non-numeric input breaks the contract. Both
+    passes must therefore accept every value here without raising.
+
+    The two passes need not agree on the finish: a task clamped to complete
+    (``pct >= 100``) carries zero remaining work, so monte_carlo (which forecasts
+    *remaining* duration) finishes at the project start while the deterministic CPM
+    finish is start + duration. The invariant that always holds is that the
+    percentiles are monotone and never exceed the deterministic finish."""
+    project = _one_task_project(percent_complete=pct)
+    result = schedule(project)
+    mc = monte_carlo(project, runs=16, seed=1, max_runs=None, max_tasks=None)
+    assert result.project_finish is not None
+    assert mc.p50 <= mc.p80 <= mc.p95 <= result.project_finish
+
+
+# ---------------------------------------------------------------------------
+# #1453 — monte_carlo() seed unvalidated
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("bad_seed", [-1, -99, 2.5, float("nan"), True, "1"])
+def test_monte_carlo_bad_seed_rejected(bad_seed: object) -> None:
+    """A negative/float/non-int seed used to escape as a bare numpy ValueError/
+    TypeError; it must raise the documented InvalidScheduleInput instead (#1453)."""
+    project = _one_task_project()
+    with pytest.raises(InvalidScheduleInput):
+        monte_carlo(project, runs=12, seed=bad_seed)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("good_seed", [None, 0, 7, 10**9])
+def test_monte_carlo_good_seed_accepted(good_seed: object) -> None:
+    """None and any non-negative int remain valid seeds (#1453)."""
+    project = _one_task_project()
+    monte_carlo(project, runs=12, seed=good_seed)  # type: ignore[arg-type]
