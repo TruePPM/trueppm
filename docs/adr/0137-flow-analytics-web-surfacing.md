@@ -1,7 +1,7 @@
 # ADR-0137: Flow-analytics web surfacing on the Kanban board
 
 ## Status
-Proposed
+Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: useFlowMetrics)
 
 ## Context
 ADR-0130 (methodology-neutral flow analytics) shipped the backend in MR !619: a

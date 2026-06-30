@@ -1,7 +1,7 @@
 # ADR-0167: Project + Sprint Decisions Views with Team-Owned Oversight Consent
 
 ## Status
-Proposed
+Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: class ProjectDecisionsPolicy)
 
 ## Context
 TaskNotes (ADR-0143, #740) ship a per-author "why / decision log" on a task. The

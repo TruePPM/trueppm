@@ -1,7 +1,7 @@
 # ADR-0147: Sprint Lifecycle Webhook Events (amends ADR-0083)
 
 ## Status
-Proposed
+Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: SPRINT_ACTIVATED)
 
 > Amends **ADR-0083** (Webhook Format Extension & CRUD Surface), specifically the
 > `OSS_WEBHOOK_EVENT_CAP = 11` hard cap. ADR-0083 states that adding an event

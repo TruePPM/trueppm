@@ -1,7 +1,7 @@
 # ADR-0140: Schedule "Forecast & sensitivity" — duration-sensitivity tornado
 
 ## Status
-Proposed
+Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: MC_SENSITIVITY_CAP)
 
 ## Context
 The v2 Schedule redesign (epic #1163, Claude Design handoff `S.schedule`) docks a

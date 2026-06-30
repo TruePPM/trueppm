@@ -1,7 +1,7 @@
 # ADR-0118: Sprint Review — Accepted-vs-Not Breakdown + Demo-Ready List
 
 ## Status
-Proposed
+Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: class SprintTaskOutcome)
 
 > **Extends ADR-0176** (Sprint Review API Foundation). ADR-0176 built the
 > consolidated `/outcome/` read, the `SprintTaskOutcome` membership-at-close

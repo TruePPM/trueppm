@@ -1,7 +1,7 @@
 # ADR-0173: Runtime Retention Policy + Purge-Run History
 
 ## Status
-Proposed
+Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: class RetentionPolicy)
 
 ## Context
 

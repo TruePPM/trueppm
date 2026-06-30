@@ -1,7 +1,7 @@
 # ADR-0151: Percent-Complete Behavior on Task Duration Change — Keep-Default Policy + Duration-Change Audit Events
 
 ## Status
-Proposed
+Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: class TaskDurationChangeEvent)
 
 ## Context
 

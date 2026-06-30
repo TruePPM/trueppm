@@ -1,7 +1,7 @@
 # ADR-0152: Real-time card-mutation delta broadcast (field-level `task_updated`)
 
 ## Status
-Proposed
+Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: def broadcast_task_updated)
 
 ## Context
 Issue #327. Today every server-side task mutation already schedules a

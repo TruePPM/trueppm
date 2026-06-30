@@ -1,7 +1,7 @@
 # ADR-0184: RBAC defense-in-depth permission classes and the Viewer WebSocket-read decision
 
 ## Status
-Proposed
+Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: IsTaskScopeManager)
 
 ## Context
 

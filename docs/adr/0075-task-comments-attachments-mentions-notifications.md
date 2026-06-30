@@ -1,6 +1,6 @@
 # ADR-0075: Task Attachments, Comments, @Mentions, and Notification Surface (OSS Foundation for #476)
 
-## Status: Proposed
+## Status: Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: class TaskComment)
 
 ## Context
 

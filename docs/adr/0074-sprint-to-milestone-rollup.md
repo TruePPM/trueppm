@@ -1,7 +1,7 @@
 # ADR-0074: Sprint → Milestone Rollup (OSS, 0.2)
 
 ## Status
-Proposed (2026-05-19)
+Accepted (2026-05-19) — implemented on main; status corrected 2026-06-30 after ADR audit (verified: batch_compute_milestone_rollup)
 
 ## Context
 

@@ -1,7 +1,7 @@
 # ADR-0030: P3M Navigation Shell Split — OSS Single-Program vs. Enterprise Portfolio Landing
 
 ## Status
-Proposed
+Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: ProjectOverviewPage)
 
 ## Context
 

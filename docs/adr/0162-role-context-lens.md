@@ -1,7 +1,7 @@
 # ADR-0162: Role-context lens — a presentation-only PM / Scrum Master / Unified view switcher
 
 ## Status
-Proposed
+Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: role_context)
 
 ## Context
 

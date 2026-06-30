@@ -1,7 +1,7 @@
 # ADR-0175: Project Monte Carlo Run Persistence and Forecast History
 
 ## Status
-Proposed
+Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: class MonteCarloRun)
 
 ## Context
 

@@ -70,7 +70,7 @@ audit that logged membership instead of scope) are resolved by this design. The 
    *design constraint on the rule shape* (rules must be pure functions evaluable wherever
    task data lives), enforced now in the web client and on the sync-upload path, and
    reusable by the 0.4 mobile client.
-9. **History diff set is too narrow** (ADR-0098, task-history-endpoint-dead-view): `wbs_path`
+9. **History diff set is too narrow** (#874, task-history-endpoint-dead-view): `wbs_path`
    and `sprint` are not currently diffed, producing bare "Updated" pills. Guardrail mutations
    must write `history_change_reason` so the future timeline can classify them.
 
@@ -234,7 +234,7 @@ both via `ENUM_NAME_OVERRIDES` (known regression, see project memory).
   (with the team-ack gate + banner enforced in OSS). OSS must never import `trueppm_enterprise`.
 - **Follow-up ADR**: mid-sprint scope-injection **approve-gate** (pending-acceptance state,
   commitment/velocity exclusion, accept/reject + RBAC).
-- **Coordinate with ADR-0098** (task-history-endpoint-dead-view, #874): add `sprint`/`wbs_path`
+- **Coordinate with #874** (task-history-endpoint-dead-view): add `sprint`/`wbs_path`
   to the history diff set and write `history_change_reason` on overrides so they are not bare
   "Updated" pills.
 

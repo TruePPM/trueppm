@@ -1,7 +1,7 @@
 # ADR-0132: Data-Date-Aware (Progress-Aware) Forecasting
 
 ## Status
-Proposed
+Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: status_date)
 
 ## Context
 

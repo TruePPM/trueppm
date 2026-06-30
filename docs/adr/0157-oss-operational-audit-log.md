@@ -1,7 +1,7 @@
 # ADR-0157: OSS Operational Audit Log + Enterprise-Signing Extension Point
 
 ## Status
-Proposed
+Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: class AuditEvent)
 
 ## Context
 

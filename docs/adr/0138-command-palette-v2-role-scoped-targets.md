@@ -1,7 +1,7 @@
 # ADR-0138: Command Palette v2 — Role-Scoped Jump Targets + App-Wide Task Drawer
 
 ## Status
-Proposed
+Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: taskDrawerStore)
 
 ## Context
 The base ⌘K command palette shipped in #1166 (mount, fuzzy filter, Jump/Action

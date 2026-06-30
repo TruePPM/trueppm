@@ -1,7 +1,7 @@
 # ADR-0024: Summary Tasks and WBS Phase Rollup
 
 ## Status
-Proposed
+Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: is_summary)
 
 ## Context
 

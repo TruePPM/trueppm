@@ -1,7 +1,12 @@
 # ADR-0027: Incremental CPM recompute
 
 ## Status
-Proposed
+Accepted — implemented on main with a deviation from the design below: the incremental
+narrowing shipped at the API write-back layer (`_downstream_task_ids` in
+`apps/scheduling/tasks.py`), not as the engine-level incremental compute this ADR
+specified. The scheduler `schedule()` signature never took a `changed_task_ids`
+parameter and the `SCHEDULER_INCREMENTAL_*` threshold settings were not added. Status
+corrected 2026-06-30 after ADR audit.
 
 ## Context
 

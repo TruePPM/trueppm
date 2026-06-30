@@ -93,7 +93,7 @@ The research below is from reading the live code in this worktree, not from ADR 
    authority is bound to project membership + the team-owned action gate, and is structurally
    unreachable by the `guardrail_policy_resolving` resolver.
 
-6. **History** (ADR-0098): `sprint` and `wbs_path` are being added to the history diff set;
+6. **History** (#874): `sprint` and `wbs_path` are being added to the history diff set;
    guardrail mutations write `history_change_reason`. Reject (which clears `sprint`) must do
    the same so the timeline classifies it.
 
@@ -307,7 +307,7 @@ ADR-0101 §5's response shape.
 - **Bulk + single-tap**: provided by the four endpoints in §5 (per-item accept/reject for
   single-tap; sprint-level bulk for "accept all pending").
 - **Reject cleanly removes from sprint**: `reject_scope_change` nulls `Task.sprint` and writes
-  `history_change_reason` (ADR-0098), so the timeline shows "removed from sprint — scope
+  `history_change_reason` (#874), so the timeline shows "removed from sprint — scope
   rejected" rather than a bare "Updated" pill.
 
 ### §7 — Sprint close & lifecycle interaction
@@ -384,7 +384,7 @@ notification (Priya) — frontend-rule, tracked.
   management-inertness are OSS-enforced and have **no** policy/extension input (§3). OSS must
   never import `trueppm_enterprise`.
 - **Coordinate with**: ADR-0101 (#875, parent — assumes its §5 `record_sprint_scope_change`
-  helper + signal rename land first; this ADR is blocked-by #875) and ADR-0098 (#874 — write
+  helper + signal rename land first; this ADR is blocked-by #875) and #874 (write
   `history_change_reason` on reject so the removal is not a bare "Updated" pill).
 - **Testing** (three-layer, same MR): pytest — accept promotes into commitment + recompute
   fires; reject removes from sprint + writes history; **a non-member high-ordinal actor is 403

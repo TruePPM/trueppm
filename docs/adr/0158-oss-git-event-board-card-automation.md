@@ -1,7 +1,7 @@
 # ADR-0158: OSS Git-Event Board Card Automation (Inbound Webhook Auto-Move)
 
 ## Status
-Proposed
+Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: class BoardAutomation)
 
 ## Context
 

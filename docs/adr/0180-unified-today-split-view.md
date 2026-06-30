@@ -1,7 +1,7 @@
 # ADR-0180: Unified "Today" split view for the role-context switcher
 
 ## Status
-Proposed
+Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: TodayView)
 
 ## Context
 The role-context switcher (#412) lets a user pick a per-user *lens* — `pm`,

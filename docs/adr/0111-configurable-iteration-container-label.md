@@ -1,7 +1,7 @@
 # ADR-0111: Configurable Iteration-Container Label (Sprint / Iteration / PI / custom)
 
 ## Status
-Proposed
+Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: iteration_label)
 
 ## Context
 
