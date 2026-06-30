@@ -159,7 +159,7 @@ class MeTimeEntryDetailView(IdempotencyMixin, APIView):
         serializer.save()
         return Response(serializer.data)
 
-    @extend_schema(responses={204: OpenApiTypes.NONE})
+    @extend_schema(responses={204: OpenApiResponse(description="Entry soft-deleted; empty body.")})
     def delete(self, request: Request, pk: str) -> Response:
         entry = self._own_entry_or_404(request, pk)
         entry.soft_delete()
@@ -318,11 +318,13 @@ class MeTimerStartView(IdempotencyMixin, APIView):
         )
 
 
-class MeTimerStopView(APIView):
+class MeTimerStopView(IdempotencyMixin, APIView):
     """``POST /api/v1/me/timer/stop`` — finalize the caller's running timer (ADR-0185 §4).
 
-    Returns the created ``TimeEntry`` (``source="timer"``). Idempotent: a second stop
-    finds no timer and returns ``409`` rather than a 500 or a double-log.
+    Returns the created ``TimeEntry`` (``source="timer"``). Naturally idempotent without a
+    key — a second stop finds no timer and returns ``409`` rather than a 500 or a
+    double-log — and carries :class:`IdempotencyMixin` (matching ``MeTimerStartView``) so a
+    keyed retry replays the original ``201`` instead of racing into that 409.
     """
 
     permission_classes = [IsAuthenticated]

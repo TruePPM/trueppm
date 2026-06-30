@@ -2621,12 +2621,7 @@
                 ],
                 "responses": {
                     "204": {
-                        "content": {
-                            "application/json": {
-                                "schema": null
-                            }
-                        },
-                        "description": ""
+                        "description": "Entry soft-deleted; empty body."
                     }
                 }
             }
@@ -2714,7 +2709,7 @@
         "/api/v1/me/timer/stop": {
             "post": {
                 "operationId": "v1_me_timer_stop_create",
-                "description": "``POST /api/v1/me/timer/stop`` — finalize the caller's running timer (ADR-0185 §4).\n\nReturns the created ``TimeEntry`` (``source=\"timer\"``). Idempotent: a second stop\nfinds no timer and returns ``409`` rather than a 500 or a double-log.",
+                "description": "``POST /api/v1/me/timer/stop`` — finalize the caller's running timer (ADR-0185 §4).\n\nReturns the created ``TimeEntry`` (``source=\"timer\"``). Naturally idempotent without a\nkey — a second stop finds no timer and returns ``409`` rather than a 500 or a\ndouble-log — and carries :class:`IdempotencyMixin` (matching ``MeTimerStartView``) so a\nkeyed retry replays the original ``201`` instead of racing into that 409.",
                 "tags": [
                     "v1"
                 ],
