@@ -3,7 +3,7 @@
 
 .PHONY: help setup doctor lint typecheck test build clean up down logs admin up-prod \
         migrations-check migrations-numbering schema-check web-lint web-typecheck pre-push pre-push-checks \
-        pre-push-behind-warn pre-push-wasm \
+        pre-push-behind-warn pre-push-wasm pre-push-mobile mobile-lint mobile-typecheck \
         coverage-diff coverage-diff-scheduler coverage-diff-api coverage-diff-web \
         release-smoke wt-new wt-list wt-remove wt-prune wt-doctor
 
@@ -144,6 +144,28 @@ web-lint: ## Run the web:lint CI job locally (eslint on packages/web/src)
 web-typecheck: ## Run the web:type-check CI job locally (tsc --noEmit)
 	cd packages/web && npx tsc --noEmit
 
+mobile-lint: ## Run the mobile:lint CI job locally (eslint on packages/mobile/src)
+	cd packages/mobile && npm run lint
+
+mobile-typecheck: ## Run the mobile:type-check CI job locally (tsc --noEmit)
+	cd packages/mobile && npx tsc --noEmit
+
+pre-push-mobile: ## Run the mobile:lint + mobile:type-check CI gates locally, change-gated to packages/mobile
+	@# Mirrors pre-push-wasm: the CI mobile:lint / mobile:type-check jobs run only
+	@# on the ~few% of MRs that touch packages/mobile. Change-gated against
+	@# origin/main and skipped when packages/mobile/node_modules is absent — the
+	@# package is self-contained (not part of the shared web node_modules symlink),
+	@# so a non-mobile push stays inside the ~60s pre-push budget. Like web:lint,
+	@# eslint requires node >=18 (the documented node17 pre-push gotcha applies).
+	@if ! git diff --name-only origin/main...HEAD 2>/dev/null | grep -q '^packages/mobile/'; then \
+	  echo "→ mobile lint/type-check: no packages/mobile changes — skipped"; \
+	elif [ ! -d packages/mobile/node_modules ]; then \
+	  echo "→ mobile lint/type-check: packages/mobile/node_modules absent (run npm ci there) — skipped"; \
+	else \
+	  echo "→ mobile lint/type-check"; \
+	  cd packages/mobile && npm run lint && npx tsc --noEmit; \
+	fi
+
 pre-push-wasm: ## Run the wasm:lint CI gate locally (cargo clippy -D warnings), change-gated to packages/wasm-scheduler
 	@# Mirrors the CI wasm:lint job, which runs `cargo clippy --all-targets -- -D
 	@# warnings` and blocks the pipeline on the ~12% of MRs that touch the wasm
@@ -224,7 +246,7 @@ pre-push-behind-warn: ## Warn (non-blocking) if HEAD is behind origin/main — c
 	  fi; \
 	fi
 
-pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering schema-check pre-push-wasm ## Run pre-push gate subtargets (use via `pre-push`, not directly)
+pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering schema-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
 
 pre-push: pre-push-behind-warn ## Run pre-push CI gates in parallel (lint+typecheck, migrations, schema). Diff-coverage runs in CI only — run `make coverage-diff` to check locally.
 	@# Re-invoke ourselves with -j to fan out the independent lint/typecheck/

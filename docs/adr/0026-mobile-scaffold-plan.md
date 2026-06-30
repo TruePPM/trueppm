@@ -7,7 +7,10 @@
 > (`packages/mobile/` scaffold + Detox E2E, React Native bare), the foundation
 > the 0.4 mobile track builds on.
 
-**Status:** Planning (design-phase only — no scaffold code committed yet).
+**Status:** Accepted (scaffold landed for #94 — bare RN app skeleton,
+5-tab navigation spec, design-token parity, and the `mobile:lint` /
+`mobile:type-check` CI gates; native iOS/Android projects, WatermelonDB
+(#41), and the Detox e2e suite remain deferred follow-ups).
 **Scope:** OSS (`trueppm-suite`, Apache-2.0). Mobile is OSS. **Never** imports
 `trueppm_enterprise`.
 **Owns:** issue #94. **Feeds:** #41 (WatermelonDB schema + sync adapter), #23

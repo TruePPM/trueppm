@@ -162,6 +162,14 @@ workflow:
         - packages/web/**/*
         - .gitlab-ci.yml
 
+.rules-mobile: &rules-mobile
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/mobile/**/*
+        - .gitlab-ci.yml
+
 .rules-website: &rules-website
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
@@ -296,6 +304,26 @@ workflow:
   before_script:
     - *retry-fn
     - cd packages/web
+    - retry npm ci --prefer-offline --quiet
+
+# Mobile (bare React Native) — node-only template for the lint/type-check gates.
+# Both run on the standard node runners (no emulator/Xcode/Gradle): they only
+# need the JS/TS toolchain. The native Detox e2e jobs are deferred — they need
+# an Android-emulator (KVM) + macOS runner that the shared runners don't provide
+# (issues #29/#30; ADR-0026 §Risks). Mirrors the `.web` cache strategy: cache
+# npm's content cache, not node_modules (npm ci reinstalls every run).
+.mobile:
+  image: node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293
+  cache: &mobile-cache
+    key:
+      files:
+        - packages/mobile/package-lock.json
+      prefix: mobile-npm-cacache
+    paths:
+      - .cache/npm/
+  before_script:
+    - *retry-fn
+    - cd packages/mobile
     - retry npm ci --prefer-offline --quiet
 
 .website:
@@ -742,6 +770,13 @@ web:lint:
   script:
     - npm run lint
 
+mobile:lint:
+  extends: .mobile
+  stage: lint
+  <<: *rules-mobile
+  script:
+    - npm run lint
+
 wasm:lint:
   extends: .wasm
   stage: lint
@@ -1018,6 +1053,14 @@ mcp:typecheck:
   script:
     - cd packages/mcp
     - mypy
+
+mobile:type-check:
+  extends: .mobile
+  stage: analyze
+  needs: [mobile:lint]
+  <<: *rules-mobile
+  script:
+    - npm run typecheck
 
 wasm:build:
   # Verify the WASM crate compiles to wasm32. The pkg/ output is not passed
