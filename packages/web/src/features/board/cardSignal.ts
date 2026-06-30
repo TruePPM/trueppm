@@ -1,5 +1,5 @@
 /**
- * Worst-offender card signal classifier (#1305, ADR-0191 §4).
+ * Worst-offender card signal classifier (issue 1305, ADR-0191 §4).
  *
  * A board card carries many independent health signals (blocked, stale, critical
  * path, negative float, behind on EVM). Rendering them all at once reads as noise,
@@ -34,7 +34,7 @@ export interface CardSignalInput {
   isBlocked: boolean;
   /** Number of predecessors — surfaced as a non-lossy count on the blocked badge. */
   predecessorCount: number;
-  /** Dwell time in the current column exceeds the column SLA (issue #192). */
+  /** Dwell time in the current column exceeds the column SLA (issue 192). */
   isAging: boolean;
   /** No movement for longer than the staleness threshold (entry stamp). */
   isStalled: boolean;
@@ -49,7 +49,7 @@ export interface CardSignalInput {
    * Negative float means the task is forecast to finish past its constraint.
    */
   floatDays: number | null;
-  /** Server-owned schedule-performance band (#990), or null when no EVM data. */
+  /** Server-owned schedule-performance band (issue 990), or null when no EVM data. */
   spiBand: 'on_track' | 'at_risk' | 'behind' | null;
   /** Cost-performance index, or null when no cost data. */
   cpi: number | null;
