@@ -11,10 +11,11 @@ build/
 venv/
 env/
 
-# Mypy / Ruff / Pytest
+# Mypy / Ruff / Pytest / Hypothesis
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/
+.hypothesis/
 .coverage
 htmlcov/
 
