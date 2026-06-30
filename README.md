@@ -16,7 +16,7 @@ TruePPM removes that reconciliation. A Scrum Master and a project manager look a
 It's open source, self-hosted, and built scheduling-first: the Critical Path Method (CPM) — the math that works out which tasks actually drive your deadline — is the engine, and the agile board and sprints sit on top of it, not as a parallel system bolted on the side.
 
 > ### Status: 0.3-alpha — pre-GA, not yet production-ready
-> The engine and API are solid; the UI works but is still maturing. 0.3 is out as the `0.3.0-alpha.1` pre-release. The release line stays alpha through 0.3, and **0.4 will be the first beta**. Expect breaking API changes before then. **If you're running real teams, wait for the first beta** — we're still learning what needs to change from early feedback, and we'd rather not lock you in before we do. Kicking the tires, self-hosting a trial, or using the scheduler library? Dive in now.
+> The engine and API are solid; the UI works but is still maturing. 0.3 is out as the `0.3.0-alpha.3` pre-release. The release line stays alpha through 0.3, and **0.4 will be the first beta**. Expect breaking API changes before then. **If you're running real teams, wait for the first beta** — we're still learning what needs to change from early feedback, and we'd rather not lock you in before we do. Kicking the tires, self-hosting a trial, or using the scheduler library? Dive in now.
 
 ## Is this for you?
 
@@ -57,13 +57,15 @@ cd trueppm
 docker compose up -d
 ```
 
-Migrations and admin bootstrap run automatically on first startup (~20 seconds). Then seed a populated demo with the eight persona logins:
+Migrations and admin bootstrap run automatically on first startup (~20 seconds). Then seed a populated demo with six persona logins:
 
 ```bash
 docker compose exec api python manage.py seed_demo_project --with-personas
 ```
 
-Sign in at **http://localhost:5173** (password: `demo`) as the role you want to explore:
+The command prints the shared persona password when it finishes — in the default local dev stack (Django `DEBUG` on) that's `demo`. To pick your own, set `TRUEPPM_DEMO_PASSWORD` before seeding; on a non-debug (e.g. production) instance the seed generates a random password and prints it once instead.
+
+Sign in at **http://localhost:5173** as the role you want to explore:
 
 | Username | Role | Open this first |
 |---|---|---|
@@ -74,7 +76,7 @@ Sign in at **http://localhost:5173** (password: `demo`) as the role you want to 
 | `carlos` | Executive | Overview with forecast confidence intervals |
 | `tom` | Team Member | Board with the WIP-overload chip and his cards |
 
-Need the admin password? `docker compose exec api cat /tmp/trueppm_admin_password`.
+Need the admin account (username `admin`)? Its password is generated on first startup and written to a file — read it with `docker compose exec api cat /tmp/trueppm_admin_password`.
 
 | Service    | URL                                          |
 |------------|----------------------------------------------|
@@ -182,11 +184,12 @@ Full documentation at **[docs.trueppm.com](https://docs.trueppm.com)** (publishe
 ```
 trueppm-suite/
 ├── packages/
-│   ├── scheduler/   # CPM + Monte Carlo engine (pip: trueppm-scheduler)
-│   ├── api/         # Django 5.2 REST + Channels backend
-│   ├── web/         # React 19 + TypeScript frontend
-│   ├── helm/        # Helm 3 chart for Kubernetes deployment
-│   └── website/     # Astro Starlight documentation site
+│   ├── scheduler/      # CPM + Monte Carlo engine (pip: trueppm-scheduler)
+│   ├── wasm-scheduler/ # Rust + petgraph CPM engine compiled to WASM
+│   ├── api/            # Django 5.2 REST + Channels backend
+│   ├── web/            # React 19 + TypeScript frontend
+│   ├── helm/           # Helm 3 chart for Kubernetes deployment
+│   └── website/        # Astro Starlight documentation site
 ├── docs/            # Architecture Decision Records (source of record)
 ├── docker-compose.yml       # development stack
 └── docker-compose.prod.yml  # production stack (GHCR images + TLS)
