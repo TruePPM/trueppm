@@ -58,7 +58,8 @@ import { useCurrentUserResourceId } from '@/hooks/useCurrentUserResourceId';
 import { useBoardKeyboard } from '@/hooks/useBoardKeyboard';
 import { useBoardOverallocation } from '@/hooks/useBoardOverallocation';
 import { type BoardSortKey, type BoardViewConfig } from '@/hooks/useBoardSavedViews';
-import { wipState } from './wip';
+import { wipState, type WipState } from './wip';
+import { boardGridTemplate } from './boardGrid';
 import { useTaskDependencies } from '@/hooks/useTaskDependencies';
 import { useQueryClient } from '@tanstack/react-query';
 import { useWorkshopSession, useStartWorkshop, useEndWorkshop } from '@/hooks/useWorkshopSession';
@@ -320,6 +321,74 @@ function WipBreachChip({ state }: { state: 'at' | 'over' }) {
 }
 
 /**
+ * Collapsed-column stub for the board header (#1459, ADR-0191 Part 2).
+ *
+ * A 34px-wide rail standing in for a folded column: status dot, a label
+ * rotated to read bottom-to-top, and a count badge whose tone reflects the
+ * WIP band (neutral / at-limit amber / over-limit red). The whole stub is a
+ * button — clicking it expands the column back to full width. The WIP band is
+ * computed via the shared `wipState()` helper so the stub badge never drifts
+ * from the expanded header (#546). The glyphs are `aria-hidden`; the button's
+ * accessible name carries the column, count, and any breach.
+ */
+function ColumnStub({
+  label,
+  status,
+  count,
+  wipBand,
+  onExpand,
+}: {
+  label: string;
+  status: TaskStatus;
+  count: number;
+  wipBand: WipState;
+  onExpand: () => void;
+}) {
+  const dotClass = COLUMN_DOT_CLASS[status] ?? 'bg-neutral-text-disabled';
+  // Pair the `-bg` pill fill with the matching full semantic token for text +
+  // border (rule 8b) — `bg-semantic-critical text-white` failed WCAG 1.4.3 in
+  // dark mode (white on #F87171 ≈ 2.8:1). The `-bg` tints are pre-computed
+  // per-mode in globals.css so the badge stays AA in both themes.
+  const badgeClass =
+    wipBand === 'over'
+      ? 'bg-semantic-critical-bg text-semantic-critical border-semantic-critical/40'
+      : wipBand === 'at'
+        ? 'bg-semantic-at-risk-bg text-semantic-at-risk border-semantic-at-risk/40'
+        : 'bg-neutral-surface text-neutral-text-secondary border-neutral-border';
+  return (
+    <button
+      type="button"
+      onClick={onExpand}
+      title={`Expand ${label}`}
+      data-testid={`column-stub-${status}`}
+      data-wip-state={wipBand}
+      aria-label={`Expand ${label} column, ${count} task${count !== 1 ? 's' : ''}${
+        wipBand === 'over' ? ', over WIP limit' : wipBand === 'at' ? ', at WIP limit' : ''
+      }`}
+      className="h-full w-full py-2.5 flex flex-col items-center gap-2 bg-neutral-surface-sunken
+        hover:bg-neutral-surface transition-colors
+        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset"
+    >
+      <span aria-hidden="true" className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotClass}`} />
+      <span
+        aria-hidden="true"
+        className="text-xs font-semibold text-neutral-text-primary whitespace-nowrap tracking-wide
+          [writing-mode:vertical-rl] rotate-180"
+      >
+        {label}
+      </span>
+      <span
+        aria-hidden="true"
+        className={`tppm-mono text-xs font-bold min-w-[18px] px-1 py-px rounded-full border text-center ${badgeClass}`}
+      >
+        {count}
+        {wipBand === 'over' ? '!' : ''}
+      </span>
+    </button>
+  );
+}
+
+/**
  * Confirm-prompt guard for moving a task into a column at or over its WIP
  * limit (#232). Returns ``true`` when the move should proceed (under limit
  * or user confirmed) and ``false`` when it should be cancelled.
@@ -444,18 +513,22 @@ const BOARD_ZOOM_VARS: Record<BoardZoom, CSSProperties> = {
     '--board-phase-col': '150px',
     '--board-col-gap': '0.25rem',
     '--board-card-gap': '0.25rem',
+    '--board-col-w': '208px',
   } as CSSProperties,
   normal: {
     '--board-phase-col': '188px',
     '--board-col-gap': '0.5rem',
     '--board-card-gap': '0.375rem',
+    '--board-col-w': '272px',
   } as CSSProperties,
   large: {
     '--board-phase-col': '224px',
     '--board-col-gap': '0.75rem',
     '--board-card-gap': '0.625rem',
+    '--board-col-w': '336px',
   } as CSSProperties,
 };
+
 
 function BoardCell({
   phaseId,
@@ -583,6 +656,14 @@ interface PhaseLaneProps {
   density: BoardDensity;
   collapsed: boolean;
   onToggleCollapse: () => void;
+  /** Columns folded to stubs board-wide (#1459). */
+  collapsedColumns: Set<TaskStatus>;
+  /** Expand a folded column from a lane stub cell (#1459). */
+  onExpandColumn: (status: TaskStatus) => void;
+  /** This lane is the active focus target (#1460). */
+  focused: boolean;
+  /** Toggle phase-lane focus mode on this lane (#1460). */
+  onToggleFocus: () => void;
   onMenuMove: (task: Task, newStatus: TaskStatus) => void;
   // Optional: assignee-grouped lanes (324) pass none — a lane id there is a
   // resource, not a parent, so the add-task affordance is suppressed.
@@ -620,6 +701,10 @@ function PhaseLane({
   density,
   collapsed,
   onToggleCollapse,
+  collapsedColumns,
+  onExpandColumn,
+  focused,
+  onToggleFocus,
   onMenuMove,
   onAddTask,
   focusedCardId,
@@ -642,7 +727,6 @@ function PhaseLane({
   const avg = phaseProgress(phase);
   const committedTaskCount = phase.tasks.filter(isTaskScheduled).length;
   const color = phaseColor(phase.id);
-  const colCount = columns.length;
   // Synthetic phase-less Project Tasks lane (#386 / #387): the only way the
   // 'root' lane has zero tasks is when the `phases` useMemo injected it
   // because the project has no committed structure but at least one BACKLOG
@@ -694,6 +778,36 @@ function PhaseLane({
     </button>
   );
 
+  // Phase-lane focus toggle (#1460, ADR-0191 Part 3). Zooms the board to this
+  // one lane (others hidden) via the ?focus= URL param; pressing it again, or
+  // the focus banner's "Exit focus", clears it. Rendered in the lane meta
+  // header row so the affordance sits with the phase it scopes to.
+  const focusToggle = (
+    <button
+      type="button"
+      onClick={onToggleFocus}
+      title={focused ? 'Exit focus' : `Focus on ${phase.name}`}
+      data-testid={`focus-lane-${phase.id}`}
+      aria-pressed={focused}
+      aria-label={focused ? `Exit focus on ${phase.name}` : `Focus on ${phase.name}`}
+      className={[
+        'relative flex-shrink-0 w-[22px] h-[22px] flex items-center justify-center rounded-control border',
+        focused
+          ? 'border-brand-primary bg-brand-primary/10 text-brand-primary'
+          : 'border-neutral-border bg-neutral-surface text-neutral-text-secondary hover:border-brand-primary/50 hover:text-brand-primary',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+        // 22px visual control + an invisible expander to reach the 44px touch
+        // target (rule 5) without disturbing the dense lane-meta layout.
+        "before:absolute before:inset-[-11px] before:content-['']",
+      ].join(' ')}
+    >
+      <svg aria-hidden="true" width={13} height={13} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5}>
+        <circle cx="8" cy="8" r="2.2" />
+        <path d="M8 1v2.4M8 12.6V15M1 8h2.4M12.6 8H15" strokeLinecap="round" />
+      </svg>
+    </button>
+  );
+
   return (
     <div
       role="group"
@@ -704,83 +818,115 @@ function PhaseLane({
         <PhaseMilestoneRail
           milestones={milestones}
           columns={columns}
+          collapsedColumns={collapsedColumns}
           onOpenTask={onOpenMilestone}
         />
       )}
       <div
         id={`phase-${phase.id}-content`}
-        className="grid gap-[var(--board-col-gap,0.5rem)] p-2"
+        className="grid gap-[var(--board-col-gap,0.5rem)] p-2 w-max min-w-full"
         style={{
-          gridTemplateColumns: `var(--board-phase-col,188px) repeat(${colCount}, minmax(0, 1fr))`,
+          gridTemplateColumns: boardGridTemplate(columns, collapsedColumns),
         }}
       >
-        {/* Phase meta — LaneMeta atom (issue #208) */}
-        <div className="rounded-card overflow-hidden border border-neutral-border/40 min-w-0">
-          <LaneMeta
-            phaseId={phase.id}
-            phaseName={phase.name}
-            avgProgress={avg}
-            taskCount={phase.tasks.length}
-            committedTaskCount={committedTaskCount}
-            railColor={color}
-            workshop={workshop}
-            onPhaseRename={onPhaseRename ? (name) => onPhaseRename(phase.id, name) : undefined}
-            dragHandleListeners={dragHandleListeners}
-            onAddTask={onAddTask ? () => onAddTask(phase.id, phase.name, isSynthetic) : undefined}
-            addTaskLabel={isSynthetic ? 'Add to backlog' : undefined}
-            collapseToggle={collapseToggle}
-            showCost={showCost}
-            phaseBudgetAtCompletion={phaseBudgetAtCompletion}
-            phaseActualCost={phaseActualCost}
-          />
-          <div className="px-[11px] pb-2">
-            <PhaseSummaryChips phase={phase} />
+        {/* Phase meta — LaneMeta atom (issue #208). The outer wrapper is the
+            sticky-left sidebar (#1458): pinned during horizontal scroll, with
+            a sunken background that matches the lane so body cards passing
+            behind it (and behind the card's rounded corners) stay hidden. */}
+        <div className="sticky left-0 z-[5] bg-neutral-surface-sunken">
+          <div className="rounded-card overflow-hidden border border-neutral-border/40 min-w-0 bg-neutral-surface h-full">
+            <LaneMeta
+              phaseId={phase.id}
+              phaseName={phase.name}
+              avgProgress={avg}
+              taskCount={phase.tasks.length}
+              committedTaskCount={committedTaskCount}
+              railColor={color}
+              workshop={workshop}
+              onPhaseRename={onPhaseRename ? (name) => onPhaseRename(phase.id, name) : undefined}
+              dragHandleListeners={dragHandleListeners}
+              onAddTask={onAddTask ? () => onAddTask(phase.id, phase.name, isSynthetic) : undefined}
+              addTaskLabel={isSynthetic ? 'Add to backlog' : undefined}
+              collapseToggle={collapseToggle}
+              focusToggle={focusToggle}
+              showCost={showCost}
+              phaseBudgetAtCompletion={phaseBudgetAtCompletion}
+              phaseActualCost={phaseActualCost}
+            />
+            <div className="px-[11px] pb-2">
+              <PhaseSummaryChips phase={phase} />
+            </div>
           </div>
         </div>
 
-        {/* Column cells */}
-        {collapsed
-          ? columns.map((col) => {
-              const count = tasksByStatus[col.status]?.length ?? 0;
-              return (
-                <div
-                  key={col.status}
-                  className="bg-neutral-surface-sunken rounded-card p-2 min-h-[56px] flex items-center justify-center"
-                >
-                  <span className="text-xs text-neutral-text-disabled">
-                    {count > 0 ? `${count} task${count !== 1 ? 's' : ''}` : '—'}
-                  </span>
-                </div>
-              );
-            })
-          : columns.map((col) => (
-              <BoardCell
+        {/* Column cells. A column collapsed board-wide (#1459) renders as a
+            narrow empty stub track in every lane so the lane stays aligned
+            with the stubbed header; clicking the header stub expands it. */}
+        {columns.map((col) => {
+          if (collapsedColumns.has(col.status)) {
+            const count = tasksByStatus[col.status]?.length ?? 0;
+            return (
+              <button
                 key={col.status}
-                phaseId={phase.id}
-                status={col.status}
-                tasks={tasksByStatus[col.status] ?? []}
-                isOver={overCell === `${phase.id}:${col.status}`}
-                isDragActive={isDragActive}
-                showWip={showWip}
-                showColTints={showColTints}
-                density={density}
-                wipLimit={col.wipLimit}
-                onMenuMove={onMenuMove}
-                columns={columns}
-                focusedCardId={focusedCardId}
-                highlightedTaskIds={highlightedTaskIds}
-                overallocByResourcePerTask={overallocByResourcePerTask}
-                onCardFocus={onCardFocus}
-                onShowDeps={onShowDeps}
-                onShowRisks={onShowRisks}
-                onChainHover={onChainHover}
-                onCardClick={onCardClick}
-                showEvm={showEvm}
-                showCost={showCost}
-                scopeActions={scopeActions}
-                readOnly={readOnly}
-              />
-            ))}
+                type="button"
+                onClick={() => onExpandColumn(col.status)}
+                title={`Expand ${col.label}`}
+                aria-label={`Expand ${col.label} column`}
+                data-testid={`lane-stub-${phase.id}-${col.status}`}
+                className="bg-neutral-surface-sunken/60 border-l border-neutral-border/30
+                  hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2
+                  focus-visible:ring-brand-primary focus-visible:ring-inset"
+              >
+                {count > 0 && (
+                  <span className="sr-only">
+                    {count} task{count !== 1 ? 's' : ''}
+                  </span>
+                )}
+              </button>
+            );
+          }
+          if (collapsed) {
+            const count = tasksByStatus[col.status]?.length ?? 0;
+            return (
+              <div
+                key={col.status}
+                className="bg-neutral-surface-sunken rounded-card p-2 min-h-[56px] flex items-center justify-center"
+              >
+                <span className="text-xs text-neutral-text-disabled">
+                  {count > 0 ? `${count} task${count !== 1 ? 's' : ''}` : '—'}
+                </span>
+              </div>
+            );
+          }
+          return (
+            <BoardCell
+              key={col.status}
+              phaseId={phase.id}
+              status={col.status}
+              tasks={tasksByStatus[col.status] ?? []}
+              isOver={overCell === `${phase.id}:${col.status}`}
+              isDragActive={isDragActive}
+              showWip={showWip}
+              showColTints={showColTints}
+              density={density}
+              wipLimit={col.wipLimit}
+              onMenuMove={onMenuMove}
+              columns={columns}
+              focusedCardId={focusedCardId}
+              highlightedTaskIds={highlightedTaskIds}
+              overallocByResourcePerTask={overallocByResourcePerTask}
+              onCardFocus={onCardFocus}
+              onShowDeps={onShowDeps}
+              onShowRisks={onShowRisks}
+              onChainHover={onChainHover}
+              onCardClick={onCardClick}
+              showEvm={showEvm}
+              showCost={showCost}
+              scopeActions={scopeActions}
+              readOnly={readOnly}
+            />
+          );
+        })}
       </div>
     </div>
   );
@@ -865,6 +1011,74 @@ function useBoardCollapsedLanes(projectId: string) {
   }, [storageKey]);
 
   return { collapsedIds, toggle, collapseAll, expandAll };
+}
+
+/**
+ * Persist collapsed *column* (status) IDs per project (#1459, ADR-0191 Part 2).
+ *
+ * Mirrors `useBoardCollapsedLanes` but keyed on TaskStatus and stored under a
+ * sibling localStorage key. Collapsing is a vertical operation — a column
+ * folded here renders as a stub across every phase lane — so the state is
+ * board-wide, not per-lane. localStorage-only by ADR-0191 (no server model);
+ * the blob is a plain string[] of statuses, forward-compatible because an
+ * unknown status simply never matches a rendered column.
+ */
+function useBoardCollapsedColumns(projectId: string) {
+  const storageKey = `trueppm.board.${projectId}.collapsedColumns`;
+
+  const [collapsedColumns, setCollapsedColumns] = useState<Set<TaskStatus>>(() => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      return new Set<TaskStatus>(raw ? (JSON.parse(raw) as TaskStatus[]) : []);
+    } catch {
+      return new Set<TaskStatus>();
+    }
+  });
+
+  const persist = useCallback(
+    (next: Set<TaskStatus>) => {
+      try {
+        localStorage.setItem(storageKey, JSON.stringify([...next]));
+      } catch {
+        /* ignore */
+      }
+    },
+    [storageKey],
+  );
+
+  const toggleColumn = useCallback(
+    (status: TaskStatus) => {
+      setCollapsedColumns((prev) => {
+        const next = new Set(prev);
+        if (next.has(status)) next.delete(status);
+        else next.add(status);
+        persist(next);
+        return next;
+      });
+    },
+    [persist],
+  );
+
+  const expandColumn = useCallback(
+    (status: TaskStatus) => {
+      setCollapsedColumns((prev) => {
+        if (!prev.has(status)) return prev;
+        const next = new Set(prev);
+        next.delete(status);
+        persist(next);
+        return next;
+      });
+    },
+    [persist],
+  );
+
+  const expandAllColumns = useCallback(() => {
+    const empty = new Set<TaskStatus>();
+    persist(empty);
+    setCollapsedColumns(empty);
+  }, [persist]);
+
+  return { collapsedColumns, toggleColumn, expandColumn, expandAllColumns };
 }
 
 /**
@@ -1315,6 +1529,60 @@ export function BoardView() {
       { replace: true },
     );
   }, [setSearchParams]);
+  // Phase-lane focus mode (#1460, ADR-0191 Part 3). Like ?standup=, the focused
+  // phase lives in the URL (?focus=<phaseId>) so the zoomed-in view is
+  // shareable to a teammate or projector tab and survives refresh. Other URL
+  // scope params (?sprint=, ?q=) are preserved by the functional updater, so a
+  // focus link keeps the active-sprint scope alongside it (VoC: Alex).
+  const focusedLanePhaseId = searchParams.get('focus');
+  const setFocusLane = useCallback(
+    (phaseId: string) => {
+      setSearchParams((prev: URLSearchParams) => {
+        prev.set('focus', phaseId);
+        return prev;
+      });
+    },
+    [setSearchParams],
+  );
+  const exitFocusLane = useCallback(() => {
+    setSearchParams((prev: URLSearchParams) => {
+      prev.delete('focus');
+      return prev;
+    });
+  }, [setSearchParams]);
+  const toggleFocusLane = useCallback(
+    (phaseId: string) => {
+      if (focusedLanePhaseId === phaseId) exitFocusLane();
+      else setFocusLane(phaseId);
+    },
+    [focusedLanePhaseId, exitFocusLane, setFocusLane],
+  );
+  // WIP-breach popover anchored in the collapsed-columns banner (#1459, VoC:
+  // Alex) — surfaces which folded columns are over/at their WIP limit so the
+  // breach signal isn't lost when a column is stubbed.
+  const [wipPopoverOpen, setWipPopoverOpen] = useState(false);
+  // Anchors the WIP popover + its trigger so an outside pointerdown or Escape
+  // dismisses it and returns focus to the trigger (ux-review #1457 — a11y).
+  const wipPopoverRef = useRef<HTMLDivElement>(null);
+  const wipTriggerRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!wipPopoverOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (!wipPopoverRef.current?.contains(e.target as Node)) setWipPopoverOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setWipPopoverOpen(false);
+        wipTriggerRef.current?.focus();
+      }
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [wipPopoverOpen]);
   // editTaskId opens the unified TaskFormModal in edit mode (issue #305).
   // The popover's "Edit" footer action sets this; the modal owns the rest.
   const [editTaskId, setEditTaskId] = useState<string | null>(null);
@@ -1406,6 +1674,8 @@ export function BoardView() {
     collapseAll,
     expandAll,
   } = useBoardCollapsedLanes(projectId);
+  const { collapsedColumns, toggleColumn, expandColumn, expandAllColumns } =
+    useBoardCollapsedColumns(projectId);
   const { density, setDensity, isMobile } = useBoardDensity();
   const toolbarPrefs = useBoardToolbarPrefs();
   // Effective swimlane grouping (324). Workshop mode authors WBS phase
@@ -2145,7 +2415,11 @@ export function BoardView() {
 
   const moveFocusInPhase = useCallback(
     (direction: 'left' | 'right') => {
-      const visibleColumns = COLUMNS.map((c) => c.status);
+      // Skip columns folded to stubs (#1459) — keyboard traversal should only
+      // land on columns the user can actually see cards in.
+      const visibleColumns = COLUMNS.map((c) => c.status).filter(
+        (status) => !collapsedColumns.has(status),
+      );
       if (visibleColumns.length === 0) return;
       const activePhaseId = focusedPhaseId ?? phases[0]?.id;
       if (!activePhaseId) return;
@@ -2168,7 +2442,7 @@ export function BoardView() {
       }
       // No non-empty column in this phase — leave focus untouched.
     },
-    [COLUMNS, focusedColumn, focusedPhaseId, phases, phaseTaskMap],
+    [COLUMNS, collapsedColumns, focusedColumn, focusedPhaseId, phases, phaseTaskMap],
   );
 
   // While any b3 overlay is open, only Esc → onCloseOverlay should fire; nav keys
@@ -2368,6 +2642,156 @@ export function BoardView() {
               grid; drag-to-assign is disabled board-wide (see `readOnly`). */}
           {readOnly && projectId && <ClosedSprintBanner projectId={projectId} />}
 
+          {/* Phase-lane focus banner (#1460, ADR-0191 Part 3) — keeps focus
+              mode inescapable (mirrors the My-tasks / Tech-debt filter chips) so
+              a board zoomed to one lane never reads as "lost lanes". A stale
+              ?focus= for a phase that no longer exists self-hides. */}
+          {focusedLanePhaseId && phases.some((p) => p.id === focusedLanePhaseId) && (
+            <div
+              className="flex items-center gap-2 px-3 py-1.5 text-xs
+                bg-brand-primary/5 border-b border-brand-primary/20 text-brand-primary"
+              role="status"
+              data-testid="focus-banner"
+            >
+              <svg aria-hidden="true" width={12} height={12} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5}>
+                <circle cx="8" cy="8" r="2.2" />
+                <path d="M8 1v2.4M8 12.6V15M1 8h2.4M12.6 8H15" strokeLinecap="round" />
+              </svg>
+              <span>
+                Focused on{' '}
+                <strong className="font-semibold">
+                  {phases.find((p) => p.id === focusedLanePhaseId)?.name}
+                </strong>{' '}
+                · other lanes hidden
+              </span>
+              <button
+                type="button"
+                onClick={exitFocusLane}
+                data-testid="exit-focus"
+                className="ml-1 underline hover:no-underline
+                  focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none rounded-control"
+              >
+                Exit focus →
+              </button>
+            </div>
+          )}
+
+          {/* Collapsed-columns banner (#1459, ADR-0191 Part 2) — count + bulk
+              expand, plus a tappable WIP indicator that pops a list of folded
+              columns breaching their limit so the breach signal survives the
+              collapse (VoC: Alex). */}
+          {collapsedColumns.size > 0 &&
+            (() => {
+              const collapsedList = COLUMNS.filter((c) => collapsedColumns.has(c.status));
+              const breaching = collapsedList
+                .map((c) => ({ col: c, band: wipState(totalByStatus[c.status], c.wipLimit) }))
+                .filter(({ band }) => band === 'at' || band === 'over');
+              const overCount = breaching.filter((b) => b.band === 'over').length;
+              const atCount = breaching.length - overCount;
+              // Tone + wording follow the worst band present (rule 159): any
+              // over-limit column → critical red; only at-limit → at-risk amber.
+              // The label names the actual band — never call an at-limit column
+              // "over" (ux-review #1457).
+              const worstOver = overCount > 0;
+              const breachLabel =
+                overCount > 0 && atCount === 0
+                  ? `${overCount} over WIP`
+                  : atCount > 0 && overCount === 0
+                    ? `${atCount} at WIP limit`
+                    : `${breaching.length} at/over WIP`;
+              return (
+                <div
+                  ref={wipPopoverRef}
+                  className="relative flex items-center gap-2 px-3 py-1.5 text-xs
+                    bg-neutral-surface-sunken border-b border-neutral-border/60 text-neutral-text-secondary"
+                  role="status"
+                  data-testid="collapsed-columns-banner"
+                >
+                  <span aria-hidden="true">⊟</span>
+                  <span>
+                    {collapsedColumns.size} column{collapsedColumns.size !== 1 ? 's' : ''} collapsed
+                  </span>
+                  {breaching.length > 0 && (
+                    <button
+                      ref={wipTriggerRef}
+                      type="button"
+                      onClick={() => setWipPopoverOpen((v) => !v)}
+                      aria-expanded={wipPopoverOpen}
+                      aria-haspopup="dialog"
+                      aria-controls="collapsed-wip-popover"
+                      data-testid="collapsed-wip-trigger"
+                      className={`flex items-center gap-1 px-1.5 py-px rounded-chip border font-medium
+                        focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none ${
+                          worstOver
+                            ? 'border-semantic-critical/40 bg-semantic-critical-bg text-semantic-critical'
+                            : 'border-semantic-at-risk/40 bg-semantic-at-risk-bg text-semantic-at-risk'
+                        }`}
+                    >
+                      <span aria-hidden="true">⚠</span>
+                      {breachLabel}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={expandAllColumns}
+                    data-testid="expand-all-columns"
+                    className="ml-auto underline hover:no-underline text-brand-primary
+                      focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none rounded-control"
+                  >
+                    Expand all →
+                  </button>
+                  {wipPopoverOpen && breaching.length > 0 && (
+                    <div
+                      id="collapsed-wip-popover"
+                      role="dialog"
+                      aria-label="Collapsed columns at or over WIP limit"
+                      data-testid="collapsed-wip-popover"
+                      className="absolute top-[calc(100%+4px)] left-3 z-30 min-w-[200px]
+                        rounded-card border border-neutral-border bg-neutral-surface p-2 shadow-pop"
+                    >
+                      <p className="text-xs font-semibold text-neutral-text-primary mb-1.5">
+                        WIP limit status
+                      </p>
+                      <ul className="flex flex-col gap-1">
+                        {breaching.map(({ col, band }) => (
+                          <li key={col.status}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                toggleColumn(col.status);
+                                setWipPopoverOpen(false);
+                              }}
+                              aria-label={`Expand ${col.label} column, ${totalByStatus[col.status]} of ${col.wipLimit}, ${
+                                band === 'over' ? 'over limit' : 'at limit'
+                              }`}
+                              className="w-full flex items-center gap-2 px-1.5 py-1 rounded-control text-left
+                                hover:bg-neutral-surface-sunken focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset focus-visible:outline-none"
+                            >
+                              <span
+                                aria-hidden="true"
+                                className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                                  COLUMN_DOT_CLASS[col.status] ?? 'bg-neutral-text-disabled'
+                                }`}
+                              />
+                              <span className="flex-1 text-neutral-text-primary">{col.label}</span>
+                              <span
+                                aria-hidden="true"
+                                className={`tppm-mono text-xs font-bold ${
+                                  band === 'over' ? 'text-semantic-critical' : 'text-semantic-at-risk'
+                                }`}
+                              >
+                                {totalByStatus[col.status]}/{col.wipLimit}
+                              </span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
           {/* Body — backlog surface (rail | drawer | queue) + scrolling phase
               grid. The rail sits left of the grid (flex-row); the drawer sits
               above it (flex-col, full width); the queue replaces both.
@@ -2474,18 +2898,41 @@ export function BoardView() {
                     boardCadence={projectDetail?.board_cadence}
                   />
                 )}
-                {/* Sticky column headers */}
+                {/* Sticky 2-tier header (#1458, ADR-0191 Part 1). The header row
+                    pins on vertical scroll (sticky top); the "Phase" corner cell
+                    additionally pins on horizontal scroll (sticky left) so it
+                    stays over the lane sidebar. Z-order: corner (z-20) > header
+                    row (z-10) > lane sidebar (z-[5]) > body cells. The header
+                    stays at z-10 (not higher) so it never paints over the
+                    toolbar's portaled menus. `w-max min-w-full` makes the
+                    fixed-width tracks overflow the scroll container
+                    horizontally rather than squishing. */}
                 <div
-                  className="grid gap-[var(--board-col-gap,0.5rem)] px-2 py-1.5 border-b-2 border-neutral-border/60 bg-neutral-surface sticky top-0 z-10"
+                  className="grid gap-[var(--board-col-gap,0.5rem)] px-2 py-1.5 border-b-2 border-neutral-border/60 bg-neutral-surface sticky top-0 z-10 w-max min-w-full"
                   style={{
-                    gridTemplateColumns: `var(--board-phase-col,188px) repeat(${COLUMNS.length}, minmax(0, 1fr))`,
+                    gridTemplateColumns: boardGridTemplate(COLUMNS, collapsedColumns),
                   }}
                 >
-                  <div className="text-xs uppercase tracking-wide text-neutral-text-disabled px-2">
+                  <div className="sticky left-0 z-20 bg-neutral-surface text-xs uppercase tracking-wide text-neutral-text-disabled px-2 flex items-center">
                     Phase
                   </div>
                   {COLUMNS.map((col) => {
                     const count = totalByStatus[col.status];
+                    // Folded column (#1459) — render the narrow stub in place of
+                    // the full header cell. The stub carries the WIP-breach tone
+                    // so the signal survives collapse.
+                    if (collapsedColumns.has(col.status)) {
+                      return (
+                        <ColumnStub
+                          key={col.status}
+                          label={col.label}
+                          status={col.status}
+                          count={count}
+                          wipBand={showWip ? wipState(count, col.wipLimit) : 'none'}
+                          onExpand={() => toggleColumn(col.status)}
+                        />
+                      );
+                    }
                     const state = showWip ? wipState(count, col.wipLimit) : 'none';
                     // A WIP breach is a signal, not an opt-in detail (issue 1188 /
                     // ADR-0130 D2 / VoC Alex): the breach chip + the column's accessible name
@@ -2539,6 +2986,23 @@ export function BoardView() {
                           {showWip && col.wipLimit != null && (
                             <WipBadge count={count} limit={col.wipLimit} />
                           )}
+                          {/* Collapse-to-stub control (#1459). Folds this column
+                              across every lane; the header stub expands it back. */}
+                          <button
+                            type="button"
+                            onClick={() => toggleColumn(col.status)}
+                            title={`Collapse ${col.label}`}
+                            aria-label={`Collapse ${col.label} column`}
+                            data-testid={`collapse-column-${col.status}`}
+                            className="relative flex-shrink-0 w-[18px] h-[18px] flex items-center justify-center rounded-control
+                              text-neutral-text-disabled hover:text-brand-primary hover:bg-brand-primary/10
+                              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+                              before:absolute before:inset-[-13px] before:content-['']"
+                          >
+                            <svg aria-hidden="true" width={11} height={11} viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M7.5 2.5L4 6l3.5 3.5M11 2.5L7.5 6 11 9.5" />
+                            </svg>
+                          </button>
                         </span>
                       </div>
                     );
@@ -2548,6 +3012,13 @@ export function BoardView() {
                 {/* Phase lanes */}
                 {(() => {
                   const filteredPhases = sortedPhases.filter((phase) => {
+                    // Phase-lane focus mode (#1460) — when a lane is focused,
+                    // render only that lane. Filtering to one lane supersedes
+                    // every other lane-visibility rule below. A stale ?focus=
+                    // (phase no longer present) falls through and shows all.
+                    if (focusedLanePhaseId && sortedPhases.some((p) => p.id === focusedLanePhaseId)) {
+                      return phase.id === focusedLanePhaseId;
+                    }
                     const phaseCells = phaseTaskMap.get(phase.id);
                     // After cpOnly / dueSoonDays / mineActive filtering, hide
                     // phases with no visible tasks. Without this the empty-state
@@ -2583,6 +3054,10 @@ export function BoardView() {
                     density,
                     collapsed: collapsedIds.has(phase.id),
                     onToggleCollapse: () => toggleCollapse(phase.id),
+                    collapsedColumns,
+                    onExpandColumn: expandColumn,
+                    focused: focusedLanePhaseId === phase.id,
+                    onToggleFocus: () => toggleFocusLane(phase.id),
                     onMenuMove: handleMenuMove,
                     // Assignee (324) and epic (364) lanes can't host a new task (a
                     // lane id is a resource or an epic, not a WBS parent) — suppress
