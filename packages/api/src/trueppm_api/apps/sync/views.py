@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from functools import partial
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from django.conf import settings
 from django.db import IntegrityError, connection, transaction
@@ -47,9 +47,14 @@ from trueppm_api.apps.sync.serializers import (
     SyncTaskRecurrenceRuleSerializer,
     SyncTaskSerializer,
     SyncTaskSuggestedAssigneeSerializer,
+    SyncTimeEntrySerializer,
     SyncUploadRequestSerializer,
 )
 from trueppm_api.apps.sync.ws_auth import TICKET_TTL_SECONDS, issue_ticket
+from trueppm_api.apps.timetracking.models import TimeEntry
+
+if TYPE_CHECKING:
+    from django.contrib.auth.models import User as _User
 
 
 class WebSocketTicketView(IdempotencyMixin, APIView):
@@ -228,6 +233,18 @@ class ProjectSyncView(IdempotencyMixin, APIView):
                     task__project=project, server_version__gt=since
                 ).select_related("task"),
                 SyncTaskRecurrenceRuleSerializer,
+            ),
+            # Time entries are scoped to the CALLER's own rows (ADR-0185 §6): the
+            # per-project delta never leaks a colleague's entries, mirroring the
+            # /me/ REST surface's non-surveillance discipline. A soft-deleted entry
+            # yields a tombstone through the standard _collect path.
+            "time_entries": self._collect(
+                TimeEntry.objects.filter(
+                    task__project=project,
+                    user=cast("_User", request.user),
+                    server_version__gt=since,
+                ).select_related("task"),
+                SyncTimeEntrySerializer,
             ),
         }
 
@@ -428,7 +445,7 @@ class ProjectSyncView(IdempotencyMixin, APIView):
 
         Reads the denormalized ``Project.last_sync_version`` column, maintained by
         the watermark receivers (``apps/sync/receivers.py``) to equal
-        :meth:`_snapshot_max_version`. The 12-table union is kept as a one-release
+        :meth:`_snapshot_max_version`. The 13-table union is kept as a one-release
         fallback behind ``settings.SYNC_WATERMARK_USE_COLUMN`` (default ``True``)
         in case a drift bug is found in production; a conformance test asserts the
         two agree.
@@ -499,9 +516,15 @@ class ProjectSyncView(IdempotencyMixin, APIView):
                       FROM projects_taskrecurrencerule rr
                       JOIN projects_task t ON rr.task_id = t.id
                      WHERE t.project_id = %s
+                    UNION ALL
+                    SELECT MAX(te.server_version)
+                      FROM timetracking_time_entry te
+                      JOIN projects_task t ON te.task_id = t.id
+                     WHERE t.project_id = %s
                 ) sub
                 """,
                 [
+                    project_pk,
                     project_pk,
                     project_pk,
                     project_pk,

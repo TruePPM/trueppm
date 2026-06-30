@@ -1730,6 +1730,13 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     # serialized without a request (nested serialization, tests).
     can_edit = serializers.SerializerMethodField()
     can_delete = serializers.SerializerMethodField()
+    # Server-derived "may the requesting user log time here" verdict (ADR-0185 §3).
+    # Distinct from ``can_edit``: a Member may log against any task on a project they
+    # belong to (a meeting, a colleague's task), not only their own assigned tasks.
+    # Downstream UI (#1234/#1416/#1435) gates the "+ time" affordance off this,
+    # replacing the 0.3 ``can_edit`` proxy. Calls the SAME predicate the CanLogTime
+    # permission class enforces. Fail closed: ``False`` without a request.
+    can_log_time = serializers.SerializerMethodField()
 
     class Meta:
         model = Task
@@ -1830,6 +1837,8 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             # Server-derived edit capabilities (ADR-0133, #1144)
             "can_edit",
             "can_delete",
+            # Server-derived time-log capability (ADR-0185, #1258)
+            "can_log_time",
         ]
         read_only_fields = [
             "id",
@@ -2373,6 +2382,20 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         from trueppm_api.apps.access.permissions import can_user_edit_task
 
         return can_user_edit_task(request, obj, method="DELETE")
+
+    def get_can_log_time(self, obj: Task) -> bool:
+        """Authoritative per-task time-log verdict for the requesting user (ADR-0185 §3).
+
+        Delegates to the SAME predicate the CanLogTime permission class enforces, so the
+        client's "+ time" gate can never drift from the server's rule. Fails closed to
+        ``False`` when serialized without a request (nested serialization, tests).
+        """
+        request = self.context.get("request")
+        if request is None:
+            return False
+        from trueppm_api.apps.access.permissions import can_user_log_time
+
+        return can_user_log_time(request, obj)
 
     def get_blocking_task_detail(self, obj: Task) -> dict[str, Any] | None:
         """Lightweight read of the soft ``blocking_task`` link (ADR-0124, #1135).

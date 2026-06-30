@@ -1,10 +1,10 @@
 """Maintain ``Project.last_sync_version`` from synced-row saves (ADR-0142, #822).
 
 The sync pull watermark (the response ``timestamp``) is ``MAX(server_version)``
-over a project's synced rows. Computing it per pull was a 12-table ``UNION ALL``
+over a project's synced rows. Computing it per pull was a 13-table ``UNION ALL``
 (``ProjectSyncView._snapshot_max_version``); instead it is cached on
 ``Project.last_sync_version`` and kept current here by a ``post_save`` receiver on
-each of the **exactly twelve** models that union reads.
+each of the **exactly thirteen** models that union reads.
 
 Each receiver bumps the owning project(s):
 
@@ -76,6 +76,7 @@ def register_watermark_receivers() -> None:
         TaskRecurrenceRule,
         TaskSuggestedAssignee,
     )
+    from trueppm_api.apps.timetracking.models import TimeEntry
 
     # Owner-id resolvers. Direct FKs read the id off the instance (no query);
     # indirect ones return a queryset that becomes an IN-subquery in the UPDATE.
@@ -100,6 +101,11 @@ def register_watermark_receivers() -> None:
         TaskRecurrenceRule: lambda i: Task.objects.filter(pk=i.task_id).values_list(
             "project_id", flat=True
         ),
+        # A time entry's owning project is reached through its task (ADR-0185 §6).
+        # Any user's entry bumps the project watermark; the per-user sync filter
+        # lives in the delta query, not here — a too-high watermark only makes a
+        # client re-pull, which is safe (the entry won't be in its filtered delta).
+        TimeEntry: lambda i: Task.objects.filter(pk=i.task_id).values_list("project_id", flat=True),
     }
 
     for model, resolver in resolvers.items():

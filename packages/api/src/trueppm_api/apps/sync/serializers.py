@@ -24,6 +24,7 @@ from trueppm_api.apps.projects.models import (
     TaskRecurrenceRule,
     TaskSuggestedAssignee,
 )
+from trueppm_api.apps.timetracking.models import TimeEntry
 
 
 class SyncCalendarSerializer(serializers.ModelSerializer[Calendar]):
@@ -280,6 +281,31 @@ class SyncRiskSerializer(serializers.ModelSerializer[Risk]):
             "impact",
             "owner",
             "task_ids",
+        ]
+
+
+class SyncTimeEntrySerializer(serializers.ModelSerializer[TimeEntry]):
+    """Sync payload for TimeEntry (ADR-0185 §6).
+
+    The per-project delta is filtered to ``user=request.user`` in ``ProjectSyncView``,
+    so a client only ever receives its **own** entries — the same non-surveillance
+    discipline as the REST surface (a Member never pulls a colleague's entries). Soft-
+    deleted rows ride the standard tombstone path. ``ActiveTimer`` is deliberately not
+    synced (transient/derived; recovered via ``GET /me/timer/``).
+    """
+
+    class Meta:
+        model = TimeEntry
+        fields = [
+            "id",
+            "server_version",
+            "task",
+            "user",
+            "minutes",
+            "entry_date",
+            "note",
+            "source",
+            "created_at",
         ]
 
 

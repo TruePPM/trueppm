@@ -2488,6 +2488,264 @@
                 }
             }
         },
+        "/api/v1/me/time-entries/": {
+            "get": {
+                "operationId": "v1_me_time_entries_retrieve",
+                "description": "``/api/v1/me/time-entries/?from=&to=`` — weekly cross-project rollup (ADR-0185 §4).\n\nDrives both the #1435 grid and the #1234 header rollup. Returns the caller's entries\nin the window across **all accessible projects**, plus precomputed totals (by_day,\nby_cell, today, week). The membership re-check (defence-in-depth, mirrors\n``/me/work``) drops entries on projects the user was removed from. ``select_related``\non task→project keeps the read N+1-bounded (asserted by ``assertNumQueries``); the\ntotals are folded from the already-fetched rows, adding no query.",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "from",
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "to",
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        }
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Caller's entries in [from, to] across accessible projects with totals: {results: [<weekly entry>], totals: {by_day, by_cell, today_minutes, week_minutes}}."
+                    }
+                }
+            }
+        },
+        "/api/v1/me/time-entries/{id}/": {
+            "patch": {
+                "operationId": "v1_me_time_entries_partial_update",
+                "description": "``/api/v1/me/time-entries/{id}/`` — author-only PATCH / DELETE (ADR-0185 §4).\n\nThe queryset is hard-scoped to ``user=request.user``, so PATCH or DELETE on another\nuser's entry returns **404** (existence-oracle close, matches #996) — never 403.\nDELETE is a ``soft_delete`` so the undo toast and mobile sync tombstone both work.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedTimeEntryRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedTimeEntryRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedTimeEntryRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TimeEntry"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "v1_me_time_entries_destroy",
+                "description": "``/api/v1/me/time-entries/{id}/`` — author-only PATCH / DELETE (ADR-0185 §4).\n\nThe queryset is hard-scoped to ``user=request.user``, so PATCH or DELETE on another\nuser's entry returns **404** (existence-oracle close, matches #996) — never 403.\nDELETE is a ``soft_delete`` so the undo toast and mobile sync tombstone both work.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Entry soft-deleted; empty body."
+                    }
+                }
+            }
+        },
+        "/api/v1/me/timer/": {
+            "get": {
+                "operationId": "v1_me_timer_retrieve",
+                "description": "``GET /api/v1/me/timer/`` — the caller's running timer, reconcile-on-load (ADR-0185 §4).\n\nReturns ``{active: false}`` or the live timer with server-computed\n``elapsed_seconds`` / ``stale``. Multi-device continuity is handled here (refetch on\nfocus, ``started_at`` as the authoritative clock) — not by a broadcast (ADR-0185 §5).",
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/me/timer/start": {
+            "post": {
+                "operationId": "v1_me_timer_start_create",
+                "description": "``POST /api/v1/me/timer/start`` — start (or restart) the caller's timer (ADR-0185 §4).\n\nSecond-start: if a timer is already running it is atomically stopped and logged, and\nthat finalized entry rides back in ``finalized_entry`` for the undo toast. The task\nis resolved membership-scoped (404 for cross-project) and gated by ``can_log_time``\n(403 for a Viewer).",
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TimerStartRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TimerStartRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TimerStartRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/me/timer/stop": {
+            "post": {
+                "operationId": "v1_me_timer_stop_create",
+                "description": "``POST /api/v1/me/timer/stop`` — finalize the caller's running timer (ADR-0185 §4).\n\nReturns the created ``TimeEntry`` (``source=\"timer\"``). Naturally idempotent without a\nkey — a second stop finds no timer and returns ``409`` rather than a 500 or a\ndouble-log — and carries :class:`IdempotencyMixin` (matching ``MeTimerStartView``) so a\nkeyed retry replays the original ``201`` instead of racing into that 409.",
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TimeEntry"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/me/work/": {
             "get": {
                 "operationId": "v1_me_work_list",
@@ -20587,6 +20845,105 @@
                 }
             }
         },
+        "/api/v1/tasks/{task_pk}/time-entries/": {
+            "get": {
+                "operationId": "v1_tasks_time_entries_retrieve",
+                "description": "``/api/v1/tasks/{task_pk}/time-entries/`` — create and list caller-scoped entries.\n\nPOST creates an entry owned by ``request.user`` (server-set; the body can never\nspoof ``user``). GET returns the caller's **own** entries on the task plus their own\n``total_logged_minutes`` — the cross-contributor rollup is Enterprise/#100 and is\ndeliberately not exposed here (no surveillance surface, ADR-0185 §Consequences).\n\nInherits :class:`IdempotencyMixin` (ADR-0170) so a create honours an\n``Idempotency-Key`` and a retried POST never double-logs.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "task_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "The caller's own time entries on this task plus their own total: {results: [<entry>], total_logged_minutes: int}."
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_tasks_time_entries_create",
+                "description": "``/api/v1/tasks/{task_pk}/time-entries/`` — create and list caller-scoped entries.\n\nPOST creates an entry owned by ``request.user`` (server-set; the body can never\nspoof ``user``). GET returns the caller's **own** entries on the task plus their own\n``total_logged_minutes`` — the cross-contributor rollup is Enterprise/#100 and is\ndeliberately not exposed here (no surveillance surface, ADR-0185 §Consequences).\n\nInherits :class:`IdempotencyMixin` (ADR-0170) so a create honours an\n``Idempotency-Key`` and a retried POST never double-logs.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "task_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TimeEntryRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TimeEntryRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TimeEntryRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TimeEntry"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/tasks/search/": {
             "get": {
                 "operationId": "v1_tasks_search_list",
@@ -28155,6 +28512,25 @@
                     }
                 }
             },
+            "PatchedTimeEntryRequest": {
+                "type": "object",
+                "description": "Read/write serializer for a single :class:`TimeEntry` (create + author-only PATCH).\n\n``task``, ``user``, ``source``, ``server_version`` and ``created_at`` are read-only:\nthe task comes from the nested route (not the body), the owner is server-set\n(IDOR-safe), and provenance is server-decided. Only ``minutes``/``entry_date``/\n``note`` are writable. ``validate_entry_date`` enforces the no-future / backdate-\nwindow rule (ADR-0185 §Consequences) — it applies only to manual writes, since timer\nentries set ``entry_date`` in the service and never pass through this serializer.",
+                "properties": {
+                    "minutes": {
+                        "type": "integer",
+                        "maximum": 1440,
+                        "minimum": 1
+                    },
+                    "entry_date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "note": {
+                        "type": "string",
+                        "maxLength": 500
+                    }
+                }
+            },
             "PatchedUserProfileRequest": {
                 "type": "object",
                 "description": "Read/write the caller's own app preferences.\n\n``default_landing`` and ``role_context`` choice validation is enforced by the\nmodel fields' ``choices`` (DRF rejects an out-of-range value with 400).\n``hidden_views`` is a bounded list of canonical view keys (ADR-0139);\n``validate_hidden_views`` rejects unknown keys and de-duplicates.",
@@ -31754,6 +32130,14 @@
                 "type": "string",
                 "description": "* `none` - No action\n* `warn` - Warn only\n* `block` - Block & escalate"
             },
+            "SourceEnum": {
+                "enum": [
+                    "manual",
+                    "timer"
+                ],
+                "type": "string",
+                "description": "* `manual` - Manual\n* `timer` - Timer"
+            },
             "Sprint": {
                 "type": "object",
                 "description": "Read/write serializer for sprints.\n\nState, committed_*, completed_*, activated_at, closed_at are read-only —\nthey are written by the dedicated activate/close actions, not by PATCH.\n\ncompletion_ratio_* are computed from snapshotted committed/completed\nfields and only become non-null after sprint close.",
@@ -33020,6 +33404,11 @@
                         "type": "boolean",
                         "description": "Authoritative per-task delete verdict (ADR-0133).\n\nDiffers from ``can_edit`` only for a Product Owner: the PO facet grooms\n(edits) EPIC/STORY items but may not DELETE them.",
                         "readOnly": true
+                    },
+                    "can_log_time": {
+                        "type": "boolean",
+                        "description": "Authoritative per-task time-log verdict for the requesting user (ADR-0185 §3).\n\nDelegates to the SAME predicate the CanLogTime permission class enforces, so the\nclient's \"+ time\" gate can never drift from the server's rule. Fails closed to\n``False`` when serialized without a request (nested serialization, tests).",
+                        "readOnly": true
                     }
                 },
                 "required": [
@@ -33034,6 +33423,7 @@
                     "blocking_task_detail",
                     "can_delete",
                     "can_edit",
+                    "can_log_time",
                     "criteria_met_count",
                     "criteria_total",
                     "dor_blockers",
@@ -34365,6 +34755,105 @@
                 ],
                 "type": "string",
                 "description": "* `inherit` - Inherit\n* `suggest` - Suggest\n* `enforce` - Enforce"
+            },
+            "TimeEntry": {
+                "type": "object",
+                "description": "Read/write serializer for a single :class:`TimeEntry` (create + author-only PATCH).\n\n``task``, ``user``, ``source``, ``server_version`` and ``created_at`` are read-only:\nthe task comes from the nested route (not the body), the owner is server-set\n(IDOR-safe), and provenance is server-decided. Only ``minutes``/``entry_date``/\n``note`` are writable. ``validate_entry_date`` enforces the no-future / backdate-\nwindow rule (ADR-0185 §Consequences) — it applies only to manual writes, since timer\nentries set ``entry_date`` in the service and never pass through this serializer.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "task": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "user": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "minutes": {
+                        "type": "integer",
+                        "maximum": 1440,
+                        "minimum": 1
+                    },
+                    "entry_date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "note": {
+                        "type": "string",
+                        "maxLength": 500
+                    },
+                    "source": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/SourceEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "server_version": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "created_at",
+                    "id",
+                    "minutes",
+                    "server_version",
+                    "source",
+                    "task",
+                    "user"
+                ]
+            },
+            "TimeEntryRequest": {
+                "type": "object",
+                "description": "Read/write serializer for a single :class:`TimeEntry` (create + author-only PATCH).\n\n``task``, ``user``, ``source``, ``server_version`` and ``created_at`` are read-only:\nthe task comes from the nested route (not the body), the owner is server-set\n(IDOR-safe), and provenance is server-decided. Only ``minutes``/``entry_date``/\n``note`` are writable. ``validate_entry_date`` enforces the no-future / backdate-\nwindow rule (ADR-0185 §Consequences) — it applies only to manual writes, since timer\nentries set ``entry_date`` in the service and never pass through this serializer.",
+                "properties": {
+                    "minutes": {
+                        "type": "integer",
+                        "maximum": 1440,
+                        "minimum": 1
+                    },
+                    "entry_date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "note": {
+                        "type": "string",
+                        "maxLength": 500
+                    }
+                },
+                "required": [
+                    "minutes"
+                ]
+            },
+            "TimerStartRequest": {
+                "type": "object",
+                "description": "Validate the ``POST /me/timer/start`` body (ADR-0185 §4).\n\nOnly ``task`` (uuid) and an optional ``note`` are accepted. Task resolution,\nmembership scoping (404), and the ``can_log_time`` role gate (403) are enforced in\nthe view against a membership-scoped queryset so existence is never leaked.",
+                "properties": {
+                    "task": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "note": {
+                        "type": "string",
+                        "default": "",
+                        "maxLength": 500
+                    }
+                },
+                "required": [
+                    "task"
+                ]
             },
             "TokenObtainPairRequest": {
                 "type": "object",
