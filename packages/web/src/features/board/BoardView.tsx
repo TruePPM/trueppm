@@ -321,14 +321,14 @@ function WipBreachChip({ state }: { state: 'at' | 'over' }) {
 }
 
 /**
- * Collapsed-column stub for the board header (#1459, ADR-0191 Part 2).
+ * Collapsed-column stub for the board header (issue 1459, ADR-0192 Part 2).
  *
  * A 34px-wide rail standing in for a folded column: status dot, a label
  * rotated to read bottom-to-top, and a count badge whose tone reflects the
  * WIP band (neutral / at-limit amber / over-limit red). The whole stub is a
  * button — clicking it expands the column back to full width. The WIP band is
  * computed via the shared `wipState()` helper so the stub badge never drifts
- * from the expanded header (#546). The glyphs are `aria-hidden`; the button's
+ * from the expanded header (issue 546). The glyphs are `aria-hidden`; the button's
  * accessible name carries the column, count, and any breach.
  */
 function ColumnStub({
@@ -347,7 +347,7 @@ function ColumnStub({
   const dotClass = COLUMN_DOT_CLASS[status] ?? 'bg-neutral-text-disabled';
   // Pair the `-bg` pill fill with the matching full semantic token for text +
   // border (rule 8b) — `bg-semantic-critical text-white` failed WCAG 1.4.3 in
-  // dark mode (white on #F87171 ≈ 2.8:1). The `-bg` tints are pre-computed
+  // dark mode (white on the critical red-400 fill is approx 2.8:1). The `-bg` tints are pre-computed
   // per-mode in globals.css so the badge stays AA in both themes.
   const badgeClass =
     wipBand === 'over'
@@ -656,13 +656,13 @@ interface PhaseLaneProps {
   density: BoardDensity;
   collapsed: boolean;
   onToggleCollapse: () => void;
-  /** Columns folded to stubs board-wide (#1459). */
+  /** Columns folded to stubs board-wide (issue 1459). */
   collapsedColumns: Set<TaskStatus>;
-  /** Expand a folded column from a lane stub cell (#1459). */
+  /** Expand a folded column from a lane stub cell (issue 1459). */
   onExpandColumn: (status: TaskStatus) => void;
-  /** This lane is the active focus target (#1460). */
+  /** This lane is the active focus target (issue 1460). */
   focused: boolean;
-  /** Toggle phase-lane focus mode on this lane (#1460). */
+  /** Toggle phase-lane focus mode on this lane (issue 1460). */
   onToggleFocus: () => void;
   onMenuMove: (task: Task, newStatus: TaskStatus) => void;
   // Optional: assignee-grouped lanes (324) pass none — a lane id there is a
@@ -778,7 +778,7 @@ function PhaseLane({
     </button>
   );
 
-  // Phase-lane focus toggle (#1460, ADR-0191 Part 3). Zooms the board to this
+  // Phase-lane focus toggle (issue 1460, ADR-0192 Part 3). Zooms the board to this
   // one lane (others hidden) via the ?focus= URL param; pressing it again, or
   // the focus banner's "Exit focus", clears it. Rendered in the lane meta
   // header row so the affordance sits with the phase it scopes to.
@@ -829,8 +829,8 @@ function PhaseLane({
           gridTemplateColumns: boardGridTemplate(columns, collapsedColumns),
         }}
       >
-        {/* Phase meta — LaneMeta atom (issue #208). The outer wrapper is the
-            sticky-left sidebar (#1458): pinned during horizontal scroll, with
+        {/* Phase meta — LaneMeta atom (issue 208). The outer wrapper is the
+            sticky-left sidebar (issue 1458): pinned during horizontal scroll, with
             a sunken background that matches the lane so body cards passing
             behind it (and behind the card's rounded corners) stay hidden. */}
         <div className="sticky left-0 z-[5] bg-neutral-surface-sunken">
@@ -859,7 +859,7 @@ function PhaseLane({
           </div>
         </div>
 
-        {/* Column cells. A column collapsed board-wide (#1459) renders as a
+        {/* Column cells. A column collapsed board-wide (issue 1459) renders as a
             narrow empty stub track in every lane so the lane stays aligned
             with the stubbed header; clicking the header stub expands it. */}
         {columns.map((col) => {
@@ -1014,12 +1014,12 @@ function useBoardCollapsedLanes(projectId: string) {
 }
 
 /**
- * Persist collapsed *column* (status) IDs per project (#1459, ADR-0191 Part 2).
+ * Persist collapsed *column* (status) IDs per project (issue 1459, ADR-0192 Part 2).
  *
  * Mirrors `useBoardCollapsedLanes` but keyed on TaskStatus and stored under a
  * sibling localStorage key. Collapsing is a vertical operation — a column
  * folded here renders as a stub across every phase lane — so the state is
- * board-wide, not per-lane. localStorage-only by ADR-0191 (no server model);
+ * board-wide, not per-lane. localStorage-only by ADR-0192 (no server model);
  * the blob is a plain string[] of statuses, forward-compatible because an
  * unknown status simply never matches a rendered column.
  */
@@ -1529,7 +1529,7 @@ export function BoardView() {
       { replace: true },
     );
   }, [setSearchParams]);
-  // Phase-lane focus mode (#1460, ADR-0191 Part 3). Like ?standup=, the focused
+  // Phase-lane focus mode (issue 1460, ADR-0192 Part 3). Like ?standup=, the focused
   // phase lives in the URL (?focus=<phaseId>) so the zoomed-in view is
   // shareable to a teammate or projector tab and survives refresh. Other URL
   // scope params (?sprint=, ?q=) are preserved by the functional updater, so a
@@ -1557,12 +1557,12 @@ export function BoardView() {
     },
     [focusedLanePhaseId, exitFocusLane, setFocusLane],
   );
-  // WIP-breach popover anchored in the collapsed-columns banner (#1459, VoC:
+  // WIP-breach popover anchored in the collapsed-columns banner (issue 1459, VoC:
   // Alex) — surfaces which folded columns are over/at their WIP limit so the
   // breach signal isn't lost when a column is stubbed.
   const [wipPopoverOpen, setWipPopoverOpen] = useState(false);
   // Anchors the WIP popover + its trigger so an outside pointerdown or Escape
-  // dismisses it and returns focus to the trigger (ux-review #1457 — a11y).
+  // dismisses it and returns focus to the trigger (ux-review issue 1457 — a11y).
   const wipPopoverRef = useRef<HTMLDivElement>(null);
   const wipTriggerRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -2415,7 +2415,7 @@ export function BoardView() {
 
   const moveFocusInPhase = useCallback(
     (direction: 'left' | 'right') => {
-      // Skip columns folded to stubs (#1459) — keyboard traversal should only
+      // Skip columns folded to stubs (issue 1459) — keyboard traversal should only
       // land on columns the user can actually see cards in.
       const visibleColumns = COLUMNS.map((c) => c.status).filter(
         (status) => !collapsedColumns.has(status),
@@ -2642,7 +2642,7 @@ export function BoardView() {
               grid; drag-to-assign is disabled board-wide (see `readOnly`). */}
           {readOnly && projectId && <ClosedSprintBanner projectId={projectId} />}
 
-          {/* Phase-lane focus banner (#1460, ADR-0191 Part 3) — keeps focus
+          {/* Phase-lane focus banner (issue 1460, ADR-0192 Part 3) — keeps focus
               mode inescapable (mirrors the My-tasks / Tech-debt filter chips) so
               a board zoomed to one lane never reads as "lost lanes". A stale
               ?focus= for a phase that no longer exists self-hides. */}
@@ -2676,7 +2676,7 @@ export function BoardView() {
             </div>
           )}
 
-          {/* Collapsed-columns banner (#1459, ADR-0191 Part 2) — count + bulk
+          {/* Collapsed-columns banner (issue 1459, ADR-0192 Part 2) — count + bulk
               expand, plus a tappable WIP indicator that pops a list of folded
               columns breaching their limit so the breach signal survives the
               collapse (VoC: Alex). */}
@@ -2691,7 +2691,7 @@ export function BoardView() {
               // Tone + wording follow the worst band present (rule 159): any
               // over-limit column → critical red; only at-limit → at-risk amber.
               // The label names the actual band — never call an at-limit column
-              // "over" (ux-review #1457).
+              // "over" (ux-review issue 1457).
               const worstOver = overCount > 0;
               const breachLabel =
                 overCount > 0 && atCount === 0
@@ -2898,7 +2898,7 @@ export function BoardView() {
                     boardCadence={projectDetail?.board_cadence}
                   />
                 )}
-                {/* Sticky 2-tier header (#1458, ADR-0191 Part 1). The header row
+                {/* Sticky 2-tier header (issue 1458, ADR-0192 Part 1). The header row
                     pins on vertical scroll (sticky top); the "Phase" corner cell
                     additionally pins on horizontal scroll (sticky left) so it
                     stays over the lane sidebar. Z-order: corner (z-20) > header
@@ -2918,7 +2918,7 @@ export function BoardView() {
                   </div>
                   {COLUMNS.map((col) => {
                     const count = totalByStatus[col.status];
-                    // Folded column (#1459) — render the narrow stub in place of
+                    // Folded column (issue 1459) — render the narrow stub in place of
                     // the full header cell. The stub carries the WIP-breach tone
                     // so the signal survives collapse.
                     if (collapsedColumns.has(col.status)) {
@@ -2986,7 +2986,7 @@ export function BoardView() {
                           {showWip && col.wipLimit != null && (
                             <WipBadge count={count} limit={col.wipLimit} />
                           )}
-                          {/* Collapse-to-stub control (#1459). Folds this column
+                          {/* Collapse-to-stub control (issue 1459). Folds this column
                               across every lane; the header stub expands it back. */}
                           <button
                             type="button"
@@ -3012,7 +3012,7 @@ export function BoardView() {
                 {/* Phase lanes */}
                 {(() => {
                   const filteredPhases = sortedPhases.filter((phase) => {
-                    // Phase-lane focus mode (#1460) — when a lane is focused,
+                    // Phase-lane focus mode (issue 1460) — when a lane is focused,
                     // render only that lane. Filtering to one lane supersedes
                     // every other lane-visibility rule below. A stale ?focus=
                     // (phase no longer present) falls through and shows all.

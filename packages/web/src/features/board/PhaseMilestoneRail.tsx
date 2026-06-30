@@ -7,9 +7,9 @@ interface PhaseMilestoneRailProps {
   milestones: Task[];
   columns: { status: TaskStatus; label: string }[];
   /**
-   * Columns folded to stubs board-wide (#1459). A collapsed column renders as
+   * Columns folded to stubs board-wide (issue 1459). A collapsed column renders as
    * a narrow empty track here so the rail stays pixel-aligned with the stubbed
-   * header and the lane grids below it (ADR-0191 Part 1/2).
+   * header and the lane grids below it (ADR-0192 Part 1/2).
    */
   collapsedColumns?: Set<TaskStatus>;
   onOpenTask?: (task: Task) => void;
@@ -147,7 +147,7 @@ export function PhaseMilestoneRail({
       }}
     >
       {/* Lane meta filler — sticky-left so it stays pinned under horizontal
-          scroll, matching the lane sidebar (#1458). */}
+          scroll, matching the lane sidebar (issue 1458). */}
       <div className="sticky left-0 z-[5] bg-neutral-surface-sunken text-xs text-neutral-text-disabled italic flex items-center">
         Milestones
       </div>

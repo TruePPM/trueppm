@@ -1,5 +1,5 @@
 /**
- * Board viewability overhaul E2E (epic #1457, ADR-0191).
+ * Board viewability overhaul E2E (epic #1457, ADR-0192).
  *
  * Covers the three keystone behaviours of the first-class board:
  *   - #1459 column collapse-to-stub: a column folds to a narrow stub, a

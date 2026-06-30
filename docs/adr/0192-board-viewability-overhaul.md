@@ -1,4 +1,4 @@
-# ADR-0191: Board Viewability Overhaul — Fixed-Width Sticky Grid, Column Collapse, Phase-Lane Focus, Worst-Offender Card Badge
+# ADR-0192: Board Viewability Overhaul — Fixed-Width Sticky Grid, Column Collapse, Phase-Lane Focus, Worst-Offender Card Badge
 
 ## Status
 Accepted

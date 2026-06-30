@@ -1,5 +1,5 @@
 /**
- * Shared board grid geometry (#1458 / #1459, ADR-0191 Part 1 & 2).
+ * Shared board grid geometry (issue 1458 / issue 1459, ADR-0192 Part 1 & 2).
  *
  * The board's three vertically aligned grids — the sticky column header, each
  * phase-milestone rail, and each phase lane — must use an identical CSS grid

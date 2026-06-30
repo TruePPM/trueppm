@@ -1,5 +1,5 @@
 /**
- * LaneMeta — left-rail atom for each phase swimlane on the Board (issue #208).
+ * LaneMeta — left-rail atom for each phase swimlane on the Board (issue 208).
  *
  * Anatomy (188px wide, two rows + optional cost row):
  *   ▌  Phase name                          [+]
@@ -51,7 +51,7 @@ export interface LaneMetaProps {
   addTaskLabel?: string;
   /** Expand/collapse toggle rendered inside the phase name row. */
   collapseToggle?: ReactNode;
-  /** Phase-lane focus toggle (#1460) rendered next to the add-task action. */
+  /** Phase-lane focus toggle (issue 1460) rendered next to the add-task action. */
   focusToggle?: ReactNode;
   /** When true, show cost row (issue #189). */
   showCost?: boolean;
@@ -205,7 +205,7 @@ export function LaneMeta({
             </button>
           )}
 
-          {/* Phase-lane focus toggle (#1460) — sits with the lane-authoring
+          {/* Phase-lane focus toggle (issue 1460) — sits with the lane-authoring
               actions so "zoom to this lane" reads as a lane-scoped control. */}
           {focusToggle}
         </div>
