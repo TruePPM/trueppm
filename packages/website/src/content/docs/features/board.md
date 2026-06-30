@@ -36,6 +36,19 @@ Each card shows:
 - **Progress ring** — % complete, fills as work progresses
 - **CPI badge** — cost performance index when cost data is available (board batch 4)
 
+### Card health signal
+
+0.4 will consolidate a card's stacked delivery chips — float, dwell, SPI, CPI, cost — into a single **worst-offender badge** that surfaces the one highest-severity signal at a glance. The severity order is derived from objective delivery state, never from PM priority rank:
+
+1. **Blocked** (⛔) — a predecessor is not yet complete, with the dependency count
+2. **Stale** (⚡) — past the column's aging threshold and stalled; escalates when it passes twice the limit
+3. **Critical path / late** (⚑) — on the critical path or running on negative float
+4. **Behind** (📉) — behind schedule (SPI) or over budget (CPI) when EVM mode is on
+
+An on-track card shows no badge. Every badge carries a glyph and a label (never color alone), so the signal reads without relying on hue.
+
+The badge is **expandable, not lossy** — the full chip set is one interaction away. At **comfortable** density (the default), hover, focus, or tap the badge to reveal the complete health chips and baseline-variance panel; the tap target meets the 44px minimum and the disclosure is keyboard- and screen-reader-operable (press <kbd>Esc</kbd> to collapse). At **detailed** density the full chip set stays inline with no badge; at **compact** density only the badge shows.
+
 ## Moving cards
 
 Drag a card to a new column to change its status. The status change is optimistic: the card moves immediately, and the API call fires in the background. If the API call fails, the card snaps back with a toast.

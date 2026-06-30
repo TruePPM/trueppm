@@ -21,69 +21,125 @@ const FIXTURE_PROJECTS = [
 
 const FIXTURE_TASKS = [
   {
-    id: 'b1', wbs_path: '1', name: 'Alpha Phase',
-    early_start: '2026-01-05', early_finish: '2026-02-14',
-    duration: 30, percent_complete: 55, is_critical: false,
-    is_milestone: false, is_summary: true, parent_id: null,
-    status: 'IN_PROGRESS', assignees: [], total_float: null,
-    predecessor_count: 0, is_blocked: false,
-    linked_risks_count: 0, linked_risks_max_severity: null,
+    id: 'b1',
+    wbs_path: '1',
+    name: 'Alpha Phase',
+    early_start: '2026-01-05',
+    early_finish: '2026-02-14',
+    duration: 30,
+    percent_complete: 55,
+    is_critical: false,
+    is_milestone: false,
+    is_summary: true,
+    parent_id: null,
+    status: 'IN_PROGRESS',
+    assignees: [],
+    total_float: null,
+    predecessor_count: 0,
+    is_blocked: false,
+    linked_risks_count: 0,
+    linked_risks_max_severity: null,
   },
   {
-    id: 'b2', wbs_path: '1.1', name: 'Design',
-    early_start: '2026-01-05', early_finish: '2026-01-16',
+    id: 'b2',
+    wbs_path: '1.1',
+    name: 'Design',
+    early_start: '2026-01-05',
+    early_finish: '2026-01-16',
     // PM-committed `planned_start` so the card counts toward the lane
     // rollup under the #402 `isTaskScheduled` gate; without it the card
     // is treated as uncommitted backlog and excluded from `avgProgress`.
     planned_start: '2026-01-05',
-    duration: 10, percent_complete: 100, is_critical: false,
-    is_milestone: false, is_summary: false, parent_id: 'b1',
-    status: 'COMPLETE', assignees: [], total_float: null,
-    predecessor_count: 0, is_blocked: false,
-    linked_risks_count: 0, linked_risks_max_severity: null,
+    duration: 10,
+    percent_complete: 100,
+    is_critical: false,
+    is_milestone: false,
+    is_summary: false,
+    parent_id: 'b1',
+    status: 'COMPLETE',
+    assignees: [],
+    total_float: null,
+    predecessor_count: 0,
+    is_blocked: false,
+    linked_risks_count: 0,
+    linked_risks_max_severity: null,
   },
   {
-    id: 'b3', wbs_path: '1.2', name: 'Build',
-    early_start: '2026-01-19', early_finish: '2026-01-30',
+    id: 'b3',
+    wbs_path: '1.2',
+    name: 'Build',
+    early_start: '2026-01-19',
+    early_finish: '2026-01-30',
     planned_start: '2026-01-19',
-    duration: 10, percent_complete: 60, is_critical: false,
-    is_milestone: false, is_summary: false, parent_id: 'b1',
-    status: 'IN_PROGRESS', assignees: [], total_float: null,
+    duration: 10,
+    percent_complete: 60,
+    is_critical: false,
+    is_milestone: false,
+    is_summary: false,
+    parent_id: 'b1',
+    status: 'IN_PROGRESS',
+    assignees: [],
+    total_float: null,
     // b3 PPM signals: 2 predecessors (one not complete) → blocked + 1 risk severity 18.
-    predecessor_count: 2, is_blocked: true,
-    linked_risks_count: 1, linked_risks_max_severity: 18,
+    predecessor_count: 2,
+    is_blocked: true,
+    linked_risks_count: 1,
+    linked_risks_max_severity: 18,
   },
   {
-    id: 'b4', wbs_path: '1.3', name: 'Release',
-    early_start: '2026-02-01', early_finish: '2026-02-05',
+    id: 'b4',
+    wbs_path: '1.3',
+    name: 'Release',
+    early_start: '2026-02-01',
+    early_finish: '2026-02-05',
     planned_start: '2026-02-01',
-    duration: 5, percent_complete: 0, is_critical: false,
-    is_milestone: true, is_summary: false, parent_id: 'b1',
-    status: 'NOT_STARTED', assignees: [],
-    total_float: null, predecessor_count: 0, is_blocked: false,
-    linked_risks_count: 0, linked_risks_max_severity: null,
+    duration: 5,
+    percent_complete: 0,
+    is_critical: false,
+    is_milestone: true,
+    is_summary: false,
+    parent_id: 'b1',
+    status: 'NOT_STARTED',
+    assignees: [],
+    total_float: null,
+    predecessor_count: 0,
+    is_blocked: false,
+    linked_risks_count: 0,
+    linked_risks_max_severity: null,
     status_changed_at: '2025-11-01T00:00:00Z',
     priority_rank: 3,
   },
   {
-    id: 'b5', wbs_path: '1.4', name: 'QA Gate',
-    early_start: '2026-01-05', early_finish: '2026-01-20',
+    id: 'b5',
+    wbs_path: '1.4',
+    name: 'QA Gate',
+    early_start: '2026-01-05',
+    early_finish: '2026-01-20',
     // PM-committed `planned_start` so the card renders scheduled-state UI
     // (float chip, baseline variance chip, SPI chip) under the #332
     // `isTaskScheduled` gate. Without it the card would be treated as
     // uncommitted backlog work and these chips would be suppressed.
     planned_start: '2026-01-05',
-    duration: 12, percent_complete: 40, is_critical: false,
-    is_milestone: false, is_summary: false, parent_id: 'b1',
-    status: 'IN_PROGRESS', assignees: [],
+    duration: 12,
+    percent_complete: 40,
+    is_critical: false,
+    is_milestone: false,
+    is_summary: false,
+    parent_id: 'b1',
+    status: 'IN_PROGRESS',
+    assignees: [],
     // SPI + band are server-owned now (#990); the card renders them directly.
-    spi: 0.62, spi_band: 'behind',
+    spi: 0.62,
+    spi_band: 'behind',
     total_float: -3,
-    predecessor_count: 0, is_blocked: false,
-    linked_risks_count: 0, linked_risks_max_severity: null,
+    predecessor_count: 0,
+    is_blocked: false,
+    linked_risks_count: 0,
+    linked_risks_max_severity: null,
     status_changed_at: '2025-11-15T00:00:00Z',
     priority_rank: 1,
-    baseline_start: '2026-01-01', baseline_finish: '2026-01-10',
+    baseline_start: '2026-01-01',
+    baseline_finish: '2026-01-10',
   },
 ];
 
@@ -104,18 +160,31 @@ async function setup(page: import('@playwright/test').Page) {
         status: 201,
         contentType: 'application/json',
         body: JSON.stringify({
-          id: 'b-new', wbs_path: '1.3', name: 'New Task',
-          early_start: '2026-02-01', early_finish: '2026-02-06',
-          duration: 5, percent_complete: 0, is_critical: false,
-          is_milestone: false, is_summary: false, parent_id: 'b1',
-          status: 'NOT_STARTED', assignees: [],
+          id: 'b-new',
+          wbs_path: '1.3',
+          name: 'New Task',
+          early_start: '2026-02-01',
+          early_finish: '2026-02-06',
+          duration: 5,
+          percent_complete: 0,
+          is_critical: false,
+          is_milestone: false,
+          is_summary: false,
+          parent_id: 'b1',
+          status: 'NOT_STARTED',
+          assignees: [],
         }),
       });
     }
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ count: FIXTURE_TASKS.length, next: null, previous: null, results: FIXTURE_TASKS }),
+      body: JSON.stringify({
+        count: FIXTURE_TASKS.length,
+        next: null,
+        previous: null,
+        results: FIXTURE_TASKS,
+      }),
     });
   });
   // Dependencies — task=b3 has predecessors/successors; everything else empty.
@@ -143,6 +212,20 @@ async function setup(page: import('@playwright/test').Page) {
   });
 }
 
+/**
+ * Switch board card density. At comfortable (the default) the per-card health
+ * chips (float, aging, SPI, CPI, cost) are collapsed behind the worst-offender
+ * badge's peek (#1305); detailed density renders the full chip set inline, which
+ * is what the chip-content tests below assert.
+ */
+async function setDensity(
+  page: import('@playwright/test').Page,
+  label: 'Compact' | 'Comfortable' | 'Detailed',
+) {
+  await page.getByRole('button', { name: 'Card density' }).click();
+  await page.getByRole('radio', { name: `Board card density: ${label}` }).click();
+}
+
 test.describe('Board view', () => {
   test.beforeEach(async ({ page }) => {
     await setup(page);
@@ -164,7 +247,9 @@ test.describe('Board view', () => {
     await expect(page.getByText('4 tasks')).toBeVisible();
   });
 
-  test('per-phase + button opens TaskFormModal with phase pre-selected (issue #305)', async ({ page }) => {
+  test('per-phase + button opens TaskFormModal with phase pre-selected (issue #305)', async ({
+    page,
+  }) => {
     const addBtn = page.getByRole('button', { name: /Add task to Alpha Phase/ });
     await expect(addBtn).toBeVisible();
     await addBtn.click();
@@ -208,7 +293,9 @@ test.describe('Board view', () => {
     await expect(page.getByText(/Inbox · backlog/i)).toBeVisible();
   });
 
-  test('phase-grid quieting: lane meta + column dots + empty ticks (issue #385)', async ({ page }) => {
+  test('phase-grid quieting: lane meta + column dots + empty ticks (issue #385)', async ({
+    page,
+  }) => {
     // Lane meta — the inline 4px progress bar replaces the old ProgressRing.
     // The lane meta div is `role="progressbar"` with aria-label / aria-valuenow.
     const laneBar = page.locator('[role="progressbar"][aria-label*="Phase progress"]').first();
@@ -253,7 +340,9 @@ test.describe('Board view', () => {
     await expect(page.getByLabel(/Blocked by 2 dependencies\. Press D to view\./)).toBeVisible();
   });
 
-  test('risk linkage icon renders with severity-aware aria-label (issue #188)', async ({ page }) => {
+  test('risk linkage icon renders with severity-aware aria-label (issue #188)', async ({
+    page,
+  }) => {
     await expect(page.getByLabel(/1 linked risk, severity red\. Click to view\./)).toBeVisible();
   });
 
@@ -273,7 +362,9 @@ test.describe('Board view', () => {
     await expect(pill).toHaveAttribute('aria-pressed', 'true');
   });
 
-  test('clicking the chain icon opens the dependency popover with both directions (issue #182)', async ({ page }) => {
+  test('clicking the chain icon opens the dependency popover with both directions (issue #182)', async ({
+    page,
+  }) => {
     await page.getByLabel(/Blocked by 2 dependencies\. Press D to view\./).click();
     const dialog = page.getByRole('dialog', { name: 'Dependencies' });
     await expect(dialog).toBeVisible();
@@ -313,7 +404,9 @@ test.describe('Board view', () => {
   // Board batch 6 — saved views and quick filters (issue #191).
   // -------------------------------------------------------------------------
 
-  test('View dropdown renders with "View" label when no view is active (issue #191)', async ({ page }) => {
+  test('View dropdown renders with "View" label when no view is active (issue #191)', async ({
+    page,
+  }) => {
     const btn = page.getByRole('button', { name: /board view: view/i });
     await expect(btn).toBeVisible();
   });
@@ -327,7 +420,9 @@ test.describe('Board view', () => {
     await expect(page.getByText('👤 My work')).toBeVisible();
   });
 
-  test('selecting "At risk" updates button label and closes menu (issue #191)', async ({ page }) => {
+  test('selecting "At risk" updates button label and closes menu (issue #191)', async ({
+    page,
+  }) => {
     await page.getByRole('button', { name: /board view: view/i }).click();
     await page.getByText('⚠ At risk').click();
     await expect(page.getByRole('menu')).not.toBeVisible();
@@ -415,7 +510,9 @@ test.describe('Board view', () => {
   // Issue #193 — Card density toggle
   // -------------------------------------------------------------------------
 
-  test('card density chip is visible and defaults to Comfortable (issue #193)', async ({ page }) => {
+  test('card density chip is visible and defaults to Comfortable (issue #193)', async ({
+    page,
+  }) => {
     // CalmToolbar (#382) replaced the legacy <select> with a chip popover.
     const chip = page.getByRole('button', { name: 'Card density' });
     await expect(chip).toBeVisible();
@@ -434,6 +531,8 @@ test.describe('Board view', () => {
   // -------------------------------------------------------------------------
 
   test('negative-float chip renders on QA Gate card (issue #183)', async ({ page }) => {
+    // Detailed density surfaces the full chip set inline (#1305).
+    await setDensity(page, 'Detailed');
     await expect(page.getByText('-3d float')).toBeVisible();
   });
 
@@ -458,7 +557,9 @@ test.describe('Board view', () => {
   // -------------------------------------------------------------------------
 
   test('aging chip renders on cards with old status_changed_at (issue #192)', async ({ page }) => {
-    // status_changed_at = 2025-11-01, today = 2026-04-30, dwell ≈ 180d → exceeds any column SLA
+    // status_changed_at = 2025-11-01, today = 2026-04-30, dwell ≈ 180d → exceeds any column SLA.
+    // Detailed density surfaces the full chip set inline (#1305).
+    await setDensity(page, 'Detailed');
     const agingChips = page.getByLabel(/days in this column, exceeds/);
     await expect(agingChips.first()).toBeVisible();
   });
@@ -476,7 +577,9 @@ test.describe('Board view', () => {
   // Issue #105 — Entry stamps and priority rank
   // -------------------------------------------------------------------------
 
-  test('priority rank chip renders on card with priority_rank set (issue #105)', async ({ page }) => {
+  test('priority rank chip renders on card with priority_rank set (issue #105)', async ({
+    page,
+  }) => {
     // b5 QA Gate has priority_rank: 1 → renders "#1" chip
     await expect(page.getByText('#1')).toBeVisible();
   });
@@ -486,10 +589,36 @@ test.describe('Board view', () => {
   // -------------------------------------------------------------------------
 
   test('SPI chip renders on card when EVM mode is "spi" (issue #185)', async ({ page }) => {
+    // Detailed density surfaces the full chip set inline (#1305).
+    await setDensity(page, 'Detailed');
     await page.getByRole('button', { name: 'More board controls' }).click();
     await page.getByLabel('EVM indicators').selectOption('spi');
     // b5 QA Gate carries server-owned spi 0.62 / band 'behind' (#990) — the card
     // renders the chip from those fields rather than deriving it from baseline dates.
     await expect(page.getByLabel(/SPI \d+\.\d+ —/)).toBeVisible({ timeout: 3_000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #1305 — worst-offender badge consolidates per-card health chips
+  // -------------------------------------------------------------------------
+
+  test('worst-offender badge collapses health chips and reveals them on tap (#1305)', async ({
+    page,
+  }) => {
+    // QA Gate (b5) carries several health signals (negative float, behind EVM,
+    // long dwell). At comfortable density (default) they collapse behind one
+    // worst-offender badge; the full chip set stays one tap away (non-lossy).
+    const qaCard = page.getByRole('button', { name: /^QA Gate,/ });
+    const badge = qaCard.getByRole('button', { name: /show health details/i });
+    await expect(badge).toBeVisible();
+    await expect(badge).toHaveAttribute('aria-expanded', 'false');
+
+    // The float chip is in the collapsed peek — present in the DOM but hidden.
+    await expect(page.getByText('-3d float')).toBeHidden();
+
+    // Tapping the badge expands the peek and reveals the full chip set.
+    await badge.click();
+    await expect(badge).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.getByText('-3d float')).toBeVisible();
   });
 });

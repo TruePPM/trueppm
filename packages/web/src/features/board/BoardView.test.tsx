@@ -351,11 +351,15 @@ describe('BoardView', () => {
     expect(screen.getByText('Backend Implementation')).toBeInTheDocument();
   });
 
-  it('renders CP rpill for critical tasks', () => {
+  it('renders the critical-path worst-offender badge for critical tasks (#1305)', () => {
     renderBoard();
-    // t3 "Backend Implementation" is critical — should show a CP pill
-    const cpPills = screen.getAllByText('CP');
-    expect(cpPills.length).toBeGreaterThan(0);
+    // t3 "Backend Implementation" is critical. At the default comfortable density
+    // the standalone "CP" chip is consolidated into the worst-offender badge,
+    // whose label reads "Critical path" when no higher-severity signal wins
+    // (#1305). Asserting on "CP" alone was a false positive — it also matched
+    // Carol Park's avatar initials on a non-critical card.
+    const cpBadges = screen.getAllByText('Critical path');
+    expect(cpBadges.length).toBeGreaterThan(0);
   });
 
   it('collapses a phase lane on header click', async () => {
