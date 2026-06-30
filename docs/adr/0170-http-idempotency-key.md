@@ -1,7 +1,7 @@
 # ADR-0170: HTTP Idempotency-Key Support on Unsafe Mutations
 
 ## Status
-Proposed
+Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: IdempotencyMixin)
 
 ## Context
 

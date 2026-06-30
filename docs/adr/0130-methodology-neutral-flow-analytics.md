@@ -1,7 +1,7 @@
 # ADR-0130: Methodology-Neutral Flow Analytics (Flow Metrics, Per-Column WIP Breach, Throughput Forecast)
 
 ## Status
-Proposed
+Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: flow-metrics)
 
 > ADR-number note: `0129` is the highest committed number on main. `0130` is the next
 > free slot. The ADR sequence has a documented collision history (nine reused numbers, per

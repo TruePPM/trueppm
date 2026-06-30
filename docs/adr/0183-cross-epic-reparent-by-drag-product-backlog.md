@@ -1,7 +1,7 @@
 # ADR-0183: Cross-epic reparent-by-drag on the Product Backlog
 
 ## Status
-Proposed
+Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: useReparentStory)
 
 ## Context
 

@@ -1,7 +1,7 @@
 # ADR-0172: System Health Operator UI — Read API Surface
 
 ## Status
-Proposed
+Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: system_health)
 
 ## Context
 

@@ -1,6 +1,6 @@
 # ADR-0082: Mobile Sync Upload — Transactional Batch Atomicity
 
-## Status: Proposed
+## Status: Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: class SyncBatch)
 
 ## Context
 

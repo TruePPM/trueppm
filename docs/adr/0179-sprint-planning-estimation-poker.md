@@ -1,7 +1,7 @@
 # ADR-0179: Sprint-Planning Estimation Poker
 
 ## Status
-Proposed
+Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: class PokerSession)
 
 ## Context
 Sprint Planning is where a team sizes its backlog, yet TruePPM has no in-tool way to do

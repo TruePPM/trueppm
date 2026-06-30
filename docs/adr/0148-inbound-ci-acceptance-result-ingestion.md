@@ -1,7 +1,7 @@
 # ADR-0148: Inbound CI Acceptance-Result Ingestion (extends ADR-0068)
 
 ## Status
-Proposed
+Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: AcceptanceResultIngestView)
 
 > Extends **ADR-0068** (Inbound Task-Sync Protocol — Project API Tokens) with a
 > second narrow inbound write surface. Reuses the existing `ApiToken` /

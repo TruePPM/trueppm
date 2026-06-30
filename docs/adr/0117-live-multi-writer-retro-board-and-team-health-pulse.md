@@ -1,7 +1,7 @@
 # ADR-0117: Live Multi-Writer Retro Board + In-Retro Team-Health Pulse
 
 ## Status
-Proposed
+Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: class SprintRetro)
 
 > **Companion ADRs.** This ADR builds directly on **ADR-0104** (Unified Team-Signal
 > Privacy Model — the `pulse` signal gate this feature consumes), **ADR-0071** (the

@@ -1,8 +1,8 @@
 # ADR-0136: Completed Tasks Retain Their Full-Duration Span
 
 ## Status
-Proposed — refines ADR-0132 (Data-Date-Aware Forecasting) and amends ADR-0023
-(Actual Start and Finish Dates on Tasks)
+Accepted — refines ADR-0132 (Data-Date-Aware Forecasting) and amends ADR-0023
+(Actual Start and Finish Dates on Tasks) — implemented on main; status corrected 2026-06-30 after ADR audit (verified: ADR-0136)
 
 ## Context
 

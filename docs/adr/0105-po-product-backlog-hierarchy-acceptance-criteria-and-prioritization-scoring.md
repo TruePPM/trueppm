@@ -11,7 +11,7 @@
 > **ADR-0105 = this document** · ADR-0106 = Agile/Waterfall Bridge.
 
 ## Status
-Proposed (2026-06-01)
+Accepted (2026-06-01) — implemented on main; status corrected 2026-06-30 after ADR audit (verified: class AcceptanceCriterion)
 
 ## Context
 

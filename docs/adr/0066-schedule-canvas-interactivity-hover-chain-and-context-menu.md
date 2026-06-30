@@ -1,7 +1,7 @@
 # ADR-0066: Schedule Canvas Interactivity — Hover Dependency Chains and Right-Click Menu Expansion
 
 ## Status
-Proposed
+Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: useDependencyHover)
 
 ## Context
 

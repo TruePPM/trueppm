@@ -1,7 +1,7 @@
 # ADR-0067: Pull-to-Commit Pattern for Schedule Canvas Reschedule and Resize
 
 ## Status
-Proposed
+Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: useScheduleCommit)
 
 ## Context
 

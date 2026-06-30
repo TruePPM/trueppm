@@ -3,13 +3,14 @@
 ## Status
 
 Accepted (2026-06-14) — the four blocking design questions below are resolved.
+The decision is accepted; the seams it specifies are not yet built (see below).
 
-> **Numbering caveat (confirm at merge):** `0124` is claimed by an unmerged
-> branch (the blocker end-to-end wave) and `0125` by the unmerged REST-over-GraphQL
-> branch; neither is on `main` yet. `0123` is the highest number currently on `main`.
-> This ADR takes `0126` to sit above both in-flight claims, but the numbering scheme
-> already has nine reused numbers — **verify the next free number and renumber this
-> file if it collides at merge.**
+> **Implementation status (2026-06-30 ADR audit):** the *decision* stands, but the
+> three concrete OSS seams this ADR defines are **not yet present on `main`** — there
+> is no `grouping.py` / `group_memberships_for()` grouping seam, no `contract_version`
+> field on the `/edition/` endpoint, and no `# stable-contract` markers or
+> `docs/api/stable-contract.md`. Treat these as open implementation work; the seams
+> are not yet available for Enterprise registration.
 
 ## Context
 

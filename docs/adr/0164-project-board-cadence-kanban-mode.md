@@ -1,7 +1,7 @@
 # ADR-0164: Project-level board cadence — first-class continuous-flow Kanban mode
 
 ## Status
-Proposed
+Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: board_cadence)
 
 ## Context
 

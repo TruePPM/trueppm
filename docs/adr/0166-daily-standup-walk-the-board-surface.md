@@ -1,7 +1,7 @@
 # ADR-0166: Daily Standup Walk-the-Board Surface
 
 ## Status
-Proposed
+Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: class StandupView)
 
 ## Context
 

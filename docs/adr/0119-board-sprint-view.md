@@ -17,7 +17,7 @@ P3M layer: Programs and Projects (single project, board). OSS.
 ## Decision
 
 1. **Sprint scope is a `?sprint=` URL param** — a distinct, shareable axis from
-   the `?view=` saved views (ADR-0191/#191). It is *not* folded into
+   the `?view=` saved views (#191). It is *not* folded into
    `BoardViewConfig`: a saved view is a bundle of column/sort/filter prefs, while
    sprint scope is a single shareable dimension that mirrors the backend
    `?sprint=` contract. Absent param = Project view (all committed tasks).

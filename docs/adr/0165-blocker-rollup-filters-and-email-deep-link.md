@@ -1,7 +1,7 @@
 # ADR-0165: Blocker roll-up filters + actionable task.blocked email (deep-link)
 
 ## Status
-Proposed
+Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: parse_blocked_filters)
 
 ## Context
 This is a polish wave of two follow-ups to **ADR-0124** (blocker end-to-end, MR !596),

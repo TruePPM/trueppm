@@ -1,7 +1,7 @@
 # ADR-0156: Program split into sub-programs
 
 ## Status
-Proposed
+Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: def split_program)
 
 ## Context
 `POST /api/v1/programs/{id}/split/` has shipped since #530 as a **501 stub** that

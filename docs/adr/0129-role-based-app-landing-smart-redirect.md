@@ -1,7 +1,7 @@
 # ADR-0129: Role-based app landing — server-resolved smart redirect
 
 ## Status
-Proposed
+Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: default_landing)
 
 ## Context
 

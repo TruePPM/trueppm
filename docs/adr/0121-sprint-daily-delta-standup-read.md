@@ -1,7 +1,7 @@
 # ADR-0121: Sprint Daily-Delta Read — the Team "What Changed Since Yesterday" Standup Surface
 
 ## Status
-Proposed
+Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: daily_delta)
 
 > **Companion to** ADR-0096 (unified task-activity timeline — the per-task history
 > this read summarizes), ADR-0102 (`SprintScopeChange`), ADR-0104 (signal-privacy

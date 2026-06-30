@@ -1,7 +1,7 @@
 # ADR-0143: Task Notes Sub-Resource (per-author, append-with-edit-window)
 
 ## Status
-Proposed
+Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: class TaskNote)
 
 ## Context
 

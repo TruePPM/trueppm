@@ -1,7 +1,7 @@
 # ADR-0010: Risk Register — Data Model, API, and Integration Design
 
 ## Status
-Proposed
+Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: class Risk)
 
 ## Context
 

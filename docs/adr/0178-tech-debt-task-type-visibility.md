@@ -1,7 +1,7 @@
 # ADR-0178: Tech-Debt Task Type & Visibility
 
 ## Status
-Proposed
+Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: TECH_DEBT)
 
 ## Context
 TruePPM's `TaskType` taxonomy (ADR-derived, shipped via #363) is `EPIC / STORY / TASK / BUG / SPIKE`.

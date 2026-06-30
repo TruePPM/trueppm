@@ -1,7 +1,7 @@
 # ADR-0076: Integration Management Surface Boundary (Workspace vs Project vs Program)
 
 ## Status
-Proposed — extended on 2026-05-21 to add program-scope integrations (see Revisions below).
+Accepted — extended on 2026-05-21 to add program-scope integrations (see Revisions below). — implemented on main; status corrected 2026-06-30 after ADR audit (verified: IntegrationsRedirect)
 
 ## Context
 
