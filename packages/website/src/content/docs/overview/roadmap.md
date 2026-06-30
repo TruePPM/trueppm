@@ -65,6 +65,7 @@ From 0.3 onward each release **lands one primary persona** — it ships the feat
 - **Basic single sign-on (OIDC / OAuth2)** — point TruePPM at your own identity provider (Keycloak, Authentik, Authelia, Zitadel, Google, GitHub, GitLab) and your whole team logs in through it. Self-hosted, login-only, no directory required — the federation a self-hoster expects as table stakes, not behind a paywall. The org identity-*governance* layer (SAML 2.0, SCIM provisioning, LDAP/AD directory sync, enforced org-wide SSO) stays in the enterprise edition
 - **OpenTelemetry observability** (#707–#710) — opt-in OTLP export for traces and metrics across Django, Celery, Channels, the DB layer, and the scheduler engine; Prometheus scrape endpoint out of the box. Plug TruePPM into your existing Grafana/Jaeger/Tempo stack with no custom exporter work
 - **API rate limiting &amp; stability contract** (#1080) — published per-endpoint rate limits with standard `Retry-After` headers, a documented deprecation policy, and a stability tier so integrators know what they can rely on across releases
+- **Beta onboarding** (#725) — a guided setup rail that walks a fresh install from empty dashboard to a running project with real tasks and a schedule: project creation, first task, team invite, and a live-preview mini-board so the value is visible before the setup is done. The full GA-polish pass happens at 0.9; this is the on-ramp that lets a self-hoster be productive in the first session
 - **Client-ready PDF** — a basic Gantt-with-critical-path schedule export from day one (the rich reporting suite lands at 0.8)
 - **Ongoing inbound sync** — continuous one-way Jira → TruePPM card sync (distinct from the one-time migration import at 0.6) so contributors never double-enter
 - **Offline hardening** — WebSocket event replay/resync, sync conflict detection, calm offline states
@@ -119,7 +120,7 @@ From 0.3 onward each release **lands one primary persona** — it ships the feat
 
 **For the first-time evaluator.** Productive in five minutes, and hardened enough to bet a program on.
 
-- **First-run onboarding** — guided setup, first project, team invite
+- **Onboarding polish** — the "easier than MS Project / Planview / Smartsheet" promise audited end to end; the beta setup rail (#725) ships at 0.4, this pass refines it to GA quality
 - **Intuitiveness pass** — the "easier than MS Project / Planview / Smartsheet" promise, audited end to end
 - **GA hardening** — public API v1 freeze, WCAG 2.1 AA audit, performance/scale validation, i18n/l10n scope decision (rate limiting and API stability contract land at 0.4; this hardens the final v1 surface)
 - **Reproducible answers** (#1065) — computed responses carry an engine-version + input hash, so an AI-surfaced number can be reproduced and audited later from the same inputs (the compliance archive of those answers is an enterprise overlay)
