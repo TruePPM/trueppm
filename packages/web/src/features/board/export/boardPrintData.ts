@@ -9,6 +9,12 @@
  * scope, and quiet-toggle filters without re-deriving any of that logic.
  */
 import type { Task, TaskStatus } from '@/types';
+import { initialsOf } from '@/lib/initials';
+
+// Re-exported for existing board consumers/tests that import `initialsOf` from
+// here; the implementation now lives in the shared `@/lib/initials` util so the
+// schedule print transform (ADR-0188) shares one source of truth.
+export { initialsOf };
 
 export interface BoardPrintCard {
   id: string;
@@ -63,14 +69,6 @@ export interface BoardPrintFilters {
   showCost: boolean;
   searchQuery: string;
   savedViewName: string | null;
-}
-
-/** Two-letter initials from a display name ("Ada Lovelace" → "AL", "Cher" → "CH"). */
-export function initialsOf(name: string): string | null {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return null;
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
 function toPrintCard(task: Task): BoardPrintCard {
