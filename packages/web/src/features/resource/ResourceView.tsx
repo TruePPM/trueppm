@@ -32,6 +32,7 @@ import { useResourceAllocation, useInvalidateAllocation } from '@/hooks/useResou
 import { useResolveOverallocation } from '@/hooks/useResolveOverallocation';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useProjectId } from '@/hooks/useProjectId';
+import { usePageTitle } from '@/hooks/usePageTitle';
 import { useTriggerScheduler } from '@/hooks/useTriggerScheduler';
 
 
@@ -55,6 +56,7 @@ export function ResourceView({
   currentUserResourceId,
   highlightResourceId: _highlightResourceId,
 }: Props) {
+  usePageTitle('Resources');
   const projectIdFromUrl = useProjectId();
   const projectId = projectIdProp ?? projectIdFromUrl;
   const triggerScheduler = useTriggerScheduler(projectId);
@@ -240,6 +242,7 @@ export function ResourceView({
   return (
     <>
       <div className="flex flex-col h-full overflow-hidden">
+        <h1 className="sr-only">Resources</h1>
         <ResourceToolbar
           viewMode={viewMode}
           onViewModeChange={setViewMode}

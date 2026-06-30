@@ -8,6 +8,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
 import { useProjectId } from '@/hooks/useProjectId';
+import { usePageTitle } from '@/hooks/usePageTitle';
 import type { GanttEngine, GanttScaleData } from './engine';
 import { dateToLeft, ZOOM_STEP_FACTOR } from './engine';
 import { HEADER_HEIGHT, ROW_HEIGHT } from './scheduleConstants';
@@ -278,6 +279,7 @@ function PanelSplitter({ currentTaskWidth, setWidth }: PanelSplitterProps) {
 // ---------------------------------------------------------------------------
 
 export function ScheduleView() {
+  usePageTitle('Schedule');
   const projectId = useProjectId() ?? null;
   const { tasks: rawTasks, links: rawLinks, isLoading, error } = useScheduleTasks();
   const { data: mcResult } = useMonteCarloResult(projectId ?? undefined);
@@ -1054,6 +1056,7 @@ export function ScheduleView() {
 
   const mainView = (
     <div className="flex flex-col h-full overflow-hidden">
+      <h1 className="sr-only">Schedule</h1>
       {/* Gantt-specific toolbar — Today + Zoom + Add Task.
           Responsive collapse rules per issue #568 / CLAUDE.md rules 110–112:
           primary controls stay visible at every width; the four secondary

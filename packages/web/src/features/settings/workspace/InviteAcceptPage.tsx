@@ -174,7 +174,7 @@ export function InviteAcceptPage() {
               {isSubmitting ? 'Accepting invite…' : 'Accept invite'}
             </Button>
 
-            <p className="text-xs text-neutral-text-disabled text-center">
+            <p className="text-xs text-neutral-text-secondary text-center">
               Already have an account?{' '}
               <a
                 href="/login"
