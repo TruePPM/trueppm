@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import date, time
-from importlib import import_module
 
 import pytest
 from django.apps import apps as django_apps
@@ -12,6 +11,7 @@ from django.urls import reverse
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
+from trueppm_api.apps.notifications.backfill import _clean_matrix
 from trueppm_api.apps.notifications.models import (
     PROJECT_NOTIFICATION_DEFAULT_MATRIX,
     ProjectNotificationChannel,
@@ -313,12 +313,9 @@ def test_cleanup_migration_strips_unknown_keys(
             },
         },
     )
-    migration = import_module(
-        "trueppm_api.apps.notifications.migrations.0004_clean_unknown_matrix_keys"
-    )
     # The model shape is unchanged since this migration, so the live app
     # registry is a valid stand-in for the historical one.
-    migration._clean_matrix(django_apps, None)
+    _clean_matrix(django_apps, None)
 
     row.refresh_from_db()
     assert "not_an_event" not in row.matrix

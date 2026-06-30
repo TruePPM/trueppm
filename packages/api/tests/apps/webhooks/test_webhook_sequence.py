@@ -7,11 +7,9 @@ the retention purge deletes delivery rows.
 
 from __future__ import annotations
 
-import importlib
 import json
 import urllib.request
 from datetime import date, timedelta
-from types import ModuleType
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -20,6 +18,7 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 
 from trueppm_api.apps.projects.models import Calendar, Project
+from trueppm_api.apps.webhooks.backfill import backfill_sequence_numbers, reverse_backfill
 from trueppm_api.apps.webhooks.models import Webhook, WebhookDelivery
 
 User = get_user_model()
@@ -387,11 +386,6 @@ class TestBackfillSequenceNumbers:
     any rows exist, so the loop body is never exercised by ordinary test setup.
     """
 
-    def _migration(self) -> ModuleType:
-        return importlib.import_module(
-            "trueppm_api.apps.webhooks.migrations.0005_webhook_delivery_sequence_numbers"
-        )
-
     def test_backfill_numbers_by_created_at_not_insertion_order(self, webhook: Webhook) -> None:
         # Insert in one order, then rewrite created_at into a different order so
         # the assertion proves the backfill keys off created_at, not PK/insertion.
@@ -405,7 +399,7 @@ class TestBackfillSequenceNumbers:
         _set_created_at(second_inserted, base + timedelta(minutes=2))  # latest
 
         _reset_to_pre_migration_state(webhook)
-        self._migration().backfill_sequence_numbers(django_apps, None)
+        backfill_sequence_numbers(django_apps, None)
 
         third_inserted.refresh_from_db()
         first_inserted.refresh_from_db()
@@ -432,7 +426,7 @@ class TestBackfillSequenceNumbers:
         _make_delivery(hook_b)
 
         _reset_to_pre_migration_state(hook_a, hook_b)
-        self._migration().backfill_sequence_numbers(django_apps, None)
+        backfill_sequence_numbers(django_apps, None)
 
         hook_a.refresh_from_db()
         hook_b.refresh_from_db()
@@ -451,7 +445,7 @@ class TestBackfillSequenceNumbers:
         self, webhook: Webhook
     ) -> None:
         _reset_to_pre_migration_state(webhook)
-        self._migration().backfill_sequence_numbers(django_apps, None)
+        backfill_sequence_numbers(django_apps, None)
 
         webhook.refresh_from_db()
         assert webhook.delivery_sequence == 0  # `if seq > 0` guard skips the update
@@ -460,7 +454,7 @@ class TestBackfillSequenceNumbers:
         _make_delivery(webhook)
         _make_delivery(webhook)
 
-        self._migration().reverse_backfill(django_apps, None)
+        reverse_backfill(django_apps, None)
 
         webhook.refresh_from_db()
         assert webhook.delivery_sequence == 0

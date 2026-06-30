@@ -185,14 +185,11 @@ class TestBackfillLogic:
     """The _backfill_wbs_paths migration helper assigns paths to null-path tasks."""
 
     def _run_backfill(self) -> None:
-        import importlib
-
         from django.apps import apps as django_apps
 
-        mod = importlib.import_module(
-            "trueppm_api.apps.projects.migrations.0019_backfill_wbs_paths"
-        )
-        mod._backfill_wbs_paths(django_apps, None)
+        from trueppm_api.apps.projects.backfill import _backfill_wbs_paths
+
+        _backfill_wbs_paths(django_apps, None)
 
     def test_null_tasks_get_sequential_paths(self, project: Project) -> None:
         t1 = Task.objects.create(project=project, name="T1", duration=1, wbs_path=None)

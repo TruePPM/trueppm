@@ -1,20 +1,15 @@
 """Unit tests for the free-text → structured fiscal-anchor parser (#756).
 
-The parser lives inside migration 0002; we import it directly and exercise it
-against representative legacy values rather than driving the full migration, so
-a regression in the parsing rules fails fast and in isolation.
+The parser lives in the workspace backfill helper; we import it directly and
+exercise it against representative legacy values rather than driving the full
+migration, so a regression in the parsing rules fails fast and in isolation.
 """
 
 from __future__ import annotations
 
-import importlib
-
 import pytest
 
-_migration = importlib.import_module(
-    "trueppm_api.apps.workspace.migrations.0002_remove_workspace_fiscal_year_start_and_more"
-)
-parse = _migration._parse_fiscal_text
+from trueppm_api.apps.workspace.backfill import _parse_fiscal_text as parse
 
 
 @pytest.mark.parametrize(

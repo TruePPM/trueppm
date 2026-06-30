@@ -895,10 +895,11 @@ class TestRiskShortId:
 
     def test_backfill_renumbers_existing_hex_short_ids(self, project: Project) -> None:
         """The 0073 data migration converts hex short_ids to contiguous decimals."""
-        import importlib
         from datetime import UTC, datetime
 
         from django.apps import apps as django_apps
+
+        from trueppm_api.apps.projects.backfill import backfill_risk_short_ids
 
         # Simulate the pre-migration state: risks carrying hex short_ids from the
         # shared counter, with risk_sequence still 0. Pin distinct created_at so
@@ -916,10 +917,7 @@ class TestRiskShortId:
         Project.objects.filter(pk=project.pk).update(risk_sequence=0)
         versions_before = {r.pk: r.server_version for r in Risk.objects.filter(project=project)}
 
-        migration = importlib.import_module(
-            "trueppm_api.apps.projects.migrations.0075_risk_decimal_short_id"
-        )
-        migration.backfill_risk_short_ids(django_apps, None)
+        backfill_risk_short_ids(django_apps, None)
 
         r_a.refresh_from_db()
         r_b.refresh_from_db()
