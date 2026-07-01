@@ -138,6 +138,38 @@ def test_sync_soft_deleted_task_appears_in_deleted_list(
 
 
 @pytest.mark.django_db
+def test_sync_calendar_carries_nested_exceptions(
+    authed_client: APIClient,
+    project: Project,
+    calendar: Calendar,
+    membership: ProjectMembership,
+) -> None:
+    """Exceptions ride the calendar aggregate root inline on the sync delta (ADR-0194)."""
+    from trueppm_api.apps.projects.models import CalendarException
+
+    CalendarException.objects.create(
+        calendar=calendar,
+        exc_start=date(2026, 12, 25),
+        exc_end=date(2026, 12, 26),
+        description="Xmas",
+    )
+    with patch.object(
+        __import__("trueppm_api.apps.sync.views", fromlist=["ProjectSyncView"]).ProjectSyncView,
+        "_watermark",
+        return_value=10,
+    ):
+        resp = authed_client.get(_url(project), {"since": "0"})
+    assert resp.status_code == 200
+    cals = resp.data["changes"]["calendars"]["updated"]
+    assert len(cals) == 1
+    exceptions = cals[0]["exceptions"]
+    assert len(exceptions) == 1
+    assert exceptions[0]["description"] == "Xmas"
+    assert exceptions[0]["exc_start"] == "2026-12-25"
+    assert exceptions[0]["exc_end"] == "2026-12-26"
+
+
+@pytest.mark.django_db
 def test_sync_invalid_since_returns_400(
     authed_client: APIClient, project: Project, membership: ProjectMembership
 ) -> None:
