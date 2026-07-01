@@ -24,11 +24,21 @@ from trueppm_api.apps.projects.models import (
     TaskRecurrenceRule,
     TaskSuggestedAssignee,
 )
+from trueppm_api.apps.projects.serializers import CalendarExceptionSerializer
 from trueppm_api.apps.timetracking.models import TimeEntry
 
 
 class SyncCalendarSerializer(serializers.ModelSerializer[Calendar]):
-    """Sync payload for Calendar — excludes exceptions (synced separately via SyncView)."""
+    """Sync payload for Calendar. Exceptions ride the aggregate root (ADR-0193).
+
+    Exceptions are nested read-only rather than given their own sync collection:
+    they have no server_version of their own, and every exception write bumps the
+    parent Calendar.server_version, so a client that pulls the changed calendar
+    delta receives the full, current exception set inline. Critical-path math is
+    therefore holiday-aware offline.
+    """
+
+    exceptions = CalendarExceptionSerializer(many=True, read_only=True)
 
     class Meta:
         model = Calendar
@@ -39,6 +49,7 @@ class SyncCalendarSerializer(serializers.ModelSerializer[Calendar]):
             "working_days",
             "hours_per_day",
             "timezone",
+            "exceptions",
         ]
 
 

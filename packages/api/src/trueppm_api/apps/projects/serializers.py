@@ -100,11 +100,27 @@ class _UserSummarySerializer(serializers.ModelSerializer):  # type: ignore[type-
 
 
 class CalendarExceptionSerializer(serializers.ModelSerializer[CalendarException]):
-    """Read-only snapshot of a single calendar exception (holiday or non-working span)."""
+    """Read/write serializer for a calendar exception (holiday or non-working span).
+
+    The parent calendar is bound from the URL by the viewset, never from the
+    request body, so a client cannot reassign an exception to another calendar.
+    Exceptions ride their calendar as an aggregate root for sync (ADR-0193).
+    """
 
     class Meta:
         model = CalendarException
         fields = ["id", "exc_start", "exc_end", "description"]
+        read_only_fields = ["id"]
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # exc_end == exc_start is a valid single-day exception; only a strictly
+        # earlier end is nonsensical. On PATCH, fall back to the stored value for
+        # whichever bound the request omits.
+        exc_start = attrs.get("exc_start", getattr(self.instance, "exc_start", None))
+        exc_end = attrs.get("exc_end", getattr(self.instance, "exc_end", None))
+        if exc_start and exc_end and exc_end < exc_start:
+            raise serializers.ValidationError({"exc_end": "exc_end must be on or after exc_start."})
+        return attrs
 
 
 class CalendarSerializer(serializers.ModelSerializer[Calendar]):

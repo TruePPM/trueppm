@@ -926,3 +926,204 @@ class TestCrossProjectDependency:
         pred.project.save(update_fields=["is_archived"])
         r = self._post_edge(client, pred, succ)
         assert r.status_code == 403
+
+
+def _exc_list_url(calendar: Calendar) -> str:
+    return f"/api/v1/calendars/{calendar.pk}/exceptions/"
+
+
+def _exc_detail_url(calendar: Calendar, exc: object) -> str:
+    return f"/api/v1/calendars/{calendar.pk}/exceptions/{exc.pk}/"  # type: ignore[attr-defined]
+
+
+@pytest.mark.django_db
+class TestCalendarExceptionAPI:
+    """Nested CRUD for /calendars/{id}/exceptions/ (#1079, ADR-0193).
+
+    Reads are open to any authenticated user; writes require org admin
+    (Project Manager+), mirroring CalendarViewSet. The ``membership`` fixture
+    grants the test user the Owner role, which satisfies IsOrgAdmin.
+    """
+
+    def _make_exc(
+        self, calendar: Calendar, start: date, end: date, description: str = ""
+    ) -> object:
+        from trueppm_api.apps.projects.models import CalendarException
+
+        return CalendarException.objects.create(
+            calendar=calendar, exc_start=start, exc_end=end, description=description
+        )
+
+    def test_list_empty(self, client: APIClient, calendar: Calendar) -> None:
+        r = client.get(_exc_list_url(calendar))
+        assert r.status_code == 200
+        assert r.data["results"] == []
+
+    def test_list_is_scoped_to_the_url_calendar(
+        self, client: APIClient, calendar: Calendar
+    ) -> None:
+        other = Calendar.objects.create(name="Other")
+        self._make_exc(calendar, date(2026, 12, 25), date(2026, 12, 25), "Mine")
+        self._make_exc(other, date(2026, 1, 1), date(2026, 1, 1), "Theirs")
+        r = client.get(_exc_list_url(calendar))
+        assert r.status_code == 200
+        descriptions = [e["description"] for e in r.data["results"]]
+        assert descriptions == ["Mine"]
+
+    def test_retrieve(self, client: APIClient, calendar: Calendar) -> None:
+        exc = self._make_exc(calendar, date(2026, 7, 1), date(2026, 7, 3), "Shutdown")
+        r = client.get(_exc_detail_url(calendar, exc))
+        assert r.status_code == 200
+        assert r.data["description"] == "Shutdown"
+        assert r.data["exc_start"] == "2026-07-01"
+        assert r.data["exc_end"] == "2026-07-03"
+
+    def test_create_requires_org_admin(self, client: APIClient, calendar: Calendar) -> None:
+        # Authenticated but with no ADMIN+ role anywhere → IsOrgAdmin denies.
+        r = client.post(
+            _exc_list_url(calendar),
+            {"exc_start": "2026-12-25", "exc_end": "2026-12-26", "description": "Xmas"},
+        )
+        assert r.status_code == 403
+
+    def test_create_as_org_admin(
+        self, client: APIClient, calendar: Calendar, membership: ProjectMembership
+    ) -> None:
+        from trueppm_api.apps.projects.models import CalendarException
+
+        r = client.post(
+            _exc_list_url(calendar),
+            {"exc_start": "2026-12-25", "exc_end": "2026-12-26", "description": "Xmas"},
+        )
+        assert r.status_code == 201, r.data
+        assert r.data["description"] == "Xmas"
+        assert CalendarException.objects.filter(calendar=calendar).count() == 1
+
+    def test_create_binds_calendar_from_url_not_body(
+        self, client: APIClient, calendar: Calendar, membership: ProjectMembership
+    ) -> None:
+        """A ``calendar`` in the body is ignored — the URL calendar always wins."""
+        from trueppm_api.apps.projects.models import CalendarException
+
+        other = Calendar.objects.create(name="Decoy")
+        r = client.post(
+            _exc_list_url(calendar),
+            {"exc_start": "2026-12-25", "exc_end": "2026-12-25", "calendar": str(other.pk)},
+        )
+        assert r.status_code == 201, r.data
+        exc = CalendarException.objects.get(pk=r.data["id"])
+        assert exc.calendar_id == calendar.pk
+
+    def test_create_rejects_end_before_start(
+        self, client: APIClient, calendar: Calendar, membership: ProjectMembership
+    ) -> None:
+        r = client.post(
+            _exc_list_url(calendar),
+            {"exc_start": "2026-12-26", "exc_end": "2026-12-25"},
+        )
+        assert r.status_code == 400
+        assert "exc_end" in r.data
+
+    def test_create_allows_single_day_range(
+        self, client: APIClient, calendar: Calendar, membership: ProjectMembership
+    ) -> None:
+        r = client.post(
+            _exc_list_url(calendar),
+            {"exc_start": "2026-12-25", "exc_end": "2026-12-25"},
+        )
+        assert r.status_code == 201, r.data
+
+    def test_create_on_missing_calendar_404(
+        self, client: APIClient, membership: ProjectMembership
+    ) -> None:
+        import uuid
+
+        url = f"/api/v1/calendars/{uuid.uuid4()}/exceptions/"
+        r = client.post(url, {"exc_start": "2026-12-25", "exc_end": "2026-12-26"})
+        assert r.status_code == 404
+
+    def test_update(
+        self, client: APIClient, calendar: Calendar, membership: ProjectMembership
+    ) -> None:
+        exc = self._make_exc(calendar, date(2026, 7, 1), date(2026, 7, 3), "Old")
+        r = client.patch(_exc_detail_url(calendar, exc), {"description": "New"})
+        assert r.status_code == 200
+        exc.refresh_from_db()
+        assert exc.description == "New"
+
+    def test_update_rejects_end_before_start(
+        self, client: APIClient, calendar: Calendar, membership: ProjectMembership
+    ) -> None:
+        exc = self._make_exc(calendar, date(2026, 6, 1), date(2026, 6, 5))
+        r = client.patch(_exc_detail_url(calendar, exc), {"exc_end": "2026-05-30"})
+        assert r.status_code == 400
+        assert "exc_end" in r.data
+
+    def test_update_requires_org_admin(self, client: APIClient, calendar: Calendar) -> None:
+        exc = self._make_exc(calendar, date(2026, 7, 1), date(2026, 7, 3), "Old")
+        r = client.patch(_exc_detail_url(calendar, exc), {"description": "Hacked"})
+        assert r.status_code == 403
+
+    def test_delete(
+        self, client: APIClient, calendar: Calendar, membership: ProjectMembership
+    ) -> None:
+        from trueppm_api.apps.projects.models import CalendarException
+
+        exc = self._make_exc(calendar, date(2026, 7, 1), date(2026, 7, 3))
+        r = client.delete(_exc_detail_url(calendar, exc))
+        assert r.status_code == 204
+        assert CalendarException.objects.filter(calendar=calendar).count() == 0
+
+    def test_delete_requires_org_admin(self, client: APIClient, calendar: Calendar) -> None:
+        exc = self._make_exc(calendar, date(2026, 7, 1), date(2026, 7, 3))
+        r = client.delete(_exc_detail_url(calendar, exc))
+        assert r.status_code == 403
+
+
+@pytest.mark.django_db(transaction=True)
+def test_calendar_exception_create_enqueues_recalc_and_bumps_calendar(
+    client: APIClient, calendar: Calendar, project: Project, membership: ProjectMembership
+) -> None:
+    """Creating an exception bumps the calendar and recalcs dependent projects."""
+    from unittest.mock import MagicMock, patch
+
+    from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestReason
+
+    ScheduleRequest.objects.all().delete()
+    before = calendar.server_version
+    with patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule") as mock_task:
+        mock_task.delay = MagicMock()
+        r = client.post(
+            _exc_list_url(calendar),
+            {"exc_start": "2026-12-25", "exc_end": "2026-12-26", "description": "Xmas"},
+        )
+    assert r.status_code == 201, r.data
+    calendar.refresh_from_db()
+    assert calendar.server_version > before
+    sr = ScheduleRequest.objects.get(project=project)
+    assert sr.reason == ScheduleRequestReason.CALENDAR_CHANGE
+
+
+@pytest.mark.django_db(transaction=True)
+def test_calendar_exception_delete_enqueues_recalc(
+    client: APIClient, calendar: Calendar, project: Project, membership: ProjectMembership
+) -> None:
+    """Deleting an exception also bumps the calendar and recalcs dependent projects."""
+    from unittest.mock import MagicMock, patch
+
+    from trueppm_api.apps.projects.models import CalendarException
+    from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestReason
+
+    exc = CalendarException.objects.create(
+        calendar=calendar, exc_start=date(2026, 12, 25), exc_end=date(2026, 12, 26)
+    )
+    ScheduleRequest.objects.all().delete()
+    before = calendar.server_version
+    with patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule") as mock_task:
+        mock_task.delay = MagicMock()
+        r = client.delete(_exc_detail_url(calendar, exc))
+    assert r.status_code == 204
+    calendar.refresh_from_db()
+    assert calendar.server_version > before
+    sr = ScheduleRequest.objects.get(project=project)
+    assert sr.reason == ScheduleRequestReason.CALENDAR_CHANGE

@@ -195,7 +195,13 @@ class ProjectSyncView(IdempotencyMixin, APIView):
                 SyncDependencySerializer,
             ),
             "calendars": self._collect(
-                Calendar.objects.filter(pk=project.calendar_id, server_version__gt=since)
+                # prefetch_related("exceptions") feeds the nested read-only
+                # exceptions array on SyncCalendarSerializer (ADR-0193) without a
+                # per-calendar lazy load — parity with CalendarViewSet and
+                # N+1-safe for the future program-sync multi-calendar slice.
+                Calendar.objects.filter(
+                    pk=project.calendar_id, server_version__gt=since
+                ).prefetch_related("exceptions")
                 if project.calendar_id
                 else Calendar.objects.none(),
                 SyncCalendarSerializer,

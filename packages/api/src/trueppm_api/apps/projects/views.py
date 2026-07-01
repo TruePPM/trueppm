@@ -87,6 +87,7 @@ from trueppm_api.apps.projects.models import (
     BoardColumnConfig,
     BoardSavedView,
     Calendar,
+    CalendarException,
     CommentAcknowledgement,
     CommentReaction,
     CrossProjectSlipConflict,
@@ -119,6 +120,7 @@ from trueppm_api.apps.projects.serializers import (
     BaselineSerializer,
     BoardColumnConfigSerializer,
     BoardSavedViewSerializer,
+    CalendarExceptionSerializer,
     CalendarSerializer,
     CommentAcknowledgementSerializer,
     CommentReactionSerializer,
@@ -219,6 +221,89 @@ class CalendarViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]):
         # Calendars are not project-scoped — they are shared org-level resources.
         # Return the full queryset for any authenticated user.
         return Calendar.objects.prefetch_related("exceptions").order_by("name")
+
+    def perform_update(self, serializer: BaseSerializer[Calendar]) -> None:
+        # A calendar's working-day mask / hours-per-day / timezone are CPM inputs:
+        # changing them shifts every finish date on every project scheduled against
+        # this calendar. Fan out a recompute after the edit commits (ADR-0193).
+        instance = serializer.save()
+        _recalc_projects_for_calendar(instance.pk)
+
+
+def _recalc_projects_for_calendar(calendar_id: uuid.UUID | str) -> None:
+    """Enqueue a CPM recompute for every live project using this calendar.
+
+    Calendar (and calendar-exception) edits are org-admin writes that may touch
+    projects the editor is not a member of, so the fan-out is by calendar FK, not
+    by membership. Dispatch is deferred to ``transaction.on_commit`` and routed
+    through the scheduling outbox (ADR-0027) so a broker outage cannot drop the
+    recompute; ``enqueue_recalculate`` coalesces onto any PENDING request per
+    project, so several exception edits in one transaction cost one recompute each.
+    """
+    project_ids = list(
+        Project.objects.filter(calendar_id=calendar_id, is_deleted=False).values_list(
+            "id", flat=True
+        )
+    )
+    if not project_ids:
+        return
+
+    def _dispatch() -> None:
+        for pid in project_ids:
+            _enqueue_recalculate(str(pid), reason=ScheduleRequestReason.CALENDAR_CHANGE)
+
+    transaction.on_commit(_dispatch)
+
+
+class CalendarExceptionViewSet(IdempotencyMixin, viewsets.ModelViewSet[CalendarException]):
+    """CRUD for a calendar's non-working date ranges (holidays, shutdowns).
+
+    Mounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s
+    (ADR-0193) rather than a router @action, to keep the OpenAPI schema clean
+    (#846). Exceptions are an aggregate of their calendar: every write bumps the
+    parent Calendar.server_version (so the change rides the existing calendar
+    sync delta) and fans out a CPM recompute to affected projects.
+
+    Read access: any authenticated user. Writes: org admin (Project Manager+),
+    mirroring CalendarViewSet.
+    """
+
+    serializer_class = CalendarExceptionSerializer
+
+    def get_permissions(self) -> list[BasePermission]:
+        if self.request.method in SAFE_METHODS:
+            return [IsAuthenticated()]
+        return [IsAuthenticated(), IsOrgAdmin()]
+
+    def get_queryset(self) -> QuerySet[CalendarException]:
+        # Scope strictly to the URL calendar so an exception id from calendar A
+        # can never be read or mutated through calendar B (IDOR guard).
+        return CalendarException.objects.filter(calendar_id=self.kwargs["calendar_pk"]).order_by(
+            "exc_start", "exc_end"
+        )
+
+    def _calendar(self) -> Calendar:
+        return get_object_or_404(Calendar, pk=self.kwargs["calendar_pk"], is_deleted=False)
+
+    def _touch(self, calendar: Calendar) -> None:
+        # Bump the aggregate root so the mutation propagates through the calendar
+        # sync delta, then recompute dependent projects.
+        calendar.save()
+        _recalc_projects_for_calendar(calendar.pk)
+
+    def perform_create(self, serializer: BaseSerializer[CalendarException]) -> None:
+        calendar = self._calendar()
+        serializer.save(calendar=calendar)
+        self._touch(calendar)
+
+    def perform_update(self, serializer: BaseSerializer[CalendarException]) -> None:
+        instance = serializer.save()
+        self._touch(instance.calendar)
+
+    def perform_destroy(self, instance: CalendarException) -> None:
+        calendar = instance.calendar
+        instance.delete()
+        self._touch(calendar)
 
 
 @extend_schema_view(

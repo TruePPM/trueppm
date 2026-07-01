@@ -53,3 +53,33 @@ Calendars are managed via the REST API (a visual settings editor is planned):
 
 Any authenticated user can read calendars; creating and editing them requires the
 Project Manager or Project Admin role on at least one project.
+
+## Managing exceptions
+
+Exceptions — the holiday and shutdown date ranges that override a calendar's weekly
+pattern — are managed through a nested sub-resource on the calendar. The exceptions
+sub-resource **lands in 0.4**.
+
+| Method & path | Purpose |
+|---|---|
+| `GET /api/v1/calendars/{id}/exceptions/` | List a calendar's exceptions |
+| `POST /api/v1/calendars/{id}/exceptions/` | Add an exception |
+| `GET /api/v1/calendars/{id}/exceptions/{exc_id}/` | Retrieve one exception |
+| `PATCH /api/v1/calendars/{id}/exceptions/{exc_id}/` | Edit an exception |
+| `DELETE /api/v1/calendars/{id}/exceptions/{exc_id}/` | Remove an exception |
+
+An exception carries a start date (`exc_start`), an end date (`exc_end`), and an
+optional `description`. Set `exc_start` equal to `exc_end` for a single non-working
+day; `exc_end` must fall on or after `exc_start`. Overlapping ranges are allowed —
+the scheduler treats their union as non-working.
+
+The parent calendar is taken from the URL, never the request body: an exception
+always belongs to the calendar it was created under and cannot be reassigned. Any
+authenticated user can read exceptions; creating, editing, and deleting them requires
+the Project Manager or Project Admin role — the same gate as editing the calendar
+itself.
+
+Adding, editing, or removing an exception recomputes every project scheduled against
+the calendar, so dependent task dates stay true to the new working time. The change
+also rides the calendar's sync delta to offline clients, keeping critical-path math
+holiday-aware offline.

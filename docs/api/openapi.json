@@ -901,6 +901,343 @@
                 }
             }
         },
+        "/api/v1/calendars/{calendar_pk}/exceptions/": {
+            "get": {
+                "operationId": "v1_calendars_exceptions_list",
+                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0193) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: org admin (Project Manager+),\nmirroring CalendarViewSet.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "calendar_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedCalendarExceptionList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_calendars_exceptions_create",
+                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0193) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: org admin (Project Manager+),\nmirroring CalendarViewSet.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "calendar_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CalendarExceptionRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CalendarExceptionRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CalendarExceptionRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CalendarException"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/calendars/{calendar_pk}/exceptions/{id}/": {
+            "get": {
+                "operationId": "v1_calendars_exceptions_retrieve",
+                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0193) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: org admin (Project Manager+),\nmirroring CalendarViewSet.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "calendar_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CalendarException"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "put": {
+                "operationId": "v1_calendars_exceptions_update",
+                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0193) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: org admin (Project Manager+),\nmirroring CalendarViewSet.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "calendar_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CalendarExceptionRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CalendarExceptionRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CalendarExceptionRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CalendarException"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "v1_calendars_exceptions_partial_update",
+                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0193) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: org admin (Project Manager+),\nmirroring CalendarViewSet.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "calendar_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedCalendarExceptionRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedCalendarExceptionRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedCalendarExceptionRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CalendarException"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "v1_calendars_exceptions_destroy",
+                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0193) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: org admin (Project Manager+),\nmirroring CalendarViewSet.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "calendar_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/calendars/{id}/": {
             "get": {
                 "operationId": "v1_calendars_retrieve",
@@ -24227,7 +24564,7 @@
             },
             "CalendarException": {
                 "type": "object",
-                "description": "Read-only snapshot of a single calendar exception (holiday or non-working span).",
+                "description": "Read/write serializer for a calendar exception (holiday or non-working span).\n\nThe parent calendar is bound from the URL by the viewset, never from the\nrequest body, so a client cannot reassign an exception to another calendar.\nExceptions ride their calendar as an aggregate root for sync (ADR-0193).",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -24255,7 +24592,7 @@
             },
             "CalendarExceptionRequest": {
                 "type": "object",
-                "description": "Read-only snapshot of a single calendar exception (holiday or non-working span).",
+                "description": "Read/write serializer for a calendar exception (holiday or non-working span).\n\nThe parent calendar is bound from the URL by the viewset, never from the\nrequest body, so a client cannot reassign an exception to another calendar.\nExceptions ride their calendar as an aggregate root for sync (ADR-0193).",
                 "properties": {
                     "exc_start": {
                         "type": "string",
@@ -26782,6 +27119,37 @@
                     }
                 }
             },
+            "PaginatedCalendarExceptionList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CalendarException"
+                        }
+                    }
+                }
+            },
             "PaginatedCalendarList": {
                 "type": "object",
                 "required": [
@@ -28118,6 +28486,24 @@
                         "maximum": 32767,
                         "minimum": 0,
                         "nullable": true
+                    }
+                }
+            },
+            "PatchedCalendarExceptionRequest": {
+                "type": "object",
+                "description": "Read/write serializer for a calendar exception (holiday or non-working span).\n\nThe parent calendar is bound from the URL by the viewset, never from the\nrequest body, so a client cannot reassign an exception to another calendar.\nExceptions ride their calendar as an aggregate root for sync (ADR-0193).",
+                "properties": {
+                    "exc_start": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "exc_end": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "description": {
+                        "type": "string",
+                        "maxLength": 255
                     }
                 }
             },

@@ -41,6 +41,7 @@ from trueppm_api.apps.projects.views import (
     BoardColumnConfigView,
     BoardSavedViewDetailView,
     BoardSavedViewListView,
+    CalendarExceptionViewSet,
     CalendarViewSet,
     CommentReactionViewSet,
     CrossProjectSlipConflictViewSet,
@@ -98,6 +99,21 @@ router.register(r"acceptance-criteria", AcceptanceCriterionViewSet, basename="ac
 
 urlpatterns = [
     *router.urls,
+    # Calendar exceptions — nested CRUD under /calendars/<calendar_pk>/exceptions/
+    # (ADR-0193). Explicit paths, not a router/@action, to avoid the ghost-route +
+    # OpenAPI-pollution problem (#846).
+    path(
+        "calendars/<calendar_pk>/exceptions/",
+        CalendarExceptionViewSet.as_view({"get": "list", "post": "create"}),
+        name="calendar-exceptions-list",
+    ),
+    path(
+        "calendars/<calendar_pk>/exceptions/<pk>/",
+        CalendarExceptionViewSet.as_view(
+            {"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"}
+        ),
+        name="calendar-exceptions-detail",
+    ),
     # Nested project actions — not routable via DefaultRouter.
     path(
         "projects/<pk>/tasks/reorder/",
