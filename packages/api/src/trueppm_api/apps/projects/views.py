@@ -235,11 +235,22 @@ class CalendarViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]):
         return Calendar.objects.prefetch_related("exceptions").order_by("name")
 
     def perform_update(self, serializer: BaseSerializer[Calendar]) -> None:
-        # A calendar's working-day mask / hours-per-day / timezone are CPM inputs:
-        # changing them shifts every finish date on every project scheduled against
-        # this calendar. Fan out a recompute after the edit commits (ADR-0194).
+        # working_days and hours_per_day are the only CPM inputs on Calendar —
+        # changing either shifts every finish date on every project scheduled
+        # against this calendar (#1492). timezone is round-tripped but not yet
+        # consumed by the scheduler (trueppm_scheduler.models.Calendar docstring),
+        # and name is pure metadata, so a PATCH touching only those must not fan
+        # out a recompute (over-triggering wastes a recalc pass on every project
+        # bound to the calendar for a no-op schedule change). Compare before/after
+        # rather than inspecting serializer.validated_data so this also catches a
+        # PUT that re-sends the same values under a different field set.
+        old_working_days = serializer.instance.working_days if serializer.instance else None
+        old_hours_per_day = serializer.instance.hours_per_day if serializer.instance else None
+
         instance = serializer.save()
-        _recalc_projects_for_calendar(instance.pk)
+
+        if instance.working_days != old_working_days or instance.hours_per_day != old_hours_per_day:
+            _recalc_projects_for_calendar(instance.pk)
 
 
 def _recalc_projects_for_calendar(calendar_id: uuid.UUID | str) -> None:

@@ -1160,3 +1160,95 @@ def test_calendar_exception_delete_enqueues_recalc(
     assert calendar.server_version > before
     sr = ScheduleRequest.objects.get(project=project)
     assert sr.reason == ScheduleRequestReason.CALENDAR_CHANGE
+
+
+@pytest.mark.django_db(transaction=True)
+def test_calendar_exception_update_enqueues_recalc(
+    client: APIClient, calendar: Calendar, project: Project, membership: ProjectMembership
+) -> None:
+    """Updating an existing exception (e.g. widening its date range) also recalcs
+    dependent projects — a PATCH is as much a schedule-input change as create/delete
+    (#1492)."""
+    from unittest.mock import patch
+
+    from trueppm_api.apps.projects.models import CalendarException
+    from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestReason
+
+    exc = CalendarException.objects.create(
+        calendar=calendar, exc_start=date(2026, 7, 1), exc_end=date(2026, 7, 3)
+    )
+    ScheduleRequest.objects.all().delete()
+    with patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule") as mock_task:
+        mock_task.delay.return_value.id = "test-celery-task-id"
+        r = client.patch(_exc_detail_url(calendar, exc), {"exc_end": "2026-07-05"})
+    assert r.status_code == 200, r.data
+    sr = ScheduleRequest.objects.get(project=project)
+    assert sr.reason == ScheduleRequestReason.CALENDAR_CHANGE
+
+
+@pytest.mark.django_db(transaction=True)
+def test_calendar_update_enqueues_recalc_for_all_referencing_projects(
+    client: APIClient, calendar: Calendar, project: Project, membership: ProjectMembership
+) -> None:
+    """Editing a shared calendar's working_days recalcs every project bound to it,
+    not just one (#1492) — calendars are org-shared resources, so a single edit can
+    fan out to N>1 projects."""
+    from unittest.mock import patch
+
+    from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestReason
+
+    other_project = Project.objects.create(
+        name="Beta", start_date=date(2026, 4, 1), calendar=calendar
+    )
+    ScheduleRequest.objects.all().delete()
+    with patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule") as mock_task:
+        mock_task.delay.return_value.id = "test-celery-task-id"
+        # Mon-Fri (31) -> Sat-Sun only (96): a real working-day-mask change.
+        r = client.patch(f"/api/v1/calendars/{calendar.pk}/", {"working_days": 96})
+    assert r.status_code == 200, r.data
+    reasons = {
+        sr.project_id: sr.reason
+        for sr in ScheduleRequest.objects.filter(project_id__in=[project.pk, other_project.pk])
+    }
+    assert reasons == {
+        project.pk: ScheduleRequestReason.CALENDAR_CHANGE,
+        other_project.pk: ScheduleRequestReason.CALENDAR_CHANGE,
+    }
+
+
+@pytest.mark.django_db(transaction=True)
+def test_calendar_update_of_hours_per_day_enqueues_recalc(
+    client: APIClient, calendar: Calendar, project: Project, membership: ProjectMembership
+) -> None:
+    """hours_per_day is a CPM input alongside working_days — changing it alone must
+    also trigger a recalc (#1492)."""
+    from unittest.mock import patch
+
+    from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestReason
+
+    ScheduleRequest.objects.all().delete()
+    with patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule") as mock_task:
+        mock_task.delay.return_value.id = "test-celery-task-id"
+        r = client.patch(f"/api/v1/calendars/{calendar.pk}/", {"hours_per_day": 6.0})
+    assert r.status_code == 200, r.data
+    sr = ScheduleRequest.objects.get(project=project)
+    assert sr.reason == ScheduleRequestReason.CALENDAR_CHANGE
+
+
+@pytest.mark.django_db(transaction=True)
+def test_calendar_update_of_unrelated_field_does_not_enqueue_recalc(
+    client: APIClient, calendar: Calendar, project: Project, membership: ProjectMembership
+) -> None:
+    """Renaming a calendar (or any non-CPM field) must NOT enqueue a recalc — over-
+    triggering would waste a recompute pass on every project bound to the calendar
+    for a change that can never move a schedule date (#1492)."""
+    from unittest.mock import patch
+
+    from trueppm_api.apps.scheduling.models import ScheduleRequest
+
+    ScheduleRequest.objects.all().delete()
+    with patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule") as mock_task:
+        mock_task.delay.return_value.id = "test-celery-task-id"
+        r = client.patch(f"/api/v1/calendars/{calendar.pk}/", {"name": "Renamed"})
+    assert r.status_code == 200, r.data
+    assert not ScheduleRequest.objects.filter(project=project).exists()
