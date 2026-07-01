@@ -5241,10 +5241,21 @@ class TaskBulkView(IdempotencyMixin, APIView):
                     result["deleted"].append(str(op["id"]))
 
             project_id = str(project.pk)
-            transaction.on_commit(lambda: _enqueue_recalculate(project_id))
-            transaction.on_commit(
-                lambda: broadcast_board_event(project_id, "tasks_bulk_mutated", {})
+            # #1009: carry the ids of the tasks this bulk op touched (created,
+            # updated, and deleted) so the payload matches close_sprint's
+            # tasks_bulk_mutated shape ({"task_ids": [...]}) instead of an empty {} —
+            # clients that key off task_ids can target the refetch instead of
+            # blind-refetching the whole board. Bound via a default arg so closure
+            # late-binding can't swap the list.
+            mutated_task_ids: list[str] = [str(tid) for tid in created_ids + updated_ids] + list(
+                result["deleted"]
             )
+
+            def _broadcast_bulk_mutated(ids: list[str] = mutated_task_ids) -> None:
+                broadcast_board_event(project_id, "tasks_bulk_mutated", {"task_ids": ids})
+
+            transaction.on_commit(lambda: _enqueue_recalculate(project_id))
+            transaction.on_commit(_broadcast_bulk_mutated)
             # #867: a bulk op pulled the project start earlier — collaborators
             # must re-fetch the boundary, which tasks_bulk_mutated doesn't carry.
             if project_start_shifted:
