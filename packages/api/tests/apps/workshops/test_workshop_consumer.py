@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import ExitStack
 from datetime import date
 from unittest.mock import AsyncMock, patch
 
@@ -9,7 +10,9 @@ import pytest
 from channels.db import database_sync_to_async
 from django.contrib.auth import get_user_model
 
+from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import Calendar, Project
+from trueppm_api.apps.sync.ws_auth import WsAuthResult
 from trueppm_api.apps.workshops.consumers import MAX_FRAME_BYTES, WorkshopConsumer
 
 User = get_user_model()
@@ -62,6 +65,155 @@ async def test_connect_inactive_user_rejected(project: Project) -> None:
     await consumer.websocket_connect({"type": "websocket.connect"})
 
     close_mock.assert_called_once_with(code=4001)
+
+
+# ---------------------------------------------------------------------------
+# #1507 — WorkshopConsumer authorization gates (role 4003, active-session 4004)
+#
+# consumers.py:111-118 enforces a Member-floor role gate and an active
+# WorkshopSession gate, but no test exercised either — every receive/relay test
+# pre-wires _ready_consumer past the gates. These connect tests create real DB
+# rows and patch ONLY authenticate_scope, so deleting or inverting either gate
+# (letting a Viewer/non-member join the live cursor/edit group, or connecting
+# with no active session) fails CI instead of shipping green.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def member_user(db: object) -> object:
+    return User.objects.create_user(username="wsk_member", password="pw")
+
+
+@pytest.fixture
+def viewer_user(db: object) -> object:
+    return User.objects.create_user(username="wsk_viewer", password="pw")
+
+
+def _stack(patches: list) -> ExitStack:
+    stack = ExitStack()
+    for p in patches:
+        stack.enter_context(p)
+    return stack
+
+
+def _auth_patches(user: object) -> list:
+    """Patch only authenticate_scope; leave _get_role / _get_active_session real."""
+    return [
+        patch(
+            "trueppm_api.apps.workshops.consumers.authenticate_scope",
+            new=AsyncMock(return_value=WsAuthResult(user=user, via="ticket")),
+        ),
+        patch(
+            "channels.generic.websocket.AsyncJsonWebsocketConsumer.websocket_connect",
+            new=AsyncMock(),
+        ),
+        # _participant_join fires a sync broadcast via transaction.on_commit; stub
+        # it so the happy-path connect test doesn't depend on a live channel layer.
+        patch(
+            "trueppm_api.apps.workshops.broadcast.broadcast_workshop_event",
+            new=lambda **kwargs: None,
+        ),
+    ]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_connect_viewer_rejected(viewer_user: object, project: Project) -> None:
+    """A Viewer (role < MEMBER) cannot join the workshop group — close 4003 (#1507)."""
+    await database_sync_to_async(ProjectMembership.objects.create)(
+        project=project, user=viewer_user, role=Role.VIEWER
+    )
+
+    consumer = WorkshopConsumer()
+    consumer.scope = _make_scope(str(project.pk), token="valid.token")
+    consumer.channel_layer = AsyncMock()
+    consumer.channel_name = "test.channel"
+    close_mock = AsyncMock()
+    consumer.close = close_mock
+
+    with _stack(_auth_patches(viewer_user)):
+        await consumer.websocket_connect({"type": "websocket.connect"})
+
+    close_mock.assert_called_once_with(code=4003)
+    consumer.channel_layer.group_add.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_connect_non_member_rejected(member_user: object, project: Project) -> None:
+    """A user with no membership cannot join the workshop group — close 4003 (#1507)."""
+    consumer = WorkshopConsumer()
+    consumer.scope = _make_scope(str(project.pk), token="valid.token")
+    consumer.channel_layer = AsyncMock()
+    consumer.channel_name = "test.channel"
+    close_mock = AsyncMock()
+    consumer.close = close_mock
+
+    with _stack(_auth_patches(member_user)):
+        await consumer.websocket_connect({"type": "websocket.connect"})
+
+    close_mock.assert_called_once_with(code=4003)
+    consumer.channel_layer.group_add.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_connect_member_without_active_session_rejected(
+    member_user: object, project: Project
+) -> None:
+    """A Member connecting with no active WorkshopSession is rejected — close 4004 (#1507)."""
+    await database_sync_to_async(ProjectMembership.objects.create)(
+        project=project, user=member_user, role=Role.MEMBER
+    )
+
+    consumer = WorkshopConsumer()
+    consumer.scope = _make_scope(str(project.pk), token="valid.token")
+    consumer.channel_layer = AsyncMock()
+    consumer.channel_name = "test.channel"
+    close_mock = AsyncMock()
+    consumer.close = close_mock
+
+    with _stack(_auth_patches(member_user)):
+        await consumer.websocket_connect({"type": "websocket.connect"})
+
+    close_mock.assert_called_once_with(code=4004)
+    consumer.channel_layer.group_add.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_connect_member_with_active_session_accepted(
+    member_user: object, project: Project
+) -> None:
+    """A Member with an active session joins the group and gets a participant row (#1507)."""
+    from trueppm_api.apps.workshops.models import WorkshopParticipant, WorkshopSession
+
+    await database_sync_to_async(ProjectMembership.objects.create)(
+        project=project, user=member_user, role=Role.MEMBER
+    )
+    session = await database_sync_to_async(WorkshopSession.objects.create)(
+        project=project, started_by=member_user
+    )
+
+    consumer = WorkshopConsumer()
+    consumer.scope = _make_scope(str(project.pk), token="valid.token")
+    channel_layer = AsyncMock()
+    consumer.channel_layer = channel_layer
+    consumer.channel_name = "test.channel"
+    close_mock = AsyncMock()
+    consumer.close = close_mock
+
+    with _stack(_auth_patches(member_user)):
+        await consumer.websocket_connect({"type": "websocket.connect"})
+
+    close_mock.assert_not_called()
+    channel_layer.group_add.assert_called_once_with(
+        f"project_{project.pk}_workshop", "test.channel"
+    )
+    exists = await database_sync_to_async(
+        WorkshopParticipant.objects.filter(session=session, user=member_user).exists
+    )()
+    assert exists
 
 
 # ---------------------------------------------------------------------------
