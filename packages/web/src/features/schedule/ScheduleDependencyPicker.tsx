@@ -401,7 +401,7 @@ function ScopeTab({
       className={[
         'h-7 rounded-control px-2 font-medium transition-colors',
         selected
-          ? 'bg-neutral-surface text-neutral-text-primary shadow-sm'
+          ? 'bg-brand-primary text-white'
           : 'text-neutral-text-secondary hover:text-neutral-text-primary',
       ].join(' ')}
     >
