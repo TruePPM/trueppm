@@ -129,7 +129,7 @@ export function CanvasScheduleTimeline({
         style={{ ...canvasStyle, zIndex: 2, pointerEvents: 'auto' }}
       />
       {/* Layer 3: accessible ARIA grid overlay (pointer-events: none) */}
-      <ScheduleAriaOverlay engine={engine} tasks={tasks} containerRef={containerRef} />
+      <ScheduleAriaOverlay engine={engine} tasks={tasks} links={links} containerRef={containerRef} />
     </div>
   );
 }

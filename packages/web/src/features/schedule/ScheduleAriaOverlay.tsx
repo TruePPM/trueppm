@@ -18,10 +18,11 @@ import {
   useEffect,
   useCallback,
   useRef,
+  useMemo,
   type KeyboardEvent,
   type RefObject,
 } from 'react';
-import type { Task } from '@/types';
+import type { Task, TaskLink } from '@/types';
 import type { GanttEngine } from './engine';
 import { dateToLeft, dateToRight } from './engine';
 import { ROW_HEIGHT, BAR_TOP_OFFSET, BAR_HEIGHT } from './engine/GanttHitIndex';
@@ -54,6 +55,60 @@ export function buildTaskAriaLabel(task: Task): string {
   return `${task.name}, ${task.duration} days, starts ${formatAriaDate(task.start)}, finishes ${formatAriaDate(task.finish)}${cp}`;
 }
 
+/**
+ * Builds a per-task dependency description map for aria-describedby.
+ *
+ * Returns a Map<taskId, string> where each entry describes the task's
+ * predecessor and/or successor links in plain English, e.g.:
+ *   "Depends on: Design (FS, +2d); Planning (SS). Leads to: Build (FS)."
+ *
+ * Tasks with no links are omitted from the map. Exported for unit testing.
+ */
+export function buildDepDescription(tasks: Task[], links: TaskLink[]): Map<string, string> {
+  if (links.length === 0) return new Map();
+
+  const nameById = new Map<string, string>();
+  for (const t of tasks) nameById.set(t.id, t.name);
+
+  // Group links by target (predecessors) and by source (successors).
+  const byTarget = new Map<string, TaskLink[]>();
+  const bySource = new Map<string, TaskLink[]>();
+  for (const link of links) {
+    const preds = byTarget.get(link.targetId) ?? [];
+    preds.push(link);
+    byTarget.set(link.targetId, preds);
+
+    const succs = bySource.get(link.sourceId) ?? [];
+    succs.push(link);
+    bySource.set(link.sourceId, succs);
+  }
+
+  const formatLink = (link: TaskLink, peerId: string): string => {
+    const name = nameById.get(peerId) ?? 'Unknown task';
+    const lag =
+      link.lag !== 0 ? `, ${link.lag > 0 ? '+' : ''}${link.lag}d` : '';
+    return `${name} (${link.type}${lag})`;
+  };
+
+  const desc = new Map<string, string>();
+  for (const task of tasks) {
+    const preds = byTarget.get(task.id) ?? [];
+    const succs = bySource.get(task.id) ?? [];
+    const parts: string[] = [];
+
+    if (preds.length > 0) {
+      const predStr = preds.map((l) => formatLink(l, l.sourceId)).join('; ');
+      parts.push(`Depends on: ${predStr}`);
+    }
+    if (succs.length > 0) {
+      const succStr = succs.map((l) => formatLink(l, l.targetId)).join('; ');
+      parts.push(`Leads to: ${succStr}`);
+    }
+    if (parts.length > 0) desc.set(task.id, parts.join('. ') + '.');
+  }
+  return desc;
+}
+
 // ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
@@ -61,6 +116,8 @@ export function buildTaskAriaLabel(task: Task): string {
 interface ScheduleAriaOverlayProps {
   engine: GanttEngine | null;
   tasks: Task[];
+  /** Dependency edges — drives per-bar aria-describedby dep announcements (#1371). */
+  links: TaskLink[];
   containerRef: RefObject<HTMLDivElement | null>;
 }
 
@@ -80,7 +137,12 @@ export function rescheduleHint(task: Task): string | null {
   return `${task.name}. Press Enter to reschedule via keyboard. Arrow keys to navigate rows.`;
 }
 
-export function ScheduleAriaOverlay({ engine, tasks, containerRef }: ScheduleAriaOverlayProps) {
+export function ScheduleAriaOverlay({
+  engine,
+  tasks,
+  links,
+  containerRef,
+}: ScheduleAriaOverlayProps) {
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
   const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
@@ -118,6 +180,9 @@ export function ScheduleAriaOverlay({ engine, tasks, containerRef }: ScheduleAri
       container.removeEventListener('scroll', update);
     };
   }, [containerRef]);
+
+  // Per-task dep description strings for aria-describedby (#1371).
+  const depDescriptions = useMemo(() => buildDepDescription(tasks, links), [tasks, links]);
 
   // Virtualised row range — viewportHeight is reduced by fixed header band
   const overscan = OVERSCAN_ROWS * ROW_HEIGHT;
@@ -212,6 +277,9 @@ export function ScheduleAriaOverlay({ engine, tasks, containerRef }: ScheduleAri
           barWidth = Math.max(2, barRight - barLeft);
         }
 
+        const depDesc = depDescriptions.get(task.id);
+        const depDescId = depDesc ? `schedule-deps-${task.id}` : undefined;
+
         return (
           <div
             key={task.id}
@@ -230,6 +298,7 @@ export function ScheduleAriaOverlay({ engine, tasks, containerRef }: ScheduleAri
               role="gridcell"
               tabIndex={isFocused ? 0 : -1}
               aria-label={buildTaskAriaLabel(task)}
+              aria-describedby={depDescId}
               aria-selected={engine?.selectedTaskIds.has(task.id)}
               className="focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface rounded-control outline-none"
               style={{
@@ -243,6 +312,12 @@ export function ScheduleAriaOverlay({ engine, tasks, containerRef }: ScheduleAri
               onFocus={() => setFocusedTaskId(task.id)}
               onKeyDown={(e) => handleKeyDown(e, task.id)}
             />
+            {/* Hidden dep description read by aria-describedby when the bar is focused. */}
+            {depDesc && (
+              <span id={depDescId} className="sr-only">
+                {depDesc}
+              </span>
+            )}
           </div>
         );
       })}
