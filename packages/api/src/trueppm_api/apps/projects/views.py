@@ -225,7 +225,7 @@ class CalendarViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]):
     def perform_update(self, serializer: BaseSerializer[Calendar]) -> None:
         # A calendar's working-day mask / hours-per-day / timezone are CPM inputs:
         # changing them shifts every finish date on every project scheduled against
-        # this calendar. Fan out a recompute after the edit commits (ADR-0193).
+        # this calendar. Fan out a recompute after the edit commits (ADR-0194).
         instance = serializer.save()
         _recalc_projects_for_calendar(instance.pk)
 
@@ -259,7 +259,7 @@ class CalendarExceptionViewSet(IdempotencyMixin, viewsets.ModelViewSet[CalendarE
     """CRUD for a calendar's non-working date ranges (holidays, shutdowns).
 
     Mounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s
-    (ADR-0193) rather than a router @action, to keep the OpenAPI schema clean
+    (ADR-0194) rather than a router @action, to keep the OpenAPI schema clean
     (#846). Exceptions are an aggregate of their calendar: every write bumps the
     parent Calendar.server_version (so the change rides the existing calendar
     sync delta) and fans out a CPM recompute to affected projects.

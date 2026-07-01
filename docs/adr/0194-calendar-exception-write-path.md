@@ -1,4 +1,4 @@
-# ADR-0193: Calendar Exception Write Path — Nested CRUD, Aggregate-Root Sync, and Calendar-Change Recompute
+# ADR-0194: Calendar Exception Write Path — Nested CRUD, Aggregate-Root Sync, and Calendar-Change Recompute
 
 ## Status
 Accepted

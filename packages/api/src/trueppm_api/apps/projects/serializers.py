@@ -104,7 +104,7 @@ class CalendarExceptionSerializer(serializers.ModelSerializer[CalendarException]
 
     The parent calendar is bound from the URL by the viewset, never from the
     request body, so a client cannot reassign an exception to another calendar.
-    Exceptions ride their calendar as an aggregate root for sync (ADR-0193).
+    Exceptions ride their calendar as an aggregate root for sync (ADR-0194).
     """
 
     class Meta:

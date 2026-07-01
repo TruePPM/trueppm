@@ -144,7 +144,7 @@ def test_sync_calendar_carries_nested_exceptions(
     calendar: Calendar,
     membership: ProjectMembership,
 ) -> None:
-    """Exceptions ride the calendar aggregate root inline on the sync delta (ADR-0193)."""
+    """Exceptions ride the calendar aggregate root inline on the sync delta (ADR-0194)."""
     from trueppm_api.apps.projects.models import CalendarException
 
     CalendarException.objects.create(

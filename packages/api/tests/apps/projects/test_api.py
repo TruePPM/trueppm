@@ -938,7 +938,7 @@ def _exc_detail_url(calendar: Calendar, exc: object) -> str:
 
 @pytest.mark.django_db
 class TestCalendarExceptionAPI:
-    """Nested CRUD for /calendars/{id}/exceptions/ (#1079, ADR-0193).
+    """Nested CRUD for /calendars/{id}/exceptions/ (#1079, ADR-0194).
 
     Reads are open to any authenticated user; writes require org admin
     (Project Manager+), mirroring CalendarViewSet. The ``membership`` fixture
@@ -1085,14 +1085,14 @@ def test_calendar_exception_create_enqueues_recalc_and_bumps_calendar(
     client: APIClient, calendar: Calendar, project: Project, membership: ProjectMembership
 ) -> None:
     """Creating an exception bumps the calendar and recalcs dependent projects."""
-    from unittest.mock import MagicMock, patch
+    from unittest.mock import patch
 
     from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestReason
 
     ScheduleRequest.objects.all().delete()
     before = calendar.server_version
     with patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule") as mock_task:
-        mock_task.delay = MagicMock()
+        mock_task.delay.return_value.id = "test-celery-task-id"
         r = client.post(
             _exc_list_url(calendar),
             {"exc_start": "2026-12-25", "exc_end": "2026-12-26", "description": "Xmas"},
@@ -1109,7 +1109,7 @@ def test_calendar_exception_delete_enqueues_recalc(
     client: APIClient, calendar: Calendar, project: Project, membership: ProjectMembership
 ) -> None:
     """Deleting an exception also bumps the calendar and recalcs dependent projects."""
-    from unittest.mock import MagicMock, patch
+    from unittest.mock import patch
 
     from trueppm_api.apps.projects.models import CalendarException
     from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestReason
@@ -1120,7 +1120,7 @@ def test_calendar_exception_delete_enqueues_recalc(
     ScheduleRequest.objects.all().delete()
     before = calendar.server_version
     with patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule") as mock_task:
-        mock_task.delay = MagicMock()
+        mock_task.delay.return_value.id = "test-celery-task-id"
         r = client.delete(_exc_detail_url(calendar, exc))
     assert r.status_code == 204
     calendar.refresh_from_db()
