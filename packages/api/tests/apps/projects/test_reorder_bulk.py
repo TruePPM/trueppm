@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date
+from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -310,6 +311,44 @@ class TestTaskBulkView:
         assert len(r.data["created"]) == 1
         assert len(r.data["updated"]) == 1
         assert len(r.data["deleted"]) == 1
+
+    def test_bulk_mutated_broadcast_carries_task_ids(
+        self,
+        client: APIClient,
+        project: Project,
+        membership: ProjectMembership,
+        root_tasks: list[Task],
+        django_capture_on_commit_callbacks: object,
+    ) -> None:
+        """#1009: the bulk on-commit broadcast carries the ids of the tasks it
+        mutated (a non-empty ``task_ids`` list — updated and deleted here),
+        matching close_sprint's ``tasks_bulk_mutated`` payload shape rather than
+        the old empty ``{}``. Deferred via ``transaction.on_commit``, so the
+        callbacks are captured and executed to observe the wire event.
+        """
+        t1, _t2, t3 = root_tasks
+        payload = {
+            "operations": [
+                {"op": "update", "id": str(t1.pk), "data": {"duration": 5}},
+                {"op": "delete", "id": str(t3.pk)},
+            ]
+        }
+        with (
+            patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_bcast,
+            patch("trueppm_api.apps.projects.views._enqueue_recalculate"),
+            django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
+        ):
+            r = client.post(self.url(project), payload, format="json")
+        assert r.status_code == 200, r.data
+
+        bulk_calls = [
+            c.args for c in mock_bcast.call_args_list if c.args[1] == "tasks_bulk_mutated"
+        ]
+        assert len(bulk_calls) == 1
+        pid, _event, wire_payload = bulk_calls[0]
+        assert pid == str(project.pk)
+        # Non-empty ids: both the updated and the deleted task are carried.
+        assert set(wire_payload["task_ids"]) == {str(t1.pk), str(t3.pk)}
 
     def test_duplicate_id_rejected(
         self,

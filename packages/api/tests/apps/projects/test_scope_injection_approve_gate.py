@@ -781,6 +781,67 @@ def test_accept_fires_sprint_scope_changed_broadcast_on_commit(
     assert payload["task_id"] == str(pending.pk)
 
 
+def test_accept_upserts_burndown_on_commit_via_refetched_sprint(
+    project: Project,
+    sprint: Sprint,
+    owner: object,
+    django_capture_on_commit_callbacks: object,
+) -> None:
+    """#1009: the accept on-commit closure captures only the sprint pk (a plain
+    value) and re-fetches the Sprint inside the callback before recomputing the
+    burndown. Executing the deferred callback must produce a burn snapshot — which
+    it can only do if the ``Sprint.objects.get(pk=...)`` re-fetch succeeded (a
+    failed re-fetch would raise inside the callback and fail this test).
+    """
+    pending = _task(project, "Pending", sprint=sprint, story_points=3)
+    sc = _inject(pending, sprint, owner)
+    # Creating a task in an ACTIVE sprint already stamps today's burn snapshot:
+    # Task.save() fires task_status_changed on INSERT (old None != new status),
+    # and the burndown receiver upserts today's row. Clear it so the post-accept
+    # assertion proves the on-commit re-fetch path — not setup — wrote the snapshot.
+    sprint.burn_snapshots.all().delete()
+    assert sprint.burn_snapshots.count() == 0
+
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
+    ):
+        accept_scope_change(sc, owner)
+
+    # The re-fetched Sprint reached upsert_burndown_for_sprint — one snapshot written.
+    assert sprint.burn_snapshots.exists()
+
+
+def test_reject_fires_broadcast_and_upserts_burndown_on_commit(
+    project: Project,
+    sprint: Sprint,
+    owner: object,
+    django_capture_on_commit_callbacks: object,
+) -> None:
+    """#1009: the reject on-commit closure likewise captures the sprint pk (plain
+    value), re-fetches the Sprint, recomputes the burndown, and fires the
+    ``sprint_scope_changed`` board broadcast — all deferred via
+    ``transaction.on_commit``. Assert both effects after the callback executes.
+    """
+    pending = _task(project, "Pending", sprint=sprint, story_points=3)
+    sc = _inject(pending, sprint, owner)
+
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_bcast,
+        django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
+    ):
+        reject_scope_change(sc, owner)
+
+    mock_bcast.assert_called_once()
+    _pid, event_type, payload = mock_bcast.call_args.args
+    assert event_type == "sprint_scope_changed"
+    assert payload["sprint_id"] == str(sprint.pk)
+    assert payload["task_id"] == str(pending.pk)
+    # The re-fetched Sprint reached upsert_burndown_for_sprint even though the task
+    # was removed from the sprint — the recompute path still runs on commit.
+    assert sprint.burn_snapshots.exists()
+
+
 # --------------------------------------------------------------------------- #
 # Reject idempotency + single reject endpoint.
 # --------------------------------------------------------------------------- #
