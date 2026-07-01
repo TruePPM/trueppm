@@ -231,8 +231,14 @@ class TestScheduleDependencyTypes:
         )
         r = schedule(p)
         by_id = {t.id: t for t in r.tasks}
-        # A starts Mon 2-Mar + lag 4 calendar days = Fri 6-Mar → B must finish >= Fri 6-Mar
-        assert by_id["B"].early_finish >= date(2026, 3, 6)
+        # SF: B.EF constraint = A.ES + lag, snapped forward on B's calendar.
+        # A starts Mon 2-Mar; + lag 4 calendar days = Fri 6-Mar (a working day, no
+        # snap) → B must FINISH exactly Fri 6-Mar (the minimum the constraint allows).
+        # B is 3 working days, so it STARTS Wed 4-Mar (Wed/Thu/Fri = 4,5,6-Mar).
+        # Absolute oracle (not just the >= bound): pins both endpoints so an
+        # off-by-one in either the SF anchor or the back-derived start would fail.
+        assert by_id["B"].early_start == date(2026, 3, 4)  # Wed
+        assert by_id["B"].early_finish == date(2026, 3, 6)  # Fri
 
 
 # ---------------------------------------------------------------------------
@@ -687,6 +693,80 @@ class TestMonteCarlo:
         """Percentile ordering must always hold."""
         r = monte_carlo(self._simple_mc_project(), runs=1_000, seed=0)
         assert r.p50 <= r.p80 <= r.p95
+
+    def _wide_spread_pert_project(self) -> Project:
+        """Two independent PERT tasks with a very fat right tail (pess ≫ ml).
+
+        The wide optimistic→pessimistic spread guarantees the finish distribution
+        has genuinely distinct percentiles, so P50/P80/P95 can never collapse onto
+        one another under a fixed seed — the property the strict-ordering and
+        percentile-index oracles below both rely on.
+        """
+        return make_project(
+            tasks=[
+                task(
+                    "A",
+                    "A",
+                    5,
+                    optimistic_duration=timedelta(days=3),
+                    most_likely_duration=timedelta(days=5),
+                    pessimistic_duration=timedelta(days=30),
+                ),
+                task(
+                    "B",
+                    "B",
+                    4,
+                    optimistic_duration=timedelta(days=2),
+                    most_likely_duration=timedelta(days=4),
+                    pessimistic_duration=timedelta(days=40),
+                ),
+            ],
+        )
+
+    def test_percentiles_are_exact_positions_in_the_distribution(self) -> None:
+        """P50/P80/P95 equal the exact hand-computed positions of the returned
+        sorted distribution — the oracle no inequality/parity test can provide (#1517).
+
+        The engine computes ``np.percentile(offsets, [50, 80, 95])`` (linear
+        interpolation). With ``runs=21`` every percentile index ``(runs-1)*p/100``
+        is an integer — 20*0.50=10, 20*0.80=16, 20*0.95=19 — so numpy returns the
+        distribution value at that exact rank with no interpolation. Because the
+        offset→date map is monotonic, the P-th percentile date equals
+        ``distribution[(runs-1)*p//100]``:
+
+            P50 → distribution[10]   P80 → distribution[16]   P95 → distribution[19]
+
+        This is the direct oracle the audit demanded: a copy-paste that wired P80 to
+        the P50 offset (``pct_offsets[0]``) would make ``r.p80 == distribution[10]``,
+        failing here — whereas the old ``p50 <= p80 <= p95`` stayed green. The exact
+        seed=0 dates are pinned too, so a regression in the *sampling* (not just the
+        percentile wiring) is also caught.
+        """
+        runs = 21
+        r = monte_carlo(self._wide_spread_pert_project(), runs=runs, seed=0)
+        assert len(r.distribution) == runs
+        i50, i80, i95 = (runs - 1) * 50 // 100, (runs - 1) * 80 // 100, (runs - 1) * 95 // 100
+        assert (i50, i80, i95) == (10, 16, 19)
+        # Percentile-index oracle: version-independent, and the primary guard.
+        assert r.p50 == r.distribution[i50]
+        assert r.p80 == r.distribution[i80]
+        assert r.p95 == r.distribution[i95]
+        # Pinned seed=0 snapshot (fat-tailed spread ⇒ the three are distinct dates).
+        assert r.p50 == date(2026, 3, 11)
+        assert r.p80 == date(2026, 3, 19)
+        assert r.p95 == date(2026, 3, 20)
+
+    def test_percentiles_are_strictly_increasing_on_wide_spread(self) -> None:
+        """P95 > P80 > P50 — strict, not the ``<=`` every existing test allows (#1517).
+
+        On a fat-tailed distribution with enough runs the three percentiles land on
+        distinct finish dates, so strict ordering is deterministic under the fixed
+        seed. This is the assertion that fails the instant P80 or P95 is silently
+        wired to the P50 offset (they would become equal), which no monotone-with-
+        equality or degenerate-deterministic test in the suite can detect.
+        """
+        r = monte_carlo(self._wide_spread_pert_project(), runs=2_000, seed=0)
+        assert r.p95 > r.p80 > r.p50
 
     def test_reproducible_with_seed(self) -> None:
         p = self._simple_mc_project()

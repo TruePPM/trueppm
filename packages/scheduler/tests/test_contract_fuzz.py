@@ -84,17 +84,25 @@ def _time_limit(seconds: float):
         signal.signal(signal.SIGALRM, old)
 
 
-def _assert_conforms(label: str, call: Callable[[], object]) -> None:
+def _assert_conforms(
+    label: str,
+    call: Callable[[], object],
+    on_return: Callable[[object], None] | None = None,
+) -> None:
     """Assert ``call()`` either returns or raises only a documented SchedulerError.
 
     ``SchedulerError`` subclasses ``ValueError``, so it is caught first; any *other*
     escaping exception (including a bare ``ValueError`` that is not a SchedulerError,
     ``TypeError``, ``OverflowError``, numpy errors, ``RecursionError``) or a hang is
     a contract violation.
+
+    When ``call()`` returns cleanly and ``on_return`` is given, it is invoked with
+    the result to assert output invariants — so a clean return is no longer treated
+    as unconditional success (#1511).
     """
     try:
         with _time_limit(HANG_SECONDS):
-            call()
+            result = call()
     except SchedulerError:
         return
     except _Timeout as exc:
@@ -102,6 +110,25 @@ def _assert_conforms(label: str, call: Callable[[], object]) -> None:
     except Exception as exc:
         # Classifying *any* non-SchedulerError escape is the whole point.
         raise AssertionError(f"{label}: non-conforming escape {type(exc).__name__}: {exc}") from exc
+    if on_return is not None:
+        on_return(result)
+
+
+def _assert_schedule_invariants(project: Project, result: object) -> None:
+    """Basic CPM output invariants that must hold for any clean ``schedule`` return.
+
+    A clean return means the project passed validation (duplicate ids, for one, are
+    rejected — see the engine's uniqueness guard), so the task set is preserved and
+    every task carries a coherent early window. Asserting these turns "returned
+    without raising" from a vacuous pass into a real correctness check (#1511).
+    """
+    tasks = list(result.tasks)  # type: ignore[attr-defined]
+    assert len(tasks) == len(project.tasks), "schedule must neither drop nor invent tasks"
+    for t in tasks:
+        if t.early_start is not None and t.early_finish is not None:
+            assert t.early_start <= t.early_finish, f"{t.id}: early_start after early_finish"
+        if t.free_float is not None and t.total_float is not None:
+            assert t.free_float <= t.total_float, f"{t.id}: free_float exceeds total_float"
 
 
 # ---------------------------------------------------------------------------
@@ -227,7 +254,11 @@ def test_direct_object_api_conforms(project: Project, seed: object) -> None:
     numpy error, or hang. This is the path the TruePPM API itself drives. The
     fuzzed ``seed`` (incl. negative ints, floats, bools) exercises the #1453 guard:
     a non-conforming seed must raise InvalidScheduleInput, not a bare numpy error."""
-    _assert_conforms("schedule", lambda: schedule(project))
+    _assert_conforms(
+        "schedule",
+        lambda: schedule(project),
+        on_return=lambda r: _assert_schedule_invariants(project, r),
+    )
     _assert_conforms(
         "monte_carlo",
         lambda: monte_carlo(project, runs=24, seed=seed, max_runs=None, max_tasks=None),  # type: ignore[arg-type]
