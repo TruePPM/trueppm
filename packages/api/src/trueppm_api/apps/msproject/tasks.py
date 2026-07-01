@@ -178,25 +178,34 @@ def import_msproject(
 
 
 def _mark_import_done(import_request_id: str) -> None:
-    """Flip the ImportRequest row to DONE after successful completion."""
+    """Flip the ImportRequest row to DONE after successful completion.
+
+    Clears ``file_content_b64`` in the same update: the ~67 MB base64 payload
+    exists only so a PENDING/DISPATCHED row survives a broker outage and can be
+    re-dispatched by the drain (which re-reads it). Once the import reaches the
+    terminal DONE state it can never be retried, so the blob is dead weight —
+    null it now instead of carrying it until the nightly retention purge (#789).
+    """
     from trueppm_api.apps.msproject.models import ImportRequest, ImportRequestStatus
 
     ImportRequest.objects.filter(
         id=import_request_id, status=ImportRequestStatus.DISPATCHED
-    ).update(status=ImportRequestStatus.DONE)
+    ).update(status=ImportRequestStatus.DONE, file_content_b64="")
 
 
 def _mark_import_dead(import_request_id: str) -> None:
     """Flip the ImportRequest row to DEAD after a terminal (parse) failure.
 
     DEAD is excluded from the orphan-drain recovery, so a deterministically bad
-    file is not re-dispatched forever (ADR-0092).
+    file is not re-dispatched forever (ADR-0092). Because it is terminal and can
+    never be retried, the base64 payload is cleared here too for the same reason
+    as DONE — it is only needed for pre-terminal retry (#789).
     """
     from trueppm_api.apps.msproject.models import ImportRequest, ImportRequestStatus
 
     ImportRequest.objects.filter(id=import_request_id).exclude(
         status=ImportRequestStatus.DONE
-    ).update(status=ImportRequestStatus.DEAD)
+    ).update(status=ImportRequestStatus.DEAD, file_content_b64="")
 
 
 def _apply_header_to_project(project_id: str, data: ProjectData) -> None:
