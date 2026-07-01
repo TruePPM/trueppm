@@ -12,7 +12,14 @@
  * wired in BoardView.tsx. Sibling MRs #383 (drawer) and #384 (queue) will plug
  * their layout components into the rail/drawer/queue selector wired here.
  */
-import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 import type { BoardSortKey } from '@/hooks/useBoardSavedViews';
 import type { BoardDensity, EvmMode } from './BoardCard';
 import type {
@@ -307,11 +314,6 @@ const DENSITY_LABELS: Record<BoardDensity, string> = {
   detailed: 'Detailed',
 };
 
-const BACKLOG_DENSITY_LABELS: Record<BacklogDensity, string> = {
-  compact: 'Compact',
-  comfortable: 'Comfortable',
-  full: 'Full',
-};
 
 const EVM_LABELS: Record<EvmMode, string> = {
   off: 'Off',
@@ -325,6 +327,125 @@ const GROUP_LABELS: Record<BoardGroupMode, string> = {
   assignee: 'By assignee',
   epic: 'By epic',
 };
+
+// ---------------------------------------------------------------------------
+// ChipRadioGroup — roving-tabindex radiogroup for toolbar chip popovers
+// ---------------------------------------------------------------------------
+
+/**
+ * Roving-tabindex radiogroup for toolbar chip popovers (web rule 167).
+ *
+ * Arrow keys (Up/Down/Left/Right) move focus without committing; selection
+ * commits via click, Enter, or Space (native button behaviour). The tab stop
+ * tracks the current selection so the group is reachable in a single Tab press
+ * when the popover opens.
+ *
+ * The canonical pattern is ScheduleViewModeToggle (immediate-commit) and
+ * PulseRadioGroup (deferred-commit). This helper uses deferred-commit so the
+ * user can scan options before selecting — appropriate for these multi-option
+ * chip popovers.
+ */
+function ChipRadioGroup<K extends string>({
+  ariaLabel,
+  options,
+  selected,
+  onChange,
+  className = 'flex flex-col gap-0.5',
+}: {
+  ariaLabel: string;
+  options: ReadonlyArray<{ value: K; label: string; ariaLabel?: string }>;
+  selected: K;
+  onChange: (value: K) => void;
+  className?: string;
+}) {
+  const selectedIdx = options.findIndex((o) => o.value === selected);
+  // focusIdx tracks which button holds tabIndex=0. Starts on the current
+  // selection so the first Tab into the open popover lands on the active option.
+  const [focusIdx, setFocusIdx] = useState(Math.max(0, selectedIdx));
+  const refs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  // Sync the roving tab stop when the external selection changes.
+  useEffect(() => {
+    const idx = options.findIndex((o) => o.value === selected);
+    if (idx >= 0) setFocusIdx(idx);
+  }, [selected, options]);
+
+  function onKeyDown(e: KeyboardEvent<HTMLButtonElement>, idx: number) {
+    let next = idx;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+      next = (idx + 1) % options.length;
+    } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+      next = (idx - 1 + options.length) % options.length;
+    } else if (e.key === 'Home') {
+      next = 0;
+    } else if (e.key === 'End') {
+      next = options.length - 1;
+    } else {
+      return;
+    }
+    e.preventDefault();
+    setFocusIdx(next);
+    refs.current[next]?.focus();
+  }
+
+  return (
+    <div role="radiogroup" aria-label={ariaLabel} className={className}>
+      {options.map((opt, i) => {
+        const isSelected = opt.value === selected;
+        return (
+          <button
+            key={opt.value}
+            ref={(el) => {
+              refs.current[i] = el;
+            }}
+            type="button"
+            role="radio"
+            aria-checked={isSelected}
+            aria-label={opt.ariaLabel}
+            tabIndex={i === focusIdx ? 0 : -1}
+            onClick={() => onChange(opt.value)}
+            onKeyDown={(e) => onKeyDown(e, i)}
+            className={[
+              'rounded-control px-2 py-1 text-left text-xs',
+              'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none',
+              isSelected
+                ? 'bg-brand-primary/10 text-brand-primary-dark dark:text-brand-primary'
+                : 'text-neutral-text-primary hover:bg-neutral-surface-raised',
+            ].join(' ')}
+          >
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// Option arrays for each chip ------------------------------------------------
+
+const GROUP_OPTIONS = [
+  { value: 'phase' as BoardGroupMode, label: 'Phase' },
+  { value: 'assignee' as BoardGroupMode, label: 'By assignee' },
+  { value: 'epic' as BoardGroupMode, label: 'By epic' },
+] as const;
+
+const SORT_OPTIONS = [
+  { value: 'priority' as BoardSortKey, label: 'Priority' },
+  { value: 'start_date' as BoardSortKey, label: 'Start date' },
+  { value: 'percent_complete' as BoardSortKey, label: '% complete' },
+] as const;
+
+const DENSITY_OPTIONS = [
+  { value: 'compact' as BoardDensity, label: 'Compact', ariaLabel: 'Board card density: Compact' },
+  { value: 'comfortable' as BoardDensity, label: 'Comfortable', ariaLabel: 'Board card density: Comfortable' },
+  { value: 'detailed' as BoardDensity, label: 'Detailed', ariaLabel: 'Board card density: Detailed' },
+] as const;
+
+const BACKLOG_DENSITY_OPTIONS = [
+  { value: 'compact' as BacklogDensity, label: 'Compact', ariaLabel: 'Backlog card density: Compact' },
+  { value: 'comfortable' as BacklogDensity, label: 'Comfortable', ariaLabel: 'Backlog card density: Comfortable' },
+  { value: 'full' as BacklogDensity, label: 'Full', ariaLabel: 'Backlog card density: Full' },
+] as const;
 
 export function CalmToolbar(props: CalmToolbarProps) {
   const [openChip, setOpenChip] = useState<'group' | 'sort' | 'density' | 'more' | null>(null);
@@ -391,32 +512,18 @@ export function CalmToolbar(props: CalmToolbarProps) {
         isOpen={openChip === 'group'}
         onToggle={() => toggle('group')}
       >
-        <div role="radiogroup" aria-label="Group lanes by" className="flex flex-col gap-0.5">
-          {(Object.keys(GROUP_LABELS) as BoardGroupMode[]).map((key) => (
-            <button
-              key={key}
-              type="button"
-              role="radio"
-              aria-checked={props.groupBy === key}
-              onClick={() => {
-                props.onGroupByChange(key);
-                setOpenChip(null);
-              }}
-              className={[
-                'rounded-control px-2 py-1 text-left text-xs',
-                'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none',
-                props.groupBy === key
-                  ? 'bg-brand-primary/10 text-brand-primary-dark dark:text-brand-primary'
-                  : 'text-neutral-text-primary hover:bg-neutral-surface-raised',
-              ].join(' ')}
-            >
-              {GROUP_LABELS[key]}
-            </button>
-          ))}
-          <p className="px-2 pt-1 text-[11px] text-neutral-text-secondary">
-            Team grouping is coming in a later release.
-          </p>
-        </div>
+        <ChipRadioGroup
+          ariaLabel="Group lanes by"
+          options={GROUP_OPTIONS}
+          selected={props.groupBy}
+          onChange={(key) => {
+            props.onGroupByChange(key);
+            setOpenChip(null);
+          }}
+        />
+        <p className="px-2 pt-1 text-[11px] text-neutral-text-secondary">
+          Team grouping is coming in a later release.
+        </p>
       </ToolbarChip>
 
       <ToolbarChip
@@ -426,29 +533,15 @@ export function CalmToolbar(props: CalmToolbarProps) {
         isOpen={openChip === 'sort'}
         onToggle={() => toggle('sort')}
       >
-        <div role="radiogroup" aria-label="Sort tasks by" className="flex flex-col gap-0.5">
-          {(Object.keys(SORT_LABELS) as BoardSortKey[]).map((key) => (
-            <button
-              key={key}
-              type="button"
-              role="radio"
-              aria-checked={props.sort === key}
-              onClick={() => {
-                props.onSortChange(key);
-                setOpenChip(null);
-              }}
-              className={[
-                'rounded-control px-2 py-1 text-left text-xs',
-                'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none',
-                props.sort === key
-                  ? 'bg-brand-primary/10 text-brand-primary-dark dark:text-brand-primary'
-                  : 'text-neutral-text-primary hover:bg-neutral-surface-raised',
-              ].join(' ')}
-            >
-              {SORT_LABELS[key]}
-            </button>
-          ))}
-        </div>
+        <ChipRadioGroup
+          ariaLabel="Sort tasks by"
+          options={SORT_OPTIONS}
+          selected={props.sort}
+          onChange={(key) => {
+            props.onSortChange(key);
+            setOpenChip(null);
+          }}
+        />
       </ToolbarChip>
 
       <ToolbarChip
@@ -463,49 +556,23 @@ export function CalmToolbar(props: CalmToolbarProps) {
             <legend className="px-2 py-1 text-xs font-semibold text-neutral-text-secondary uppercase tracking-wide">
               Board cards
             </legend>
-            {(Object.keys(DENSITY_LABELS) as BoardDensity[]).map((key) => (
-              <button
-                key={key}
-                type="button"
-                role="radio"
-                aria-checked={props.density === key}
-                aria-label={`Board card density: ${DENSITY_LABELS[key]}`}
-                onClick={() => props.onDensityChange(key)}
-                className={[
-                  'rounded-control px-2 py-1 text-left text-xs',
-                  'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none',
-                  props.density === key
-                    ? 'bg-brand-primary/10 text-brand-primary-dark dark:text-brand-primary'
-                    : 'text-neutral-text-primary hover:bg-neutral-surface-raised',
-                ].join(' ')}
-              >
-                {DENSITY_LABELS[key]}
-              </button>
-            ))}
+            <ChipRadioGroup
+              ariaLabel="Board card density"
+              options={DENSITY_OPTIONS}
+              selected={props.density}
+              onChange={props.onDensityChange}
+            />
           </fieldset>
           <fieldset className="flex flex-col gap-0.5 border-t border-neutral-border pt-2">
             <legend className="px-2 py-1 text-xs font-semibold text-neutral-text-secondary uppercase tracking-wide">
               Backlog cards
             </legend>
-            {(Object.keys(BACKLOG_DENSITY_LABELS) as BacklogDensity[]).map((key) => (
-              <button
-                key={key}
-                type="button"
-                role="radio"
-                aria-checked={props.backlogDensity === key}
-                aria-label={`Backlog card density: ${BACKLOG_DENSITY_LABELS[key]}`}
-                onClick={() => props.onBacklogDensityChange(key)}
-                className={[
-                  'rounded-control px-2 py-1 text-left text-xs',
-                  'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none',
-                  props.backlogDensity === key
-                    ? 'bg-brand-primary/10 text-brand-primary-dark dark:text-brand-primary'
-                    : 'text-neutral-text-primary hover:bg-neutral-surface-raised',
-                ].join(' ')}
-              >
-                {BACKLOG_DENSITY_LABELS[key]}
-              </button>
-            ))}
+            <ChipRadioGroup
+              ariaLabel="Backlog card density"
+              options={BACKLOG_DENSITY_OPTIONS}
+              selected={props.backlogDensity}
+              onChange={props.onBacklogDensityChange}
+            />
           </fieldset>
         </div>
       </ToolbarChip>
