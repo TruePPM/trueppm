@@ -126,10 +126,14 @@ class TestProjectApiTokenAuthenticationFailures:
         with pytest.raises(exceptions.AuthenticationFailed):
             ProjectApiTokenAuthentication().authenticate(_request("Bearer tppm_tooshort"))
 
-    def test_wrong_prefix_token_raises(self) -> None:
+    def test_wrong_prefix_bearer_returns_none(self) -> None:
+        # A ``Bearer`` value that is not one of our ``tppm_`` tokens is almost
+        # certainly a JWT (simplejwt also uses ``Bearer``). Since the read-only
+        # MCP viewsets additively list token auth *and* JWT (ADR-0186 §E), a
+        # non-``tppm_`` bearer must DEFER to the next authenticator (return None),
+        # not raise — otherwise every human JWT request on those views would 401.
         bad = "xxxx_" + _RAW_HEX  # right length, wrong prefix
-        with pytest.raises(exceptions.AuthenticationFailed):
-            ProjectApiTokenAuthentication().authenticate(_request(f"Bearer {bad}"))
+        assert ProjectApiTokenAuthentication().authenticate(_request(f"Bearer {bad}")) is None
 
     def test_non_hex_body_raises(self) -> None:
         bad = TOKEN_PREFIX + ("z" * 64)  # right length + prefix, body not hex

@@ -70,13 +70,16 @@ from trueppm_api.apps.access.permissions import (
     IsProjectScopeManager,
     IsTaskScopeManager,
     IsTokenForProject,
+    McpReadableViewMixin,
     ProjectScopedViewSet,
+    TokenHasScope,
 )
 from trueppm_api.apps.access.services import transfer_project_ownership
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.integrations.registry import LINK_STATUS_RANK, LINK_STATUS_UNKNOWN
 from trueppm_api.apps.projects.models import (
     _HISTORY_EXCLUDED_TASK,
+    SCOPE_LEGACY_FULL,
     AcceptanceCriterion,
     ApiToken,
     Baseline,
@@ -252,7 +255,7 @@ class CalendarViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]):
         ],
     ),
 )
-class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
+class ProjectViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
     """CRUD for projects.
 
     Any authenticated user can create a project; on creation the creator is
@@ -271,6 +274,13 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     def get_permissions(self) -> list[BasePermission]:
+        # Additively guard the API-token path (ADR-0186 §E): a mcp:read token is
+        # confined to safe methods and must carry the scope; human JWT/Session
+        # auth passes both guards. Wrapping the action-specific RBAC list here (vs
+        # per branch) guarantees no write branch can leak a token past the guards.
+        return [*self._rbac_permissions(), *self.mcp_token_guards()]
+
+    def _rbac_permissions(self) -> list[BasePermission]:
         # Lifecycle actions (archive/unarchive/destroy/transfer) bypass the
         # IsProjectNotArchived gate via its _ARCHIVE_BYPASS_ACTIONS set —
         # otherwise an Owner could never unarchive or delete an archived row.
@@ -2402,7 +2412,7 @@ def _attach_target_milestone_rollups(sprints: list[Sprint]) -> None:
         ],
     ),
 )
-class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
+class TaskViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
     """CRUD for tasks within a project.
 
     CPM output fields (early_start, early_finish, late_start, late_finish,
@@ -2418,6 +2428,12 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
     permission_classes = [IsAuthenticated, IsProjectMemberWrite, IsProjectNotArchived]
 
     def get_permissions(self) -> list[BasePermission]:
+        # ADR-0186 §E: append the read-only MCP token guards around the
+        # action-specific RBAC list so a mcp:read token is confined to safe
+        # methods on every action (no write-branch leak); human auth passes both.
+        return [*self._rbac_permissions(), *self.mcp_token_guards()]
+
+    def _rbac_permissions(self) -> list[BasePermission]:
         if self.action in ("update", "partial_update", "destroy"):
             return [IsAuthenticated(), IsProjectMemberWriteOrOwn(), IsProjectNotArchived()]
         if self.action == "create":
@@ -5290,7 +5306,7 @@ class TaskBulkView(IdempotencyMixin, APIView):
 # ---------------------------------------------------------------------------
 
 
-class RiskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Risk]):
+class RiskViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelViewSet[Risk]):
     """CRUD for risks within a project.
 
     Permission matrix:
@@ -5314,6 +5330,12 @@ class RiskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Risk]):
     ordering_fields = ["severity", "probability", "impact", "status", "created_at"]
 
     def get_permissions(self) -> list[BasePermission]:
+        # ADR-0186 §E: append the read-only MCP token guards around the
+        # action-specific RBAC list so a mcp:read token is confined to safe
+        # methods on every action (no write-branch leak); human auth passes both.
+        return [*self._rbac_permissions(), *self.mcp_token_guards()]
+
+    def _rbac_permissions(self) -> list[BasePermission]:
         if self.action in ("list", "retrieve"):
             return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
         if self.action == "destroy":
@@ -5778,7 +5800,7 @@ def _broadcast_retro_updated(sprint: Sprint) -> None:
 # ---------------------------------------------------------------------------
 
 
-class BoardColumnConfigView(IdempotencyMixin, APIView):
+class BoardColumnConfigView(McpReadableViewMixin, IdempotencyMixin, APIView):
     """GET/PUT per-project board column configuration.
 
     GET returns the saved config or the hardcoded 5-column defaults.
@@ -5948,7 +5970,7 @@ class BoardSavedViewDetailView(IdempotencyMixin, APIView):
 # ---------------------------------------------------------------------------
 
 
-class ProjectOverviewView(APIView):
+class ProjectOverviewView(McpReadableViewMixin, APIView):
     """Aggregated KPI snapshot for the single-project overview dashboard.
 
     Returns schedule health, late task count, critical task count, the next
@@ -7113,7 +7135,7 @@ class ProjectCustomFieldViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Proj
         ],
     ),
 )
-class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
+class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
     """CRUD plus state-transition actions for sprints (ADR-0037).
 
     Routes are nested under projects for list/create
@@ -7136,6 +7158,12 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
     ordering_fields = ["start_date", "finish_date", "name", "state"]
 
     def get_permissions(self) -> list[BasePermission]:
+        # ADR-0186 §E: append the read-only MCP token guards around the
+        # action-specific RBAC list so a mcp:read token is confined to safe
+        # methods on every action (no write-branch leak); human auth passes both.
+        return [*self._rbac_permissions(), *self.mcp_token_guards()]
+
+    def _rbac_permissions(self) -> list[BasePermission]:
         if self.action in (
             "list",
             "retrieve",
@@ -9105,7 +9133,7 @@ class MeWorkPagination(pagination.LimitOffsetPagination):
     max_limit = 200
 
 
-class MeWorkView(generics.ListAPIView[Task]):
+class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
     """``GET /api/v1/me/work/`` — contributor's flat task list across all projects.
 
     Returns the requesting user's assigned, non-BACKLOG, non-soft-deleted tasks,
@@ -9495,7 +9523,7 @@ class ProjectVelocityView(APIView):
         404: OpenApiResponse(response=OpenApiTypes.OBJECT, description="Project does not exist."),
     },
 )
-class ProjectSprintHealthView(APIView):
+class ProjectSprintHealthView(McpReadableViewMixin, APIView):
     """``GET /api/v1/projects/<pk>/sprint-health/`` — server-owned Tier-3 signals (#988).
 
     The Sprints view's read-only hygiene badges (orphan tasks, active-sprint phase
@@ -9517,7 +9545,7 @@ class ProjectSprintHealthView(APIView):
         return Response(sprint_health(project.pk), status=status.HTTP_200_OK)
 
 
-class ProjectForecastView(APIView):
+class ProjectForecastView(McpReadableViewMixin, APIView):
     """``GET /api/v1/projects/<pk>/forecast/`` — the bridge forecast read (ADR-0106 §5).
 
     Returns the velocity range + per-sprint series, the remaining committed
@@ -9957,7 +9985,14 @@ class TaskSyncView(IdempotencyMixin, APIView):
     # IsTokenForProject enforces the IDOR check structurally (token.project_id
     # must match the URL pk) and raises AuthenticationFailed (401) on mismatch
     # so callers cannot enumerate project existence.
-    permission_classes = [IsAuthenticated, IsTokenForProject]
+    # TokenHasScope(legacy:full) rejects a read-only mcp:read token at this write
+    # path (ADR-0186 §E): the scope system is fail-closed for writes — mcp:read
+    # never satisfies legacy:full, so only a full-scope token can push tasks.
+    permission_classes = [
+        IsAuthenticated,
+        IsTokenForProject,
+        TokenHasScope(SCOPE_LEGACY_FULL),
+    ]
     throttle_classes = [TaskSyncThrottle]
 
     @extend_schema(
@@ -10057,7 +10092,13 @@ class AcceptanceResultIngestView(IdempotencyMixin, APIView):
     from trueppm_api.apps.projects.throttles import AcceptanceResultThrottle
 
     authentication_classes = [ProjectApiTokenAuthentication]
-    permission_classes = [IsAuthenticated, IsTokenForProject]
+    # TokenHasScope(legacy:full) rejects a read-only mcp:read token at this write
+    # path (ADR-0186 §E): only a full-scope token may report acceptance verdicts.
+    permission_classes = [
+        IsAuthenticated,
+        IsTokenForProject,
+        TokenHasScope(SCOPE_LEGACY_FULL),
+    ]
     throttle_classes = [AcceptanceResultThrottle]
 
     def post(self, request: Request, pk: str) -> Response:
@@ -10260,10 +10301,12 @@ class ProjectApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
         token_prefix = raw_token[len(TOKEN_PREFIX) : len(TOKEN_PREFIX) + 8]
 
         with transaction.atomic():
+            token_scopes = write_serializer.validated_data.get("scopes", [SCOPE_LEGACY_FULL])
             token = ProjectApiToken.objects.create(
                 **scope_kwargs,
                 name=write_serializer.validated_data["name"],
                 status_map=write_serializer.validated_data.get("status_map", {}),
+                scopes=token_scopes,
                 token_prefix=token_prefix,
                 token_hash=sha256_hex(raw_token),
                 created_by=request.user if request.user.is_authenticated else None,
@@ -10275,7 +10318,9 @@ class ProjectApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
                 actor=request.user if request.user.is_authenticated else None,
                 action=ApiTokenAuditAction.MINTED.value,
                 source_ip=_client_ip(request),
-                detail={"name": token.name},
+                # Record the granted scopes so the audit trail shows whether a
+                # mint was full-access or a narrowed read-only (mcp:read) token.
+                detail={"name": token.name, "scopes": list(token.scopes)},
             )
             # Project-scoped mints surface on the project board over WS. Program
             # tokens have no single board, so the broadcast is skipped — the

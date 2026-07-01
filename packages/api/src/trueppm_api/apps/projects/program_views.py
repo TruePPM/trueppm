@@ -36,6 +36,7 @@ from trueppm_api.apps.access.permissions import (
     IsProgramNotClosed,
     IsProgramOwner,
     IsProgramScheduler,
+    McpReadableViewMixin,
 )
 from trueppm_api.apps.access.services import (
     create_program,
@@ -87,7 +88,7 @@ class LoadSampleResponseSerializer(serializers.Serializer[Any]):
     sample_key = serializers.CharField()
 
 
-class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
+class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewSet[Program]):
     """CRUD for programs.
 
     URL: ``/api/v1/programs/``
@@ -103,6 +104,12 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
     serializer_class = ProgramSerializer
 
     def get_permissions(self) -> list[BasePermission]:
+        # ADR-0186 §E: append the read-only MCP token guards around the
+        # action-specific RBAC list so a mcp:read token is confined to safe
+        # methods on every action (no write-branch leak); human auth passes both.
+        return [*self._rbac_permissions(), *self.mcp_token_guards()]
+
+    def _rbac_permissions(self) -> list[BasePermission]:
         if self.action in ("update", "partial_update"):
             return [IsAuthenticated(), IsProgramAdmin(), IsProgramNotClosed()]
         if self.action == "bulk_fields":

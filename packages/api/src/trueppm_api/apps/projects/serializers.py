@@ -27,8 +27,10 @@ from trueppm_api.apps.projects.attachment_policy import (
 from trueppm_api.apps.projects.models import (
     _VALID_EVM_MODES,
     _VALID_SORT_KEYS,
+    API_TOKEN_SCOPES,
     PROJECT_CUSTOM_FIELD_MAX,
     RESERVED_SCRUM_CEREMONY_NAMES,
+    SCOPE_LEGACY_FULL,
     AcceptanceCriterion,
     ApiTokenAuditEntry,
     BacklogItem,
@@ -5538,6 +5540,7 @@ class ProjectApiTokenSerializer(serializers.ModelSerializer[ProjectApiToken]):
             "name",
             "token_prefix",
             "status_map",
+            "scopes",
             "created_by",
             "created_at",
             "last_used_at",
@@ -5553,22 +5556,43 @@ class ProjectApiTokenSerializer(serializers.ModelSerializer[ProjectApiToken]):
 class ProjectApiTokenCreateSerializer(serializers.ModelSerializer[ProjectApiToken]):
     """Write serializer for minting a new token.
 
-    Accepts ``name`` and optional ``status_map`` only — the raw token is
-    generated server-side and returned to the caller once via a separate
-    response shape (see ``ProjectApiTokenViewSet.create``).  ``status_map``
-    is immutable after creation by design; this serializer is the only
-    code path that writes it.
+    Accepts ``name``, optional ``status_map``, and optional ``scopes`` — the raw
+    token is generated server-side and returned to the caller once via a separate
+    response shape (see ``ProjectApiTokenViewSet.create``).  ``status_map`` and
+    ``scopes`` are immutable after creation by design; this serializer is the only
+    code path that writes them.  Omitting ``scopes`` (or sending an empty list)
+    mints a full-access ``legacy:full`` token, preserving pre-scopes behavior.
     """
+
+    scopes = serializers.ListField(
+        child=serializers.ChoiceField(choices=API_TOKEN_SCOPES),
+        required=False,
+        help_text="Capabilities to grant. Defaults to ['legacy:full'] "
+        "(full access). Send ['mcp:read'] to mint a read-only token for the "
+        "MCP server.",
+    )
 
     class Meta:
         model = ProjectApiToken
-        fields = ["name", "status_map"]
+        fields = ["name", "status_map", "scopes"]
 
     def validate_name(self, value: str) -> str:
         value = value.strip()
         if not value:
             raise serializers.ValidationError("name is required.")
         return value
+
+    def validate_scopes(self, value: list[str]) -> list[str]:
+        # An explicit empty list collapses to the legacy full scope, matching the
+        # model default so a caller that sends [] behaves like one that omits the
+        # field. ChoiceField has already rejected any value outside the allowed
+        # set, so we only need to de-dupe while preserving request order.
+        if not value:
+            return [SCOPE_LEGACY_FULL]
+        deduped: dict[str, None] = {}
+        for scope in value:
+            deduped.setdefault(scope, None)
+        return list(deduped)
 
     def validate_status_map(self, value: dict[str, str]) -> dict[str, str]:
         if not isinstance(value, dict):

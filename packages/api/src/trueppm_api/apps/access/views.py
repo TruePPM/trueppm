@@ -27,6 +27,7 @@ from trueppm_api.apps.access.permissions import (
     IsProjectMember,
     IsProjectNotArchived,
     IsProjectOwner,
+    McpReadableViewMixin,
     _membership_role,
     _program_membership_role,
 )
@@ -414,7 +415,7 @@ class UserSearchView(APIView):
         return Response(UserSearchResultSerializer(qs, many=True).data)
 
 
-class MeView(APIView):
+class MeView(McpReadableViewMixin, APIView):
     """GET /api/v1/auth/me/ — current user identity.
 
     Returns display name and initials derived from auth.User fields.
