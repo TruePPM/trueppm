@@ -209,6 +209,20 @@ workflow:
 # Minio-backed cache is automatically invalidated when dependencies change.
 # ---------------------------------------------------------------------------
 
+# Bounded timeout for trivial check jobs whose real work is seconds (#1461).
+# These inherit the 60-minute project default, but their `script:` runs in well
+# under a minute. The failure mode this guards is a `get_sources` hang: a NUC
+# runner does a fresh full clone and the fetch intermittently crawls for
+# 5–79 minutes before succeeding (observed: mcp:typecheck 24.7m, api:openapi
+# -check 79m). GET_SOURCES_ATTEMPTS retries a clone *failure*, not a slow-but
+# -successful one, so nothing bounds the hang. Capping these jobs at 8m makes a
+# hung fetch trip `stuck_or_timeout_failure`, which default.retry DOES heal —
+# turning a 24m+ stall into ~8m plus one clean retry on a fresh slot. Apply
+# only to jobs whose work is comfortably under 8m even on a cold cache; never to
+# image builds, WASM/web compiles, DB-backed tests, e2e, or coverage.
+.fast-job:
+  timeout: 8m
+
 #
 # Uses the custom ci-scheduler image (built by `ci:build-scheduler-image`)
 # which pre-bakes the scheduler[dev] wheel tree. The runtime `pip install -e`
@@ -356,6 +370,7 @@ workflow:
 # ---------------------------------------------------------------------------
 
 changelog:check:
+  extends: .fast-job
   # Pure git diff — ~10 seconds. Run first so MR authors get instant feedback
   # if they forgot a changelog fragment, before any build jobs start.
   #
@@ -406,6 +421,7 @@ changelog:check:
       echo "$FRAGMENTS"
 
 scripts:test:
+  extends: .fast-job
   # Unit tests for the release tooling called by scripts/release.sh at tag time:
   #   - rotate-scheduler-changelog.sh — dates the scheduler package CHANGELOG
   #     section the PyPI wheel ships;
@@ -450,6 +466,7 @@ scripts:test:
     - bash scripts/tests/release-preflight.test.sh
 
 boundary:check:
+  extends: .fast-job
   # Detect open OSS issues that describe enterprise functionality (labeled
   # `enterprise` or `portfolio`) and therefore violate the Two-Repo Rule
   # (CLAUDE.md). Two GitLab API calls; ~2s. Runs on main pushes (catches
@@ -469,6 +486,7 @@ boundary:check:
     - bash scripts/check-issue-boundary.sh
 
 lint:todo-grep:
+  extends: .fast-job
   # Stale stub-marker gate (#350). STUB:/WIP: never ship; TODO(#NNN) must
   # point at an open issue. Bare TODOs warn only. Excludes packages/web/e2e
   # (Playwright follow-up TODOs are valid), docs/, and *.md.
@@ -486,6 +504,7 @@ lint:todo-grep:
     - bash scripts/check-todo-grep.sh --self-test
 
 lint:design-system-v2:
+  extends: .fast-job
   # Design System v2 conformance gate (ADR-0125). Blocks design drift: arbitrary
   # Tailwind color/shadow value classes (zero tolerance) and new raw hex literals
   # in component source (ratchet against a committed baseline). This is the
@@ -502,6 +521,7 @@ lint:design-system-v2:
     - bash scripts/check-design-system-v2.sh
 
 lint:adr-collisions:
+  extends: .fast-job
   # ADR number-collision gate (#918). Fails if any two files under docs/adr/
   # share a four-digit prefix — the recurring failure mode where parallel
   # branches each grab "the next free number" off a stale main and silently
@@ -519,6 +539,7 @@ lint:adr-collisions:
     - bash scripts/check-adr-collisions.sh
 
 docs:version-accuracy:
+  extends: .fast-job
   # Version-status tense gate (#807). A past/present-tense version claim in the
   # website docs ("shipped in 0.X", "added in 0.X", "In 0.X the Y is …") may
   # only reference a version that has actually shipped. Referencing an Underway
@@ -741,7 +762,7 @@ ci:build-integration-image:
     - docker push "$IMAGE"
 
 scheduler:lint:
-  extends: .scheduler
+  extends: [.scheduler, .fast-job]
   stage: lint
   <<: *rules-scheduler
   script:
@@ -750,6 +771,7 @@ scheduler:lint:
     - ruff format --check src/ tests/
 
 api:lint:
+  extends: .fast-job
   stage: lint
   image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
   cache:
@@ -764,27 +786,28 @@ api:lint:
     - ruff format --check src/ tests/
 
 web:lint:
-  extends: .web
+  extends: [.web, .fast-job]
   stage: lint
   <<: *rules-web
   script:
     - npm run lint
 
 mobile:lint:
-  extends: .mobile
+  extends: [.mobile, .fast-job]
   stage: lint
   <<: *rules-mobile
   script:
     - npm run lint
 
 wasm:lint:
-  extends: .wasm
+  extends: [.wasm, .fast-job]
   stage: lint
   <<: *rules-wasm
   script:
     - cargo clippy --all-targets -- -D warnings
 
 helm:lint:
+  extends: .fast-job
   image:
     name: alpine/helm:3.14.0@sha256:a90798c9c2b671e3546b10db1ae0b845f9abccc9f9ff79b34744a1ba146b67ed
     entrypoint: [""]
@@ -809,6 +832,7 @@ helm:lint:
       [ "$fail" -eq 0 ] || exit 1
 
 mcp:lint:
+  extends: .fast-job
   # Standalone MCP server (packages/mcp, ADR-0186). A pure HTTP client with no
   # prebaked CI image — mirror api:lint's plain-python-slim + pip-install-ruff
   # shape rather than the scheduler's custom-image pattern.
@@ -829,7 +853,7 @@ mcp:lint:
 # ---------------------------------------------------------------------------
 
 scheduler:type-check:
-  extends: .scheduler
+  extends: [.scheduler, .fast-job]
   stage: analyze
   # Two caches: the inherited pip cache (re-stated via the anchor, since a
   # list cache replaces the template's map rather than merging) plus the mypy
@@ -857,7 +881,7 @@ scheduler:type-check:
     - cd packages/scheduler && mypy
 
 api:type-check:
-  extends: .api-no-db
+  extends: [.api-no-db, .fast-job]
   stage: analyze
   # Two caches: the inherited pip cache (re-stated via the anchor with its
   # pull policy, since a list cache replaces the template's map rather than
@@ -893,7 +917,7 @@ api:migration-check:
   # is ~36s and catches inter-MR migration drift that the per-MR `changes:`
   # filter misses (two MRs landing close together each pass migration-check on
   # their own diff, but their merged result fails on main).
-  extends: .api-no-db
+  extends: [.api-no-db, .fast-job]
   stage: analyze
   needs:
     - job: api:lint
@@ -921,7 +945,7 @@ api:migration-numbering:
   # it merges. Pure git + stdlib Python: no DB, no Django, no dependency install,
   # so before_script (the api[dev] pip install) is skipped. GIT_DEPTH:0 + an
   # explicit fetch make origin/main available under GitLab's shallow clone.
-  extends: .api-no-db
+  extends: [.api-no-db, .fast-job]
   stage: analyze
   variables:
     GIT_DEPTH: "0"
@@ -940,7 +964,7 @@ api:openapi-check:
   # drf-spectacular schema generation is pure view/serializer introspection;
   # no database queries are made. --validate checks for valid OpenAPI 3;
   # --fail-on-warn promotes warnings to errors.
-  extends: .api-no-db
+  extends: [.api-no-db, .fast-job]
   stage: analyze
   needs:
     - api:lint
@@ -961,7 +985,7 @@ api:schema-drift:
   # alongside ADR commits) matches this job's rules without matching
   # api:lint's rules-api. needs:optional avoids the "needs job does
   # not exist in the pipeline" creation failure in that case.
-  extends: .api-no-db
+  extends: [.api-no-db, .fast-job]
   stage: analyze
   needs:
     - job: api:lint
@@ -981,6 +1005,7 @@ api:schema-drift:
     - ./scripts/export-openapi.sh --check
 
 api:uv-lock-check:
+  extends: .fast-job
   # Verify packages/api/uv.lock stays in sync with packages/api/pyproject.toml
   # (#904 supply-chain hardening). Both the api (application) and the scheduler
   # (published library) commit a resolved lockfile — for reproducible installs
@@ -1006,6 +1031,7 @@ api:uv-lock-check:
     - uv lock --check
 
 scheduler:uv-lock-check:
+  extends: .fast-job
   # Verify packages/scheduler/uv.lock stays in sync with the scheduler's
   # pyproject.toml (#1153 scheduler OSV migration). The scheduler now commits a
   # resolved lock — not to pin the published wheel (it still ships version ranges
@@ -1033,7 +1059,7 @@ scheduler:uv-lock-check:
     - uv lock --check
 
 web:type-check:
-  extends: .web
+  extends: [.web, .fast-job]
   stage: analyze
   needs: [web:lint]
   <<: *rules-web
@@ -1041,6 +1067,7 @@ web:type-check:
     - npm run typecheck
 
 mcp:typecheck:
+  extends: .fast-job
   # mypy --strict over packages/mcp. The editable install pulls the mcp SDK +
   # httpx so their stubs resolve; mypy reads the package's own pyproject config
   # (packages = ["trueppm_mcp"], strict = true).
@@ -1055,7 +1082,7 @@ mcp:typecheck:
     - mypy
 
 mobile:type-check:
-  extends: .mobile
+  extends: [.mobile, .fast-job]
   stage: analyze
   needs: [mobile:lint]
   <<: *rules-mobile
@@ -1106,6 +1133,7 @@ web:build:
     expire_in: 1 day
 
 security:bandit:scheduler:
+  extends: .fast-job
   # Python static security analysis for the scheduler package.
   # Runs in analyze stage alongside type-check — static, no test results needed.
   # -ll = medium severity and above.
@@ -1120,6 +1148,7 @@ security:bandit:scheduler:
         --exclude packages/scheduler/src/trueppm_scheduler/__pycache__
 
 security:bandit:api:
+  extends: .fast-job
   # Python static security analysis for the API package.
   # Split from bandit:scheduler so each gates only on its own lint job —
   # a web-only branch no longer triggers a full Python security scan.
