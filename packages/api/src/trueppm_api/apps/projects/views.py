@@ -4181,6 +4181,15 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
         task_id = self.request.query_params.get("task")
         if task_id:
             qs = qs.filter(Q(predecessor_id=task_id) | Q(successor_id=task_id))
+        # ?pending_for_project=<uuid> — the *incoming* pending cross-project edges
+        # a downstream (successor) team must review (ADR-0120 D2). Scopes to edges
+        # whose successor sits in that project and that are still inert. Layered on
+        # the member-scope filter above, so it can only ever narrow what the caller
+        # may already see — no new disclosure. Backs the schedule review panel
+        # without pulling every edge the caller can read.
+        pending_for_project = self.request.query_params.get("pending_for_project")
+        if pending_for_project:
+            qs = qs.filter(successor__project_id=pending_for_project, pending_acceptance=True)
         return qs
 
     def perform_create(self, serializer: BaseSerializer[Dependency]) -> None:

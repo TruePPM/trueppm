@@ -927,6 +927,39 @@ class TestCrossProjectDependency:
         r = self._post_edge(client, pred, succ)
         assert r.status_code == 403
 
+    # -- D2: incoming-pending review list (#1480) ---------------------------
+
+    def test_pending_for_project_lists_incoming_inert_edges(
+        self, client: APIClient, user: object, calendar: Calendar
+    ) -> None:
+        # A cross-project edge proposed against the successor's project lands
+        # pending; the downstream team lists it via ?pending_for_project to
+        # populate the schedule review banner (successor-scoped, inert-only).
+        pred, succ, _ = self._program_pair(
+            calendar, user, pred_role=Role.SCHEDULER, succ_role=Role.MEMBER
+        )
+        dep_id = self._post_edge(client, pred, succ).data["id"]
+        downstream = self._scheduler_client_on(succ.project, username="rev1")
+        r = downstream.get(f"/api/v1/dependencies/?pending_for_project={succ.project_id}")
+        assert r.status_code == 200, r.data
+        rows = r.data["results"]
+        assert [row["id"] for row in rows] == [dep_id]
+        # The D5 card names the blocking upstream task across the boundary.
+        assert rows[0]["predecessor_card"]["title"] == "Sign-off"
+
+    def test_pending_for_project_excludes_accepted_edges(
+        self, client: APIClient, user: object, calendar: Calendar
+    ) -> None:
+        # An auto-accepted edge (Scheduler on both) is live, not pending, so it
+        # must never appear in the downstream review list.
+        pred, succ, _ = self._program_pair(
+            calendar, user, pred_role=Role.SCHEDULER, succ_role=Role.SCHEDULER
+        )
+        assert self._post_edge(client, pred, succ).data["pending_acceptance"] is False
+        r = client.get(f"/api/v1/dependencies/?pending_for_project={succ.project_id}")
+        assert r.status_code == 200, r.data
+        assert r.data["results"] == []
+
 
 def _exc_list_url(calendar: Calendar) -> str:
     return f"/api/v1/calendars/{calendar.pk}/exceptions/"
