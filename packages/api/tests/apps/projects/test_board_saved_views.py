@@ -104,14 +104,18 @@ def test_get_list_requires_auth(client, project):
 
 
 def test_get_list_blocked_for_outsider(outsider, project):
+    """A non-member must not read another project's saved views.
+
+    ``BoardSavedViewListView.get`` calls ``check_object_permissions`` on the
+    project, so ``IsProjectMemberWrite.has_object_permission`` runs and 403s a
+    caller with no membership row. Pinning exactly 403 (not ``in (200, 403)``)
+    is what makes this test able to catch a regression that removes the
+    object-level membership check — the escalation this suite exists to block.
+    """
     c = APIClient()
     c.force_authenticate(outsider)
     resp = c.get(_url(project.pk))
-    # IsProjectMember allows authenticated users; the membership check is object-level.
-    # Non-member gets 200 with list (membership enforced at object level, not list level).
-    # This is acceptable — the list is scoped to the project, and project visibility
-    # is handled at the project-level membership check.
-    assert resp.status_code in (200, 403)
+    assert resp.status_code == 403
 
 
 # ---------------------------------------------------------------------------

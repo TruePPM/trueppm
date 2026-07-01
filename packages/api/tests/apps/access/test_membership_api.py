@@ -68,6 +68,23 @@ def member_client(member_user: object, member_membership: ProjectMembership) -> 
     return c
 
 
+@pytest.fixture
+def non_owner_client(request: pytest.FixtureRequest, project: Project) -> APIClient:
+    """A client authenticated as a member holding the parametrized non-Owner role.
+
+    Parametrized via ``request.param`` over ADMIN/SCHEDULER/VIEWER — the roles
+    adjacent to the Owner-only member-management gate. These sit *above* the
+    Member-403 case already covered, so they pin that relaxing the Owner-only
+    gate to Admin (a one-token change) is a privilege escalation the suite catches.
+    """
+    role = request.param
+    user = User.objects.create_user(username=f"nonowner_{int(role)}", password="pw")
+    ProjectMembership.objects.create(project=project, user=user, role=role)
+    c = APIClient()
+    c.force_authenticate(user=user)
+    return c
+
+
 def _url(project: Project, pk: object = None) -> str:
     base = f"/api/v1/projects/{project.pk}/members/"
     return f"{base}{pk}/" if pk else base
@@ -279,6 +296,81 @@ def test_partial_update_cannot_assign_equal_role(
     """Owner (role == Role.OWNER) cannot assign Owner role (>= own role) to another member."""
     resp = owner_client.patch(_url(project, member_membership.pk), {"role": Role.OWNER})
     assert resp.status_code == 400
+
+
+@pytest.mark.django_db
+def test_update_role_last_owner_guard(
+    owner_client: APIClient, project: Project, owner_membership: ProjectMembership
+) -> None:
+    """The sole Owner cannot PATCH themselves below Owner — the last-Owner guard.
+
+    Demoting the only Owner (here to ADMIN) would strand the project with zero
+    Owners. ``partial_update`` trips ``_check_last_owner_guard`` (access/views.py)
+    and returns 400 with the role unchanged. Mirrors
+    ``test_program_membership_api.py::test_update_role_last_owner_guard`` — the
+    program suite covered this branch; the project suite did not, so removing the
+    guard's three lines would let the last Owner self-demote and ship green.
+    """
+    resp = owner_client.patch(_url(project, owner_membership.pk), {"role": Role.ADMIN})
+    assert resp.status_code == 400
+    owner_membership.refresh_from_db()
+    assert owner_membership.role == Role.OWNER
+
+
+# ---------------------------------------------------------------------------
+# Member management is Owner-only — the roles between Member and Owner must be
+# blocked too (#1508). The suite tested only Owner-allowed and Member-403, so a
+# relaxation of the Owner-only gate to Admin (one token) would ship green. These
+# pin ADMIN/SCHEDULER/VIEWER at 403 on every write path.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "non_owner_client", [Role.ADMIN, Role.SCHEDULER, Role.VIEWER], indirect=True
+)
+def test_create_member_blocked_for_non_owner(
+    non_owner_client: APIClient, project: Project, owner_membership: ProjectMembership
+) -> None:
+    """Adding a member requires Owner — Admin/Scheduler/Viewer are all 403."""
+    new_user = User.objects.create_user(username="added_by_non_owner", password="pw")
+    resp = non_owner_client.post(_url(project), {"user": str(new_user.pk), "role": Role.VIEWER})
+    assert resp.status_code == 403
+    assert not ProjectMembership.objects.filter(project=project, user=new_user).exists()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "non_owner_client", [Role.ADMIN, Role.SCHEDULER, Role.VIEWER], indirect=True
+)
+def test_partial_update_role_blocked_for_non_owner(
+    non_owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    member_membership: ProjectMembership,
+) -> None:
+    """Changing another member's role requires Owner — non-Owners are all 403."""
+    resp = non_owner_client.patch(_url(project, member_membership.pk), {"role": Role.SCHEDULER})
+    assert resp.status_code == 403
+    member_membership.refresh_from_db()
+    assert member_membership.role == Role.MEMBER
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "non_owner_client", [Role.ADMIN, Role.SCHEDULER, Role.VIEWER], indirect=True
+)
+def test_destroy_other_member_blocked_for_non_owner(
+    non_owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    member_membership: ProjectMembership,
+) -> None:
+    """Removing another member requires Owner — non-Owners are all 403 (self-removal excepted)."""
+    resp = non_owner_client.delete(_url(project, member_membership.pk))
+    assert resp.status_code == 403
+    member_membership.refresh_from_db()
+    assert member_membership.is_deleted is False
 
 
 # ---------------------------------------------------------------------------

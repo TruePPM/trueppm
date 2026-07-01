@@ -515,6 +515,29 @@ def test_patch_link_from_another_project_is_404(member: object, memberships: Non
     assert r.status_code in (403, 404)
 
 
+def test_create_link_on_foreign_project_task_is_403_or_404(
+    member: object, memberships: None
+) -> None:
+    """A member of project A cannot CREATE a link on a task in project B (#1508).
+
+    GET (line 283) and PATCH (above) cross-project IDOR were covered, but POST
+    create was not. ``IsProjectMemberWrite.has_permission`` sees the foreign
+    ``project_pk`` and denies the non-member (403); either way no link is written.
+    """
+    other_cal = Calendar.objects.create(name="Other cal 3")
+    other_project = Project.objects.create(
+        name="Delta", start_date=date(2026, 1, 1), calendar=other_cal
+    )
+    other_task = Task.objects.create(project=other_project, name="D-task", duration=1)
+    r = _client(member).post(
+        _list_url(other_project, other_task),
+        {"url": "https://github.com/a/b/pull/1"},
+        format="json",
+    )
+    assert r.status_code in (403, 404)
+    assert not TaskLink.objects.filter(task=other_task, is_deleted=False).exists()
+
+
 # ---------------------------------------------------------------------------
 # Cloud-file preview cache (#571, ADR-0163)
 # ---------------------------------------------------------------------------

@@ -179,3 +179,28 @@ def test_non_admin_cannot_set_surface_override(
     waterfall_project.refresh_from_db()
     # Field must remain unchanged (None = inherit).
     assert waterfall_project.show_reporting is None
+
+
+@pytest.mark.django_db
+def test_scheduler_cannot_set_surface_override(
+    waterfall_project: Project,
+) -> None:
+    """A Scheduler passes the permission gate but is blocked by serializer field-gating.
+
+    ``show_*`` are not in ``_SCHEDULER_WRITABLE_FIELDS`` (serializers.py), so the
+    ``validate()`` field-governance gate rejects a Scheduler write with 400 (not
+    403 — the Scheduler clears the viewset's write gate, unlike Member/Viewer).
+    Without this case, adding ``show_reporting`` to the scheduler-writable set
+    would silently regress. Mirrors
+    ``test_sharing_inheritance.py::test_project_scheduler_cannot_set_override``.
+    """
+    client = _client_for(waterfall_project, Role.SCHEDULER, "sv_scheduler")
+    resp = client.patch(
+        f"/api/v1/projects/{waterfall_project.pk}/",
+        {"show_reporting": False},
+        format="json",
+    )
+    assert resp.status_code == 400
+    waterfall_project.refresh_from_db()
+    # Field must remain unchanged (None = inherit).
+    assert waterfall_project.show_reporting is None
