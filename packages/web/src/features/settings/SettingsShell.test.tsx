@@ -10,6 +10,14 @@ import {
 } from './SettingsShell';
 import { useSettingsSaveStore, DEFAULT_SECTION_KEY } from './hooks/useSettingsSaveStore';
 
+// jsdom has no matchMedia, so the real useBreakpoint always reports 'lg'. Mock it
+// with a mutable tier so most tests exercise the desktop rail and the mobile
+// header block can be tested at 'sm' (issue 539).
+let mockBreakpoint: 'sm' | 'md' | 'lg' = 'lg';
+vi.mock('../../hooks/useBreakpoint', () => ({
+  useBreakpoint: () => mockBreakpoint,
+}));
+
 // Inline scroll-spy sections (no `to`) plus one route-link item (System Health
 // style) that still routes through the dirty guard.
 const NAV_GROUPS: SettingsNavGroup[] = [
@@ -77,6 +85,7 @@ function renderShell(initialEntries: string[] = ['/projects/p1/settings']) {
 describe('<SettingsShell>', () => {
   beforeEach(() => {
     useSettingsSaveStore.getState().reset();
+    mockBreakpoint = 'lg';
   });
 
   it('mounts every section at once on one scrolling page', () => {
@@ -377,6 +386,52 @@ describe('<SettingsShell>', () => {
         restore();
         vi.useRealTimers();
       }
+    });
+  });
+
+  describe('mobile header (#539)', () => {
+    beforeEach(() => {
+      mockBreakpoint = 'sm';
+    });
+
+    it('replaces the rail nav buttons with a "Jump to section" select below md:', () => {
+      renderShell();
+      // The rail's scroll-spy buttons are gone; sections live in the select instead.
+      expect(screen.queryByRole('button', { name: 'General' })).not.toBeInTheDocument();
+      const jump = screen.getByLabelText('Jump to section');
+      expect(jump).toBeInTheDocument();
+      // The select reflects the scroll-spy active section. jsdom has no layout so
+      // which inline section is active is geometry-dependent — assert it is one of
+      // them, not a specific id (mirrors the "assert the count, not the id" note above).
+      expect(['general', 'access']).toContain((jump as HTMLSelectElement).value);
+      // Every section (inline + route-link) is reachable as an option.
+      expect(screen.getByRole('option', { name: 'Access' })).toBeInTheDocument();
+      expect(screen.getByRole('option', { name: 'System health' })).toBeInTheDocument();
+    });
+
+    it('still renders the scope switcher and copy-link exactly once', () => {
+      renderShell();
+      // The extracted controls render in the mobile header only — not duplicated
+      // with a hidden rail (they are conditionally rendered, not CSS-hidden).
+      expect(screen.getByRole('button', { name: 'Workspace' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Copy link to settings' })).toBeInTheDocument();
+    });
+
+    it('selecting an inline section scroll-spies without a route change or dirty prompt', () => {
+      renderShell();
+      act(() => registerSection({ dirty: true }));
+      fireEvent.change(screen.getByLabelText('Jump to section'), { target: { value: 'access' } });
+      // Same mounted page — no discard dialog, both sections still rendered.
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+      expect(screen.getByText('ACCESS_SECTION')).toBeInTheDocument();
+    });
+
+    it('selecting a route-link section while dirty routes through the confirm-discard guard', () => {
+      renderShell();
+      act(() => registerSection({ dirty: true }));
+      fireEvent.change(screen.getByLabelText('Jump to section'), { target: { value: 'health' } });
+      expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+      expect(screen.getByText('GENERAL_SECTION')).toBeInTheDocument();
     });
   });
 

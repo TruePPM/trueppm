@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router';
 import { useSettingsSaveStore } from './hooks/useSettingsSaveStore';
 import { useScrollSpy } from './hooks/useScrollSpy';
+import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { ConfirmDiscardDialog } from './components/ConfirmDiscardDialog';
 import { SettingsContextSwitcher, type SettingsContextOption } from './SettingsContextSwitcher';
 import { SettingsSectionContext } from './SettingsSectionContext';
@@ -95,6 +96,12 @@ export function SettingsShell({
 }: SettingsShellProps) {
   const navigate = useNavigate();
   const { hash } = useLocation();
+
+  // Below md: the 240px rail eats 64% of a 375px phone. Render the rail on
+  // md+/desktop and a compact mobile header (scope + context + section select)
+  // below it — conditional render, not a CSS `hidden`, so only one set of scope
+  // and context controls exists in the DOM at a time (issue 539).
+  const isMobile = useBreakpoint() === 'sm';
 
   const dirty = useSettingsSaveStore((s) => s.dirty);
   const isSaving = useSettingsSaveStore((s) => s.isSaving);
@@ -215,126 +222,53 @@ export function SettingsShell({
     [scrollTo, navigate],
   );
 
+  // Route through the dirty guard, then navigate — shared by the scope switcher
+  // and context switcher in both the desktop rail and the mobile header.
+  const navGuarded = useCallback(
+    (to: string) => {
+      if (guardedNavigate(to)) return;
+      void navigate(to);
+    },
+    [guardedNavigate, navigate],
+  );
+
+  // Mobile "jump to section" <select> onChange: an inline id scroll-spies; a
+  // `to` id (System Health tools) routes through the dirty guard. Mirrors the
+  // rail button behaviour so the collapsed mobile nav reaches every section.
+  const handleSectionSelect = useCallback(
+    (id: string) => {
+      const item = navGroups.flatMap((g) => g.items).find((i) => i.id === id);
+      if (!item) return;
+      if (item.to) {
+        navGuarded(item.to);
+      } else {
+        handleSectionNav(id);
+      }
+    },
+    [navGroups, navGuarded, handleSectionNav],
+  );
+
   return (
     <div className="flex h-full min-h-0">
-      {/* ── Left rail ── */}
+      {/* ── Left rail (md+) — collapses to the mobile header below md: (issue 539) ── */}
+      {!isMobile && (
       <aside
         className="w-60 shrink-0 flex flex-col bg-neutral-surface-raised border-r border-neutral-border overflow-hidden"
         aria-label="Settings navigation"
       >
-        {/* Scope switcher */}
-        <div className="px-3.5 pt-3 pb-2 shrink-0">
-          <p className="text-xs font-semibold tracking-[.1em] uppercase text-neutral-text-secondary mb-1.5">
-            Scope
-          </p>
-          <div className="grid grid-cols-3 bg-neutral-surface-sunken rounded-control p-0.5 gap-0">
-            {scopeLinks.map((sl) => {
-              const isActive = scope === sl.scope;
-              const isDisabled = !isActive && sl.to == null;
-              return (
-                <button
-                  key={sl.scope}
-                  type="button"
-                  disabled={isDisabled}
-                  aria-disabled={isDisabled || undefined}
-                  title={isDisabled ? sl.disabledReason : undefined}
-                  onClick={() => {
-                    if (sl.to == null) return;
-                    if (guardedNavigate(sl.to)) return;
-                    void navigate(sl.to);
-                  }}
-                  className={[
-                    'py-1.5 px-1 rounded-control text-xs font-medium text-center transition-colors',
-                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-                    isActive
-                      ? 'bg-neutral-surface text-neutral-text-primary'
-                      : isDisabled
-                        ? 'text-neutral-text-disabled cursor-not-allowed'
-                        : 'text-neutral-text-secondary hover:text-neutral-text-primary',
-                  ].join(' ')}
-                >
-                  {sl.label}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Context selector — switcher when >= 2 siblings (issue 776), else identity row. */}
-          <div className="mt-2 px-2 py-1.5 rounded-card flex items-center gap-1.5 bg-neutral-surface-sunken border border-neutral-border/55 text-xs min-w-0">
-            {contextOptions && contextOptions.length >= 2 ? (
-              <SettingsContextSwitcher
-                contextName={contextName}
-                contextHealth={contextHealth}
-                options={contextOptions}
-                activeId={contextActiveId}
-                entityLabel={scope}
-                onSelect={(to) => {
-                  if (guardedNavigate(to)) return;
-                  void navigate(to);
-                }}
-              />
-            ) : (
-              <>
-                {contextHealth ? (
-                  <span
-                    className={`w-2 h-2 rounded-full shrink-0 ${HEALTH_COLOR[contextHealth] ?? 'bg-neutral-text-disabled'}`}
-                    aria-hidden="true"
-                  />
-                ) : (
-                  <span
-                    className="w-3.5 h-3.5 rounded-chip bg-brand-primary shrink-0 inline-flex items-center justify-center text-white text-[10px] font-bold"
-                    aria-hidden="true"
-                  >
-                    tP
-                  </span>
-                )}
-                <span className="flex-1 truncate text-neutral-text-primary font-medium">
-                  {contextName}
-                </span>
-              </>
-            )}
-            <button
-              type="button"
-              onClick={handleCopyLink}
-              aria-label="Copy link to settings"
-              className="shrink-0 inline-flex items-center justify-center w-6 h-6 -my-1 rounded-control text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-            >
-              {copyConfirmed ? (
-                <svg
-                  width="12"
-                  height="12"
-                  viewBox="0 0 16 16"
-                  className="text-semantic-on-track"
-                  aria-hidden="true"
-                >
-                  <path
-                    d="M3 8l3.5 3.5L13 5"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    fill="none"
-                  />
-                </svg>
-              ) : (
-                <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
-                  <path
-                    d="M7 4H4.5A1.5 1.5 0 0 0 3 5.5v6A1.5 1.5 0 0 0 4.5 13H10a1.5 1.5 0 0 0 1.5-1.5V9 M9 12h2.5A1.5 1.5 0 0 0 13 10.5v-6A1.5 1.5 0 0 0 11.5 3H6a1.5 1.5 0 0 0-1.5 1.5V7"
-                    stroke="currentColor"
-                    strokeWidth="1.4"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    fill="none"
-                  />
-                </svg>
-              )}
-            </button>
-            {copyConfirmed && (
-              <span className="sr-only" role="status" aria-live="polite">
-                Link copied to clipboard
-              </span>
-            )}
-          </div>
+        {/* Scope switcher + context selector */}
+        <div className="px-3.5 pt-3 pb-2 shrink-0 space-y-2">
+          <ScopeSwitcher scope={scope} scopeLinks={scopeLinks} onNavigate={navGuarded} />
+          <ContextRow
+            scope={scope}
+            contextName={contextName}
+            contextHealth={contextHealth}
+            contextOptions={contextOptions}
+            contextActiveId={contextActiveId}
+            onNavigate={navGuarded}
+            onCopyLink={handleCopyLink}
+            copyConfirmed={copyConfirmed}
+          />
         </div>
 
         {/* Scroll-spy nav. Inline items scroll to their section; `to` items navigate. */}
@@ -386,9 +320,49 @@ export function SettingsShell({
           ))}
         </nav>
       </aside>
+      )}
 
       {/* ── Right content area ── */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
+        {/* Mobile settings header — stands in for the rail below md: (issue 539).
+            Scope switcher + context row + a native "jump to section" select that
+            mirrors the scroll-spy (value tracks activeId). Native <select> gives an
+            OS-native, 44px, screen-reader-friendly picker with zero popover code. */}
+        {isMobile && (
+        <div className="shrink-0 bg-neutral-surface-raised border-b border-neutral-border px-3.5 py-3 space-y-2">
+          <ScopeSwitcher scope={scope} scopeLinks={scopeLinks} onNavigate={navGuarded} />
+          <ContextRow
+            scope={scope}
+            contextName={contextName}
+            contextHealth={contextHealth}
+            contextOptions={contextOptions}
+            contextActiveId={contextActiveId}
+            onNavigate={navGuarded}
+            onCopyLink={handleCopyLink}
+            copyConfirmed={copyConfirmed}
+          />
+          <label htmlFor="settings-section-jump" className="sr-only">
+            Jump to section
+          </label>
+          <select
+            id="settings-section-jump"
+            value={activeId ?? ''}
+            onChange={(e) => handleSectionSelect(e.target.value)}
+            className="w-full min-h-[44px] rounded-control border border-neutral-border bg-neutral-surface px-3 text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+          >
+            {navGroups.map((group) => (
+              <optgroup key={group.label} label={group.label}>
+                {group.items.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.label}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </div>
+        )}
+
         {/* The single scrolling page. scrollbar-gutter:stable keeps the track
             reserved so growing/shrinking sections never shift the panel (issue 776). */}
         <div
@@ -478,6 +452,153 @@ export function SettingsShell({
   );
 }
 
+/* ── Rail primitives shared by the desktop rail and the mobile header (issue 539) ── */
+
+/** Workspace / Program / Project segmented control. */
+function ScopeSwitcher({
+  scope,
+  scopeLinks,
+  onNavigate,
+}: {
+  scope: 'workspace' | 'project' | 'program';
+  scopeLinks: SettingsScopeLink[];
+  onNavigate: (to: string) => void;
+}) {
+  return (
+    <div>
+      <p className="text-xs font-semibold tracking-[.1em] uppercase text-neutral-text-secondary mb-1.5">
+        Scope
+      </p>
+      <div className="grid grid-cols-3 bg-neutral-surface-sunken rounded-control p-0.5 gap-0">
+        {scopeLinks.map((sl) => {
+          const isActive = scope === sl.scope;
+          const isDisabled = !isActive && sl.to == null;
+          return (
+            <button
+              key={sl.scope}
+              type="button"
+              disabled={isDisabled}
+              aria-disabled={isDisabled || undefined}
+              title={isDisabled ? sl.disabledReason : undefined}
+              onClick={() => {
+                if (sl.to == null) return;
+                onNavigate(sl.to);
+              }}
+              className={[
+                'py-1.5 px-1 rounded-control text-xs font-medium text-center transition-colors',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+                isActive
+                  ? 'bg-neutral-surface text-neutral-text-primary'
+                  : isDisabled
+                    ? 'text-neutral-text-disabled cursor-not-allowed'
+                    : 'text-neutral-text-secondary hover:text-neutral-text-primary',
+              ].join(' ')}
+            >
+              {sl.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** Context selector — switcher when >= 2 siblings (issue 776), else identity row. */
+function ContextRow({
+  scope,
+  contextName,
+  contextHealth,
+  contextOptions,
+  contextActiveId,
+  onNavigate,
+  onCopyLink,
+  copyConfirmed,
+}: {
+  scope: 'workspace' | 'project' | 'program';
+  contextName: string;
+  contextHealth?: 'onTrack' | 'atRisk' | 'critical' | null;
+  contextOptions?: SettingsContextOption[];
+  contextActiveId?: string;
+  onNavigate: (to: string) => void;
+  onCopyLink: () => void;
+  copyConfirmed: boolean;
+}) {
+  return (
+    <div className="px-2 py-1.5 rounded-card flex items-center gap-1.5 bg-neutral-surface-sunken border border-neutral-border/55 text-xs min-w-0">
+      {contextOptions && contextOptions.length >= 2 ? (
+        <SettingsContextSwitcher
+          contextName={contextName}
+          contextHealth={contextHealth}
+          options={contextOptions}
+          activeId={contextActiveId}
+          entityLabel={scope}
+          onSelect={onNavigate}
+        />
+      ) : (
+        <>
+          {contextHealth ? (
+            <span
+              className={`w-2 h-2 rounded-full shrink-0 ${HEALTH_COLOR[contextHealth] ?? 'bg-neutral-text-disabled'}`}
+              aria-hidden="true"
+            />
+          ) : (
+            <span
+              className="w-3.5 h-3.5 rounded-chip bg-brand-primary shrink-0 inline-flex items-center justify-center text-white text-[10px] font-bold"
+              aria-hidden="true"
+            >
+              tP
+            </span>
+          )}
+          <span className="flex-1 truncate text-neutral-text-primary font-medium">
+            {contextName}
+          </span>
+        </>
+      )}
+      <button
+        type="button"
+        onClick={onCopyLink}
+        aria-label="Copy link to settings"
+        className="shrink-0 inline-flex items-center justify-center w-6 h-6 -my-1 rounded-control text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+      >
+        {copyConfirmed ? (
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 16 16"
+            className="text-semantic-on-track"
+            aria-hidden="true"
+          >
+            <path
+              d="M3 8l3.5 3.5L13 5"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              fill="none"
+            />
+          </svg>
+        ) : (
+          <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
+            <path
+              d="M7 4H4.5A1.5 1.5 0 0 0 3 5.5v6A1.5 1.5 0 0 0 4.5 13H10a1.5 1.5 0 0 0 1.5-1.5V9 M9 12h2.5A1.5 1.5 0 0 0 13 10.5v-6A1.5 1.5 0 0 0 11.5 3H6a1.5 1.5 0 0 0-1.5 1.5V7"
+              stroke="currentColor"
+              strokeWidth="1.4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              fill="none"
+            />
+          </svg>
+        )}
+      </button>
+      {copyConfirmed && (
+        <span className="sr-only" role="status" aria-live="polite">
+          Link copied to clipboard
+        </span>
+      )}
+    </div>
+  );
+}
+
 /* ── Anchored section wrapper (ADR-0146) ── */
 
 interface SettingsSectionProps {
@@ -549,20 +670,22 @@ interface FieldRowProps {
   children: ReactNode;
 }
 
-/** Two-column form row: 240px label+hint on left, content on right. */
+/**
+ * Two-column form row: 240px label+hint on left, content on right at >= md.
+ * Below md the fixed 240px label column would leave a phone <140px for the
+ * control, so the row stacks to a single column (label above content) — this is
+ * the actual fix for settings-form overflow at 375px (issue 539).
+ */
 export function FieldRow({ label, hint, children }: FieldRowProps) {
   return (
-    <div
-      className="grid gap-6 py-3.5 border-b border-neutral-border/55 items-start"
-      style={{ gridTemplateColumns: '240px 1fr' }}
-    >
+    <div className="grid grid-cols-1 gap-2 md:gap-6 md:grid-cols-[240px_1fr] py-3.5 border-b border-neutral-border/55 items-start">
       <div>
         <div className="text-[13px] font-medium text-neutral-text-primary">{label}</div>
         {hint && (
           <div className="text-[12px] text-neutral-text-secondary mt-0.5 leading-snug">{hint}</div>
         )}
       </div>
-      <div>{children}</div>
+      <div className="min-w-0">{children}</div>
     </div>
   );
 }
