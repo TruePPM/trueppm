@@ -1,5 +1,6 @@
 ---
 name: voc-audit
+model: sonnet
 description: Run a Voice-of-Customer panel against a shipped TruePPM surface (a recently merged feature, page, or flow) and cross-reference findings with the GitLab issue tracker. Produces a ranked "file new / boost priority / already tracked" matrix. Distinct from `/voice-of-customer` (which evaluates a spec or design) — voc-audit reviews what actually shipped. Distinct from `/ux-review` (design-system compliance) — voc-audit reasons about persona-level friction. Run on demand against a recently-merged user-visible MR, or as a cross-cutting step inside `/pre-release full`.
 argument-hint: "<surface description, MR number, issue number, or path under packages/web/src>"
 ---

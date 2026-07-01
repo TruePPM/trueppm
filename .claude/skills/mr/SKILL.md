@@ -1,6 +1,6 @@
 ---
 name: mr
-model: opus
+model: sonnet
 disable-model-invocation: true
 description: >
   Open a GitLab merge request for the current branch targeting main. Runs

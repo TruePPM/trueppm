@@ -1,6 +1,6 @@
 ---
 name: regression-check
-model: opus
+model: sonnet
 description: >
   Regression audit for TruePPM before opening an MR on any branch that changes source
   code. Verifies that existing behavior is not broken: no stale mocks, no permission

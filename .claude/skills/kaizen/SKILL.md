@@ -1,5 +1,6 @@
 ---
 name: kaizen
+model: sonnet
 description: Audit the TruePPM development harness (CI, agent gates, pre-push, MR flow) for friction and propose a small, ranked list of speed wins. Distinct from /pre-release (which audits the codebase) — kaizen audits the *process*. Run on demand or as the pre-flight step of /pre-release full.
 argument-hint: "[--silent | --no-file]"
 ---

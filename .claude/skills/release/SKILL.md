@@ -1,5 +1,6 @@
 ---
 name: release
+model: sonnet
 description: Cut a TruePPM release — bump versions, rotate changelog, tag, push, and (post-1.0) verify GHCR publish and trigger enterprise release.
 disable-model-invocation: true
 argument-hint: "<patch|minor|major|alpha|beta|rc|release|x.y.z> [alpha|beta|rc]"
