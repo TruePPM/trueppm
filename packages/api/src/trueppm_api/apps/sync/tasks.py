@@ -4,12 +4,21 @@
 rows past the dedup window so the idempotency table stays bounded — the
 ADR-0081 purge convention applied to the upload envelope (ADR-0082 §Durable
 Execution #6).
+
+``reap_domain_tombstones`` hard-deletes per-row soft-deleted tombstones
+(``is_deleted=True``) from live projects. VersionedModel rows are soft-deleted
+so the mobile sync endpoint can return their IDs as tombstones to offline
+clients; once the retention window has passed there is no further value in
+keeping the row and it can be hard-deleted. Only rows belonging to live
+(non-deleted, non-archived) projects are touched — tombstones in deleted or
+archived projects are skipped because those projects may still be restoring.
 """
 
 from __future__ import annotations
 
 import logging
 from datetime import timedelta
+from typing import Any
 
 from trueppm_api.core.idempotent import idempotent_task
 
@@ -61,3 +70,128 @@ def _do_purge(*, dry_run: bool = False, override_value: int | None = None) -> in
     if deleted:
         logger.info("purge_sync_batches: deleted %d expired batch row(s)", deleted)
     return deleted
+
+
+# ---------------------------------------------------------------------------
+# reap_domain_tombstones — hard-delete stale per-row soft-delete tombstones
+# ---------------------------------------------------------------------------
+
+# Registry of (Model, project_filter_kwargs, age_field_or_None).
+#
+# ``age_field`` is the DateTimeField used to enforce the retention window — only
+# models that explicitly declare ``updated_at`` (auto_now=True) can use it,
+# because soft_delete() calls save() which sets auto_now fields. For models
+# that have no such timestamp (Task, Dependency) ``age_field`` is None and
+# every soft-deleted row in a live project is eligible immediately. This is
+# safe in practice: the nightly task fires well after mobile clients have
+# synced, and we only touch rows whose owning project is still live.
+#
+# Extend this list when new VersionedModel subclasses are added that carry
+# ``is_deleted`` tombstones in the projects domain.
+_TOMBSTONE_MODEL_REGISTRY: list[
+    tuple[Any, dict[str, Any], str | None]
+] = []  # populated lazily in _build_registry()
+
+
+def _build_registry() -> list[tuple[Any, dict[str, Any], str | None]]:
+    """Build the tombstone model registry with deferred model imports.
+
+    Deferred so the function can be called safely after Django app setup
+    completes, avoiding circular imports at module load time.
+    """
+    from trueppm_api.apps.projects.models import Dependency, Risk, Sprint, Task
+
+    return [
+        # Task: no updated_at — reap all tombstones in live projects.
+        (
+            Task,
+            {"project__is_deleted": False, "project__is_archived": False},
+            None,
+        ),
+        # Risk: has updated_at — enforce the retention window.
+        (
+            Risk,
+            {"project__is_deleted": False, "project__is_archived": False},
+            "updated_at",
+        ),
+        # Sprint: has updated_at — enforce the retention window.
+        (
+            Sprint,
+            {"project__is_deleted": False, "project__is_archived": False},
+            "updated_at",
+        ),
+        # Dependency: no direct project FK, no updated_at — reap via predecessor.
+        # Same-project and cross-project edges are both handled: once the
+        # predecessor's project is live and the edge is soft-deleted, there is
+        # no further sync value in the tombstone row.
+        (
+            Dependency,
+            {
+                "predecessor__project__is_deleted": False,
+                "predecessor__project__is_archived": False,
+            },
+            None,
+        ),
+    ]
+
+
+@idempotent_task(
+    lock_key_template="reap_domain_tombstones",
+    lock_ttl=600,
+    on_contention="skip",
+    name="sync.reap_domain_tombstones",
+)
+def reap_domain_tombstones(self: object) -> dict[str, int]:
+    """Hard-delete per-row soft-deleted tombstones from live projects.
+
+    Runs nightly via Celery Beat. For each model in ``_TOMBSTONE_MODEL_REGISTRY``:
+    - Filters ``is_deleted=True`` rows in live (non-deleted, non-archived) projects.
+    - For models with ``updated_at``, further restricts to rows updated before
+      the ``TRUEPPM_TOMBSTONE_RETENTION_DAYS`` cutoff (default 90 days).
+    - Hard-deletes the eligible rows.
+
+    Returns a dict mapping ``{app_label.model_name: rows_deleted}`` for each
+    model — useful for monitoring and log-based alerting.
+
+    Idempotent and contention-skipping — a concurrent run is a no-op.
+    """
+    return _do_reap()
+
+
+def _do_reap(*, override_days: int | None = None) -> dict[str, int]:
+    """Business logic for reap_domain_tombstones — extracted for testability.
+
+    Args:
+        override_days: Force a specific retention window (days) instead of
+            reading ``TRUEPPM_TOMBSTONE_RETENTION_DAYS`` from settings. Useful
+            in tests to avoid manipulating global settings.
+
+    Returns:
+        Dict mapping ``{app_label.model_name: rows_deleted}`` for every
+        model in the registry, including zeros.
+    """
+    from django.conf import settings
+    from django.utils import timezone
+
+    retention_days: int = (
+        override_days
+        if override_days is not None
+        else getattr(settings, "TRUEPPM_TOMBSTONE_RETENTION_DAYS", 90)
+    )
+    cutoff = timezone.now() - timedelta(days=retention_days)
+
+    counts: dict[str, int] = {}
+    for Model, project_filters, age_field in _build_registry():
+        label: str = Model._meta.label_lower
+        qs = Model.objects.filter(is_deleted=True, **project_filters)
+        if age_field is not None:
+            qs = qs.filter(**{f"{age_field}__lt": cutoff})
+        deleted, _ = qs.delete()
+        counts[label] = deleted
+        if deleted:
+            logger.info(
+                "reap_domain_tombstones: hard-deleted %d %s tombstone(s)",
+                deleted,
+                label,
+            )
+    return counts
