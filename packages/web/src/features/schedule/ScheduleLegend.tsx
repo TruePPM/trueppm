@@ -8,6 +8,13 @@ interface ScheduleLegendProps {
    * task list. Comes from useColumnWidths().totalWidth in ScheduleView.
    */
   taskListWidth: number;
+  /**
+   * Whether the baselines sub-surface is visible for this project (ADR-0193,
+   * issue 956). When false the "Planned baseline" legend entry is hidden so the
+   * legend stays consistent with what is actually drawn on the canvas.
+   * Defaults to true (all-visible until the project detail loads).
+   */
+  showBaselines?: boolean;
 }
 
 /**
@@ -23,7 +30,7 @@ interface ScheduleLegendProps {
  * it, so any future canvas export pipeline starts from "explicitly include"
  * rather than "explicitly exclude".
  */
-export function ScheduleLegend({ taskListWidth }: ScheduleLegendProps) {
+export function ScheduleLegend({ taskListWidth, showBaselines = true }: ScheduleLegendProps) {
   const { collapsed, toggle } = useScheduleLegendCollapsed();
   const headerId = useId();
   const bodyId = `${headerId}-body`;
@@ -98,9 +105,11 @@ export function ScheduleLegend({ taskListWidth }: ScheduleLegendProps) {
             <TodaySwatch />
           </LegendRow>
           {/* Row 3 — lines &amp; arrows */}
-          <LegendRow label="Planned baseline">
-            <BaselineSwatch />
-          </LegendRow>
+          {showBaselines && (
+            <LegendRow label="Planned baseline">
+              <BaselineSwatch />
+            </LegendRow>
+          )}
           <LegendRow label="Finish-to-start">
             <ArrowFsSwatch />
           </LegendRow>

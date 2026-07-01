@@ -122,3 +122,16 @@ export function groupedVisibleViewsForUser(
     .map((g) => ({ ...g, visibleViews: g.visibleViews.filter((v) => !hiddenViews.has(v)) }))
     .filter((g) => g.visibleViews.length > 0);
 }
+
+/**
+ * View keys hidden by the per-project leaf-surface toggles (ADR-0193, #956).
+ * Only `reporting` maps to a view tab (`reports`); the other three surfaces
+ * (time-tracking / baselines / monte-carlo) are in-view sub-surfaces gated at
+ * their host components, so they contribute no tab-hide here. Callers union the
+ * result into the same hidden-set they build from the per-user `hidden_views`
+ * preference, so all three layers (methodology → per-user → per-project surface)
+ * compose through the one `groupedVisibleViewsForUser` path.
+ */
+export function surfaceHiddenViews(visibility: { reporting: boolean }): string[] {
+  return visibility.reporting ? [] : ['reports'];
+}

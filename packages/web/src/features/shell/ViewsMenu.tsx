@@ -6,7 +6,11 @@ import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useUpdateHiddenViews } from '@/hooks/useUpdateHiddenViews';
-import { groupedVisibleViews, STANDALONE_LEADING } from '@/features/shell/methodologyTabs';
+import {
+  groupedVisibleViews,
+  surfaceHiddenViews,
+  STANDALONE_LEADING,
+} from '@/features/shell/methodologyTabs';
 import { VIEW_TAB_META } from '@/features/shell/viewMeta';
 import { ROLE_SCHEDULER } from '@/lib/roles';
 import { modifierKeyLabel } from '@/lib/platform';
@@ -201,9 +205,21 @@ export function ViewsMenu() {
   const roleAllows = (view: string) =>
     view !== 'resources' || (role !== null && role >= ROLE_SCHEDULER);
 
-  // The toggleable groups = methodology-visible views, minus the role-gated ones.
+  // Per-project leaf-surface toggles (ADR-0193, issue 956) are a stronger hide
+  // than the per-user preference: a surface the project turned off is not a
+  // meaningful personal toggle, so drop it from the menu entirely (only
+  // `reporting` maps to a view here).
+  const surfaceHidden = new Set(
+    surfaceHiddenViews(project?.effective_surface_visibility ?? { reporting: true }),
+  );
+
+  // The toggleable groups = methodology-visible views, minus the role-gated ones
+  // and the project-surface-hidden ones.
   const groups = groupedVisibleViews(methodology)
-    .map((g) => ({ ...g, visibleViews: g.visibleViews.filter(roleAllows) }))
+    .map((g) => ({
+      ...g,
+      visibleViews: g.visibleViews.filter((v) => roleAllows(v) && !surfaceHidden.has(v)),
+    }))
     .filter((g) => g.visibleViews.length > 0);
 
   const labelFor = (view: string) =>

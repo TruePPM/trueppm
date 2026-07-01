@@ -28256,6 +28256,22 @@
                         },
                         "nullable": true
                     },
+                    "show_reporting": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "show_time_tracking": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "show_baselines": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "show_monte_carlo": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
                     "program": {
                         "type": "string",
                         "format": "uuid",
@@ -30184,6 +30200,70 @@
                         },
                         "readOnly": true
                     },
+                    "show_reporting": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "show_time_tracking": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "show_baselines": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "show_monte_carlo": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "effective_surface_visibility": {
+                        "type": "object",
+                        "properties": {
+                            "reporting": {
+                                "type": "boolean"
+                            },
+                            "time_tracking": {
+                                "type": "boolean"
+                            },
+                            "baselines": {
+                                "type": "boolean"
+                            },
+                            "monte_carlo": {
+                                "type": "boolean"
+                            }
+                        },
+                        "required": [
+                            "reporting",
+                            "time_tracking",
+                            "baselines",
+                            "monte_carlo"
+                        ],
+                        "readOnly": true
+                    },
+                    "inherited_surface_visibility": {
+                        "type": "object",
+                        "properties": {
+                            "reporting": {
+                                "type": "boolean"
+                            },
+                            "time_tracking": {
+                                "type": "boolean"
+                            },
+                            "baselines": {
+                                "type": "boolean"
+                            },
+                            "monte_carlo": {
+                                "type": "boolean"
+                            }
+                        },
+                        "required": [
+                            "reporting",
+                            "time_tracking",
+                            "baselines",
+                            "monte_carlo"
+                        ],
+                        "readOnly": true
+                    },
                     "program": {
                         "type": "string",
                         "format": "uuid",
@@ -30249,6 +30329,7 @@
                     "effective_mc_history_retention_cap",
                     "effective_methodology",
                     "effective_public_sharing",
+                    "effective_surface_visibility",
                     "effective_task_duration_change_percent_policy",
                     "id",
                     "inherited_allow_guests",
@@ -30260,6 +30341,7 @@
                     "inherited_mc_history_retention_cap",
                     "inherited_methodology",
                     "inherited_public_sharing",
+                    "inherited_surface_visibility",
                     "inherited_task_duration_change_percent_policy",
                     "is_archived",
                     "lead_detail",
@@ -30653,6 +30735,70 @@
                         },
                         "readOnly": true
                     },
+                    "show_reporting": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "show_time_tracking": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "show_baselines": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "show_monte_carlo": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "effective_surface_visibility": {
+                        "type": "object",
+                        "properties": {
+                            "reporting": {
+                                "type": "boolean"
+                            },
+                            "time_tracking": {
+                                "type": "boolean"
+                            },
+                            "baselines": {
+                                "type": "boolean"
+                            },
+                            "monte_carlo": {
+                                "type": "boolean"
+                            }
+                        },
+                        "required": [
+                            "reporting",
+                            "time_tracking",
+                            "baselines",
+                            "monte_carlo"
+                        ],
+                        "readOnly": true
+                    },
+                    "inherited_surface_visibility": {
+                        "type": "object",
+                        "properties": {
+                            "reporting": {
+                                "type": "boolean"
+                            },
+                            "time_tracking": {
+                                "type": "boolean"
+                            },
+                            "baselines": {
+                                "type": "boolean"
+                            },
+                            "monte_carlo": {
+                                "type": "boolean"
+                            }
+                        },
+                        "required": [
+                            "reporting",
+                            "time_tracking",
+                            "baselines",
+                            "monte_carlo"
+                        ],
+                        "readOnly": true
+                    },
                     "program": {
                         "type": "string",
                         "format": "uuid",
@@ -30753,6 +30899,7 @@
                     "effective_mc_history_retention_cap",
                     "effective_methodology",
                     "effective_public_sharing",
+                    "effective_surface_visibility",
                     "effective_task_duration_change_percent_policy",
                     "id",
                     "inherited_allow_guests",
@@ -30764,6 +30911,7 @@
                     "inherited_mc_history_retention_cap",
                     "inherited_methodology",
                     "inherited_public_sharing",
+                    "inherited_surface_visibility",
                     "inherited_task_duration_change_percent_policy",
                     "is_archived",
                     "is_sample",
@@ -31182,6 +31330,22 @@
                             "minLength": 1,
                             "maxLength": 255
                         },
+                        "nullable": true
+                    },
+                    "show_reporting": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "show_time_tracking": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "show_baselines": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "show_monte_carlo": {
+                        "type": "boolean",
                         "nullable": true
                     },
                     "program": {

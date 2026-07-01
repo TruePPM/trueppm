@@ -128,6 +128,21 @@ class CalendarSerializer(serializers.ModelSerializer[Calendar]):
         read_only_fields = ["id", "server_version"]
 
 
+#: OpenAPI schema for the resolved leaf-surface visibility maps (ADR-0193, #956) —
+#: a fixed-key object of booleans, one per toggleable surface. Keeps the generated
+#: schema precise instead of an untyped ``additionalProperties`` object.
+_SURFACE_VISIBILITY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "reporting": {"type": "boolean"},
+        "time_tracking": {"type": "boolean"},
+        "baselines": {"type": "boolean"},
+        "monte_carlo": {"type": "boolean"},
+    },
+    "required": ["reporting", "time_tracking", "baselines", "monte_carlo"],
+}
+
+
 class ProjectSerializer(serializers.ModelSerializer[Project]):
     """Read/write serializer for projects.
 
@@ -218,6 +233,15 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
     inherited_attachments_enabled = serializers.SerializerMethodField()
     effective_allowed_attachment_types = serializers.SerializerMethodField()
     inherited_allowed_attachment_types = serializers.SerializerMethodField()
+    # Server-resolved leaf-surface visibility (ADR-0193, #956): per-surface project
+    # override ?? the methodology default. Clients read ``effective_surface_visibility``
+    # (an object keyed by surface) to gate the reports tab and the in-Schedule
+    # baseline/Monte-Carlo sub-surfaces; ``inherited_surface_visibility`` is the
+    # methodology-default map — what each toggle falls back to when returned to
+    # *inherit* (drives the settings "Inherit (On/Off)" affordance). Hide-only
+    # (ADR-0041): the data is always computed; these toggle chrome, not access.
+    effective_surface_visibility = serializers.SerializerMethodField()
+    inherited_surface_visibility = serializers.SerializerMethodField()
 
     class Meta:
         model = Project
@@ -298,6 +322,16 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "inherited_attachments_enabled",
             "effective_allowed_attachment_types",
             "inherited_allowed_attachment_types",
+            # Leaf-surface visibility overrides (ADR-0193, #956). Nullable: NULL =
+            # inherit the methodology default. Admin+-gated write by the allowlist
+            # default (not in _SCHEDULER_WRITABLE_FIELDS, so the validate() gate below
+            # blocks Scheduler). effective_/inherited_ are read-only resolved maps.
+            "show_reporting",
+            "show_time_tracking",
+            "show_baselines",
+            "show_monte_carlo",
+            "effective_surface_visibility",
+            "inherited_surface_visibility",
             "program",
             "member_count",
             "percent_complete",
@@ -333,6 +367,8 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "inherited_attachments_enabled",
             "effective_allowed_attachment_types",
             "inherited_allowed_attachment_types",
+            "effective_surface_visibility",
+            "inherited_surface_visibility",
             "is_archived",
             "archived_at",
             "archived_by",
@@ -627,6 +663,18 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         from .attachment_policy import resolve_inherited_attachment_types
 
         return resolve_inherited_attachment_types(obj, workspace=self._iteration_workspace())
+
+    @extend_schema_field(_SURFACE_VISIBILITY_SCHEMA)
+    def get_effective_surface_visibility(self, obj: Project) -> dict[str, bool]:
+        from .surface_visibility import resolve_effective_visibility
+
+        return resolve_effective_visibility(obj, workspace=self._iteration_workspace())
+
+    @extend_schema_field(_SURFACE_VISIBILITY_SCHEMA)
+    def get_inherited_surface_visibility(self, obj: Project) -> dict[str, bool]:
+        from .surface_visibility import resolve_inherited_visibility
+
+        return resolve_inherited_visibility(obj, workspace=self._iteration_workspace())
 
     def validate_allowed_attachment_types(self, value: list[str] | None) -> list[str] | None:
         """Normalize + reject security-denied types on the project override (ADR-0153).

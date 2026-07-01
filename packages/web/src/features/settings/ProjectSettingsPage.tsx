@@ -21,6 +21,7 @@ import { ProjectGuardrailsPage } from './project/ProjectGuardrailsPage';
 import { ProjectIntegrationsPage } from './project/ProjectIntegrationsPage';
 import { ProjectNotificationsPage } from './project/ProjectNotificationsPage';
 import { ProjectAttachmentsPage } from './project/ProjectAttachmentsPage';
+import { ProjectVisibilityPage } from './project/ProjectVisibilityPage';
 import { ProjectArchivePage } from './project/ProjectArchivePage';
 import {
   OverviewIcon,
@@ -101,7 +102,8 @@ export function ProjectSettingsPage() {
         ...(showTeamTab
           ? [{ id: 'signal-privacy', label: 'Signal privacy', icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> }]
           : []),
-        { id: 'attachments',   label: 'Attachments',   icon: <NavIcon><ExternalLinkIcon aria-hidden="true" /></NavIcon> },
+        { id: 'attachments', label: 'Attachments', icon: <NavIcon><ExternalLinkIcon aria-hidden="true" /></NavIcon> },
+        { id: 'surfaces',    label: 'Surfaces',    icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> },
         { id: 'integrations',  label: 'Integrations',  icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> },
         { id: 'notifications', label: 'Notifications', icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> },
       ],
@@ -138,6 +140,7 @@ export function ProjectSettingsPage() {
         <SettingsSection id="signal-privacy"><ProjectSignalPrivacyPage /></SettingsSection>
       )}
       <SettingsSection id="attachments"><ProjectAttachmentsPage /></SettingsSection>
+      <SettingsSection id="surfaces"><ProjectVisibilityPage /></SettingsSection>
       <SettingsSection id="integrations"><ProjectIntegrationsPage /></SettingsSection>
       <SettingsSection id="notifications"><ProjectNotificationsPage /></SettingsSection>
       <SettingsSection id="lifecycle"><ProjectArchivePage /></SettingsSection>
