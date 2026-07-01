@@ -15,7 +15,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Task } from '@/types';
 import { GanttEngineImpl } from './GanttEngineImpl';
-import { CALENDAR_QUARTERS, ZOOM_CONFIGS } from './GanttScaleData';
+import { CALENDAR_QUARTERS, ZOOM_CONFIGS, dateToLeft } from './GanttScaleData';
 import { prepareDependencyLayout } from './GanttRenderer';
 
 // Spy on the arrow-layout builder while keeping its real implementation, so
@@ -142,6 +142,10 @@ interface Harness {
   scrollToSpy: ReturnType<typeof vi.fn>;
   cancelRaf: ReturnType<typeof vi.fn>;
   roDisconnect: ReturnType<typeof vi.fn>;
+  /** The recording 2D context backing the bars canvas — the layer dependency
+   *  arrows and task bars paint onto. Exposed so the engine→renderer seam can be
+   *  observed by inspecting the draw calls it received (issue 1515). */
+  barsCtx: CanvasRenderingContext2D;
   /** Run the next scheduled rAF callback (drives exactly one engine tick). */
   flushFrame: () => void;
 }
@@ -172,7 +176,8 @@ function setup(opts?: { initialZoom?: 'day' | 'week' | 'month'; bgCtxNull?: bool
   );
 
   const bgCanvas = makeCanvas(opts?.bgCtxNull ? null : makeCtx());
-  const barsCanvas = makeCanvas(makeCtx());
+  const barsCtx = makeCtx();
+  const barsCanvas = makeCanvas(barsCtx);
   const ixCanvas = makeCanvas(makeCtx());
   const { el: container, scrollToSpy } = makeContainer();
 
@@ -190,7 +195,7 @@ function setup(opts?: { initialZoom?: 'day' | 'week' | 'month'; bgCtxNull?: bool
     cb?.(0);
   };
 
-  return { engine, container, scrollToSpy, cancelRaf, roDisconnect, flushFrame };
+  return { engine, container, scrollToSpy, cancelRaf, roDisconnect, barsCtx, flushFrame };
 }
 
 afterEach(() => {
@@ -369,13 +374,39 @@ describe('GanttEngineImpl — viewport', () => {
     expect(scrollToSpy).not.toHaveBeenCalled();
   });
 
-  it('fitToProject rescales and parks the project start near the left edge', () => {
+  it('fitToProject rescales to the exact fit ratio and parks the start at the left inset', () => {
     const { engine, container } = setup({ initialZoom: 'day' });
     engine.setTasks([makeTask('a', '2026-04-01', '2026-12-31')]);
-    expect(() => engine.fitToProject()).not.toThrow();
-    expect(engine.pxPerDay).toBeGreaterThan(0);
-    expect(container.scrollLeft).toBeGreaterThanOrEqual(0);
-    expect(Number.isFinite(container.scrollLeft)).toBe(true);
+    engine.fitToProject();
+
+    // Hand-derived from the source, NOT by re-calling the implementation's own
+    // helpers. GanttEngineImpl._updateProjectRange pads the raw task span by
+    // PAD_BEFORE = 30 days and PAD_AFTER = 90 days, so the fit operates on the
+    // padded extent [2026-03-02, 2027-03-31] = 394 days. fitToProject computes
+    // targetPxPerDay = (viewportWidth * 0.92) / spanDays; the ratio 736/394 ≈
+    // 1.868 sits inside the [0.2, 40] continuous-zoom band, so clampPxPerDay is
+    // the identity here and pxPerDay must equal the raw ratio exactly. A version
+    // that divides by the span in milliseconds collapses to MIN 0.2 (microscopic
+    // project) and a version that keeps the initial 'day' tier stays at 40 —
+    // both fail this assertion. spanDays is derived from the documented padding
+    // constants, not read back from the engine.
+    const day = 86_400_000;
+    const ts = (iso: string): number => Date.parse(iso + 'T00:00:00Z');
+    const paddedStartIso = new Date(ts('2026-04-01') - 30 * day).toISOString().slice(0, 10);
+    const paddedEndIso = new Date(ts('2026-12-31') + 90 * day).toISOString().slice(0, 10);
+    const spanDays = Math.max(1, (ts(paddedEndIso) - ts(paddedStartIso)) / day);
+    expect(spanDays).toBe(394); // pin the derivation so a padding-constant drift is loud
+    const expectedPxPerDay = (800 * 0.92) / spanDays;
+    expect(engine.pxPerDay).toBeCloseTo(expectedPxPerDay, 5);
+
+    // scrollLeft parks the padded project start one inset (viewportWidth * 0.04)
+    // in from x=0, so the leading pad doesn't sit flush against the gutter.
+    // dateToLeft is a pinned linear transform (GanttScaleData.test.ts anchors it
+    // to 0 at scales.start and asserts linearity), so calling it here reproduces
+    // the target coordinate independently rather than mirroring fit math. A
+    // version that inverts the inset sign, or scrolls to the project *end*, fails.
+    const startX = dateToLeft(paddedStartIso, engine.scales!);
+    expect(container.scrollLeft).toBeCloseTo(startX - 800 * 0.04, 0);
   });
 });
 
@@ -417,6 +448,96 @@ describe('GanttEngineImpl — mutations and setters', () => {
     engine.on('resize-task-end', onEnd);
     expect(() => engine.cancelDrag()).not.toThrow();
     expect(onEnd).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Engine → renderer seam (issue 1515): setLinks / updateTask must actually
+// reach the painter. The smoke test above only proves they don't throw; these
+// prove the stored data flows into the bars-layer paint pass. A no-op setLinks
+// (arrows silently vanish) or an updateTask that never reaches the renderer
+// (stale bars) would keep the smoke test green — these catch that.
+// ---------------------------------------------------------------------------
+
+describe('GanttEngineImpl — setLinks / updateTask reach the renderer (issue 1515)', () => {
+  // Scheduled tasks (plannedStart set) so prepareDependencyLayout builds real
+  // anchor nodes and paintDependencyLayout actually strokes an FS polyline —
+  // an unscheduled task is skipped as an arrow endpoint (GanttRenderer).
+  function scheduled(id: string, start: string, finish: string): Task {
+    return { ...makeTask(id, start, finish), plannedStart: start };
+  }
+
+  it('setLinks feeds the stored links into the layout and paints the arrow onto the bars canvas', () => {
+    const { engine, container, barsCtx, flushFrame } = setup();
+    const prepareSpy = vi.mocked(prepareDependencyLayout);
+    // barsCtx.lineTo is a recording vi.fn from makeCtx(), not a real bound
+    // method, so the unbound-method lint doesn't apply here.
+    // eslint-disable-next-line @typescript-eslint/unbound-method
+    const barsLineTo = vi.mocked(barsCtx.lineTo);
+
+    engine.setTasks([scheduled('a', '2026-04-01', '2026-04-10'), scheduled('b', '2026-04-11', '2026-04-20')]);
+
+    // The engine pads the project range 30 days before the earliest task, so at
+    // the default 'day' zoom both bars sit ~1200px right of x=0 and paint entirely
+    // off-screen (the arrow phase culls off-viewport paths). Scroll the first bar
+    // near the left edge and sync the engine's scroll via a real scroll event so
+    // the dependency pass actually reaches the bars canvas. dateToLeft is a pinned
+    // linear transform (see GanttScaleData.test.ts).
+    const barLeftA = dateToLeft('2026-04-01', engine.scales!);
+    container.scrollLeft = Math.max(0, barLeftA - 100);
+    container.dispatchEvent(new Event('scroll'));
+    flushFrame(); // baseline paint — bars visible, still no links
+
+    // Baseline: the most recent layout build was handed an empty link list, so
+    // no dependency polyline has been stroked onto the bars canvas yet. (The
+    // module-factory spy accumulates calls across tests, so this reads the last
+    // in-window call rather than the whole history.)
+    const prepareCallsBefore = prepareSpy.mock.calls.length;
+    expect(prepareSpy.mock.calls.at(-1)![1]).toHaveLength(0);
+    const lineToBefore = barsLineTo.mock.calls.length;
+
+    engine.setLinks([
+      { id: 'l1', sourceId: 'a', targetId: 'b', type: 'FS' as const, lag: 0, isCritical: false },
+    ]);
+    flushFrame();
+
+    // Seam #1: the engine stored the link and handed that exact link to the
+    // renderer's layout builder on a fresh build — a setLinks that dropped its
+    // argument would still call the builder here with an empty array.
+    expect(prepareSpy.mock.calls.length).toBeGreaterThan(prepareCallsBefore);
+    const lastPrepareCall = prepareSpy.mock.calls.at(-1)!;
+    expect(lastPrepareCall[1]).toHaveLength(1);
+    expect(lastPrepareCall[1][0].id).toBe('l1');
+
+    // Seam #2: the arrow was actually stroked onto the bars canvas — the painter
+    // issued lineTo calls (Manhattan FS polyline) it had not issued before the
+    // links existed.
+    expect(barsLineTo.mock.calls.length).toBeGreaterThan(lineToBefore);
+  });
+
+  it('updateTask mutates the task the painter sees on the next tick', () => {
+    const { engine, flushFrame } = setup();
+    const prepareSpy = vi.mocked(prepareDependencyLayout);
+
+    engine.setTasks([scheduled('a', '2026-04-01', '2026-04-10'), scheduled('b', '2026-04-11', '2026-04-20')]);
+    engine.setLinks([
+      { id: 'l1', sourceId: 'a', targetId: 'b', type: 'FS' as const, lag: 0, isCritical: false },
+    ]);
+    flushFrame();
+
+    // Before: the painter saw task 'a' at progress 0.
+    const taskABefore = prepareSpy.mock.calls.at(-1)![0].find((t) => t.id === 'a');
+    expect(taskABefore?.progress).toBe(0);
+
+    engine.updateTask('a', { progress: 50 });
+    flushFrame();
+
+    // After: updateTask replaced the task object and the paint pass fed the
+    // mutated task list to the renderer — the seam carries the new value, so a
+    // painter reading progress paints the 50%-filled bar. An updateTask that
+    // never reached the renderer would leave the last-seen task at progress 0.
+    const taskAAfter = prepareSpy.mock.calls.at(-1)![0].find((t) => t.id === 'a');
+    expect(taskAAfter?.progress).toBe(50);
   });
 });
 

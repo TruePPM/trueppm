@@ -1,13 +1,23 @@
 import { describe, expect, it, beforeEach } from 'vitest';
+import { ZOOM_CONFIGS } from '@/features/schedule/engine';
 import { useScheduleStore } from './scheduleStore';
 
 describe('useScheduleStore', () => {
   beforeEach(() => {
     localStorage.removeItem('schedule.quarterMode');
     localStorage.removeItem('schedule.viewMode');
+    // Reset the FULL consistent default state, not just zoomLevel. pxPerDay is
+    // the source of truth and zoomLevel is derived from it (deriveTier), so
+    // restoring zoomLevel: 'week' without pxPerDay: ZOOM_CONFIGS.week.pxPerDay
+    // would leave the store in a state its own invariant forbids — and any later
+    // test asserting a pxPerDay-derived value would pass or fail by test order.
+    // scrollToTaskId is reset too so a leaked scroll target can't bleed across
+    // tests (issue 1515).
     useScheduleStore.setState({
+      pxPerDay: ZOOM_CONFIGS.week.pxPerDay,
       zoomLevel: 'week',
       selectedTaskId: null,
+      scrollToTaskId: null,
       quarterMode: 'fiscal',
       viewMode: 'grid',
     });
