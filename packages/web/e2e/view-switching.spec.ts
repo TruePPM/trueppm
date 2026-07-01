@@ -261,12 +261,18 @@ test.describe('View switching', () => {
       .toHaveAttribute('aria-current', 'page');
   });
 
-  test('Overview leads the grouped view bar; Board is present in TRACK (ADR-0030/0128)', async ({ page }) => {
-    // v2 groups the tabs into PLAN / TRACK / PEOPLE (ADR-0128). Overview stays the
-    // standalone leading tab; Board moved into the TRACK group (no longer 2nd).
+  test('Overview leads the grouped view bar; the sprint circuit co-locates in SPRINT (ADR-0030/0128/0195)', async ({
+    page,
+  }) => {
+    // v2 groups the tabs into PLAN / SPRINT / TRACK / PEOPLE on HYBRID (the fixture
+    // default) — ADR-0195. Overview stays the standalone leading tab; Board now lives
+    // in the SPRINT group next to Sprints and Backlog (the #1466 co-location fix).
     const nav = page.getByRole('navigation', { name: 'View' });
     const links = nav.getByRole('link');
     await expect(links.nth(0)).toHaveText('Overview');
-    await expect(nav.getByRole('link', { name: 'Board' })).toBeVisible();
+    const sprint = nav.getByRole('group', { name: 'Sprint views' });
+    await expect(sprint.getByRole('link', { name: 'Board' })).toBeVisible();
+    await expect(sprint.getByRole('link', { name: 'Sprints' })).toBeVisible();
+    await expect(sprint.getByRole('link', { name: 'Backlog' })).toBeVisible();
   });
 });

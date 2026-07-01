@@ -36,15 +36,21 @@ export function isTabVisibleForMethodology(view: string, methodology: Methodolog
 }
 
 /**
- * v2 grouped view bar (ADR-0128) — the PLAN / TRACK / PEOPLE grouping that
- * replaces the flat tab strip. Grouping is **visual only**: the route segments are
- * unchanged (rule 108 / ADR-0030) and the methodology filter above still owns
- * visibility — `groupedVisibleViews` simply applies it *within* each group.
+ * v2 grouped view bar (ADR-0128 §A, amended by ADR-0195) — the grouping that replaces
+ * the flat tab strip. Grouping is **visual only**: the route segments are unchanged
+ * (rule 108 / ADR-0030) and the methodology filter above still owns visibility —
+ * `groupedVisibleViews` simply applies it *within* each group.
+ *
+ * The layout is **methodology-adaptive** (ADR-0195, issue 1466): AGILE and HYBRID surface a
+ * dedicated `SPRINT` group co-locating the daily sprint circuit
+ * (Backlog → Sprints → Board) as one cognitive object; WATERFALL has no SPRINT group and
+ * keeps `board` in TRACK (its kanban-tracking home) exactly as ADR-0128 shipped. `board`
+ * is therefore the one view whose group depends on methodology — see `viewGroupsFor`.
  *
  * `overview` (orientation landing) and `settings` (admin) stay **standalone** outside
- * the three groups — see `STANDALONE_LEADING` / `STANDALONE_TRAILING`.
+ * the groups — see `STANDALONE_LEADING` / `STANDALONE_TRAILING`.
  */
-export type ViewGroupId = 'PLAN' | 'TRACK' | 'PEOPLE';
+export type ViewGroupId = 'PLAN' | 'SPRINT' | 'TRACK' | 'PEOPLE';
 
 export interface ViewGroupDef {
   id: ViewGroupId;
@@ -60,23 +66,45 @@ export const STANDALONE_LEADING = 'overview';
 /** The trailing standalone view (no group label) — project admin. */
 export const STANDALONE_TRAILING = 'settings';
 
+/** Methodologies that run sprints → surface the dedicated `SPRINT` group (ADR-0195). */
+const SPRINT_METHODOLOGIES: ReadonlySet<Methodology> = new Set(['AGILE', 'HYBRID']);
+
 /**
- * Group → view assignment (ADR-0128 §A). Order here is the render order. Every
- * non-standalone view in `ViewTabs` must appear in exactly one group, or it will
- * silently never render.
+ * Ordered group → view assignment for a methodology (ADR-0195, amends ADR-0128 §A).
+ * The render order is PLAN · [SPRINT] · TRACK · PEOPLE; `board` lives in SPRINT for
+ * sprint-running methodologies and in TRACK for WATERFALL. Every non-standalone view
+ * must appear in exactly one group here for the current methodology, or it silently
+ * never renders — the `groupedVisibleViews` invariant test guards this.
  */
-export const VIEW_GROUPS: readonly ViewGroupDef[] = [
-  {
-    id: 'PLAN',
-    label: 'Plan',
-    views: ['product-backlog', 'sprints', 'schedule', 'grid', 'calendar'],
-  },
-  // `today` leads TRACK — the Unified Today split view (ADR-0180). Visible for every
-  // methodology (the board it embeds already is); it degrades gracefully when a project
-  // has no active sprint. The `unified` role-context lens lands here (lensOrder.ts).
-  { id: 'TRACK', label: 'Track', views: ['today', 'board', 'risk', 'reports'] },
-  { id: 'PEOPLE', label: 'People', views: ['resources'] },
-] as const;
+function viewGroupsFor(methodology: Methodology): readonly ViewGroupDef[] {
+  const sprintRuns = SPRINT_METHODOLOGIES.has(methodology);
+  return [
+    { id: 'PLAN', label: 'Plan', views: ['schedule', 'grid', 'calendar'] },
+    // SPRINT — the co-located sprint circuit (ADR-0195). Only for AGILE/HYBRID; on
+    // WATERFALL the group is absent (Backlog/Sprints are hidden and Board falls to TRACK),
+    // so no "SPRINT" label ever appears on a schedule-first project.
+    ...(sprintRuns
+      ? [{ id: 'SPRINT' as const, label: 'Sprint', views: ['product-backlog', 'sprints', 'board'] }]
+      : []),
+    // `today` leads TRACK — the Unified Today split view (ADR-0180). Visible for every
+    // methodology (the board it embeds already is); it degrades gracefully with no active
+    // sprint. On WATERFALL, `board` trails Today here as the kanban-tracking surface.
+    {
+      id: 'TRACK',
+      label: 'Track',
+      views: sprintRuns ? ['today', 'risk', 'reports'] : ['today', 'board', 'risk', 'reports'],
+    },
+    { id: 'PEOPLE', label: 'People', views: ['resources'] },
+  ];
+}
+
+/**
+ * Canonical superset group layout (the HYBRID shape — every group, every view, each view
+ * once). Consumed by `HIDEABLE_VIEW_KEYS` and the Customize-views UI, which need the full
+ * hideable set regardless of the active methodology. The *rendered* layout is
+ * `groupedVisibleViews(methodology)`; this constant is the union template only.
+ */
+export const VIEW_GROUPS: readonly ViewGroupDef[] = viewGroupsFor('HYBRID');
 
 export interface VisibleViewGroup extends ViewGroupDef {
   /** The group's views that survive the methodology filter, in order. */
@@ -84,16 +112,18 @@ export interface VisibleViewGroup extends ViewGroupDef {
 }
 
 /**
- * Apply the methodology visibility matrix to the grouped layout. Pure (no role
- * gate — that stays in `ViewTabs`, as today) so it is trivially unit-testable.
- * Groups with no surviving views are dropped so the bar never renders an empty
- * group label (ADR-0128 §A).
+ * Apply the methodology visibility matrix to the methodology-adaptive grouped layout.
+ * Pure (no role gate — that stays in `ViewTabs`, as today) so it is trivially
+ * unit-testable. Groups with no surviving views are dropped so the bar never renders an
+ * empty group label (ADR-0128 §A / ADR-0195).
  */
 export function groupedVisibleViews(methodology: Methodology): VisibleViewGroup[] {
-  return VIEW_GROUPS.map((g) => ({
-    ...g,
-    visibleViews: g.views.filter((v) => isTabVisibleForMethodology(v, methodology)),
-  })).filter((g) => g.visibleViews.length > 0);
+  return viewGroupsFor(methodology)
+    .map((g) => ({
+      ...g,
+      visibleViews: g.views.filter((v) => isTabVisibleForMethodology(v, methodology)),
+    }))
+    .filter((g) => g.visibleViews.length > 0);
 }
 
 /**

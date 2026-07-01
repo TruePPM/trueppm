@@ -11,6 +11,13 @@ Accepted (2026-06-14)
 > health-cluster semantics, the ADR-0104 velocity privacy gate, route suppression, and the
 > `Health ▾` collapse below `lg` — is unchanged.
 
+> **§A amended by [ADR-0195](0195-methodology-adaptive-sprint-group.md) (2026-07-01, #1466).**
+> The static group → view assignment in §A is superseded by a **methodology-adaptive** layout:
+> a fourth group `SPRINT` (Backlog · Sprints · Board) exists for AGILE/HYBRID so the sprint
+> circuit is co-located, while WATERFALL keeps `board` in TRACK exactly as this ADR shipped.
+> Everything else in §A (visual-only grouping, empty groups render nothing, standalone
+> Overview/Settings, the a11y group structure) is unchanged.
+
 ## Context
 
 Epic #1163 (the v2 golden-standard redesign, ADR-0126) replaces the project

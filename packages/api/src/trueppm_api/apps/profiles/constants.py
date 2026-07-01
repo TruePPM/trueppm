@@ -18,17 +18,22 @@ a 400 by ``UserProfileSerializer.validate_hidden_views``).
 
 from __future__ import annotations
 
+# Grouped for readability only — the *rendered* group of a key is methodology-adaptive
+# on the web (ADR-0195: Board joins the SPRINT circuit on AGILE/HYBRID, stays in TRACK on
+# WATERFALL). Hideability is per-key and independent of group, so this set is unchanged by
+# that layout: every key below is hideable on every methodology.
 HIDEABLE_VIEW_KEYS: frozenset[str] = frozenset(
     {
         # PLAN group
-        "product-backlog",
-        "sprints",
         "schedule",
         "grid",
         "calendar",
+        # SPRINT group (AGILE/HYBRID) — Backlog · Sprints · Board (ADR-0195)
+        "product-backlog",
+        "sprints",
+        "board",
         # TRACK group
         "today",
-        "board",
         "risk",
         "reports",
         # PEOPLE group
