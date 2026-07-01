@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import datetime
 import json
-from typing import Any
+from typing import Any, cast
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
@@ -157,7 +157,16 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             # (web-rule 94, matching the per-project resource-allocation gate);
             # a Viewer or Member must not see who is staffed where.
             return [IsAuthenticated(), IsProgramScheduler()]
-        if self.action in ("retrieve", "projects", "integrations_summary"):
+        if self.action in ("retrieve", "projects", "integrations_summary", "task_search"):
+            # ``task_search`` backs the cross-project dependency picker (ADR-0120
+            # D5): a create-assist read, gated exactly like ``projects`` — any
+            # program member. ``IsProgramNotClosed`` is a no-op for the GET (it
+            # only blocks writes) but is kept for parity with this read group; a
+            # closed program is still browsable. The real authorization is the
+            # per-project readability narrowing inside the action body (only
+            # projects the caller can read are searched), which enforces the D5
+            # "creator needs read access to both tasks" rule — the edge itself is
+            # created later via the per-project ``/dependencies/`` POST, not here.
             return [IsAuthenticated(), IsProgramMember(), IsProgramNotClosed()]
         return [IsAuthenticated()]
 
@@ -1069,6 +1078,134 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
                 ),
             )
         )
+
+    @extend_schema(
+        summary="Search tasks across a program's projects (cross-project dep picker)",
+        parameters=[
+            OpenApiParameter(
+                "q",
+                OpenApiTypes.STR,
+                description="Case-insensitive substring matched against task name or notes.",
+                required=True,
+            ),
+            OpenApiParameter(
+                "exclude_project",
+                OpenApiTypes.UUID,
+                description=(
+                    "Project to omit from results — the picker's own project, whose "
+                    "tasks the client already has locally."
+                ),
+                required=False,
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                description=(
+                    "Slim rows `[{id, name, short_id, project_id, project_name}]` "
+                    "for tasks in member projects the caller can read."
+                )
+            )
+        },
+    )
+    @action(detail=True, methods=["get"], url_path="task-search")
+    def task_search(self, request: Request, pk: str | None = None) -> Response:
+        """Search tasks across a program's projects, to pick a cross-project edge.
+
+        URL: ``GET /api/v1/programs/{pk}/task-search/?q=<term>&exclude_project=<uuid>``
+
+        Backs the ADR-0120 cross-project dependency picker: the schedule picker is
+        single-project, so a user cannot today reach a sibling project's task to
+        gate against it. This returns a slim, sensitive-field-free list scoped to
+        the program's member projects **the caller can actively read** — the D5
+        "creator needs read access to both tasks" creation rule. A member project
+        the caller cannot read is simply not searched (its tasks are not offered),
+        so no unauthorized task titles leak through the picker.
+
+        Slim shape (``[{id, name, short_id, project_id, project_name}]``) carries no
+        cost/budget/status/assignee fields, so role-based field visibility is moot —
+        project readability is the only gate (same rationale as the per-project
+        ``TaskViewSet.search`` action).
+        """
+        from django.db.models import Case, IntegerField, Value, When
+
+        from trueppm_api.apps.access.models import ProjectMembership
+
+        program = self.get_object()
+
+        # IsAuthenticated already gates this action; the guard also narrows the
+        # type for the membership lookup below.
+        user = request.user
+        if not (user and user.is_authenticated):
+            return Response([], status=status.HTTP_200_OK)
+
+        raw_q = (request.query_params.get("q") or "").strip()
+        if not raw_q:
+            return Response([], status=status.HTTP_200_OK)
+        # DoS guard: a pathological term can't force an unbounded trigram scan.
+        q = raw_q[:100]
+
+        exclude_project = request.query_params.get("exclude_project")
+
+        # Member projects the caller can read, minus the picker's own project.
+        # Readability is the D5 "read access to both tasks" rule; a non-readable
+        # member project is dropped entirely (rather than redacted, as ``schedule``
+        # does) because an unpickable task should not appear at all. A single
+        # membership query resolves the whole program's readable set — the same
+        # ``ProjectMembership`` predicate ``_membership_role`` applies per row, but
+        # here in one pass rather than N per-project lookups.
+        readable_ids = set(
+            ProjectMembership.objects.filter(
+                project__program=program,
+                project__is_deleted=False,
+                user=user,
+                is_deleted=False,
+            ).values_list("project_id", flat=True)
+        )
+        readable: dict[str, str] = {}
+        for row in Project.objects.filter(
+            program=program, is_deleted=False, id__in=readable_ids
+        ).values("id", "name"):
+            pid = str(row["id"])
+            if exclude_project is not None and pid == str(exclude_project):
+                continue
+            readable[pid] = row["name"]
+
+        if not readable:
+            return Response([], status=status.HTTP_200_OK)
+
+        qs = (
+            Task.objects.filter(project_id__in=list(readable.keys()), is_deleted=False)
+            .filter(Q(name__icontains=q) | Q(notes__icontains=q))
+            # Title matches rank above description-only matches; project then name
+            # are the stable tiebreaks so grouped results stay deterministic.
+            .annotate(
+                _name_match=Case(
+                    When(name__icontains=q, then=Value(0)),
+                    default=Value(1),
+                    output_field=IntegerField(),
+                )
+            )
+            .order_by("_name_match", "project_id", "name")
+        )
+        # `.values()` after an `.annotate()` is typed by django-stubs as the
+        # annotated Task row (carrying `_name_match`), not a plain dict, so the
+        # index access below trips mypy. The projection genuinely yields dicts;
+        # cast to reflect that.
+        rows = cast(
+            "list[dict[str, Any]]",
+            list(qs.values("id", "name", "short_id", "project_id")[:200]),
+        )
+        results = [
+            {
+                "id": str(row["id"]),
+                "name": row["name"],
+                "short_id": row["short_id"],
+                "project_id": str(row["project_id"]),
+                "project_name": readable[str(row["project_id"])],
+            }
+            for row in rows
+        ]
+        return Response(results, status=status.HTTP_200_OK)
 
     @extend_schema(
         summary="Read or update the program risk & dependencies policy",

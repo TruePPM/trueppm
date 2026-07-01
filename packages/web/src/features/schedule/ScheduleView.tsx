@@ -1679,6 +1679,7 @@ export function ScheduleView() {
           task={depPickerState.task}
           mode={depPickerState.mode}
           projectId={projectId}
+          programId={projectDetail?.program ?? null}
           allTasks={allTasks}
           excludedIds={depPickerExcludedIds}
           onClose={() => setDepPickerState(null)}

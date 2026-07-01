@@ -679,7 +679,19 @@ interface ApiDependencyResponse {
   successor: string;
   dep_type: DependencyType;
   lag: number;
+  /**
+   * ADR-0120 D2 consent gate. `true` when a same-program cross-project edge was
+   * created inert, awaiting the counterpart team's acceptance (creator held
+   * Scheduler+ on only one side). `false`/absent for same-project edges and for
+   * cross-project edges the creator could accept on both sides. The cross-project
+   * picker branches its confirmation toast on this.
+   */
+  pending_acceptance?: boolean;
 }
+
+/** {@link useAddDependency} exposes the raw create response so callers can read
+ *  `pending_acceptance` (the consent-gate outcome) in their `onSuccess`. */
+export type AddDependencyResult = ApiDependencyResponse;
 
 /**
  * POST /api/v1/dependencies/ — add a predecessor/successor edge.

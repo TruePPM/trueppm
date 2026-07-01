@@ -4653,6 +4653,62 @@
                 }
             }
         },
+        "/api/v1/programs/{id}/task-search/": {
+            "get": {
+                "operationId": "v1_programs_task_search_retrieve",
+                "description": "Search tasks across a program's projects, to pick a cross-project edge.\n\nURL: ``GET /api/v1/programs/{pk}/task-search/?q=<term>&exclude_project=<uuid>``\n\nBacks the ADR-0120 cross-project dependency picker: the schedule picker is\nsingle-project, so a user cannot today reach a sibling project's task to\ngate against it. This returns a slim, sensitive-field-free list scoped to\nthe program's member projects **the caller can actively read** — the D5\n\"creator needs read access to both tasks\" creation rule. A member project\nthe caller cannot read is simply not searched (its tasks are not offered),\nso no unauthorized task titles leak through the picker.\n\nSlim shape (``[{id, name, short_id, project_id, project_name}]``) carries no\ncost/budget/status/assignee fields, so role-based field visibility is moot —\nproject readability is the only gate (same rationale as the per-project\n``TaskViewSet.search`` action).",
+                "summary": "Search tasks across a program's projects (cross-project dep picker)",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "exclude_project",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "Project to omit from results — the picker's own project, whose tasks the client already has locally."
+                    },
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this program.",
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "q",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Case-insensitive substring matched against task name or notes.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Slim rows `[{id, name, short_id, project_id, project_name}]` for tasks in member projects the caller can read."
+                    }
+                }
+            }
+        },
         "/api/v1/programs/{id}/transfer-sponsorship/": {
             "post": {
                 "operationId": "v1_programs_transfer_sponsorship_create",

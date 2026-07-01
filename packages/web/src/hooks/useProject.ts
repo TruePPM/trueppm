@@ -36,6 +36,12 @@ export interface ApiProjectDetail {
    */
   start_floor?: string;
   calendar: string | null;
+  /**
+   * Program UUID this project belongs to (ADR-0070), or null for a standalone
+   * project. Drives the cross-project dependency picker (ADR-0120): the schedule
+   * picker only offers sibling-project tasks when this is non-null.
+   */
+  program: string | null;
   estimation_mode: string;
   agile_features: boolean;
   /**

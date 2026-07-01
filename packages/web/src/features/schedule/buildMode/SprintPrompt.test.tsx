@@ -19,6 +19,7 @@ function agileProjectClient(): QueryClient {
     description: '',
     start_date: '2026-01-01',
     calendar: null,
+    program: null,
     board_cadence: 'sprint',
     estimation_mode: 'open',
     agile_features: true,
