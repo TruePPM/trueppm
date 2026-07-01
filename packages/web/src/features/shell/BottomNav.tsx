@@ -7,6 +7,7 @@ import {
   ResourcesIcon,
   SprintIcon,
   TodayIcon,
+  SettingsIcon,
 } from '@/components/Icons';
 import { OverviewIcon } from '@/components/Icons';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
@@ -31,6 +32,9 @@ interface NavItem {
 // only (issue 1324). Today is visible for every methodology (methodologyTabs.ts).
 // Risks omitted at mobile breakpoint — infrequent access; reachable via desktop tabs.
 // Grid replaces the previous Table entry (issue #334, ADR-0053).
+// Settings trails the row (gear, last) so mobile users reach project notification
+// and access settings without the desktop tabs (issue 539). It routes to the
+// project settings landing (rule 125) rather than a view under /projects/:id/.
 const NAV_ITEMS: NavItem[] = [
   { view: 'overview', label: 'Overview', Icon: OverviewIcon },
   { view: 'today', label: 'Today', Icon: TodayIcon },
@@ -40,6 +44,7 @@ const NAV_ITEMS: NavItem[] = [
   { view: 'grid', label: 'Grid', Icon: ListIcon },
   { view: 'calendar', label: 'Calendar', Icon: CalendarIcon },
   { view: 'resources', label: 'Team', Icon: ResourcesIcon },
+  { view: 'settings', label: 'Settings', Icon: SettingsIcon },
 ];
 
 export function BottomNav() {
@@ -60,10 +65,14 @@ export function BottomNav() {
   // Sprints tab adopts the project's configured container label (ADR-0111, #862).
   const sprintsLabel = iterationLabelForms(project.data?.iteration_label).plural;
 
+  // Settings is always visible (project config is not methodology- or role-gated;
+  // individual sections gate their own writes). Every other tab follows the
+  // methodology preset, and Team additionally requires Scheduler+ (issue 539).
   const visibleItems = NAV_ITEMS.filter(
     (t) =>
-      isTabVisibleForMethodology(t.view, methodology) &&
-      (t.view !== 'resources' || (role !== null && role >= ROLE_SCHEDULER)),
+      t.view === 'settings' ||
+      (isTabVisibleForMethodology(t.view, methodology) &&
+        (t.view !== 'resources' || (role !== null && role >= ROLE_SCHEDULER))),
   );
 
   if (!projectId) return null;
@@ -74,11 +83,21 @@ export function BottomNav() {
       className="md:hidden flex items-stretch h-14 border-t border-chrome-border bg-chrome-surface"
     >
       {visibleItems.map(({ view, label, Icon }) => {
-        const isActive = currentView === view;
+        // Settings targets the consolidated settings page base (the shell scroll-
+        // spies to the first section on entry). Pointing at the base rather than
+        // …/settings/general keeps NavLink's own active match aligned with the
+        // settled URL, so aria-current resolves to "page" across every section.
+        const isSettings = view === 'settings';
+        const to = isSettings
+          ? `/projects/${projectId}/settings`
+          : `/projects/${projectId}/${view}`;
+        const isActive = isSettings
+          ? location.pathname.includes(`/projects/${projectId}/settings`)
+          : currentView === view;
         return (
           <NavLink
             key={view}
-            to={`/projects/${projectId}/${view}`}
+            to={to}
             replace
             className={[
               'flex flex-1 flex-col items-center justify-center gap-1 text-xs min-h-[44px]',

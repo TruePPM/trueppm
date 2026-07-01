@@ -356,4 +356,22 @@ test.describe('Wave 1 — BottomNav path-based routing (issue #250)', () => {
     await expect(todayLink).toBeVisible();
     await expect(todayLink).toHaveAttribute('href', `/projects/${FIXTURE_PROJECT_ID}/today`);
   });
+
+  test('BottomNav exposes project Settings on mobile and stays active on the settings page (issue #539)', async ({
+    page,
+  }) => {
+    // Mobile users need a path to project notification / access settings without
+    // the desktop tabs. The gear trails the row, lands on the settings page, and
+    // remains active across every settings section.
+    const nav = page.getByRole('navigation', { name: 'View' });
+    const settingsLink = nav.getByRole('link', { name: 'Settings' });
+    await expect(settingsLink).toBeVisible();
+    await expect(settingsLink).toHaveAttribute('href', `/projects/${FIXTURE_PROJECT_ID}/settings`);
+    await settingsLink.click();
+    await expect(page).toHaveURL(new RegExp(`/projects/${FIXTURE_PROJECT_ID}/settings`));
+    await expect(nav.getByRole('link', { name: 'Settings' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+  });
 });

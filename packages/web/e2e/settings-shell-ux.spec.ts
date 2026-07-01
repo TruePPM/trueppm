@@ -226,3 +226,36 @@ test.describe('Settings shell — saved-time footer (#596)', () => {
     await expect(footer.getByText('just now')).toBeVisible();
   });
 });
+
+test.describe('Settings shell — mobile responsive collapse (#539)', () => {
+  test.use({ viewport: { width: 375, height: 812 } });
+
+  test('below md: the 240px rail collapses to a "Jump to section" select', async ({ page }) => {
+    await setup(page);
+    await page.goto(`/projects/${PROJECT_ID}/settings/general`);
+
+    // The desktop rail (a nav labelled "Settings navigation") is not rendered on a
+    // phone; the section picker takes its place. Both the scope switcher and the
+    // copy-link affordance survive the collapse.
+    await expect(page.getByRole('navigation', { name: 'Settings navigation' })).toHaveCount(0);
+    const jump = page.getByLabel('Jump to section');
+    await expect(jump).toBeVisible();
+    // exact: avoid colliding with the "Inherit from workspace" methodology button.
+    await expect(page.getByRole('button', { name: 'Workspace', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Copy link to settings' })).toBeVisible();
+  });
+
+  test('the settings page does not overflow horizontally at 375px', async ({ page }) => {
+    await setup(page);
+    await page.goto(`/projects/${PROJECT_ID}/settings/general`);
+    await expect(page.getByLabel('Jump to section')).toBeVisible();
+
+    // The fixed 240px label column + 240px rail were the overflow culprits; the
+    // rail is gone and FieldRow stacks below md:, so the document must not scroll
+    // sideways on a phone viewport (44px touch targets stay reachable).
+    const overflows = await page.evaluate(
+      () => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+    );
+    expect(overflows).toBe(false);
+  });
+});
