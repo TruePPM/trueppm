@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import ExitStack
 from datetime import date
 from unittest.mock import AsyncMock, patch
 
@@ -241,6 +242,238 @@ async def test_connect_member_accepted(user: object, project: Project) -> None:
     close_mock.assert_not_called()
     # Must have joined the project group.
     channel_layer.group_add.assert_called_once_with(f"project_{project.pk}", "test.channel")
+
+
+# ---------------------------------------------------------------------------
+# Connect-gate RBAC with the REAL membership query (#1507)
+#
+# The connect tests above patch _get_role to a fixed ordinal, so the production
+# query in ProjectConsumer._get_role
+# (ProjectMembership.objects.get(project_id=pk, user=u, is_deleted=False)) had
+# zero unmocked coverage. These tests create real ProjectMembership rows and
+# patch ONLY authenticate_scope, leaving _get_role to hit the DB — so dropping
+# the is_deleted=False filter or mis-scoping the project (a WS-surface IDOR)
+# fails CI. Mirrors the REST analogue in test_rbac.py:369-376.
+# ---------------------------------------------------------------------------
+
+
+def _stack(patches: list) -> ExitStack:
+    """Enter a list of patch context managers under a single ExitStack."""
+    stack = ExitStack()
+    for p in patches:
+        stack.enter_context(p)
+    return stack
+
+
+def _connect_ctx(user: object) -> list:
+    """Patches for a connect that reaches super().websocket_connect without a
+    live ASGI/Redis stack, while leaving ProjectConsumer._get_role real."""
+    mock_redis = AsyncMock()
+    mock_redis.hset = AsyncMock()
+    mock_redis.expire = AsyncMock()
+    return [
+        patch(
+            "trueppm_api.apps.sync.consumers.authenticate_scope",
+            new=AsyncMock(return_value=WsAuthResult(user=user, via="ticket")),
+        ),
+        patch(
+            "channels.generic.websocket.AsyncJsonWebsocketConsumer.websocket_connect",
+            new=AsyncMock(),
+        ),
+        patch(
+            "trueppm_api.apps.sync.consumers.ProjectConsumer._get_redis",
+            new=AsyncMock(return_value=mock_redis),
+        ),
+        patch("trueppm_api.apps.sync.broadcast.abroadcast_board_event", new=AsyncMock()),
+    ]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_connect_member_accepted_real_role_query(user: object, project: Project) -> None:
+    """A real Member membership row is resolved by the unmocked _get_role and accepted."""
+    await database_sync_to_async(ProjectMembership.objects.create)(
+        project=project, user=user, role=Role.MEMBER
+    )
+
+    from trueppm_api.apps.sync.consumers import ProjectConsumer
+
+    consumer = ProjectConsumer()
+    consumer.scope = _make_scope(str(project.pk), token="valid.token")
+    channel_layer = AsyncMock()
+    consumer.channel_layer = channel_layer
+    consumer.channel_name = "test.channel"
+    close_mock = AsyncMock()
+    consumer.close = close_mock
+
+    with _stack(_connect_ctx(user)):
+        await consumer.websocket_connect({"type": "websocket.connect"})
+
+    close_mock.assert_not_called()
+    channel_layer.group_add.assert_called_once_with(f"project_{project.pk}", "test.channel")
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_connect_viewer_rejected_real_role_query(
+    viewer_user: object, project: Project
+) -> None:
+    """A real Viewer membership (role < MEMBER) is resolved by _get_role and rejected 4003."""
+    await database_sync_to_async(ProjectMembership.objects.create)(
+        project=project, user=viewer_user, role=Role.VIEWER
+    )
+
+    from trueppm_api.apps.sync.consumers import ProjectConsumer
+
+    consumer = ProjectConsumer()
+    consumer.scope = _make_scope(str(project.pk), token="valid.token")
+    consumer.channel_layer = AsyncMock()
+    consumer.channel_name = "test.channel"
+    close_mock = AsyncMock()
+    consumer.close = close_mock
+
+    with _stack(_connect_ctx(viewer_user)):
+        await consumer.websocket_connect({"type": "websocket.connect"})
+
+    close_mock.assert_called_once_with(code=4003)
+    consumer.channel_layer.group_add.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_connect_non_member_rejected_real_role_query(user: object, project: Project) -> None:
+    """A user with no membership row at all is rejected 4003 by the real query (None)."""
+    from trueppm_api.apps.sync.consumers import ProjectConsumer
+
+    consumer = ProjectConsumer()
+    consumer.scope = _make_scope(str(project.pk), token="valid.token")
+    consumer.channel_layer = AsyncMock()
+    consumer.channel_name = "test.channel"
+    close_mock = AsyncMock()
+    consumer.close = close_mock
+
+    with _stack(_connect_ctx(user)):
+        await consumer.websocket_connect({"type": "websocket.connect"})
+
+    close_mock.assert_called_once_with(code=4003)
+    consumer.channel_layer.group_add.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_connect_soft_deleted_member_rejected_real_role_query(
+    user: object, project: Project
+) -> None:
+    """A soft-deleted (evicted) Member membership must NOT connect (#1507 WS IDOR).
+
+    The is_deleted=False filter in _get_role is the only thing standing between a
+    soft-removed member and a live board-event stream. Dropping it makes this
+    test fail rather than passing green CI.
+    """
+    await database_sync_to_async(ProjectMembership.objects.create)(
+        project=project, user=user, role=Role.MEMBER, is_deleted=True
+    )
+
+    from trueppm_api.apps.sync.consumers import ProjectConsumer
+
+    consumer = ProjectConsumer()
+    consumer.scope = _make_scope(str(project.pk), token="valid.token")
+    consumer.channel_layer = AsyncMock()
+    consumer.channel_name = "test.channel"
+    close_mock = AsyncMock()
+    consumer.close = close_mock
+
+    with _stack(_connect_ctx(user)):
+        await consumer.websocket_connect({"type": "websocket.connect"})
+
+    close_mock.assert_called_once_with(code=4003)
+    consumer.channel_layer.group_add.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_connect_membership_other_project_rejected_real_role_query(
+    user: object, project: Project, calendar: Calendar
+) -> None:
+    """A Member of a DIFFERENT project cannot connect to this project (#1507 IDOR).
+
+    The project_id scoping in _get_role must not leak: holding Member on project B
+    grants nothing on project A.
+    """
+    other_project = await database_sync_to_async(Project.objects.create)(
+        name="Other Proj", start_date=date(2026, 1, 1), calendar=calendar
+    )
+    await database_sync_to_async(ProjectMembership.objects.create)(
+        project=other_project, user=user, role=Role.MEMBER
+    )
+
+    from trueppm_api.apps.sync.consumers import ProjectConsumer
+
+    # Connecting to `project`, but membership is on `other_project`.
+    consumer = ProjectConsumer()
+    consumer.scope = _make_scope(str(project.pk), token="valid.token")
+    consumer.channel_layer = AsyncMock()
+    consumer.channel_name = "test.channel"
+    close_mock = AsyncMock()
+    consumer.close = close_mock
+
+    with _stack(_connect_ctx(user)):
+        await consumer.websocket_connect({"type": "websocket.connect"})
+
+    close_mock.assert_called_once_with(code=4003)
+    consumer.channel_layer.group_add.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Direct unit tests of the production _get_role query (#1507)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_get_role_returns_role_for_active_membership(user: object, project: Project) -> None:
+    """_get_role returns the stored ordinal for a live membership."""
+    await database_sync_to_async(ProjectMembership.objects.create)(
+        project=project, user=user, role=Role.MEMBER
+    )
+
+    from trueppm_api.apps.sync.consumers import ProjectConsumer
+
+    role = await ProjectConsumer()._get_role(user, str(project.pk))
+    assert role == Role.MEMBER
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_get_role_ignores_soft_deleted_membership(user: object, project: Project) -> None:
+    """_get_role returns None for a soft-deleted membership (is_deleted=False filter)."""
+    await database_sync_to_async(ProjectMembership.objects.create)(
+        project=project, user=user, role=Role.MEMBER, is_deleted=True
+    )
+
+    from trueppm_api.apps.sync.consumers import ProjectConsumer
+
+    role = await ProjectConsumer()._get_role(user, str(project.pk))
+    assert role is None
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_get_role_scoped_to_project(
+    user: object, project: Project, calendar: Calendar
+) -> None:
+    """_get_role does not leak a membership on another project onto this one."""
+    other_project = await database_sync_to_async(Project.objects.create)(
+        name="Other Proj", start_date=date(2026, 1, 1), calendar=calendar
+    )
+    await database_sync_to_async(ProjectMembership.objects.create)(
+        project=other_project, user=user, role=Role.MEMBER
+    )
+
+    from trueppm_api.apps.sync.consumers import ProjectConsumer
+
+    role = await ProjectConsumer()._get_role(user, str(project.pk))
+    assert role is None
 
 
 @pytest.mark.django_db
