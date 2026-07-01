@@ -85,7 +85,7 @@ class TaskLinkRefreshThrottle(BaseThrottle):
     def allow_request(self, request: Request, view: APIView) -> bool:
         user = getattr(request, "user", None)
         user_id = getattr(user, "pk", None)
-        if user_id is None:  # pragma: no cover — IsProjectMember requires auth
+        if user_id is None:
             return True
 
         bucket_key = f"rate:link_refresh:{user_id}"

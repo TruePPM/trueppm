@@ -1934,9 +1934,11 @@ scheduler:sbom:
   # Generate + validate a CycloneDX SBOM for the PUBLISHED trueppm-scheduler
   # dependency set so PyPI consumers can verify transparent sources (#936).
   #
-  # allow_failure during the 0.3 shake-out: this job bakes the path on MRs/main
-  # without ever blocking, then the blocking copy in scheduler:publish: takes
-  # over before scheduler-v0.3.0b1 is cut.
+  # This job blocks the pipeline on MRs/main: a missing or invalid SBOM is a
+  # supply-chain regression for PyPI consumers, so it must fail the pipeline
+  # (the same validation is enforced independently in scheduler:publish: before
+  # a release is cut). The 0.3 shake-out that ran this non-blocking is over
+  # (v0.3.0-alpha.3 shipped), so allow_failure has been removed.
   #
   # cyclonedx-bom is pinned + resident in the ci-scheduler image
   # (.gitlab/ci-images/scheduler.Dockerfile), but the image is published under
@@ -1960,7 +1962,6 @@ scheduler:sbom:
   extends: .scheduler
   stage: security
   <<: *rules-scheduler
-  allow_failure: true
   cache:
     <<: *scheduler-cache
     policy: pull

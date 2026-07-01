@@ -25,6 +25,11 @@ const BLOCKED_ROWS = [
     blocked_age_seconds: 6 * 86400,
     blocked_by: { id: 'u2', username: 'alex' },
     blocking_task: { id: 't9', short_id: 'T-9', title: 'Permit approval' },
+    // Private impediment note (ADR-0124): present in the mock payload so the
+    // "never rendered" assertion below can actually fail if the panel ever
+    // leaks it. The distinctive "permit office" phrase appears nowhere else in
+    // the fixture, so the toHaveCount(0) check is load-bearing.
+    reason: 'Waiting on the permit office to countersign the variance',
   },
 ];
 
@@ -57,7 +62,10 @@ test.describe('Blocked roll-up panel (ADR-0124)', () => {
     await expect(panel.getByText('priya')).toBeVisible();
     // Soft "waiting on" link (issue 1156) — framed as informational, not a CPM edge.
     await expect(panel.getByText('waiting on T-9')).toBeVisible();
-    // The private reason text is never in the roll-up payload or DOM.
+    // The private reason IS in the mock payload (see BLOCKED_ROWS.reason) but
+    // must never reach the DOM — the roll-up is a privacy-preserving triage
+    // list. If the panel ever renders the reason field, "permit office" would
+    // appear and this assertion fails.
     await expect(panel.getByText(/permit office/i)).toHaveCount(0);
   });
 

@@ -58,8 +58,12 @@ const FIXTURE_TASK = {
 
 type Page = import('@playwright/test').Page;
 
-async function setup(page: Page, opts: { failedTasks?: unknown[] } = {}) {
+async function setup(
+  page: Page,
+  opts: { failedTasks?: unknown[]; healthStatus?: number } = {},
+) {
   const failedTasks = opts.failedTasks ?? [FIXTURE_TASK];
+  const healthStatus = opts.healthStatus ?? 200;
   const pj = (data: unknown) => JSON.stringify(data);
 
   await page.addInitScript(() => {
@@ -92,7 +96,13 @@ async function setup(page: Page, opts: { failedTasks?: unknown[] } = {}) {
     );
   }
   await page.route('**/api/v1/health/system/', (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_HEALTH) }),
+    healthStatus === 200
+      ? r.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_HEALTH) })
+      : r.fulfill({
+          status: healthStatus,
+          contentType: 'application/json',
+          body: pj({ detail: 'Internal server error.' }),
+        }),
   );
   // List + detail share a prefix; branch on the path so the detail id wins.
   await page.route('**/api/v1/admin/failed-tasks/**', (route) => {
@@ -115,17 +125,12 @@ test.describe('Workspace Settings → System health', () => {
 
     await expect(page.getByRole('heading', { name: 'System health' })).toBeVisible();
 
-    // All five component cards render.
-    for (const label of [
-      'Outbox dispatcher',
-      'Celery Beat',
-      'Dead-letter alerting',
-      'Notification dispatcher',
-      'Retention purge',
-    ]) {
-      await expect(page.getByText(label, { exact: true })).toBeVisible();
-    }
-    // Retention purge degrades to "No telemetry" (unknown), not an error.
+    // One representative component card renders from the payload (the full
+    // list-render is a map over the same array — asserting every label was
+    // fixture-echo, not client logic).
+    await expect(page.getByText('Outbox dispatcher', { exact: true })).toBeVisible();
+    // Retention purge degrades to "No telemetry" (unknown), not an error — this
+    // is a real client mapping (status 'unknown' → the hollow-dot state_label).
     await expect(page.getByText('No telemetry')).toBeVisible();
 
     // Beat heartbeat panel + scheduled-task reference table.
@@ -136,6 +141,20 @@ test.describe('Workspace Settings → System health', () => {
     await expect(page.getByRole('link', { name: /Open inspector/i })).toBeVisible();
     // Retention config row.
     await expect(page.getByText('Webhook deliveries')).toBeVisible();
+  });
+
+  test('overview shows an error state with Retry when the health API 500s', async ({ page }) => {
+    await setup(page, { healthStatus: 500 });
+    await page.goto('/settings/health');
+
+    // The hook is retry:false, so a 500 surfaces the error UI immediately
+    // (not the fixture, not a stuck skeleton).
+    await expect(
+      page.getByText("Couldn't load system health — the API may be unreachable."),
+    ).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible();
+    // No component data leaks through in the error state.
+    await expect(page.getByText('Outbox dispatcher', { exact: true })).toHaveCount(0);
   });
 
   test('dead-letter inspector lists tasks and opens detail on selection', async ({ page }) => {
