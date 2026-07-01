@@ -81,16 +81,35 @@ describe('groupedVisibleViews (ADR-0128)', () => {
     expect(new Set(grouped).size).toBe(grouped.length);
   });
 
-  it('HYBRID keeps every group fully populated', () => {
+  it('HYBRID surfaces PLAN / SPRINT / TRACK / PEOPLE (ADR-0195 methodology-adaptive layout)', () => {
     const groups = groupedVisibleViews('HYBRID');
+    expect(groups.map((g) => g.id)).toEqual(['PLAN', 'SPRINT', 'TRACK', 'PEOPLE']);
+    const byId = (id: string) => groups.find((g) => g.id === id)?.visibleViews;
+    expect(byId('PLAN')).toEqual(['schedule', 'grid', 'calendar']);
+    expect(byId('SPRINT')).toEqual(['product-backlog', 'sprints', 'board']);
+    expect(byId('TRACK')).toEqual(['today', 'risk', 'reports']);
+    expect(byId('PEOPLE')).toEqual(['resources']);
+  });
+
+  // The core issue-1466 guarantee: on sprint-running methodologies the daily circuit
+  // (Backlog → Sprints → Board) is one contiguous, named group.
+  it.each(['AGILE', 'HYBRID'] as const)(
+    '%s co-locates Backlog, Sprints and Board in a dedicated SPRINT group',
+    (m) => {
+      const sprint = groupedVisibleViews(m).find((g) => g.id === 'SPRINT');
+      expect(sprint?.visibleViews).toEqual(['product-backlog', 'sprints', 'board']);
+      // Board and Sprints are adjacent (acceptance criterion).
+      const idx = sprint!.visibleViews;
+      expect(idx.indexOf('board') - idx.indexOf('sprints')).toBe(1);
+    },
+  );
+
+  it('WATERFALL has no SPRINT group and keeps Board in TRACK (zero regression from ADR-0128)', () => {
+    const groups = groupedVisibleViews('WATERFALL');
     expect(groups.map((g) => g.id)).toEqual(['PLAN', 'TRACK', 'PEOPLE']);
-    expect(groups[0].visibleViews).toEqual([
-      'product-backlog',
-      'sprints',
-      'schedule',
-      'grid',
-      'calendar',
-    ]);
+    expect(groups.find((g) => g.id === 'SPRINT')).toBeUndefined();
+    const track = groups.find((g) => g.id === 'TRACK');
+    expect(track?.visibleViews).toEqual(['today', 'board', 'risk', 'reports']);
   });
 
   it('today (ADR-0180) leads the TRACK group and is visible for every methodology', () => {
@@ -102,12 +121,12 @@ describe('groupedVisibleViews (ADR-0128)', () => {
     expect(HIDEABLE_VIEW_KEYS.has('today')).toBe(true);
   });
 
-  it('AGILE drops Schedule + Calendar from PLAN (ADR-0041 filter composes within the group)', () => {
+  it('AGILE drops Schedule + Calendar so PLAN degenerates to Grid (ADR-0041 filter within group)', () => {
     const plan = groupedVisibleViews('AGILE').find((g) => g.id === 'PLAN');
-    expect(plan?.visibleViews).toEqual(['product-backlog', 'sprints', 'grid']);
+    expect(plan?.visibleViews).toEqual(['grid']);
   });
 
-  it('WATERFALL drops Backlog + Sprints from PLAN', () => {
+  it('WATERFALL keeps the full PLAN (Schedule · Grid · Calendar)', () => {
     const plan = groupedVisibleViews('WATERFALL').find((g) => g.id === 'PLAN');
     expect(plan?.visibleViews).toEqual(['schedule', 'grid', 'calendar']);
   });
@@ -141,13 +160,22 @@ describe('groupedVisibleViewsForUser (ADR-0139)', () => {
   it('removes a personally-hidden view from its group', () => {
     const groups = groupedVisibleViewsForUser('HYBRID', new Set(['schedule', 'calendar']));
     const plan = groups.find((g) => g.id === 'PLAN');
-    expect(plan?.visibleViews).toEqual(['product-backlog', 'sprints', 'grid']);
+    expect(plan?.visibleViews).toEqual(['grid']);
   });
 
   it('drops a group whose only views the user hid', () => {
     // PEOPLE has just `resources`; hiding it removes the whole group.
     const groups = groupedVisibleViewsForUser('HYBRID', new Set(['resources']));
-    expect(groups.map((g) => g.id)).toEqual(['PLAN', 'TRACK']);
+    expect(groups.map((g) => g.id)).toEqual(['PLAN', 'SPRINT', 'TRACK']);
+  });
+
+  it('hiding the whole SPRINT circuit drops the SPRINT group (ADR-0195)', () => {
+    const groups = groupedVisibleViewsForUser(
+      'HYBRID',
+      new Set(['product-backlog', 'sprints', 'board']),
+    );
+    expect(groups.map((g) => g.id)).toEqual(['PLAN', 'TRACK', 'PEOPLE']);
+    expect(groups.find((g) => g.id === 'SPRINT')).toBeUndefined();
   });
 
   it('composes on top of the methodology filter — hiding an already-methodology-hidden view is a no-op', () => {

@@ -167,21 +167,38 @@ describe('ViewTabs', () => {
     expect(scheduleLink).toHaveAttribute('href', '/projects/proj-abc/schedule');
   });
 
-  // ADR-0128 — grouped PLAN / TRACK / PEOPLE structure
-  it('renders PLAN / TRACK / PEOPLE groups with accessible names', () => {
+  // ADR-0128 §A / ADR-0195 — grouped PLAN / SPRINT / TRACK / PEOPLE structure (HYBRID)
+  it('renders PLAN / SPRINT / TRACK / PEOPLE groups with accessible names', () => {
     mockUseProjectId.mockReturnValue('proj-1');
     renderWithRouter(<ViewTabs />, { initialEntries: ['/projects/proj-1/board'] });
     expect(screen.getByRole('group', { name: 'Plan views' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Sprint views' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: 'Track views' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: 'People views' })).toBeInTheDocument();
   });
 
-  it('Board is in TRACK and Backlog is in PLAN', () => {
+  it('co-locates Backlog · Sprints · Board in the SPRINT group on HYBRID (ADR-0195, issue 1466)', () => {
     mockUseProjectId.mockReturnValue('proj-1');
     renderWithRouter(<ViewTabs />, { initialEntries: ['/projects/proj-1/board'] });
-    const plan = screen.getByRole('group', { name: 'Plan views' });
+    const sprint = screen.getByRole('group', { name: 'Sprint views' });
+    expect(within(sprint).getByRole('link', { name: /Backlog/i })).toBeInTheDocument();
+    expect(within(sprint).getByRole('link', { name: /Sprints/i })).toBeInTheDocument();
+    expect(within(sprint).getByRole('link', { name: 'Board' })).toBeInTheDocument();
+    // Board is no longer stranded in TRACK.
     const track = screen.getByRole('group', { name: 'Track views' });
-    expect(within(plan).getByRole('link', { name: /Backlog/i })).toBeInTheDocument();
+    expect(within(track).queryByRole('link', { name: 'Board' })).not.toBeInTheDocument();
+  });
+
+  it('WATERFALL keeps Board in TRACK and shows no SPRINT group (zero regression, ADR-0195)', () => {
+    mockUseProjectId.mockReturnValue('proj-1');
+    mockUseProject.mockReturnValueOnce({
+      data: { id: 'proj-1', methodology: 'WATERFALL', effective_methodology: 'WATERFALL' },
+      isLoading: false,
+      error: null,
+    });
+    renderWithRouter(<ViewTabs />, { initialEntries: ['/projects/proj-1/board'] });
+    expect(screen.queryByRole('group', { name: 'Sprint views' })).not.toBeInTheDocument();
+    const track = screen.getByRole('group', { name: 'Track views' });
     expect(within(track).getByRole('link', { name: 'Board' })).toBeInTheDocument();
   });
 

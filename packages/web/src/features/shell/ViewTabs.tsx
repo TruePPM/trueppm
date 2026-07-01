@@ -64,9 +64,11 @@ function Tab({ projectId, view, label, Icon, currentView }: TabProps) {
 }
 
 /**
- * v2 grouped project view bar (ADR-0128 §A). Replaces the flat 11-tab strip
- * with PLAN / TRACK / PEOPLE groups (Overview leads standalone, Settings trails
- * standalone), method-filtered via the ADR-0041 matrix. Route segments are
+ * v2 grouped project view bar (ADR-0128 §A, amended by ADR-0195). Replaces the flat
+ * 11-tab strip with methodology-adaptive PLAN / SPRINT / TRACK / PEOPLE groups (Overview
+ * leads standalone, Settings trails standalone), method-filtered via the ADR-0041 matrix.
+ * The SPRINT group co-locates the sprint circuit (Backlog · Sprints · Board) on
+ * AGILE/HYBRID; WATERFALL has no SPRINT group and keeps Board in TRACK. Route segments are
  * unchanged (rule 108): links are still `/projects/:id/:view`.
  *
  * Project-scoped: returns null off a project route (the `useProjectId()` null path,

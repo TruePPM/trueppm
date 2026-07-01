@@ -92,13 +92,14 @@ describe('TopBar (unified shell bar, ADR-0134)', () => {
     expect(links[0]).toHaveTextContent('Overview');
   });
 
-  it('groups views into PLAN / TRACK / PEOPLE (ADR-0128)', () => {
+  it('groups views into PLAN / SPRINT / TRACK / PEOPLE with Board co-located in SPRINT (ADR-0128 §A / ADR-0195)', () => {
     renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
     expect(screen.getByRole('group', { name: /plan views/i })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: /sprint views/i })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: /track views/i })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: /people views/i })).toBeInTheDocument();
-    const track = screen.getByRole('group', { name: /track views/i });
-    expect(within(track).getByRole('link', { name: 'Board' })).toBeInTheDocument();
+    const sprint = screen.getByRole('group', { name: /sprint views/i });
+    expect(within(sprint).getByRole('link', { name: 'Board' })).toBeInTheDocument();
   });
 
   it('renders the methodology workspace tag and health cluster', () => {
