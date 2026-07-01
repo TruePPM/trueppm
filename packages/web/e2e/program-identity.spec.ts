@@ -117,3 +117,18 @@ test('the v2 rail program row shows the accent identity square; the name is the 
   const square = row.locator('span[aria-hidden="true"]').first();
   await expect(square).toHaveCSS('background-color', ACCENT);
 });
+
+test('an unset-color program row labels its identity tile with name initials (issue 1051)', async ({
+  page,
+}) => {
+  await page.goto('/me/work');
+  const sb = sidebar(page);
+  // Mobile Platform has no accent — its tile is the faint neutral square. Without
+  // the initials, every uncolored program in this dense scope-picker list would
+  // look identical; the xs-label variant labels it "MP" so it stays distinguishable.
+  const nameBtn = sb.getByRole('button', { name: 'Mobile Platform', exact: true });
+  await expect(nameBtn).toBeVisible();
+  const row = nameBtn.locator('xpath=..');
+  const square = row.locator('span[aria-hidden="true"]').first();
+  await expect(square).toHaveText('MP');
+});
