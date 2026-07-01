@@ -81,10 +81,10 @@ If you use [direnv](https://direnv.net/), `cd` into the worktree and run
 
 ## The WIP cap
 
-The helper warns at **4 active worktrees** and refuses at **5**. The cap is
-deliberate — beyond ~5 concurrent issues, you'll forget which one has the
+The helper warns at **8 active worktrees** and refuses at **10**. The cap is
+deliberate — beyond ~10 concurrent issues, you'll forget which one has the
 auth fix, MRs sit unreviewed, and the gains from parallelism evaporate. If you
-truly need more, override with `TRUEPPM_WT_CAP=10 scripts/wt new …`, but ask
+truly need more, override with `TRUEPPM_WT_CAP=15 scripts/wt new …`, but ask
 yourself first whether finishing what you started would be cheaper.
 
 ## Verifying health
