@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from '@/components/Toast/toast';
+import { Button } from '@/components/Button';
 import { CriticalDotIcon } from '@/components/Icons';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
 import { ROLE_SCHEDULER } from '@/lib/roles';
 import type { LinkType } from '@/types';
@@ -21,7 +23,7 @@ import {
  * the successor project's own schedule — their work surface — as a neutral
  * banner that opens a slide-over review panel. Each row shows the upstream
  * (blocking) task as the minimal D5 ExternalTaskCard (never team-private data)
- * and the reviewer's own affected task, with per-row Accept / Reject.
+ * and the reviewer's own affected task, with per-row Accept / Decline.
  *
  * Renders nothing when there is no project or nothing pending — so ScheduleView
  * wires it in with a single always-safe line. The server is the real gate
@@ -59,15 +61,14 @@ export function PendingCrossProjectReview({ projectId, currentRole }: Props) {
           cross-project {items.length === 1 ? 'link' : 'links'} from another team{' '}
           {items.length === 1 ? 'is' : 'are'} awaiting your review.
         </p>
-        <button
-          type="button"
+        <Button
+          variant="secondary"
+          size="sm"
+          className="ml-auto shrink-0"
           onClick={() => setOpen(true)}
-          className="ml-auto shrink-0 h-7 px-3 rounded-control text-xs font-medium
-            border border-brand-primary/40 text-brand-primary hover:bg-brand-primary/10
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         >
           Review
-        </button>
+        </Button>
       </div>
       {open && (
         <ReviewPanel projectId={projectId} currentRole={currentRole} onClose={() => setOpen(false)} />
@@ -87,17 +88,30 @@ function ReviewPanel({
 }) {
   const { items } = usePendingIncomingDeps(projectId);
   const resolve = useResolvePendingDependency(projectId);
-  const closeBtnRef = useRef<HTMLButtonElement>(null);
+  // Trap Tab within the slide-over, focus the first control on open, and restore
+  // focus to the trigger on close (WCAG 2.4.3, web-rule 136). Esc → onClose.
+  const dialogRef = useFocusTrap<HTMLDivElement>(true, onClose);
 
-  // Esc closes; focus the close button on open (slide-over focus convention).
+  // Track connectivity live so the controls re-gate the moment the network drops
+  // or returns while the panel is open (web-rule 29), not only on the next render.
+  const [offline, setOffline] = useState(
+    () => typeof navigator !== 'undefined' && !navigator.onLine,
+  );
   useEffect(() => {
-    closeBtnRef.current?.focus();
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose();
-    }
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+    const update = () => setOffline(!navigator.onLine);
+    window.addEventListener('online', update);
+    window.addEventListener('offline', update);
+    return () => {
+      window.removeEventListener('online', update);
+      window.removeEventListener('offline', update);
+    };
+  }, []);
+
+  // Which row (and direction) is mid-flight, so only that row shows progress —
+  // accepting one link must not grey out every other row.
+  const [resolving, setResolving] = useState<{ id: string; action: 'accept' | 'reject' } | null>(
+    null,
+  );
 
   // Close once the last pending item clears (all reviewed).
   useEffect(() => {
@@ -108,16 +122,14 @@ function ReviewPanel({
   // here so a control that would 403 never reads as actionable. `null` (role
   // still loading) stays disabled — a false affordance is worse than a delay.
   const canResolve = currentRole !== null && currentRole >= ROLE_SCHEDULER;
-  const offline = typeof navigator !== 'undefined' && !navigator.onLine;
-  const busy = resolve.isPending;
-  const controlsDisabled = !canResolve || offline || busy;
   const disabledReason = !canResolve
-    ? 'Only a Resource Manager or higher on this project can accept or reject cross-project links.'
+    ? 'Only a Resource Manager or higher on this project can accept or decline cross-project links.'
     : offline
-      ? "You're offline — accept and reject are unavailable until you reconnect."
+      ? "You're offline — accept and decline are unavailable until you reconnect."
       : undefined;
 
   function handleResolve(item: PendingIncomingDep, action: 'accept' | 'reject') {
+    setResolving({ id: item.id, action });
     resolve.mutate(
       { id: item.id, action },
       {
@@ -132,18 +144,29 @@ function ReviewPanel({
               : "Couldn't decline the link. Try again.",
           );
         },
+        onSettled: () => setResolving(null),
       },
     );
   }
 
   return (
-    <div className="fixed inset-0 z-40 flex justify-end bg-neutral-text-primary/40">
+    <div className="fixed inset-0 z-50 flex justify-end">
+      {/* Backdrop: click-outside dismisses (Esc is the keyboard path). Separate
+          aria-hidden element so the interaction never lands on the dialog itself
+          — the lint-safe pattern shared with ScheduleTaskDialog. */}
       <div
+        className="absolute inset-0 bg-neutral-text-primary/40"
+        aria-hidden="true"
+        onClick={onClose}
+      />
+      <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="xproj-review-title"
-        className="w-full max-w-full sm:w-[420px] h-full bg-neutral-surface border-l border-neutral-border
-          flex flex-col"
+        tabIndex={-1}
+        className="relative w-full max-w-full sm:w-[420px] h-full bg-neutral-surface border-l border-neutral-border
+          flex flex-col focus-visible:outline-none"
       >
         <header className="flex items-start justify-between gap-2 px-4 py-3 border-b border-neutral-border">
           <div>
@@ -158,11 +181,10 @@ function ReviewPanel({
             </p>
           </div>
           <button
-            ref={closeBtnRef}
             type="button"
             onClick={onClose}
             aria-label="Close cross-project review"
-            className="shrink-0 w-8 h-8 inline-flex items-center justify-center rounded
+            className="shrink-0 w-8 h-8 inline-flex items-center justify-center rounded-control
               text-neutral-text-secondary hover:bg-neutral-surface-raised
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >
@@ -178,53 +200,51 @@ function ReviewPanel({
 
         <div className="flex-1 overflow-y-auto">
           <ul className="divide-y divide-neutral-border/60">
-            {items.map((item) => (
-              <li key={item.id} className="px-4 py-3">
-                <ExternalCardRow card={item.predecessorCard} depType={item.depType} lag={item.lag} />
-                {item.successorCard && (
-                  <p className="mt-1.5 text-xs text-neutral-text-secondary">
-                    Blocks your task{' '}
-                    <span className="font-medium text-neutral-text-primary">
-                      {item.successorCard.title}
-                    </span>
-                    {item.successorCard.hex_id && (
-                      <span className="tppm-mono text-neutral-text-disabled">
-                        {' '}
-                        {item.successorCard.hex_id}
+            {items.map((item) => {
+              const rowBusy = resolving?.id === item.id;
+              const upstream = item.predecessorCard?.title ?? 'upstream task';
+              return (
+                <li key={item.id} className="px-4 py-3">
+                  <ExternalCardRow card={item.predecessorCard} depType={item.depType} lag={item.lag} />
+                  {item.successorCard && (
+                    <p className="mt-1.5 text-xs text-neutral-text-secondary">
+                      Blocks your task{' '}
+                      <span className="font-medium text-neutral-text-primary">
+                        {item.successorCard.title}
                       </span>
-                    )}
-                  </p>
-                )}
-                <div className="mt-2.5 flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleResolve(item, 'accept')}
-                    disabled={controlsDisabled}
-                    title={disabledReason}
-                    aria-label={`Accept cross-project link from ${item.predecessorCard?.title ?? 'upstream task'}`}
-                    className="h-7 px-3 rounded-control text-xs font-medium
-                      border border-brand-primary/40 text-brand-primary hover:bg-brand-primary/10
-                      disabled:opacity-50 disabled:cursor-not-allowed
-                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-                  >
-                    Accept
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleResolve(item, 'reject')}
-                    disabled={controlsDisabled}
-                    title={disabledReason}
-                    aria-label={`Decline cross-project link from ${item.predecessorCard?.title ?? 'upstream task'}`}
-                    className="h-7 px-3 rounded-control text-xs font-medium
-                      text-semantic-critical hover:bg-semantic-critical-bg
-                      disabled:opacity-50 disabled:cursor-not-allowed
-                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1"
-                  >
-                    Decline
-                  </button>
-                </div>
-              </li>
-            ))}
+                      {item.successorCard.hex_id && (
+                        <span className="tppm-mono text-neutral-text-secondary">
+                          {' '}
+                          {item.successorCard.hex_id}
+                        </span>
+                      )}
+                    </p>
+                  )}
+                  <div className="mt-2.5 flex items-center gap-2">
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={() => handleResolve(item, 'accept')}
+                      disabled={!canResolve || offline || rowBusy}
+                      title={disabledReason}
+                      aria-label={`Accept cross-project link from ${upstream}`}
+                    >
+                      {rowBusy && resolving?.action === 'accept' ? 'Accepting…' : 'Accept'}
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => handleResolve(item, 'reject')}
+                      disabled={!canResolve || offline || rowBusy}
+                      title={disabledReason}
+                      aria-label={`Decline cross-project link from ${upstream}`}
+                    >
+                      {rowBusy && resolving?.action === 'reject' ? 'Declining…' : 'Decline'}
+                    </Button>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         </div>
       </div>
@@ -267,13 +287,13 @@ function ExternalCardRow({
         <p className="text-sm font-medium text-neutral-text-primary truncate">
           {card.title}
           {card.hex_id && (
-            <span className="tppm-mono text-neutral-text-disabled"> {card.hex_id}</span>
+            <span className="tppm-mono text-neutral-text-secondary"> {card.hex_id}</span>
           )}
         </p>
         <p className="text-xs text-neutral-text-secondary truncate">in {card.project_name}</p>
         <p className="mt-1 text-xs text-neutral-text-secondary">
           {fmtUtcShort(card.early_start)} → {fmtUtcShort(card.early_finish)}
-          <span className="text-neutral-text-disabled">
+          <span className="text-neutral-text-secondary">
             {' · '}
             {DEP_TYPE_LABEL[depType]}
             {lag !== 0 && ` (${lag > 0 ? '+' : ''}${lag}d)`}
