@@ -166,6 +166,69 @@ test.describe('Program Settings → Access', () => {
     await expect(page.getByRole('heading', { name: /^Add a member$/i })).toBeVisible();
   });
 
+  test('add-member flow POSTs the selected user + role and shows the new row', async ({ page }) => {
+    const captures: Captures = {};
+    await setup(page, captures);
+
+    // Stateful member list + POST handler. Registered AFTER setup so it wins the
+    // exact `.../members/` URL (Playwright LIFO). The bare add-member test only
+    // asserted the panel heading — it never filled, submitted, or registered a
+    // POST handler, so the headline write of the Access page could ship broken
+    // and stay green (issue 1512).
+    const NEW_USER = {
+      id: 'user-mira',
+      username: 'mira.k',
+      display_name: 'Mira Kapoor',
+      initials: 'MK',
+    };
+    const members: Array<Record<string, unknown>> = [OWNER_MEMBERSHIP, MEMBER_MEMBERSHIP];
+    let postBody: { user?: string; role?: number } | null = null;
+
+    await page.route('**/api/v1/users/search/**', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([NEW_USER]) }),
+    );
+    await page.route(`**/api/v1/programs/${PROGRAM_ID}/members/`, async (route) => {
+      if (route.request().method() === 'POST') {
+        postBody = route.request().postDataJSON() as { user?: string; role?: number };
+        members.push({
+          id: 'mem-3',
+          server_version: 1,
+          program: PROGRAM_ID,
+          user: NEW_USER.id,
+          user_detail: { id: NEW_USER.id, username: NEW_USER.username, email: 'mira@example.com' },
+          role: postBody.role ?? 100,
+          role_label: 'Team Member',
+        });
+        await route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify(members[members.length - 1]),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(members),
+      });
+    });
+
+    await page.goto(`/programs/${PROGRAM_ID}/settings/access`);
+    await page.getByRole('button', { name: /Add member/i }).click();
+    await expect(page.getByRole('heading', { name: /^Add a member$/i })).toBeVisible();
+
+    await page.getByRole('combobox', { name: /Search by username or email/i }).fill('mira');
+    await page.getByRole('option', { name: /Mira Kapoor/ }).click();
+    await page.getByRole('button', { name: /^Add$/ }).click();
+
+    // The POST carried the selected user id and a concrete role…
+    await expect.poll(() => postBody?.user).toBe(NEW_USER.id);
+    expect(typeof postBody?.role).toBe('number');
+    // …and the refetched list renders the new member as a row.
+    await expect(page.getByText(/mira\.k/)).toBeVisible();
+    await expect(page.getByText(/3 members/)).toBeVisible();
+  });
+
   test('remove flow requires a confirm click before issuing DELETE', async ({ page }) => {
     const captures: Captures = {};
     await setup(page, captures);

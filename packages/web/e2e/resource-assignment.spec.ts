@@ -382,10 +382,21 @@ test.describe('ResourceAssignmentSection — add resource flow', () => {
   });
 
   test('selecting a resource from the list creates the assignment', async ({ page }) => {
-    // Mock POST to return the new assignment (no warnings).
+    let postBody: { task?: string; resource?: string; units?: number } | null = null;
+    let created = false;
+    // Stateful: the GET returns [] until the POST fires, then the new row —
+    // mirroring the live refetch. A GET that returns the post-create row from
+    // time zero passes even when the mutation never fires, hits the wrong
+    // endpoint, or sends the wrong body (issue 1512).
     // Use ** suffix so the pattern also matches GET ?task=t2 query-param requests.
     await page.route('**/api/v1/task-resources/**', async (route) => {
       if (route.request().method() === 'POST') {
+        postBody = route.request().postDataJSON() as {
+          task?: string;
+          resource?: string;
+          units?: number;
+        };
+        created = true;
         await route.fulfill({
           status: 201,
           contentType: 'application/json',
@@ -399,23 +410,25 @@ test.describe('ResourceAssignmentSection — add resource flow', () => {
           }),
         });
       } else {
-        // GET — return the newly created assignment so the list refreshes
+        // GET — empty until the create has been recorded, then the new row.
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify({
-            count: 1,
+            count: created ? 1 : 0,
             next: null,
             previous: null,
-            results: [
-              {
-                id: 'tr-new',
-                task: 't2',
-                resource: 'res-1',
-                resource_name: 'Alice Nguyen',
-                units: 1.0,
-              },
-            ],
+            results: created
+              ? [
+                  {
+                    id: 'tr-new',
+                    task: 't2',
+                    resource: 'res-1',
+                    resource_name: 'Alice Nguyen',
+                    units: 1.0,
+                  },
+                ]
+              : [],
           }),
         });
       }
@@ -432,6 +445,10 @@ test.describe('ResourceAssignmentSection — add resource flow', () => {
     await expect(section.getByText('Alice Nguyen')).toBeVisible();
     // No warning banner for a clean add
     await expect(drawer.getByRole('alert')).not.toBeVisible();
+
+    // The create actually fired against /task-resources/ with the task under
+    // edit, the chosen resource, and full (1.0) allocation.
+    expect(postBody).toMatchObject({ task: 't2', resource: 'res-1', units: 1 });
   });
 });
 
@@ -445,8 +462,14 @@ test.describe('ResourceAssignmentSection — overallocation warning', () => {
   });
 
   test('shows an overallocation warning when POST returns warnings', async ({ page }) => {
+    let postBody: { task?: string; resource?: string; units?: number } | null = null;
     await page.route('**/api/v1/task-resources/**', async (route) => {
       if (route.request().method() === 'POST') {
+        postBody = route.request().postDataJSON() as {
+          task?: string;
+          resource?: string;
+          units?: number;
+        };
         await route.fulfill({
           status: 201,
           contentType: 'application/json',
@@ -482,6 +505,10 @@ test.describe('ResourceAssignmentSection — overallocation warning', () => {
     const alert = drawer.getByRole('alert');
     await expect(alert).toBeVisible();
     await expect(alert).toContainText('Alice Nguyen is allocated 150%');
+
+    // The warning is the server's verdict on a real create — assert the POST
+    // carried the resource the warning is about, not just that an alert showed.
+    expect(postBody).toMatchObject({ task: 't2', resource: 'res-1', units: 1 });
   });
 
   test('dismissing the warning hides the alert', async ({ page }) => {
@@ -522,5 +549,64 @@ test.describe('ResourceAssignmentSection — overallocation warning', () => {
     await expect(drawer.getByRole('alert')).toBeVisible();
     await drawer.getByRole('button', { name: 'Dismiss overallocation warning' }).click();
     await expect(drawer.getByRole('alert')).not.toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Remove assignment flow — the header promises "remove" but no test covered it.
+// ---------------------------------------------------------------------------
+
+test.describe('ResourceAssignmentSection — remove resource flow', () => {
+  test.beforeEach(async ({ page }) => {
+    await gotoSchedule(page);
+  });
+
+  test('removing an assignment fires DELETE and drops the row', async ({ page }) => {
+    let deleted = false;
+    let deletePath: string | null = null;
+    // Stateful: the row exists until its DELETE fires, then the list is empty —
+    // so the disappearance proves the DELETE round-tripped, not an optimistic
+    // flicker that a body-blind mock can't distinguish from a broken endpoint.
+    await page.route('**/api/v1/task-resources/**', async (route) => {
+      const method = route.request().method();
+      if (method === 'DELETE') {
+        deleted = true;
+        deletePath = new URL(route.request().url()).pathname;
+        await route.fulfill({ status: 204, contentType: 'application/json', body: '' });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          count: deleted ? 0 : 1,
+          next: null,
+          previous: null,
+          results: deleted
+            ? []
+            : [
+                {
+                  id: 'tr-1',
+                  task: 't2',
+                  resource: 'res-1',
+                  resource_name: 'Alice Nguyen',
+                  units: 0.75,
+                },
+              ],
+        }),
+      });
+    });
+
+    const drawer = await openDrawerWithResources(page, 'Discovery & Design');
+    const section = drawer.getByRole('region', { name: 'Assignees' });
+    await expect(section.getByText('Alice Nguyen')).toBeVisible();
+
+    await section.getByRole('button', { name: 'Remove Alice Nguyen from task' }).click();
+
+    // The row is gone and the DELETE hit the specific assignment resource.
+    await expect(section.getByText('Alice Nguyen')).toHaveCount(0);
+    await expect(section.getByText('None')).toBeVisible();
+    expect(deleted).toBe(true);
+    expect(deletePath).toContain('/task-resources/tr-1/');
   });
 });

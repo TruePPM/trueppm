@@ -191,11 +191,17 @@ async function setupScheduleWithPendingSuggestion(
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ edition: 'community' }) }),
   );
 
-  // Velocity-suggestion endpoints — the surface under test.
+  // Velocity-suggestion endpoints — the surface under test. Stateful: the
+  // pending row drops out of the ?pending=true list once accepted or dismissed,
+  // exactly as the server does when the decision is recorded. Without this the
+  // GET returns the pending row forever and the banner is never proven to clear,
+  // so a deleted onSuccess invalidation ships green (issue 1512).
+  let pending = true;
   await page.route('**/api/v1/velocity-suggestions/**', (route) => {
     const url = route.request().url();
     const method = route.request().method();
     if (method === 'POST' && url.includes('/accept/')) {
+      pending = false;
       return route.fulfill({
         status: 200, contentType: 'application/json',
         body: JSON.stringify({
@@ -207,6 +213,7 @@ async function setupScheduleWithPendingSuggestion(
       });
     }
     if (method === 'POST' && url.includes('/dismiss/')) {
+      pending = false;
       return route.fulfill({
         status: 200, contentType: 'application/json',
         body: JSON.stringify({
@@ -217,10 +224,15 @@ async function setupScheduleWithPendingSuggestion(
         }),
       });
     }
-    // GET list
+    // GET list (?pending=true) — empty once a decision has been recorded.
     return route.fulfill({
       status: 200, contentType: 'application/json',
-      body: JSON.stringify({ count: 1, next: null, previous: null, results: [PENDING_SUGGESTION] }),
+      body: JSON.stringify({
+        count: pending ? 1 : 0,
+        next: null,
+        previous: null,
+        results: pending ? [PENDING_SUGGESTION] : [],
+      }),
     });
   });
 }
@@ -254,6 +266,11 @@ test.describe('Velocity calibration suggestion banner (ADR-0065 / #498)', () => 
     );
     await banner.getByRole('button', { name: /Accept/ }).click();
     await acceptRequest;
+
+    // The banner clears once the accepted suggestion leaves the pending list —
+    // proving onSuccess invalidated the query and refetched, not merely that
+    // the POST fired.
+    await expect(drawer.getByLabel(/Velocity calibration suggestion/i)).toHaveCount(0);
   });
 
   test('Dismiss button posts to the dismiss endpoint', async ({ page }) => {
@@ -271,6 +288,9 @@ test.describe('Velocity calibration suggestion banner (ADR-0065 / #498)', () => 
     );
     await banner.getByRole('button', { name: /Dismiss/ }).click();
     await dismissRequest;
+
+    // The banner clears once the dismissed suggestion leaves the pending list.
+    await expect(drawer.getByLabel(/Velocity calibration suggestion/i)).toHaveCount(0);
   });
 
   test('non-admin (Team Member) does not see the banner', async ({ page }) => {

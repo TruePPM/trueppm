@@ -158,11 +158,62 @@ test.describe('Schedule toolbar', () => {
     await expect(page.getByRole('treegrid', { name: 'Outline task tree' })).toBeVisible();
   });
 
-  test('Today button is present and focusable', async ({ page }) => {
-    const todayBtn = page.getByRole('button', { name: 'Today' });
-    await expect(todayBtn).toBeVisible();
-    await todayBtn.focus();
-    await expect(todayBtn).toBeFocused();
+  // Interaction coverage for Today/Fit lives in "Schedule toolbar — Today & Fit
+  // interactions" below: presence + focus alone let handleScrollToToday /
+  // engine.fitToProject regress to no-ops undetected (issue 1512).
+});
+
+test.describe('Schedule toolbar — Today & Fit interactions (#1512)', () => {
+  const readScrollLeft = (page: import('@playwright/test').Page) =>
+    page
+      .getByTestId('schedule-canvas-scroll')
+      .evaluate((el) => (el as HTMLElement).scrollLeft);
+
+  /**
+   * Park the viewport at the far right and return that starting scrollLeft. Both
+   * Today (centers "today", which for the fixture's Oct–Nov span sits far left of
+   * the parked position) and Fit (pins the project start near the left edge) must
+   * then move the viewport substantially leftward; a no-op handler leaves it
+   * pinned far right. The assertion is a large leftward delta, so it is robust
+   * to viewport width and to where exactly "today" lands.
+   */
+  async function parkFarRight(page: import('@playwright/test').Page): Promise<number> {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await gotoSchedule(page);
+    await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+    const scroll = page.getByTestId('schedule-canvas-scroll');
+    await expect(scroll).toBeVisible();
+    // Wait until the canvas is actually wider than its viewport, then scroll to
+    // the far right so a leftward move is observable.
+    await expect
+      .poll(() =>
+        scroll.evaluate(
+          (el) => (el as HTMLElement).scrollWidth - (el as HTMLElement).clientWidth,
+        ),
+      )
+      .toBeGreaterThan(400);
+    await scroll.evaluate((el) => {
+      (el as HTMLElement).scrollLeft = (el as HTMLElement).scrollWidth;
+    });
+    const parked = await readScrollLeft(page);
+    expect(parked).toBeGreaterThan(400);
+    return parked;
+  }
+
+  test('Today button scrolls the timeline toward today', async ({ page }) => {
+    const parked = await parkFarRight(page);
+    await page.getByRole('button', { name: 'Today' }).click();
+    // Centering today moves the viewport well to the left of the far-right park;
+    // a no-op leaves scrollLeft pinned at `parked`.
+    await expect.poll(() => readScrollLeft(page)).toBeLessThan(parked - 200);
+  });
+
+  test('Fit button reframes the project start to the left edge', async ({ page }) => {
+    const parked = await parkFarRight(page);
+    await page.getByRole('button', { name: 'Fit schedule to window' }).first().click();
+    // Fit rescales so the whole project fits and pins the start near the left
+    // edge, collapsing scrollLeft back toward 0.
+    await expect.poll(() => readScrollLeft(page)).toBeLessThan(parked - 200);
   });
 });
 
