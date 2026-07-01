@@ -142,13 +142,18 @@ export class GanttEngineImpl implements GanttEngine {
   /** True while the pointer is over / the canvas has focus — scopes Space-arm. */
   private _canvasHovered = false;
 
-  // Dirty-rect tracking
+  // Dirty-rect tracking. As of #1499 nothing populates `_dirtyRows` (updateTask
+  // was its only producer and now sets `_barsRepaintPending` instead, since a
+  // row-only repaint never rebuilds/redraws dependency arrows). The branch
+  // below is kept as a general single-row invalidation path for any future
+  // mutation that is provably row-local and arrow-independent.
   private _dirtyRows: Set<number> = new Set();
   private _fullRepaintPending = true;
   // Bars-layer-only repaint flag. Set by mutations that only affect the bars
-  // canvas (hover chain dimming + arrow recolor, #475) so we don't clear and
-  // redraw the bg layer (row bands, grid, today line, header) — that path
-  // produced visible flicker as the cursor moved through rows.
+  // canvas (hover chain dimming + arrow recolor, #475; live task patches from
+  // updateTask during drag preview, #1499) so we don't clear and redraw the bg
+  // layer (row bands, grid, today line, header) — that path produced visible
+  // flicker as the cursor moved through rows.
   private _barsRepaintPending = false;
 
   // rAF
@@ -301,10 +306,25 @@ export class GanttEngineImpl implements GanttEngine {
     this._tasks[idx] = { ...this._tasks[idx], ...patch };
     this._rebuildHitIndex();
     // The patch may move/resize/re-parent the task, changing its arrow geometry
-    // (and any arrow anchored to it). Drop the cache so the next full/bars
-    // repaint re-prepares — the dirty-row path itself draws no arrows (#1000).
+    // (and any arrow anchored to it). Drop the cache so the next repaint
+    // re-prepares it (#1000).
+    //
+    // useScheduleCommit calls this on every drag/resize-end, revert, and
+    // "snap to project start" preview (ADR-0067's pull-to-commit gate moves the
+    // bar to its pending position ahead of Confirm) — so we must NOT fall
+    // through to the dirty-row-only tick branch (#1499): that branch calls
+    // _paintRow, which clearRects just the changed row's band and never touches
+    // _depLayout — arrows to/from the moved task go stale and any arrow segment
+    // crossing that row is erased, with nothing repainting them until an
+    // incidental full repaint (scroll, zoom, selection, hover) happens to come
+    // along. Instead, route through the same bars-only invalidation flag
+    // setHoverChain uses (#475): it skips the bg layer (row bands/grid/today
+    // line/header stay untouched, same as the dirty-row path would) but
+    // repaints the full bars layer, which rebuilds _depLayout since it's null
+    // and redraws every visible arrow — cheap enough for a per-gesture event
+    // and correct, unlike a full canvas repaint that would also redraw the bg.
     this._depLayout = null;
-    this._dirtyRows.add(idx);
+    this._barsRepaintPending = true;
   }
 
   // ---------------------------------------------------------------------------

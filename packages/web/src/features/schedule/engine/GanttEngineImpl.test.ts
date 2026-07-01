@@ -16,6 +16,18 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Task } from '@/types';
 import { GanttEngineImpl } from './GanttEngineImpl';
 import { CALENDAR_QUARTERS, ZOOM_CONFIGS } from './GanttScaleData';
+import { prepareDependencyLayout } from './GanttRenderer';
+
+// Spy on the arrow-layout builder while keeping its real implementation, so
+// #1499's regression test can assert *when* the dependency layout cache gets
+// rebuilt without needing to reach into GanttEngineImpl's private state.
+vi.mock('./GanttRenderer', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./GanttRenderer')>();
+  return {
+    ...actual,
+    prepareDependencyLayout: vi.fn(actual.prepareDependencyLayout),
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Fixtures + mocks
@@ -405,6 +417,67 @@ describe('GanttEngineImpl — mutations and setters', () => {
     engine.on('resize-task-end', onEnd);
     expect(() => engine.cancelDrag()).not.toThrow();
     expect(onEnd).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #1499 — updateTask (drag preview) must not leave dependency arrows stale
+// ---------------------------------------------------------------------------
+
+describe('GanttEngineImpl — updateTask repaints dependency arrows (#1499)', () => {
+  it('rebuilds the dependency layout on the very next tick after updateTask, with no other trigger', () => {
+    const { engine, flushFrame } = setup();
+    const prepareSpy = vi.mocked(prepareDependencyLayout);
+
+    engine.setTasks([
+      makeTask('a', '2026-04-01', '2026-04-10'),
+      makeTask('b', '2026-04-11', '2026-04-20'),
+    ]);
+    engine.setLinks([
+      { id: 'l1', sourceId: 'a', targetId: 'b', type: 'FS' as const, lag: 0, isCritical: false },
+    ]);
+    flushFrame(); // initial full repaint — builds the layout cache once
+
+    const callsAfterInitialPaint = prepareSpy.mock.calls.length;
+    expect(callsAfterInitialPaint).toBeGreaterThan(0);
+
+    // Simulate one live drag-preview frame: useScheduleCommit calls
+    // engine.updateTask on every pointermove while dragging task 'a'.
+    engine.updateTask('a', { start: '2026-04-02', finish: '2026-04-11' });
+    flushFrame();
+
+    // Before the #1499 fix, updateTask only added the row to `_dirtyRows`,
+    // which routes the tick through `_paintRow` — a path that never calls
+    // `prepareDependencyLayout` (it doesn't touch the bars-layer dependency
+    // pass at all). This assertion catches that regression: the layout cache
+    // must be rebuilt on the same tick the task patch is applied, not on some
+    // later incidental full repaint.
+    expect(prepareSpy.mock.calls.length).toBeGreaterThan(callsAfterInitialPaint);
+  });
+
+  it('does not fall back to the dirty-row-only paint path for a task patch', () => {
+    const { engine, flushFrame } = setup();
+    engine.setTasks([
+      makeTask('a', '2026-04-01', '2026-04-10'),
+      makeTask('b', '2026-04-11', '2026-04-20'),
+    ]);
+    engine.setLinks([
+      { id: 'l1', sourceId: 'a', targetId: 'b', type: 'FS' as const, lag: 0, isCritical: false },
+    ]);
+    flushFrame();
+
+    // Internal-state assertion (Set) rather than a private-method spy — this
+    // is the mechanism `updateTask` is documented to use post-fix. Cast through
+    // `unknown` since `_barsRepaintPending`/`_dirtyRows` are private fields.
+    engine.updateTask('a', { progress: 75 });
+    const internals = engine as unknown as {
+      _barsRepaintPending: boolean;
+      _dirtyRows: Set<number>;
+    };
+    expect(internals._barsRepaintPending).toBe(true);
+    expect(internals._dirtyRows.size).toBe(0);
+
+    expect(() => flushFrame()).not.toThrow();
   });
 });
 
