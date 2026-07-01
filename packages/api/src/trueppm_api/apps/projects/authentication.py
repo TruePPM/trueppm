@@ -58,11 +58,20 @@ class ProjectApiTokenAuthentication(BaseAuthentication):
         except UnicodeDecodeError as exc:
             raise exceptions.AuthenticationFailed("Invalid token header.") from exc
 
+        # A ``Bearer`` value that is not one of our ``tppm_``-prefixed tokens is
+        # almost certainly a JWT (simplejwt also uses ``Bearer``). Defer to the
+        # next authenticator instead of raising, so token auth and JWT auth can
+        # coexist on the same view when a read viewset additively lists both.
+        # This is required for the read-only MCP scaffold (ADR-0186): the MCP
+        # viewsets accept *either* a human JWT session *or* an ``mcp:read`` token.
+        if not raw_token.startswith(TOKEN_PREFIX):
+            return None
+
         # Cheap structural validation before any DB lookup.  Avoids exposing the
-        # DB to malformed input and makes the timing of "wrong prefix" vs
-        # "valid prefix, unknown hash" indistinguishable from the client side
-        # (both return 401 with no body).
-        if len(raw_token) != TOKEN_TOTAL_LEN or not raw_token.startswith(TOKEN_PREFIX):
+        # DB to malformed input and makes the timing of a malformed ``tppm_``
+        # token indistinguishable from "valid prefix, unknown hash" (both return
+        # 401 with no body), preventing enumeration of valid token prefixes.
+        if len(raw_token) != TOKEN_TOTAL_LEN:
             raise exceptions.AuthenticationFailed("Invalid token.")
 
         token_body = raw_token[len(TOKEN_PREFIX) :]

@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from django.db.models import QuerySet
 from rest_framework import viewsets
-from rest_framework.permissions import BasePermission
+from rest_framework.authentication import BaseAuthentication
+from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.views import APIView
 
@@ -1072,6 +1073,117 @@ class IsTokenForProject(BasePermission):
         # project_id / program_id is non-null. If we get here, the row is
         # corrupt; reject the token rather than fail open.
         raise AuthenticationFailed("Token has no scope.")
+
+
+# ---------------------------------------------------------------------------
+# API-token scopes (ADR-0186 §E — read-only MCP slice, issue #601)
+# ---------------------------------------------------------------------------
+
+
+def TokenHasScope(required_scope: str) -> type[BasePermission]:
+    """Build a permission requiring an API token to carry ``required_scope``.
+
+    A composable factory so the same rule works in a static ``permission_classes``
+    list (``TokenHasScope("mcp:read")``) and inside ``get_permissions()``.
+
+    Semantics:
+      * If ``request.auth`` is not one of our API tokens (human JWT/Session
+        request), the permission PASSES — scope enforcement only constrains
+        token-authenticated callers; RBAC classes still gate the human path.
+      * ``legacy:full`` is a superset: a token carrying it satisfies any read
+        scope, preserving pre-scopes behavior for every backfilled token.
+      * Otherwise the token must list ``required_scope`` explicitly.
+    """
+
+    class _TokenHasScope(BasePermission):
+        def has_permission(self, request: Request, view: APIView) -> bool:
+            from trueppm_api.apps.projects.models import SCOPE_LEGACY_FULL, ApiToken
+
+            token = getattr(request, "auth", None)
+            if not isinstance(token, ApiToken):
+                return True  # Non-token auth path; RBAC classes handle it.
+
+            token_scopes = token.scopes or []
+            if required_scope in token_scopes:
+                return True
+            # legacy:full is the historical unrestricted superset — it satisfies
+            # any read scope, but never substitutes for itself being required.
+            return required_scope != SCOPE_LEGACY_FULL and SCOPE_LEGACY_FULL in token_scopes
+
+    _TokenHasScope.__name__ = f"TokenHasScope[{required_scope}]"
+    _TokenHasScope.__qualname__ = _TokenHasScope.__name__
+    return _TokenHasScope
+
+
+class TokenReadOnlyMethods(BasePermission):
+    """Restrict API-token callers to safe (read-only) HTTP methods.
+
+    Additively mixing token auth onto a ModelViewSet would otherwise expose its
+    write actions to any token. This class closes that hole: a token may only
+    issue GET/HEAD/OPTIONS on the views the MCP wraps. Human JWT/Session callers
+    are unaffected (their write access is governed by the RBAC classes).
+    """
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        from trueppm_api.apps.projects.models import ApiToken
+
+        token = getattr(request, "auth", None)
+        if not isinstance(token, ApiToken):
+            return True
+        return request.method in SAFE_METHODS
+
+
+if TYPE_CHECKING:
+    _McpViewBase = APIView
+else:
+    _McpViewBase = object
+
+
+class McpReadableViewMixin(_McpViewBase):
+    """Additively expose a read view to ``mcp:read`` API tokens (ADR-0186 §E).
+
+    Mixed in *before* the concrete view class so ``super()`` resolves to the real
+    ``APIView``/``ViewSet``. It leaves the existing authentication and RBAC
+    permission classes intact and only *adds*:
+
+      * ``ProjectApiTokenAuthentication`` (prepended, so a ``tppm_`` bearer is
+        recognized before JWT — which the auth class defers to for non-``tppm_``
+        bearers), and
+      * ``TokenReadOnlyMethods`` + ``TokenHasScope("mcp:read")`` (appended, so a
+        token caller is confined to safe methods and must carry the read scope;
+        human callers pass both trivially).
+
+    The base type is ``APIView`` only under ``TYPE_CHECKING`` (``object`` at
+    runtime) so mypy resolves ``super().get_authenticators()`` /
+    ``get_permissions()`` without the mixin claiming to be a standalone view.
+    """
+
+    def get_authenticators(self) -> list[BaseAuthentication]:
+        from trueppm_api.apps.projects.authentication import (
+            ProjectApiTokenAuthentication,
+        )
+
+        return [ProjectApiTokenAuthentication(), *super().get_authenticators()]
+
+    def mcp_token_guards(self) -> list[BasePermission]:
+        """Read-only MCP token guards to append to a view's RBAC permission list.
+
+        Both permissions pass unconditionally for human JWT/Session auth, so they
+        are safe to append to *every* action's list. For an API-token caller they
+        confine it to safe methods (``TokenReadOnlyMethods``) and require the
+        ``mcp:read`` scope (``TokenHasScope``). ViewSets that override
+        ``get_permissions`` with per-action lists call this from their wrapper so
+        no branch — including write branches — can leak a token past the guards.
+        """
+        from trueppm_api.apps.projects.models import SCOPE_MCP_READ
+
+        return [TokenReadOnlyMethods(), TokenHasScope(SCOPE_MCP_READ)()]
+
+    def get_permissions(self) -> list[BasePermission]:
+        # DRF instantiates each permission_class, so these are BasePermission
+        # instances at runtime; the stub types them via a Protocol, hence the cast.
+        existing = cast("list[BasePermission]", list(super().get_permissions()))
+        return [*existing, *self.mcp_token_guards()]
 
 
 # ---------------------------------------------------------------------------

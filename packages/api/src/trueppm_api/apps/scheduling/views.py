@@ -39,6 +39,7 @@ from trueppm_api.apps.access.permissions import (
     IsProjectMember,
     IsProjectNotArchived,
     IsProjectScheduler,
+    McpReadableViewMixin,
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import (
@@ -463,7 +464,7 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     return Response(result_dict)
 
 
-class MonteCarloLatestView(APIView):
+class MonteCarloLatestView(McpReadableViewMixin, APIView):
     """Return the cached result of the most recent MC simulation for this project.
 
     Returns 200 with the full result dict if a cached result exists, or 404 if

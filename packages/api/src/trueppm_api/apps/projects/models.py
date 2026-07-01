@@ -3994,6 +3994,34 @@ class PokerVote(models.Model):
 # Inbound task-sync — ADR-0068 / issue #500 (Gap 3 of ADR-0065)
 # ---------------------------------------------------------------------------
 
+# API-token scopes (ADR-0186 §E — minimal read-only-MCP slice, issue #601).
+#
+# ``legacy:full`` is the historical, unrestricted scope: every token minted
+# before scopes existed is backfilled to this, and it acts as a superset that
+# satisfies any read scope. Inbound task-sync writes require it explicitly.
+#
+# ``mcp:read`` is the single new scope introduced for the read-only MCP server:
+# it grants safe-method access to the read viewsets the MCP wraps and is
+# rejected at every write path. The full scope taxonomy is deferred to 0.6.
+SCOPE_LEGACY_FULL = "legacy:full"
+SCOPE_MCP_READ = "mcp:read"
+
+# Allowed scopes, in the order surfaced to API clients. Any scope a caller
+# requests at token-creation time is validated against this tuple.
+API_TOKEN_SCOPES: tuple[str, ...] = (SCOPE_LEGACY_FULL, SCOPE_MCP_READ)
+API_TOKEN_SCOPE_CHOICES = [(scope, scope) for scope in API_TOKEN_SCOPES]
+
+
+def _default_api_token_scopes() -> list[str]:
+    """Default scope set for a newly minted token.
+
+    A callable (not a literal list) so the default survives a migration squash
+    and no two tokens share a mutable list instance. Defaults to the legacy
+    full scope, preserving the pre-scopes behavior for any caller that does not
+    opt into a narrower scope.
+    """
+    return [SCOPE_LEGACY_FULL]
+
 
 class ApiToken(VersionedModel):
     """API token for inbound integrations — polymorphically scoped to either
@@ -4062,6 +4090,15 @@ class ApiToken(VersionedModel):
         help_text="Maps external source-status strings → TaskStatus values.  "
         "Empty dict falls back to the default map: "
         "{'todo': 'NOT_STARTED', 'in_progress': 'IN_PROGRESS', 'done': 'COMPLETE'}.",
+    )
+    scopes = ArrayField(
+        models.CharField(max_length=64, choices=API_TOKEN_SCOPE_CHOICES),
+        default=_default_api_token_scopes,
+        blank=True,
+        help_text="Capabilities this token grants. 'legacy:full' is the "
+        "historical unrestricted scope (and a superset satisfying any read "
+        "scope); 'mcp:read' grants read-only access to the MCP-wrapped viewsets "
+        "and is rejected at every write path.",
     )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
