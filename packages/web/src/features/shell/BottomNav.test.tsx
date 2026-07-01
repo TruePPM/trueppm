@@ -127,6 +127,32 @@ describe('BottomNav', () => {
     ).toBeInTheDocument();
   });
 
+  it('keeps the More label as "Settings" on a settings sub-page, not the sub-segment', () => {
+    // A settings sub-route (e.g. /settings/notifications) must still read as
+    // "Settings" — the label resolves off the view key, not the trailing
+    // segment (issue 539; would otherwise announce "More, view selected").
+    renderWithRouter(<BottomNav />, {
+      initialEntries: ['/projects/proj-1/settings/notifications'],
+    });
+    const nav = screen.getByRole('navigation', { name: /view/i });
+    expect(
+      within(nav).getByRole('button', { name: /More, Settings selected/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('marks the active primary tab on a nested view route (e.g. a board card)', () => {
+    // Active state derives from the segment after the projectId, so a nested
+    // detail route keeps its parent view highlighted (matches ViewTabs).
+    renderWithRouter(<BottomNav />, {
+      initialEntries: ['/projects/proj-1/board/card-42'],
+    });
+    const nav = screen.getByRole('navigation', { name: /view/i });
+    expect(within(nav).getByRole('link', { name: /Board/i })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+  });
+
   it('hides the Team tab for roles below Scheduler', () => {
     mockUseRole.mockReturnValue({ role: 100, isLoading: false });
     renderWithRouter(<BottomNav />, { initialEntries: ['/projects/proj-1/board'] });

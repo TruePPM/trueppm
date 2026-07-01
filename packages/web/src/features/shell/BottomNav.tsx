@@ -13,7 +13,7 @@ import { VIEW_TAB_META } from '@/features/shell/viewMeta';
 import { selectMobileNav } from '@/features/shell/bottomNavItems';
 import { MoreSheet } from '@/features/shell/MoreSheet';
 import { ROLE_SCHEDULER } from '@/lib/roles';
-import { iterationLabelForms } from '@/lib/iterationLabel';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 
 // Bottom navigation rail — shown at < md (768px) in place of the top-bar view
 // tabs (ADR-0134 rule 3: mobile carries view nav here, never the desktop
@@ -40,16 +40,23 @@ export function BottomNav() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const moreButtonRef = useRef<HTMLButtonElement>(null);
 
-  // Derive active view from the last path segment, matching ViewTabs (ADR-0030).
+  // Derive the active view from the segment immediately after the projectId —
+  // identical to ViewTabs (ADR-0030). The last segment would misfire on nested
+  // routes (e.g. /board/<cardId>), leaving no tab active.
   const pathSegments = location.pathname.split('/');
-  const currentView = pathSegments[pathSegments.length - 1] ?? 'overview';
+  const projectIdIndex = pathSegments.indexOf(projectId ?? '');
+  const currentView =
+    (projectIdIndex >= 0 ? pathSegments[projectIdIndex + 1] : undefined) ?? 'overview';
   const isSettingsActive =
     projectId !== null && location.pathname.includes(`/projects/${projectId}/settings`);
 
   // Default to HYBRID (all tabs visible) until the project loads; read the
   // server-resolved methodology (ADR-0107) so the rail mirrors ViewTabs.
   const methodology = project.data?.effective_methodology ?? 'HYBRID';
-  const sprintsLabel = iterationLabelForms(project.data?.iteration_label).plural;
+  // Resolve the iteration label through the shared chokepoint (ADR-0116) so the
+  // rail matches ViewTabs even when the label is inherited from the program or
+  // workspace (effective_iteration_label set, project override null).
+  const sprintsLabel = useIterationLabel(projectId).plural;
 
   // Compose the reachable set the same way the desktop bar does: methodology
   // filter → per-project surface visibility (ADR-0193) → per-user hidden_views
@@ -71,7 +78,18 @@ export function BottomNav() {
 
   const { primary, overflow } = selectMobileNav(reachable, methodology);
   const hasOverflow = overflow.length > 0;
-  const moreActive = overflow.some((v) => (v === 'settings' ? isSettingsActive : v === currentView));
+  // Which overflow-parked surface (if any) is currently active. Match `settings`
+  // by its path prefix so any settings sub-page counts, and resolve the label
+  // off the view *key* (not `currentView`) so a settings sub-page still reads as
+  // "Settings" rather than the sub-segment (issue 539).
+  const activeOverflowView = overflow.find((v) =>
+    v === 'settings' ? isSettingsActive : v === currentView,
+  );
+  const moreActive = activeOverflowView !== undefined;
+  const activeOverflowLabel =
+    activeOverflowView === 'sprints'
+      ? sprintsLabel
+      : (activeOverflowView ? VIEW_TAB_META[activeOverflowView]?.label : undefined) ?? 'view';
 
   if (!projectId) return null;
 
@@ -124,9 +142,7 @@ export function BottomNav() {
             // When a surface parked in the overflow is active, announce it so SR
             // users know More holds the current view (issue 539: Settings lives
             // in More but must still read as the active surface).
-            aria-label={
-              moreActive ? `More, ${VIEW_TAB_META[currentView]?.label ?? 'view'} selected` : 'More'
-            }
+            aria-label={moreActive ? `More, ${activeOverflowLabel} selected` : 'More'}
             className={[
               'flex flex-1 flex-col items-center justify-center gap-1 text-xs min-h-[44px]',
               'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset',
