@@ -76,13 +76,17 @@ async function gotoSchedule(page: Page, fiscalMonth: number) {
 
 // Continuous zoom (#351) replaced the segmented tier buttons with a −/+ stepper
 // and a derived-tier readout. Step zoom-out until the readout reads "Quarter".
+// The role="status" readout is the debounced sr-only announcement (#793) — it
+// settles ~250ms after the last step, so wait past the debounce before deciding
+// whether to keep stepping; a lagging read would otherwise overshoot the band.
 async function zoomToQuarter(page: Page) {
   const group = page.getByRole('group', { name: 'Timeline zoom' });
   const zoomOut = group.getByRole('button', { name: 'Zoom out' });
   const readout = group.getByRole('status');
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 12; i++) {
     if ((await readout.textContent())?.trim() === 'Quarter') break;
     await zoomOut.click();
+    await page.waitForTimeout(300);
   }
   await expect(readout).toHaveText('Quarter');
 }
