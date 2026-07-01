@@ -18,6 +18,7 @@ pub enum DependencyType {
 
 /// A contiguous range of dates (inclusive on both ends).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DateRange {
     pub start: NaiveDate,
     pub end: NaiveDate,
@@ -27,7 +28,16 @@ pub struct DateRange {
 ///
 /// Duration and float fields use working days (integers), matching the Python
 /// `timedelta(days=N)` convention where `total_seconds() / 86400 = N`.
+///
+/// `deny_unknown_fields` (#1505): the Python `Task` model carries scheduling-
+/// affecting fields this engine does not yet implement — `calendar_id` (per-task
+/// calendars, ADR-0120 D3), `actual_start`/`actual_finish` and `delivery_mode`/
+/// `story_points`. Silently ignoring them would make the WASM engine schedule a
+/// task on the wrong calendar (or ignore actuals) and quietly disagree with the
+/// server. Rejecting the input at parse time is honest: the offline recompute
+/// refuses work it cannot faithfully reproduce rather than returning wrong dates.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Task {
     pub id: String,
     pub name: String,
@@ -80,6 +90,7 @@ impl Task {
 
 /// A precedence relationship between two tasks.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Dependency {
     pub predecessor_id: String,
     pub successor_id: String,
@@ -107,6 +118,7 @@ impl Dependency {
 /// `working_days` is a 7-bit mask where bit 0 = Monday, bit 6 = Sunday.
 /// Default `0b0011111` = Mon–Fri.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Calendar {
     #[serde(default = "default_working_days")]
     pub working_days: u8,
@@ -140,7 +152,14 @@ impl Default for Calendar {
 }
 
 /// Top-level container for a scheduled project.
+///
+/// `deny_unknown_fields` (#1505): rejects a project that carries Python-only
+/// fields this engine does not implement — the `calendars` per-task registry
+/// (ADR-0120 D3), `velocity_samples`/`sprint_length_days` (agile Monte Carlo),
+/// or `status_date` (progress forecasting). See the `Task` note above: honest
+/// rejection beats a silently-wrong offline schedule.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Project {
     pub id: String,
     pub name: String,
