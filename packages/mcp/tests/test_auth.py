@@ -70,15 +70,35 @@ async def test_unexpected_status_raises_api_error(
             await client.verify_auth()
 
 
-async def test_server_exposes_empty_tool_list(settings: Settings) -> None:
-    """The scaffold registers no tools — the tool list is empty."""
+async def test_server_registers_read_tool_surface(settings: Settings) -> None:
+    """The server registers the #504 read-only tool surface (14 tools, no writes)."""
     client = TruePPMClient(settings)
     try:
         server = build_server(client)
         tools = await server.list_tools()
     finally:
         await client.aclose()
-    assert tools == []
+    names = {tool.name for tool in tools}
+    assert names == {
+        "list_projects",
+        "get_project",
+        "list_tasks",
+        "get_task",
+        "get_board_state",
+        "get_schedule_summary",
+        "list_risks",
+        "get_monte_carlo_forecast",
+        "list_sprints",
+        "get_sprint",
+        "list_my_work",
+        "list_programs",
+        "get_program_health",
+        "whoami",
+    }
+    # Read-only contract: no tool name implies a mutation.
+    assert not any(
+        tool.name.startswith(("create_", "update_", "delete_", "set_")) for tool in tools
+    )
 
 
 async def test_lifespan_verifies_auth_then_closes_on_valid_token(

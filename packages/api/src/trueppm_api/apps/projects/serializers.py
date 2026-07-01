@@ -181,6 +181,15 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
     # "at-risk" reuses the canonical ≤5-working-days-of-float definition.
     overdue_count = serializers.SerializerMethodField()
     at_risk_count = serializers.SerializerMethodField()
+    # Caller's own role on this project (ADR-0186 §F, #504). The MCP server's
+    # ``caller_role`` enrichment and the web role chip both read this — it must
+    # come from the authoritative API, never be inferred client-side. Backed by
+    # the viewset's ``_my_role`` annotation (a Subquery over ProjectMembership),
+    # so it is one scalar per row, never an N+1. ``my_role`` is the integer
+    # ordinal (``Role``); ``my_role_label`` is the human label ("Project Manager").
+    # Mirrors ``ProgramSerializer.my_role`` / ``my_role_label``.
+    my_role = serializers.SerializerMethodField()
+    my_role_label = serializers.SerializerMethodField()
     # Read-only nested user payload so the General settings page can render the
     # lead's name + initials without a second per-project user fetch. Null when
     # ``lead`` is unset. The write side stays on the plain ``lead`` UUID field —
@@ -340,6 +349,10 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "open_task_count",
             "overdue_count",
             "at_risk_count",
+            # Caller's own role on this project (ADR-0186 §F, #504). Read-only,
+            # annotation-backed — drives the MCP ``caller_role`` enrichment.
+            "my_role",
+            "my_role_label",
             # Lifecycle (#530) — read-only; flipped via /archive/ and /unarchive/.
             "is_archived",
             "archived_at",
@@ -349,6 +362,8 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "id",
             "server_version",
             "lead_detail",
+            "my_role",
+            "my_role_label",
             "effective_iteration_label",
             "inherited_iteration_label",
             "effective_methodology",
@@ -414,6 +429,28 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         at-risk definition (cf. ProjectViewSet.status_summary, program_rollup).
         Annotated only on the program-projects branch. ``None`` elsewhere."""
         return getattr(obj, "at_risk_count", None)
+
+    def get_my_role(self, obj: Project) -> int | None:
+        """Caller's role ordinal on this project (ADR-0186 §F, #504).
+
+        Backed by the viewset's ``_my_role`` annotation (a Subquery over
+        ProjectMembership) so it costs one scalar per row, never an N+1. Falls
+        back to ``None`` when the annotation is absent — e.g. a freshly-created
+        instance serialized before it is re-fetched through the annotated
+        queryset (defensive only). Mirrors ``ProgramSerializer.get_my_role``.
+        """
+        return getattr(obj, "_my_role", None)
+
+    def get_my_role_label(self, obj: Project) -> str | None:
+        """Human-readable label for the caller's role (e.g. "Project Manager").
+
+        ``None`` when the caller has no annotated role. Mirrors
+        ``ProgramSerializer.get_my_role_label``.
+        """
+        role = getattr(obj, "_my_role", None)
+        if role is None:
+            return None
+        return Role(role).label
 
     def validate_code(self, value: str) -> str:
         """Project code format: uppercase A-Z, 0-9, and hyphen, ≤12 chars.

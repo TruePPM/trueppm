@@ -56,10 +56,11 @@ for wiring it into Claude Desktop's `claude_desktop_config.json`.
 
 ## Status
 
-This is the **0.4 scaffold**: the server boots, authenticates against your
-instance, and exposes an (initially empty) tool list. The read-tool surface —
-projects, tasks, board, schedule, risks, sprints, My Work — and the `mcp:read`
-token scope land in follow-up releases.
+The read-tool surface ships in 0.4: **14 read-only tools** across projects and
+programs, tasks and My Work, schedule and risk, and sprints — each mapping to
+one existing REST endpoint and returning only what your role permits. The
+`mcp:read` token scope that marks a token read-only at the API layer lands
+alongside. Write tools are deliberately held to a later release.
 
 ## License
 

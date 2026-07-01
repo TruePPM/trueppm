@@ -189,6 +189,7 @@ export default defineConfig({
                 { slug: "features/webhooks" },
                 { slug: "features/inbound-task-sync" },
                 { slug: "features/connected-accounts" },
+                { slug: "features/mcp-server" },
                 { slug: "features/msproject-import-export" },
               ],
             },

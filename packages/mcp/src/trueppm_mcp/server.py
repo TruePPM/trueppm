@@ -1,9 +1,8 @@
 """FastMCP server assembly for TruePPM (ADR-0186).
 
-The 0.4 scaffold boots, authenticates against the configured instance, and
-exposes an **empty tool list**. The ~13 read-only tools (#504) and the
-``ApiToken`` ``mcp:read`` scope slice (#601) land in follow-up MRs; this module
-is the seam they register against.
+The server boots, authenticates against the configured instance, and registers
+the read-only tool surface (#504). The ``ApiToken`` ``mcp:read`` scope slice
+(#601) lands separately; this module is the seam both register against.
 """
 
 from __future__ import annotations
@@ -14,6 +13,7 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from mcp.server.fastmcp import FastMCP
 
 from trueppm_mcp.client import TruePPMClient
+from trueppm_mcp.tools import register_tools
 
 #: MCP server name advertised to clients in the initialize handshake.
 SERVER_NAME = "trueppm"
@@ -66,7 +66,7 @@ def build_server(
         port: Bind port for the HTTP/SSE transports (ignored for stdio).
 
     Returns:
-        A configured :class:`FastMCP` instance with an empty tool list.
+        A configured :class:`FastMCP` instance with the read-only tools registered.
     """
     server: FastMCP[TruePPMClient] = FastMCP(
         SERVER_NAME,
@@ -75,7 +75,7 @@ def build_server(
         port=port,
         lifespan=make_lifespan(client),
     )
-    # No tools registered yet. The #504 read-tool surface registers here, e.g.
-    #   @server.tool()
-    #   async def list_projects(...) -> ...: ...
+    # The #504 read-tool surface. Each tool closes over ``client`` — the same
+    # instance the lifespan authenticates at boot and closes on shutdown.
+    register_tools(server, client)
     return server

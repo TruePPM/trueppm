@@ -356,6 +356,20 @@ class ProjectViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelV
         from django.db.models.functions import Coalesce
 
         qs = super().get_queryset()
+        # Caller's role on each project (ADR-0186 §F, #504) — a Subquery over the
+        # active ProjectMembership so ProjectSerializer.my_role / my_role_label
+        # (the MCP ``caller_role`` enrichment) render without an N+1. Mirrors the
+        # program list view's ``_my_role`` annotation (program_views.py). Anonymous
+        # callers already receive an empty queryset from ProjectScopedViewSet, so
+        # guard the annotation on auth.
+        user = self.request.user
+        if user is not None and user.is_authenticated:
+            my_role_sq = ProjectMembership.objects.filter(
+                project=OuterRef("pk"),
+                user=user,
+                is_deleted=False,
+            ).values("role")[:1]
+            qs = qs.annotate(_my_role=Subquery(my_role_sq))
         if self.action == "retrieve":
             # ProjectDetailSerializer.unresolved_assignee_count would otherwise
             # issue a live COUNT() per detail retrieve; fold it into the row as a
