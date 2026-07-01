@@ -16,7 +16,7 @@
 # back to the main checkout so dev deps aren't duplicated. The running Docker stack
 # is shared via COMPOSE_PROJECT_NAME=trueppm, exported via .envrc for direnv users.
 #
-# WIP discipline: warns at 4 active worktrees, errors at 5. Override with
+# WIP discipline: warns at 8 active worktrees, errors at 10. Override with
 # TRUEPPM_WT_CAP if you really need more (you probably don't).
 
 set -euo pipefail
@@ -35,8 +35,8 @@ case "$GIT_COMMON_DIR" in
   *)  REPO_ROOT="$(cd "$CURRENT_TOPLEVEL" && cd "$(dirname "$GIT_COMMON_DIR")" && pwd)" ;;
 esac
 WT_BASE="${TRUEPPM_WT_BASE:-${REPO_ROOT%/*}/trueppm-wt}"
-WT_CAP="${TRUEPPM_WT_CAP:-5}"
-WT_WARN="${TRUEPPM_WT_WARN:-4}"
+WT_CAP="${TRUEPPM_WT_CAP:-10}"
+WT_WARN="${TRUEPPM_WT_WARN:-8}"
 COMPOSE_PROJECT_NAME_DEFAULT="trueppm"
 
 # ---------------------------------------------------------------------------
