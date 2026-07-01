@@ -7,6 +7,8 @@ multi-route Settings information architecture established by ADR-0061 and extend
 across the project / program / workspace settings shells. The save-bar dirty/discard
 contract (web-rules 115–118) is preserved, not replaced.
 
+> Supersedes [ADR-0061](0061-project-members-management-ui.md) (the multi-route Settings shell IA).
+
 > **Renumber-at-merge risk.** ADR-0145 is claimed by an active worktree
 > (`323-379-board-find-and-fit`, "Board find & fit"). Both branches are unmerged. If
 > 0145 lands first, this ADR is already at 0146 and is unaffected. If a third branch

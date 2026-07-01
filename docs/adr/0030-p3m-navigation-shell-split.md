@@ -3,6 +3,8 @@
 ## Status
 Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: ProjectOverviewPage)
 
+> §3 (landing decision tree) superseded by [ADR-0129](0129-role-based-app-landing-smart-redirect.md) (role-based smart redirect). The "Program is Enterprise" classification in the context notes is superseded by [ADR-0070](0070-program-entity-oss.md).
+
 ## Context
 
 The current OSS frontend has no project overview/dashboard page. After login, users are

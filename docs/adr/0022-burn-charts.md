@@ -7,6 +7,8 @@ snapshots; the `BurnSnapshot` table and nightly Celery job described in §1
 are deferred until measured query performance demands them. The web UI
 (Recharts components, PNG export) ships as part of wave/10 issue #228.
 
+> §2 (response shape) superseded by [ADR-0062](0062-burn-charts-web-implementation.md) (as-built API surface).
+
 ## Context
 
 Issue #53 requests three standard agile progress charts scoped to a single project:

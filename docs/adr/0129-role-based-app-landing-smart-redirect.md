@@ -3,6 +3,8 @@
 ## Status
 Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: default_landing)
 
+> Partially supersedes [ADR-0030](0030-p3m-navigation-shell-split.md) §3 (landing decision tree).
+
 ## Context
 
 Today the web app's front door — what a user sees on login or when hitting `/` —
